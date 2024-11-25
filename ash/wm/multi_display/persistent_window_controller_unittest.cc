@@ -3,8 +3,6 @@
 // found in the LICENSE file.
 
 #include "ash/wm/multi_display/persistent_window_controller.h"
-#include "base/memory/raw_ptr.h"
-
 #include "ash/display/display_move_window_util.h"
 #include "ash/display/screen_orientation_controller_test_api.h"
 #include "ash/display/window_tree_host_manager.h"
@@ -16,7 +14,9 @@
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "chromeos/ui/base/display_util.h"
 #include "chromeos/ui/base/window_state_type.h"
 #include "ui/display/test/display_manager_test_api.h"
@@ -26,6 +26,17 @@ using session_manager::SessionState;
 namespace ash {
 
 using PersistentWindowControllerTest = AshTestBase;
+
+display::ManagedDisplayInfo CreateDisplayInfo(int64_t id,
+                                              const gfx::Rect& bounds) {
+  display::ManagedDisplayInfo info = display::CreateDisplayInfo(id, bounds);
+  // Each display should have at least one native mode.
+  display::ManagedDisplayMode mode(bounds.size(), /*refresh_rate=*/60.f,
+                                   /*is_interlaced=*/true,
+                                   /*native=*/true);
+  info.SetManagedDisplayModes({mode});
+  return info;
+}
 
 TEST_F(PersistentWindowControllerTest, DisconnectDisplay) {
   UpdateDisplay("500x600,500x600");
@@ -82,7 +93,7 @@ TEST_F(PersistentWindowControllerTest, DisconnectDisplay) {
   // A third id which is different from primary and secondary.
   const int64_t third_id = secondary_id + 1;
   display::ManagedDisplayInfo third_info =
-      display::CreateDisplayInfo(third_id, gfx::Rect(0, 501, 600, 500));
+      CreateDisplayInfo(third_id, gfx::Rect(0, 501, 600, 500));
   // Connects another secondary display with |third_id|.
   display_info_list.push_back(third_info);
   display_manager()->OnNativeDisplaysChanged(display_info_list);
@@ -206,6 +217,34 @@ TEST_F(PersistentWindowControllerTest, NormalMirrorMode) {
   // Disables mirror mode.
   display_manager()->SetMirrorMode(display::MirrorMode::kOff, std::nullopt);
   EXPECT_FALSE(display_manager()->IsInMirrorMode());
+  EXPECT_EQ(gfx::Rect(200, 0, 100, 200), w1->GetBoundsInScreen());
+  EXPECT_EQ(gfx::Rect(501, 0, 200, 100), w2->GetBoundsInScreen());
+}
+
+// Tests that mirror and un-mirror a display with non-identical scale factor
+// (not 1.0f).
+TEST_F(PersistentWindowControllerTest,
+       MirrorDisplayWithNonIdenticalScaleFactor) {
+  UpdateDisplay("500x600,500x600*1.2");
+  ASSERT_EQ(1.2f, display_manager()->GetDisplayAt(1).device_scale_factor());
+
+  aura::Window* w1 =
+      CreateTestWindowInShellWithBounds(gfx::Rect(200, 0, 100, 200));
+  aura::Window* w2 =
+      CreateTestWindowInShellWithBounds(gfx::Rect(501, 0, 200, 100));
+
+  // Enables mirror mode.
+  display_manager()->SetMirrorMode(display::MirrorMode::kNormal, std::nullopt);
+  EXPECT_TRUE(display_manager()->IsInMirrorMode());
+  EXPECT_EQ(gfx::Rect(200, 0, 100, 200), w1->GetBoundsInScreen());
+  EXPECT_EQ(gfx::Rect(1, 0, 200, 100), w2->GetBoundsInScreen());
+
+  // Disables mirror mode.
+  display_manager()->SetMirrorMode(display::MirrorMode::kOff, std::nullopt);
+  // The window should still be restored to the display with non-identical scale
+  // factor.
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
+  EXPECT_EQ(1.2f, display_manager()->GetDisplayAt(1).device_scale_factor());
   EXPECT_EQ(gfx::Rect(200, 0, 100, 200), w1->GetBoundsInScreen());
   EXPECT_EQ(gfx::Rect(501, 0, 200, 100), w2->GetBoundsInScreen());
 }
@@ -399,10 +438,9 @@ TEST_F(PersistentWindowControllerTest, SwapPrimaryDisplay) {
       display::test::DisplayManagerTestApi(display_manager())
           .SetFirstDisplayAsInternalDisplay();
   const display::ManagedDisplayInfo native_display_info =
-      display::CreateDisplayInfo(internal_display_id,
-                                 gfx::Rect(0, 0, 500, 600));
+      CreateDisplayInfo(internal_display_id, gfx::Rect(0, 0, 500, 600));
   const display::ManagedDisplayInfo secondary_display_info =
-      display::CreateDisplayInfo(10, gfx::Rect(1, 1, 400, 500));
+      CreateDisplayInfo(10, gfx::Rect(1, 1, 400, 500));
 
   std::vector<display::ManagedDisplayInfo> display_info_list;
   display_info_list.push_back(native_display_info);
@@ -490,8 +528,8 @@ TEST_F(PersistentWindowControllerTest, RestoreBoundsOnInternalDisplayRemoval) {
   // Move the window to the secondary display and snap it.
   display_move_window_util::HandleMoveActiveWindowBetweenDisplays();
   WindowState* window_state = WindowState::Get(window.get());
-  const WindowSnapWMEvent snap_left(WM_EVENT_SNAP_PRIMARY);
-  window_state->OnWMEvent(&snap_left);
+  const WindowSnapWMEvent snap_primary(WM_EVENT_SNAP_PRIMARY);
+  window_state->OnWMEvent(&snap_primary);
   EXPECT_EQ(secondary_id, screen->GetDisplayNearestWindow(window.get()).id());
   EXPECT_TRUE(window_state->IsSnapped());
   EXPECT_TRUE(window_state->HasRestoreBounds());
@@ -892,10 +930,9 @@ TEST_F(PersistentWindowControllerTest, NoRestoreOnRotationForSnappedWindows) {
   auto* split_view_controller =
       SplitViewController::Get(Shell::GetPrimaryRootWindow());
 
-  // Snap the unique window in clamshell mode will not enter split view mode.
-  WindowSnapWMEvent wm_left_snap_event(WM_EVENT_SNAP_PRIMARY);
+  WindowSnapWMEvent primary_snap_event(WM_EVENT_SNAP_PRIMARY);
   auto* window_state = WindowState::Get(w1);
-  window_state->OnWMEvent(&wm_left_snap_event);
+  window_state->OnWMEvent(&primary_snap_event);
   EXPECT_FALSE(split_view_controller->InSplitViewMode());
   EXPECT_TRUE(window_state->IsSnapped());
   EXPECT_EQ(chromeos::WindowStateType::kPrimarySnapped,

@@ -5,8 +5,8 @@
 package org.chromium.chrome.browser.tasks.tab_management;
 
 import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.matcher.ViewMatchers.isDescendantOfA;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
-import static androidx.test.espresso.matcher.ViewMatchers.withParent;
 
 import static org.hamcrest.Matchers.allOf;
 import static org.junit.Assert.assertEquals;
@@ -24,6 +24,7 @@ import android.content.res.Configuration;
 import android.util.Pair;
 import android.view.View;
 import android.view.View.OnLayoutChangeListener;
+import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
 
 import androidx.annotation.IntDef;
@@ -44,9 +45,9 @@ import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisableIf;
+import org.chromium.base.test.util.Features.DisableFeatures;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -54,8 +55,8 @@ import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
 import org.chromium.chrome.test.util.ActivityTestUtils;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
-import org.chromium.ui.test.util.UiRestriction;
+import org.chromium.components.omnibox.OmniboxFeatureList;
+import org.chromium.ui.base.DeviceFormFactor;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -66,12 +67,8 @@ import java.util.List;
 /** Tests for reordering tabs in grid tab switcher in accessibility mode. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-@Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
-// START_SURFACE_REFACTOR is required to have stable parent id logic.
-@EnableFeatures({
-    ChromeFeatureList.DEFER_TAB_SWITCHER_LAYOUT_CREATION,
-    ChromeFeatureList.START_SURFACE_REFACTOR
-})
+@Restriction(DeviceFormFactor.PHONE)
+@DisableFeatures(OmniboxFeatureList.ANDROID_HUB_SEARCH)
 @Batch(Batch.PER_CLASS)
 public class TabGridAccessibilityHelperTest {
     @IntDef({
@@ -102,8 +99,7 @@ public class TabGridAccessibilityHelperTest {
         CriteriaHelper.pollUiThread(
                 sActivityTestRule.getActivity().getTabModelSelector()::isTabStateInitialized);
 
-        TabUiTestHelper.getTabSwitcherLayoutAndVerify(
-                sActivityTestRule.getActivity(), /* isStartSurfaceRefactorEnabled= */ true);
+        TabUiTestHelper.getTabSwitcherLayoutAndVerify(sActivityTestRule.getActivity());
     }
 
     @After
@@ -120,7 +116,7 @@ public class TabGridAccessibilityHelperTest {
     // Low-end uses list mode.
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     // Fails to rotate on some ARM devices.
-    // TODO(crbug.com/1454747): fix and re-enable on ARM devices.
+    // TODO(crbug.com/40917078): fix and re-enable on ARM devices.
     @DisableIf.Build(supported_abis_includes = "armeabi-v7a")
     @DisableIf.Build(supported_abis_includes = "arm64-v8a")
     public void testGetPotentialActionsForView() throws Exception {
@@ -130,7 +126,9 @@ public class TabGridAccessibilityHelperTest {
         enterTabSwitcher(cta);
         verifyTabSwitcherCardCount(cta, 5);
 
-        View view = cta.findViewById(R.id.tab_list_recycler_view);
+        ViewGroup outerView =
+                (ViewGroup) cta.findViewById(TabUiTestHelper.getTabSwitcherAncestorId(cta));
+        View view = outerView.findViewById(R.id.tab_list_recycler_view);
         assertTrue(view instanceof TabListMediator.TabGridAccessibilityHelper);
         TabListMediator.TabGridAccessibilityHelper helper =
                 (TabListMediator.TabGridAccessibilityHelper) view;
@@ -138,7 +136,8 @@ public class TabGridAccessibilityHelperTest {
         // Verify action list in portrait mode with span count = 2.
         onView(
                         allOf(
-                                withParent(withId(R.id.compositor_view_holder)),
+                                isDescendantOfA(
+                                        withId(TabUiTestHelper.getTabSwitcherAncestorId(cta))),
                                 withId(R.id.tab_list_recycler_view)))
                 .check(
                         (v, noMatchingViewException) -> {
@@ -206,7 +205,8 @@ public class TabGridAccessibilityHelperTest {
         // Verify action list in landscape mode with span count = 3.
         onView(
                         allOf(
-                                withParent(withId(R.id.compositor_view_holder)),
+                                isDescendantOfA(
+                                        withId(TabUiTestHelper.getTabSwitcherAncestorId(cta))),
                                 withId(R.id.tab_list_recycler_view)))
                 .check(
                         (v, noMatchingViewException) -> {
@@ -266,7 +266,7 @@ public class TabGridAccessibilityHelperTest {
     // Low-end uses list mode.
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     // Fails to rotate on some ARM devices.
-    // TODO(crbug.com/1454747): fix and re-enable on ARM devices.
+    // TODO(crbug.com/40917078): fix and re-enable on ARM devices.
     @DisableIf.Build(supported_abis_includes = "armeabi-v7a")
     @DisableIf.Build(supported_abis_includes = "arm64-v8a")
     public void testGetPositionsOfReorderAction() throws Exception {
@@ -279,7 +279,9 @@ public class TabGridAccessibilityHelperTest {
         enterTabSwitcher(cta);
         verifyTabSwitcherCardCount(cta, 5);
 
-        View view = cta.findViewById(R.id.tab_list_recycler_view);
+        ViewGroup outerView =
+                (ViewGroup) cta.findViewById(TabUiTestHelper.getTabSwitcherAncestorId(cta));
+        View view = outerView.findViewById(R.id.tab_list_recycler_view);
         assertTrue(view instanceof TabListMediator.TabGridAccessibilityHelper);
         TabListMediator.TabGridAccessibilityHelper helper =
                 (TabListMediator.TabGridAccessibilityHelper) view;
@@ -287,7 +289,8 @@ public class TabGridAccessibilityHelperTest {
         // Span count 2.
         onView(
                         allOf(
-                                withParent(withId(R.id.compositor_view_holder)),
+                                isDescendantOfA(
+                                        withId(TabUiTestHelper.getTabSwitcherAncestorId(cta))),
                                 withId(R.id.tab_list_recycler_view)))
                 .check(
                         (v, noMatchingViewException) -> {
@@ -337,7 +340,8 @@ public class TabGridAccessibilityHelperTest {
         // Span count 3.
         onView(
                         allOf(
-                                withParent(withId(R.id.compositor_view_holder)),
+                                isDescendantOfA(
+                                        withId(TabUiTestHelper.getTabSwitcherAncestorId(cta))),
                                 withId(R.id.tab_list_recycler_view)))
                 .check(
                         (v, noMatchingViewException) -> {

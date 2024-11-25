@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "ui/native_theme/native_theme_base.h"
 
 #include <algorithm>
@@ -13,7 +18,6 @@
 #include "base/containers/fixed_flat_set.h"
 #include "base/notreached.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "cc/paint/paint_flags.h"
 #include "cc/paint/paint_shader.h"
 #include "third_party/skia/include/core/SkPath.h"
@@ -84,7 +88,7 @@ const int kSliderThumbSize = 16;
 const double kAccentLuminanceAdjust = 0.11;
 
 // Get a color constant based on color-scheme
-// TODO(crbug.com/1374503): Move colors defined above to the color pipeline and
+// TODO(crbug.com/40242489): Move colors defined above to the color pipeline and
 // remove this function.
 SkColor GetColor(const SkColor colors[2],
                  ui::NativeTheme::ColorScheme color_scheme) {
@@ -178,7 +182,6 @@ gfx::Size NativeThemeBase::GetPartSize(Part part,
       break;
     default:
       NOTREACHED() << "Unknown theme part: " << part;
-      break;
   }
   return gfx::Size();
 }
@@ -213,7 +216,8 @@ void NativeThemeBase::Paint(cc::PaintCanvas* canvas,
                             const gfx::Rect& rect,
                             const ExtraParams& extra,
                             ColorScheme color_scheme,
-                            const absl::optional<SkColor>& accent_color) const {
+                            bool in_forced_colors,
+                            const std::optional<SkColor>& accent_color) const {
   if (rect.IsEmpty())
     return;
 
@@ -221,7 +225,7 @@ void NativeThemeBase::Paint(cc::PaintCanvas* canvas,
   canvas->clipRect(gfx::RectToSkRect(rect));
 
   // Form control accents shouldn't be drawn with any transparency.
-  absl::optional<SkColor> accent_color_opaque;
+  std::optional<SkColor> accent_color_opaque;
   if (accent_color) {
     accent_color_opaque = SkColorSetA(accent_color.value(), SK_AlphaOPAQUE);
   }
@@ -233,9 +237,7 @@ void NativeThemeBase::Paint(cc::PaintCanvas* canvas,
                     absl::get<ButtonExtraParams>(extra), color_scheme,
                     accent_color_opaque);
       break;
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX)
     case kFrameTopArea:
       PaintFrameTopArea(canvas, state, rect,
                         absl::get<FrameTopAreaExtraParams>(extra),
@@ -245,7 +247,7 @@ void NativeThemeBase::Paint(cc::PaintCanvas* canvas,
     case kInnerSpinButton:
       PaintInnerSpinButton(canvas, color_provider, state, rect,
                            absl::get<InnerSpinButtonExtraParams>(extra),
-                           color_scheme);
+                           color_scheme, in_forced_colors);
       break;
     case kMenuList:
       PaintMenuList(canvas, color_provider, state, rect,
@@ -285,7 +287,7 @@ void NativeThemeBase::Paint(cc::PaintCanvas* canvas,
     case kScrollbarRightArrow:
       if (scrollbar_button_length_ > 0)
         PaintArrowButton(canvas, color_provider, rect, part, state,
-                         color_scheme,
+                         color_scheme, in_forced_colors,
                          absl::get<ScrollbarArrowExtraParams>(extra));
       break;
     case kScrollbarHorizontalThumb:
@@ -298,7 +300,7 @@ void NativeThemeBase::Paint(cc::PaintCanvas* canvas,
     case kScrollbarVerticalTrack:
       PaintScrollbarTrack(canvas, color_provider, part, state,
                           absl::get<ScrollbarTrackExtraParams>(extra), rect,
-                          color_scheme);
+                          color_scheme, in_forced_colors);
       break;
     case kScrollbarHorizontalGripper:
     case kScrollbarVerticalGripper:
@@ -334,7 +336,6 @@ void NativeThemeBase::Paint(cc::PaintCanvas* canvas,
       break;
     default:
       NOTREACHED() << "Unknown theme part: " << part;
-      break;
   }
 
   canvas->restore();
@@ -346,20 +347,17 @@ bool NativeThemeBase::SupportsNinePatch(Part part) const {
 
 gfx::Size NativeThemeBase::GetNinePatchCanvasSize(Part part) const {
   NOTREACHED() << "NativeThemeBase doesn't support nine-patch resources.";
-  return gfx::Size();
 }
 
 gfx::Rect NativeThemeBase::GetNinePatchAperture(Part part) const {
   NOTREACHED() << "NativeThemeBase doesn't support nine-patch resources.";
-  return gfx::Rect();
 }
 
 NativeThemeBase::NativeThemeBase() : NativeThemeBase(false) {}
 
 NativeThemeBase::NativeThemeBase(bool should_only_use_dark_colors,
-                                 ui::SystemTheme system_theme,
-                                 NativeTheme* theme_to_update)
-    : NativeTheme(should_only_use_dark_colors, system_theme, theme_to_update) {}
+                                 ui::SystemTheme system_theme)
+    : NativeTheme(should_only_use_dark_colors, system_theme) {}
 
 NativeThemeBase::~NativeThemeBase() = default;
 
@@ -370,13 +368,15 @@ void NativeThemeBase::PaintArrowButton(
     Part direction,
     State state,
     ColorScheme color_scheme,
-    const ScrollbarArrowExtraParams& arrow) const {
+    bool in_forced_colors,
+    const ScrollbarArrowExtraParams& extra_params) const {
   cc::PaintFlags flags;
 
   // Calculate button color.
   SkScalar track_hsv[3];
-  SkColorToHSV(arrow.track_color.value_or(GetColor(kTrackColor, color_scheme)),
-               track_hsv);
+  SkColorToHSV(
+      extra_params.track_color.value_or(GetColor(kTrackColor, color_scheme)),
+      track_hsv);
   SkColor button_color = SaturateAndBrighten(track_hsv, 0, 0.2f);
   SkColor background_color = button_color;
   if (state == kPressed) {
@@ -446,10 +446,10 @@ void NativeThemeBase::PaintArrowButton(
   flags.setColor(OutlineColor(track_hsv, thumb_hsv));
   canvas->drawPath(outline, flags);
 
-  // TODO(crbug.com/891944): Adjust thumb_color based on `state`.
+  // TODO(crbug.com/40596569): Adjust thumb_color based on `state`.
   const SkColor arrow_color =
-      arrow.thumb_color.has_value()
-          ? arrow.thumb_color.value()
+      extra_params.thumb_color.has_value()
+          ? extra_params.thumb_color.value()
           : GetArrowColor(state, color_scheme, color_provider);
   PaintArrow(canvas, rect, direction, arrow_color);
 }
@@ -517,7 +517,8 @@ void NativeThemeBase::PaintScrollbarTrack(
     State state,
     const ScrollbarTrackExtraParams& extra_params,
     const gfx::Rect& rect,
-    ColorScheme color_scheme) const {
+    ColorScheme color_scheme,
+    bool in_forced_colors) const {
   cc::PaintFlags flags;
   SkIRect skrect;
 
@@ -616,7 +617,7 @@ void NativeThemeBase::PaintCheckbox(
     const gfx::Rect& rect,
     const ButtonExtraParams& button,
     ColorScheme color_scheme,
-    const absl::optional<SkColor>& accent_color) const {
+    const std::optional<SkColor>& accent_color) const {
   const float border_radius =
       GetBorderRadiusForPart(kCheckbox, rect.width(), rect.height());
 
@@ -628,16 +629,7 @@ void NativeThemeBase::PaintCheckbox(
     cc::PaintFlags flags;
     flags.setAntiAlias(true);
 
-    if (button.indeterminate) {
-      // Draw the dash.
-      flags.setColor(
-          ControlsBorderColorForState(state, color_scheme, color_provider));
-      const auto indeterminate =
-          skrect.makeInset(skrect.width() * kIndeterminateInsetWidthRatio,
-                           skrect.height() * kIndeterminateInsetHeightRatio);
-      flags.setStyle(cc::PaintFlags::kFill_Style);
-      canvas->drawRoundRect(indeterminate, border_radius, border_radius, flags);
-    } else if (button.checked) {
+    if (button.indeterminate || button.checked) {
       // Draw the accent background.
       flags.setStyle(cc::PaintFlags::kFill_Style);
       if (accent_color && state != kDisabled) {
@@ -649,18 +641,27 @@ void NativeThemeBase::PaintCheckbox(
       }
       canvas->drawRoundRect(skrect, border_radius, border_radius, flags);
 
-      // Draw the checkmark.
-      SkPath check;
-      check.moveTo(skrect.x() + skrect.width() * 0.2, skrect.centerY());
-      check.rLineTo(skrect.width() * 0.2, skrect.height() * 0.2);
-      check.lineTo(skrect.right() - skrect.width() * 0.2,
-                   skrect.y() + skrect.height() * 0.2);
-      flags.setStyle(cc::PaintFlags::kStroke_Style);
-      flags.setStrokeWidth(SkFloatToScalar(skrect.height() * 0.16));
-      SkColor checkmark_color =
-          ControlsBackgroundColorForState(state, color_scheme, color_provider);
-      flags.setColor(checkmark_color);
-      canvas->drawPath(check, flags);
+      if (button.indeterminate) {
+        // Draw the dash.
+        flags.setColor(ControlsBackgroundColorForState(state, color_scheme,
+                                                       color_provider));
+        skrect.inset(skrect.width() * kIndeterminateInsetWidthRatio,
+                     skrect.height() * kIndeterminateInsetHeightRatio);
+        canvas->drawRoundRect(skrect, border_radius, border_radius, flags);
+      } else if (button.checked) {
+        // Draw the checkmark.
+        SkPath check;
+        check.moveTo(skrect.x() + skrect.width() * 0.2, skrect.centerY());
+        check.rLineTo(skrect.width() * 0.2, skrect.height() * 0.2);
+        check.lineTo(skrect.right() - skrect.width() * 0.2,
+                     skrect.y() + skrect.height() * 0.2);
+        flags.setStyle(cc::PaintFlags::kStroke_Style);
+        flags.setStrokeWidth(SkFloatToScalar(skrect.height() * 0.16));
+        SkColor checkmark_color = ControlsBackgroundColorForState(
+            state, color_scheme, color_provider);
+        flags.setColor(checkmark_color);
+        canvas->drawPath(check, flags);
+      }
     }
   }
 }
@@ -677,7 +678,7 @@ SkRect NativeThemeBase::PaintCheckboxRadioCommon(
     bool is_checkbox,
     const SkScalar border_radius,
     ColorScheme color_scheme,
-    const absl::optional<SkColor>& accent_color) const {
+    const std::optional<SkColor>& accent_color) const {
   SkRect skrect = gfx::RectToSkRect(rect);
 
   // Use the largest square that fits inside the provided rectangle.
@@ -721,16 +722,16 @@ SkRect NativeThemeBase::PaintCheckboxRadioCommon(
   flags.setStyle(cc::PaintFlags::kFill_Style);
   canvas->drawRoundRect(background_rect, border_radius, border_radius, flags);
 
-  // For checkbox the border is drawn only when it is unchecked or
-  // indeterminate. For radio the border is always drawn.
-  if (!(is_checkbox && button.checked && !button.indeterminate)) {
+  // For checkbox the border is drawn only when it is unchecked.
+  // For radio the border is always drawn.
+  if (!is_checkbox || (!button.checked && !button.indeterminate)) {
     // Shrink half border width so the final pixels of the border will be
     // within the rectangle.
     const auto border_rect =
         skrect.makeInset(kBorderWidth / 2, kBorderWidth / 2);
 
     SkColor border_color;
-    if (button.checked && !button.indeterminate) {
+    if (button.checked) {
       if (accent_color && state != kDisabled) {
         border_color =
             CustomAccentColorForState(*accent_color, state, color_scheme);
@@ -758,7 +759,7 @@ void NativeThemeBase::PaintRadio(
     const gfx::Rect& rect,
     const ButtonExtraParams& button,
     ColorScheme color_scheme,
-    const absl::optional<SkColor>& accent_color) const {
+    const std::optional<SkColor>& accent_color) const {
   // Most of a radio button is the same as a checkbox, except the the rounded
   // square is a circle (i.e. border radius >= 100%).
   const float border_radius =
@@ -967,7 +968,7 @@ void NativeThemeBase::PaintMenuPopupBackground(
   // kMenuPopupBackgroundColor.
   DCHECK(color_scheme == ColorScheme::kDefault);
 
-  // TODO(crbug/1308932): Remove FromColor and make all SkColor4f.
+  // TODO(crbug.com/40219248): Remove FromColor and make all SkColor4f.
   canvas->drawColor(
       SkColor4f::FromColor(GetColor(kMenuPopupBackgroundColor, color_scheme)),
       SkBlendMode::kSrc);
@@ -991,7 +992,7 @@ void NativeThemeBase::PaintMenuSeparator(
     const MenuSeparatorExtraParams& menu_separator) const {
   DCHECK(color_provider);
   cc::PaintFlags flags;
-  flags.setColor(color_provider->GetColor(kColorMenuSeparator));
+  flags.setColor(color_provider->GetColor(menu_separator.color_id));
   canvas->drawRect(gfx::RectToSkRect(*menu_separator.paint_rect), flags);
 }
 
@@ -1002,7 +1003,7 @@ void NativeThemeBase::PaintSliderTrack(
     const gfx::Rect& rect,
     const SliderExtraParams& slider,
     ColorScheme color_scheme,
-    const absl::optional<SkColor>& accent_color) const {
+    const std::optional<SkColor>& accent_color) const {
   // Paint the entire slider track.
   cc::PaintFlags flags;
   flags.setAntiAlias(true);
@@ -1059,7 +1060,7 @@ void NativeThemeBase::PaintSliderThumb(
     const gfx::Rect& rect,
     const SliderExtraParams& slider,
     ColorScheme color_scheme,
-    const absl::optional<SkColor>& accent_color) const {
+    const std::optional<SkColor>& accent_color) const {
   const float radius =
       GetBorderRadiusForPart(kSliderThumb, rect.width(), rect.height());
   SkRect thumb_rect = gfx::RectToSkRect(rect);
@@ -1090,7 +1091,8 @@ void NativeThemeBase::PaintInnerSpinButton(
     State state,
     const gfx::Rect& rect,
     const InnerSpinButtonExtraParams& spin_button,
-    ColorScheme color_scheme) const {
+    ColorScheme color_scheme,
+    bool in_forced_colors) const {
   if (spin_button.read_only)
     state = kDisabled;
 
@@ -1108,19 +1110,19 @@ void NativeThemeBase::PaintInnerSpinButton(
       ui::NativeTheme::SpinArrowsDirection::kUpDown) {
     half.set_height(rect.height() / 2);
     PaintArrowButton(canvas, color_provider, half, kScrollbarUpArrow,
-                     north_state, color_scheme, arrow);
+                     north_state, color_scheme, in_forced_colors, arrow);
 
     half.set_y(rect.y() + rect.height() / 2);
     PaintArrowButton(canvas, color_provider, half, kScrollbarDownArrow,
-                     south_state, color_scheme, arrow);
+                     south_state, color_scheme, in_forced_colors, arrow);
   } else {
     half.set_width(rect.width() / 2);
     PaintArrowButton(canvas, color_provider, half, kScrollbarLeftArrow,
-                     south_state, color_scheme, arrow);
+                     south_state, color_scheme, in_forced_colors, arrow);
 
     half.set_x(rect.x() + rect.width() / 2);
     PaintArrowButton(canvas, color_provider, half, kScrollbarRightArrow,
-                     north_state, color_scheme, arrow);
+                     north_state, color_scheme, in_forced_colors, arrow);
   }
 }
 
@@ -1131,7 +1133,7 @@ void NativeThemeBase::PaintProgressBar(
     const gfx::Rect& rect,
     const ProgressBarExtraParams& progress_bar,
     ColorScheme color_scheme,
-    const absl::optional<SkColor>& accent_color) const {
+    const std::optional<SkColor>& accent_color) const {
   DCHECK(!rect.IsEmpty());
   // Paint the track.
   cc::PaintFlags flags;
@@ -1512,7 +1514,6 @@ SkColor NativeThemeBase::GetControlColor(
       return SkColorSetA(SK_ColorBLACK, 0x33);
   }
   NOTREACHED();
-  return gfx::kPlaceholderColor;
 }
 
 SkColor NativeThemeBase::GetDarkModeControlColor(
@@ -1595,7 +1596,6 @@ SkColor NativeThemeBase::GetDarkModeControlColor(
       return SkColorSetA(SK_ColorWHITE, 0x33);
   }
   NOTREACHED();
-  return gfx::kPlaceholderColor;
 }
 
 SkColor NativeThemeBase::GetControlColorFromColorProvider(
@@ -1697,7 +1697,7 @@ SkColor NativeThemeBase::GetControlColorFromColorProvider(
     default:
       break;
   }
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 void NativeThemeBase::PaintLightenLayer(cc::PaintCanvas* canvas,
@@ -1759,8 +1759,9 @@ bool NativeThemeBase::IsColorPipelineSupportedForControlColorId(
     ControlColorId color_id) const {
   // Color providers are not yet supported on Android so we need to check that
   // the color_provider is not null here.
-  if (!color_provider || color_provider->IsColorMapEmpty())
+  if (!color_provider) {
     return false;
+  }
 
   static constexpr auto kControlColorIdsSet =
       base::MakeFixedFlatSet<ControlColorId>({kBorder,

@@ -8,6 +8,7 @@
 #include <map>
 
 #include "base/containers/id_map.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/raw_ref.h"
 #include "base/task/single_thread_task_runner.h"
 #include "content/common/agent_scheduling_group.mojom.h"
@@ -24,7 +25,6 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/associated_interfaces/associated_interfaces.mojom.h"
-#include "third_party/blink/public/mojom/browser_interface_broker.mojom.h"
 #include "third_party/blink/public/mojom/frame/frame_replication_state.mojom-forward.h"
 #include "third_party/blink/public/mojom/shared_storage/shared_storage_worklet_service.mojom-forward.h"
 #include "third_party/blink/public/mojom/worker/worklet_global_scope_creation_params.mojom-forward.h"
@@ -57,12 +57,10 @@ class CONTENT_EXPORT AgentSchedulingGroup
  public:
   AgentSchedulingGroup(
       RenderThread& render_thread,
-      mojo::PendingReceiver<IPC::mojom::ChannelBootstrap> bootstrap,
-      mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker> broker_remote);
+      mojo::PendingReceiver<IPC::mojom::ChannelBootstrap> bootstrap);
   AgentSchedulingGroup(
       RenderThread& render_thread,
-      mojo::PendingAssociatedReceiver<mojom::AgentSchedulingGroup> receiver,
-      mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker> broker_remote);
+      mojo::PendingAssociatedReceiver<mojom::AgentSchedulingGroup> receiver);
   ~AgentSchedulingGroup() override;
 
   AgentSchedulingGroup(const AgentSchedulingGroup&) = delete;
@@ -71,10 +69,18 @@ class CONTENT_EXPORT AgentSchedulingGroup
 #if BUILDFLAG(CONTENT_ENABLE_LEGACY_IPC)
   bool Send(IPC::Message* message);
 #endif
-  void AddFrameRoute(int32_t routing_id,
+  void AddFrameRoute(const blink::LocalFrameToken& frame_token,
+#if BUILDFLAG(CONTENT_ENABLE_LEGACY_IPC)
+                     int routing_id,
+#endif
                      RenderFrameImpl* render_frame,
                      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
-  void RemoveFrameRoute(int32_t routing_id);
+  void RemoveFrameRoute(const blink::LocalFrameToken& frame_token
+#if BUILDFLAG(CONTENT_ENABLE_LEGACY_IPC)
+                        ,
+                        int routing_id
+#endif
+  );
   void DidUnloadRenderFrame(const blink::LocalFrameToken& frame_token);
 
   mojom::RouteProvider* GetRemoteRouteProvider();
@@ -114,7 +120,7 @@ class CONTENT_EXPORT AgentSchedulingGroup
 
   // mojom::RouteProvider
   void GetRoute(
-      int32_t routing_id,
+      const blink::LocalFrameToken& frame_token,
       mojo::PendingAssociatedReceiver<blink::mojom::AssociatedInterfaceProvider>
           receiver) override;
 
@@ -124,21 +130,30 @@ class CONTENT_EXPORT AgentSchedulingGroup
       mojo::PendingAssociatedReceiver<blink::mojom::AssociatedInterface>
           receiver) override;
 
+  RenderFrameImpl* GetListener(const blink::LocalFrameToken& frame_token);
+
+#if BUILDFLAG(CONTENT_ENABLE_LEGACY_IPC)
   RenderFrameImpl* GetListener(int32_t routing_id);
+#endif
+
+  // Map of registered RenderFrames.
+  std::map<blink::LocalFrameToken, raw_ptr<RenderFrameImpl, CtnExperimental>>
+      listener_map_;
+
+#if BUILDFLAG(CONTENT_ENABLE_LEGACY_IPC)
+  std::map<int32_t, raw_ptr<RenderFrameImpl, CtnExperimental>> routing_id_map_;
+#endif
+
+  // A dedicated scheduler for this AgentSchedulingGroup.
+  std::unique_ptr<blink::scheduler::WebAgentGroupScheduler>
+      agent_group_scheduler_;
 
   // This AgentSchedulingGroup's legacy IPC channel. Will only be used in
   // `features::MBIMode::kEnabledPerRenderProcessHost` or
   // `features::MBIMode::kEnabledPerSiteInstance` mode.
   std::unique_ptr<IPC::SyncChannel> channel_;
 
-  // Map of registered RenderFrames.
-  base::IDMap<RenderFrameImpl*> listener_map_;
-
-  // A dedicated scheduler for this AgentSchedulingGroup.
-  std::unique_ptr<blink::scheduler::WebAgentGroupScheduler>
-      agent_group_scheduler_;
-
-  const raw_ref<RenderThread, ExperimentalRenderer> render_thread_;
+  const raw_ref<RenderThread> render_thread_;
 
   // Implementation of `mojom::AgentSchedulingGroup`, used for responding to
   // calls from the (browser-side) `AgentSchedulingGroupHost`.
@@ -161,7 +176,7 @@ class CONTENT_EXPORT AgentSchedulingGroup
   // we do. Otherwise, we "queue" these requests in `pending_receivers_`. This
   // is really bad though; see the documentation there.
   mojo::AssociatedReceiverSet<blink::mojom::AssociatedInterfaceProvider,
-                              int32_t>
+                              blink::LocalFrameToken>
       associated_interface_provider_receivers_;
 
   struct ReceiverData {
@@ -177,9 +192,9 @@ class CONTENT_EXPORT AgentSchedulingGroup
   };
 
   // See warning in `GetAssociatedInterface`.
-  // Map from routing id to pending receivers that have not had their route
-  // added. Note this is unsafe and can lead to message drops.
-  std::multimap<int32_t, ReceiverData> pending_receivers_;
+  // Map from `blink::LocalFrameToken` to pending receivers that have not had
+  // their route added. Note this is unsafe and can lead to message drops.
+  std::multimap<blink::LocalFrameToken, ReceiverData> pending_receivers_;
 };
 
 }  // namespace content

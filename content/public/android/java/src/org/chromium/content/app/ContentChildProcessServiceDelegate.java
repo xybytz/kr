@@ -6,14 +6,19 @@ package org.chromium.content.app;
 
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.SparseArray;
 import android.view.Surface;
+import android.window.InputTransferToken;
+
+import androidx.annotation.RequiresApi;
 
 import org.jni_zero.CalledByNative;
 import org.jni_zero.JNINamespace;
+import org.jni_zero.JniType;
 import org.jni_zero.NativeMethods;
 
 import org.chromium.base.Log;
@@ -25,6 +30,7 @@ import org.chromium.base.process_launcher.ChildProcessServiceDelegate;
 import org.chromium.content.browser.ChildProcessCreationParamsImpl;
 import org.chromium.content.browser.ContentChildProcessConstants;
 import org.chromium.content.common.IGpuProcessCallback;
+import org.chromium.content.common.InputTransferTokenWrapper;
 import org.chromium.content.common.SurfaceWrapper;
 import org.chromium.content_public.common.ContentProcessInfo;
 
@@ -37,6 +43,9 @@ import java.util.List;
 @JNINamespace("content")
 public class ContentChildProcessServiceDelegate implements ChildProcessServiceDelegate {
     private static final String TAG = "ContentCPSDelegate";
+
+    // The binder box passed to us by the browser. May be null.
+    private IBinder mBinderBox;
 
     private IGpuProcessCallback mGpuCallback;
 
@@ -63,7 +72,9 @@ public class ContentChildProcessServiceDelegate implements ChildProcessServiceDe
     }
 
     @Override
-    public void onConnectionSetup(Bundle connectionBundle, List<IBinder> clientInterfaces) {
+    public void onConnectionSetup(
+            Bundle connectionBundle, List<IBinder> clientInterfaces, IBinder binderBox) {
+        mBinderBox = binderBox;
         mGpuCallback =
                 clientInterfaces != null && !clientInterfaces.isEmpty()
                         ? IGpuProcessCallback.Stub.asInterface(clientInterfaces.get(0))
@@ -136,6 +147,7 @@ public class ContentChildProcessServiceDelegate implements ChildProcessServiceDe
 
     @Override
     public void runMain() {
+        ContentMain.setBindersFromParent(mBinderBox);
         ContentMain.start(false);
     }
 
@@ -151,7 +163,8 @@ public class ContentChildProcessServiceDelegate implements ChildProcessServiceDe
 
     @SuppressWarnings("unused")
     @CalledByNative
-    private void forwardSurfaceForSurfaceRequest(UnguessableToken requestToken, Surface surface) {
+    private void forwardSurfaceForSurfaceRequest(
+            @JniType("base::UnguessableToken") UnguessableToken requestToken, Surface surface) {
         if (mGpuCallback == null) {
             Log.e(TAG, "No callback interface has been provided.");
             return;
@@ -181,6 +194,21 @@ public class ContentChildProcessServiceDelegate implements ChildProcessServiceDe
         } catch (RemoteException e) {
             Log.e(TAG, "Unable to call getViewSurface: %s", e);
             return null;
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @CalledByNative
+    private void forwardInputTransferToken(int surfaceId, InputTransferToken vizInputToken) {
+        if (mGpuCallback == null) {
+            Log.e(TAG, "No callback interface has been provided.");
+            return;
+        }
+        try {
+            mGpuCallback.forwardInputTransferToken(
+                    surfaceId, new InputTransferTokenWrapper(vizInputToken));
+        } catch (RemoteException e) {
+            Log.e(TAG, "Unable to call forwardInputTransferToken: %s", e);
         }
     }
 

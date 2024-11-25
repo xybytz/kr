@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#import "base/memory/raw_ptr.h"
 #include "components/signin/public/identity_manager/ios/device_accounts_provider.h"
 
 class ChromeAccountManagerService;
@@ -30,10 +31,11 @@ class DeviceAccountsProviderImpl : public DeviceAccountsProvider {
                       const std::string& client_id,
                       const std::set<std::string>& scopes,
                       AccessTokenCallback callback) override;
-  std::vector<AccountInfo> GetAllAccounts() const override;
+  std::vector<AccountInfo> GetAccountsForProfile() const override;
+  std::vector<AccountInfo> GetAccountsOnDevice() const override;
 
  private:
-  ChromeAccountManagerService* account_manager_service_ = nullptr;
+  raw_ptr<ChromeAccountManagerService> account_manager_service_ = nullptr;
 };
 
 #endif  // IOS_CHROME_BROWSER_SIGNIN_MODEL_DEVICE_ACCOUNTS_PROVIDER_IMPL_H_

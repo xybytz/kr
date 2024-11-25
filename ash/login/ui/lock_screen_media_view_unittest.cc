@@ -8,11 +8,12 @@
 #include "ash/login/ui/lock_contents_view.h"
 #include "ash/login/ui/lock_contents_view_test_api.h"
 #include "ash/login/ui/login_test_base.h"
+#include "ash/strings/grit/ash_strings.h"
 #include "base/test/power_monitor_test.h"
-#include "base/test/scoped_feature_list.h"
-#include "media/base/media_switches.h"
 #include "services/media_session/public/cpp/test/test_media_controller.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/events/base_event_utils.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/test/button_test_api.h"
 
 namespace ash {
@@ -28,15 +29,11 @@ class LockScreenMediaViewTest : public LoginTestBase {
   ~LockScreenMediaViewTest() override = default;
 
   void SetUp() override {
-    feature_list_.InitAndEnableFeature(
-        media::kGlobalMediaControlsCrOSUpdatedUI);
-
     set_start_session(true);
     LoginTestBase::SetUp();
 
     LockContentsView* lock_contents_view = new LockContentsView(
-        mojom::TrayActionState::kAvailable, LockScreen::ScreenType::kLock,
-        DataDispatcher(),
+        LockScreen::ScreenType::kLock, DataDispatcher(),
         std::make_unique<FakeLoginDetachableBaseModel>(DataDispatcher()));
     LockContentsViewTestApi lock_contents(lock_contents_view);
     SetWidget(CreateWidgetWithContent(lock_contents_view));
@@ -67,14 +64,13 @@ class LockScreenMediaViewTest : public LoginTestBase {
 
   LockScreenMediaView* media_view() { return media_view_; }
 
-  global_media_controls::MediaNotificationViewAshImpl*
-  media_notification_view() {
-    return media_view_->GetMediaNotificationViewForTesting();
+  global_media_controls::MediaItemUIDetailedView* media_detailed_view() {
+    return media_view_->GetDetailedViewForTesting();
   }
 
   bool IsActionButtonVisible(MediaSessionAction action) {
     views::Button* button =
-        media_notification_view()->GetActionButtonForTesting(action);
+        media_detailed_view()->GetActionButtonForTesting(action);
     return button && button->GetVisible();
   }
 
@@ -85,7 +81,6 @@ class LockScreenMediaViewTest : public LoginTestBase {
   }
 
  private:
-  base::test::ScopedFeatureList feature_list_;
   raw_ptr<LockScreenMediaView> media_view_ = nullptr;
   base::test::ScopedPowerMonitorTestSource power_monitor_source_;
   std::unique_ptr<TestMediaController> media_controller_;
@@ -106,11 +101,11 @@ TEST_F(LockScreenMediaViewTest, DoNotUpdateMetadataBetweenSessions) {
   media_view()->MediaSessionMetadataChanged(metadata);
 
   EXPECT_EQ(u"source title",
-            media_notification_view()->GetSourceLabelForTesting()->GetText());
+            media_detailed_view()->GetSourceLabelForTesting()->GetText());
   EXPECT_EQ(u"title",
-            media_notification_view()->GetTitleLabelForTesting()->GetText());
+            media_detailed_view()->GetTitleLabelForTesting()->GetText());
   EXPECT_EQ(u"artist",
-            media_notification_view()->GetArtistLabelForTesting()->GetText());
+            media_detailed_view()->GetArtistLabelForTesting()->GetText());
 }
 
 TEST_F(LockScreenMediaViewTest, DoNotUpdateActionsBetweenSessions) {
@@ -150,7 +145,7 @@ TEST_F(LockScreenMediaViewTest, DoNotUpdatePositionBetweenSessions) {
   SimulateMediaSessionChanged();
   media_view()->MediaSessionPositionChanged(media_position_paused);
   EXPECT_EQ(media_position.playback_rate(),
-            media_notification_view()->GetPositionForTesting().playback_rate());
+            media_detailed_view()->GetPositionForTesting().playback_rate());
 }
 
 TEST_F(LockScreenMediaViewTest, DoNotUpdateArtworkBetweenSessions) {
@@ -163,10 +158,8 @@ TEST_F(LockScreenMediaViewTest, DoNotUpdateArtworkBetweenSessions) {
   media_view()->MediaControllerImageChanged(
       media_session::mojom::MediaSessionImageType::kArtwork, image);
 
-  EXPECT_TRUE(media_notification_view()
-                  ->GetArtworkViewForTesting()
-                  ->GetImage()
-                  .isNull());
+  EXPECT_TRUE(
+      media_detailed_view()->GetArtworkViewForTesting()->GetImage().isNull());
 }
 
 TEST_F(LockScreenMediaViewTest, DismissButtonCheck) {
@@ -174,7 +167,7 @@ TEST_F(LockScreenMediaViewTest, DismissButtonCheck) {
   EXPECT_TRUE(media_view()->GetVisible());
 
   views::test::ButtonTestApi(media_view()->GetDismissButtonForTesting())
-      .NotifyClick(ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(),
+      .NotifyClick(ui::MouseEvent(ui::EventType::kMousePressed, gfx::Point(),
                                   gfx::Point(), ui::EventTimeForNow(), 0, 0));
   media_view()->FlushForTesting();
   EXPECT_EQ(1, media_controller()->stop_count());
@@ -186,6 +179,17 @@ TEST_F(LockScreenMediaViewTest, PowerSuspendState) {
   EXPECT_TRUE(media_view()->GetVisible());
   Suspend();
   EXPECT_FALSE(media_view()->GetVisible());
+}
+
+TEST_F(LockScreenMediaViewTest, AccessibleProperties) {
+  SimulateMediaSessionChanged();
+  EXPECT_TRUE(media_view()->GetVisible());
+  ui::AXNodeData node_data;
+  media_view()->GetViewAccessibility().GetAccessibleNodeData(&node_data);
+  EXPECT_EQ(node_data.role, ax::mojom::Role::kListItem);
+  EXPECT_EQ(node_data.GetStringAttribute(ax::mojom::StringAttribute::kName),
+            l10n_util::GetStringUTF8(
+                IDS_ASH_LOCK_SCREEN_MEDIA_CONTROLS_ACCESSIBLE_NAME));
 }
 
 }  // namespace ash

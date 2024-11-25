@@ -14,6 +14,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/test/gtest_util.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_future.h"
 #include "components/account_id/account_id.h"
@@ -234,7 +235,7 @@ TEST_F(OnlineWallpaperVariantInfoFetcherTest,
 }
 
 // When variants are already populated, params are returned.
-TEST_F(OnlineWallpaperVariantInfoFetcherTest, FetchOnlineWallpaper_FromInfo) {
+TEST_F(OnlineWallpaperVariantInfoFetcherTest, FetchOnlineWallpaperFromInfo) {
   const uint64_t kAssetId = 14;
   const GURL kUrl("https://populated_url/14");
   const std::string kCollectionId = "PrePopulatedCollection";
@@ -274,7 +275,7 @@ TEST_F(OnlineWallpaperVariantInfoFetcherTest,
   auto result = test_future.Get();
   EXPECT_FALSE(result);
 
-  histogram_tester_.ExpectBucketCount("Ash.Wallpaper.Online.Result",
+  histogram_tester_.ExpectBucketCount("Ash.Wallpaper.Online.Result2",
                                       SetWallpaperResult::kInvalidState, 1);
 }
 

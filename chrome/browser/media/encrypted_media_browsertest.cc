@@ -25,24 +25,32 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/test_launcher_utils.h"
 #include "components/prefs/pref_service.h"
+#include "components/ukm/test_ukm_recorder.h"
 #include "components/variations/variations_switches.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "media/base/key_system_names.h"
+#include "media/base/key_systems.h"
 #include "media/base/media_switches.h"
 #include "media/base/test_data_util.h"
 #include "media/cdm/clear_key_cdm_common.h"
 #include "media/cdm/supported_cdm_versions.h"
 #include "media/media_buildflags.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "testing/gtest/include/gtest/gtest-spi.h"
 #include "third_party/widevine/cdm/buildflags.h"
 #include "third_party/widevine/cdm/widevine_cdm_common.h"
 #include "ui/gl/gl_switches.h"
 
 #if BUILDFLAG(IS_WIN)
+#include <mfapi.h>
+
 #include "base/win/windows_version.h"
 #include "chrome/browser/media/media_foundation_service_monitor.h"
+#include "content/public/browser/gpu_data_manager.h"
+#include "gpu/config/gpu_info.h"
 #include "media/audio/win/core_audio_util_win.h"
 #include "media/base/win/mf_feature_checks.h"
 #endif  // BUILDFLAG(IS_WIN)
@@ -83,6 +91,16 @@ const char kEmeUnitTestFailure[] = "UNIT_TEST_FAILURE";
 const char kDefaultEmePlayer[] = "eme_player.html";
 const char kDefaultMseOnlyEmePlayer[] = "mse_different_containers.html";
 
+#if BUILDFLAG(IS_WIN) && BUILDFLAG(USE_PROPRIETARY_CODECS) && \
+    BUILDFLAG(ENABLE_PLATFORM_ENCRYPTED_DOLBY_VISION)
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+static constexpr wchar_t kDolbyVisionProfile5[] = L"dvhe.05";
+static constexpr wchar_t kDolbyVisionProfile8[] = L"dvhe.08";
+#endif
+
 // The type of video src used to load media.
 enum class SrcType { SRC, MSE };
 
@@ -96,6 +114,20 @@ enum class ConfigChangeType {
 
 // Whether the video should be not played or played once or twice.
 enum class PlayCount { ZERO = 0, ONCE = 1, TWICE = 2 };
+
+using testing::Bool;
+using testing::Combine;
+using testing::Eq;
+using testing::Not;
+using testing::Pair;
+using testing::UnitTest;
+using testing::UnorderedElementsAre;
+using testing::Values;
+using testing::WithParamInterface;
+using ukm::builders::Media_EME_ApiPromiseRejection;
+using ukm::builders::Media_EME_CreateMediaKeys;
+using ukm::builders::Media_EME_RequestMediaKeySystemAccess;
+using ukm::builders::Media_EME_Usage;
 
 // Base class for encrypted media tests.
 class EncryptedMediaTestBase : public MediaBrowserTest {
@@ -313,10 +345,8 @@ class EncryptedMediaTestBase : public MediaBrowserTest {
 
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
   void SetUpDefaultCommandLine(base::CommandLine* command_line) override {
-    base::CommandLine default_command_line(base::CommandLine::NO_PROGRAM);
-    InProcessBrowserTest::SetUpDefaultCommandLine(&default_command_line);
-    test_launcher_utils::RemoveCommandLineSwitch(
-        default_command_line, switches::kDisableComponentUpdate, command_line);
+    InProcessBrowserTest::SetUpDefaultCommandLine(command_line);
+    command_line->RemoveSwitch(switches::kDisableComponentUpdate);
   }
 #endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
 
@@ -332,7 +362,7 @@ class EncryptedMediaTestBase : public MediaBrowserTest {
       command_line->AppendSwitch(switches::kDisableWebSecurity);
     }
 
-    // TODO(crbug.com/1243903): WhatsNewUI might be causing timeouts.
+    // TODO(crbug.com/40787541): WhatsNewUI might be causing timeouts.
     command_line->AppendSwitch(switches::kNoFirstRun);
 
     std::vector<base::test::FeatureRefAndParams> enabled_features;
@@ -363,7 +393,7 @@ class EncryptedMediaTestBase : public MediaBrowserTest {
       // other than use a software OpenGL implementation. This can be configured
       // via `switches::kUseGpuInTests` or `--use-gpu-in-tests`.
       if (command_line->HasSwitch(switches::kUseGpuInTests)) {
-        // TODO(crbug.com/1421444): Investigate why the video playback doesn't
+        // TODO(crbug.com/40896253): Investigate why the video playback doesn't
         // work with `switches::kDisableGpu` and remove this line if possible.
         // For now, `switches::kDisableGpu` should not be set. Otherwise,
         // the video playback will not work with software rendering. Note that
@@ -373,6 +403,10 @@ class EncryptedMediaTestBase : public MediaBrowserTest {
       }
     }
 #endif  // BUILDFLAG(IS_WIN)
+
+#if BUILDFLAG(ENABLE_PLATFORM_ENCRYPTED_DOLBY_VISION)
+    enabled_features.push_back({media::kPlatformEncryptedDolbyVision, {}});
+#endif  // BUILDFLAG(ENABLE_PLATFORM_ENCRYPTED_DOLBY_VISION)
 
     scoped_feature_list_.InitWithFeaturesAndParameters(enabled_features, {});
   }
@@ -385,12 +419,13 @@ class EncryptedMediaTestBase : public MediaBrowserTest {
 // specific library CDM interface version as test parameter:
 // - int: CDM interface version to test
 class ECKEncryptedMediaTest : public EncryptedMediaTestBase,
-                              public testing::WithParamInterface<int> {
+                              public WithParamInterface<int> {
  public:
   int GetCdmInterfaceVersion() { return GetParam(); }
 
   // We use special |key_system| names to do non-playback related tests,
-  // e.g. media::kExternalClearKeyFileIOTestKeySystem is used to test file IO.
+  // e.g. media::kExternalClearKeyPlatformVerificationTestKeySystem is used to
+  // test the platform verification.
   void TestNonPlaybackCases(const std::string& key_system,
                             const std::string& expected_title) {
     // Since we do not test playback, arbitrarily choose a test file and source
@@ -411,8 +446,49 @@ class ECKEncryptedMediaTest : public EncryptedMediaTestBase,
  protected:
   void SetUpCommandLine(base::CommandLine* command_line) override {
     EncryptedMediaTestBase::SetUpCommandLine(command_line);
+
     SetUpCommandLineForKeySystem(media::kExternalClearKeyKeySystem,
                                  command_line);
+    // Override enabled CDM interface version for testing.
+    command_line->AppendSwitchASCII(
+        switches::kOverrideEnabledCdmInterfaceVersion,
+        base::NumberToString(GetCdmInterfaceVersion()));
+  }
+};
+
+// Tests FileIO capabilities in Encrypted Media with the following test
+// parameters:
+// - int: CDM interface version to test
+class ECKEncryptedMediaFileIOTest : public EncryptedMediaTestBase,
+                                    public WithParamInterface<int> {
+ public:
+  int GetCdmInterfaceVersion() { return GetParam(); }
+
+  void TestPlaybackCase(const std::string& key_system,
+                        const std::string& session_to_load,
+                        const std::string& expected_title) {
+    RunEncryptedMediaTest(kDefaultEmePlayer, "bear-320x240-v_enc-v.webm",
+                          key_system, SrcType::MSE, session_to_load, false,
+                          PlayCount::ONCE, expected_title);
+  }
+  // We use special |key_system| names to do non-playback related tests,
+  // e.g. media::kExternalClearKeyFileIOTestKeySystem is used to test file IO.
+  void TestNonPlaybackCases(const std::string& key_system,
+                            const std::string& expected_title) {
+    // Since we do not test playback, arbitrarily choose a test file and source
+    // type.
+    RunEncryptedMediaTest(kDefaultEmePlayer, "bear-a_enc-a.webm", key_system,
+                          SrcType::SRC, kNoSessionToLoad, false,
+                          PlayCount::ONCE, expected_title);
+  }
+
+ protected:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    EncryptedMediaTestBase::SetUpCommandLine(command_line);
+
+    SetUpCommandLineForKeySystem(media::kExternalClearKeyKeySystem,
+                                 command_line);
+
     // Override enabled CDM interface version for testing.
     command_line->AppendSwitchASCII(
         switches::kOverrideEnabledCdmInterfaceVersion,
@@ -425,7 +501,7 @@ class ECKEncryptedMediaTest : public EncryptedMediaTestBase,
 // test parameter.
 class ECKEncryptedMediaOutputProtectionTest
     : public EncryptedMediaTestBase,
-      public testing::WithParamInterface<const char*> {
+      public WithParamInterface<const char*> {
  public:
   void TestOutputProtection(bool create_recorder_before_media_keys) {
 #if BUILDFLAG(IS_CHROMEOS)
@@ -460,6 +536,26 @@ class ECKEncryptedMediaOutputProtectionTest
 
 class ECKIncognitoEncryptedMediaTest : public EncryptedMediaTestBase {
  public:
+  void TestNonPlaybackCases(const std::string& key_system,
+                            const std::string& expected_title) {
+    // Since we do not test playback, arbitrarily choose a test file and source
+    // type.
+    RunEncryptedMediaTest(kDefaultEmePlayer, "bear-a_enc-a.webm", key_system,
+                          SrcType::SRC, kNoSessionToLoad, false,
+                          PlayCount::ONCE, expected_title);
+  }
+
+ protected:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    EncryptedMediaTestBase::SetUpCommandLine(command_line);
+    SetUpCommandLineForKeySystem(media::kExternalClearKeyKeySystem,
+                                 command_line);
+    command_line->AppendSwitch(switches::kIncognito);
+  }
+};
+
+class ECKIncognitoEncryptedMediaFileIOTest : public EncryptedMediaTestBase {
+ public:
   // We use special |key_system| names to do non-playback related tests,
   // e.g. media::kExternalClearKeyFileIOTestKeySystem is used to test file IO.
   void TestNonPlaybackCases(const std::string& key_system,
@@ -487,7 +583,7 @@ class ECKIncognitoEncryptedMediaTest : public EncryptedMediaTestBase {
 // proper renderer selection occurs when Media Foundation Renderer
 // is set as the default but the playback requires another (e.g.
 // default) renderer.
-// TODO(crbug.com/1442997): We should create a browser test suite
+// TODO(crbug.com/40267198): We should create a browser test suite
 // intended explicitly for Media Foundation scenarios and move
 // the MFClearEncryptedMediaTest tests there.
 class MFClearEncryptedMediaTest : public EncryptedMediaTestBase {
@@ -604,7 +700,7 @@ class ParameterizedEncryptedMediaTestBase : public EncryptedMediaTestBase {
 // supported by both the CDM and Chromium will be used.
 class EncryptedMediaTest
     : public ParameterizedEncryptedMediaTestBase,
-      public testing::WithParamInterface<std::tuple<const char*, SrcType>> {
+      public WithParamInterface<std::tuple<const char*, SrcType>> {
  public:
   std::string CurrentKeySystem() override { return std::get<0>(GetParam()); }
   SrcType CurrentSourceType() override { return std::get<1>(GetParam()); }
@@ -615,14 +711,11 @@ class EncryptedMediaTest
 // encrypted MP4, see http://crbug.com/170793. Use this class for those tests so
 // we don't have to start the test and then skip it.
 class MseEncryptedMediaTest : public ParameterizedEncryptedMediaTestBase,
-                              public testing::WithParamInterface<const char*> {
+                              public WithParamInterface<const char*> {
  public:
   std::string CurrentKeySystem() override { return GetParam(); }
   SrcType CurrentSourceType() override { return SrcType::MSE; }
 };
-
-using ::testing::Combine;
-using ::testing::Values;
 
 INSTANTIATE_TEST_SUITE_P(MSE_ClearKey,
                          EncryptedMediaTest,
@@ -712,15 +805,14 @@ IN_PROC_BROWSER_TEST_P(MseEncryptedMediaTest, Playback_AudioOnly_MP4_OPUS) {
   TestSimplePlayback("bear-opus-cenc.mp4");
 }
 
-// TODO(crbug.com/1045393): Flaky on multiple platforms.
+// TODO(crbug.com/40116010): Flaky on multiple platforms.
 IN_PROC_BROWSER_TEST_P(MseEncryptedMediaTest,
                        DISABLED_Playback_VideoOnly_MP4_VP9) {
   TestSimplePlayback("bear-320x240-v_frag-vp9-cenc.mp4");
 }
 
-#if BUILDFLAG(IS_MAC) || (BUILDFLAG(IS_FUCHSIA) && defined(ARCH_CPU_ARM_FAMILY))
-// TODO(https://crbug.com/1250305): Fails on dcheck-enabled builds on 11.0.
-// TODO(https://crbug.com/1280308): Fails on Fuchsia-arm64
+#if BUILDFLAG(IS_MAC)
+// TODO(crbug.com/40197943): Fails on dcheck-enabled builds on 11.0.
 #define MAYBE_Playback_VideoOnly_WebM_VP9Profile2 \
   DISABLED_Playback_VideoOnly_WebM_VP9Profile2
 #else
@@ -732,9 +824,8 @@ IN_PROC_BROWSER_TEST_P(EncryptedMediaTest,
   TestSimplePlayback("bear-320x240-v-vp9_profile2_subsample_cenc-v.webm");
 }
 
-#if BUILDFLAG(IS_MAC) || (BUILDFLAG(IS_FUCHSIA) && defined(ARCH_CPU_ARM_FAMILY))
-// TODO(https://crbug.com/1250305): Fails on dcheck-enabled builds on 11.0.
-// TODO(https://crbug.com/1280308): Fails on Fuchsia-arm64
+#if BUILDFLAG(IS_MAC)
+// TODO(crbug.com/40197943): Fails on dcheck-enabled builds on 11.0.
 #define MAYBE_Playback_VideoOnly_MP4_VP9Profile2 \
   DISABLED_Playback_VideoOnly_MP4_VP9Profile2
 #else
@@ -773,7 +864,7 @@ IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, InvalidResponseKeyError) {
 
 // This is not really an "encrypted" media test. Keep it here for completeness.
 IN_PROC_BROWSER_TEST_P(MseEncryptedMediaTest, ConfigChangeVideo_ClearToClear) {
-  LOG(INFO) << ::testing::UnitTest::GetInstance()->current_test_info()->name();
+  LOG(INFO) << UnitTest::GetInstance()->current_test_info()->name();
   if (!IsPlayBackPossible(CurrentKeySystem())) {
     GTEST_SKIP() << "ConfigChange test requires video playback.";
   }
@@ -783,7 +874,7 @@ IN_PROC_BROWSER_TEST_P(MseEncryptedMediaTest, ConfigChangeVideo_ClearToClear) {
 
 IN_PROC_BROWSER_TEST_P(MseEncryptedMediaTest,
                        ConfigChangeVideo_ClearToEncrypted) {
-  LOG(INFO) << ::testing::UnitTest::GetInstance()->current_test_info()->name();
+  LOG(INFO) << UnitTest::GetInstance()->current_test_info()->name();
   if (!IsPlayBackPossible(CurrentKeySystem())) {
     GTEST_SKIP() << "ConfigChange test requires video playback.";
   }
@@ -793,7 +884,7 @@ IN_PROC_BROWSER_TEST_P(MseEncryptedMediaTest,
 
 IN_PROC_BROWSER_TEST_P(MseEncryptedMediaTest,
                        ConfigChangeVideo_EncryptedToClear) {
-  LOG(INFO) << ::testing::UnitTest::GetInstance()->current_test_info()->name();
+  LOG(INFO) << UnitTest::GetInstance()->current_test_info()->name();
   if (!IsPlayBackPossible(CurrentKeySystem())) {
     GTEST_SKIP() << "ConfigChange test requires video playback.";
   }
@@ -803,7 +894,7 @@ IN_PROC_BROWSER_TEST_P(MseEncryptedMediaTest,
 
 IN_PROC_BROWSER_TEST_P(MseEncryptedMediaTest,
                        ConfigChangeVideo_EncryptedToEncrypted) {
-  LOG(INFO) << ::testing::UnitTest::GetInstance()->current_test_info()->name();
+  LOG(INFO) << UnitTest::GetInstance()->current_test_info()->name();
   if (!IsPlayBackPossible(CurrentKeySystem())) {
     GTEST_SKIP() << "ConfigChange test requires video playback.";
   }
@@ -812,7 +903,7 @@ IN_PROC_BROWSER_TEST_P(MseEncryptedMediaTest,
 }
 
 IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, FrameSizeChangeVideo) {
-  LOG(INFO) << ::testing::UnitTest::GetInstance()->current_test_info()->name();
+  LOG(INFO) << UnitTest::GetInstance()->current_test_info()->name();
   if (!IsPlayBackPossible(CurrentKeySystem())) {
     GTEST_SKIP() << "FrameSizeChange test requires video playback.";
   }
@@ -849,6 +940,131 @@ IN_PROC_BROWSER_TEST_P(MseEncryptedMediaTest, EncryptedMediaDisabled) {
                         CurrentKeySystem(), CurrentSourceType(),
                         kNoSessionToLoad, false, PlayCount::ONCE,
                         expected_title);
+}
+
+IN_PROC_BROWSER_TEST_P(MseEncryptedMediaTest, Playback_Check_Ukm) {
+  bool is_widevine =
+#if BUILDFLAG(ENABLE_WIDEVINE)
+      IsWidevine(CurrentKeySystem());
+#else
+      false;
+#endif  // BUILDFLAG(ENABLE_WIDEVINE)
+
+  ukm::TestAutoSetUkmRecorder ukm_recorder;
+  TestSimplePlayback("bear-320x240-av_enc-a.webm");
+
+  // Check Media_EME_RequestMediaKeySystemAccess UKM. It is only recorded for
+  // Widevine.
+  auto request_entries = ukm_recorder.GetEntries(
+      Media_EME_RequestMediaKeySystemAccess::kEntryName,
+      {Media_EME_RequestMediaKeySystemAccess::kIsAdFrameName,
+       Media_EME_RequestMediaKeySystemAccess::kIsCrossOriginName,
+       Media_EME_RequestMediaKeySystemAccess::kIsFromMediaCapabilitiesName,
+       Media_EME_RequestMediaKeySystemAccess::kIsTopFrameName,
+       Media_EME_RequestMediaKeySystemAccess::kKeySystemName,
+       Media_EME_RequestMediaKeySystemAccess::kVideoCapabilitiesName,
+       Media_EME_RequestMediaKeySystemAccess::
+           kVideoCapabilities_HasEmptyRobustnessName,
+       Media_EME_RequestMediaKeySystemAccess::
+           kVideoCapabilities_HasHwSecureAllRobustnessName});
+  if (is_widevine) {
+    EXPECT_EQ(request_entries.size(), 1u);
+    EXPECT_THAT(
+        request_entries[0].metrics,
+        UnorderedElementsAre(
+            Pair(Media_EME_RequestMediaKeySystemAccess::kIsAdFrameName,
+                 /*false=*/0),
+            Pair(Media_EME_RequestMediaKeySystemAccess::kIsCrossOriginName,
+                 /*false=*/0),
+            Pair(Media_EME_RequestMediaKeySystemAccess::
+                     kIsFromMediaCapabilitiesName,
+                 /*false=*/0),
+            Pair(Media_EME_RequestMediaKeySystemAccess::kIsTopFrameName,
+                 /*true=*/1),
+            Pair(Media_EME_RequestMediaKeySystemAccess::kKeySystemName,
+                 /*blink::KeySystemForUkmLegacy::kWidevine=*/1),
+            Pair(Media_EME_RequestMediaKeySystemAccess::kVideoCapabilitiesName,
+                 /*true=*/1),
+            Pair(Media_EME_RequestMediaKeySystemAccess::
+                     kVideoCapabilities_HasEmptyRobustnessName,
+                 /*true=*/1),
+            Pair(Media_EME_RequestMediaKeySystemAccess::
+                     kVideoCapabilities_HasHwSecureAllRobustnessName,
+                 /*false=*/0)));
+  } else {
+    // Not Widevine, so nothing should be recorded.
+    EXPECT_EQ(request_entries.size(), 0u);
+  }
+
+  // Check Media_EME_CreateMediaKeys UKM. It is also only recorded for Widevine.
+  auto create_entries =
+      ukm_recorder.GetEntries(Media_EME_CreateMediaKeys::kEntryName,
+                              {Media_EME_CreateMediaKeys::kIsAdFrameName,
+                               Media_EME_CreateMediaKeys::kIsCrossOriginName,
+                               Media_EME_CreateMediaKeys::kIsTopFrameName,
+                               Media_EME_CreateMediaKeys::kKeySystemName});
+  if (is_widevine) {
+    EXPECT_EQ(create_entries.size(), 1u);
+    EXPECT_THAT(create_entries[0].metrics,
+                UnorderedElementsAre(
+                    Pair(Media_EME_CreateMediaKeys::kIsAdFrameName,
+                         /*false=*/0),
+                    Pair(Media_EME_CreateMediaKeys::kIsCrossOriginName,
+                         /*false=*/0),
+                    Pair(Media_EME_CreateMediaKeys::kIsTopFrameName,
+                         /*true=*/1),
+                    Pair(Media_EME_CreateMediaKeys::kKeySystemName,
+                         /*blink::KeySystemForUkmLegacy::kWidevine=*/1)));
+  } else {
+    // Not Widevine, so nothing should be recorded.
+    EXPECT_EQ(create_entries.size(), 0u);
+  }
+
+  // Check Media_EME_Usage UKM. It is recorded for all key systems. Currently
+  // only update() will be called during playback.
+  auto usage_entries = ukm_recorder.GetEntries(
+      Media_EME_Usage::kEntryName,
+      {Media_EME_Usage::kApiName, Media_EME_Usage::kIsPersistentSessionName,
+       Media_EME_Usage::kKeySystemName,
+       Media_EME_Usage::kUseHardwareSecureCodecsName});
+  EXPECT_EQ(usage_entries.size(), 1u);
+  EXPECT_THAT(
+      usage_entries[0].metrics,
+      UnorderedElementsAre(
+          Pair(Media_EME_Usage::kApiName, /*blink::EmeApiType::kUpdate=*/6),
+          Pair(Media_EME_Usage::kIsPersistentSessionName, /*false=*/0),
+          Pair(Media_EME_Usage::kKeySystemName,
+               media::GetKeySystemIntForUKM(CurrentKeySystem())),
+          Pair(Media_EME_Usage::kUseHardwareSecureCodecsName, /*false=*/0)));
+
+  // Check Media_EME_ApiPromiseRejection. With Widevine if there is no license
+  // server Update() will fail. With ClearKey a valid response is provided, so
+  // there is no failure.
+  auto promise_entries = ukm_recorder.GetEntries(
+      Media_EME_ApiPromiseRejection::kEntryName,
+      {Media_EME_ApiPromiseRejection::kApiName,
+       Media_EME_ApiPromiseRejection::kKeySystemName,
+       Media_EME_ApiPromiseRejection::kSystemCodeName,
+       Media_EME_ApiPromiseRejection::kUseHardwareSecureCodecsName});
+  if (is_widevine && !license_server_) {
+    // Update() should have failed due to invalid license response.
+    EXPECT_EQ(promise_entries.size(), 1u);
+    // Media_EME_ApiPromiseRejection::kSystemCodeName is key system
+    // implementation specific, so exact value may change.
+    EXPECT_THAT(
+        promise_entries[0].metrics,
+        UnorderedElementsAre(
+            Pair(Media_EME_ApiPromiseRejection::kApiName,
+                 /*blink::EmeApiType::kUpdate=*/6),
+            Pair(Media_EME_ApiPromiseRejection::kKeySystemName,
+                 media::GetKeySystemIntForUKM(CurrentKeySystem())),
+            Pair(Media_EME_ApiPromiseRejection::kSystemCodeName, Not(Eq(0))),
+            Pair(Media_EME_ApiPromiseRejection::kUseHardwareSecureCodecsName,
+                 /*false=*/0)));
+  } else {
+    // No error with ClearKey or with Widevine if a license server is available.
+    EXPECT_EQ(promise_entries.size(), 0u);
+  }
 }
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
@@ -904,13 +1120,15 @@ static_assert(media::CheckSupportedCdmInterfaceVersions(10, 11),
               "Mismatch between implementation and test coverage");
 INSTANTIATE_TEST_SUITE_P(CDM_10, ECKEncryptedMediaTest, Values(10));
 INSTANTIATE_TEST_SUITE_P(CDM_11, ECKEncryptedMediaTest, Values(11));
+INSTANTIATE_TEST_SUITE_P(CDM_10, ECKEncryptedMediaFileIOTest, Values(10));
+INSTANTIATE_TEST_SUITE_P(CDM_11, ECKEncryptedMediaFileIOTest, Values(10));
 
 IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, InitializeCDMFail) {
   TestNonPlaybackCases(kExternalClearKeyInitializeFailKeySystem,
                        kEmeNotSupportedError);
 }
 
-// TODO(https://crbug.com/1019187): Failing on Windows.
+// TODO(crbug.com/40105240): Failing on Windows.
 #if BUILDFLAG(IS_WIN)
 #define MAYBE_CDMCrashDuringDecode DISABLED_CDMCrashDuringDecode
 #else
@@ -923,15 +1141,15 @@ IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, MAYBE_CDMCrashDuringDecode) {
                        kEmeSessionClosedAndError);
 }
 
-IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, FileIOTest) {
-  TestNonPlaybackCases(media::kExternalClearKeyFileIOTestKeySystem,
-                       kUnitTestSuccess);
-}
-
 IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, PlatformVerificationTest) {
   TestNonPlaybackCases(
       media::kExternalClearKeyPlatformVerificationTestKeySystem,
       kUnitTestSuccess);
+}
+
+IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaFileIOTest, FileIOTest) {
+  TestNonPlaybackCases(media::kExternalClearKeyFileIOTestKeySystem,
+                       kUnitTestSuccess);
 }
 
 // Intermittent leaks on ASan/LSan runs: crbug.com/889923
@@ -951,12 +1169,14 @@ IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, MAYBE_MessageTypeTest) {
                 "document.querySelector('video').receivedMessageTypes.size;"));
 }
 
-IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, LoadPersistentLicense) {
+// Exercises Storage Path, so use ECKEncryptedMediaFileIOTest
+IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaFileIOTest, LoadPersistentLicense) {
   TestPlaybackCase(media::kExternalClearKeyKeySystem, kPersistentLicense,
                    media::kEndedTitle);
 }
 
-IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, LoadUnknownSession) {
+// Exercises Storage Path, so use ECKEncryptedMediaFileIOTest
+IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaFileIOTest, LoadUnknownSession) {
   TestPlaybackCase(media::kExternalClearKeyKeySystem, kUnknownSession,
                    kEmeSessionNotFound);
 }
@@ -1033,13 +1253,20 @@ IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, VerifyCdmHostTest) {
 }
 #endif  // BUILDFLAG(ENABLE_CDM_HOST_VERIFICATION)
 
-IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, StorageIdTest) {
+// TODO(b/326134178): Disable this test on branded builder
+// ci/linux_lacros_chrome since it fails.
+#if BUILDFLAG(IS_CHROMEOS_LACROS) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#define MAYBE_StorageIdTest DISABLED_StorageIdTest
+#else
+#define MAYBE_StorageIdTest StorageIdTest
+#endif
+IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaTest, MAYBE_StorageIdTest) {
   TestNonPlaybackCases(media::kExternalClearKeyStorageIdTestKeySystem,
                        kUnitTestSuccess);
 }
 
-// TODO(crbug.com/902310): Times out in debug builds.
-// TODO(crbug.com/1452030): Sometimes crashes on win and chromeos.
+// TODO(crbug.com/40601162): Times out in debug builds.
+// TODO(crbug.com/40916095, crbug.com/348996697): Test flakiness.
 #if !defined(NDEBUG) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_WIN)
 #define MAYBE_MultipleCdmTypes DISABLED_MultipeCdmTypes
 #else
@@ -1066,7 +1293,7 @@ INSTANTIATE_TEST_SUITE_P(Capture_Browser,
                          ECKEncryptedMediaOutputProtectionTest,
                          Values("browser"));
 
-// TODO(https://crbug.com/1047944): Failing on Win.
+// TODO(crbug.com/40671674): Failing on Win.
 #if BUILDFLAG(IS_WIN)
 #define MAYBE_BeforeMediaKeys DISABLED_BeforeMediaKeys
 #else
@@ -1077,7 +1304,7 @@ IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaOutputProtectionTest,
   TestOutputProtection(/*create_recorder_before_media_keys=*/true);
 }
 
-// TODO(https://crbug.com/1047944): Failing on Win.
+// TODO(crbug.com/40671674): Failing on Win.
 #if BUILDFLAG(IS_WIN)
 #define MAYBE_AfterMediaKeys DISABLED_AfterMediaKeys
 #else
@@ -1094,7 +1321,7 @@ IN_PROC_BROWSER_TEST_P(ECKEncryptedMediaOutputProtectionTest,
 // save anything to disk. Instead we are only running the tests that actually
 // have the CDM do file access.
 
-IN_PROC_BROWSER_TEST_F(ECKIncognitoEncryptedMediaTest, FileIO) {
+IN_PROC_BROWSER_TEST_F(ECKIncognitoEncryptedMediaFileIOTest, FileIO) {
   // Try the FileIO test using the default CDM API while running in incognito.
   TestNonPlaybackCases(media::kExternalClearKeyFileIOTestKeySystem,
                        kUnitTestSuccess);
@@ -1181,6 +1408,18 @@ class MediaFoundationEncryptedMediaTest : public EncryptedMediaTestBase {
         switches::kUseGpuInTests);
     bool disable_gpu = base::CommandLine::ForCurrentProcess()->HasSwitch(
         switches::kDisableGpu);
+
+    const auto& gpu_info = content::GpuDataManager::GetInstance()->GetGPUInfo();
+    const auto& active_gpu = gpu_info.active_gpu();
+    LOG(INFO) << "active_gpu.vendor_id=" << active_gpu.vendor_id;
+    LOG(INFO) << "active_gpu.device_id=" << active_gpu.device_id;
+    LOG(INFO) << "active_gpu.driver_version=" << active_gpu.driver_version;
+    LOG(INFO) << "gpu_info.gl_vendor=" << gpu_info.gl_vendor;
+    LOG(INFO) << "gpu_info.gl_renderer=" << gpu_info.gl_renderer;
+    LOG(INFO) << "switches::kDisableGpuDriverBugWorkarounds="
+              << base::CommandLine::ForCurrentProcess()->HasSwitch(
+                     switches::kDisableGpuDriverBugWorkarounds);
+
     bool is_playback_supported =
         is_mediafoundation_encrypted_playback_supported && use_gpu_in_tests &&
         !disable_gpu;
@@ -1193,11 +1432,10 @@ class MediaFoundationEncryptedMediaTest : public EncryptedMediaTestBase {
     // Otherwise, NotSupportedError or the failure to create D3D11 device is
     // expected.
     if (!is_playback_supported) {
-      LOG(INFO)
-          << "Test method "
-          << ::testing::UnitTest::GetInstance()->current_test_info()->name()
-          << " is inconclusive since MediaFoundation playback is not "
-             "supported.";
+      LOG(INFO) << "Test method "
+                << UnitTest::GetInstance()->current_test_info()->name()
+                << " is inconclusive since MediaFoundation playback is not "
+                   "supported.";
 
       if (!is_mediafoundation_encrypted_playback_supported) {
         auto os_version = static_cast<int>(base::win::GetVersion());
@@ -1226,12 +1464,92 @@ class MediaFoundationEncryptedMediaTest : public EncryptedMediaTestBase {
 
     return true;
   }
+
+#if BUILDFLAG(ENABLE_PLATFORM_ENCRYPTED_DOLBY_VISION)
+  bool IsVideoDecoderSupported(const GUID& video_decoder_guid) {
+    MFT_REGISTER_TYPE_INFO inputInfo{MFMediaType_Video, video_decoder_guid};
+    IMFActivate** activates;
+    unsigned int numActivates = 0;
+    auto result = MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER, MFT_ENUM_FLAG_SYNCMFT,
+                            &inputInfo, nullptr, &activates, &numActivates);
+    if (result != S_OK || numActivates == 0) {
+      LOG(INFO) << "No decoders found!";
+      return false;
+    }
+
+    return true;
+  }
+
+  bool IsVideoRendererEffectSupported(const wchar_t* profile) {
+    bool supported = false;
+    IMFActivate** activates = nullptr;
+    unsigned int numActivates = 0;
+    auto result = MFTEnumEx(MFT_CATEGORY_VIDEO_RENDERER_EFFECT,
+                            MFT_ENUM_FLAG_SORTANDFILTER, nullptr, nullptr,
+                            &activates, &numActivates);
+    if (result != S_OK || numActivates == 0) {
+      LOG(INFO) << "No video renderer effect found!";
+      return false;
+    }
+
+    for (unsigned int i = 0; i < numActivates && !supported; i++) {
+      PROPVARIANT var;
+      PropVariantInit(&var);
+      auto hr = activates[i]->GetItem(MFT_ENUM_VIDEO_RENDERER_EXTENSION_PROFILE,
+                                      &var);
+      if (hr == S_OK && var.vt == VARTYPE(VT_VECTOR | VT_LPWSTR)) {
+        for (unsigned long j = 0; j < var.calpwstr.cElems; j++) {
+          auto elem = *(var.calpwstr.pElems + j);
+          if (_wcsicmp(elem, profile) == 0) {
+            supported = true;
+            break;
+          }
+        }
+      }
+
+      PropVariantClear(&var);
+    }
+
+    if (*activates) {
+      (*activates)->Release();
+    }
+
+    return supported;
+  }
+
+  // |profile| is a Dolby Vision renderer profile string which has always 7
+  // characters in MediaFoundation. For HEVC based profiles, it's either
+  // "dvhe.xx" or "dvh1.xx" where "xx" is a two-digit profile number. Note the
+  // DolbyVision level is ignored. See "Table 1: Dolby Vision bitstream
+  // profiles" at
+  // `https://professionalsupport.dolby.com/s/article/What-is-Dolby-Vision-Profile`.
+  bool IsDolbyVisionEncryptedPlaybackSupported(const wchar_t* profile) {
+    // Dolby Vision video playback requires both HEVC and Dolby Vision extension
+    // codecs.
+    bool is_hevc_decoder_supported =
+        IsVideoDecoderSupported(MFVideoFormat_HEVC);
+    bool is_dolbyvision_supported = IsVideoRendererEffectSupported(profile);
+    LOG(INFO) << "is_hevc_decoder_supported=" << is_hevc_decoder_supported;
+    LOG(INFO) << "is_dolbyvision_supported=" << is_dolbyvision_supported;
+
+    if (!is_hevc_decoder_supported || !is_dolbyvision_supported) {
+      LOG(INFO)
+          << "Test method "
+          << UnitTest::GetInstance()->current_test_info()->name()
+          << " is inconclusive since DolbyVisionEncrypted playback is not "
+             "supported.";
+      return false;
+    }
+
+    return true;
+  }
+#endif  // BUILDFLAG(ENABLE_PLATFORM_ENCRYPTED_DOLBY_VISION)
 };
 
 IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
                        Playback_ClearLeadEncryptedCencVideo_Success) {
   if (!IsMediaFoundationEncryptedPlaybackSupported()) {
-    GTEST_SKIP();
+    GTEST_SKIP() << "MediaFoundationEncryptedPlayback not supported on device.";
   }
 
   TestMediaFoundationPlayback("bear-640x360-v_frag-cenc.mp4");  // H.264
@@ -1240,7 +1558,7 @@ IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
 IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
                        Playback_ClearLeadEncryptedCbcsVideo_Success) {
   if (!IsMediaFoundationEncryptedPlaybackSupported()) {
-    GTEST_SKIP();
+    GTEST_SKIP() << "MediaFoundationEncryptedPlayback not supported on device.";
   }
 
   TestMediaFoundationPlayback("bear-640x360-v_frag-cbcs.mp4");  // H.264
@@ -1249,7 +1567,7 @@ IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
 IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
                        Playback_EncryptedCencVideoAudio_Success) {
   if (!IsMediaFoundationEncryptedPlaybackSupported()) {
-    GTEST_SKIP();
+    GTEST_SKIP() << "MediaFoundationEncryptedPlayback not supported on device.";
   }
 
   TestMediaFoundationMultipleFilePlayback(
@@ -1260,19 +1578,20 @@ IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
 IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
                        Playback_EncryptedCencAudio_Success) {
   if (!IsMediaFoundationEncryptedPlaybackSupported()) {
-    GTEST_SKIP();
+    GTEST_SKIP() << "MediaFoundationEncryptedPlayback not supported on device.";
   }
 
   std::string expected_title = media::kEndedTitle;
 
-  // TODO(crbug.com/1452165): "Activate failed to create mediasink (0xC00D36FA)"
-  // kPlaybackError is expected when playing encrypted audio only content if no
-  // audio device. Remove this temporary fix for test machines once the
-  // permenent solution is implemented (i.e., a null sink for no audio device).
+  // TODO(crbug.com/40270855): "Activate failed to create mediasink
+  // (0xC00D36FA)" kPlaybackError is expected when playing encrypted audio only
+  // content if no audio device. Remove this temporary fix for test machines
+  // once the permenent solution is implemented (i.e., a null sink for no audio
+  // device).
   if (!IsDefaultAudioOutputDeviceAvailable()) {
     LOG(INFO)
         << "Test method "
-        << ::testing::UnitTest::GetInstance()->current_test_info()->name()
+        << UnitTest::GetInstance()->current_test_info()->name()
         << " is expected to receive an error since there is no default audio "
            "output device.";
     expected_title = media::kErrorTitle;
@@ -1287,7 +1606,7 @@ IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
 IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
                        Playback_EncryptedAv1CencAudio_MediaTypeUnsupported) {
   if (!IsMediaFoundationEncryptedPlaybackSupported()) {
-    GTEST_SKIP();
+    GTEST_SKIP() << "MediaFoundationEncryptedPlayback not supported on device.";
   }
 
   // MediaFoundation Clear Key Key System doesn't support AV1 videos
@@ -1302,7 +1621,7 @@ IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
 IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
                        FallbackTest_KeySystemNotSupported) {
   if (!IsMediaFoundationEncryptedPlaybackSupported()) {
-    GTEST_SKIP();
+    GTEST_SKIP() << "MediaFoundationEncryptedPlayback not supported on device.";
   }
 
   // MediaFoundationServiceMonitor gets lazily initialized in
@@ -1316,4 +1635,69 @@ IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
                    {{"keySystem", media::kMediaFoundationClearKeyKeySystem}},
                    fallback_expected_title, /*http=*/true);
 }
+
+#if BUILDFLAG(ENABLE_PLATFORM_ENCRYPTED_DOLBY_VISION)
+IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
+                       Playback_DolbyVisionProfile5CencVideo_Success) {
+  if (!IsMediaFoundationEncryptedPlaybackSupported()) {
+    GTEST_SKIP() << "MediaFoundationEncryptedPlayback not supported on device.";
+  }
+
+  if (!IsDolbyVisionEncryptedPlaybackSupported(kDolbyVisionProfile5)) {
+    GTEST_SKIP() << "DolbyVisionEncryptedPlayback not supported on device.";
+  }
+
+  // DolbyVision Profile 5
+  TestMediaFoundationPlayback(
+      "color_pattern_24_dvhe_05_1920x1080-3sec-frag-cenc.mp4");
+}
+
+IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
+                       Playback_DolbyVisionProfile81CencVideo_Success) {
+  if (!IsMediaFoundationEncryptedPlaybackSupported()) {
+    GTEST_SKIP() << "MediaFoundationEncryptedPlayback not supported on device.";
+  }
+
+  if (!IsDolbyVisionEncryptedPlaybackSupported(kDolbyVisionProfile8)) {
+    GTEST_SKIP() << "DolbyVisionEncryptedPlayback not supported on device.";
+  }
+
+  // DolbyVision Profile 8.1
+  TestMediaFoundationPlayback(
+      "color_pattern_24_dvhe_081_1920x1080-3sec-frag-cenc.mp4");
+}
+
+IN_PROC_BROWSER_TEST_F(MediaFoundationEncryptedMediaTest,
+                       Playback_DolbyVisionProfile5CencClearLeadVideo_Success) {
+  if (!IsMediaFoundationEncryptedPlaybackSupported()) {
+    GTEST_SKIP() << "MediaFoundationEncryptedPlayback not supported on device.";
+  }
+
+  if (!IsDolbyVisionEncryptedPlaybackSupported(kDolbyVisionProfile5)) {
+    GTEST_SKIP() << "DolbyVisionEncryptedPlayback not supported on device.";
+  }
+
+  // DolbyVision Profile 5
+  TestMediaFoundationPlayback(
+      "color_pattern_24_dvhe_05_1920x1080-3sec-frag-cenc-clearlead-2sec.mp4");
+}
+
+IN_PROC_BROWSER_TEST_F(
+    MediaFoundationEncryptedMediaTest,
+    Playback_DolbyVisionProfile81CencClearLeadVideo_Success) {
+  if (!IsMediaFoundationEncryptedPlaybackSupported()) {
+    GTEST_SKIP() << "MediaFoundationEncryptedPlayback not supported on device.";
+  }
+
+  if (!IsDolbyVisionEncryptedPlaybackSupported(kDolbyVisionProfile8)) {
+    GTEST_SKIP() << "DolbyVisionEncryptedPlayback not supported on device.";
+  }
+
+  // DolbyVision Profile 8.1
+  TestMediaFoundationPlayback(
+      "color_pattern_24_dvhe_081_1920x1080-3sec-frag-cenc-clearlead-2sec.mp4");
+}
+
+#endif  // BUILDFLAG(ENABLE_PLATFORM_ENCRYPTED_DOLBY_VISION)
+
 #endif  // BUILDFLAG(IS_WIN) && BUILDFLAG(USE_PROPRIETARY_CODECS)

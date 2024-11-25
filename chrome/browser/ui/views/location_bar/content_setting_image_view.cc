@@ -14,14 +14,26 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/token.h"
 #include "build/build_config.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/themes/theme_properties.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_element_identifiers.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/content_settings/content_setting_bubble_model.h"
 #include "chrome/browser/ui/content_settings/content_setting_image_model.h"
+#include "chrome/browser/ui/user_education/browser_user_education_interface.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/content_setting_bubble_contents.h"
-#include "chrome/browser/ui/views/user_education/browser_feature_promo_controller.h"
+#include "chrome/browser/user_education/user_education_service.h"
+#include "chrome/browser/user_education/user_education_service_factory.h"
+#include "chrome/browser/web_applications/web_app_tab_helper.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/user_education/common/feature_promo_specification.h"
+#include "components/feature_engagement/public/feature_constants.h"
+#include "components/strings/grit/components_strings.h"
+#include "components/user_education/common/feature_promo/feature_promo_controller.h"
+#include "components/user_education/common/feature_promo/feature_promo_specification.h"
+#include "components/user_education/common/help_bubble/help_bubble_params.h"
 #include "ui/base/interaction/element_identifier.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
@@ -64,15 +76,14 @@ std::optional<ViewID> GetViewID(
     case ImageType::FRAMEBUST:
     case ImageType::CLIPBOARD_READ_WRITE:
     case ImageType::SENSORS:
-    case ImageType::NOTIFICATIONS_QUIET_PROMPT:
+    case ImageType::NOTIFICATIONS:
     case ImageType::STORAGE_ACCESS:
-    case ImageType::MIDI:
       return std::nullopt;
 
     case ImageType::NUM_IMAGE_TYPES:
       break;
   }
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 }  // namespace
@@ -80,22 +91,24 @@ std::optional<ViewID> GetViewID(
 DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(ContentSettingImageView,
                                       kMediaActivityIndicatorElementId);
 DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(ContentSettingImageView,
-                                      kMidiActivityIndicatorElementId);
-DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(ContentSettingImageView,
                                       kMidiSysexActivityIndicatorElementId);
 
 ContentSettingImageView::ContentSettingImageView(
     std::unique_ptr<ContentSettingImageModel> image_model,
     IconLabelBubbleView::Delegate* parent_delegate,
     Delegate* delegate,
+    Browser* browser,
     const gfx::FontList& font_list)
     : IconLabelBubbleView(font_list, parent_delegate),
       delegate_(delegate),
       content_setting_image_model_(std::move(image_model)),
-      bubble_view_(nullptr) {
+      bubble_view_(nullptr),
+      browser_(browser) {
   DCHECK(delegate_);
   SetUpForInOutAnimation();
-  image()->SetFlipCanvasOnPaintForRTLUI(true);
+  image_container_view()->SetFlipCanvasOnPaintForRTLUI(true);
+
+  UpdateElementIdentifier();
 
   std::optional<ViewID> view_id =
       GetViewID(content_setting_image_model_->image_type());
@@ -104,7 +117,7 @@ ContentSettingImageView::ContentSettingImageView(
 
   // Because this view is focusable, it should always have an accessible name,
   // even if an announcement is not to be made.
-  // TODO(crbug.com/1411342): `IconLabelBubbleView::GetAccessibleNodeData`
+  // TODO(crbug.com/40890218): `IconLabelBubbleView::GetAccessibleNodeData`
   // would set the name to explicitly empty when the name was missing.
   // That function no longer exists. As a result we need to handle that here.
   // There appear to be cases in which `Update` is never called and we lack
@@ -118,12 +131,10 @@ ContentSettingImageView::ContentSettingImageView(
                                           ->AccessibilityAnnouncementStringId())
           : std::u16string();
 
-  SetAccessibilityProperties(
-      /*role*/ std::nullopt, accessible_name,
-      /*description=*/std::nullopt,
-      /*role_description*/ std::nullopt,
-      accessible_name.empty() ? ax::mojom::NameFrom::kAttributeExplicitlyEmpty
-                              : ax::mojom::NameFrom::kAttribute);
+  GetViewAccessibility().SetName(
+      accessible_name, accessible_name.empty()
+                           ? ax::mojom::NameFrom::kAttributeExplicitlyEmpty
+                           : ax::mojom::NameFrom::kAttribute);
 
   // The chrome refresh version of this view has a ripple effect which is
   // configured by the background.
@@ -142,25 +153,24 @@ void ContentSettingImageView::Update() {
 
   if (!content_setting_image_model_->is_visible()) {
     SetVisible(false);
-    GetViewAccessibility().OverrideIsIgnored(true);
-    critical_promo_bubble_.reset();
+    GetViewAccessibility().SetIsIgnored(true);
     return;
   }
   DCHECK(web_contents);
   UpdateImage();
   SetVisible(true);
-  GetViewAccessibility().OverrideIsIgnored(false);
-  // An alert role is required in order to fire the alert event.
-  SetAccessibleRole(ax::mojom::Role::kAlert);
+  GetViewAccessibility().SetIsIgnored(false);
+  GetViewAccessibility().SetRole(ax::mojom::Role::kButton);
 
   if (content_setting_image_model_->ShouldNotifyAccessibility(web_contents)) {
     auto name = l10n_util::GetStringUTF16(
         content_setting_image_model_->AccessibilityAnnouncementStringId());
-    SetAccessibleName(name);
-    const std::u16string& accessible_description =
-        l10n_util::GetStringUTF16(IDS_A11Y_OMNIBOX_CHIP_HINT);
-    SetAccessibleDescription(accessible_description);
-    NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
+    GetViewAccessibility().SetName(name);
+
+    GetViewAccessibility().AnnounceAlert(l10n_util::GetStringFUTF16(
+        IDS_A11Y_INDICATORS_ANNOUNCEMENT, name,
+        l10n_util::GetStringUTF16(IDS_A11Y_OMNIBOX_CHIP_HINT)));
+
     content_setting_image_model_->AccessibilityWasNotified(web_contents);
   }
 
@@ -181,30 +191,24 @@ void ContentSettingImageView::Update() {
   // mechanism to show one after the other, but it doesn't seem important now.
   int string_id = content_setting_image_model_->explanatory_string_id();
   if (string_id) {
-    // If this is part of the mac location permissions experiment, show a
-    // persistent label.
-    if (content_setting_image_model_
-            ->IsMacRestoreLocationPermissionExperimentActive()) {
-      SetLabel(l10n_util::GetStringUTF16(string_id));
-      // Reset the slide animation so that the label is persistent and won't
-      // animate out.
-      ResetSlideAnimation(true);
-    } else {
-      // Reset the slide animation so that the label's show/hide animation runs.
-      ResetSlideAnimation(false);
-      AnimateIn(string_id);
-    }
+    // Reset the slide animation so that the label's show/hide animation runs.
+    ResetSlideAnimation(false);
+    AnimateIn(string_id);
   }
 
   content_setting_image_model_->SetAnimationHasRun(web_contents);
 
+  UpdateElementIdentifier();
+}
+
+void ContentSettingImageView::UpdateElementIdentifier() {
   std::optional<ui::ElementIdentifier> element_identifier;
   switch (content_setting_image_model_->image_type()) {
+    case ContentSettingImageModel::ImageType::NOTIFICATIONS:
+      element_identifier = kNotificationContentSettingImageView;
+      break;
     case ContentSettingImageModel::ImageType::MEDIASTREAM:
       element_identifier = kMediaActivityIndicatorElementId;
-      break;
-    case ContentSettingImageModel::ImageType::MIDI:
-      element_identifier = kMidiActivityIndicatorElementId;
       break;
     case ContentSettingImageModel::ImageType::MIDI_SYSEX:
       element_identifier = kMidiSysexActivityIndicatorElementId;
@@ -214,6 +218,8 @@ void ContentSettingImageView::Update() {
   }
   if (element_identifier) {
     SetProperty(views::kElementIdentifierKey, *element_identifier);
+  } else {
+    ClearProperty(views::kElementIdentifierKey);
   }
 }
 
@@ -273,6 +279,16 @@ bool ContentSettingImageView::ShowBubbleImpl() {
     views::Widget* bubble_widget =
         views::BubbleDialogDelegateView::CreateBubble(bubble_view_);
     observation_.Observe(bubble_widget);
+
+    // Update popup bubble's title style.
+    if (views::BubbleFrameView* const frame_view =
+            bubble_view_->GetBubbleFrameView()) {
+      if (views::Label* title_label = frame_view->default_title()) {
+        title_label->SetTextStyle(views::style::STYLE_HEADLINE_4);
+        title_label->SetEnabledColorId(kColorActivityIndicatorForeground);
+      }
+    }
+
     bubble_widget->Show();
     delegate_->OnContentSettingImageBubbleShown(
         content_setting_image_model_->image_type());
@@ -331,16 +347,14 @@ void ContentSettingImageView::AnimationEnded(const gfx::Animation* animation) {
 
   // The promo currently is only used for Notifications, and it is only shown
   // directly after the animation is shown.
-  if (web_contents &&
-      content_setting_image_model_->ShouldShowPromo(web_contents)) {
-    critical_promo_bubble_ =
-        BrowserFeaturePromoController::GetForView(this)->ShowCriticalPromo(
-            user_education::FeaturePromoSpecification::CreateForLegacyPromo(
-                /* feature =*/nullptr, ui::ElementIdentifier(),
-                IDS_NOTIFICATIONS_QUIET_PERMISSION_NEW_REQUEST_PROMO),
-            views::ElementTrackerViews::GetInstance()->GetElementForView(this,
-                                                                         true));
-    content_setting_image_model_->SetPromoWasShown(web_contents);
+  if (web_contents) {
+    const webapps::AppId* app_id =
+        web_app::WebAppTabHelper::GetAppId(web_contents);
+    if (app_id) {
+      user_education::FeaturePromoParams params(
+          feature_engagement::kIPHPwaQuietNotificationFeature, *app_id);
+      browser_->window()->MaybeShowFeaturePromo(std::move(params));
+    }
   }
 }
 

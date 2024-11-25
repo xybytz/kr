@@ -43,12 +43,17 @@ constexpr webui::LocalizedString kLocalizedStringsWithoutPlaceholders[] = {
     {"passwordPageHeader", IDS_MULTIDEVICE_SETUP_PASSWORD_PAGE_HEADER},
     {"enterPassword", IDS_MULTIDEVICE_SETUP_PASSWORD_PAGE_ENTER_PASSWORD_LABEL},
     {"wrongPassword", IDS_MULTIDEVICE_SETUP_PASSWORD_PAGE_WRONG_PASSWORD_LABEL},
+    {"passwordPageHeaderForPIN",
+     IDS_MULTIDEVICE_SETUP_PASSWORD_PAGE_HEADER_FOR_PIN},
+    {"enterPIN", IDS_MULTIDEVICE_SETUP_PASSWORD_PAGE_ENTER_PIN_LABEL},
+    {"wrongPIN", IDS_MULTIDEVICE_SETUP_PASSWORD_PAGE_WRONG_PIN_LABEL},
     {"startSetupPageMultipleDeviceHeader",
      IDS_MULTIDEVICE_SETUP_START_SETUP_PAGE_MULTIPLE_DEVICE_HEADER},
     {"startSetupPageSingleDeviceHeader",
      IDS_MULTIDEVICE_SETUP_START_SETUP_PAGE_SINGLE_DEVICE_HEADER},
     {"startSetupPageOfflineDeviceOption",
      IDS_MULTIDEVICE_SETUP_START_SETUP_PAGE_OFFLINE_DEVICE_OPTION},
+    {"startSetupPageFootnote", IDS_MULTIDEVICE_SETUP_START_SETUP_PAGE_FOOTNOTE},
     {"startSetupPageFeatureMirrorPhoneNotifications",
      IDS_MULTIDEVICE_SETUP_START_SETUP_PAGE_MIRROR_PHONE_NOTIFICATIONS},
     {"startSetupPageFeatureWifiSyncTitle",
@@ -111,12 +116,6 @@ GetLocalizedStringsWithPlaceholders() {
                     GetBoardSpecificBetterTogetherSuiteLearnMoreUrl().spec())));
 
         localized_strings.emplace_back(
-            "startSetupPageFootnote",
-            l10n_util::GetStringFUTF16(
-                IDS_MULTIDEVICE_SETUP_START_SETUP_PAGE_FOOTNOTE,
-                kFootnoteMarker));
-
-        localized_strings.emplace_back(
             "startSetupPageFeatureListAwm",
             l10n_util::GetStringFUTF16(
                 IDS_MULTIDEVICE_SETUP_START_SETUP_PAGE_AWM_DESCRIPTION,
@@ -167,10 +166,6 @@ void AddLocalizedValuesToBuilder(::login::LocalizedValuesBuilder* builder) {
                 ui::GetChromeOSDeviceName(), kFootnoteMarker,
                 base::UTF8ToUTF16(
                     GetBoardSpecificBetterTogetherSuiteLearnMoreUrl().spec()));
-
-  builder->AddF("startSetupPageFootnote",
-                IDS_MULTIDEVICE_SETUP_START_SETUP_PAGE_FOOTNOTE,
-                kFootnoteMarker);
 
   builder->AddF(
       "startSetupPageFeatureListAwm",

@@ -34,24 +34,22 @@ import androidx.annotation.Px;
 
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.LooperMode;
 import org.robolectric.annotation.LooperMode.Mode;
 
+import org.chromium.base.CallbackUtils;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.HistogramWatcher;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.customtabs.features.partialcustomtab.PartialCustomTabBaseStrategy.PartialCustomTabType;
 import org.chromium.chrome.browser.customtabs.features.partialcustomtab.PartialCustomTabDisplayManager.SizeStrategyCreator;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.multiwindow.MultiWindowUtils;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.ui.base.LocalizationUtils;
 
 /** Tests for {@link PartialCustomTabDisplayManager}. */
@@ -60,15 +58,10 @@ import org.chromium.ui.base.LocalizationUtils;
         manifest = Config.NONE,
         shadows = {PartialCustomTabTestRule.ShadowSemanticColorUtils.class})
 @LooperMode(Mode.PAUSED)
-@EnableFeatures({
-    ChromeFeatureList.CCT_RESIZABLE_SIDE_SHEET,
-    ChromeFeatureList.CCT_RESIZABLE_SIDE_SHEET_FOR_THIRD_PARTIES
-})
 public class PartialCustomTabDisplayManagerTest {
     private static final int BOTTOM_SHEET_MAX_WIDTH_DP = 900;
 
     private boolean mFullscreen;
-    @Rule public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
     @Rule public final PartialCustomTabTestRule mPCCTTestRule = new PartialCustomTabTestRule();
 
     private PartialCustomTabDisplayManager createPcctDisplayManager() {
@@ -105,6 +98,7 @@ public class PartialCustomTabDisplayManagerTest {
                         mPCCTTestRule.mOnActivityLayoutCallback,
                         mPCCTTestRule.mActivityLifecycleDispatcher,
                         mPCCTTestRule.mFullscreenManager,
+                        /* isEnteringPip= */ () -> false,
                         /* isTablet= */ false);
         var sizeStrategyCreator = displayManager.getSizeStrategyCreatorForTesting();
         SizeStrategyCreator testSizeStrategyCreator =
@@ -321,7 +315,7 @@ public class PartialCustomTabDisplayManagerTest {
                 "Bottom-Sheet should be the active strategy",
                 PartialCustomTabType.BOTTOM_SHEET,
                 displayManager.getActiveStrategyType());
-        displayManager.onShowSoftInput(() -> {});
+        displayManager.onShowSoftInput(CallbackUtils.emptyRunnable());
         PartialCustomTabTestRule.waitForAnimationToFinish();
         assertTrue(displayManager.getSizeStrategyForTesting().isMaximized());
 
@@ -590,6 +584,7 @@ public class PartialCustomTabDisplayManagerTest {
     }
 
     @Test
+    @DisabledTest(message = "b/354044501")
     public void rotateInMaximizeMode() {
         mPCCTTestRule.configLandscapeMode();
         PartialCustomTabDisplayManager displayManager = createPcctDisplayManager();

@@ -96,18 +96,10 @@ public class ContentSettingsResources {
         }
     }
 
-    /**
-     * Returns the ResourceItem for a ContentSettingsType.
-     * @param delegate A site settings delegate to check feature states. Only needs to be passed
-     *                 to access Cookie icon, title or summary.
-     */
-    private static ResourceItem getResourceItem(int contentType, SiteSettingsDelegate delegate) {
+    /** Returns the ResourceItem for a ContentSettingsType. */
+    private static ResourceItem getResourceItem(int contentType) {
         switch (contentType) {
             case ContentSettingsType.ADS:
-                if (delegate == null) {
-                    return new ResourceItem(
-                            0, 0, ContentSettingValues.ALLOW, ContentSettingValues.BLOCK, 0, 0, 0);
-                }
                 return new ResourceItem(
                         R.drawable.web_asset,
                         R.string.site_settings_page_intrusive_ads_label,
@@ -208,10 +200,6 @@ public class ContentSettingsResources {
                         R.string.website_settings_category_clipboard_a11y);
 
             case ContentSettingsType.COOKIES:
-                if (delegate == null) {
-                    return new ResourceItem(
-                            0, 0, ContentSettingValues.ALLOW, ContentSettingValues.BLOCK, 0, 0, 0);
-                }
                 return new ResourceItem(
                         R.drawable.gm_database_24,
                         R.string.site_data_page_title,
@@ -220,16 +208,6 @@ public class ContentSettingsResources {
                         R.string.website_settings_site_data_page_toggle_sub_label_allow,
                         R.string.website_settings_site_data_page_toggle_sub_label_block,
                         R.string.website_settings_site_data_page_a11y);
-
-            case ContentSettingsType.REQUEST_DESKTOP_SITE:
-                return new ResourceItem(
-                        R.drawable.ic_desktop_windows,
-                        R.string.desktop_site_title,
-                        ContentSettingValues.ALLOW,
-                        ContentSettingValues.BLOCK,
-                        R.string.website_settings_category_desktop_site_allowed,
-                        R.string.website_settings_category_desktop_site_blocked,
-                        R.string.website_settings_category_desktop_site_a11y);
 
             case ContentSettingsType.FEDERATED_IDENTITY_API:
                 return new ResourceItem(
@@ -241,6 +219,16 @@ public class ContentSettingsResources {
                         R.string.website_settings_category_federated_identity_blocked,
                         R.string.website_settings_category_federated_identity_a11y);
 
+            case ContentSettingsType.FILE_SYSTEM_WRITE_GUARD:
+                return new ResourceItem(
+                        R.drawable.ic_file_save_24,
+                        R.string.website_settings_file_system_write_guard_title,
+                        ContentSettingValues.ASK,
+                        ContentSettingValues.BLOCK,
+                        0,
+                        0,
+                        0);
+
             case ContentSettingsType.GEOLOCATION:
                 return new ResourceItem(
                         R.drawable.gm_filled_location_on_24,
@@ -250,6 +238,16 @@ public class ContentSettingsResources {
                         R.string.website_settings_category_location_ask,
                         0,
                         R.string.website_settings_category_location_a11y);
+
+            case ContentSettingsType.HAND_TRACKING:
+                return new ResourceItem(
+                        R.drawable.gm_filled_hand_gesture_24,
+                        R.string.hand_tracking_permission_title,
+                        ContentSettingValues.ASK,
+                        ContentSettingValues.BLOCK,
+                        R.string.website_settings_category_hand_tracking_ask,
+                        R.string.website_settings_category_hand_tracking_blocked,
+                        R.string.website_settings_category_hand_tracking_a11y);
 
             case ContentSettingsType.IDLE_DETECTION:
                 return new ResourceItem(
@@ -271,6 +269,16 @@ public class ContentSettingsResources {
                         0,
                         R.string.website_settings_category_javascript_a11y);
 
+            case ContentSettingsType.JAVASCRIPT_OPTIMIZER:
+                return new ResourceItem(
+                        R.drawable.settings_v8,
+                        R.string.website_settings_javascript_optimizer_link_row_label,
+                        ContentSettingValues.ALLOW,
+                        ContentSettingValues.BLOCK,
+                        R.string.website_settings_category_javascript_optimizer_allowed,
+                        R.string.website_settings_category_javascript_optimizer_blocked,
+                        R.string.website_settings_category_javascript_optimizer_a11y);
+
             case ContentSettingsType.MEDIASTREAM_CAMERA:
                 return new ResourceItem(
                         R.drawable.gm_filled_videocam_24,
@@ -290,16 +298,6 @@ public class ContentSettingsResources {
                         R.string.website_settings_category_mic_ask,
                         0,
                         R.string.website_settings_category_mic_a11y);
-
-            case ContentSettingsType.MIDI:
-                return new ResourceItem(
-                        R.drawable.gm_filled_piano_24,
-                        R.string.midi_permission_title,
-                        null,
-                        null,
-                        0,
-                        0,
-                        0);
 
             case ContentSettingsType.MIDI_SYSEX:
                 return new ResourceItem(
@@ -352,6 +350,16 @@ public class ContentSettingsResources {
                         0,
                         0,
                         0);
+
+            case ContentSettingsType.REQUEST_DESKTOP_SITE:
+                return new ResourceItem(
+                        R.drawable.ic_desktop_windows,
+                        R.string.desktop_site_title,
+                        ContentSettingValues.ALLOW,
+                        ContentSettingValues.BLOCK,
+                        R.string.website_settings_category_desktop_site_allowed,
+                        R.string.website_settings_category_desktop_site_blocked,
+                        R.string.website_settings_category_desktop_site_a11y);
 
             case ContentSettingsType.SENSORS:
                 int sensorsPermissionTitle = R.string.motion_sensors_permission_title;
@@ -442,8 +450,8 @@ public class ContentSettingsResources {
     }
 
     /** Returns the resource id of the 24dp icon for a content type. */
-    public static int getIcon(int contentType, SiteSettingsDelegate delegate) {
-        return getResourceItem(contentType, delegate).getIcon();
+    public static int getIcon(int contentType) {
+        return getResourceItem(contentType).getIcon();
     }
 
     /**
@@ -459,10 +467,8 @@ public class ContentSettingsResources {
     public static Drawable getContentSettingsIcon(
             Context context,
             @ContentSettingsType.EnumType int contentSettingsType,
-            @ContentSettingValues @Nullable Integer value,
-            SiteSettingsDelegate delegate) {
-        Drawable icon =
-                SettingsUtils.getTintedIcon(context, getIcon(contentSettingsType, delegate));
+            @ContentSettingValues @Nullable Integer value) {
+        Drawable icon = SettingsUtils.getTintedIcon(context, getIcon(contentSettingsType));
         if (value != null && value == ContentSettingValues.BLOCK) {
             return getBlockedSquareIcon(context.getResources(), icon);
         }
@@ -489,8 +495,7 @@ public class ContentSettingsResources {
                 isIncognito
                         ? R.color.default_icon_color_blue_light
                         : R.color.default_icon_color_accent1_tint_list;
-        Drawable icon =
-                SettingsUtils.getTintedIcon(context, getIcon(contentSettingsType, null), color);
+        Drawable icon = SettingsUtils.getTintedIcon(context, getIcon(contentSettingsType), color);
         if (value != null && value == ContentSettingValues.BLOCK) {
             return getBlockedSquareIcon(context.getResources(), icon);
         }
@@ -562,42 +567,40 @@ public class ContentSettingsResources {
     }
 
     /**
-     * Returns the resource id of the title (short version), shown on the Site Settings page
-     * and in the global toggle at the top of a Website Settings page for a category.
+     * Returns the resource id of the title (short version), shown on the Site Settings page and in
+     * the global toggle at the top of a Website Settings page for a category.
      */
-    public static int getTitleForCategory(
-            @SiteSettingsCategory.Type int type, SiteSettingsDelegate delegate) {
+    public static int getTitleForCategory(@SiteSettingsCategory.Type int type) {
         if (type == SiteSettingsCategory.Type.THIRD_PARTY_COOKIES) {
             return R.string.third_party_cookies_page_title;
         }
-        return getTitle(SiteSettingsCategory.contentSettingsType(type), delegate);
+        return getTitle(SiteSettingsCategory.contentSettingsType(type));
     }
 
     /**
      * Returns the resource id of the title (short version), shown on the Site Settings page and in
      * the global toggle at the top of a Website Settings page for a content type.
      */
-    public static int getTitle(
-            @ContentSettingsType.EnumType int contentType, SiteSettingsDelegate delegate) {
-        return getResourceItem(contentType, delegate).getTitle();
+    public static int getTitle(@ContentSettingsType.EnumType int contentType) {
+        return getResourceItem(contentType).getTitle();
     }
 
     /**
-     * Returns which ContentSetting the global default is set to, when enabled.
-     * Either Ask/Allow. Not required unless this entry describes a settings
-     * that appears on the Site Settings page and has a global toggle.
+     * Returns which ContentSetting the global default is set to, when enabled. Either Ask/Allow.
+     * Not required unless this entry describes a settings that appears on the Site Settings page
+     * and has a global toggle.
      */
     public static @ContentSettingValues @Nullable Integer getDefaultEnabledValue(int contentType) {
-        return getResourceItem(contentType, null).getDefaultEnabledValue();
+        return getResourceItem(contentType).getDefaultEnabledValue();
     }
 
     /**
-     * Returns which ContentSetting the global default is set to, when disabled.
-     * Usually Block. Not required unless this entry describes a settings
-     * that appears on the Site Settings page and has a global toggle.
+     * Returns which ContentSetting the global default is set to, when disabled. Usually Block. Not
+     * required unless this entry describes a settings that appears on the Site Settings page and
+     * has a global toggle.
      */
     public static @ContentSettingValues @Nullable Integer getDefaultDisabledValue(int contentType) {
-        return getResourceItem(contentType, null).getDefaultDisabledValue();
+        return getResourceItem(contentType).getDefaultDisabledValue();
     }
 
     /**
@@ -645,13 +648,13 @@ public class ContentSettingsResources {
     }
 
     /** Returns the summary (resource id) to show when the content type is enabled. */
-    public static int getEnabledSummary(int contentType, SiteSettingsDelegate delegate) {
-        return getResourceItem(contentType, delegate).getEnabledSummary();
+    public static int getEnabledSummary(int contentType) {
+        return getResourceItem(contentType).getEnabledSummary();
     }
 
     /** Returns the summary (resource id) to show when the content type is disabled. */
-    public static int getDisabledSummary(int contentType, SiteSettingsDelegate delegate) {
-        return getResourceItem(contentType, delegate).getDisabledSummary();
+    public static int getDisabledSummary(int contentType) {
+        return getResourceItem(contentType).getDisabledSummary();
     }
 
     /**
@@ -660,12 +663,13 @@ public class ContentSettingsResources {
      *
      * <p>Returns `0` in case no a11y override is configured.
      */
-    public static int getSummaryOverrideForScreenReader(
-            int contentType, SiteSettingsDelegate delegate) {
-        return getResourceItem(contentType, delegate).getSummaryOverrideForScreenReader();
+    public static int getSummaryOverrideForScreenReader(int contentType) {
+        return getResourceItem(contentType).getSummaryOverrideForScreenReader();
     }
 
-    /** Returns the summary for Geolocation content settings when it is set to 'Allow' (by policy). */
+    /**
+     * Returns the summary for Geolocation content settings when it is set to 'Allow' (by policy).
+     */
     public static int getGeolocationAllowedSummary() {
         return R.string.website_settings_category_allowed;
     }
@@ -718,6 +722,16 @@ public class ContentSettingsResources {
      */
     public static int getAutoDarkWebContentListSummary(boolean enabled) {
         return enabled ? R.string.text_on : R.string.text_off;
+    }
+
+    /**
+     * Returns the allowed/blocked summary for the javascript optimizer content setting, which
+     * should be used for display in the site settings list only.
+     */
+    public static int getJavascriptOptimizerListSummary(boolean enabled) {
+        return enabled
+                ? R.string.website_settings_category_javascript_optimizer_allowed_list
+                : R.string.website_settings_category_javascript_optimizer_blocked_list;
     }
 
     /**

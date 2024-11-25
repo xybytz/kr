@@ -15,6 +15,7 @@
 
 #include <iomanip>
 #include <memory>
+#include <string_view>
 
 #include "base/base_export.h"
 #include "base/files/dir_reader_posix.h"
@@ -153,7 +154,7 @@ void SetLinuxDistro(const std::string& distro) {
 }
 
 bool GetThreadsForProcess(pid_t pid, std::vector<pid_t>* tids) {
-  // 25 > strlen("/proc//task") + strlen(std::to_string(INT_MAX)) + 1 = 22
+  // 25 > strlen("/proc//task") + strlen(base::NumberToString(INT_MAX)) + 1 = 22
   char buf[25];
   strings::SafeSPrintf(buf, "/proc/%d/task", pid);
   return GetThreadsFromProcessDir(buf, tids);
@@ -207,14 +208,15 @@ pid_t FindThreadID(pid_t pid, pid_t ns_tid, bool* ns_pid_supported) {
     if (!ReadFileToString(FilePath(buf), &status))
       return -1;
     StringTokenizer tokenizer(status, "\n");
-    while (tokenizer.GetNext()) {
-      StringPiece value_str(tokenizer.token_piece());
-      if (!StartsWith(value_str, "NSpid"))
+    while (std::optional<std::string_view> token =
+               tokenizer.GetNextTokenView()) {
+      if (!StartsWith(token.value(), "NSpid")) {
         continue;
+      }
 
       *ns_pid_supported = true;
-      std::vector<StringPiece> split_value_str = SplitStringPiece(
-          value_str, "\t", TRIM_WHITESPACE, SPLIT_WANT_NONEMPTY);
+      std::vector<std::string_view> split_value_str = SplitStringPiece(
+          token.value(), "\t", TRIM_WHITESPACE, SPLIT_WANT_NONEMPTY);
       DCHECK_GE(split_value_str.size(), 2u);
       int value;
       // The last value in the list is the PID in the namespace.

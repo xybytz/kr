@@ -14,6 +14,7 @@
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/buildflags.h"
 #include "chrome/browser/first_run/first_run.h"
+#include "chrome/browser/policy/messaging_layer/public/report_client.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/common/buildflags.h"
 #include "content/public/browser/browser_main_parts.h"
@@ -34,14 +35,10 @@ class WebUsbDetector;
 namespace base {
 class CommandLine;
 class RunLoop;
-}
+}  // namespace base
 
 namespace content {
 class SyntheticTrialSyncer;
-}
-
-namespace tracing {
-class TraceEventSystemStatsMonitor;
 }
 
 class ChromeBrowserMainParts : public content::BrowserMainParts {
@@ -67,7 +64,7 @@ class ChromeBrowserMainParts : public content::BrowserMainParts {
   // current browser instance or false if the remote process should handle it
   // (i.e., because the current process is shutting down).
   static bool ProcessSingletonNotificationCallback(
-      const base::CommandLine& command_line,
+      base::CommandLine command_line,
       const base::FilePath& current_directory);
 #endif  // BUILDFLAG(ENABLE_PROCESS_SINGLETON)
 
@@ -174,12 +171,11 @@ class ChromeBrowserMainParts : public content::BrowserMainParts {
   // Parts are deleted in the inverse order they are added.
   std::vector<std::unique_ptr<ChromeBrowserMainExtraParts>> chrome_extra_parts_;
 
-  // The system stats monitor used by chrome://tracing. This doesn't do anything
-  // until tracing of the |system_stats| category is enabled.
-  std::unique_ptr<tracing::TraceEventSystemStatsMonitor>
-      trace_event_system_stats_monitor_;
-
   std::unique_ptr<content::SyntheticTrialSyncer> synthetic_trial_syncer_;
+
+  // ERP client instance, serving all reporting needs in the browser.
+  reporting::ReportQueueProvider::SmartPtr<reporting::ReportingClient>
+      reporting_client_{nullptr, base::OnTaskRunnerDeleter(nullptr)};
 
   // Members initialized after / released before main_message_loop_ ------------
 

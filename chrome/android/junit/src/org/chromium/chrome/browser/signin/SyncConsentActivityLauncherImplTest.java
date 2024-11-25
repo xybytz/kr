@@ -29,6 +29,7 @@ import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.HistogramWatcher;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.signin.services.SigninManager;
 import org.chromium.components.signin.metrics.SigninAccessPoint;
@@ -50,7 +51,7 @@ public class SyncConsentActivityLauncherImplTest {
     @Before
     public void setUp() {
         IdentityServicesProvider.setInstanceForTests(mock(IdentityServicesProvider.class));
-        Profile.setLastUsedProfileForTesting(mProfile);
+        ProfileManager.setLastUsedProfileForTesting(mProfile);
         when(IdentityServicesProvider.get().getSigninManager(any())).thenReturn(mSigninManagerMock);
     }
 
@@ -91,7 +92,7 @@ public class SyncConsentActivityLauncherImplTest {
                                 mContext, SigninAccessPoint.NTP_FEED_CARD_MENU_PROMO));
         Assert.assertTrue(
                 ShadowToast.showedCustomToast(
-                        mContext.getResources().getString(R.string.managed_by_your_organization),
+                        mContext.getString(R.string.managed_by_your_organization),
                         R.id.toast_text));
         watchSigninDisabledToastShownHistogram.assertExpected();
     }

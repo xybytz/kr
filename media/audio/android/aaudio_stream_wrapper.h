@@ -7,6 +7,7 @@
 
 #include <aaudio/AAudio.h>
 
+#include "base/android/requires_api.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/raw_ptr_exclusion.h"
 #include "base/sequence_checker.h"
@@ -14,12 +15,17 @@
 #include "media/base/audio_bus.h"
 #include "media/base/audio_parameters.h"
 
+// For use with REQUIRES_ANDROID_API() and __builtin_available().
+// We need APIs that weren't added until API Level 28. Also, AAudio crashes
+// on P, so only consider Q and above.
+#define AAUDIO_MIN_API 29
+
 namespace media {
 
 class AAudioDestructionHelper;
 
 // Small wrapper around AAudioStream which handles its lifetime.
-class AAudioStreamWrapper {
+class REQUIRES_ANDROID_API(AAUDIO_MIN_API) AAudioStreamWrapper {
  public:
   enum class StreamType {
     kInput,
@@ -83,9 +89,7 @@ class AAudioStreamWrapper {
 
   bool is_closed_ = false;
 
-  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
-  // #addr-of
-  RAW_PTR_EXCLUSION AAudioStream* aaudio_stream_ = nullptr;
+  raw_ptr<AAudioStream> aaudio_stream_ = nullptr;
 
   // Constant used for calculating latency. Amount of nanoseconds per frame.
   const double ns_per_frame_;

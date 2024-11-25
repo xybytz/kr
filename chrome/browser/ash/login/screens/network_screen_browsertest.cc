@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/ash/login/screens/network_screen.h"
+
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include "ash/constants/ash_features.h"
 #include "base/memory/raw_ptr.h"
@@ -13,7 +16,6 @@
 #include "base/test/test_future.h"
 #include "chrome/browser/ash/login/helper.h"
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/fake_target_device_connection_broker.h"
-#include "chrome/browser/ash/login/screens/network_screen.h"
 #include "chrome/browser/ash/login/test/js_checker.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
 #include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
@@ -40,6 +42,9 @@ constexpr char kCancelButton[] = "cancelButton";
 constexpr char kLoadingDialog[] = "loadingDialog";
 constexpr char kConnectingDialog[] = "connectingDialog";
 constexpr char kNextButton[] = "nextButton";
+constexpr char kQuickStartEntryPointVisibleHistogram[] =
+    "QuickStart.EntryPointVisible";
+
 constexpr test::UIPath kCancelButtonLoadingDialog = {
     QuickStartView::kScreenId.name, kLoadingDialog, kCancelButton};
 constexpr test::UIPath kNextNetworkButtonPath = {
@@ -159,7 +164,7 @@ class NetworkScreenTest : public OobeBaseTest {
     auto expected_subtitle_text = l10n_util::GetStringFUTF8(
         IDS_NETWORK_SELECTION_ERROR,
         l10n_util::GetStringUTF16(IDS_SHORT_PRODUCT_OS_NAME),
-        base::UTF8ToUTF16(base::StringPiece(kWifiNetworkName)));
+        base::UTF8ToUTF16(std::string_view(kWifiNetworkName)));
     test::OobeJS()
         .CreateElementTextContentWaiter(expected_subtitle_text,
                                         kNetworkScreenErrorSubtitile)
@@ -177,7 +182,6 @@ class NetworkScreenTest : public OobeBaseTest {
 class NetworkScreenQuickStartEnabled : public NetworkScreenTest {
  public:
   NetworkScreenQuickStartEnabled() {
-    feature_list_.InitAndEnableFeature(features::kOobeQuickStart);
     connection_broker_factory_.set_initial_feature_support_status(
         quick_start::TargetDeviceConnectionBroker::FeatureSupportStatus::
             kUndetermined);
@@ -245,11 +249,17 @@ IN_PROC_BROWSER_TEST_F(NetworkScreenQuickStartEnabled,
       IDS_LOGIN_QUICK_START_SETUP_NETWORK_SCREEN_ENTRY_POINT);
   test::OobeJS().ExpectTrue(NetworkElementSelector(kQuickStartEntryPointName) +
                             " == null");
+  histogram_tester_.ExpectBucketCount(
+      kQuickStartEntryPointVisibleHistogram,
+      quick_start::QuickStartMetrics::EntryPoint::NETWORK_SCREEN, 0);
 }
 
 IN_PROC_BROWSER_TEST_F(NetworkScreenQuickStartEnabled,
                        QuickStartButtonFunctionalWhenFeatureEnabled) {
   EnterQuickStartFlowFromNetworkScreen();
+  histogram_tester_.ExpectBucketCount(
+      kQuickStartEntryPointVisibleHistogram,
+      quick_start::QuickStartMetrics::EntryPoint::NETWORK_SCREEN, 1);
 }
 
 IN_PROC_BROWSER_TEST_F(NetworkScreenQuickStartEnabled,
@@ -266,6 +276,9 @@ IN_PROC_BROWSER_TEST_F(NetworkScreenQuickStartEnabled,
 
 IN_PROC_BROWSER_TEST_F(NetworkScreenQuickStartEnabled,
                        WifiCredentialsTransfered) {
+  // Prevent the test from waiting for the stabilization period.
+  network_screen()->set_no_quickstart_delay_for_testing();
+
   LoginDisplayHost::default_host()
       ->GetWizardContext()
       ->quick_start_setup_ongoing = true;

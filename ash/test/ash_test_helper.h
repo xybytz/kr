@@ -54,9 +54,11 @@ namespace ash {
 class AppListTestHelper;
 class AmbientAshTestHelper;
 class AshPixelTestHelper;
+class FakeDlcserviceClient;
+class FakeFwupdDownloadClient;
 class SavedDeskTestHelper;
 class TestKeyboardControllerObserver;
-class TestNewWindowDelegateProvider;
+class TestNewWindowDelegate;
 class TestWallpaperControllerClient;
 
 namespace hotspot_config {
@@ -130,7 +132,7 @@ class AshTestHelper : public aura::test::AuraTestHelper {
   // `is_new_profile` indicates whether the logged-in account is new.
   void SimulateUserLogin(
       const AccountId& account_id,
-      user_manager::UserType user_type = user_manager::USER_TYPE_REGULAR,
+      user_manager::UserType user_type = user_manager::UserType::kRegular,
       bool is_new_profile = false);
 
   // Stabilizes the variable UI components (such as the battery view).
@@ -185,6 +187,10 @@ class AshTestHelper : public aura::test::AuraTestHelper {
     return cros_hotspot_config_test_helper_.get();
   }
 
+  FakeDlcserviceClient* dlc_service_client() {
+    return dlc_service_client_.get();
+  }
+
  private:
   // Scoping objects to manage init/teardown of services.
   class BluezDBusManagerInitializer;
@@ -213,14 +219,16 @@ class AshTestHelper : public aura::test::AuraTestHelper {
   std::unique_ptr<FlossDBusManagerInitializer> floss_dbus_manager_initializer_;
   std::unique_ptr<PowerPolicyControllerInitializer>
       power_policy_controller_initializer_;
-  std::unique_ptr<TestNewWindowDelegateProvider> new_window_delegate_provider_;
+  std::unique_ptr<TestNewWindowDelegate> new_window_delegate_;
   std::unique_ptr<views::TestViewsDelegate> test_views_delegate_;
+  std::unique_ptr<FakeDlcserviceClient> dlc_service_client_;
   std::unique_ptr<TestSessionControllerClient> session_controller_client_;
   std::unique_ptr<TestKeyboardControllerObserver>
       test_keyboard_controller_observer_;
   std::unique_ptr<AmbientAshTestHelper> ambient_ash_test_helper_;
   std::unique_ptr<TestWallpaperControllerClient> wallpaper_controller_client_;
   std::unique_ptr<SavedDeskTestHelper> saved_desk_test_helper_;
+  std::unique_ptr<FakeFwupdDownloadClient> fwupd_download_client_;
   std::unique_ptr<quick_pair::Mediator::Factory> quick_pair_mediator_factory_;
   std::unique_ptr<quick_pair::QuickPairBrowserDelegate>
       quick_pair_browser_delegate_;

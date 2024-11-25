@@ -7,11 +7,13 @@
 #include <utility>
 
 #include "base/containers/contains.h"
+#include "chrome/browser/ui/tabs/tab_group.h"
 #include "chrome/browser/ui/tabs/tab_renderer_data.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "components/tab_groups/tab_group_color.h"
 #include "components/tab_groups/tab_group_id.h"
 #include "components/tab_groups/tab_group_visual_data.h"
+#include "ui/base/mojom/menu_source_type.mojom-forward.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/range/range.h"
@@ -158,6 +160,11 @@ std::optional<int> FakeBaseTabStripController::GetFirstTabInGroup(
   return std::nullopt;
 }
 
+TabGroup* FakeBaseTabStripController::GetTabGroup(
+    const tab_groups::TabGroupId& group_id) const {
+  return nullptr;
+}
+
 gfx::Range FakeBaseTabStripController::ListTabsInGroup(
     const tab_groups::TabGroupId& group) const {
   int first_tab = -1;
@@ -203,7 +210,7 @@ std::optional<int> FakeBaseTabStripController::GetActiveIndex() const {
 }
 
 bool FakeBaseTabStripController::IsTabSelected(int index) const {
-  return false;
+  return GetSelectionModel().IsSelected(index);
 }
 
 bool FakeBaseTabStripController::IsTabPinned(int index) const {
@@ -226,9 +233,11 @@ void FakeBaseTabStripController::ToggleSelected(int index) {
 void FakeBaseTabStripController::AddSelectionFromAnchorTo(int index) {
 }
 
-bool FakeBaseTabStripController::BeforeCloseTab(int index,
-                                                CloseTabSource source) {
-  return true;
+void FakeBaseTabStripController::OnCloseTab(
+    int index,
+    CloseTabSource source,
+    base::OnceCallback<void()> callback) {
+  std::move(callback).Run();
 }
 
 void FakeBaseTabStripController::ToggleTabAudioMute(int index) {}
@@ -240,8 +249,7 @@ void FakeBaseTabStripController::CloseTab(int index) {
 void FakeBaseTabStripController::ShowContextMenuForTab(
     Tab* tab,
     const gfx::Point& p,
-    ui::MenuSourceType source_type) {
-}
+    ui::mojom::MenuSourceType source_type) {}
 
 int FakeBaseTabStripController::HasAvailableDragActions() const {
   return 0;
@@ -280,6 +288,10 @@ bool FakeBaseTabStripController::CanDrawStrokes() const {
   return false;
 }
 
+bool FakeBaseTabStripController::IsFrameButtonsRightAligned() const {
+  return false;
+}
+
 SkColor FakeBaseTabStripController::GetFrameColor(
     BrowserFrameActiveState active_state) const {
   return gfx::kPlaceholderColor;
@@ -299,9 +311,20 @@ Profile* FakeBaseTabStripController::GetProfile() const {
   return nullptr;
 }
 
+BrowserWindowInterface*
+FakeBaseTabStripController::GetBrowserWindowInterface() {
+  return nullptr;
+}
+
 const Browser* FakeBaseTabStripController::GetBrowser() const {
   return nullptr;
 }
+
+#if BUILDFLAG(IS_CHROMEOS)
+bool FakeBaseTabStripController::IsLockedForOnTask() {
+  return on_task_locked_;
+}
+#endif
 
 void FakeBaseTabStripController::SetActiveIndex(int new_index) {
   DCHECK(IsValidIndex(new_index));

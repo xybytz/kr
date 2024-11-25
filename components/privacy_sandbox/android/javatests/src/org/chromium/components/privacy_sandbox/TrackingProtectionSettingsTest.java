@@ -6,11 +6,18 @@ package org.chromium.components.privacy_sandbox;
 
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.matcher.ViewMatchers.hasDescendant;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
+import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
+import static org.hamcrest.CoreMatchers.containsString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+import android.content.Context;
+
+import androidx.test.espresso.contrib.RecyclerViewActions;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Before;
@@ -25,8 +32,8 @@ import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.Batch;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.components.browser_ui.settings.BlankUiTestActivitySettingsTestRule;
+import org.chromium.components.browser_ui.site_settings.SiteSettingsDelegate;
 import org.chromium.components.browser_ui.site_settings.WebsitePreferenceBridge;
 import org.chromium.components.browser_ui.site_settings.WebsitePreferenceBridgeJni;
 import org.chromium.content_public.browser.BrowserContextHandle;
@@ -39,13 +46,13 @@ public class TrackingProtectionSettingsTest {
     public final BlankUiTestActivitySettingsTestRule mSettingsRule =
             new BlankUiTestActivitySettingsTestRule();
 
-    @Rule public JniMocker mJniMocker = new JniMocker();
-
     @Mock private WebsitePreferenceBridge.Natives mBridgeMock;
 
     @Mock private BrowserContextHandle mContextHandleMock;
 
     @Mock private TrackingProtectionDelegate mDelegate;
+
+    @Mock private SiteSettingsDelegate mSiteSettingsDelegate;
 
     private TrackingProtectionSettings mFragment;
 
@@ -58,9 +65,11 @@ public class TrackingProtectionSettingsTest {
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
-        mJniMocker.mock(WebsitePreferenceBridgeJni.TEST_HOOKS, mBridgeMock);
+        WebsitePreferenceBridgeJni.setInstanceForTesting(mBridgeMock);
 
         when(mDelegate.getBrowserContext()).thenReturn(mContextHandleMock);
+        when(mDelegate.getSiteSettingsDelegate(any(Context.class)))
+                .thenReturn(mSiteSettingsDelegate);
     }
 
     private void launchTrackingProtectionSettings() {
@@ -76,13 +85,32 @@ public class TrackingProtectionSettingsTest {
 
     @Test
     @SmallTest
-    public void testShowTrackingProtectionUi() {
-        when(mDelegate.isBlockAll3PCDEnabled()).thenReturn(true);
+    public void testShowTrackingProtectionRewindUi() {
+        when(mDelegate.isBlockAll3pcEnabled()).thenReturn(true);
         when(mDelegate.isDoNotTrackEnabled()).thenReturn(true);
 
         launchTrackingProtectionSettings();
 
         onView(withText(R.string.privacy_sandbox_tracking_protection_description))
+                .check(matches(isDisplayed()));
+    }
+
+    @Test
+    @SmallTest
+    public void testIpFpProtectionsDisplayedInLaunchUi() {
+        when(mDelegate.isBlockAll3pcEnabled()).thenReturn(true);
+        when(mDelegate.isDoNotTrackEnabled()).thenReturn(true);
+        when(mDelegate.shouldDisplayIpProtection()).thenReturn(true);
+        when(mDelegate.shouldDisplayFingerprintingProtection()).thenReturn(true);
+
+        launchTrackingProtectionSettings();
+
+        onView(withId(R.id.recycler_view))
+                .perform(
+                        RecyclerViewActions.scrollTo(
+                                hasDescendant(withText(containsString("Learn how limiting")))));
+        onView(withText(containsString("Learn how IP protection"))).check(matches(isDisplayed()));
+        onView(withText(containsString("Learn how limiting digital")))
                 .check(matches(isDisplayed()));
     }
 }

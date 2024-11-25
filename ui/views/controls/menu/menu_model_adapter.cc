@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "base/check.h"
+#include "base/memory/raw_ptr.h"
 #include "base/notreached.h"
 #include "ui/base/interaction/element_identifier.h"
 #include "ui/base/models/menu_model.h"
@@ -67,13 +68,28 @@ std::unique_ptr<MenuItemView> MenuModelAdapter::CreateMenu() {
   return menu;
 }
 
+std::optional<SkColor> MenuModelAdapter::GetLabelColor(int command_id) const {
+  // Use STYLE_PRIMARY for title item. This aligns with 3-dot menu title style.
+  return command_id == ui::MenuModel::kTitleId
+             ? std::make_optional(
+                   menu_->GetSubmenu()->GetColorProvider()->GetColor(
+                       views::TypographyProvider::Get().GetColorId(
+                           views::style::CONTEXT_MENU,
+                           views::style::STYLE_PRIMARY)))
+             : std::nullopt;
+}
+
+bool MenuModelAdapter::IsTearingDown() const {
+  return !menu_model_;
+}
+
 // Static.
 MenuItemView* MenuModelAdapter::AddMenuItemFromModelAt(ui::MenuModel* model,
                                                        size_t model_index,
                                                        MenuItemView* menu,
                                                        size_t menu_index,
                                                        int item_id) {
-  absl::optional<MenuItemView::Type> type;
+  std::optional<MenuItemView::Type> type;
   const auto menu_type = model->GetTypeAt(model_index);
   switch (menu_type) {
     case ui::MenuModel::TYPE_TITLE:
@@ -126,7 +142,6 @@ MenuItemView* MenuModelAdapter::AddMenuItemFromModelAt(ui::MenuModel* model,
   menu_item_view->set_is_new(model->IsNewFeatureAt(model_index));
   menu_item_view->set_may_have_mnemonics(
       model->MayHaveMnemonicsAt(model_index));
-  menu_item_view->SetAccessibleName(model->GetAccessibleNameAt(model_index));
   const ui::ElementIdentifier element_id =
       model->GetElementIdentifierAt(model_index);
   if (element_id) {
@@ -171,8 +186,8 @@ void MenuModelAdapter::ExecuteCommand(int id, int mouse_event_flags) {
 
 bool MenuModelAdapter::IsTriggerableEvent(MenuItemView* source,
                                           const ui::Event& e) {
-  return e.type() == ui::ET_GESTURE_TAP ||
-         e.type() == ui::ET_GESTURE_TAP_DOWN ||
+  return e.type() == ui::EventType::kGestureTap ||
+         e.type() == ui::EventType::kGestureTapDown ||
          (e.IsMouseEvent() && (triggerable_event_flags_ & e.flags()));
 }
 
@@ -228,16 +243,18 @@ bool MenuModelAdapter::IsItemChecked(int id) const {
 
 void MenuModelAdapter::WillShowMenu(MenuItemView* menu) {
   // Look up the menu model for this menu.
-  const std::map<MenuItemView*, ui::MenuModel*>::const_iterator map_iterator =
-      menu_map_.find(menu);
+  const std::map<MenuItemView*,
+                 raw_ptr<ui::MenuModel, CtnExperimental>>::const_iterator
+      map_iterator = menu_map_.find(menu);
   CHECK(map_iterator != menu_map_.end());
   map_iterator->second->MenuWillShow();
 }
 
 void MenuModelAdapter::WillHideMenu(MenuItemView* menu) {
   // Look up the menu model for this menu.
-  const std::map<MenuItemView*, ui::MenuModel*>::const_iterator map_iterator =
-      menu_map_.find(menu);
+  const std::map<MenuItemView*,
+                 raw_ptr<ui::MenuModel, CtnExperimental>>::const_iterator
+      map_iterator = menu_map_.find(menu);
   CHECK(map_iterator != menu_map_.end());
   map_iterator->second->MenuWillClose();
 }

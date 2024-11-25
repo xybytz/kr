@@ -10,7 +10,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/ui/android/tab_model/tab_model.h"
 #include "chrome/browser/ui/android/tab_model/tab_model_list.h"
-#include "chrome/browser/ui/android/tab_model/tab_model_observer.h"
+#include "chrome/browser/ui/android/tab_model/tab_model_test_helper.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/messages/android/mock_message_dispatcher_bridge.h"
@@ -18,6 +18,7 @@
 #include "components/safe_browsing/core/common/features.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_task_environment.h"
+#include "content/public/test/test_renderer_host.h"
 #include "content/public/test/web_contents_tester.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -75,6 +76,8 @@ class ChromeTailoredSecurityServiceTest : public testing::Test {
  protected:
   content::BrowserTaskEnvironment task_environment_;
   raw_ptr<TestingBrowserProcess> browser_process_;
+  // Ensure RenderFrameHostTester to be created and used by the tests.
+  content::RenderViewHostTestEnabler rvh_test_enabler_;
   TestingProfile profile_;
   std::unique_ptr<TestChromeTailoredSecurityService>
       chrome_tailored_security_service_;
@@ -82,56 +85,6 @@ class ChromeTailoredSecurityServiceTest : public testing::Test {
   testing::NiceMock<messages::MockMessageDispatcherBridge>
       message_dispatcher_bridge_;
   base::test::ScopedFeatureList feature_list;
-};
-
-class TestTabModel : public TabModel {
- public:
-  explicit TestTabModel(TestingProfile* profile)
-      : TabModel(profile, chrome::android::ActivityType::kCustomTab),
-        profile_(profile) {}
-
-  int GetTabCount() const override { return tab_count_; }
-  int GetActiveIndex() const override { return 0; }
-  void SetWebContents(content::WebContents* webcontents) {
-    web_contents_ = webcontents;
-  }
-  content::WebContents* GetWebContentsAt(int index) const override {
-    return web_contents_;
-  }
-  base::android::ScopedJavaLocalRef<jobject> GetJavaObject() const override {
-    return nullptr;
-  }
-
-  void SetProfile(TestingProfile* profile) { profile_ = profile; }
-
-  Profile* GetProfile() const override { return profile_; }
-
-  void CreateTab(TabAndroid* parent,
-                 content::WebContents* web_contents) override {}
-  void HandlePopupNavigation(TabAndroid* parent,
-                             NavigateParams* params) override {}
-  content::WebContents* CreateNewTabForDevTools(const GURL& url) override {
-    return nullptr;
-  }
-  bool IsSessionRestoreInProgress() const override { return false; }
-  bool IsActiveModel() const override { return false; }
-  TabAndroid* GetTabAt(int index) const override { return nullptr; }
-  void SetActiveIndex(int index) override {}
-  void CloseTabAt(int index) override {}
-  void AddObserver(TabModelObserver* observer) override {
-    observer_ = observer;
-  }
-  void RemoveObserver(TabModelObserver* observer) override {
-    if (observer == observer_) {
-      observer_ = nullptr;
-    }
-  }
-
-  raw_ptr<TabModelObserver> observer_ = nullptr;
-  raw_ptr<TestingProfile> profile_ = nullptr;
-  // A fake value for the current number of tabs.
-  int tab_count_{0};
-  raw_ptr<content::WebContents> web_contents_ = nullptr;
 };
 
 TEST_F(ChromeTailoredSecurityServiceTest,
@@ -159,8 +112,7 @@ TEST_F(ChromeTailoredSecurityServiceTest, WhenATabIsAvailableShowsTheMessage) {
   std::unique_ptr<content::WebContents> web_contents(
       content::WebContentsTester::CreateTestWebContents(getProfile(), nullptr));
   content::WebContents* raw_contents = web_contents.get();
-  tab_model.SetWebContents(raw_contents);
-  tab_model.tab_count_ = 1;
+  tab_model.SetWebContentsList({raw_contents});
 
   chrome_tailored_security_service_->OnSyncNotificationMessageRequest(
       kTailoredSecurityEnabled);
@@ -202,11 +154,11 @@ TEST_F(ChromeTailoredSecurityServiceTest,
   std::unique_ptr<content::WebContents> web_contents(
       content::WebContentsTester::CreateTestWebContents(getProfile(), nullptr));
   content::WebContents* raw_contents = web_contents.get();
-  tab_model.SetWebContents(raw_contents);
-  tab_model.tab_count_ = 1;
+  tab_model.SetWebContentsList({raw_contents});
 
   // Simulate observers being notified after a tab is added.
-  tab_model.observer_->DidAddTab(nullptr, TabModel::TabLaunchType::FROM_LINK);
+  tab_model.GetObserver()->DidAddTab(nullptr,
+                                     TabModel::TabLaunchType::FROM_LINK);
 
   histograms_.ExpectBucketCount(
       "SafeBrowsing.TailoredSecurity.SyncPromptEnabledNotificationResult2",
@@ -241,8 +193,7 @@ TEST_F(ChromeTailoredSecurityServiceTest,
   std::unique_ptr<content::WebContents> web_contents(
       content::WebContentsTester::CreateTestWebContents(getProfile(), nullptr));
   content::WebContents* raw_contents = web_contents.get();
-  tab_model.SetWebContents(raw_contents);
-  tab_model.tab_count_ = 1;
+  tab_model.SetWebContentsList({raw_contents});
 
   chrome_tailored_security_service_->OnSyncNotificationMessageRequest(
       kTailoredSecurityEnabled);
@@ -263,11 +214,11 @@ TEST_F(ChromeTailoredSecurityServiceTest,
   TabModelList::AddTabModel(&tab_model);
 
   // There should be no observers at this point.
-  EXPECT_FALSE(tab_model.observer_);
+  EXPECT_FALSE(tab_model.GetObserver());
   chrome_tailored_security_service_->OnSyncNotificationMessageRequest(
       kTailoredSecurityEnabled);
 
-  EXPECT_TRUE(tab_model.observer_);
+  EXPECT_TRUE(tab_model.GetObserver());
   TabModelList::RemoveTabModel(&tab_model);
 }
 

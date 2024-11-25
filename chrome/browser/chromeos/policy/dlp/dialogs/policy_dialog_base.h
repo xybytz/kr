@@ -32,9 +32,9 @@ using WarningWithJustificationCallback =
 // PolicyDialogBase is the base class for showing Data Protection warnings or
 // detailed error dialogs.
 class PolicyDialogBase : public views::DialogDelegateView {
- public:
-  METADATA_HEADER(PolicyDialogBase);
+  METADATA_HEADER(PolicyDialogBase, views::DialogDelegateView)
 
+ public:
   // Type of the restriction for which the dialog is created.
   enum class Restriction {
     kScreenCapture,
@@ -53,6 +53,7 @@ class PolicyDialogBase : public views::DialogDelegateView {
     // IDs related to file error dialog in a mixed error scenario.
     kDlpSectionId,
     kEnterpriseConnectorsUnknownScanResultSectionId,
+    kEnterpriseConnectorsScanFailedResultSectionId,
     kEnterpriseConnectorsSensitiveDataSectionId,
     kEnterpriseConnectorsMalwareSectionId,
     kEnterpriseConnectorsEncryptedFileSectionId,

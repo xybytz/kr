@@ -5,7 +5,11 @@
 #ifndef CHROME_BROWSER_PRIVACY_SANDBOX_PRIVACY_SANDBOX_SERVICE_IMPL_H_
 #define CHROME_BROWSER_PRIVACY_SANDBOX_PRIVACY_SANDBOX_SERVICE_IMPL_H_
 
+// clang-format off
+#include "chrome/browser/privacy_sandbox/privacy_sandbox_countries.h"
+#include "chrome/browser/privacy_sandbox/privacy_sandbox_countries_impl.h"
 #include "chrome/browser/privacy_sandbox/privacy_sandbox_service.h"
+// clang-format on
 
 #include <set>
 
@@ -15,17 +19,20 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/privacy_sandbox/canonical_topic.h"
+#include "components/privacy_sandbox/privacy_sandbox_notice_storage.h"
 #include "components/privacy_sandbox/privacy_sandbox_prefs.h"
 #include "components/privacy_sandbox/privacy_sandbox_settings.h"
+#include "components/privacy_sandbox/tracking_protection_settings.h"
 #include "components/profile_metrics/browser_profile_type.h"
+#include "components/signin/public/identity_manager/identity_manager.h"
+#include "components/user_education/common/product_messaging_controller.h"
 #include "content/public/browser/interest_group_manager.h"
 #include "net/base/schemeful_site.h"
 
+DECLARE_REQUIRED_NOTICE_IDENTIFIER(kPrivacySandboxNotice);
+
 class Browser;
 class PrefService;
-#if !BUILDFLAG(IS_ANDROID)
-class TrustSafetySentimentService;
-#endif
 
 namespace content {
 class BrowsingDataRemover;
@@ -43,45 +50,53 @@ namespace views {
 class Widget;
 }
 
-class PrivacySandboxServiceImpl : public PrivacySandboxService {
+class PrivacySandboxServiceImpl : public PrivacySandboxService,
+                                  public signin::IdentityManager::Observer {
  public:
   PrivacySandboxServiceImpl(
+      Profile* profile,
       privacy_sandbox::PrivacySandboxSettings* privacy_sandbox_settings,
+      privacy_sandbox::TrackingProtectionSettings* tracking_protection_settings,
       scoped_refptr<content_settings::CookieSettings> cookie_settings,
       PrefService* pref_service,
       content::InterestGroupManager* interest_group_manager,
       profile_metrics::BrowserProfileType profile_type,
       content::BrowsingDataRemover* browsing_data_remover,
       HostContentSettingsMap* host_content_settings_map,
-#if !BUILDFLAG(IS_ANDROID)
-      TrustSafetySentimentService* sentiment_service,
-#endif
       browsing_topics::BrowsingTopicsService* browsing_topics_service,
-      first_party_sets::FirstPartySetsPolicyService* first_party_sets_service);
+      first_party_sets::FirstPartySetsPolicyService* first_party_sets_service,
+      PrivacySandboxCountries* privacy_sandbox_countries);
 
   ~PrivacySandboxServiceImpl() override;
 
   // PrivacySandboxService:
-  PromptType GetRequiredPromptType() override;
-  void PromptActionOccurred(PromptAction action) override;
+  PromptType GetRequiredPromptType(SurfaceType surface_type) override;
+  void PromptActionOccurred(PromptAction action,
+                            SurfaceType surface_type) override;
 #if !BUILDFLAG(IS_ANDROID)
   void PromptOpenedForBrowser(Browser* browser, views::Widget* widget) override;
   void PromptClosedForBrowser(Browser* browser) override;
   bool IsPromptOpenForBrowser(Browser* browser) override;
+  void HoldQueueHandle(user_education::RequiredNoticePriorityHandle
+                           messaging_priority_handle) override;
+  bool IsNoticeQueued() override;
+  void MaybeUnqueueNotice() override;
+  void MaybeQueueNotice() override;
+  bool IsHoldingHandle() override;
 #endif  // !BUILDFLAG(IS_ANDROID)
   void ForceChromeBuildForTests(bool force_chrome_build) override;
   bool IsPrivacySandboxRestricted() override;
   bool IsRestrictedNoticeEnabled() override;
-  void SetFirstPartySetsDataAccessEnabled(bool enabled) override;
-  bool IsFirstPartySetsDataAccessEnabled() const override;
-  bool IsFirstPartySetsDataAccessManaged() const override;
+  void SetRelatedWebsiteSetsDataAccessEnabled(bool enabled) override;
+  bool IsRelatedWebsiteSetsDataAccessEnabled() const override;
+  bool IsRelatedWebsiteSetsDataAccessManaged() const override;
   base::flat_map<net::SchemefulSite, net::SchemefulSite>
-  GetSampleFirstPartySets() const override;
-  std::optional<net::SchemefulSite> GetFirstPartySetOwner(
+  GetSampleRelatedWebsiteSets() const override;
+  std::optional<net::SchemefulSite> GetRelatedWebsiteSetOwner(
       const GURL& site_url) const override;
-  std::optional<std::u16string> GetFirstPartySetOwnerForDisplay(
+  std::optional<std::u16string> GetRelatedWebsiteSetOwnerForDisplay(
       const GURL& site_url) const override;
-  bool IsPartOfManagedFirstPartySet(
+  bool IsPartOfManagedRelatedWebsiteSet(
       const net::SchemefulSite& site) const override;
   void GetFledgeJoiningEtldPlusOneForDisplay(
       base::OnceCallback<void(std::vector<std::string>)> callback) override;
@@ -99,6 +114,7 @@ class PrivacySandboxServiceImpl : public PrivacySandboxService {
       const privacy_sandbox::CanonicalTopic& topic) const override;
   void SetTopicAllowed(privacy_sandbox::CanonicalTopic topic,
                        bool allowed) override;
+  bool PrivacySandboxPrivacyGuideShouldShowAdTopicsCard() override;
   void TopicsToggleChanged(bool new_value) const override;
   bool TopicsConsentRequired() const override;
   bool TopicsHasActiveConsent() const override;
@@ -106,6 +122,12 @@ class PrivacySandboxServiceImpl : public PrivacySandboxService {
       const override;
   base::Time TopicsConsentLastUpdateTime() const override;
   std::string TopicsConsentLastUpdateText() const override;
+
+  // signin::IdentityManager::Observer
+  void OnPrimaryAccountChanged(
+      const signin::PrimaryAccountChangeEvent& event_details) override;
+  void OnExtendedAccountInfoRemoved(const AccountInfo& info) override;
+  void OnExtendedAccountInfoUpdated(const AccountInfo& info) override;
 
  protected:
   friend class PrivacySandboxServiceTest;
@@ -154,13 +176,13 @@ class PrivacySandboxServiceImpl : public PrivacySandboxService {
                            PrivacySandboxNoPromptEnabled);
   FRIEND_TEST_ALL_PREFIXES(PrivacySandboxServiceTest, PrivacySandboxRestricted);
   FRIEND_TEST_ALL_PREFIXES(PrivacySandboxServiceTest,
-                           FirstPartySetsNotRelevantMetricAllowedCookies);
+                           RelatedWebsiteSetsNotRelevantMetricAllowedCookies);
   FRIEND_TEST_ALL_PREFIXES(PrivacySandboxServiceTest,
-                           FirstPartySetsNotRelevantMetricBlockedCookies);
+                           RelatedWebsiteSetsNotRelevantMetricBlockedCookies);
   FRIEND_TEST_ALL_PREFIXES(PrivacySandboxServiceTest,
-                           FirstPartySetsEnabledMetric);
+                           RelatedWebsiteSetsEnabledMetric);
   FRIEND_TEST_ALL_PREFIXES(PrivacySandboxServiceTest,
-                           FirstPartySetsDisabledMetric);
+                           RelatedWebsiteSetsDisabledMetric);
   FRIEND_TEST_ALL_PREFIXES(
       PrivacySandboxServiceTest,
       RecordPrivacySandbox4StartupMetrics_PromptSuppressed_Explicitly);
@@ -175,6 +197,8 @@ class PrivacySandboxServiceImpl : public PrivacySandboxService {
       RecordPrivacySandbox4StartupMetrics_PromptNotSuppressed_ROW);
   FRIEND_TEST_ALL_PREFIXES(PrivacySandboxServiceTest,
                            RecordPrivacySandbox4StartupMetrics_APIs);
+  FRIEND_TEST_ALL_PREFIXES(PrivacySandboxPrivacyGuideShouldShowAdTopicsTest,
+                           ReturnsCorrectStatus);
   FRIEND_TEST_ALL_PREFIXES(
       PrivacySandboxServiceM1RestrictedNoticePromptTest,
       RecordPrivacySandbox4StartupMetrics_PromptNotSuppressed);
@@ -284,10 +308,6 @@ class PrivacySandboxServiceImpl : public PrivacySandboxService {
   // Helper function to log first party sets state.
   void RecordFirstPartySetsStateHistogram(FirstPartySetsState state);
 
-  // Helper function to actually make the metrics call for
-  // LogPrivacySandboxState.
-  void RecordPrivacySandboxHistogram(SettingsPrivacySandboxEnabled state);
-
   // Logs the state of the privacy sandbox and cookie settings. Called once per
   // profile startup.
   void LogPrivacySandboxState();
@@ -315,9 +335,9 @@ class PrivacySandboxServiceImpl : public PrivacySandboxService {
       bool third_party_cookies_blocked,
       bool is_chrome_build);
 
-  // Checks to see if initialization of the user's FPS pref is required, and if
+  // Checks to see if initialization of the user's RWS pref is required, and if
   // so, sets the default value based on the user's current cookie settings.
-  void MaybeInitializeFirstPartySetsPref();
+  void MaybeInitializeRelatedWebsiteSetsPref();
 
   // Updates the preferences which store the current Topics consent information.
   void RecordUpdatedTopicsConsent(
@@ -331,27 +351,42 @@ class PrivacySandboxServiceImpl : public PrivacySandboxService {
 #endif  // !BUILDFLAG(IS_ANDROID)
 
  private:
-  raw_ptr<privacy_sandbox::PrivacySandboxSettings, DanglingUntriaged>
-      privacy_sandbox_settings_;
+  raw_ptr<Profile> profile_;
+  raw_ptr<privacy_sandbox::PrivacySandboxSettings> privacy_sandbox_settings_;
+  raw_ptr<privacy_sandbox::TrackingProtectionSettings>
+      tracking_protection_settings_;
   scoped_refptr<content_settings::CookieSettings> cookie_settings_;
   raw_ptr<PrefService> pref_service_;
   raw_ptr<content::InterestGroupManager> interest_group_manager_;
   profile_metrics::BrowserProfileType profile_type_;
+  std::unique_ptr<privacy_sandbox::PrivacySandboxNoticeStorage> notice_storage_;
   raw_ptr<content::BrowsingDataRemover> browsing_data_remover_;
   raw_ptr<HostContentSettingsMap> host_content_settings_map_;
-#if !BUILDFLAG(IS_ANDROID)
-  raw_ptr<TrustSafetySentimentService, DanglingUntriaged> sentiment_service_;
-#endif
   raw_ptr<browsing_topics::BrowsingTopicsService> browsing_topics_service_;
   raw_ptr<first_party_sets::FirstPartySetsPolicyService>
       first_party_sets_policy_service_;
+  raw_ptr<user_education::ProductMessagingController>
+      product_messaging_controller_;
+  raw_ptr<PrivacySandboxCountries> privacy_sandbox_countries_;
+  base::ScopedObservation<signin::IdentityManager,
+                          signin::IdentityManager::Observer>
+      identity_manager_obs_{this};
+  raw_ptr<signin::IdentityManager> identity_manager_;
+  PrimaryAccountUserGroups primary_account_state_ =
+      PrimaryAccountUserGroups::kNotSet;
 
   PrefChangeRegistrar user_prefs_registrar_;
+
+  user_education::RequiredNoticePriorityHandle notice_handle_;
 
 #if !BUILDFLAG(IS_ANDROID)
   // A map of Browser windows which have an open Privacy Sandbox prompt,
   // to the Widget for that prompt.
-  std::map<Browser*, views::Widget*> browsers_to_open_prompts_;
+  std::map<Browser*, raw_ptr<views::Widget, CtnExperimental>>
+      browsers_to_open_prompts_;
+
+  // Returns instance of product messaging controller.
+  user_education::ProductMessagingController* GetProductMessagingController();
 #endif
 
   // Fake implementation for current and blocked topics.
@@ -362,11 +397,6 @@ class PrivacySandboxServiceImpl : public PrivacySandboxService {
   std::set<privacy_sandbox::CanonicalTopic> fake_blocked_topics_ = {
       {browsing_topics::Topic(3), kFakeTaxonomyVersion},
       {browsing_topics::Topic(4), kFakeTaxonomyVersion}};
-
-  // Informs the TrustSafetySentimentService, if it exists, that a
-  // Privacy Sandbox interaction for an area has occurred The area is
-  // determined by |action|. Only a subset of actions has a corresponding area.
-  void InformSentimentService(PrivacySandboxService::PromptAction action);
 
   // Record user action metrics based on the |action|.
   void RecordPromptActionMetrics(PrivacySandboxService::PromptAction action);
@@ -380,11 +410,22 @@ class PrivacySandboxServiceImpl : public PrivacySandboxService {
   // Called when the Ad measurement preference is changed.
   void OnAdMeasurementPrefChanged();
 
+  // Called on Startup to initialize the IdentityManager observation +
+  // histograms.
+  void MaybeInitIdentityManager();
+
+  // Returns a PrivacySandboxCountries reference.
+  PrivacySandboxCountries* GetPrivacySandboxCountries();
+
   // Returns true if _any_ of the k-API prefs are disabled via policy or
   // the prompt was suppressed via policy.
   static bool IsM1PrivacySandboxEffectivelyManaged(PrefService* pref_service);
 
+  // Emits startup histograms relating to the user's sign in status.
+  void MaybeEmitPromptStartupAccountMetrics();
+
   bool force_chrome_build_for_tests_ = false;
+  bool should_emit_dark_launch_startup_metrics_ = true;
 
   base::WeakPtrFactory<PrivacySandboxServiceImpl> weak_factory_{this};
 };

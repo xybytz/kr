@@ -12,7 +12,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/ui/views/select_file_dialog_extension.h"
+#include "chrome/browser/ui/views/select_file_dialog_extension/select_file_dialog_extension.h"
 #include "content/public/browser/render_frame_host.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 
@@ -40,8 +40,8 @@ inline constexpr char kScriptClickCancel[] =
 // %s should be replaced by the target directory name wrapped by double-quotes.
 inline constexpr char kScriptClickDirectory[] =
     "(function() {"
-    "  var dirs = document.querySelectorAll('#directory-tree .entry-name');"
-    "  Array.from(dirs).filter(a => a.innerText === %s)[0].click();"
+    "  var dirs = document.querySelectorAll('#directory-tree xf-tree-item');"
+    "  Array.from(dirs).filter(a => a.getAttribute('label') === %s)[0].click();"
     "})();";
 
 // Script for clicking a file element in the right pane of the selector.
@@ -59,9 +59,9 @@ inline constexpr char kScriptClickFile[] =
 // selector.
 inline constexpr char kScriptGetElements[] =
     "(function() {"
-    "  var dirs = document.querySelectorAll('#directory-tree .entry-name');"
+    "  var dirs = document.querySelectorAll('#directory-tree xf-tree-item');"
     "  var files = document.querySelectorAll('#file-list .file');"
-    "  return {dirNames: Array.from(dirs, a => a.innerText),"
+    "  return {dirNames: Array.from(dirs, a => a.getAttribute('label')),"
     "          fileNames: Array.from(files, a => a.getAttribute('file-name'))};"
     "})();";
 
@@ -133,18 +133,15 @@ class ArcSelectFilesHandler : public ui::SelectFileDialog::Listener {
       mojom::FileSystemHost::GetFileSelectorElementsCallback callback);
 
   // ui::SelectFileDialog::Listener overrides:
-  void FileSelected(const ui::SelectedFileInfo& file,
-                    int index,
-                    void* params) override;
-  void MultiFilesSelected(const std::vector<ui::SelectedFileInfo>& files,
-                          void* params) override;
-  void FileSelectionCanceled(void* params) override;
+  void FileSelected(const ui::SelectedFileInfo& file, int index) override;
+  void MultiFilesSelected(
+      const std::vector<ui::SelectedFileInfo>& files) override;
+  void FileSelectionCanceled() override;
 
  private:
   friend class ArcSelectFilesHandlerTest;
 
-  void FilesSelectedInternal(const std::vector<ui::SelectedFileInfo>& files,
-                             void* params);
+  void FilesSelectedInternal(const std::vector<ui::SelectedFileInfo>& files);
 
   void SetDialogHolderForTesting(
       std::unique_ptr<SelectFileDialogHolder> dialog_holder);

@@ -7,6 +7,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_cssstylevalue_string.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/css_property_name.h"
+#include "third_party/blink/renderer/core/css/css_scoped_keyword_value.h"
 #include "third_party/blink/renderer/core/css/css_value_list.h"
 #include "third_party/blink/renderer/core/css/css_value_pair.h"
 #include "third_party/blink/renderer/core/css/cssom/css_style_value.h"
@@ -36,7 +37,6 @@ CSSValueList* CssValueListForPropertyID(CSSPropertyID property_id) {
       return CSSValueList::CreateSlashSeparated();
     default:
       NOTREACHED();
-      return nullptr;
   }
 }
 
@@ -64,6 +64,16 @@ const CSSValue* StyleValueToCSSValue(
   // TODO(https://crbug.com/545324): Move this into a method on
   // CSSProperty when there are more of these cases.
   switch (property_id) {
+    case CSSPropertyID::kAnchorScope: {
+      // The 'all' keyword is tree-scoped.
+      if (const auto* ident =
+              DynamicTo<CSSIdentifierValue>(style_value.ToCSSValue());
+          ident && ident->GetValueID() == CSSValueID::kAll) {
+        return MakeGarbageCollected<cssvalue::CSSScopedKeywordValue>(
+            ident->GetValueID());
+      }
+      break;
+    }
     case CSSPropertyID::kBorderBottomLeftRadius:
     case CSSPropertyID::kBorderBottomRightRadius:
     case CSSPropertyID::kBorderTopLeftRadius:
@@ -236,7 +246,6 @@ const CSSValue* CoerceStyleValueOrString(
   }
 
   NOTREACHED();
-  return nullptr;
 }
 
 const CSSValue* CoerceStyleValuesOrStrings(
@@ -266,8 +275,7 @@ const CSSValue* CoerceStyleValuesOrStrings(
     if (!css_value) {
       return nullptr;
     }
-    if (css_value->IsCSSWideKeyword() ||
-        css_value->IsVariableReferenceValue()) {
+    if (css_value->IsCSSWideKeyword() || css_value->IsUnparsedDeclaration()) {
       return style_values.size() == 1U ? css_value : nullptr;
     }
     result->Append(*css_value);
@@ -387,7 +395,7 @@ void StylePropertyMap::append(
 
   CSSValueList* current_value = nullptr;
   if (const CSSValue* css_value = GetProperty(property_id)) {
-    if (css_value->IsVariableReferenceValue() ||
+    if (css_value->IsUnparsedDeclaration() ||
         css_value->IsPendingSubstitutionValue()) {
       // https://drafts.css-houdini.org/css-typed-om/#dom-stylepropertymap-append
       // 8. If props[property] contains a var() reference, throw a TypeError.

@@ -8,6 +8,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -28,6 +29,7 @@ import org.junit.runner.RunWith;
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.BaseSwitches;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.process_launcher.ChildConnectionAllocator;
@@ -35,11 +37,10 @@ import org.chromium.base.process_launcher.ChildProcessConnection;
 import org.chromium.base.process_launcher.FileDescriptorInfo;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.content_public.browser.test.ChildProcessAllocatorSettings;
 import org.chromium.content_public.browser.test.ContentJUnit4ClassRunner;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_shell_apk.ChildProcessLauncherTestHelperService;
 import org.chromium.content_shell_apk.ChildProcessLauncherTestUtils;
 import org.chromium.content_shell_apk.ContentShellActivity;
@@ -81,11 +82,10 @@ public class ChildProcessLauncherHelperTest {
     @Test
     @MediumTest
     @Feature({"ProcessManagement"})
-    @ChildProcessAllocatorSettings(
-            sandboxedServiceCount = 2,
-            sandboxedServiceName = DEFAULT_SANDBOXED_PROCESS_SERVICE)
     @DisabledTest(message = "Flaky - crbug.com/752691")
     public void testBindServiceFromMultipleProcesses() throws RemoteException {
+        ChildProcessLauncherHelperImpl.setSandboxServicesSettingsForTesting(
+                /* factory= */ null, 2, DEFAULT_SANDBOXED_PROCESS_SERVICE);
         final Context context = InstrumentationRegistry.getTargetContext();
 
         // Start the Helper service.
@@ -235,9 +235,9 @@ public class ChildProcessLauncherHelperTest {
     }
 
     private static void warmUpOnUiThreadBlocking(final Context context, boolean sandboxed) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
-                    ChildProcessLauncherHelperImpl.warmUp(context, sandboxed);
+                    ChildProcessLauncherHelperImpl.warmUpOnAnyThread(context, sandboxed);
                 });
         ChildProcessConnection connection = getWarmUpConnection(sandboxed);
         Assert.assertNotNull(connection);
@@ -267,6 +267,9 @@ public class ChildProcessLauncherHelperTest {
     @Test
     @MediumTest
     @Feature({"ProcessManagement"})
+    @DisableIf.Build(
+            sdk_is_greater_than = Build.VERSION_CODES.TIRAMISU,
+            message = "Broken in 14+, crbug.com/354765949")
     public void testWarmUp() {
         // Use the default creation parameters.
         testWarmUpImpl();
@@ -275,6 +278,9 @@ public class ChildProcessLauncherHelperTest {
     @Test
     @MediumTest
     @Feature({"ProcessManagement"})
+    @DisableIf.Build(
+            sdk_is_greater_than = Build.VERSION_CODES.TIRAMISU,
+            message = "Broken in 14+, crbug.com/354765949")
     public void testWarmUpWithBindToCaller() {
         Context context = InstrumentationRegistry.getTargetContext();
         ChildProcessCreationParamsImpl.set(
@@ -293,6 +299,9 @@ public class ChildProcessLauncherHelperTest {
     @Test
     @MediumTest
     @Feature({"ProcessManagement"})
+    @DisableIf.Build(
+            sdk_is_greater_than = Build.VERSION_CODES.TIRAMISU,
+            message = "Broken in 14+, crbug.com/354765949")
     public void testWarmUpProcessCrashBeforeUse() {
         Assert.assertEquals(0, getConnectedSandboxedServicesCount());
 
@@ -320,6 +329,9 @@ public class ChildProcessLauncherHelperTest {
     @Test
     @MediumTest
     @Feature({"ProcessManagement"})
+    @DisableIf.Build(
+            sdk_is_greater_than = Build.VERSION_CODES.TIRAMISU,
+            message = "Broken in 14+, crbug.com/354765949")
     public void testWarmUpProcessCrashAfterUse() {
         Context context = InstrumentationRegistry.getTargetContext();
         warmUpOnUiThreadBlocking(context, /* sandboxed= */ true);
@@ -345,6 +357,9 @@ public class ChildProcessLauncherHelperTest {
     @Test
     @MediumTest
     @Feature({"ProcessManagement"})
+    @DisableIf.Build(
+            sdk_is_greater_than = Build.VERSION_CODES.TIRAMISU,
+            message = "Broken in 14+, crbug.com/354765949")
     public void testWarmUpPrivilegedProcess() {
         Assert.assertEquals(0, getConnectedServicesCount());
 
@@ -370,6 +385,9 @@ public class ChildProcessLauncherHelperTest {
     @Test
     @MediumTest
     @Feature({"ProcessManagement"})
+    @DisableIf.Build(
+            sdk_is_greater_than = Build.VERSION_CODES.TIRAMISU,
+            message = "Broken in 14+, crbug.com/354765949")
     public void testLauncherCleanup() {
         ChildProcessLauncherHelperImpl launcher =
                 startSandboxedChildProcess(BLOCK_UNTIL_SETUP, /* doSetupConnection= */ true);
@@ -415,7 +433,7 @@ public class ChildProcessLauncherHelperTest {
                 ChildProcessLauncherTestUtils.runOnLauncherAndGetResult(
                         () -> connection.isStrongBindingBound()));
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> ApplicationStatus.onStateChangeForTesting(activity, ActivityState.STOPPED));
         Assert.assertFalse(ApplicationStatus.hasVisibleActivities());
         Assert.assertFalse(
@@ -432,7 +450,7 @@ public class ChildProcessLauncherHelperTest {
         final ContentShellActivity activity =
                 mActivityTestRule.launchContentShellWithUrl("about:blank");
         mActivityTestRule.waitForActiveShellToBeDoneLoading();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> ApplicationStatus.onStateChangeForTesting(activity, ActivityState.STOPPED));
         Assert.assertFalse(ApplicationStatus.hasVisibleActivities());
 

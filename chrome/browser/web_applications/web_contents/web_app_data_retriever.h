@@ -22,8 +22,6 @@
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "third_party/blink/public/mojom/manifest/manifest.mojom-forward.h"
 
-class GURL;
-
 namespace content {
 class WebContents;
 }
@@ -55,7 +53,6 @@ class WebAppDataRetriever : content::WebContentsObserver {
   // |manifest_url| is empty if manifest is empty.
   using CheckInstallabilityCallback =
       base::OnceCallback<void(blink::mojom::ManifestPtr opt_manifest,
-                              const GURL& manifest_url,
                               bool valid_manifest_for_web_app,
                               webapps::InstallableStatusCode)>;
 
@@ -77,7 +74,8 @@ class WebAppDataRetriever : content::WebContentsObserver {
   virtual void GetWebAppInstallInfo(content::WebContents* web_contents,
                                     GetWebAppInstallInfoCallback callback);
 
-  // Performs installability check and invokes |callback| with manifest.
+  // Performs installability checks and invokes `callback` with the contents of
+  // the first manifest linked in the document.
   virtual void CheckInstallabilityAndRetrieveManifest(
       content::WebContents* web_contents,
       CheckInstallabilityCallback callback,
@@ -86,7 +84,7 @@ class WebAppDataRetriever : content::WebContentsObserver {
   // Downloads icons from |icon_urls|. Runs |callback| with a map of
   // the retrieved icons.
   virtual void GetIcons(content::WebContents* web_contents,
-                        const base::flat_set<GURL>& extra_favicon_urls,
+                        const IconUrlSizeSet& extra_favicon_urls,
                         bool skip_page_favicons,
                         bool fail_all_if_any_fail,
                         GetIconsCallback callback);
@@ -107,8 +105,7 @@ class WebAppDataRetriever : content::WebContentsObserver {
                          IconsMap icons_map,
                          DownloadedIconsHttpResults icons_http_results);
 
-  void CallCallbackOnError(
-      std::optional<webapps::InstallableStatusCode> error_code);
+  void CallCallbackOnError(webapps::InstallableStatusCode error_code);
   bool ShouldStopRetrieval() const;
 
   std::unique_ptr<WebAppInstallInfo> fallback_install_info_;

@@ -13,7 +13,6 @@
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "base/memory/raw_ptr.h"
-#include "base/strings/string_piece.h"
 #include "base/test/scoped_feature_list.h"
 #include "device/udev_linux/fake_udev_loader.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -231,6 +230,49 @@ TEST_F(AcceleratorLookupTest, FilteredAccelerators) {
   // keyboard.
   EXPECT_EQ(1u, actual.size());
   EXPECT_TRUE(CompareAccelerators(expected, actual));
+}
+
+class AcceleratorDetailsTextTest
+    : public AcceleratorLookupTest,
+      public testing::WithParamInterface<
+          std::tuple<AcceleratorDetails, std::u16string>> {
+ public:
+  void SetUp() override {
+    AcceleratorLookupTest::SetUp();
+    std::tie(details_, expected_) = GetParam();
+  }
+
+ protected:
+  AcceleratorDetails details_;
+  std::u16string expected_;
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    // Empty to simplify gtest output
+    ,
+    AcceleratorDetailsTextTest,
+    testing::ValuesIn(std::vector<
+                      std::tuple<AcceleratorDetails, std::u16string>>{
+        {{ui::Accelerator(ui::VKEY_A, ui::EF_NONE), u"a"}, u"a"},
+        {{ui::Accelerator(ui::VKEY_BROWSER_REFRESH, ui::EF_NONE),
+          u"browserRefresh"},
+         u"browserRefresh"},
+        {{ui::Accelerator(ui::VKEY_A, ui::EF_CONTROL_DOWN), u"a"}, u"ctrl+a"},
+        {{ui::Accelerator(ui::VKEY_A, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN),
+          u"a"},
+         u"ctrl+alt+a"},
+        {{ui::Accelerator(ui::VKEY_A,
+                          ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN |
+                              ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN),
+          u"a"},
+         u"search+ctrl+alt+shift+a"},
+        {{ui::Accelerator(ui::VKEY_A, ui::EF_COMMAND_DOWN), u"a"}, u"search+a"},
+    }));
+
+TEST_P(AcceleratorDetailsTextTest, ExpectedText) {
+  const std::u16string actual =
+      AcceleratorLookup::GetAcceleratorDetailsText(details_);
+  EXPECT_EQ(expected_, actual);
 }
 
 }  // namespace ash

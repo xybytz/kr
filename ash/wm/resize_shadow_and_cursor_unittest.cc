@@ -13,6 +13,7 @@
 #include "ash/wm/resize_shadow.h"
 #include "ash/wm/resize_shadow_controller.h"
 #include "ash/wm/test/test_non_client_frame_view_ash.h"
+#include "ash/wm/window_properties.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/wm_event.h"
 #include "base/functional/bind.h"
@@ -117,7 +118,7 @@ class ResizeShadowAndCursorTest : public AshTestBase {
   // corner of |window_|. Tests whether the resize shadow is shown.
   void ProcessBottomRightResizeGesture(ui::EventType type,
                                        const gfx::Vector2dF& delta) {
-    if (type == ui::ET_GESTURE_SCROLL_END) {
+    if (type == ui::EventType::kGestureScrollEnd) {
       // After gesture scroll ends, there should be no resize shadow.
       VerifyResizeShadow(false);
     } else {
@@ -389,6 +390,26 @@ TEST_F(ResizeShadowAndCursorTest, Minimize) {
   VerifyResizeShadow(false);
 }
 
+// Verifies that the shadow hides when it is disabled.
+TEST_F(ResizeShadowAndCursorTest, ResizeShadowDisabled) {
+  ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
+  ASSERT_TRUE(WindowState::Get(window())->IsNormalStateType());
+
+  generator.MoveMouseTo(200, 50);
+  VerifyResizeShadow(true);
+
+  // Move the cursor off of the shadow.
+  generator.MoveMouseTo(50, 50);
+  VerifyResizeShadow(false);
+
+  // Disable the shadow.
+  window()->SetProperty(kDisableResizeShadow, true);
+
+  // Move the cursor back on and confirm it's disabled.
+  generator.MoveMouseTo(200, 50);
+  VerifyResizeShadow(false);
+}
+
 // Verifies that the lock style shadow gets updated when the window's bounds
 // changed.
 TEST_F(ResizeShadowAndCursorTest, LockShadowBounds) {
@@ -479,8 +500,11 @@ TEST_F(ResizeShadowAndCursorTest, ResizeShadowTypeChange) {
 
 // Tests that resize shadow matches window rounded corners.
 TEST_F(ResizeShadowAndCursorTest, ResizeShadowMatchesWindowRoundness) {
-  base::test::ScopedFeatureList scoped_features;
-  scoped_features.InitAndEnableFeature(chromeos::features::kRoundedWindows);
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitWithFeatures(
+      {chromeos::features::kRoundedWindows,
+       chromeos::features::kFeatureManagementRoundedWindows},
+      /*disabled_features=*/{});
 
   ASSERT_FALSE(GetShadow());
   WindowState* window_state = WindowState::Get(window());

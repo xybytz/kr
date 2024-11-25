@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "content/browser/renderer_host/render_frame_host_manager_browsertest.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -26,7 +28,6 @@
 #include "base/synchronization/lock.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/bind.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/thread_annotations.h"
 #include "base/time/time.h"
 #include "base/values.h"
@@ -38,10 +39,10 @@
 #include "content/browser/renderer_host/navigation_entry_restore_context_impl.h"
 #include "content/browser/renderer_host/navigation_request.h"
 #include "content/browser/renderer_host/render_frame_host_impl.h"
-#include "content/browser/renderer_host/render_frame_host_manager_browsertest.h"
 #include "content/browser/renderer_host/render_frame_proxy_host.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
+#include "content/browser/renderer_host/spare_render_process_host_manager_impl.h"
 #include "content/browser/site_info.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -63,6 +64,7 @@
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/isolated_world_ids.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
@@ -1305,7 +1307,8 @@ class RenderFrameHostManagerSpoofingTest : public RenderFrameHostManagerTest {
   // but the spoofing tests synchronize execution using window title changes.
   void ExecuteScript(const ToRenderFrameHost& adapter, const char* script) {
     adapter.render_frame_host()->ExecuteJavaScriptForTests(
-        base::UTF8ToUTF16(script), base::NullCallback());
+        base::UTF8ToUTF16(script), base::NullCallback(),
+        ISOLATED_WORLD_ID_GLOBAL);
   }
 };
 
@@ -1576,7 +1579,7 @@ IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerTest,
 // Ensures that a pending navigation's URL  is no longer visible after the
 // speculative RFH is discarded due to a concurrent renderer-initiated
 // navigation.  See https://crbug.com/760342.
-// TODO(https://crbug.com/945194): Disabled due to flaky timeouts.
+// TODO(crbug.com/41448629): Disabled due to flaky timeouts.
 IN_PROC_BROWSER_TEST_P(
     RenderFrameHostManagerTest,
     DISABLED_ResetVisibleURLOnCrossProcessNavigationInterrupted) {
@@ -1744,6 +1747,8 @@ IN_PROC_BROWSER_TEST_P(
       "\r\n"
       "\r\n");
   original_response2.Done();
+  EXPECT_TRUE(first_reload.WaitForRequestRedirected());
+  first_reload.ResumeNavigation();
   second_redirect_response.WaitForRequest();
   second_redirect_response.Send(
       "HTTP/1.1 200 OK\r\n"
@@ -2097,7 +2102,7 @@ class RenderViewHostDestructionObserver : public WebContentsObserver {
     watched_render_view_hosts_.erase(rvh);
   }
 
-  std::set<RenderViewHost*> watched_render_view_hosts_;
+  std::set<raw_ptr<RenderViewHost, SetExperimental>> watched_render_view_hosts_;
 };
 
 // Crashes under ThreadSanitizer, http://crbug.com/356758.
@@ -2129,7 +2134,7 @@ IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerTest,
   SiteInstance* blank_site_instance =
       shell()->web_contents()->GetPrimaryMainFrame()->GetSiteInstance();
   EXPECT_EQ(shell()->web_contents()->GetLastCommittedURL(), GURL());
-  EXPECT_EQ(blank_site_instance->GetSiteURL(), GURL::EmptyGURL());
+  EXPECT_EQ(blank_site_instance->GetSiteURL(), GURL());
   rvh_observers.EnsureRVHGetsDestructed(blank_rvh);
 
   // Now navigate to the view-source URL and ensure we got a different
@@ -2788,7 +2793,7 @@ IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerTest,
   entries.push_back(std::move(cloned_entry));
   Shell* new_shell =
       Shell::CreateNewWindow(shell()->web_contents()->GetBrowserContext(),
-                             GURL::EmptyGURL(), nullptr, gfx::Size());
+                             GURL(), nullptr, gfx::Size());
   FrameTreeNode* new_root =
       static_cast<WebContentsImpl*>(new_shell->web_contents())
           ->GetPrimaryFrameTree()
@@ -3564,6 +3569,47 @@ IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerTest,
       ExecJs(root, JsReplace("history.pushState({}, '', $1);", file_url)));
   ASSERT_TRUE(web_contents->GetPrimaryMainFrame()->IsRenderFrameLive());
   EXPECT_EQ(4, web_contents->GetController().GetEntryCount());
+
+  // Illegal schemes would not normally be allowed to commit by CanCommitURL,
+  // but they are granted an exception if allow_universal_access_from_file_urls
+  // is in use.
+  GURL illegal_url("google:com");
+  EXPECT_TRUE(ExecJs(
+      root, JsReplace("history.replaceState({}, '', $1);", illegal_url)));
+  ASSERT_TRUE(web_contents->GetPrimaryMainFrame()->IsRenderFrameLive());
+  EXPECT_EQ(4, web_contents->GetController().GetEntryCount());
+
+  // Illegal schemes should also work for document.open on same-origin frames,
+  // where the initiator's URL is inherited (in the renderer process).
+  std::string create_frame_and_open_script =
+      "var new_iframe = document.createElement('iframe');"
+      "document.documentElement.appendChild(new_iframe);"
+      "new_iframe.contentDocument.open();";
+  EXPECT_TRUE(ExecJs(shell(), create_frame_and_open_script));
+  EXPECT_EQ(
+      illegal_url,
+      root->child_at(0)->current_frame_host()->last_document_url_in_renderer());
+  // Ensure the renderer process has not crashed.
+  ASSERT_TRUE(ExecJs(shell(), "true"));
+  ASSERT_TRUE(root->child_at(0)->current_frame_host()->IsRenderFrameLive());
+
+  // Now disable universal access, while still allowing file URLs to access each
+  // other. This generally turns off the exemption from commit-time security
+  // checks, while still allowing document.open to work in file:// origins.
+  prefs.allow_universal_access_from_file_urls = false;
+  prefs.allow_file_access_from_file_urls = true;
+  web_contents->SetWebPreferences(prefs);
+
+  // Calling document.open on another iframe should remember that the process
+  // already had an exemption for file:// origins and continue to work.
+  // See https://crbug.com/326250356#comment26.
+  EXPECT_TRUE(ExecJs(shell(), create_frame_and_open_script));
+  EXPECT_EQ(
+      illegal_url,
+      root->child_at(1)->current_frame_host()->last_document_url_in_renderer());
+  // Ensure the renderer process has not crashed.
+  ASSERT_TRUE(ExecJs(shell(), "true"));
+  ASSERT_TRUE(root->child_at(1)->current_frame_host()->IsRenderFrameLive());
 }
 
 // Ensure that navigating back from a sad tab to an existing process works
@@ -3634,9 +3680,10 @@ IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerTest, LastCommittedOrigin) {
 
   // Start a navigation to a b.com URL, and don't wait for commit.
   GURL url_b(embedded_test_server()->GetURL("b.com", "/title2.html"));
-  TestFrameNavigationObserver commit_observer(root);
+  TestNavigationManager navigation_manager(web_contents, url_b);
   RenderFrameDeletedObserver deleted_observer(rfh_a);
   shell()->LoadURL(url_b);
+  navigation_manager.WaitForSpeculativeRenderFrameHostCreation();
 
   // The speculative RFH shouln't have a last committed origin (the default
   // value is a unique origin). The current RFH shouldn't change its last
@@ -3647,7 +3694,7 @@ IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerTest, LastCommittedOrigin) {
 
   // Verify that the last committed origin is set for the b.com RHF once it
   // commits.
-  commit_observer.WaitForCommit();
+  ASSERT_TRUE(navigation_manager.WaitForNavigationFinished());
   EXPECT_EQ(url::Origin::Create(url_b), rfh_b->GetLastCommittedOrigin());
   EXPECT_EQ(rfh_b, web_contents->GetPrimaryMainFrame());
 
@@ -3938,7 +3985,7 @@ IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerTest,
 
   TestNavigationManager cross_site_navigation(shell()->web_contents(), site2);
   shell()->LoadURL(site2);
-  EXPECT_TRUE(cross_site_navigation.WaitForRequestStart());
+  cross_site_navigation.WaitForSpeculativeRenderFrameHostCreation();
 
   RenderFrameHostImpl* speculative_rfh =
       static_cast<WebContentsImpl*>(shell()->web_contents())
@@ -3951,7 +3998,7 @@ IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerTest,
       GURL("javascript:(0)"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       std::string());
 
-  cross_site_navigation.ResumeNavigation();
+  ASSERT_TRUE(cross_site_navigation.WaitForNavigationFinished());
   // No crash means everything worked!
 }
 
@@ -5480,7 +5527,6 @@ class RenderFrameHostManagerUnloadBrowserTest
       return blink::mojom::SuddenTerminationDisablerType::
           kVisibilityChangeHandler;
     NOTREACHED();
-    return blink::mojom::SuddenTerminationDisablerType::kUnloadHandler;
   }
 
   // Returns the list of event targets that the given `event_name` should be
@@ -5497,7 +5543,6 @@ class RenderFrameHostManagerUnloadBrowserTest
       return {"window", "document"};
     }
     NOTREACHED();
-    return {};
   }
 
   // Adds an unload event handler (can be for the unload, pagehide, or
@@ -5926,8 +5971,8 @@ class AssertForegroundHelper {
 #else   // BUILDFLAG(IS_APPLE)
   // Same as above without the Mac specific base::PortProvider.
   void AssertForegroundAndRepost(const base::Process& renderer_process) {
-    ASSERT_EQ(renderer_process.GetPriority(),
-              base::Process::Priority::kUserBlocking);
+    ASSERT_NE(renderer_process.GetPriority(),
+              base::Process::Priority::kBestEffort);
     base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&AssertForegroundHelper::AssertForegroundAndRepost,
@@ -5949,7 +5994,7 @@ class AssertForegroundHelper {
 // "visible" widget being added to the process. This test discards the spare
 // RenderProcessHost if present, to ensure that it is not used in the
 // cross-process navigation.
-// TODO(https://crbug.com/1197438): Flaky on Mac.
+// TODO(crbug.com/40760155): Flaky on Mac.
 #if BUILDFLAG(IS_APPLE)
 #define MAYBE_ForegroundNavigationIsNeverBackgroundedWithoutSpareProcess \
   DISABLED_ForegroundNavigationIsNeverBackgroundedWithoutSpareProcess
@@ -5972,8 +6017,9 @@ IN_PROC_BROWSER_TEST_P(
 
   // Discard the spare RenderProcessHost to ensure a new RenderProcessHost
   // is created and has the right prioritization.
-  RenderProcessHostImpl::DiscardSpareRenderProcessHostForTesting();
-  EXPECT_FALSE(RenderProcessHostImpl::GetSpareRenderProcessHostForTesting());
+  auto& spare_manager = SpareRenderProcessHostManagerImpl::Get();
+  spare_manager.CleanupSparesForTesting();
+  EXPECT_TRUE(spare_manager.GetSpares().empty());
 
   // Start a navigation to b.com to ensure a cross-process navigation is
   // in progress and ensure the process for the speculative host is different.
@@ -5981,6 +6027,7 @@ IN_PROC_BROWSER_TEST_P(
   content::TestNavigationManager navigation_manager(web_contents, url);
 
   shell()->LoadURL(url);
+  navigation_manager.WaitForSpeculativeRenderFrameHostCreation();
   RenderProcessHost* speculative_rph = web_contents->GetPrimaryFrameTree()
                                            .root()
                                            ->render_manager()
@@ -5993,7 +6040,8 @@ IN_PROC_BROWSER_TEST_P(
   // TODO(gab, nasko): On Android IsProcessBackgrounded is currently giving
   // incorrect value at this stage of the process lifetime. This should be
   // fixed in follow up cleanup work. See https://crbug.com/560446.
-  EXPECT_FALSE(speculative_rph->IsProcessBackgrounded());
+  EXPECT_NE(speculative_rph->GetPriority(),
+            base::Process::Priority::kBestEffort);
 #endif
 
   // Wait for the underlying OS process to have launched and be ready to
@@ -6032,17 +6080,28 @@ IN_PROC_BROWSER_TEST_P(
       static_cast<WebContentsImpl*>(shell()->web_contents());
 
   // Start off navigating to a.com and capture the process used to commit.
+  SpareRenderProcessHostStartedObserver spare_started_observer;
   EXPECT_TRUE(NavigateToURL(
       shell(), embedded_test_server()->GetURL("a.com", "/title1.html")));
+  // The AndroidWarmUpSpareRendererWithTimeout feature will create a spare
+  // renderer after the navigation finishes or with a delay so we need to
+  // explicitly wait.
+  if (base::FeatureList::IsEnabled(
+          features::kAndroidWarmUpSpareRendererWithTimeout)) {
+    spare_started_observer.WaitForSpareRenderProcessStarted();
+  }
   RenderProcessHost* start_rph =
       web_contents->GetPrimaryMainFrame()->GetProcess();
 
-  // At this time, there should be a spare RenderProcesHost. Capture it for
-  // testing expectations later.
-  RenderProcessHost* spare_rph =
-      RenderProcessHostImpl::GetSpareRenderProcessHostForTesting();
-  EXPECT_TRUE(spare_rph);
-  EXPECT_TRUE(spare_rph->IsProcessBackgrounded());
+  // At this time, there should be at least one RenderProcessHost. Capture them
+  // for testing expectations later.
+  auto& spare_manager = SpareRenderProcessHostManagerImpl::Get();
+  EXPECT_THAT(
+      spare_manager.GetSpares(),
+      testing::Each(testing::Property(&RenderProcessHost::GetPriority,
+                                      base::Process::Priority::kBestEffort)));
+  std::vector<int> spare_rph_ids = spare_manager.GetSpareIds();
+  ASSERT_FALSE(spare_rph_ids.empty());
 
   // Start a navigation to b.com to ensure a cross-process navigation is
   // in progress and ensure the process for the speculative host is
@@ -6051,6 +6110,7 @@ IN_PROC_BROWSER_TEST_P(
   content::TestNavigationManager navigation_manager(web_contents, url);
 
   shell()->LoadURL(url);
+  navigation_manager.WaitForSpeculativeRenderFrameHostCreation();
   RenderProcessHost* speculative_rph = web_contents->GetPrimaryFrameTree()
                                            .root()
                                            ->render_manager()
@@ -6058,24 +6118,25 @@ IN_PROC_BROWSER_TEST_P(
                                            ->GetProcess();
   EXPECT_NE(start_rph, speculative_rph);
 
-  // In this test case, the spare RenderProcessHost will be used, so verify it
+  // In this test case, a spare RenderProcessHost will be used, so verify it
   // and ensure it is ready.
-  EXPECT_EQ(spare_rph, speculative_rph);
+  EXPECT_THAT(spare_rph_ids, testing::Contains(speculative_rph->GetID()));
 
   // If LoadUrl finished before the task to call
   // RenderProcessHostImpl::OnChannelConnected is run, wait for the task to be
   // run.
-  if (!spare_rph->IsReady()) {
+  if (!speculative_rph->IsReady()) {
     RenderProcessHostWatcher ready_waiter(
-        spare_rph, RenderProcessHostWatcher::WATCH_FOR_PROCESS_READY);
+        speculative_rph, RenderProcessHostWatcher::WATCH_FOR_PROCESS_READY);
     ready_waiter.Wait();
   }
-  EXPECT_TRUE(spare_rph->IsReady());
+  EXPECT_TRUE(speculative_rph->IsReady());
 
   // The creation of the speculative RenderFrameHost should change the
   // RenderProcessHost's copy of the priority of the spare process from
   // background to foreground.
-  EXPECT_FALSE(spare_rph->IsProcessBackgrounded());
+  EXPECT_NE(speculative_rph->GetPriority(),
+            base::Process::Priority::kBestEffort);
 
   // The OS process itself is updated on the process launcher thread, so it
   // cannot be observed immediately here. Perform a thread hop to and back to
@@ -6092,7 +6153,7 @@ IN_PROC_BROWSER_TEST_P(
   // navigation is never backgrounded. The WaitForNavigationFinished will wait
   // inside a RunLoop() and hence perform this check regularly throughout the
   // navigation.
-  const base::Process& process = spare_rph->GetProcess();
+  const base::Process& process = speculative_rph->GetProcess();
   EXPECT_TRUE(process.IsValid());
   AssertForegroundHelper assert_foreground_helper;
   assert_foreground_helper.AssertForegroundAndRepost(process);
@@ -6358,10 +6419,10 @@ IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerTest,
   EXPECT_EQ(b3, a1->child_at(1)->current_frame_host());
   ASSERT_EQ(0u, b3->child_count());
 
-  EXPECT_FALSE(a1->must_be_replaced());
-  EXPECT_TRUE(b2->must_be_replaced());
-  EXPECT_TRUE(b3->must_be_replaced());
-  EXPECT_FALSE(c5->must_be_replaced());
+  EXPECT_FALSE(a1->must_be_replaced_for_crash());
+  EXPECT_TRUE(b2->must_be_replaced_for_crash());
+  EXPECT_TRUE(b3->must_be_replaced_for_crash());
+  EXPECT_FALSE(c5->must_be_replaced_for_crash());
 
   EXPECT_EQ(2u, proxy_count(a1));
   EXPECT_EQ(2u, proxy_count(b2));
@@ -6387,8 +6448,8 @@ IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerTest,
   // B3 hasn't been replaced.
   EXPECT_EQ(b3, a1->child_at(1)->current_frame_host());
   RenderFrameHostImpl* b6 = a1->child_at(0)->current_frame_host();
-  EXPECT_TRUE(b3->must_be_replaced());
-  EXPECT_FALSE(b6->must_be_replaced());
+  EXPECT_TRUE(b3->must_be_replaced_for_crash());
+  EXPECT_FALSE(b6->must_be_replaced_for_crash());
 
   EXPECT_EQ(a_site_instance, a1->GetSiteInstance());
   EXPECT_EQ(b_site_instance, b6->GetSiteInstance());
@@ -6520,7 +6581,7 @@ IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerNoSiteIsolationTest,
 // its own unload handler caused a crash. https://crbug.com/1148793
 IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerTest,
                        RemoveSubframeInPageHide_SameSite) {
-  // TODO(https://crbug.com/1148793): Remove this early return. This doesn't
+  // TODO(crbug.com/40731502): Remove this early return. This doesn't
   // work for RenderDocumentLevel::kNonLocalRootSubframe or greater because
   // cancelling the navigation when detaching the subtree tries to restore the
   // replaced `blink::RemoteFrame` (which doesn't exist in the same-site
@@ -6536,7 +6597,7 @@ IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerTest,
 // See RemoveSubframeInUnload_SameSite
 IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerTest,
                        RemoveSubframeInPageHide_CrossSite) {
-  // TODO(https://crbug.com/1148793): Remove this early return.
+  // TODO(crbug.com/40731502): Remove this early return.
   if (ShouldCreateNewRenderFrameHostOnSameSiteNavigation(
           /*is_main_frame=*/false, /*is_local_root=*/false) &&
       !AreAllSitesIsolatedForTesting()) {
@@ -6596,7 +6657,7 @@ IN_PROC_BROWSER_TEST_P(RenderFrameHostManagerUnloadBrowserTest, NestedUnload) {
 
   // The subframe has been removed.
   EXPECT_EQ(0UL, web_contents->GetPrimaryMainFrame()->child_count());
-  // TODO(https://crbug.com/1111191): Remove this. Without this, the crash in
+  // TODO(crbug.com/40142480): Remove this. Without this, the crash in
   // the renderer in https://crbug.com/1148793 is usually not caught.
   ASSERT_TRUE(ExecJs(shell(), ""));
 }
@@ -6639,7 +6700,7 @@ void RenderFrameHostManagerTest::AssertCanRemoveSubframeInPageHide(
 
   // The subframe has been removed.
   EXPECT_EQ(0UL, web_contents->GetPrimaryMainFrame()->child_count());
-  // TODO(https://crbug.com/1111191): Remove this. Without this, the crash in
+  // TODO(crbug.com/40142480): Remove this. Without this, the crash in
   // the renderer in https://crbug.com/1148793 is usually not caught.
   ASSERT_TRUE(ExecJs(shell(), ""));
 }
@@ -6721,6 +6782,314 @@ IN_PROC_BROWSER_TEST_P(
   // If the parent's RuntimeFeatureStateDocumentData exists then this will
   // succeed, otherwise we'll hit a CHECK.
   EXPECT_TRUE(ExecJs(shell(), script));
+}
+
+// Tests that disable kDeferSpeculativeRFHCreation. This is to ensure that
+// GetFrameHostNavigation is called immediately on NavigationRequest creation
+// instead of getting queued in a task, which possibly causes it not to be run
+// if the network response is already received and the final RenderFrameHost
+// has been picked by another GetFrameHostNavigation call.
+class RenderFrameHostManagerDisableDeferSpeculativeRFHCreationTest
+    : public RenderFrameHostManagerTest {
+ public:
+  RenderFrameHostManagerDisableDeferSpeculativeRFHCreationTest() {
+    feature_list_.InitAndDisableFeature(features::kDeferSpeculativeRFHCreation);
+  }
+  ~RenderFrameHostManagerDisableDeferSpeculativeRFHCreationTest() override =
+      default;
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
+IN_PROC_BROWSER_TEST_P(
+    RenderFrameHostManagerDisableDeferSpeculativeRFHCreationTest,
+    WastedSpeculativeRFHMetrics) {
+  StartEmbeddedServer();
+
+  GURL url_a(embedded_test_server()->GetURL("a.com", "/title1.html"));
+  GURL url_b(embedded_test_server()->GetURL("b.com", "/title1.html"));
+  GURL url_d(embedded_test_server()->GetURL("d.com", "/title1.html"));
+  GURL url_e(embedded_test_server()->GetURL("e.com", "/title1.html"));
+  GURL url_c_redirect_to_d(embedded_test_server()->GetURL(
+      "c.com", "/server-redirect?" + url_d.spec()));
+  GURL url_d_redirect_to_e(embedded_test_server()->GetURL(
+      "d.com", "/server-redirect?" + url_e.spec()));
+  {
+    // 1) Navigate to A, which will reuse the current RFH.
+    base::HistogramTester histogram_tester;
+    ASSERT_TRUE(NavigateToURL(shell(), url_a));
+
+    // GetFrameHostForNavigation is called twice for the navigation above.
+    // The first call was when there's no associated RFH yet, and because the
+    // navigation reuses the current RFH (because it's the first navigation), on
+    // the second call we didn't waste any speculative RFHs.
+    EXPECT_THAT(
+        histogram_tester.GetAllSamples(
+            "Navigation.All.WastedSpeculativeRFHCase"),
+        testing::ElementsAre(
+            base::Bucket(WastedSpeculativeRFHCase::kNotWasted_WasUnassociated,
+                         1),
+            base::Bucket(WastedSpeculativeRFHCase::
+                             kNotWasted_WasUsingCurrentRFH_NowKeepCurrentRFH,
+                         1)));
+  }
+
+  {
+    // 2) Navigate cross-site to B, which will use a new speculative RFH.  Note
+    // that we navigate from the renderer to avoid doing a proactive
+    // BrowsingInstance swap which might cause renderer process/RenderFrameHost
+    // swaps despite Site Isolation being turned off, making the metrics a bit
+    // confusing to explain.
+    base::HistogramTester histogram_tester;
+    ASSERT_TRUE(NavigateToURLFromRenderer(shell(), url_b));
+
+    // GetFrameHostForNavigation is called twice for the navigation above.
+    // The first call was when there's no associated RFH yet, then it will
+    // create a speculative RFH. Then on the second call we keep using the same
+    // speculative RFH. Note that if all of Site Isolation, BFCache, and
+    // RenderDocument are turned off, we'll just reuse current RFH in both
+    // cases.
+    EXPECT_THAT(
+        histogram_tester.GetAllSamples(
+            "Navigation.All.WastedSpeculativeRFHCase"),
+        testing::ElementsAre(
+            base::Bucket(WastedSpeculativeRFHCase::kNotWasted_WasUnassociated,
+                         1),
+            base::Bucket(
+                (AreAllSitesIsolatedForTesting() ||
+                 CanSameSiteMainFrameNavigationsChangeRenderFrameHosts())
+                    ? WastedSpeculativeRFHCase::
+                          kNotWasted_NowKeepSameSpeculativeRFH
+                    : WastedSpeculativeRFHCase::
+                          kNotWasted_WasUsingCurrentRFH_NowKeepCurrentRFH,
+                1)));
+  }
+
+  {
+    // 3) Navigate (initially) cross-site to C, but then redirect to another
+    // cross-site URL D. Note that we navigate from the renderer to avoid doing
+    // a proactive BrowsingInstance swap which might cause renderer process
+    // swaps despite Site Isolation being turned off, making the metrics a bit
+    // confusing to explain.
+    base::HistogramTester histogram_tester;
+    ASSERT_TRUE(NavigateToURLFromRenderer(shell(), url_c_redirect_to_d, url_d));
+
+    // GetFrameHostForNavigation is called twice for the navigation above.
+    bool wasted_speculative_rfh = false;
+    if (AreAllSitesIsolatedForTesting() ||
+        CanSameSiteMainFrameNavigationsChangeRenderFrameHosts()) {
+      // First call created speculative RFH. Second call can reuse the
+      // speculative RFH only if site isolation is turned off.
+      wasted_speculative_rfh = AreAllSitesIsolatedForTesting();
+      EXPECT_THAT(
+          histogram_tester.GetAllSamples(
+              "Navigation.All.WastedSpeculativeRFHCase"),
+          testing::ElementsAre(
+              base::Bucket(WastedSpeculativeRFHCase::kNotWasted_WasUnassociated,
+                           1),
+              base::Bucket(AreAllSitesIsolatedForTesting()
+                               ? WastedSpeculativeRFHCase::
+                                     kWasted_NowUseNewSpeculativeRFH
+                               : WastedSpeculativeRFHCase::
+                                     kNotWasted_NowKeepSameSpeculativeRFH,
+                           1)));
+    } else {
+      // No wasted speculative RFH.
+      EXPECT_THAT(
+          histogram_tester.GetAllSamples(
+              "Navigation.All.WastedSpeculativeRFHCase"),
+          testing::ElementsAre(
+              base::Bucket(WastedSpeculativeRFHCase::kNotWasted_WasUnassociated,
+                           1),
+              base::Bucket(WastedSpeculativeRFHCase::
+                               kNotWasted_WasUsingCurrentRFH_NowKeepCurrentRFH,
+                           1)));
+    }
+    if (wasted_speculative_rfh) {
+      // The wasted speculative RFH created a new process for C.
+      histogram_tester.ExpectUniqueSample(
+          "Navigation.All.WastedSpeculativeRFH."
+          "WastedRFHLikelyCreatedNewProcess",
+          true, 1);
+      // The replacement speculative RFH created a new process for D.
+      histogram_tester.ExpectUniqueSample(
+          "Navigation.All.WastedSpeculativeRFH.ReplacementRFHCreatedNewProcess",
+          true, 1);
+      // Process differs between the wasted speculative RFH and the newly picked
+      // RFH.
+      histogram_tester.ExpectUniqueSample(
+          "Navigation.All.WastedSpeculativeRFH.ProcessDiffers", true, 1);
+      // No cross-origin isolation difference.
+      histogram_tester.ExpectUniqueSample(
+          "Navigation.All.WastedSpeculativeRFH.CrossOriginIsolationDiffers",
+          false, 1);
+    }
+  }
+
+  {
+    // 4) Navigate (initially) cross-site to C, but then redirect to a
+    // same-site-to-current-RFH URL D.  Note that we navigate from the renderer
+    // to avoid doing a proactive BrowsingInstance swap which might cause
+    // renderer process swaps despite Site Isolation being turned off, making
+    // the metrics a bit confusing to explain.
+    base::HistogramTester histogram_tester;
+    ASSERT_TRUE(NavigateToURLFromRenderer(shell(), url_c_redirect_to_d, url_d));
+
+    // GetFrameHostForNavigation is called twice for the navigation above.
+    bool wasted_speculative_rfh = false;
+    // The first call will create a new process if site isolation is on, or
+    // BFCache-induced proactive BrowsingInstance swap happened.
+    // TODO(https://crbug.com/376777350): Reconsider if we really should do
+    // process swap on BrowsingInstance swap when site isolation is turned off.
+    bool first_call_created_new_process =
+        (AreAllSitesIsolatedForTesting() || IsBackForwardCacheEnabled());
+    if (AreAllSitesIsolatedForTesting() ||
+        CanSameSiteMainFrameNavigationsChangeRenderFrameHosts()) {
+      // First call created speculative RFH because of SiteIsolation,
+      // RenderDocument, or proactive swap for BFCache. This speculative RFH
+      // will never get used, see cases below.
+      if (ShouldCreateNewHostForAllFrames() && first_call_created_new_process) {
+        // The navigation needs to commit in a speculative RFH, but the
+        // previously created speculative RFH is now incompatible because it
+        // was created for C in another process.
+        wasted_speculative_rfh = true;
+        EXPECT_THAT(
+            histogram_tester.GetAllSamples(
+                "Navigation.All.WastedSpeculativeRFHCase"),
+            testing::ElementsAre(
+                base::Bucket(
+                    WastedSpeculativeRFHCase::kNotWasted_WasUnassociated, 1),
+                base::Bucket(
+                    WastedSpeculativeRFHCase::kWasted_NowUseNewSpeculativeRFH,
+                    1)));
+      } else if (ShouldCreateNewHostForAllFrames()) {
+        // The navigation needs to commit in a speculative RFH, and it can reuse
+        // the previously created speculative RFH.
+        EXPECT_THAT(
+            histogram_tester.GetAllSamples(
+                "Navigation.All.WastedSpeculativeRFHCase"),
+            testing::ElementsAre(
+                base::Bucket(
+                    WastedSpeculativeRFHCase::kNotWasted_WasUnassociated, 1),
+                base::Bucket(WastedSpeculativeRFHCase::
+                                 kNotWasted_NowKeepSameSpeculativeRFH,
+                             1)));
+      } else {
+        // The navigation ends up reusing the current active RFH instead.
+        wasted_speculative_rfh = true;
+        EXPECT_THAT(
+            histogram_tester.GetAllSamples(
+                "Navigation.All.WastedSpeculativeRFHCase"),
+            testing::ElementsAre(
+                base::Bucket(
+                    WastedSpeculativeRFHCase::kNotWasted_WasUnassociated, 1),
+                base::Bucket(WastedSpeculativeRFHCase::kWasted_NowUseCurrentRFH,
+                             1)));
+      }
+    } else {
+      // No speculative RFH created.
+      EXPECT_THAT(
+          histogram_tester.GetAllSamples(
+              "Navigation.All.WastedSpeculativeRFHCase"),
+          testing::ElementsAre(
+              base::Bucket(WastedSpeculativeRFHCase::kNotWasted_WasUnassociated,
+                           1),
+              base::Bucket(WastedSpeculativeRFHCase::
+                               kNotWasted_WasUsingCurrentRFH_NowKeepCurrentRFH,
+                           1)));
+    }
+
+    if (wasted_speculative_rfh) {
+      histogram_tester.ExpectUniqueSample(
+          "Navigation.All.WastedSpeculativeRFH."
+          "WastedRFHLikelyCreatedNewProcess",
+          first_call_created_new_process, 1);
+      // The replacement RFH does not create a new process for D.
+      histogram_tester.ExpectUniqueSample(
+          "Navigation.All.WastedSpeculativeRFH.ReplacementRFHCreatedNewProcess",
+          false, 1);
+      // Process differs between the wasted speculative RFH and the newly picked
+      // RFH if the wasted one created a new process. The new RFH must be in the
+      // current / D's process.
+      histogram_tester.ExpectUniqueSample(
+          "Navigation.All.WastedSpeculativeRFH.ProcessDiffers",
+          first_call_created_new_process, 1);
+      // No cross-origin isolation difference.
+      histogram_tester.ExpectUniqueSample(
+          "Navigation.All.WastedSpeculativeRFH.CrossOriginIsolationDiffers",
+          false, 1);
+    }
+  }
+
+  {
+    // 5) Navigate (initially) same-site to D, but then redirect cross-site to
+    // E. Note that we navigate from the renderer to avoid doing a proactive
+    // BrowsingInstance swap which might cause renderer process swaps despite
+    // Site Isolation being turned off, making the metrics a bit confusing to
+    // explain.
+    base::HistogramTester histogram_tester;
+    ASSERT_TRUE(NavigateToURLFromRenderer(shell(), url_d_redirect_to_e, url_e));
+
+    // GetFrameHostForNavigation is called twice for the navigation above.
+    bool wasted_speculative_rfh = false;
+    if (CanSameSiteMainFrameNavigationsChangeRenderFrameHosts()) {
+      // First call created speculative RFH. Second call can reuse the
+      // speculative RFH only if site isolation is turned off.
+      wasted_speculative_rfh = AreAllSitesIsolatedForTesting();
+      EXPECT_THAT(
+          histogram_tester.GetAllSamples(
+              "Navigation.All.WastedSpeculativeRFHCase"),
+          testing::ElementsAre(
+              base::Bucket(WastedSpeculativeRFHCase::kNotWasted_WasUnassociated,
+                           1),
+              base::Bucket(wasted_speculative_rfh
+                               ? WastedSpeculativeRFHCase::
+                                     kWasted_NowUseNewSpeculativeRFH
+                               : WastedSpeculativeRFHCase::
+                                     kNotWasted_NowKeepSameSpeculativeRFH,
+                           1)));
+    } else {
+      // No speculative RFH created for the initial call for D.
+      EXPECT_THAT(
+          histogram_tester.GetAllSamples(
+              "Navigation.All.WastedSpeculativeRFHCase"),
+          testing::ElementsAre(
+              base::Bucket(WastedSpeculativeRFHCase::kNotWasted_WasUnassociated,
+                           1),
+              base::Bucket(
+                  AreAllSitesIsolatedForTesting()
+                      ? WastedSpeculativeRFHCase::
+                            kNotWasted_WasUsingCurrentRFH_NowUseSpeculativeRFH
+                      : WastedSpeculativeRFHCase::
+                            kNotWasted_WasUsingCurrentRFH_NowKeepCurrentRFH,
+                  1)));
+    }
+
+    if (wasted_speculative_rfh) {
+      // The wasted speculative RFH used the process for D.
+      histogram_tester.ExpectUniqueSample(
+          "Navigation.All.WastedSpeculativeRFH."
+          "WastedRFHLikelyCreatedNewProcess",
+          false, 1);
+      // The replacement speculative RFH created a new process for E, if site
+      // isolation is turned on, or BFCache is enabled.
+      // TODO(https://crbug.com/376777350): Investigate if we should suppress
+      // the process creation for BFCache when site isolation is turned off.
+      histogram_tester.ExpectUniqueSample(
+          "Navigation.All.WastedSpeculativeRFH.ReplacementRFHCreatedNewProcess",
+          AreAllSitesIsolatedForTesting() || IsBackForwardCacheEnabled(), 1);
+      // Process differs between the wasted RFH and the newly chosen RFH if a
+      // new process is created for E.
+      histogram_tester.ExpectUniqueSample(
+          "Navigation.All.WastedSpeculativeRFH.ProcessDiffers",
+          AreAllSitesIsolatedForTesting() || IsBackForwardCacheEnabled(), 1);
+      // No cross-origin isolation difference.
+      histogram_tester.ExpectUniqueSample(
+          "Navigation.All.WastedSpeculativeRFH.CrossOriginIsolationDiffers",
+          false, 1);
+    }
+  }
 }
 
 // Tests that enable clearing window.name on cross-site
@@ -6806,6 +7175,10 @@ INSTANTIATE_TEST_SUITE_P(All,
 INSTANTIATE_TEST_SUITE_P(All,
                          RenderFrameHostManagerNoSiteIsolationTest,
                          testing::ValuesIn(RenderDocumentFeatureLevelValues()));
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    RenderFrameHostManagerDisableDeferSpeculativeRFHCreationTest,
+    testing::ValuesIn(RenderDocumentFeatureLevelValues()));
 INSTANTIATE_TEST_SUITE_P(All,
                          RenderFrameHostManagerClearWindowNameTest,
                          testing::ValuesIn(RenderDocumentFeatureLevelValues()));

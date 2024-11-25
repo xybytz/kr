@@ -6,7 +6,6 @@ package org.chromium.components.signin.test.util;
 
 import static org.mockito.Mockito.doReturn;
 
-import android.accounts.Account;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -29,7 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 final class AccountCapabilitiesFetcherTestUtil {
     private AccountManagerFacade mMockFacade;
-    private Account mExpectedAccount;
+    private CoreAccountInfo mExpectedAccount;
     private Promise<AccountCapabilities> mCapabilitiesPromise;
 
     /** Stubs AccountManagerFacade for native tests. */
@@ -42,7 +41,6 @@ final class AccountCapabilitiesFetcherTestUtil {
     /** Restores the global state after the test completes. */
     @CalledByNative
     public void destroy() {
-        AccountManagerFacadeProvider.resetInstanceForTests();
         mMockFacade = null;
     }
 
@@ -56,9 +54,9 @@ final class AccountCapabilitiesFetcherTestUtil {
         assert mCapabilitiesPromise == null;
         assert mExpectedAccount == null;
 
-        mExpectedAccount = CoreAccountInfo.getAndroidAccountFrom(accountInfo);
+        mExpectedAccount = accountInfo;
         mCapabilitiesPromise = new Promise<>();
-        doReturn(mCapabilitiesPromise).when(mMockFacade).getAccountCapabilities(mExpectedAccount);
+        doReturn(mCapabilitiesPromise).when(mMockFacade).getAccountCapabilities(accountInfo);
     }
 
     /**
@@ -69,12 +67,12 @@ final class AccountCapabilitiesFetcherTestUtil {
     public void returnCapabilities(CoreAccountInfo accountInfo, AccountCapabilities capabilities) {
         assert mCapabilitiesPromise != null;
         assert mExpectedAccount != null;
-        assert mExpectedAccount.equals(CoreAccountInfo.getAndroidAccountFrom(accountInfo));
+        assert mExpectedAccount.equals(accountInfo);
 
         mCapabilitiesPromise.fulfill(capabilities);
         // `Promise` posts callback tasks on Android Looper which is not integrated with native
         // RunLoop in NativeTest. Run these tasks synchronously now.
-        // TODO(crbug.com/1135593): remove this hack once Promise uses PostTask.
+        // TODO(crbug.com/40723709): remove this hack once Promise uses PostTask.
         runLooperTasks();
 
         mCapabilitiesPromise = null;

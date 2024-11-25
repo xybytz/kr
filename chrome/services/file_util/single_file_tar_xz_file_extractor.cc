@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/services/file_util/single_file_tar_xz_file_extractor.h"
 
 #include <stddef.h>
@@ -57,9 +62,9 @@ class ExtractorInner {
       }
 
       std::optional<chrome::file_util::mojom::ExtractionResult> result;
-      ExtractChunk(base::make_span(xz_buffer.data(),
-                                   base::checked_cast<size_t>(bytes_read)),
-                   &result);
+      ExtractChunk(
+          base::span(xz_buffer).first(base::checked_cast<size_t>(bytes_read)),
+          &result);
       if (result.has_value())
         return result.value();
 
@@ -102,7 +107,7 @@ class ExtractorInner {
       xz_buffer = xz_buffer.subspan(compressed_size);
 
       base::span<const uint8_t> tar_buffer_span =
-          base::make_span(tar_buffer.data(), decompressed_size);
+          base::span(tar_buffer).first(decompressed_size);
       base::span<const uint8_t> output_file_content;
       if (!tar_reader_.ExtractChunk(tar_buffer_span, output_file_content)) {
         *result = chrome::file_util::mojom::ExtractionResult::kInvalidSrcFile;

@@ -9,18 +9,17 @@ import org.jni_zero.JNINamespace;
 /**
  * Lists //services/device features that can be accessed through {@link DeviceFeatureMap}.
  *
- * Note: Features must be added to the array |kFeaturesExposedToJava| in
+ * <p>Note: Features must be added to the array |kFeaturesExposedToJava| in
  * //services/device/public/cpp/device_feature_map.cc.
  */
 @JNINamespace("features")
 public abstract class DeviceFeatureList {
     public static final String GENERIC_SENSOR_EXTRA_CLASSES = "GenericSensorExtraClasses";
     public static final String WEBAUTHN_ANDROID_CRED_MAN = "WebAuthenticationAndroidCredMan";
-    public static final String WEBAUTHN_ANDROID_CRED_MAN_FOR_HYBRID =
-            "WebAuthenticationAndroidCredManForHybrid";
-    public static final String WEBAUTHN_ANDROID_FIDO_JSON = "WebAuthenticationAndroidFidoJson";
-    public static final String WEBAUTHN_ANDROID_INCOGNITO_CONFIRMATION =
-            "WebAuthenticationAndroidIncognitoConfirmation";
-    public static final String WEBAUTHN_HYBRID_LINK_WITHOUT_NOTIFICATIONS =
-            "WebAuthenticationHybridLinkWithoutNotifications";
+    public static final String WEBAUTHN_ANDROID_USE_PASSKEY_CACHE =
+            "WebAuthenticationAndroidUsePasskeyCache";
+    public static final String BATTERY_STATUS_MANAGER_BROADCAST_RECEIVER_IN_BACKGROUND =
+            "BatteryStatusManagerBroadcastReceiverInBackground";
+    public static final String WEBAUTHN_ENABLE_PAASK_SETTING =
+            "WebAuthenticationEnablePaaskFragment";
 }

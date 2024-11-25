@@ -12,7 +12,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/input/web_mouse_event.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink.h"
-#include "third_party/blink/public/platform/modules/remoteplayback/web_remote_playback_client.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_gc_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_pointer_event_init.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
@@ -23,7 +22,6 @@
 #include "third_party/blink/renderer/core/dom/dom_token_list.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
-#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -52,6 +50,7 @@
 #include "third_party/blink/renderer/modules/remoteplayback/remote_playback.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
+#include "third_party/blink/renderer/platform/media/remote_playback_client.h"
 #include "third_party/blink/renderer/platform/testing/empty_web_media_player.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
@@ -103,7 +102,7 @@ class StubLocalFrameClientForImpl : public EmptyLocalFrameClient {
     return std::make_unique<MockWebMediaPlayerForImpl>();
   }
 
-  WebRemotePlaybackClient* CreateWebRemotePlaybackClient(
+  RemotePlaybackClient* CreateRemotePlaybackClient(
       HTMLMediaElement& element) override {
     return &RemotePlayback::From(element);
   }
@@ -185,7 +184,7 @@ class MediaControlsImplTest : public PageTestBase,
     media_controls_ = static_cast<MediaControlsImpl*>(elm.GetMediaControls());
   }
 
-  void SimulateRouteAvailable() {
+  void SimulateRemotePlaybackAvailable() {
     RemotePlayback::From(media_controls_->MediaElement())
         .AvailabilityChangedForTesting(/* screen_is_available */ true);
   }
@@ -285,7 +284,7 @@ class MediaControlsImplTest : public PageTestBase,
         AtomicString("https://example.com/foo.mp4"));
     test::RunPendingTasks();
     WebTimeRange time_range(0.0, duration);
-    WebMediaPlayer()->seekable_.Assign(&time_range, 1);
+    WebMediaPlayer()->seekable_.Assign(base::span_from_ref(time_range));
     MediaControls().MediaElement().DurationChanged(duration,
                                                    false /* requestSeek */);
     SimulateLoadedMetadata();
@@ -385,7 +384,7 @@ void MediaControlsImplTest::GestureTapAt(gfx::PointF pos) {
       WebInputEvent::GetStaticTimeStampForTests());
 
   // Adjust |pos| by current frame scale.
-  float frame_scale = GetDocument().GetFrame()->PageZoomFactor();
+  float frame_scale = GetDocument().GetFrame()->LayoutZoomFactor();
   gesture_tap_event.SetFrameScale(frame_scale);
   pos.Scale(frame_scale);
   gesture_tap_event.SetPositionInWidget(pos);
@@ -452,7 +451,7 @@ TEST_F(MediaControlsImplTest, CastButtonRequiresRoute) {
 
   ASSERT_FALSE(IsOverflowElementVisible(*cast_button));
 
-  SimulateRouteAvailable();
+  SimulateRemotePlaybackAvailable();
   ASSERT_TRUE(IsOverflowElementVisible(*cast_button));
 }
 
@@ -463,7 +462,7 @@ TEST_F(MediaControlsImplTest, CastButtonDisableRemotePlaybackAttr) {
   ASSERT_NE(nullptr, cast_button);
 
   ASSERT_FALSE(IsOverflowElementVisible(*cast_button));
-  SimulateRouteAvailable();
+  SimulateRemotePlaybackAvailable();
   ASSERT_TRUE(IsOverflowElementVisible(*cast_button));
 
   MediaControls().MediaElement().SetBooleanAttribute(
@@ -485,7 +484,7 @@ TEST_F(MediaControlsImplTest, CastOverlayDefault) {
       MediaControls(), "-internal-media-controls-overlay-cast-button");
   ASSERT_NE(nullptr, cast_overlay_button);
 
-  SimulateRouteAvailable();
+  SimulateRemotePlaybackAvailable();
   ASSERT_TRUE(IsElementVisible(*cast_overlay_button));
 }
 
@@ -499,7 +498,7 @@ TEST_F(MediaControlsImplTest, CastOverlayDisabled) {
       MediaControls(), "-internal-media-controls-overlay-cast-button");
   ASSERT_NE(nullptr, cast_overlay_button);
 
-  SimulateRouteAvailable();
+  SimulateRemotePlaybackAvailable();
   ASSERT_FALSE(IsElementVisible(*cast_overlay_button));
 }
 
@@ -512,7 +511,7 @@ TEST_F(MediaControlsImplTest, CastOverlayDisableRemotePlaybackAttr) {
   ASSERT_NE(nullptr, cast_overlay_button);
 
   ASSERT_FALSE(IsElementVisible(*cast_overlay_button));
-  SimulateRouteAvailable();
+  SimulateRemotePlaybackAvailable();
   ASSERT_TRUE(IsElementVisible(*cast_overlay_button));
 
   MediaControls().MediaElement().SetBooleanAttribute(
@@ -535,7 +534,7 @@ TEST_F(MediaControlsImplTest, CastOverlayMediaControlsDisabled) {
   ASSERT_NE(nullptr, cast_overlay_button);
 
   EXPECT_FALSE(IsElementVisible(*cast_overlay_button));
-  SimulateRouteAvailable();
+  SimulateRemotePlaybackAvailable();
   EXPECT_TRUE(IsElementVisible(*cast_overlay_button));
 
   GetDocument().GetSettings()->SetMediaControlsEnabled(false);
@@ -556,7 +555,7 @@ TEST_F(MediaControlsImplTest, CastOverlayDisabledMediaControlsDisabled) {
   ASSERT_NE(nullptr, cast_overlay_button);
 
   EXPECT_FALSE(IsElementVisible(*cast_overlay_button));
-  SimulateRouteAvailable();
+  SimulateRemotePlaybackAvailable();
   EXPECT_FALSE(IsElementVisible(*cast_overlay_button));
 
   GetDocument().GetSettings()->SetMediaControlsEnabled(false);
@@ -566,13 +565,31 @@ TEST_F(MediaControlsImplTest, CastOverlayDisabledMediaControlsDisabled) {
   EXPECT_FALSE(IsElementVisible(*cast_overlay_button));
 }
 
+TEST_F(MediaControlsImplTest, CastOverlayDisabledAutoplayMuted) {
+  MediaControls().MediaElement().SetBooleanAttribute(html_names::kControlsAttr,
+                                                     false);
+
+  // Set the video to autoplay muted.
+  ScopedMediaEngagementBypassAutoplayPoliciesForTest scoped_feature(true);
+  MediaControls().MediaElement().GetDocument().GetSettings()->SetAutoplayPolicy(
+      AutoplayPolicy::Type::kDocumentUserActivationRequired);
+  MediaControls().MediaElement().setMuted(true);
+
+  Element* cast_overlay_button = GetElementByShadowPseudoId(
+      MediaControls(), "-internal-media-controls-overlay-cast-button");
+  ASSERT_NE(nullptr, cast_overlay_button);
+
+  SimulateRemotePlaybackAvailable();
+  EXPECT_FALSE(IsElementVisible(*cast_overlay_button));
+}
+
 TEST_F(MediaControlsImplTest, CastButtonVisibilityDependsOnControlslistAttr) {
   EnsureSizing();
 
   MediaControlCastButtonElement* cast_button = CastButtonElement();
   ASSERT_NE(nullptr, cast_button);
 
-  SimulateRouteAvailable();
+  SimulateRemotePlaybackAvailable();
   ASSERT_TRUE(IsOverflowElementVisible(*cast_button));
 
   MediaControls().MediaElement().setAttribute(
@@ -1294,7 +1311,7 @@ TEST_F(MediaControlsImplTest, CastOverlayDefaultHidesOnTimer) {
       MediaControls(), "-internal-media-controls-overlay-cast-button");
   ASSERT_NE(nullptr, cast_overlay_button);
 
-  SimulateRouteAvailable();
+  SimulateRemotePlaybackAvailable();
   EXPECT_TRUE(IsElementVisible(*cast_overlay_button));
 
   // Starts playback because overlay never hides if paused.
@@ -1318,7 +1335,7 @@ TEST_F(MediaControlsImplTest, CastOverlayShowsOnSomeEvents) {
       MediaControls(), "-webkit-media-controls-overlay-enclosure");
   ASSERT_NE(nullptr, overlay_enclosure);
 
-  SimulateRouteAvailable();
+  SimulateRemotePlaybackAvailable();
   EXPECT_TRUE(IsElementVisible(*cast_overlay_button));
 
   // Starts playback because overlay never hides if paused.
@@ -1326,13 +1343,13 @@ TEST_F(MediaControlsImplTest, CastOverlayShowsOnSomeEvents) {
   MediaControls().MediaElement().Play();
   test::RunPendingTasks();
 
-  SimulateRouteAvailable();
+  SimulateRemotePlaybackAvailable();
   SimulateHideMediaControlsTimerFired();
   EXPECT_FALSE(IsElementVisible(*cast_overlay_button));
 
+  // The overlay button appears on tap and click.
   for (const AtomicString& event_name :
-       {event_type_names::kGesturetap, event_type_names::kClick,
-        event_type_names::kPointerover, event_type_names::kPointermove}) {
+       {event_type_names::kGesturetap, event_type_names::kClick}) {
     overlay_enclosure->DispatchEvent(event_name == "gesturetap"
                                          ? *Event::Create(event_name)
                                          : *CreatePointerEvent(event_name));
@@ -1341,6 +1358,19 @@ TEST_F(MediaControlsImplTest, CastOverlayShowsOnSomeEvents) {
     SimulateHideMediaControlsTimerFired();
     EXPECT_FALSE(IsElementVisible(*cast_overlay_button));
   }
+
+  // The overlay button does not appear on pointer move.
+  overlay_enclosure->DispatchEvent(
+      *CreatePointerEvent(event_type_names::kPointerover));
+  EXPECT_FALSE(IsElementVisible(*cast_overlay_button));
+
+  // The overlay button does not appear on click if the overlay button shouldn't
+  // be shown.
+  MediaControls().MediaElement().SetBooleanAttribute(html_names::kControlsAttr,
+                                                     true);
+  overlay_enclosure->DispatchEvent(
+      *CreatePointerEvent(event_type_names::kClick));
+  EXPECT_FALSE(IsElementVisible(*cast_overlay_button));
 }
 
 TEST_F(MediaControlsImplTest, isConnected) {
@@ -1463,7 +1493,7 @@ TEST_F(MediaControlsImplTest, DoubleTouchChangesTimeWhenZoomed) {
                             videoRect->top() + 10);
 
   // Add a zoom factor and ensure that it's properly handled.
-  MediaControls().GetDocument().GetFrame()->SetPageZoomFactor(2);
+  MediaControls().GetDocument().GetFrame()->SetLayoutZoomFactor(2);
 
   // Double-tapping left of center should shift the time backwards by 10
   // seconds.

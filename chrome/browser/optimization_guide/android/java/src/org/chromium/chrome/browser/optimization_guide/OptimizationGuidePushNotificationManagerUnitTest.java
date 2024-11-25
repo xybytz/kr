@@ -4,39 +4,37 @@
 
 package org.chromium.chrome.browser.optimization_guide;
 
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import android.util.Base64;
 
+import androidx.test.annotation.UiThreadTest;
 import androidx.test.filters.SmallTest;
 
 import com.google.protobuf.ByteString;
 
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 
 import org.chromium.base.FeatureList;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
-import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.Batch;
-import org.chromium.base.test.util.JniMocker;
+import org.chromium.base.test.util.Features.DisableFeatures;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.preferences.ChromeSharedPreferences;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.components.optimization_guide.proto.CommonTypesProto.Any;
 import org.chromium.components.optimization_guide.proto.HintsProto.KeyRepresentation;
 import org.chromium.components.optimization_guide.proto.HintsProto.OptimizationType;
@@ -53,12 +51,11 @@ import java.util.HashSet;
 @Batch(Batch.PER_CLASS)
 @EnableFeatures(ChromeFeatureList.OPTIMIZATION_GUIDE_PUSH_NOTIFICATIONS)
 public class OptimizationGuidePushNotificationManagerUnitTest {
-    @Rule public JniMocker mocker = new JniMocker();
-    @Rule public Features.JUnitProcessor mFeaturesProcessor = new Features.JUnitProcessor();
+    @Rule public MockitoRule mMockitoJUnit = MockitoJUnit.rule();
 
     @Mock private Profile mProfile;
-
-    @Mock OptimizationGuideBridge.Natives mOptimizationGuideBridgeJniMock;
+    @Mock private OptimizationGuideBridgeFactory.Natives mOptimizationGuideBridgeFactoryJniMock;
+    @Mock private OptimizationGuideBridge mOptimizationGuideBridge;
 
     private static final HintNotificationPayload NOTIFICATION_WITH_PAYLOAD =
             HintNotificationPayload.newBuilder()
@@ -77,25 +74,15 @@ public class OptimizationGuidePushNotificationManagerUnitTest {
 
     @Before
     public void setUp() {
-        resetFeatureFlags();
+        OptimizationGuideBridgeFactoryJni.setInstanceForTesting(
+                mOptimizationGuideBridgeFactoryJniMock);
+        doReturn(mOptimizationGuideBridge)
+                .when(mOptimizationGuideBridgeFactoryJniMock)
+                .getForProfile(mProfile);
 
-        MockitoAnnotations.initMocks(this);
-        mocker.mock(OptimizationGuideBridgeJni.TEST_HOOKS, mOptimizationGuideBridgeJniMock);
-        when(mOptimizationGuideBridgeJniMock.init()).thenReturn(1L);
-
-        Profile.setLastUsedProfileForTesting(mProfile);
+        ProfileManager.setLastUsedProfileForTesting(mProfile);
 
         NativeLibraryTestUtils.loadNativeLibraryNoBrowserProcess();
-    }
-
-    @After
-    public void tearDown() {
-        resetFeatureFlags();
-    }
-
-    public void resetFeatureFlags() {
-        OptimizationGuidePushNotificationManager.clearCacheForAllTypes();
-        FeatureList.setTestFeatures(null);
     }
 
     @Test
@@ -154,8 +141,8 @@ public class OptimizationGuidePushNotificationManagerUnitTest {
                 new ArrayList<OptimizationType>(),
                 OptimizationGuidePushNotificationManager.getOptTypesWithPushNotifications());
 
-        verify(mOptimizationGuideBridgeJniMock, times(1))
-                .onNewPushNotification(anyLong(), eq(NOTIFICATION_WITHOUT_PAYLOAD.toByteArray()));
+        verify(mOptimizationGuideBridge, times(1))
+                .onNewPushNotification(eq(NOTIFICATION_WITHOUT_PAYLOAD));
     }
 
     @Test
@@ -210,9 +197,12 @@ public class OptimizationGuidePushNotificationManagerUnitTest {
                 Arrays.asList(OptimizationType.LITE_PAGE, OptimizationType.LITE_VIDEO),
                 OptimizationGuidePushNotificationManager.getOptTypesWithPushNotifications());
 
-        // Flag state cannot change within the same process instance, so this  behavior does not
+        // Flag state cannot change within the same process instance, so this behavior does not
         // actually get triggered in real usage.
-        ChromeFeatureList.sOptimizationGuidePushNotifications.setForTesting(false);
+        FeatureList.TestValues testValues = new FeatureList.TestValues();
+        testValues.addFeatureFlagOverride(
+                ChromeFeatureList.OPTIMIZATION_GUIDE_PUSH_NOTIFICATIONS, false);
+        FeatureList.mergeTestValues(testValues, /* replace= */ true);
 
         // Push another notification to trigger the clear.
         OptimizationGuidePushNotificationManager.onPushNotification(NOTIFICATION_WITH_PAYLOAD);
@@ -396,7 +386,7 @@ public class OptimizationGuidePushNotificationManagerUnitTest {
     public void testCacheDecodingErrors_InvalidProtobuf() {
         OptimizationGuidePushNotificationManager.setNativeIsInitializedForTesting(false);
 
-        int startPBErrorCount =
+        int startPbErrorCount =
                 RecordHistogram.getHistogramValueCountForTesting(
                         "OptimizationGuide.PushNotifications.ReadCacheResult",
                         /* INVALID_PROTOBUF= */ 2);
@@ -419,7 +409,7 @@ public class OptimizationGuidePushNotificationManagerUnitTest {
         Assert.assertNotNull(cached);
         Assert.assertEquals(0, cached.length);
 
-        int afterPBErrorCount =
+        int afterPbErrorCount =
                 RecordHistogram.getHistogramValueCountForTesting(
                         "OptimizationGuide.PushNotifications.ReadCacheResult",
                         /* INVALID_PROTOBUF= */ 2);
@@ -427,7 +417,7 @@ public class OptimizationGuidePushNotificationManagerUnitTest {
                 RecordHistogram.getHistogramTotalCountForTesting(
                         "OptimizationGuide.PushNotifications.ReadCacheResult");
 
-        Assert.assertEquals(1, afterPBErrorCount - startPBErrorCount);
+        Assert.assertEquals(1, afterPbErrorCount - startPbErrorCount);
         Assert.assertEquals(1, afterTotalCount - startTotalCount);
     }
 

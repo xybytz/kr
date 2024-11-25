@@ -10,7 +10,9 @@
 
 #include "autofill_address_util.h"
 #include "base/check.h"
+#include "base/containers/to_vector.h"
 #include "base/memory/ptr_util.h"
+#include "base/not_fatal_until.h"
 #include "base/notreached.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
@@ -72,7 +74,6 @@ std::vector<AutofillAddressUIComponent> GetAddressComponents(
   }
 
   NOTREACHED();
-  return {};
 }
 
 AutofillAddressUIComponent::LengthHint ConvertLengthHint(
@@ -83,19 +84,15 @@ AutofillAddressUIComponent::LengthHint ConvertLengthHint(
     case AddressUiComponent::LengthHint::HINT_SHORT:
       return AutofillAddressUIComponent::LengthHint::HINT_SHORT;
   }
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 }  // namespace
 
 std::vector<AutofillAddressUIComponent> ConvertAddressUiComponents(
     const std::vector<AddressUiComponent>& addressinput_components,
     const AutofillCountry& country) {
-  std::vector<AutofillAddressUIComponent> components;
-  components.reserve(addressinput_components.size());
-
-  base::ranges::transform(
-      addressinput_components, std::back_inserter(components),
-      [&country](const AddressUiComponent& component) {
+  return base::ToVector(
+      addressinput_components, [&country](const AddressUiComponent& component) {
         // The component's field property may not be initialized if the
         // component is literal, so it should not be used to avoid
         // memory sanitizer's errors (`use-of-uninitialized-value`).
@@ -104,7 +101,7 @@ std::vector<AutofillAddressUIComponent> ConvertAddressUiComponents(
               .literal = component.literal,
           };
         }
-        autofill::FieldType field = i18n::TypeForField(component.field);
+        FieldType field = i18n::TypeForField(component.field);
         return AutofillAddressUIComponent{
             .field = field,
             .name = component.name,
@@ -113,8 +110,6 @@ std::vector<AutofillAddressUIComponent> ConvertAddressUiComponents(
             .is_required = country.IsAddressFieldRequired(field),
         };
       });
-
-  return components;
 }
 
 void ExtendAddressComponents(
@@ -131,7 +126,7 @@ void ExtendAddressComponents(
           return component.literal.empty() &&
                  component.field == rule.placed_after;
         });
-    DCHECK(prev_component != components.end());
+    CHECK(prev_component != components.end(), base::NotFatalUntil::M130);
 
     // Insert the separator and `rule.type` after `prev_component`.
     if (include_literals) {
@@ -213,8 +208,6 @@ std::u16string GetEnvelopeStyleAddress(const AutofillProfile& profile,
       continue;
     }
     FieldType type = component.field;
-    if (type == NAME_FULL)
-      type = NAME_FULL_WITH_HONORIFIC_PREFIX;
     address += base::UTF16ToUTF8(profile.GetInfo(type, ui_language_code));
   }
   if (include_country) {
@@ -258,22 +251,19 @@ std::u16string GetProfileDescription(const AutofillProfile& profile,
   }
 
   return profile.ConstructInferredLabel(
-      kDetailsFields, std::size(kDetailsFields),
-      /*num_fields_to_include=*/2, ui_language_code);
+      kDetailsFields, /*num_fields_to_include=*/2, ui_language_code);
 }
 
 std::vector<ProfileValueDifference> GetProfileDifferenceForUi(
     const AutofillProfile& first_profile,
     const AutofillProfile& second_profile,
     const std::string& app_locale) {
-  static constexpr FieldType kTypeToCompare[] = {
-      NAME_FULL_WITH_HONORIFIC_PREFIX, ADDRESS_HOME_ADDRESS, EMAIL_ADDRESS,
-      PHONE_HOME_WHOLE_NUMBER};
+  static constexpr auto kTypeToCompare = {
+      NAME_FULL, ADDRESS_HOME_ADDRESS, EMAIL_ADDRESS, PHONE_HOME_WHOLE_NUMBER};
 
   base::flat_map<FieldType, std::pair<std::u16string, std::u16string>>
       differences = AutofillProfileComparator::GetProfileDifferenceMap(
-          first_profile, second_profile,
-          FieldTypeSet(std::begin(kTypeToCompare), std::end(kTypeToCompare)),
+          first_profile, second_profile, FieldTypeSet(kTypeToCompare),
           app_locale);
 
   std::u16string first_address = GetEnvelopeStyleAddress(
@@ -304,7 +294,7 @@ std::u16string GetProfileSummaryForMigrationPrompt(
     const AutofillProfile& profile,
     const std::string& app_locale) {
   std::vector<FieldType> fields = {
-      FieldType::NAME_FULL_WITH_HONORIFIC_PREFIX, FieldType::ADDRESS_HOME_LINE1,
+      FieldType::NAME_FULL, FieldType::ADDRESS_HOME_LINE1,
       FieldType::EMAIL_ADDRESS, FieldType::PHONE_HOME_WHOLE_NUMBER};
   std::vector<std::u16string> values;
   values.reserve(fields.size());

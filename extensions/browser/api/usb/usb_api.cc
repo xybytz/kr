@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "extensions/browser/api/usb/usb_api.h"
 
 #include <algorithm>
@@ -137,7 +142,6 @@ bool ConvertDirectionFromApi(const Direction& input,
       return true;
     default:
       NOTREACHED();
-      return false;
   }
 }
 
@@ -158,7 +162,6 @@ bool ConvertRequestTypeFromApi(const RequestType& input,
       return true;
     default:
       NOTREACHED();
-      return false;
   }
 }
 
@@ -179,7 +182,6 @@ bool ConvertRecipientFromApi(const Recipient& input,
       return true;
     default:
       NOTREACHED();
-      return false;
   }
 }
 
@@ -213,7 +215,7 @@ const char* ConvertTransferStatusToApi(const UsbTransferStatus status) {
     case UsbTransferStatus::SHORT_PACKET:
       return kErrorTransferLength;
     default:
-      NOTREACHED();
+      DUMP_WILL_BE_NOTREACHED();
       return "";
   }
 }
@@ -240,7 +242,6 @@ TransferType ConvertTransferTypeToApi(const UsbTransferType& input) {
       return usb::TransferType::kBulk;
     default:
       NOTREACHED();
-      return usb::TransferType::kNone;
   }
 }
 
@@ -252,7 +253,6 @@ Direction ConvertDirectionToApi(const UsbTransferDirection& input) {
       return usb::Direction::kOut;
     default:
       NOTREACHED();
-      return usb::Direction::kNone;
   }
 }
 
@@ -269,7 +269,6 @@ SynchronizationType ConvertSynchronizationTypeToApi(
       return usb::SynchronizationType::kSynchronous;
     default:
       NOTREACHED();
-      return usb::SynchronizationType::kNone;
   }
 }
 
@@ -289,7 +288,6 @@ usb::UsageType ConvertUsageTypeToApi(const UsbUsageType& input) {
       return usb::UsageType::kNone;
     default:
       NOTREACHED();
-      return usb::UsageType::kNone;
   }
 }
 

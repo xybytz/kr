@@ -7,15 +7,15 @@
  * a network state.
  */
 
-import '//resources/cr_elements/cr_toggle/cr_toggle.js';
-import '//resources/cr_elements/policy/cr_policy_indicator.js';
+import '//resources/ash/common/cr_elements/cr_toggle/cr_toggle.js';
+import '//resources/ash/common/cr_elements/policy/cr_policy_indicator.js';
 import './network_property_list_mojo.js';
 import './network_shared.css.js';
 
 import {I18nBehavior} from '//resources/ash/common/i18n_behavior.js';
+import {IPConfigProperties, ManagedProperties, NO_ROUTING_PREFIX} from '//resources/mojo/chromeos/services/network_config/public/mojom/cros_network_config.mojom-webui.js';
+import {IPConfigType, NetworkType} from '//resources/mojo/chromeos/services/network_config/public/mojom/network_types.mojom-webui.js';
 import {Polymer} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {IPConfigProperties, ManagedProperties, NO_ROUTING_PREFIX} from 'chrome://resources/mojo/chromeos/services/network_config/public/mojom/cros_network_config.mojom-webui.js';
-import {IPConfigType, NetworkType} from 'chrome://resources/mojo/chromeos/services/network_config/public/mojom/network_types.mojom-webui.js';
 
 import {CrPolicyNetworkBehaviorMojo} from './cr_policy_network_behavior_mojo.js';
 import {getTemplate} from './network_ip_config.html.js';

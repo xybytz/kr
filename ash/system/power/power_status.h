@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "ash/ash_export.h"
-#include "base/memory/raw_ptr_exclusion.h"
+#include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
 #include "chromeos/dbus/power/power_manager_client.h"
@@ -110,15 +110,11 @@ class ASH_EXPORT PowerStatus : public chromeos::PowerManagerClient::Observer {
 
     // The badge (lightning bolt, exclamation mark, etc) that should be drawn
     // on top of the battery icon.
-    // This field is not a raw_ptr<> because it was filtered by the rewriter
-    // for: #union
-    RAW_PTR_EXCLUSION const gfx::VectorIcon* icon_badge;
+    raw_ptr<const gfx::VectorIcon> icon_badge;
 
     // The outline for the badge, need to draw this to satisfy contrast
     // requirements.
-    // This field is not a raw_ptr<> because it was filtered by the rewriter
-    // for: #union
-    RAW_PTR_EXCLUSION const gfx::VectorIcon* badge_outline;
+    raw_ptr<const gfx::VectorIcon> badge_outline;
 
     // When true and |charge_percent| is very low, special colors will be used
     // to alert the user.
@@ -166,7 +162,7 @@ class ASH_EXPORT PowerStatus : public chromeos::PowerManagerClient::Observer {
   void RequestStatusUpdate();
 
   // Returns true if a battery is present.
-  bool IsBatteryPresent() const;
+  virtual bool IsBatteryPresent() const;
 
   // Returns true if the battery is full. This also implies that a charger
   // is connected.
@@ -185,7 +181,7 @@ class ASH_EXPORT PowerStatus : public chromeos::PowerManagerClient::Observer {
 
   // Returns the battery's remaining charge as a value in the range [0.0,
   // 100.0].
-  double GetBatteryPercent() const;
+  virtual double GetBatteryPercent() const;
 
   // Returns the battery's remaining charge, rounded to an integer with a
   // maximum value of 100.
@@ -207,14 +203,14 @@ class ASH_EXPORT PowerStatus : public chromeos::PowerManagerClient::Observer {
   std::optional<base::TimeDelta> GetBatteryTimeToFull() const;
 
   // Returns true if line power (including a charger of any type) is connected.
-  bool IsLinePowerConnected() const;
+  virtual bool IsLinePowerConnected() const;
 
   // Returns true if an official, non-USB charger is connected.
   bool IsMainsChargerConnected() const;
 
   // Returns true if a USB charger (which is likely to only support a low
   // charging rate) is connected.
-  bool IsUsbChargerConnected() const;
+  virtual bool IsUsbChargerConnected() const;
 
   // Returns true if the system allows some connected devices to function as
   // either power sources or sinks.
@@ -265,7 +261,12 @@ class ASH_EXPORT PowerStatus : public chromeos::PowerManagerClient::Observer {
   double GetPreferredMinimumPower() const;
 
   // Returns true if battery saver is active.
-  bool IsBatterySaverActive() const;
+  virtual bool IsBatterySaverActive() const;
+
+  // TODO(b/327054689): This pointer is needed because some power tests delete
+  // PowerStatus without the observers knowing about it, so observers have to
+  // check for its validity before using it.
+  base::WeakPtr<PowerStatus> GetWeakPtr();
 
   // Updates |proto_|. Does not notify observers.
   void SetProtoForTesting(const power_manager::PowerSupplyProperties& proto);
@@ -278,7 +279,12 @@ class ASH_EXPORT PowerStatus : public chromeos::PowerManagerClient::Observer {
   ~PowerStatus() override;
 
  private:
-  // Overriden from PowerManagerClient::Observer.
+  friend class ScopedFakePowerStatus;
+
+  // Global singleton instance of the PowerStatus
+  static PowerStatus* g_power_status_;
+
+  // Overridden from PowerManagerClient::Observer.
   void PowerChanged(const power_manager::PowerSupplyProperties& proto) override;
   void BatterySaverModeStateChanged(
       const power_manager::BatterySaverModeState& state) override;

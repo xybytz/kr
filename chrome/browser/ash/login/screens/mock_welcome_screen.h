@@ -31,7 +31,7 @@ class MockWelcomeScreen : public WelcomeScreen {
   void ExitScreen(Result result);
 };
 
-class MockWelcomeView : public WelcomeView {
+class MockWelcomeView final : public WelcomeView {
  public:
   MockWelcomeView();
 
@@ -51,7 +51,13 @@ class MockWelcomeView : public WelcomeView {
   MOCK_METHOD(void, CancelChromeVoxHintIdleDetection, ());
   MOCK_METHOD(void, UpdateA11yState, (const A11yState&));
   MOCK_METHOD(void, SetQuickStartEnabled, ());
-  MOCK_METHOD(void, ShowQuickStartBluetoothDialog, ());
+
+  base::WeakPtr<WelcomeView> AsWeakPtr() override {
+    return weak_ptr_factory_.GetWeakPtr();
+  }
+
+ private:
+  base::WeakPtrFactory<WelcomeView> weak_ptr_factory_{this};
 };
 
 }  // namespace ash

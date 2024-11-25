@@ -41,31 +41,6 @@ namespace network {
 class SimpleURLLoader;
 }
 
-// The provider event types recorded as a result of prefetch and non-prefetch
-// requests for zero-prefix suggestions. Each event must be logged at most once
-// from when the provider is started until it is stopped.
-// These values are written to logs. New enum values can be added, but existing
-// enums must never be renumbered or deleted and reused.
-enum class RemoteRequestHistogramValue {
-  // Cached response was synchronously converted to displayed matches.
-  // Recorded for non-prefetch requests only.
-  kCachedResponseConvertedToMatches = 0,
-  // Remote request was sent.
-  kRequestSent = 1,
-  // Remote request was invalidated.
-  kRequestInvalidated = 2,
-  // Remote response was received asynchronously.
-  kRemoteResponseReceived = 3,
-  // Remote response was cached.
-  kRemoteResponseCached = 4,
-  // Remote response ended up being converted to displayed matches. This may
-  // happen due to an empty displayed result set or an empty remote result set.
-  // Recorded for non-prefetch requests only.
-  kRemoteResponseConvertedToMatches = 5,
-
-  kMaxValue = kRemoteResponseConvertedToMatches,
-};
-
 // Autocomplete provider for searches and suggestions from a search engine.
 //
 // After construction, the autocomplete controller repeatedly calls Start()
@@ -84,10 +59,6 @@ class SearchProvider : public BaseSearchProvider,
   SearchProvider(const SearchProvider&) = delete;
   SearchProvider& operator=(const SearchProvider&) = delete;
 
-  // Extracts the suggest response metadata which SearchProvider previously
-  // stored for |match|.
-  static std::string GetSuggestMetadata(const AutocompleteMatch& match);
-
   // Answers prefetch handling - register displayed answers. Takes the top
   // match for Autocomplete and registers the contained answer data, if any.
   void RegisterDisplayedAnswers(const AutocompleteResult& result);
@@ -103,15 +74,6 @@ class SearchProvider : public BaseSearchProvider,
 
   // The verbatim score for an input which is not a URL.
   static const int kNonURLVerbatimRelevance = 1300;
-
-  // Returns whether the current page URL can be sent in the suggest requests.
-  // This method is virtual to mock for testing.
-  virtual bool CanSendCurrentPageURLInRequest(
-      const GURL& current_page_url,
-      const TemplateURL* template_url,
-      metrics::OmniboxEventProto::PageClassification page_classification,
-      const SearchTermsData& search_terms_data,
-      const AutocompleteProviderClient* client);
 
  protected:
   ~SearchProvider() override;
@@ -132,6 +94,8 @@ class SearchProvider : public BaseSearchProvider,
   FRIEND_TEST_ALL_PREFIXES(SearchProviderTest, SuggestQueryUsesToken);
   FRIEND_TEST_ALL_PREFIXES(SearchProviderTest, AnswersCache);
   FRIEND_TEST_ALL_PREFIXES(SearchProviderTest, RemoveExtraAnswers);
+  FRIEND_TEST_ALL_PREFIXES(SearchProviderTest, DuplicateCardAnswer);
+  FRIEND_TEST_ALL_PREFIXES(SearchProviderTest, CopyAnswerToVerbatim);
   FRIEND_TEST_ALL_PREFIXES(SearchProviderTest, DoesNotProvideOnFocus);
   FRIEND_TEST_ALL_PREFIXES(SearchProviderTest, SendsWarmUpRequestOnFocus);
   FRIEND_TEST_ALL_PREFIXES(SearchProviderTest, DoTrimHttpScheme);
@@ -142,6 +106,14 @@ class SearchProvider : public BaseSearchProvider,
   FRIEND_TEST_ALL_PREFIXES(SearchProviderTest, DoTrimHttpsScheme);
   FRIEND_TEST_ALL_PREFIXES(SearchProviderRequestTest, SendRequestWithURL);
   FRIEND_TEST_ALL_PREFIXES(SearchProviderRequestTest, SendRequestWithoutURL);
+  FRIEND_TEST_ALL_PREFIXES(SearchProviderRequestTest,
+                           SendRequestWithLensInteractionResponse);
+  FRIEND_TEST_ALL_PREFIXES(SearchProviderRequestTest,
+                           LensContextualSearchboxSuggestRequest);
+  FRIEND_TEST_ALL_PREFIXES(SearchProviderRequestTest,
+                           LensContextualSearchboxNoSuggestRequest);
+  FRIEND_TEST_ALL_PREFIXES(SearchProviderOTRTest, DoesNotSendSuggestRequest);
+  FRIEND_TEST_ALL_PREFIXES(SearchProviderOTRTest, SendSuggestRequestForLens);
 
   // Manages the providers (TemplateURLs) used by SearchProvider. Two providers
   // may be used:
@@ -276,13 +248,6 @@ class SearchProvider : public BaseSearchProvider,
   // Stops |loader| if it's running.  This includes resetting the unique_ptr.
   void CancelLoader(std::unique_ptr<network::SimpleURLLoader>* loader);
 
-  // Returns true when the current query can be sent to at least one suggest
-  // service.  This will be false for example when suggest is disabled.  In
-  // the process, calculates whether the query may contain potentially
-  // private data and stores the result in |is_query_private|; such queries
-  // should not be sent to the default search engine.
-  bool IsQuerySuitableForSuggest(bool* query_is_private) const;
-
   // Returns true if sending the query to a suggest server may leak sensitive
   // information (and hence the suggest request shouldn't be sent).  In
   // particular, if the input type might be a URL, we take extra care so that
@@ -317,6 +282,11 @@ class SearchProvider : public BaseSearchProvider,
   // Remove answer contents from each match in |matches| other than the first
   // that appears.
   static void RemoveExtraAnswers(ACMatches* matches);
+
+  // Add a copy of an answer suggestion presented as a rich card, sans answer
+  // data. This gives an "escape hatch" if, e.g. the user wants the verbatim
+  // query associated with the answer suggestion.
+  static void DuplicateCardAnswer(ACMatches* matches);
 
   // Checks if suggested relevances violate an expected constraint.
   // See UpdateMatches() for the use and explanation of this constraint
@@ -358,10 +328,9 @@ class SearchProvider : public BaseSearchProvider,
       bool is_keyword,
       SearchSuggestionParser::SuggestResults* scored_results);
 
-  // Adds matches for |results| to |map|.
+  // Adds matches for `results` to `map`.
   void AddSuggestResultsToMap(
       const SearchSuggestionParser::SuggestResults& results,
-      const std::string& metadata,
       MatchMap* map);
 
   // Gets the relevance score for the verbatim result.  This value may be
@@ -369,11 +338,6 @@ class SearchProvider : public BaseSearchProvider,
   // |relevance_from_server| is non-null, it will be set to indicate which of
   // those is true.
   int GetVerbatimRelevance(bool* relevance_from_server) const;
-
-  // Whether we should limit suggestions from SearchProvider while in
-  // keyword mode to only keyword suggestions. Used when we suspect that the
-  // user intentionally entered keyword mode and doesn't want the others.
-  bool ShouldCurbDefaultSuggestions() const;
 
   // Calculates the relevance score for the verbatim result from the
   // default search engine.  This version takes into account context:

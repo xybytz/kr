@@ -3,16 +3,28 @@
 // found in the LICENSE file.
 
 import UIKit
+import ios_chrome_browser_ui_tab_switcher_tab_strip_ui_swift_constants
 
 /// UIView that contains an `UIButton` that opens a new tab.
 class TabStripNewTabButton: UIView {
+  private let button: UIButton = UIButton(type: .custom)
 
   /// Delegate that informs the receiver of actions on the new tab button.
   public var delegate: TabStripNewTabButtonDelegate?
 
-  private let button: UIButton = UIButton(type: .custom)
+  /// View used for by the `layoutGuideCenter`.
+  public var layoutGuideView: UIView { return button }
+
+  /// `true` if the user is in incognito.
+  public var isIncognito: Bool {
+    didSet {
+      self.updateAccessibilityIdentifier()
+    }
+  }
 
   override init(frame: CGRect) {
+    isIncognito = false
+
     super.init(frame: frame)
     translatesAutoresizingMaskIntoConstraints = false
 
@@ -20,16 +32,27 @@ class TabStripNewTabButton: UIView {
     addSubview(button)
     button.accessibilityIdentifier = TabStripConstants.NewTabButton.accessibilityIdentifier
 
-    NSLayoutConstraint.activate([
-      button.leadingAnchor.constraint(
-        equalTo: self.leadingAnchor, constant: TabStripConstants.NewTabButton.leadingInset),
-      button.trailingAnchor.constraint(
-        equalTo: self.trailingAnchor, constant: -TabStripConstants.NewTabButton.trailingInset),
-      button.topAnchor.constraint(
-        equalTo: self.topAnchor, constant: TabStripConstants.NewTabButton.topInset),
-      button.bottomAnchor.constraint(
-        equalTo: self.bottomAnchor, constant: -TabStripConstants.NewTabButton.bottomInset),
-    ])
+    if TabStripFeaturesUtils.hasBiggerNTB {
+      NSLayoutConstraint.activate([
+        button.leadingAnchor.constraint(
+          equalTo: self.leadingAnchor, constant: TabStripConstants.NewTabButton.leadingInset),
+        button.topAnchor.constraint(
+          equalTo: self.topAnchor, constant: TabStripConstants.NewTabButton.topInset),
+        button.widthAnchor.constraint(equalToConstant: TabStripConstants.NewTabButton.diameter),
+        button.heightAnchor.constraint(equalTo: button.widthAnchor),
+      ])
+    } else {
+      NSLayoutConstraint.activate([
+        button.leadingAnchor.constraint(
+          equalTo: self.leadingAnchor, constant: TabStripConstants.NewTabButton.leadingInset),
+        button.trailingAnchor.constraint(
+          equalTo: self.trailingAnchor, constant: -TabStripConstants.NewTabButton.trailingInset),
+        button.topAnchor.constraint(
+          equalTo: self.topAnchor, constant: TabStripConstants.NewTabButton.topInset),
+        button.bottomAnchor.constraint(
+          equalTo: self.bottomAnchor, constant: -TabStripConstants.NewTabButton.bottomInset),
+      ])
+    }
   }
 
   required init?(coder: NSCoder) {
@@ -45,21 +68,44 @@ class TabStripNewTabButton: UIView {
 
   /// Configures the `UIButton`.
   private func configureButton() {
-    let closeSymbol: UIImage = DefaultSymbolWithPointSize(
-      kPlusSymbol, TabStripConstants.NewTabButton.symbolPointSize)
+    let symbolSize =
+      TabStripFeaturesUtils.hasBiggerNTB
+      ? TabStripConstants.NewTabButton.symbolBiggerPointSize
+      : TabStripConstants.NewTabButton.symbolPointSize
+    let closeSymbol = DefaultSymbolWithPointSize(
+      kPlusSymbol, symbolSize)
 
     var configuration = UIButton.Configuration.borderless()
     configuration.contentInsets = .zero
-
     configuration.image = closeSymbol
-    configuration.baseForegroundColor = UIColor(named: kTextSecondaryColor)
-    button.configuration = configuration
+    configuration.baseForegroundColor = TabStripHelper.newTabButtonSymbolColor
 
+    button.configuration = configuration
+    button.contentMode = .center
     button.imageView?.contentMode = .center
-    button.layer.cornerRadius = TabStripConstants.NewTabButton.cornerRadius
-    button.backgroundColor = UIColor(named: kPrimaryBackgroundColor)
+    if TabStripFeaturesUtils.hasBiggerNTB {
+      button.layer.cornerRadius = TabStripConstants.NewTabButton.diameter / 2.0
+    } else {
+      button.layer.cornerRadius = TabStripConstants.NewTabButton.legacyCornerRadius
+    }
+    if !TabStripFeaturesUtils.hasNoNTBBackground {
+      button.backgroundColor = UIColor(named: kGroupedSecondaryBackgroundColor)
+    }
 
     button.translatesAutoresizingMaskIntoConstraints = false
     button.addTarget(self, action: #selector(buttonTapped), for: .touchUpInside)
+    button.isPointerInteractionEnabled = true
+    if #available(iOS 17.0, *) {
+      button.hoverStyle = .init(effect: .lift, shape: .circle)
+    }
+  }
+
+  /// Updates the `accessibilityLabel` according to the current state of
+  /// `isIncognito`.
+  private func updateAccessibilityIdentifier() {
+    button.accessibilityLabel = L10nUtils.stringWithFixup(
+      messageId: isIncognito
+        ? IDS_IOS_TOOLBAR_OPEN_NEW_TAB_INCOGNITO
+        : IDS_IOS_TOOLBAR_OPEN_NEW_TAB)
   }
 }

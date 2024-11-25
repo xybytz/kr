@@ -5,6 +5,7 @@
 #ifndef IOS_CHROME_BROWSER_URL_LOADING_MODEL_TEST_SCENE_URL_LOADING_SERVICE_H_
 #define IOS_CHROME_BROWSER_URL_LOADING_MODEL_TEST_SCENE_URL_LOADING_SERVICE_H_
 
+#import "base/memory/raw_ptr.h"
 #include "ios/chrome/browser/url_loading/model/scene_url_loading_service.h"
 #import "ios/chrome/browser/url_loading/model/url_loading_params.h"
 
@@ -22,12 +23,16 @@ class TestSceneUrlLoadingService : public SceneUrlLoadingService {
   // Returns the current browser.
   Browser* GetCurrentBrowser() override;
 
+  UrlLoadingBrowserAgent* GetBrowserAgent(bool incognito) override;
+
   // These are the last parameters passed to `LoadUrlInNewTab`.
   UrlLoadParams last_params_;
   int load_new_tab_call_count_ = 0;
 
   // This can be set by the test.
-  Browser* current_browser_;
+  raw_ptr<Browser> current_browser_;
+  raw_ptr<Browser> original_browser_;
+  raw_ptr<Browser> otr_browser_;
 };
 
 #endif  // IOS_CHROME_BROWSER_URL_LOADING_MODEL_TEST_SCENE_URL_LOADING_SERVICE_H_

@@ -7,7 +7,9 @@
 
 #include "base/memory/weak_ptr.h"
 #include "base/notreached.h"
+#include "gpu/command_buffer/client/client_shared_image.h"
 #include "gpu/command_buffer/common/mailbox_holder.h"
+#include "gpu/command_buffer/common/shared_image_usage.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_color_params.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
 #include "third_party/blink/renderer/platform/graphics/image.h"
@@ -44,10 +46,6 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
 
   gfx::Size SizeWithConfig(SizeConfig) const final;
 
-  virtual scoped_refptr<StaticBitmapImage> ConvertToColorSpace(
-      sk_sp<SkColorSpace>,
-      SkColorType = kN32_SkColorType) = 0;
-
   // Methods have common implementation for all sub-classes
   bool CurrentFrameIsComplete() override { return true; }
   void DestroyDecodedData() override {}
@@ -75,34 +73,25 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
                              const gfx::Point&,
                              const gfx::Rect&) {
     NOTREACHED();
-    return false;
-  }
-
-  virtual bool CopyToResourceProvider(CanvasResourceProvider*) {
-    NOTREACHED();
-    return false;
   }
 
   virtual bool CopyToResourceProvider(CanvasResourceProvider* resource_provider,
-                                      const gfx::Rect& copy_rect) {
-    NOTREACHED();
-    return false;
-  }
+                                      const gfx::Rect& copy_rect) = 0;
 
   virtual void EnsureSyncTokenVerified() { NOTREACHED(); }
-  virtual gpu::MailboxHolder GetMailboxHolder() const {
+  virtual gpu::MailboxHolder GetMailboxHolder() const { NOTREACHED(); }
+  virtual scoped_refptr<gpu::ClientSharedImage> GetSharedImage() const {
     NOTREACHED();
-    return gpu::MailboxHolder();
+  }
+  virtual gpu::SyncToken GetSyncToken() const {
+    NOTREACHED();
   }
   virtual void UpdateSyncToken(const gpu::SyncToken&) { NOTREACHED(); }
 
   // For gpu based images the Usage is a bitmap indicating set of API(s) and
   // underlying gpu::SharedImage may be used with.
   // The gpu::SharedImageInterface is using uint32_t directly.
-  virtual uint32_t GetUsage() const {
-    NOTREACHED();
-    return 0;
-  }
+  virtual gpu::SharedImageUsageSet GetUsage() const { NOTREACHED(); }
   bool IsPremultiplied() const {
     return GetSkImageInfo().alphaType() == SkAlphaType::kPremul_SkAlphaType;
   }

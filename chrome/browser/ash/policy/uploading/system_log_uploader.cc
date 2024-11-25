@@ -68,7 +68,6 @@ const char* const kSystemLogFileNames[] = {"/var/log/bios_info.txt",
                                            "/var/log/eventlog.txt",
                                            "/var/log/extensions.log",
                                            "/var/log/extensions.1.log",
-                                           "/var/log/platform_info.txt",
                                            "/var/log/messages",
                                            "/var/log/messages.1",
                                            "/var/log/net.log",
@@ -191,9 +190,9 @@ std::string SystemLogDelegate::GetPolicyAsJSON() {
           user_manager::UserManager::Get()->GetPrimaryUser()->IsAffiliated();
     }
   }
-  auto client = std::make_unique<ChromePolicyConversionsClient>(
-      ProfileManager::GetActiveUserProfile());
-  return DictionaryPolicyConversions(std::move(client))
+
+  return PolicyConversions(std::make_unique<ChromePolicyConversionsClient>(
+                               ProfileManager::GetActiveUserProfile()))
       .EnableUserPolicies(include_user_policies)
       .EnableDeviceLocalAccountPolicies(true)
       .EnableDeviceInfo(true)

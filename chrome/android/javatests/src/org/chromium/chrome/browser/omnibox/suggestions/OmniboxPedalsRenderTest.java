@@ -12,9 +12,9 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.params.ParameterAnnotations;
 import org.chromium.base.test.params.ParameterSet;
 import org.chromium.base.test.params.ParameterizedRunner;
@@ -30,13 +30,12 @@ import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
 import org.chromium.chrome.test.util.OmniboxTestUtils;
 import org.chromium.chrome.test.util.OmniboxTestUtils.SuggestionInfo;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.omnibox.AutocompleteMatch;
 import org.chromium.components.omnibox.AutocompleteMatchBuilder;
 import org.chromium.components.omnibox.AutocompleteResult;
+import org.chromium.components.omnibox.OmniboxFeatures;
 import org.chromium.components.omnibox.OmniboxSuggestionType;
 import org.chromium.components.omnibox.action.OmniboxPedalId;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -53,8 +52,6 @@ public class OmniboxPedalsRenderTest {
                     new ParameterSet().value(false).name("LiteMode_RegularTab"),
                     new ParameterSet().value(true).name("NightMode_RegularTab"));
 
-    @Rule public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
-
     @Rule
     public ChromeRenderTestRule mRenderTestRule =
             ChromeRenderTestRule.Builder.withPublicCorpus()
@@ -67,6 +64,7 @@ public class OmniboxPedalsRenderTest {
     private OmniboxTestUtils mOmniboxUtils;
 
     public OmniboxPedalsRenderTest(boolean nightMode) {
+        OmniboxFeatures.setShouldRetainOmniboxOnFocusForTesting(false);
         ChromeNightModeTestUtils.setUpNightModeForChromeActivity(nightMode);
         mRenderTestRule.setNightModeEnabled(nightMode);
         mRenderTestRule.setVariantPrefix("RegularTab");
@@ -89,7 +87,7 @@ public class OmniboxPedalsRenderTest {
 
     @After
     public void tearDown() {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     IncognitoTabHostUtils.closeAllIncognitoTabs();
                 });
@@ -121,8 +119,7 @@ public class OmniboxPedalsRenderTest {
         List<AutocompleteMatch> suggestionsList = new ArrayList<>();
         suggestionsList.add(
                 createDummyPedalSuggestion("pedal", OmniboxPedalId.RUN_CHROME_SAFETY_CHECK));
-        mOmniboxUtils.setSuggestions(
-                AutocompleteResult.fromCache(suggestionsList, null), "Run safety check");
+        mOmniboxUtils.setSuggestions(AutocompleteResult.fromCache(suggestionsList, null));
         mOmniboxUtils.checkSuggestionsShown();
 
         SuggestionInfo<BaseSuggestionView> info = mOmniboxUtils.findSuggestionWithActionChips();
@@ -136,8 +133,7 @@ public class OmniboxPedalsRenderTest {
         List<AutocompleteMatch> suggestionsList = new ArrayList<>();
         suggestionsList.add(
                 createDummyPedalSuggestion("pedal", OmniboxPedalId.PLAY_CHROME_DINO_GAME));
-        mOmniboxUtils.setSuggestions(
-                AutocompleteResult.fromCache(suggestionsList, null), "Dino game");
+        mOmniboxUtils.setSuggestions(AutocompleteResult.fromCache(suggestionsList, null));
         mOmniboxUtils.checkSuggestionsShown();
 
         SuggestionInfo<BaseSuggestionView> info = mOmniboxUtils.findSuggestionWithActionChips();

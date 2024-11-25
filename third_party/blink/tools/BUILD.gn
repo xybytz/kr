@@ -21,14 +21,13 @@ group("wpt_tests_isolate") {
     # The web_tests/wpt_internal directory contains internal WPTs
     "//third_party/blink/web_tests/wpt_internal/",
 
-    # Chromium-specific automation.
-    "//third_party/blink/web_tests/resources/testdriver-vendor.js",
-
     # Configuration files
-    "//third_party/blink/web_tests/wptrunner.blink.ini",
     "//third_party/blink/web_tests/FlagSpecificConfig",
     "//third_party/blink/web_tests/VirtualTestSuites",
     "//third_party/blink/web_tests/TestLists/",
+
+    # exception reporting protos
+    "//build/util/lib/proto",
 
     # Include the root vpython spec.
     "//.vpython3",

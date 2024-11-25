@@ -12,6 +12,8 @@
 #include <linux/nbd.h>
 #include <linux/net.h>
 #include <linux/userfaultfd.h>
+#include <sched.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
@@ -101,7 +103,7 @@ ResultExpr RestrictAndroidIoctl(bool allow_userfaultfd_ioctls) {
            // Binder.
            kBinderWriteRead32, kBinderWriteRead64, BINDER_SET_MAX_THREADS,
            BINDER_THREAD_EXIT, BINDER_VERSION,
-           BINDER_ENABLE_ONEWAY_SPAM_DETECTION,
+           BINDER_ENABLE_ONEWAY_SPAM_DETECTION, BINDER_GET_EXTENDED_ERROR,
            // incfs read ops.
            INCFS_IOC_READ_FILE_SIGNATURE, INCFS_IOC_GET_FILLED_BLOCKS,
            INCFS_IOC_GET_READ_TIMEOUTS, INCFS_IOC_GET_LAST_READ_ERROR,
@@ -248,6 +250,15 @@ ResultExpr BaselinePolicyAndroid::EvaluateSyscall(int sysno) const {
   if (sysno == __NR_ioctl) {
     return RestrictAndroidIoctl(options_.allow_userfaultfd_ioctls);
   }
+
+#if defined(MADV_PAGEOUT)
+  if (sysno == __NR_madvise) {
+    // Allow MADV_PAGEOUT
+    const Arg<int> advice(2);
+    return If(advice == MADV_PAGEOUT, Allow())
+        .Else(BaselinePolicy::EvaluateSyscall(sysno));
+  }
+#endif
 
   // Ptrace is allowed so the crash reporter can fork in a renderer
   // and then ptrace the parent. https://crbug.com/933418

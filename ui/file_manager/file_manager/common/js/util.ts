@@ -105,9 +105,7 @@ let lastVisitedURL: string;
  */
 export function visitURL(url: string): void {
   lastVisitedURL = url;
-  // openURL opens URLs in the primary browser (ash vs lacros) as opposed to
-  // window.open which always opens URLs in ash-chrome.
-  chrome.fileManagerPrivate.openURL(url);
+  window.open(url);
 }
 
 /**
@@ -297,12 +295,8 @@ export type DeepPartial<T> = T extends Builtin ? T : T extends {} ?
 export type GetActionFactoryPayload<A extends ActionFactory<any>> =
     A extends ActionFactory<infer T>? T : unknown;
 
-/**
- * Check if the DEBUG_STORE is set or not. When it's set, action data will be
- * logged in the console for debugging purpose.
- *
- * Run `localStorage.setItem('DEBUG_STORE', '1')` in the console to enable it.
- */
-export function isDebugStoreEnabled() {
-  return localStorage.getItem('DEBUG_STORE') === '1';
+
+export function debug(...vars: unknown[]) {
+  // eslint-disable-next-line no-console
+  console.debug(...vars);
 }

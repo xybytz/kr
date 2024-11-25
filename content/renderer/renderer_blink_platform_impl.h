@@ -80,7 +80,13 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   blink::WebSandboxSupport* GetSandboxSupport() override;
   virtual bool sandboxEnabled();
   uint64_t VisitedLinkHash(std::string_view canonical_url) override;
+  uint64_t PartitionedVisitedLinkFingerprint(
+      std::string_view canonical_link_url,
+      const net::SchemefulSite& top_level_site,
+      const blink::WebSecurityOrigin& frame_origin) override;
   bool IsLinkVisited(uint64_t linkHash) override;
+  void AddOrUpdateVisitedLinkSalt(const url::Origin& origin,
+                                  uint64_t salt) override;
   blink::WebString UserAgent() override;
   blink::UserAgentMetadata UserAgentMetadata() override;
   bool IsRedirectSafe(const GURL& from_url, const GURL& to_url) override;
@@ -103,6 +109,8 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
       scoped_refptr<gpu::GpuChannelHost> gpu_channel_host);
   std::unique_ptr<blink::WebSocketHandshakeThrottleProvider>
   CreateWebSocketHandshakeThrottleProvider() override;
+  bool ShouldUseCodeCacheWithHashing(
+      const blink::WebURL& request_url) const override;
   bool IsolateStartsInBackground() override;
   blink::WebString DefaultLocale() override;
   void SuddenTerminationChanged(bool enabled) override;
@@ -138,6 +146,7 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   scoped_refptr<cc::RasterContextProviderWrapper>
   SharedCompositorWorkerContextProvider(
       cc::RasterDarkModeFilter* dark_mode_filter) override;
+  bool IsGpuRemoteDisconnected() override;
   scoped_refptr<gpu::GpuChannelHost> EstablishGpuChannelSync() override;
   void EstablishGpuChannel(EstablishGpuChannelCallback callback) override;
   bool RTCSmoothnessAlgorithmEnabled() override;
@@ -160,7 +169,6 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
                                     bool* allow_mdns_obfuscation) override;
   bool IsWebRtcHWEncodingEnabled() override;
   bool IsWebRtcHWDecodingEnabled() override;
-  bool IsWebRtcSrtpEncryptedHeadersEnabled() override;
   bool AllowsLoopbackInPeerConnection() override;
   blink::WebVideoCaptureImplManager* GetVideoCaptureImplManager() override;
   std::unique_ptr<blink::WebGraphicsContext3DProvider>
@@ -260,8 +268,7 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   bool is_locked_to_site_;
 
   // NOT OWNED
-  raw_ptr<blink::scheduler::WebThreadScheduler, ExperimentalRenderer>
-      main_thread_scheduler_;
+  raw_ptr<blink::scheduler::WebThreadScheduler> main_thread_scheduler_;
 
   // Event that signals `io_thread_id_` is set and ready to be read.
   mutable base::WaitableEvent io_thread_id_ready_event_;

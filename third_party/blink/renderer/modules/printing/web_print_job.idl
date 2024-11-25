@@ -15,19 +15,25 @@ enum WebPrintJobState {
 
 dictionary WebPrintJobAttributes {
   DOMString jobName;
+  unsigned long jobPages;
+  unsigned long jobPagesCompleted;
   WebPrintJobState jobState;
 };
 
 [
+  ActiveScriptWrappable,
   Exposed=Window,
   RuntimeEnabled=WebPrinting,
   SecureContext,
   IsolatedContext
 ]
 interface WebPrintJob : EventTarget {
+  [MeasureAs=WebPrintJobAttributesFunction]
   WebPrintJobAttributes attributes();
 
-  attribute EventHandler onjobstatechange;
+  [MeasureAs=WebPrintJobCancelFunction]
+  void cancel();
 
-  // TODO(b/302505962): Add remaining methods.
+  [MeasureAs=WebPrintJobOnJobStateChangeEvent]
+  attribute EventHandler onjobstatechange;
 };

@@ -36,15 +36,12 @@ public interface BaseCarouselSuggestionViewBinder {
             } else {
                 adapter.getModelList().clear();
             }
-        } else if (key == BaseCarouselSuggestionViewProperties.ITEM_WIDTH) {
-            view.getItemDecoration()
-                    .setItemWidth(model.get(BaseCarouselSuggestionViewProperties.ITEM_WIDTH));
+            view.resetSelection();
+        } else if (key == BaseCarouselSuggestionViewProperties.ITEM_DECORATION) {
+            view.setItemDecoration(model.get(BaseCarouselSuggestionViewProperties.ITEM_DECORATION));
         } else if (key == BaseCarouselSuggestionViewProperties.CONTENT_DESCRIPTION) {
             view.setContentDescription(
                     model.get(BaseCarouselSuggestionViewProperties.CONTENT_DESCRIPTION));
-        } else if (key == BaseCarouselSuggestionViewProperties.HORIZONTAL_FADE) {
-            view.setHorizontalFadingEdgeEnabled(
-                    model.get(BaseCarouselSuggestionViewProperties.HORIZONTAL_FADE));
         } else if (key == BaseCarouselSuggestionViewProperties.TOP_PADDING
                 || key == BaseCarouselSuggestionViewProperties.BOTTOM_PADDING) {
             int top = model.get(BaseCarouselSuggestionViewProperties.TOP_PADDING);
@@ -90,8 +87,8 @@ public interface BaseCarouselSuggestionViewBinder {
      * Retrieve the background color to be applied to suggestion.
      *
      * @param model A property model to look up relevant properties.
-     * @param ctx Context used to retrieve appropriate color value.
-     * @return @ColorInt value representing the color to be applied.
+     * @param ctx Context used to retrieve appropriate color value. @ColorInt value representing the
+     *     color to be applied.
      */
     public static @ColorInt int getSuggestionBackgroundColor(PropertyModel model, Context ctx) {
         return model.get(SuggestionCommonProperties.COLOR_SCHEME) == BrandedColorScheme.INCOGNITO

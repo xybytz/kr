@@ -8,25 +8,23 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <string>
-#include <vector>
 
 #include "base/memory/weak_ptr.h"
 #include "content/browser/attribution_reporting/attribution_background_registrations_id.h"
 #include "content/browser/attribution_reporting/attribution_suitable_context.h"
 #include "content/common/content_export.h"
-#include "services/network/public/cpp/attribution_reporting_runtime_features.h"
 #include "services/network/public/mojom/attribution.mojom-forward.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
+
+namespace attribution_reporting {
+enum class AttributionSrcRequestStatus;
+}  // namespace attribution_reporting
 
 namespace net {
 class HttpResponseHeaders;
 }  // namespace net
-
-namespace network {
-class TriggerVerification;
-}  // namespace network
 
 namespace content {
 
@@ -47,9 +45,8 @@ class CONTENT_EXPORT KeepAliveAttributionRequestHelper {
   static std::unique_ptr<KeepAliveAttributionRequestHelper> CreateIfNeeded(
       network::mojom::AttributionReportingEligibility,
       const GURL& request_url,
-      const absl::optional<base::UnguessableToken>& attribution_src_token,
-      const absl::optional<std::string>& devtools_request_id,
-      network::AttributionReportingRuntimeFeatures,
+      const std::optional<base::UnguessableToken>& attribution_src_token,
+      const std::optional<std::string>& devtools_request_id,
       const AttributionSuitableContext&);
 
   ~KeepAliveAttributionRequestHelper();
@@ -61,30 +58,38 @@ class CONTENT_EXPORT KeepAliveAttributionRequestHelper {
       const KeepAliveAttributionRequestHelper&) = delete;
 
   void OnReceiveRedirect(const net::HttpResponseHeaders* headers,
-                         const std::vector<network::TriggerVerification>&,
                          const GURL& redirect_url);
-  void OnReceiveResponse(const net::HttpResponseHeaders* headers,
-                         const std::vector<network::TriggerVerification>&);
+  void OnReceiveResponse(const net::HttpResponseHeaders* headers);
+  void OnError();
 
  private:
   friend class KeepAliveAttributionRequestHelperTestPeer;
 
-  KeepAliveAttributionRequestHelper(
-      BackgroundRegistrationsId,
-      AttributionDataHostManager*,
-      const GURL& reporting_url,
-      network::AttributionReportingRuntimeFeatures runtime_features);
+  KeepAliveAttributionRequestHelper(BackgroundRegistrationsId,
+                                    AttributionDataHostManager*,
+                                    const GURL& reporting_url,
+                                    bool is_navigation_tied);
+
+  void RecordAttributionSrcRequestStatus(
+      attribution_reporting::AttributionSrcRequestStatus);
+
+  void OnComplete();
 
   BackgroundRegistrationsId id_;
 
   base::WeakPtr<AttributionDataHostManager> attribution_data_host_manager_;
 
-  network::AttributionReportingRuntimeFeatures runtime_features_;
-
   // Reporting url of the ongoing request, it is updated on redirection. The url
   // might be suitable or not, if it is not, when receiving a response, it will
   // be ignored.
   GURL reporting_url_;
+
+  // Whether the keep alive request is tied with a navigation.
+  bool is_navigation_tied_ = false;
+
+  // Whether the keep alive request has been ever redirected, updated at the
+  // first redirect if there's a chain of multiple redirects.
+  bool redirected_ = false;
 };
 
 }  // namespace content

@@ -34,18 +34,20 @@ public class SiteSettingsUtil {
         ContentSettingsType.AUTOMATIC_DOWNLOADS,
         ContentSettingsType.PROTECTED_MEDIA_IDENTIFIER,
         ContentSettingsType.SOUND,
-        ContentSettingsType.MIDI,
         ContentSettingsType.MIDI_SYSEX,
         ContentSettingsType.CLIPBOARD_READ_WRITE,
         ContentSettingsType.NFC,
+        ContentSettingsType.FILE_SYSTEM_WRITE_GUARD,
         ContentSettingsType.BLUETOOTH_SCANNING,
         ContentSettingsType.VR,
         ContentSettingsType.AR,
+        ContentSettingsType.HAND_TRACKING,
         ContentSettingsType.IDLE_DETECTION,
         ContentSettingsType.FEDERATED_IDENTITY_API,
         ContentSettingsType.SENSORS,
         ContentSettingsType.AUTO_DARK_WEB_CONTENT,
         ContentSettingsType.REQUEST_DESKTOP_SITE,
+        ContentSettingsType.JAVASCRIPT_OPTIMIZER,
     };
 
     static final int[] CHOOSER_PERMISSIONS = {
@@ -107,8 +109,8 @@ public class SiteSettingsUtil {
         String result = "";
         if (storage > 0) {
             result =
-                    String.format(
-                            context.getString(R.string.origin_settings_storage_usage_brief),
+                    context.getString(
+                            R.string.origin_settings_storage_usage_brief,
                             Formatter.formatShortFileSize(context, storage));
         }
         if (cookies > 0) {
@@ -118,10 +120,8 @@ public class SiteSettingsUtil {
             result =
                     result.isEmpty()
                             ? cookie_str
-                            : String.format(
-                                    context.getString(R.string.summary_with_one_bullet),
-                                    result,
-                                    cookie_str);
+                            : context.getString(
+                                    R.string.summary_with_one_bullet, result, cookie_str);
         }
         return result;
     }

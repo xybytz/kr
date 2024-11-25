@@ -5,8 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_INPUT_NODE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_INPUT_NODE_H_
 
+#include <optional>
+
 #include "base/dcheck_is_on.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/display_lock/display_lock_context.h"
 #include "third_party/blink/renderer/core/layout/geometry/axis.h"
@@ -83,9 +84,10 @@ class CORE_EXPORT LayoutInputNode {
   bool IsBody() const { return IsBlock() && box_->IsBody(); }
   bool IsView() const { return IsBlock() && box_->IsLayoutView(); }
   bool IsDocumentElement() const { return box_->IsDocumentElement(); }
-  bool IsFlexItem() const { return IsBlock() && box_->IsFlexItemIncludingNG(); }
+  bool IsFlexItem() const { return IsBlock() && box_->IsFlexItem(); }
   bool IsFlexibleBox() const { return IsBlock() && box_->IsFlexibleBox(); }
   bool IsGrid() const { return IsBlock() && box_->IsLayoutGrid(); }
+  bool IsMasonry() const { return IsBlock() && box_->IsLayoutMasonry(); }
   bool ShouldBeConsideredAsReplaced() const {
     return box_->ShouldBeConsideredAsReplaced();
   }
@@ -100,12 +102,13 @@ class CORE_EXPORT LayoutInputNode {
     DCHECK(IsListMarker());
     return To<LayoutOutsideListMarker>(box_.Get())->NeedsOccupyWholeLine();
   }
-  bool IsButton() const { return IsBlock() && box_->IsButton(); }
+  bool IsButtonOrInputButton() const {
+    return IsBlock() && box_->IsButtonOrInputButton();
+  }
   bool IsFieldsetContainer() const { return IsBlock() && box_->IsFieldset(); }
   bool IsInitialLetterBox() const { return box_->IsInitialLetterBox(); }
   bool IsMedia() const { return box_->IsMedia(); }
-  bool IsRubyColumn() const { return IsBlock() && box_->IsRubyColumn(); }
-  bool IsRubyText() const { return box_->IsRubyText(); }
+  bool IsCanvas() const { return box_->IsCanvas(); }
 
   // Return true if this is the legend child of a fieldset that gets special
   // treatment (i.e. placed over the block-start border).
@@ -122,6 +125,7 @@ class CORE_EXPORT LayoutInputNode {
 
   bool IsTableCaption() const { return IsBlock() && box_->IsTableCaption(); }
   bool IsTableSection() const { return IsBlock() && box_->IsTableSection(); }
+  bool IsTableRow() const { return IsBlock() && box_->IsTableRow(); }
   bool IsTableCell() const { return IsBlock() && box_->IsTableCell(); }
 
   // Section with empty rows is considered empty.
@@ -158,6 +162,13 @@ class CORE_EXPORT LayoutInputNode {
   bool IsQuirkyContainer() const {
     return box_->GetDocument().InQuirksMode() &&
            (box_->IsBody() || box_->IsTableCell());
+  }
+
+  bool IsHorizontalWritingMode() const {
+    return box_->IsHorizontalWritingMode();
+  }
+  bool IsHorizontalTypographicMode() const {
+    return box_->IsHorizontalTypographicMode();
   }
 
   // Return true if this node is monolithic for block fragmentation.
@@ -200,8 +211,8 @@ class CORE_EXPORT LayoutInputNode {
   // ComputeReplacedSize can use it to compute actual replaced size.
   // Corresponds to Legacy's LayoutReplaced::IntrinsicSizingInfo.
   // Use BlockNode::GetAspectRatio to get the aspect ratio.
-  void IntrinsicSize(absl::optional<LayoutUnit>* computed_inline_size,
-                     absl::optional<LayoutUnit>* computed_block_size) const;
+  void IntrinsicSize(std::optional<LayoutUnit>* computed_inline_size,
+                     std::optional<LayoutUnit>* computed_block_size) const;
 
   // Returns the next sibling.
   LayoutInputNode NextSibling() const;
@@ -209,6 +220,12 @@ class CORE_EXPORT LayoutInputNode {
   Document& GetDocument() const { return box_->GetDocument(); }
 
   Node* GetDOMNode() const { return box_->GetNode(); }
+
+  // Return the DOM node of this, or, if none, that of the nearest ancestor that
+  // has one.
+  //
+  // Anonymous objects have no DOM node.
+  Node* EnclosingDOMNode() const { return box_->EnclosingNode(); }
 
   PhysicalSize InitialContainingBlockSize() const;
 
@@ -236,11 +253,11 @@ class CORE_EXPORT LayoutInputNode {
   }
 
   LogicalAxes ContainedAxes() const {
-    LogicalAxes axes = kLogicalAxisNone;
+    LogicalAxes axes = kLogicalAxesNone;
     if (ShouldApplyInlineSizeContainment())
-      axes |= kLogicalAxisInline;
+      axes |= kLogicalAxesInline;
     if (ShouldApplyBlockSizeContainment())
-      axes |= kLogicalAxisBlock;
+      axes |= kLogicalAxesBlock;
     return axes;
   }
 
@@ -248,15 +265,10 @@ class CORE_EXPORT LayoutInputNode {
   // https://drafts.csswg.org/css-sizing-4/#intrinsic-size-override
   // Note that this returns kIndefiniteSize if the override was not specified.
   LayoutUnit OverrideIntrinsicContentInlineSize() const {
-    if (box_->HasOverrideIntrinsicContentLogicalWidth())
-      return box_->OverrideIntrinsicContentLogicalWidth();
-    return kIndefiniteSize;
+    return box_->OverrideIntrinsicContentInlineSize();
   }
-  // Note that this returns kIndefiniteSize if the override was not specified.
   LayoutUnit OverrideIntrinsicContentBlockSize() const {
-    if (box_->HasOverrideIntrinsicContentLogicalHeight())
-      return box_->OverrideIntrinsicContentLogicalHeight();
-    return kIndefiniteSize;
+    return box_->OverrideIntrinsicContentBlockSize();
   }
 
   LayoutUnit DefaultIntrinsicContentInlineSize() const {
@@ -313,8 +325,8 @@ class CORE_EXPORT LayoutInputNode {
       : box_(box), type_(type) {}
 
   void GetOverrideIntrinsicSize(
-      absl::optional<LayoutUnit>* computed_inline_size,
-      absl::optional<LayoutUnit>* computed_block_size) const;
+      std::optional<LayoutUnit>* computed_inline_size,
+      std::optional<LayoutUnit>* computed_block_size) const;
 
   Member<LayoutBox> box_;
 

@@ -2,9 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "ash/webui/file_manager/file_manager_ui.h"
 
 #include "ash/constants/ash_features.h"
+#include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/webui/common/trusted_types_util.h"
 #include "ash/webui/file_manager/file_manager_page_handler.h"
@@ -35,18 +41,21 @@ namespace {
 bool IsKioskSession() {
   auto* session_controller = Shell::Get()->session_controller();
   auto account_id = session_controller->GetActiveAccountId();
-  const auto user_type =
-      session_controller->GetUserSessionByAccountId(account_id)->user_info.type;
+  auto* session = session_controller->GetUserSessionByAccountId(account_id);
+  if (!session) {
+    return false;
+  }
+  const auto user_type = session->user_info.type;
 
   switch (user_type) {
-    case user_manager::USER_TYPE_REGULAR:
-    case user_manager::USER_TYPE_CHILD:
-    case user_manager::USER_TYPE_GUEST:
-    case user_manager::USER_TYPE_PUBLIC_ACCOUNT:
+    case user_manager::UserType::kRegular:
+    case user_manager::UserType::kChild:
+    case user_manager::UserType::kGuest:
+    case user_manager::UserType::kPublicAccount:
       return false;
-    case user_manager::USER_TYPE_KIOSK_APP:
-    case user_manager::USER_TYPE_ARC_KIOSK_APP:
-    case user_manager::USER_TYPE_WEB_KIOSK_APP:
+    case user_manager::UserType::kKioskApp:
+    case user_manager::UserType::kWebKioskApp:
+    case user_manager::UserType::kKioskIWA:
       return true;
   }
 }
@@ -101,13 +110,10 @@ void FileManagerUI::CreateAndAddTrustedAppDataSource(content::WebUI* web_ui,
   // Setup chrome://file-manager main and default page.
   source->AddResourcePath("", IDR_FILE_MANAGER_MAIN_HTML);
   // Add chrome://file-manager content.
-  source->AddResourcePaths(
-      base::make_span(kFileManagerSwaResources, kFileManagerSwaResourcesSize));
+  source->AddResourcePaths(kFileManagerSwaResources);
 
-  AddFilesAppResources(source, kFileManagerResources,
-                       kFileManagerResourcesSize);
-  AddFilesAppResources(source, kFileManagerGenResources,
-                       kFileManagerGenResourcesSize);
+  AddFilesAppResources(source, kFileManagerResources);
+  AddFilesAppResources(source, kFileManagerGenResources);
 
   // Load time data: add files app strings and feature flags.
   source->EnableReplaceI18nInJS();

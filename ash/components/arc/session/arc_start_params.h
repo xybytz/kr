@@ -75,15 +75,6 @@ struct StartParams {
   // flakiness in tests.
   bool disable_download_provider = false;
 
-  // Flag to disable ureadahead completely, including host and guest parts.
-  // TODO(b/264585671): Refactor this and |host_ureadahead_generation| to
-  // mode enum.
-  bool disable_ureadahead = false;
-
-  // Flag to indicate host ureadahead generation.
-  // TODO(b/264585671): Refactor this and |disable_ureadahead| to mode enum.
-  bool host_ureadahead_generation = false;
-
   // Flag to indicate whether to use dev caches.
   bool use_dev_caches = false;
 
@@ -93,17 +84,8 @@ struct StartParams {
   // Enables developer options used to generate Play Auto Install rosters.
   bool arc_generate_play_auto_install = false;
 
-  // Flag to enable keyboard shortcut helper integration.
-  bool enable_keyboard_shortcut_helper_integration = false;
-
-  // Flag to enable notification refresh.
-  bool enable_notifications_refresh = false;
-
   // Flag to enable TTS caching.
   bool enable_tts_caching = false;
-
-  // Flag to enable disable consumer auto update toggle as part of EU new deal.
-  bool enable_consumer_auto_update_toggle = false;
 
   // Flag that indicates whether ARCVM uses virtio-blk for /data.
   bool use_virtio_blk_data = false;
@@ -116,6 +98,10 @@ struct StartParams {
 
   // Flag that indicates whether ARC is already signed in.
   bool arc_signed_in = false;
+
+  // Flag that would enable ARC Attestation, and would make ARC
+  // RemotelyProvisionedComponentDevice visible to Keystore.
+  bool enable_arc_attestation = false;
 };
 
 }  // namespace arc

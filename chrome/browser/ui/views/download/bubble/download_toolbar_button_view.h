@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_DOWNLOAD_BUBBLE_DOWNLOAD_TOOLBAR_BUTTON_VIEW_H_
 
 #include <optional>
+#include <string>
 
 #include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
@@ -55,11 +56,13 @@ class DownloadBubbleNavigationHandler {
 
   virtual void CloseDialog(views::Widget::ClosedReason reason) = 0;
 
-  virtual void ResizeDialog() = 0;
-
   // Callback invoked when the dialog has been interacted with by hovering over
   // or by focusing (on the partial view).
   virtual void OnDialogInteracted() = 0;
+
+  virtual void OnSecurityDialogButtonPress(
+      const DownloadUIModel& model,
+      DownloadCommands::Command command) = 0;
 
   // Returns a CloseOnDeactivatePin for the download bubble. For the lifetime of
   // the returned pin (if non-null), the download bubble will not close on
@@ -102,6 +105,7 @@ class DownloadToolbarButtonView : public ToolbarButton,
   void ShowDetails() override;
   void HideDetails() override;
   bool IsShowingDetails() const override;
+  void AnnounceAccessibleAlertNow(const std::u16string& alert_text) override;
   bool IsFullscreenWithParentViewHidden() const override;
   bool ShouldShowExclusiveAccessBubble() const override;
   void OpenSecuritySubpage(
@@ -112,7 +116,7 @@ class DownloadToolbarButtonView : public ToolbarButton,
 
   // ToolbarButton:
   void UpdateIcon() override;
-  void Layout() override;
+  void Layout(PassKey) override;
   bool ShouldShowInkdropAfterIphInteraction() override;
 
   // DownloadBubbleNavigationHandler:
@@ -120,7 +124,8 @@ class DownloadToolbarButtonView : public ToolbarButton,
   void OpenSecurityDialog(
       const offline_items_collection::ContentId& content_id) override;
   void CloseDialog(views::Widget::ClosedReason reason) override;
-  void ResizeDialog() override;
+  void OnSecurityDialogButtonPress(const DownloadUIModel& model,
+                                   DownloadCommands::Command command) override;
   void OnDialogInteracted() override;
   std::unique_ptr<views::BubbleDialogDelegate::CloseOnDeactivatePin>
   PreventDialogCloseOnDeactivate() override;
@@ -128,6 +133,7 @@ class DownloadToolbarButtonView : public ToolbarButton,
 
   // BrowserListObserver
   void OnBrowserSetLastActive(Browser* browser) override;
+  void OnBrowserNoLongerActive(Browser* browser) override;
 
   // Deactivates the automatic closing of the partial bubble.
   void DeactivateAutoClose();
@@ -158,7 +164,7 @@ class DownloadToolbarButtonView : public ToolbarButton,
   // already-inactive state. This is created by the DownloadToolbarButtonView
   // when the bubble is shown with ShowInactive, and is destroyed when the
   // bubble is closed.
-  // TODO(crbug.com/1503082): Factor out common logic copied from translate
+  // TODO(crbug.com/40943500): Factor out common logic copied from translate
   // bubble.
   class BubbleCloser : public ui::EventObserver {
    public:
@@ -203,11 +209,11 @@ class DownloadToolbarButtonView : public ToolbarButton,
   DownloadBubbleRowView* ShowPrimaryDialogRow(
       std::optional<offline_items_collection::ContentId> content_id);
 
-  // Helper function to show an IPH promo
-  void ShowIphPromo();
-
   // Callback invoked when the partial view is closed.
   void OnPartialViewClosed();
+
+  // Helper function to show an IPH promo.
+  void ShowIphPromo();
 
   // Called to automatically close the partial view, if such closing has not
   // been deactivated.
@@ -223,11 +229,17 @@ class DownloadToolbarButtonView : public ToolbarButton,
 
   bool ShouldShowBubbleAsInactive() const;
 
+  void CloseAutofillPopup();
+
   // Whether to show the progress ring as a continuously spinning ring, during
   // deep scanning or if the progress is indeterminate.
   bool ShouldShowScanningAnimation() const;
 
   SkColor GetProgressColor(bool is_disabled, bool is_active) const;
+
+  // Makes the required visual changes to set/unset the button into a dormant
+  // or normal state.
+  void UpdateIconDormant();
 
   // DownloadBubbleRowListViewInfoObserver implementation:
   void OnAnyRowRemoved() override;
@@ -240,6 +252,21 @@ class DownloadToolbarButtonView : public ToolbarButton,
   std::unique_ptr<DownloadBubbleUIController> bubble_controller_;
   raw_ptr<views::BubbleDialogDelegate> bubble_delegate_ = nullptr;
   raw_ptr<DownloadBubbleContentsView> bubble_contents_ = nullptr;
+
+  // Whether the progress ring in the icon should be updated continuously
+  // (false), or the icon should be displayed as dormant (true). This is a
+  // performance optimization to avoid redrawing the progress ring too many
+  // times when a download is occurring. If the button is dormant, the progress
+  // ring is drawn as a solid circle, and the icon color is the inactive color.
+  // The badge is still drawn, and the icon shape is still updated. (These
+  // change relatively infrequently, so it's ok to update them when they
+  // change.) Buttons on browsers other than the most recent active browser for
+  // the profile are generally dormant.
+  bool is_dormant_ = false;
+
+  // Following 3 fields are updated by the display controller and determine the
+  // visual characteristics of the button icon. Note that they are still updated
+  // as if the button is normal, even when the button is in a dormant state.
 
   // Current or pending state of the icon. If changing these, trigger
   // UpdateIcon() afterwards.
@@ -255,11 +282,17 @@ class DownloadToolbarButtonView : public ToolbarButton,
   // Marks whether there is a pending download started animation. This is needed
   // because the animation should only be triggered after the view has been
   // laid out properly, so this provides a way to remember to show the animation
-  // if needed, when calling Layout().
+  // if needed, when performing layout.
   bool has_pending_download_started_animation_ = false;
-  // Overrides whether we are allowed to show the download started animation,
-  // may be false in tests.
+
+// Overrides whether we are allowed to show the download started animation,
+// may be false in tests.
+#if BUILDFLAG(IS_CHROMEOS)
+  // NOTE: Disabled on ChromeOS to respect its own download renderings.
+  bool show_download_started_animation_ = false;
+#else
   bool show_download_started_animation_ = true;
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
   // Tracks the task to automatically close the partial view after some amount
   // of time open, to minimize disruption to the user.

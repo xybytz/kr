@@ -6,18 +6,16 @@
 
 #include <algorithm>
 #include <utility>
+#include <vector>
 
 #include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
 #include "ash/wm/window_util.h"
-#include "base/containers/cxx20_erase.h"
 #include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/numerics/safe_conversions.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
-#include "chrome/browser/apps/app_service/publishers/standalone_browser_extension_apps.h"
-#include "chrome/browser/apps/app_service/publishers/standalone_browser_extension_apps_factory.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/shelf/app_window_base.h"
@@ -26,7 +24,7 @@
 #include "chrome/browser/ui/ash/shelf/standalone_browser_extension_app_context_menu.h"
 #include "components/services/app_service/public/cpp/app_types.h"
 #include "components/services/app_service/public/cpp/instance_registry.h"
-#include "ui/base/models/simple_menu_model.h"
+#include "ui/menus/simple_menu_model.h"
 #include "ui/views/widget/widget.h"
 
 StandaloneBrowserExtensionAppShelfItemController::
@@ -202,7 +200,7 @@ void StandaloneBrowserExtensionAppShelfItemController::ShelfItemAdded(
     item.image = icon_.value();
   }
 
-  // TODO(https://crbug.com/1225848): title, policy_pinned_state
+  // TODO(crbug.com/40188614): title, policy_pinned_state
 
   ash::ShelfModel::Get()->Set(index, item);
 
@@ -267,13 +265,13 @@ void StandaloneBrowserExtensionAppShelfItemController::
 
 void StandaloneBrowserExtensionAppShelfItemController::OnWindowDestroying(
     aura::Window* window) {
-  size_t erased = base::Erase(windows_, window);
+  size_t erased = std::erase(windows_, window);
   DCHECK_EQ(erased, 1u);
   window_observations_.RemoveObservation(window);
 
   // If a window is destroyed, also remove it from the list used to show context
   // menu items.
-  base::Erase(context_menu_windows_, window);
+  std::erase(context_menu_windows_, window);
 
   // Remove `window` from InstanceRegistry.
   UpdateInstance(window, apps::InstanceState::kDestroyed);

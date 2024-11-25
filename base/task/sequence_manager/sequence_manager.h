@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/base_export.h"
+#include "base/compiler_specific.h"
 #include "base/dcheck_is_on.h"
 #include "base/memory/raw_ptr.h"
 #include "base/message_loop/message_pump_type.h"
@@ -130,11 +131,13 @@ class BASE_EXPORT SequenceManager {
         std::vector<TimeDelta> per_priority_cross_thread_task_delay,
         std::vector<TimeDelta> per_priority_same_thread_task_delay);
 
-    const std::vector<TimeDelta>& per_priority_cross_thread_task_delay() const {
+    const std::vector<TimeDelta>& per_priority_cross_thread_task_delay() const
+        LIFETIME_BOUND {
       return per_priority_cross_thread_task_delay_;
     }
 
-    const std::vector<TimeDelta>& per_priority_same_thread_task_delay() const {
+    const std::vector<TimeDelta>& per_priority_same_thread_task_delay() const
+        LIFETIME_BOUND {
       return per_priority_same_thread_task_delay_;
     }
 
@@ -247,7 +250,7 @@ class BASE_EXPORT SequenceManager {
   // Returns a wake-up for the next delayed task which is not ripe for
   // execution. If there are no such tasks (immediate tasks don't count),
   // returns nullopt.
-  virtual absl::optional<WakeUp> GetNextDelayedWakeUp() const = 0;
+  virtual std::optional<WakeUp> GetNextDelayedWakeUp() const = 0;
 
   // Sets the SingleThreadTaskRunner that will be returned by
   // SingleThreadTaskRunner::GetCurrentDefault on the main thread.

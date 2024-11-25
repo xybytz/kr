@@ -2,11 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "ash/webui/os_feedback_ui/os_feedback_untrusted_ui.h"
 
 #include <memory>
 
-#include "ash/constants/ash_features.h"
 #include "ash/webui/common/trusted_types_util.h"
 #include "ash/webui/grit/ash_os_feedback_resources.h"
 #include "ash/webui/grit/ash_os_feedback_untrusted_resources.h"
@@ -49,16 +53,10 @@ void AddLocalizedStrings(content::WebUIDataSource* source) {
 }  // namespace
 
 OsFeedbackUntrustedUIConfig::OsFeedbackUntrustedUIConfig()
-    : WebUIConfig(content::kChromeUIUntrustedScheme,
-                  kChromeUIOSFeedbackUntrustedHost) {}
+    : DefaultWebUIConfig(content::kChromeUIUntrustedScheme,
+                         kChromeUIOSFeedbackUntrustedHost) {}
 
 OsFeedbackUntrustedUIConfig::~OsFeedbackUntrustedUIConfig() = default;
-
-std::unique_ptr<content::WebUIController>
-OsFeedbackUntrustedUIConfig::CreateWebUIController(content::WebUI* web_ui,
-                                                   const GURL& url) {
-  return std::make_unique<OsFeedbackUntrustedUI>(web_ui);
-}
 
 OsFeedbackUntrustedUI::OsFeedbackUntrustedUI(content::WebUI* web_ui)
     : ui::UntrustedWebUIController(web_ui) {
@@ -85,10 +83,6 @@ OsFeedbackUntrustedUI::OsFeedbackUntrustedUI(content::WebUI* web_ui)
   untrusted_source->SetDefaultResource(
       IDR_ASH_OS_FEEDBACK_UNTRUSTED_UNTRUSTED_INDEX_HTML);
 
-  // Resources for dynamic colors.
-  untrusted_source->AddBoolean("isJellyEnabledForOsFeedback",
-                               ash::features::IsJellyEnabledForOsFeedback());
-
   AddLocalizedStrings(untrusted_source);
 
   // Allow the chrome://os-feedback WebUI to embed the corresponding
@@ -109,7 +103,6 @@ OsFeedbackUntrustedUI::~OsFeedbackUntrustedUI() = default;
 
 void OsFeedbackUntrustedUI::BindInterface(
     mojo::PendingReceiver<color_change_listener::mojom::PageHandler> receiver) {
-  CHECK(ash::features::IsJellyEnabledForOsFeedback());
   color_provider_handler_ = std::make_unique<ui::ColorChangeHandler>(
       web_ui()->GetWebContents(), std::move(receiver));
 }

@@ -28,7 +28,6 @@
 #include "chrome/browser/ash/login/test/network_portal_detector_mixin.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
 #include "chrome/browser/ash/login/test/session_manager_state_waiter.h"
-#include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/chrome_extension_test_notification_observer.h"
@@ -36,6 +35,7 @@
 #include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
+#include "chrome/browser/ui/ash/login/login_display_host.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
@@ -400,8 +400,7 @@ class OAuth2Test : public OobeBaseTest {
       return false;
     }
 
-    UserContext user_context(user_manager::UserType::USER_TYPE_REGULAR,
-                             account_id);
+    UserContext user_context(user_manager::UserType::kRegular, account_id);
     user_context.SetKey(Key(password));
     controller->Login(user_context, SigninSpecifics());
     test::WaitForPrimaryUserSessionStart();
@@ -478,7 +477,7 @@ class OAuth2Test : public OobeBaseTest {
 
   void SimulateNetworkOnline() {
     network_portal_detector_.SimulateDefaultNetworkState(
-        NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_ONLINE);
+        NetworkPortalDetectorMixin::NetworkStatus::kOnline);
   }
 
   FakeGaiaMixin fake_gaia_{&mixin_host_};
@@ -486,7 +485,8 @@ class OAuth2Test : public OobeBaseTest {
 
  private:
   base::FilePath test_data_dir_;
-  std::map<std::string, RequestDeferrer*> request_deferers_;
+  std::map<std::string, raw_ptr<RequestDeferrer, CtnExperimental>>
+      request_deferers_;
 };
 
 class CookieReader {
@@ -580,7 +580,7 @@ IN_PROC_BROWSER_TEST_F(OAuth2Test, PRE_MergeSession) {
 // MergeSession test is attempting to merge session for an existing profile
 // that was generated in PRE_PRE_MergeSession test. This attempt should fail
 // since FakeGaia instance isn't configured to return relevant tokens/cookies.
-// TODO(crbug.com/1249863): Test is flaky on chromeos
+// TODO(crbug.com/40791508): Test is flaky on chromeos
 IN_PROC_BROWSER_TEST_F(OAuth2Test, DISABLED_MergeSession) {
   SimulateNetworkOnline();
 
@@ -984,11 +984,10 @@ IN_PROC_BROWSER_TEST_P(MergeSessionTest, Throttle) {
 
   // Kick off XHR request from the extension.
   JsExpectOnBackgroundPageAsync(
-      ext->id(), base::StringPrintf("startThrottledTests('%s', '%s', %s, %s)",
+      ext->id(), base::StringPrintf("startThrottledTests('%s', '%s', %s)",
                                     fake_google_page_url_.spec().c_str(),
                                     non_google_page_url_.spec().c_str(),
-                                    BoolToString(do_async_xhr()),
-                                    BoolToString(/*should_throttle=*/true)));
+                                    BoolToString(do_async_xhr())));
   ExtensionTestMessageListener listener("Both XHR's Opened");
   ASSERT_TRUE(listener.WaitUntilSatisfied());
 
@@ -1053,11 +1052,10 @@ IN_PROC_BROWSER_TEST_P(MergeSessionTest, MAYBE_XHRNotThrottled) {
 
   // Kick off XHR request from the extension.
   JsExpectOnBackgroundPage(
-      ext->id(),
-      base::StringPrintf("startThrottledTests('%s', '%s', %s, %s)",
-                         fake_google_page_url_.spec().c_str(),
-                         non_google_page_url_.spec().c_str(),
-                         BoolToString(do_async_xhr()), BoolToString(false)));
+      ext->id(), base::StringPrintf("startThrottledTests('%s', '%s', %s)",
+                                    fake_google_page_url_.spec().c_str(),
+                                    non_google_page_url_.spec().c_str(),
+                                    BoolToString(do_async_xhr())));
 
   if (do_async_xhr()) {
     // Verify that we've sent XHR request from the extension side...
@@ -1104,6 +1102,12 @@ class MergeSessionTimeoutTest : public MergeSessionTest {
   }
 };
 
+// TODO(b/320482170) - Consider splitting this test into 2 - one for Google web
+// properties, and one for non-Google web properties. It is not possible right
+// now because chrome/test/data/extensions/api_test/merge_session/background.js
+// has a bunch of hidden assumptions about the ordering of Google and non-Google
+// web requests and doesn't really allow firing Google requests without
+// non-Google requests (and vice versa).
 IN_PROC_BROWSER_TEST_P(MergeSessionTimeoutTest, XHRMergeTimeout) {
   fake_google_.set_hang_multilogin();
 
@@ -1118,6 +1122,8 @@ IN_PROC_BROWSER_TEST_P(MergeSessionTimeoutTest, XHRMergeTimeout) {
 
   std::unique_ptr<ExtensionTestMessageListener> non_google_xhr_listener(
       new ExtensionTestMessageListener("non-google-xhr-received"));
+  std::unique_ptr<ExtensionTestMessageListener> google_xhr_listener(
+      new ExtensionTestMessageListener("google-xhr-received"));
 
   // Load extension with a background page. The background page will
   // attempt to load `fake_google_page_url_` via XHR.
@@ -1128,21 +1134,22 @@ IN_PROC_BROWSER_TEST_P(MergeSessionTimeoutTest, XHRMergeTimeout) {
 
   // Kick off XHR request from the extension.
   JsExpectOnBackgroundPageAsync(
-      ext->id(),
-      base::StringPrintf("startThrottledTests('%s', '%s', %s, %s)",
-                         fake_google_page_url_.spec().c_str(),
-                         non_google_page_url_.spec().c_str(),
-                         BoolToString(do_async_xhr()), BoolToString(true)));
+      ext->id(), base::StringPrintf("startThrottledTests('%s', '%s', %s)",
+                                    fake_google_page_url_.spec().c_str(),
+                                    non_google_page_url_.spec().c_str(),
+                                    BoolToString(do_async_xhr())));
 
   if (do_async_xhr()) {
-    // Verify that we've sent XHR request from the extension side...
+    // Verify that we've sent XHR requests from the extension side...
     JsExpectOnBackgroundPage(ext->id(),
                              "googleRequestSent && !googleResponseReceived");
+    JsExpectOnBackgroundPage(ext->id(), "nonGoogleRequestSent");
 
     // ...but didn't see it on the server side yet.
     EXPECT_FALSE(fake_google_.IsPageRequested());
 
-    // Wait until the last XHR load completes.
+    // Wait until all the XHR loads complete.
+    ASSERT_TRUE(google_xhr_listener->WaitUntilSatisfied());
     ASSERT_TRUE(non_google_xhr_listener->WaitUntilSatisfied());
 
     // If the test runs in less than the test timeout (1 second) then we know

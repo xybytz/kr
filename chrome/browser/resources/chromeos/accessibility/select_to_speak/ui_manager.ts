@@ -2,8 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {AutomationUtil} from '../common/automation_util.js';
-import {ParagraphUtils} from '../common/paragraph_utils.js';
+import {AutomationUtil} from '/common/automation_util.js';
+import {ParagraphUtils} from '/common/paragraph_utils.js';
+import {TestImportManager} from '/common/testing/test_import_manager.js';
 
 import {PrefsManager} from './prefs_manager.js';
 
@@ -319,7 +320,7 @@ export class UiManager {
    * Renders user selection rect, in the form of a focus ring.
    */
   setSelectionRect(rect: chrome.accessibilityPrivate.ScreenRect): void {
-    // TODO(crbug.com/1185238): Support showing two focus rings at once, in case
+    // TODO(crbug.com/40753028): Support showing two focus rings at once, in case
     // a focus ring highlighting a node group is already present.
     this.setFocusRings_(
         [rect], false /* don't draw background */, false /* panelVisible */);
@@ -400,3 +401,7 @@ export class UiManager {
     }) !== undefined;
   }
 }
+
+TestImportManager.exportForTesting(
+    UiManager,
+    ['SELECT_TO_SPEAK_TRAY_CLASS_NAME', SELECT_TO_SPEAK_TRAY_CLASS_NAME]);

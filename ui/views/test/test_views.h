@@ -37,7 +37,8 @@ class StaticSizedView : public View {
   }
 
   // View overrides:
-  gfx::Size CalculatePreferredSize() const override;
+  gfx::Size CalculatePreferredSize(
+      const SizeBounds& /*available_size*/) const override;
   gfx::Size GetMinimumSize() const override;
   gfx::Size GetMaximumSize() const override;
 
@@ -61,8 +62,8 @@ class ProportionallySizedView : public View {
 
   void SetPreferredWidth(int width);
 
-  int GetHeightForWidth(int w) const override;
-  gfx::Size CalculatePreferredSize() const override;
+  gfx::Size CalculatePreferredSize(
+      const SizeBounds& available_size) const override;
 
  private:
   // The multiplicative factor between width and height, i.e.
@@ -133,8 +134,8 @@ class EventCountView : public View {
   HandleMode handle_mode_ = PROPAGATE_EVENTS;
 };
 
-// A view which reacts to PreferredSizeChanged() from its children and calls
-// Layout().
+// A view which reacts to PreferredSizeChanged() from its children by doing
+// layout.
 class ResizeAwareParentView : public View {
   METADATA_HEADER(ResizeAwareParentView, View)
 

@@ -17,6 +17,8 @@
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/browser_app_launcher.h"
 #include "chrome/browser/extensions/launch_util.h"
+#include "chrome/browser/extensions/window_controller.h"
+#include "chrome/browser/extensions/window_controller_list.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -31,7 +33,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "ash/constants/ash_paths.h"
 #include "chrome/browser/extensions/updater/local_extension_cache.h"
 #endif
@@ -39,7 +41,7 @@
 namespace extensions::browsertest_util {
 
 void CreateAndInitializeLocalCache() {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   base::FilePath extension_cache_dir;
   CHECK(base::PathService::Get(ash::DIR_DEVICE_EXTENSION_LOCAL_CACHE,
                                &extension_cache_dir));
@@ -77,6 +79,16 @@ content::WebContents* AddTab(Browser* browser, const GURL& url) {
   int tab_count = browser->tab_strip_model()->count();
   EXPECT_EQ(starting_tab_count + 1, tab_count);
   return browser->tab_strip_model()->GetActiveWebContents();
+}
+
+size_t GetWindowControllerCountInProfile(Profile* profile) {
+  size_t count = 0;
+  for (WindowController* window : *WindowControllerList::GetInstance()) {
+    if (window->profile() == profile) {
+      count++;
+    }
+  }
+  return count;
 }
 
 bool DidChangeTitle(content::WebContents& web_contents,

@@ -43,48 +43,56 @@ namespace blink {
 // coordinate, while ShapeResult::glyph_bounding_box_ is in logical coordinate.
 // To minimize the number of conversions, this class accumulates the bounding
 // boxes in physical coordinate, and convert the accumulated box to logical.
+template <bool is_horizontal_run>
 struct GlyphBoundsAccumulator {
-  // Construct an accumulator with the logical glyph origin.
-  explicit GlyphBoundsAccumulator(float origin) : origin(origin) {}
-
   // The accumulated glyph bounding box in physical coordinate, until
   // ConvertVerticalRunToLogical().
-  gfx::RectF bounds;
-  // The current origin, in logical coordinate.
-  float origin;
+  //
+  // We store this as a set of positions rather than a gfx::RectF,
+  // because it is cheaper to do lots of Union operations when stored
+  // that way, rather than as the (point, size) storage that RectF uses.
+  float min_x = 0;
+  float max_x = 0;
+  float min_y = 0;
+  float max_y = 0;
 
   // Unite a glyph bounding box to |bounds|.
-  template <bool is_horizontal_run>
   void Unite(gfx::RectF bounds_for_glyph,
-             ShapeResult::GlyphOffset glyph_offset) {
-    if (UNLIKELY(bounds_for_glyph.IsEmpty()))
+             float origin,
+             GlyphOffset glyph_offset) {
+    if (bounds_for_glyph.IsEmpty()) [[unlikely]] {
       return;
+    }
 
     // Glyphs are drawn at |origin + offset|. Move glyph_bounds to that point.
     // All positions in hb_glyph_position_t are relative to the current point.
     // https://behdad.github.io/harfbuzz/harfbuzz-Buffers.html#hb-glyph-position-t-struct
-    if (is_horizontal_run)
+    if constexpr (is_horizontal_run) {
       bounds_for_glyph.set_x(bounds_for_glyph.x() + origin);
-    else
+    } else {
       bounds_for_glyph.set_y(bounds_for_glyph.y() + origin);
+    }
     bounds_for_glyph.Offset(glyph_offset);
 
-    bounds.Union(bounds_for_glyph);
-  }
-
-  // Non-template version of |Unite()|, see above.
-  void Unite(bool is_horizontal_run,
-             gfx::RectF bounds_for_glyph,
-             ShapeResult::GlyphOffset glyph_offset) {
-    is_horizontal_run ? Unite<true>(bounds_for_glyph, glyph_offset)
-                      : Unite<false>(bounds_for_glyph, glyph_offset);
+    if (min_x == 0 && max_x == 0) [[unlikely]] {
+      min_x = bounds_for_glyph.x();
+      max_x = bounds_for_glyph.right();
+      min_y = bounds_for_glyph.y();
+      max_y = bounds_for_glyph.bottom();
+    } else {
+      min_x = std::min(min_x, bounds_for_glyph.x());
+      max_x = std::max(max_x, bounds_for_glyph.right());
+      min_y = std::min(min_y, bounds_for_glyph.y());
+      max_y = std::max(max_y, bounds_for_glyph.bottom());
+    }
   }
 
   // Convert vertical run glyph bounding box to logical. Horizontal runs do not
   // need conversions because physical and logical are the same.
   void ConvertVerticalRunToLogical(const FontMetrics& font_metrics) {
     // Convert physical glyph_bounding_box to logical.
-    bounds.Transpose();
+    std::swap(min_x, min_y);
+    std::swap(max_x, max_y);
 
     // The glyph bounding box of a vertical run uses ideographic central
     // baseline. Adjust the box Y position because the bounding box of a
@@ -93,7 +101,13 @@ struct GlyphBoundsAccumulator {
     // https://drafts.csswg.org/css-writing-modes-3/#intro-baselines
     int baseline_adjust = font_metrics.Ascent(kCentralBaseline) -
                           font_metrics.Ascent(kAlphabeticBaseline);
-    bounds.set_y(bounds.y() + baseline_adjust);
+    min_y += baseline_adjust;
+    max_y += baseline_adjust;
+  }
+
+  gfx::RectF Bounds() const {
+    return gfx::RectF(gfx::PointF(min_x, min_y),
+                      gfx::SizeF(max_x - min_x, max_y - min_y));
   }
 };
 

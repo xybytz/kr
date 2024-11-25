@@ -10,6 +10,8 @@
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/extensions/extensions_toolbar_button.h"
 #include "chrome/browser/ui/views/extensions/extensions_toolbar_container.h"
+#include "chrome/browser/ui/views/extensions/extensions_toolbar_container_view_controller.h"
+#include "chrome/browser/ui/views/extensions/extensions_toolbar_coordinator.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_controller.h"
@@ -155,7 +157,7 @@ gfx::Rect WebAppFrameToolbarView::LayoutInContainer(gfx::Rect available_space) {
 
   DCHECK_LE(GetPreferredSize().height(), available_space.height());
   SetBoundsRect(available_space);
-  Layout();
+  DeprecatedLayoutImmediately();
 
   if (!center_container_->GetVisible()) {
     return gfx::Rect();
@@ -193,7 +195,12 @@ gfx::Size WebAppFrameToolbarView::GetToolbarButtonSize() const {
 }
 
 views::View* WebAppFrameToolbarView::GetDefaultExtensionDialogAnchorView() {
-  return right_container_->extensions_container()->GetExtensionsButton();
+  ExtensionsToolbarContainer* extensions_container =
+      GetExtensionsToolbarContainer();
+  if (extensions_container && extensions_container->GetVisible()) {
+    return extensions_container->GetExtensionsButton();
+  }
+  return GetAppMenuButton();
 }
 
 PageActionIconView* WebAppFrameToolbarView::GetPageActionIconView(
@@ -234,7 +241,8 @@ views::AccessiblePaneView* WebAppFrameToolbarView::GetAsAccessiblePaneView() {
   return this;
 }
 
-views::View* WebAppFrameToolbarView::GetAnchorView(PageActionIconType type) {
+views::View* WebAppFrameToolbarView::GetAnchorView(
+    std::optional<PageActionIconType> type) {
   views::View* anchor = GetAppMenuButton();
   return anchor ? anchor : this;
 }
@@ -242,10 +250,6 @@ views::View* WebAppFrameToolbarView::GetAnchorView(PageActionIconType type) {
 void WebAppFrameToolbarView::ZoomChangedForActiveTab(bool can_show_bubble) {
   right_container_->page_action_icon_controller()->ZoomChangedForActiveTab(
       can_show_bubble);
-}
-
-SidePanelToolbarButton* WebAppFrameToolbarView::GetSidePanelButton() {
-  return nullptr;
 }
 
 AvatarToolbarButton* WebAppFrameToolbarView::GetAvatarToolbarButton() {
@@ -305,8 +309,10 @@ void WebAppFrameToolbarView::OnWindowControlsOverlayEnabledChanged() {
     DestroyLayer();
     views::SetHitTestComponent(this, static_cast<int>(HTNOWHERE));
   }
-  right_container_->extensions_container()->WindowControlsOverlayEnabledChanged(
-      browser_view_->IsWindowControlsOverlayEnabled());
+  right_container_->extensions_toolbar_coordinator()
+      ->GetExtensionsContainerViewController()
+      ->WindowControlsOverlayEnabledChanged(
+          browser_view_->IsWindowControlsOverlayEnabled());
 }
 
 void WebAppFrameToolbarView::UpdateBorderlessModeEnabled() {

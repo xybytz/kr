@@ -430,32 +430,12 @@ ChromeVoxBrailleInputHandlerTest = class extends ChromeVoxE2ETest {
   /** @override */
   async setUpDeferred() {
     await super.setUpDeferred();
-    await Promise.all([
-      // Alphabetical by path.
-      importModule(
-          'BrailleInputHandler',
-          '/chromevox/background/braille/braille_input_handler.js'),
-      importModule(
-          'BrailleTranslatorManager',
-          '/chromevox/background/braille/braille_translator_manager.js'),
-      importModule(
-          'ExpandingBrailleTranslator',
-          '/chromevox/background/braille/expanding_braille_translator.js'),
-      importModule(
-          ['ExtraCellsSpan', 'ValueSelectionSpan', 'ValueSpan'],
-          '/chromevox/background/braille/spans.js'),
-      importModule('Spannable', '/chromevox/common/spannable.js'),
-      importModule(
-          'BrailleKeyCommand',
-          '/chromevox/common/braille/braille_key_types.js'),
-      importModule('KeyCode', '/common/key_code.js'),
-    ]);
 
     chrome.runtime.onConnectExternal = new FakeChromeEvent();
     this.port = new FakePort();
     chrome.accessibilityPrivate.sendSyntheticKeyEvent =
-        (event, useRewriters, opt_callback) =>
-            this.storeKeyEvent(event, useRewriters, opt_callback);
+        (event, useRewriters, isRepeat, opt_callback) =>
+            this.storeKeyEvent(event, useRewriters, isRepeat, opt_callback);
     chrome.accessibilityPrivate.SyntheticKeyboardEventType = {};
     chrome.accessibilityPrivate.SyntheticKeyboardEventType.KEYDOWN = 'keydown';
     chrome.accessibilityPrivate.SyntheticKeyboardEventType.KEYUP = 'keyup';
@@ -529,7 +509,7 @@ ChromeVoxBrailleInputHandlerTest = class extends ChromeVoxE2ETest {
         this.inputHandler.getExpansionType());
   }
 
-  storeKeyEvent(event, useRewriters, opt_callback) {
+  storeKeyEvent(event, useRewriters, isRepeat, opt_callback) {
     const storedCopy = {keyCode: event.keyCode};
     if (event.type === 'keydown') {
       this.keyEvents.push(storedCopy);

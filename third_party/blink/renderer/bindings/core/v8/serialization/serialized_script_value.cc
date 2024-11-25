@@ -28,14 +28,20 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
 
 #include <memory>
 
+#include "base/containers/span.h"
+#include "base/numerics/byte_conversions.h"
 #include "base/numerics/checked_math.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/ranges/algorithm.h"
-#include "base/sys_byteorder.h"
 #include "base/types/expected_macros.h"
 #include "third_party/blink/public/web/web_serialized_script_value_version.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
@@ -60,7 +66,6 @@
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/blob/blob_data.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
@@ -112,10 +117,16 @@ scoped_refptr<SerializedScriptValue> SerializedScriptValue::Create(
     return Create();
 
   DataBufferPtr data_buffer = AllocateBuffer(data_buffer_size.ValueOrDie());
-  data.CopyTo(reinterpret_cast<UChar*>(data_buffer.get()), 0, data.length());
+  // TODO(danakj): This cast is valid, since it's at the start of the allocation
+  // which will be aligned correctly for UChar. However the pattern of casting
+  // byte pointers to other types is problematic and can cause UB. String should
+  // provide a way to copy directly to a byte array without forcing the caller
+  // to do this case.
+  data.CopyTo(
+      base::span(reinterpret_cast<UChar*>(data_buffer.data()), data.length()),
+      0);
 
-  return base::AdoptRef(new SerializedScriptValue(
-      std::move(data_buffer), data_buffer_size.ValueOrDie()));
+  return base::AdoptRef(new SerializedScriptValue(std::move(data_buffer)));
 }
 
 // Returns whether `tag` was a valid tag in the v0 serialization format.
@@ -145,7 +156,7 @@ inline static constexpr bool IsV0VersionTag(uint8_t tag) {
 //
 // As IndexedDB stores SSVs to disk indefinitely, we still need to keep around
 // the code needed to deserialize the old format.
-inline static bool IsByteSwappedWiredData(const uint8_t* data, size_t length) {
+inline static bool IsByteSwappedWiredData(base::span<const uint8_t> data) {
   // TODO(pwnall): Return false early if we're on big-endian hardware. Chromium
   // doesn't currently support big-endian hardware, and there's no header
   // exposing endianness to Blink yet. ARCH_CPU_LITTLE_ENDIAN seems promising,
@@ -153,8 +164,9 @@ inline static bool IsByteSwappedWiredData(const uint8_t* data, size_t length) {
 
   // The first SSV version without byte-swapping has two envelopes (Blink, V8),
   // each of which is at least 2 bytes long.
-  if (length < 4)
+  if (data.size() < 4u) {
     return true;
+  }
 
   // This code handles the following cases:
   //
@@ -162,53 +174,45 @@ inline static bool IsByteSwappedWiredData(const uint8_t* data, size_t length) {
   // v1-16 (byte-swapped) - [v,    0xFF, ...], v = version (1 <= v <= 16)
   // v17+                 - [0xFF, v,    ...], v = first byte of version varint
 
-  if (data[0] == kVersionTag) {
-    // The only case where byte-swapped data can have 0xFF in byte zero is
-    // version 0. This can only happen if byte one is a tag (supported in
-    // version 0) that takes in extra data, and the first byte of extra data is
-    // 0xFF. These tags cannot be used as version numbers in the Blink-side SSV
-    // envelope.
-    //
-    // Why we care about version 0:
-    //
-    // IndexedDB stores values using the SSV format. Currently, IndexedDB does
-    // not do any sort of migration, so a value written with a SSV version will
-    // be stored with that version until it is removed via an update or delete.
-    //
-    // IndexedDB was shipped in Chrome 11, which was released on April 27, 2011.
-    // SSV version 1 was added in WebKit r91698, which was shipped in Chrome 14,
-    // which was released on September 16, 2011.
-    static_assert(
-        !IsV0VersionTag(SerializedScriptValue::kWireFormatVersion),
-        "Using a burned version will prevent us from reading SSV version 0");
-    // TODO(pwnall): Add UMA metric here.
-    return IsV0VersionTag(data[1]);
+  if (data[0] != kVersionTag) {
+    // Pre-version 17, thus byte-swapped.
+    return true;
   }
 
-  if (data[1] == kVersionTag) {
-    // The last SSV format that used byte-swapping was version 16. The version
-    // number is stored (before byte-swapping) after a serialization tag, which
-    // is 0xFF.
-    return data[0] != kVersionTag;
-  }
-
-  // If kVersionTag isn't in any of the first two bytes, this is SSV version 0,
-  // which was byte-swapped.
-  return true;
+  // The only case where byte-swapped data can have 0xFF in byte zero is version
+  // 0. This can only happen if byte one is a tag (supported in version 0) that
+  // takes in extra data, and the first byte of extra data is 0xFF. These tags
+  // cannot be used as version numbers in the Blink-side SSV envelope.
+  //
+  // Why we care about version 0:
+  //
+  // IndexedDB stores values using the SSV format. Currently, IndexedDB does not
+  // do any sort of migration, so a value written with a SSV version will be
+  // stored with that version until it is removed via an update or delete.
+  //
+  // IndexedDB was shipped in Chrome 11, which was released on April 27, 2011.
+  // SSV version 1 was added in WebKit r91698, which was shipped in Chrome 14,
+  // which was released on September 16, 2011.
+  static_assert(
+      !IsV0VersionTag(SerializedScriptValue::kWireFormatVersion),
+      "Using a burned version will prevent us from reading SSV version 0");
+  // TODO(pwnall): Add UMA metric here.
+  return IsV0VersionTag(data[1]);
 }
 
-static void SwapWiredDataIfNeeded(uint8_t* buffer, size_t buffer_size) {
-  if (buffer_size % sizeof(UChar))
+static void SwapWiredDataIfNeeded(base::span<uint8_t> buffer) {
+  if (buffer.size() % sizeof(UChar)) {
     return;
+  }
 
-  if (!IsByteSwappedWiredData(buffer, buffer_size))
+  if (!IsByteSwappedWiredData(buffer)) {
     return;
+  }
 
-  UChar* uchars = reinterpret_cast<UChar*>(buffer);
-  size_t uchars_size = buffer_size / sizeof(UChar);
-
-  for (size_t i = 0; i < uchars_size; ++i)
-    uchars[i] = base::NetToHost16(uchars[i]);
+  static_assert(sizeof(UChar) == 2);
+  for (size_t i = 0; i < buffer.size(); i += 2) {
+    std::swap(buffer[i], buffer[i + 1]);
+  }
 }
 
 scoped_refptr<SerializedScriptValue> SerializedScriptValue::Create(
@@ -217,37 +221,17 @@ scoped_refptr<SerializedScriptValue> SerializedScriptValue::Create(
     return Create();
 
   DataBufferPtr data_buffer = AllocateBuffer(data.size());
-  base::ranges::copy(data, data_buffer.get());
-  SwapWiredDataIfNeeded(data_buffer.get(), data.size());
+  data_buffer.as_span().copy_from(data);
+  SwapWiredDataIfNeeded(data_buffer.as_span());
 
-  return base::AdoptRef(
-      new SerializedScriptValue(std::move(data_buffer), data.size()));
-}
-
-scoped_refptr<SerializedScriptValue> SerializedScriptValue::Create(
-    scoped_refptr<const SharedBuffer> buffer) {
-  if (!buffer)
-    return Create();
-
-  DataBufferPtr data_buffer = AllocateBuffer(buffer->size());
-  size_t offset = 0;
-  for (const auto& span : *buffer) {
-    base::ranges::copy(span, data_buffer.get() + offset);
-    offset += span.size();
-  }
-  SwapWiredDataIfNeeded(data_buffer.get(), buffer->size());
-
-  return base::AdoptRef(
-      new SerializedScriptValue(std::move(data_buffer), buffer->size()));
+  return base::AdoptRef(new SerializedScriptValue(std::move(data_buffer)));
 }
 
 SerializedScriptValue::SerializedScriptValue()
     : has_registered_external_allocation_(false) {}
 
-SerializedScriptValue::SerializedScriptValue(DataBufferPtr data,
-                                             size_t data_size)
+SerializedScriptValue::SerializedScriptValue(DataBufferPtr data)
     : data_buffer_(std::move(data)),
-      data_buffer_size_(data_size),
       has_registered_external_allocation_(false) {}
 
 void SerializedScriptValue::SetImageBitmapContentsArray(
@@ -257,8 +241,12 @@ void SerializedScriptValue::SetImageBitmapContentsArray(
 
 SerializedScriptValue::DataBufferPtr SerializedScriptValue::AllocateBuffer(
     size_t buffer_size) {
-  return DataBufferPtr(static_cast<uint8_t*>(WTF::Partitions::BufferMalloc(
-      buffer_size, "SerializedScriptValue buffer")));
+  // SAFETY: BufferMalloc() always returns a pointer to at least
+  // `buffer_size` bytes.
+  return UNSAFE_BUFFERS(DataBufferPtr::FromOwningPointer(
+      static_cast<uint8_t*>(WTF::Partitions::BufferMalloc(
+          buffer_size, "SerializedScriptValue buffer")),
+      buffer_size));
 }
 
 SerializedScriptValue::~SerializedScriptValue() {
@@ -266,9 +254,8 @@ SerializedScriptValue::~SerializedScriptValue() {
   // likely used in a context other than Worker's onmessage environment and the
   // presence of current v8 context is not guaranteed. Avoid calling v8 then.
   if (has_registered_external_allocation_) {
-    DCHECK(v8::Isolate::GetCurrent());
-    v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(
-        -static_cast<int64_t>(DataLengthInBytes()));
+    DCHECK_NE(isolate_, nullptr);
+    external_memory_accounter_.Decrease(isolate_.get(), DataLengthInBytes());
   }
 }
 
@@ -289,14 +276,18 @@ scoped_refptr<SerializedScriptValue> SerializedScriptValue::UndefinedValue() {
 String SerializedScriptValue::ToWireString() const {
   // Add the padding '\0', but don't put it in |data_buffer_|.
   // This requires direct use of uninitialized strings, though.
-  UChar* destination;
-  wtf_size_t string_size_bytes =
-      base::checked_cast<wtf_size_t>((data_buffer_size_ + 1) & ~1);
+  auto string_size_bytes = base::checked_cast<wtf_size_t>(
+      base::bits::AlignUp(data_buffer_.size(), sizeof(UChar)));
+  base::span<UChar> backing;
   String wire_string =
-      String::CreateUninitialized(string_size_bytes / 2, destination);
-  memcpy(destination, data_buffer_.get(), data_buffer_size_);
-  if (string_size_bytes > data_buffer_size_)
-    reinterpret_cast<char*>(destination)[string_size_bytes - 1] = '\0';
+      String::CreateUninitialized(string_size_bytes / sizeof(UChar), backing);
+  auto [content, padding] =
+      base::as_writable_bytes(backing).split_at(data_buffer_.size());
+  content.copy_from(data_buffer_);
+  if (!padding.empty()) {
+    CHECK_EQ(padding.size(), 1u);
+    padding[0u] = '\0';
+  }
   return wire_string;
 }
 
@@ -479,7 +470,7 @@ void SerializedScriptValue::CloneSharedArrayBuffers(
   HeapHashSet<Member<DOMArrayBufferBase>> visited;
   shared_array_buffers_contents_.Grow(array_buffers.size());
   wtf_size_t i = 0;
-  for (auto* it = array_buffers.begin(); it != array_buffers.end(); ++it) {
+  for (auto it = array_buffers.begin(); it != array_buffers.end(); ++it) {
     DOMSharedArrayBuffer* shared_array_buffer = *it;
     if (visited.Contains(shared_array_buffer))
       continue;
@@ -552,7 +543,7 @@ ArrayBufferArray SerializedScriptValue::ExtractNonSharedArrayBuffers(
   ArrayBufferArray result;
   // Partition array_buffers into [shared..., non_shared...], maintaining
   // relative ordering of elements with the same predicate value.
-  auto* non_shared_begin =
+  auto non_shared_begin =
       std::stable_partition(array_buffers.begin(), array_buffers.end(),
                             [](Member<DOMArrayBufferBase>& array_buffer) {
                               return array_buffer->IsShared();
@@ -576,7 +567,7 @@ SerializedScriptValue::TransferArrayBufferContents(
   if (!array_buffers.size())
     return ArrayBufferContentsArray();
 
-  for (auto* it = array_buffers.begin(); it != array_buffers.end(); ++it) {
+  for (auto it = array_buffers.begin(); it != array_buffers.end(); ++it) {
     DOMArrayBufferBase* array_buffer = *it;
     if (array_buffer->IsDetached()) {
       wtf_size_t index =
@@ -601,7 +592,7 @@ SerializedScriptValue::TransferArrayBufferContents(
       static_cast<HeapHashSet<Member<DOMArrayBufferBase>>*>(buffer)->clear();
     }
   } promptly_free_array_buffers{&visited};
-  for (auto* it = array_buffers.begin(); it != array_buffers.end(); ++it) {
+  for (auto it = array_buffers.begin(); it != array_buffers.end(); ++it) {
     DOMArrayBufferBase* array_buffer_base = *it;
     if (visited.Contains(array_buffer_base))
       continue;
@@ -642,8 +633,8 @@ SerializedScriptValue::TransferArrayBufferContents(
 void SerializedScriptValue::
     UnregisterMemoryAllocatedWithCurrentScriptContext() {
   if (has_registered_external_allocation_) {
-    v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(
-        -static_cast<int64_t>(DataLengthInBytes()));
+    DCHECK_NE(isolate_, nullptr);
+    external_memory_accounter_.Decrease(isolate_.get(), DataLengthInBytes());
     has_registered_external_allocation_ = false;
   }
 }
@@ -651,11 +642,13 @@ void SerializedScriptValue::
 void SerializedScriptValue::RegisterMemoryAllocatedWithCurrentScriptContext() {
   if (has_registered_external_allocation_)
     return;
-
+  DCHECK_EQ(isolate_, nullptr);
+  DCHECK_NE(v8::Isolate::GetCurrent(), nullptr);
   has_registered_external_allocation_ = true;
+  isolate_ = v8::Isolate::GetCurrent();
   int64_t diff = static_cast<int64_t>(DataLengthInBytes());
   DCHECK_GE(diff, 0);
-  v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(diff);
+  external_memory_accounter_.Increase(isolate_.get(), diff);
 }
 
 bool SerializedScriptValue::IsLockedToAgentCluster() const {

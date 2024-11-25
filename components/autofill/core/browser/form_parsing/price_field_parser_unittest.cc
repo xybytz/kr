@@ -10,13 +10,12 @@ using base::ASCIIToUTF16;
 
 namespace autofill {
 
-class PriceFieldTest
-    : public FormFieldTestBase,
-      public testing::TestWithParam<PatternProviderFeatureState> {
+class PriceFieldParserTest : public FormFieldParserTestBase,
+                             public testing::Test {
  public:
-  PriceFieldTest() : FormFieldTestBase(GetParam()) {}
-  PriceFieldTest(const PriceFieldTest&) = delete;
-  PriceFieldTest& operator=(const PriceFieldTest&) = delete;
+  PriceFieldParserTest() = default;
+  PriceFieldParserTest(const PriceFieldParserTest&) = delete;
+  PriceFieldParserTest& operator=(const PriceFieldParserTest&) = delete;
 
  protected:
   std::unique_ptr<FormFieldParser> Parse(ParsingContext& context,
@@ -25,21 +24,16 @@ class PriceFieldTest
   }
 };
 
-INSTANTIATE_TEST_SUITE_P(
-    PriceFieldTest,
-    PriceFieldTest,
-    ::testing::ValuesIn(PatternProviderFeatureState::All()));
-
-TEST_P(PriceFieldTest, ParsePrice) {
+TEST_F(PriceFieldParserTest, ParsePrice) {
   AddTextFormFieldData("userPrice", "name your price", PRICE);
 
-  ClassifyAndVerify(ParseResult::PARSED);
+  ClassifyAndVerify(ParseResult::kParsed);
 }
 
-TEST_P(PriceFieldTest, ParseNonPrice) {
+TEST_F(PriceFieldParserTest, ParseNonPrice) {
   AddTextFormFieldData("firstName", "Name", UNKNOWN_TYPE);
 
-  ClassifyAndVerify(ParseResult::NOT_PARSED);
+  ClassifyAndVerify(ParseResult::kNotParsed);
 }
 
 }  // namespace autofill

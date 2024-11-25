@@ -64,15 +64,6 @@ public class PageZoomUtils {
     private static final double DEFAULT_ZOOM_LEVEL_SNAP_RANGE = 0.03;
 
     /**
-     * Returns whether the Accessibility Settings page should include the 'Zoom' UI. The page
-     * should always display the UI if the feature is enabled.
-     * @return boolean
-     */
-    public static boolean shouldShowSettingsUI() {
-        return ContentFeatureMap.isEnabled(ContentFeatureList.ACCESSIBILITY_PAGE_ZOOM);
-    }
-
-    /**
      * Seekbars have values 0 to 100 by default. For simplicity, we will keep these values and
      * convert to the correct zoom factor under-the-hood. See comment at top of class.
      *
@@ -154,7 +145,7 @@ public class PageZoomUtils {
             int seekBarValue, double defaultZoomFactor) {
         double currentZoomLevel = convertSeekBarValueToZoomLevel(seekBarValue);
         double defaultZoomLevel = convertZoomFactorToZoomLevel(defaultZoomFactor);
-        return (MathUtils.roundTwoDecimalPlaces(Math.abs(currentZoomLevel - defaultZoomLevel)))
+        return MathUtils.roundTwoDecimalPlaces(Math.abs(currentZoomLevel - defaultZoomLevel))
                 <= PageZoomUtils.DEFAULT_ZOOM_LEVEL_SNAP_RANGE;
     }
 
@@ -212,19 +203,12 @@ public class PageZoomUtils {
     /**
      * Returns true if the Zoom AppMenu item should be shown, false otherwise.
      *
-     * - If there is a current user choice set in Accessibility Settings, respect and return the
-     * user setting.
-     * - Otherwise, if there is an OS level font size set, return true.
-     * - Otherwise, return false.
+     * <p>If there is a current user choice set in Accessibility Settings, respect and return the
+     * user setting. Otherwise, return true if there is an OS level font size set.
      *
-     * This setting is Chrome Android specific.
      * @return boolean
      */
     public static boolean shouldShowZoomMenuItem() {
-        if (!shouldShowSettingsUI()) {
-            return false;
-        }
-
         // Always respect the user's choice if the user has set this in Accessibility Settings.
         if (hasUserSetShouldAlwaysShowZoomMenuItemOption()) {
             if (shouldAlwaysShowZoomMenuItem()) {
@@ -239,9 +223,15 @@ public class PageZoomUtils {
         }
 
         // The default (float) |fontScale| is 1, the default page zoom is 1.
-        // If the user has a system font scale other than the default, always show the menu item.
         boolean isUsingDefaultSystemFontScale = MathUtils.areFloatsEqual(getSystemFontScale(), 1f);
-        if (!isUsingDefaultSystemFontScale && HostZoomMap.shouldAdjustForOSLevel()) {
+
+        // If the user has a system font scale other than the default, we will show the menu item if
+        // OS-level adjustments is enabled, or, if the page zoom enhancements (fast-follow) feature
+        // is enabled (which includes a greater presence in the 3-dot menu).
+        if (!isUsingDefaultSystemFontScale
+                && (HostZoomMap.shouldAdjustForOSLevel()
+                        || ContentFeatureMap.isEnabled(
+                                ContentFeatureList.ACCESSIBILITY_PAGE_ZOOM_ENHANCEMENTS))) {
             PageZoomUma.logAppMenuEnabledStateHistogram(
                     PageZoomUma.AccessibilityPageZoomAppMenuEnabledState.OS_ENABLED);
             return true;
@@ -261,6 +251,55 @@ public class PageZoomUtils {
         ContextUtils.getAppSharedPreferences()
                 .edit()
                 .putBoolean(AccessibilityConstants.PAGE_ZOOM_ALWAYS_SHOW_MENU_ITEM, newValue)
+                .apply();
+    }
+
+    /**
+     * Returns true is the user has set a choice for whether OS adjustment should be made in zoom
+     * calculation. This setting is Chrome Android specific.
+     *
+     * @return boolean
+     */
+    public static boolean hasUserSetIncludeOSAdjustmentOption() {
+        assert ContentFeatureMap.isEnabled(ContentFeatureList.ACCESSIBILITY_PAGE_ZOOM_ENHANCEMENTS)
+                        && ContentFeatureMap.isEnabled(
+                                ContentFeatureList.ACCESSIBILITY_PAGE_ZOOM_V2)
+                : "hasUserSetIncludeOSAdjustmentOption should only be called if the flag is"
+                        + " enabled.";
+        return ContextUtils.getAppSharedPreferences()
+                .contains(AccessibilityConstants.PAGE_ZOOM_INCLUDE_OS_ADJUSTMENT);
+    }
+
+    /**
+     * Returns true is Page Zoom should include an OS level adjustment to zoom level. If no value
+     * has been set by the user, return the current value of the feature param.
+     *
+     * @return boolean
+     */
+    public static boolean shouldIncludeOSAdjustment() {
+        assert ContentFeatureMap.isEnabled(ContentFeatureList.ACCESSIBILITY_PAGE_ZOOM_ENHANCEMENTS)
+                        && ContentFeatureMap.isEnabled(
+                                ContentFeatureList.ACCESSIBILITY_PAGE_ZOOM_V2)
+                : "shouldIncludeOSAdjustment should only be called if the flag is enabled.";
+        return ContextUtils.getAppSharedPreferences()
+                .getBoolean(
+                        AccessibilityConstants.PAGE_ZOOM_INCLUDE_OS_ADJUSTMENT,
+                        HostZoomMap.shouldAdjustForOSLevel());
+    }
+
+    /**
+     * Set a new user choice for including an OS level adjustment in zoom level calculation.
+     *
+     * @param newValue boolean
+     */
+    public static void setShouldIncludeOSAdjustment(boolean newValue) {
+        assert ContentFeatureMap.isEnabled(ContentFeatureList.ACCESSIBILITY_PAGE_ZOOM_ENHANCEMENTS)
+                        && ContentFeatureMap.isEnabled(
+                                ContentFeatureList.ACCESSIBILITY_PAGE_ZOOM_V2)
+                : "setShouldIncludeOSAdjustment should only be called if the flag is enabled.";
+        ContextUtils.getAppSharedPreferences()
+                .edit()
+                .putBoolean(AccessibilityConstants.PAGE_ZOOM_INCLUDE_OS_ADJUSTMENT, newValue)
                 .apply();
     }
 

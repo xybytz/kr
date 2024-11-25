@@ -4,9 +4,9 @@
 
 import 'chrome://password-manager/password_manager.js';
 
-import {OpenWindowProxyImpl, Page, PasswordManagerAppElement, PasswordManagerImpl, Router, UrlParam} from 'chrome://password-manager/password_manager.js';
+import type {PasswordManagerAppElement} from 'chrome://password-manager/password_manager.js';
+import {OpenWindowProxyImpl, Page, PasswordManagerImpl, Router, UrlParam} from 'chrome://password-manager/password_manager.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
-import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
 import {TestOpenWindowProxy} from 'chrome://webui-test/test_open_window_proxy.js';
@@ -58,13 +58,14 @@ suite('PasswordManagerAppTest', function() {
   });
 
   [Page.PASSWORDS, Page.CHECKUP, Page.SETTINGS].forEach(
-      page => test(`Clicking ${page} in the sidebar`, function() {
+      page => test(`Clicking ${page} in the sidebar`, async () => {
         const element =
             app.$.sidebar.shadowRoot!.querySelector<HTMLElement>(`#${page}`)!;
         element.click();
+        await app.$.sidebar.$.menu.updateComplete;
         const ironItem =
             app.$.sidebar.shadowRoot!.querySelector<HTMLElement>(`#${page}`)!;
-        assertTrue(ironItem.classList.contains('iron-selected'));
+        assertTrue(ironItem.classList.contains('selected'));
         if (page === Page.CHECKUP) {
           assertEquals(
               'true',
@@ -79,17 +80,16 @@ suite('PasswordManagerAppTest', function() {
 
     const drawerOpened = eventToPromise('cr-drawer-opened', app.$.drawer);
     app.$.drawer.openDrawer();
-    flush();
+    await drawerOpened;
 
     // Validate that dialog is open and menu is shown so it will animate.
     assertTrue(app.$.drawer.open);
     assertTrue(!!app.shadowRoot!.querySelector('#drawerSidebar'));
 
-    await drawerOpened;
     const drawerClosed = eventToPromise('close', app.$.drawer);
     app.$.drawer.cancel();
-
     await drawerClosed;
+
     // Drawer is closed, but menu is still stamped so
     // its contents remain visible as the drawer slides
     // out.
@@ -104,17 +104,16 @@ suite('PasswordManagerAppTest', function() {
 
     const drawerOpened = eventToPromise('cr-drawer-opened', app.$.drawer);
     app.$.drawer.openDrawer();
-    flush();
+    await drawerOpened;
 
     // Validate that dialog is open and menu is shown so it will animate.
     assertTrue(app.$.drawer.open);
     assertTrue(!!app.shadowRoot!.querySelector('#drawerSidebar'));
 
-    await drawerOpened;
     const drawerClosed = eventToPromise('close', app.$.drawer);
     app.setNarrowForTesting(false);
-
     await drawerClosed;
+
     // Drawer is closed, but menu is still stamped so
     // its contents remain visible as the drawer slides
     // out.
@@ -171,8 +170,7 @@ suite('PasswordManagerAppTest', function() {
     }));
 
     assertTrue(app.$.toast.open);
-    const undoButton =
-        app.shadowRoot!.querySelector<HTMLElement>('#undo-removal');
+    const undoButton = app.shadowRoot!.querySelector<HTMLElement>('#undo');
     assertTrue(!!undoButton);
     assertFalse(undoButton.hidden);
     undoButton.click();
@@ -204,8 +202,7 @@ suite('PasswordManagerAppTest', function() {
     assertTrue(app.$.toast.open);
 
     // The undo button should be hidden for passkeys.
-    const undoButton =
-        app.shadowRoot!.querySelector<HTMLElement>('#undo-removal');
+    const undoButton = app.shadowRoot!.querySelector<HTMLElement>('#undo');
     assertTrue(!!undoButton);
     assertTrue(undoButton.hidden);
   });
@@ -226,22 +223,141 @@ suite('PasswordManagerAppTest', function() {
     const detailsSection =
         app.shadowRoot!.querySelector('password-details-section');
     assertTrue(!!detailsSection);
-
-    detailsSection.dispatchEvent(new CustomEvent('password-moved', {
+    await flushTasks();
+    detailsSection.dispatchEvent(new CustomEvent('passwords-moved', {
       bubbles: true,
       composed: true,
       detail: {
         accountEmail: testEmail,
+        numberOfPasswords: 1,
+      },
+    }));
+    await flushTasks();
+    assertTrue(app.$.toast.open);
+    const button = app.shadowRoot!.querySelector<HTMLElement>('#undo');
+    assertTrue(!!button);
+    assertFalse(isVisible(button));
+    assertTrue(app.$.toast.querySelector<HTMLElement>(
+                              '#toast-message')!.textContent!.trim()
+                   .includes(testEmail));
+  });
+
+  test('Only one toast is visible', async () => {
+    const group = createCredentialGroup({
+      name: 'test.com',
+      credentials: [
+        createPasswordEntry({id: 0, username: 'test1'}),
+      ],
+    });
+    Router.getInstance().navigateTo(Page.PASSWORD_DETAILS, group);
+    const VALUE_COPIED_TOAST_LABEL = 'Username copied!';
+
+    await flushTasks();
+
+    assertFalse(app.$.toast.open);
+    const detailsSection =
+        app.shadowRoot!.querySelector('password-details-section');
+    assertTrue(!!detailsSection);
+
+    // Copy password.
+    detailsSection.dispatchEvent(new CustomEvent('value-copied', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        toastMessage: 'Password copied!',
+      },
+    }));
+    await flushTasks();
+    assertTrue(app.$.toast.open);
+
+    // Copy username.
+    detailsSection.dispatchEvent(new CustomEvent('value-copied', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        toastMessage: VALUE_COPIED_TOAST_LABEL,
       },
     }));
 
+    await flushTasks();
+    assertEquals(app.shadowRoot!.querySelectorAll('cr-toast').length, 1);
     assertTrue(app.$.toast.open);
-    const undoButton =
-        app.shadowRoot!.querySelector<HTMLElement>('#undo-removal');
-    assertTrue(!!undoButton);
-    assertFalse(isVisible(undoButton));
+
+    const button = app.shadowRoot!.querySelector<HTMLElement>('#undo');
+    assertTrue(!!button);
+    assertFalse(isVisible(button));
     assertTrue(app.$.toast.querySelector<HTMLElement>(
-                              '#removalNotification')!.textContent!.trim()
+                              '#toast-message')!.textContent!.trim()
+                   .includes(VALUE_COPIED_TOAST_LABEL));
+  });
+
+  // TODO(crbug.com/331450809): This test is flaky.
+  test.skip('settings password moved toast', async () => {
+    const testEmail = 'test.user@gmail.com';
+    const group = createCredentialGroup({
+      name: 'test.com',
+      credentials: [
+        createPasswordEntry({id: 0, username: 'test1'}),
+      ],
+    });
+    Router.getInstance().navigateTo(Page.SETTINGS, group);
+
+    await flushTasks();
+
+    assertFalse(app.$.toast.open);
+    const settingsSection = app.shadowRoot!.querySelector('settings-section');
+    assertTrue(!!settingsSection);
+    await flushTasks();
+    settingsSection.dispatchEvent(new CustomEvent('passwords-moved', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        accountEmail: testEmail,
+        numberOfPasswords: 1,
+      },
+    }));
+    await flushTasks();
+    assertTrue(app.$.toast.open);
+    const button = app.shadowRoot!.querySelector<HTMLElement>('#undo');
+    assertTrue(!!button);
+    assertFalse(isVisible(button));
+    assertTrue(app.$.toast.querySelector<HTMLElement>(
+                              '#toast-message')!.textContent!.trim()
+                   .includes(testEmail));
+  });
+
+  // TODO(crbug.com/331450809): This test is flaky.
+  test.skip('promo card password moved toast', async () => {
+    const testEmail = 'test.user@gmail.com';
+    const group = createCredentialGroup({
+      name: 'test.com',
+      credentials: [
+        createPasswordEntry({id: 0, username: 'test1'}),
+      ],
+    });
+    Router.getInstance().navigateTo(Page.PASSWORDS, group);
+
+    await flushTasks();
+
+    assertFalse(app.$.toast.open);
+    const passwordsSection = app.shadowRoot!.querySelector('passwords-section');
+    assertTrue(!!passwordsSection);
+
+    passwordsSection.dispatchEvent(new CustomEvent('passwords-moved', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        accountEmail: testEmail,
+        numberOfPasswords: 1,
+      },
+    }));
+    await flushTasks();
+    assertTrue(app.$.toast.open);
+    const button = app.shadowRoot!.querySelector<HTMLElement>('#undo');
+    assertTrue(!!button);
+    assertFalse(isVisible(button));
+    assertTrue(app.$.toast.querySelector<HTMLElement>(
+                              '#toast-message')!.textContent!.trim()
                    .includes(testEmail));
   });
 
@@ -273,9 +389,9 @@ suite('PasswordManagerAppTest', function() {
         settingsSection.shadowRoot!.querySelector('passwords-importer');
     assertTrue(!!importer);
 
-    const spinner = importer.shadowRoot!.querySelector('paper-spinner-lite');
+    const spinner = importer.shadowRoot!.querySelector('.spinner');
     assertTrue(!!spinner);
-    assertTrue(spinner.active);
+    assertTrue(isVisible(spinner));
   });
 
   test(

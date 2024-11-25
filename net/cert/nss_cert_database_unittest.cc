@@ -528,7 +528,7 @@ TEST_F(CertDatabaseNSSTest, ImportFromPKCS12NullPassword) {
   EXPECT_EQ(1U, ListCerts().size());
 }
 
-TEST_F(CertDatabaseNSSTest, ImportCACert_SSLTrust) {
+TEST_F(CertDatabaseNSSTest, ImportCACertSSLTrust) {
   ScopedCERTCertificateList certs = CreateCERTCertificateListFromFile(
       GetTestCertsDirectory(), "root_ca_cert.pem",
       X509Certificate::FORMAT_AUTO);
@@ -561,7 +561,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACert_SSLTrust) {
   EXPECT_EQ(1, observer_->trust_store_changes());
 }
 
-TEST_F(CertDatabaseNSSTest, ImportCACert_EmailTrust) {
+TEST_F(CertDatabaseNSSTest, ImportCACertEmailTrust) {
   ScopedCERTCertificateList certs = CreateCERTCertificateListFromFile(
       GetTestCertsDirectory(), "root_ca_cert.pem",
       X509Certificate::FORMAT_AUTO);
@@ -596,7 +596,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACert_EmailTrust) {
   EXPECT_EQ(1, observer_->trust_store_changes());
 }
 
-TEST_F(CertDatabaseNSSTest, ImportCACert_ObjSignTrust) {
+TEST_F(CertDatabaseNSSTest, ImportCACertObjSignTrust) {
   ScopedCERTCertificateList certs = CreateCERTCertificateListFromFile(
       GetTestCertsDirectory(), "root_ca_cert.pem",
       X509Certificate::FORMAT_AUTO);
@@ -631,7 +631,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACert_ObjSignTrust) {
   EXPECT_EQ(1, observer_->trust_store_changes());
 }
 
-TEST_F(CertDatabaseNSSTest, ImportCA_NotCACert) {
+TEST_F(CertDatabaseNSSTest, ImportCANotCACert) {
   ScopedCERTCertificateList certs = CreateCERTCertificateListFromFile(
       GetTestCertsDirectory(), "ok_cert.pem", X509Certificate::FORMAT_AUTO);
   ASSERT_EQ(1U, certs.size());
@@ -855,7 +855,7 @@ TEST_F(CertDatabaseNSSTest, ImportServerCert) {
           std::make_unique<DoNothingCTVerifier>(),
           base::MakeRefCounted<DefaultCTPolicyEnforcer>(),
           /*root_store_data=*/nullptr,
-          /*instance_params=*/{}));
+          /*instance_params=*/{}, std::nullopt));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(x509_found_server_cert.get(), "127.0.0.1",
@@ -870,7 +870,7 @@ TEST_F(CertDatabaseNSSTest, ImportServerCert) {
   EXPECT_EQ(0, observer_->trust_store_changes());
 }
 
-TEST_F(CertDatabaseNSSTest, ImportServerCert_SelfSigned) {
+TEST_F(CertDatabaseNSSTest, ImportServerCertSelfSigned) {
   ScopedCERTCertificateList certs;
   ASSERT_TRUE(ReadCertIntoList("punycodetest.pem", &certs));
 
@@ -897,7 +897,7 @@ TEST_F(CertDatabaseNSSTest, ImportServerCert_SelfSigned) {
           std::make_unique<DoNothingCTVerifier>(),
           base::MakeRefCounted<DefaultCTPolicyEnforcer>(),
           /*root_store_data=*/nullptr,
-          /*instance_params=*/{}));
+          /*instance_params=*/{}, std::nullopt));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(x509_puny_cert.get(), "xn--wgv71a119e.com",
@@ -912,7 +912,7 @@ TEST_F(CertDatabaseNSSTest, ImportServerCert_SelfSigned) {
   EXPECT_EQ(0, observer_->trust_store_changes());
 }
 
-TEST_F(CertDatabaseNSSTest, ImportServerCert_SelfSigned_Trusted) {
+TEST_F(CertDatabaseNSSTest, ImportServerCertSelfSignedTrusted) {
   ScopedCERTCertificateList certs;
   ASSERT_TRUE(ReadCertIntoList("punycodetest.pem", &certs));
 
@@ -940,20 +940,15 @@ TEST_F(CertDatabaseNSSTest, ImportServerCert_SelfSigned_Trusted) {
           std::make_unique<DoNothingCTVerifier>(),
           base::MakeRefCounted<DefaultCTPolicyEnforcer>(),
           /*root_store_data=*/nullptr,
-          /*instance_params=*/{}));
+          /*instance_params=*/{}, std::nullopt));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(x509_puny_cert.get(), "xn--wgv71a119e.com",
                                   /*ocsp_response=*/std::string(),
                                   /*sct_list=*/std::string(), flags,
                                   &verify_result, NetLogWithSource());
-  if (base::FeatureList::IsEnabled(features::kTrustStoreTrustedLeafSupport)) {
-    EXPECT_THAT(error, IsOk());
-    EXPECT_EQ(0U, verify_result.cert_status);
-  } else {
-    EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
-    EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, verify_result.cert_status);
-  }
+  EXPECT_THAT(error, IsOk());
+  EXPECT_EQ(0U, verify_result.cert_status);
 
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(0, observer_->client_cert_store_changes());
@@ -993,7 +988,7 @@ TEST_F(CertDatabaseNSSTest, ImportCaAndServerCert) {
           std::make_unique<DoNothingCTVerifier>(),
           base::MakeRefCounted<DefaultCTPolicyEnforcer>(),
           /*root_store_data=*/nullptr,
-          /*instance_params=*/{}));
+          /*instance_params=*/{}, std::nullopt));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(x509_server_cert.get(), "127.0.0.1",
@@ -1004,7 +999,7 @@ TEST_F(CertDatabaseNSSTest, ImportCaAndServerCert) {
   EXPECT_EQ(0U, verify_result.cert_status);
 }
 
-TEST_F(CertDatabaseNSSTest, ImportCaAndServerCert_DistrustServer) {
+TEST_F(CertDatabaseNSSTest, ImportCaAndServerCertDistrustServer) {
   ScopedCERTCertificateList ca_certs = CreateCERTCertificateListFromFile(
       GetTestCertsDirectory(), "root_ca_cert.pem",
       X509Certificate::FORMAT_AUTO);
@@ -1040,7 +1035,7 @@ TEST_F(CertDatabaseNSSTest, ImportCaAndServerCert_DistrustServer) {
           std::make_unique<DoNothingCTVerifier>(),
           base::MakeRefCounted<DefaultCTPolicyEnforcer>(),
           /*root_store_data=*/nullptr,
-          /*instance_params=*/{}));
+          /*instance_params=*/{}, std::nullopt));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(x509_server_cert.get(), "127.0.0.1",
@@ -1103,7 +1098,7 @@ TEST_F(CertDatabaseNSSTest, TrustIntermediateCa) {
           std::make_unique<DoNothingCTVerifier>(),
           base::MakeRefCounted<DefaultCTPolicyEnforcer>(),
           /*root_store_data=*/nullptr,
-          /*instance_params=*/{}));
+          /*instance_params=*/{}, std::nullopt));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(x509_server_cert.get(), "www.example.com",
@@ -1173,7 +1168,7 @@ TEST_F(CertDatabaseNSSTest, TrustIntermediateCa2) {
           std::make_unique<DoNothingCTVerifier>(),
           base::MakeRefCounted<DefaultCTPolicyEnforcer>(),
           /*root_store_data=*/nullptr,
-          /*instance_params=*/{}));
+          /*instance_params=*/{}, std::nullopt));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(x509_server_cert.get(), "www.example.com",
@@ -1241,7 +1236,7 @@ TEST_F(CertDatabaseNSSTest, TrustIntermediateCa3) {
           std::make_unique<DoNothingCTVerifier>(),
           base::MakeRefCounted<DefaultCTPolicyEnforcer>(),
           /*root_store_data=*/nullptr,
-          /*instance_params=*/{}));
+          /*instance_params=*/{}, std::nullopt));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(x509_server_cert.get(), "www.example.com",
@@ -1309,7 +1304,7 @@ TEST_F(CertDatabaseNSSTest, TrustIntermediateCa4) {
           std::make_unique<DoNothingCTVerifier>(),
           base::MakeRefCounted<DefaultCTPolicyEnforcer>(),
           /*root_store_data=*/nullptr,
-          /*instance_params=*/{}));
+          /*instance_params=*/{}, std::nullopt));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(x509_server_cert.get(), "www.example.com",

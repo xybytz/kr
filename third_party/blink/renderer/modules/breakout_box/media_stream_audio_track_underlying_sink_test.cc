@@ -29,7 +29,6 @@
 #include "third_party/blink/renderer/modules/mediastream/mock_media_stream_audio_sink.h"
 #include "third_party/blink/renderer/modules/webcodecs/audio_data.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
-#include "third_party/blink/renderer/platform/bindings/to_v8.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_audio_track.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_component_impl.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_source.h"
@@ -95,9 +94,8 @@ class MediaStreamAudioTrackUnderlyingSinkTest : public testing::Test {
         MakeGarbageCollected<AudioData>(std::move(media_buffer));
     if (audio_data_out)
       *audio_data_out = audio_data;
-    return ScriptValue(
-        script_state->GetIsolate(),
-        ToV8Traits<AudioData>::ToV8(script_state, audio_data).ToLocalChecked());
+    return ScriptValue(script_state->GetIsolate(),
+                       ToV8Traits<AudioData>::ToV8(script_state, audio_data));
   }
 
   static ScriptValue CreateInvalidAudioData(ScriptState* script_state,
@@ -114,9 +112,8 @@ class MediaStreamAudioTrackUnderlyingSinkTest : public testing::Test {
 
     AudioData* audio_data =
         AudioData::Create(script_state, init, exception_state);
-    return ScriptValue(
-        script_state->GetIsolate(),
-        ToV8Traits<AudioData>::ToV8(script_state, audio_data).ToLocalChecked());
+    return ScriptValue(script_state->GetIsolate(),
+                       ToV8Traits<AudioData>::ToV8(script_state, audio_data));
   }
 
  protected:
@@ -125,8 +122,7 @@ class MediaStreamAudioTrackUnderlyingSinkTest : public testing::Test {
   Persistent<MediaStreamSource> media_stream_source_;
   Persistent<MediaStreamComponent> media_stream_component_;
 
-  raw_ptr<PushableMediaStreamAudioSource, ExperimentalRenderer>
-      pushable_audio_source_;
+  raw_ptr<PushableMediaStreamAudioSource> pushable_audio_source_;
 };
 
 TEST_F(MediaStreamAudioTrackUnderlyingSinkTest,
@@ -189,25 +185,31 @@ TEST_F(MediaStreamAudioTrackUnderlyingSinkTest, WriteInvalidDataFails) {
                   v8::Integer::New(script_state->GetIsolate(), 0));
 
   // Writing something that is not an AudioData to the sink should fail.
-  DummyExceptionStateForTesting dummy_exception_state;
-  sink->write(script_state, v8_integer, nullptr, dummy_exception_state);
-  EXPECT_TRUE(dummy_exception_state.HadException());
+  {
+    DummyExceptionStateForTesting dummy_exception_state;
+    sink->write(script_state, v8_integer, nullptr, dummy_exception_state);
+    EXPECT_TRUE(dummy_exception_state.HadException());
+  }
 
   // Writing a null value to the sink should fail.
-  dummy_exception_state.ClearException();
-  EXPECT_FALSE(dummy_exception_state.HadException());
-  sink->write(script_state, ScriptValue::CreateNull(v8_scope.GetIsolate()),
-              nullptr, dummy_exception_state);
-  EXPECT_TRUE(dummy_exception_state.HadException());
+  {
+    DummyExceptionStateForTesting dummy_exception_state;
+    EXPECT_FALSE(dummy_exception_state.HadException());
+    sink->write(script_state, ScriptValue::CreateNull(v8_scope.GetIsolate()),
+                nullptr, dummy_exception_state);
+    EXPECT_TRUE(dummy_exception_state.HadException());
+  }
 
   // Writing a closed AudioData to the sink should fail.
-  dummy_exception_state.ClearException();
-  AudioData* audio_data = nullptr;
-  auto chunk = CreateAudioData(script_state, &audio_data);
-  audio_data->close();
-  EXPECT_FALSE(dummy_exception_state.HadException());
-  sink->write(script_state, chunk, nullptr, dummy_exception_state);
-  EXPECT_TRUE(dummy_exception_state.HadException());
+  {
+    DummyExceptionStateForTesting dummy_exception_state;
+    AudioData* audio_data = nullptr;
+    auto chunk = CreateAudioData(script_state, &audio_data);
+    audio_data->close();
+    EXPECT_FALSE(dummy_exception_state.HadException());
+    sink->write(script_state, chunk, nullptr, dummy_exception_state);
+    EXPECT_TRUE(dummy_exception_state.HadException());
+  }
 }
 
 TEST_F(MediaStreamAudioTrackUnderlyingSinkTest, WriteToAbortedSinkFails) {

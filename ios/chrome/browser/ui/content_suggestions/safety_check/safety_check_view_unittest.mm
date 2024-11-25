@@ -8,9 +8,11 @@
 
 #import "base/test/task_environment.h"
 #import "ios/chrome/browser/safety_check/model/ios_chrome_safety_check_manager_constants.h"
+#import "ios/chrome/browser/ui/content_suggestions/cells/icon_detail_view.h"
 #import "ios/chrome/browser/ui/content_suggestions/safety_check/constants.h"
-#import "ios/chrome/browser/ui/content_suggestions/safety_check/safety_check_item_view.h"
 #import "ios/chrome/browser/ui/content_suggestions/safety_check/safety_check_state.h"
+#import "ios/chrome/browser/ui/content_suggestions/safety_check/types.h"
+#import "ios/chrome/browser/ui/content_suggestions/safety_check/utils.h"
 #import "testing/platform_test.h"
 
 // Tests the SafetyCheckView and subviews.
@@ -106,7 +108,8 @@ TEST_F(SafetyCheckViewTest, DisplaysModuleWithDefaultState) {
               safeBrowsingState:SafeBrowsingSafetyCheckState::kDefault
                    runningState:RunningSafetyCheckState::kDefault];
 
-  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state];
+  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state
+                                             contentViewDelegate:nil];
 
   [_superview addSubview:view];
 
@@ -114,7 +117,7 @@ TEST_F(SafetyCheckViewTest, DisplaysModuleWithDefaultState) {
 
   // It should initially display one item, i.e. the hero-cell default layout
   // item.
-  ExpectSubviewCount(1, [SafetyCheckItemView class]);
+  ExpectSubviewCount(1, [IconDetailView class]);
 
   ExpectSubview(safety_check::kSafetyCheckViewID, true);
   ExpectSubview(safety_check::kDefaultItemID, true);
@@ -135,7 +138,8 @@ TEST_F(SafetyCheckViewTest, DisplaysModuleWithRunningState) {
               safeBrowsingState:SafeBrowsingSafetyCheckState::kDefault
                    runningState:RunningSafetyCheckState::kRunning];
 
-  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state];
+  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state
+                                             contentViewDelegate:nil];
 
   [_superview addSubview:view];
 
@@ -143,7 +147,7 @@ TEST_F(SafetyCheckViewTest, DisplaysModuleWithRunningState) {
 
   // It should initially display one item, i.e. the hero-cell default layout
   // item.
-  ExpectSubviewCount(1, [SafetyCheckItemView class]);
+  ExpectSubviewCount(1, [IconDetailView class]);
 
   ExpectSubview(safety_check::kSafetyCheckViewID, true);
   ExpectSubview(safety_check::kRunningItemID, true);
@@ -165,7 +169,8 @@ TEST_F(SafetyCheckViewTest, DisplaysModuleWithSinglePasswordsIssue) {
               safeBrowsingState:SafeBrowsingSafetyCheckState::kDefault
                    runningState:RunningSafetyCheckState::kDefault];
 
-  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state];
+  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state
+                                             contentViewDelegate:nil];
 
   [_superview addSubview:view];
 
@@ -173,7 +178,7 @@ TEST_F(SafetyCheckViewTest, DisplaysModuleWithSinglePasswordsIssue) {
 
   // It should initially display one item, i.e. the hero-cell default layout
   // item.
-  ExpectSubviewCount(1, [SafetyCheckItemView class]);
+  ExpectSubviewCount(1, [IconDetailView class]);
 
   ExpectSubview(safety_check::kSafetyCheckViewID, true);
   ExpectSubview(safety_check::kPasswordItemID, true);
@@ -194,7 +199,8 @@ TEST_F(SafetyCheckViewTest, DisplaysModuleWithSingleSafeBrowsingIssue) {
               safeBrowsingState:SafeBrowsingSafetyCheckState::kUnsafe
                    runningState:RunningSafetyCheckState::kDefault];
 
-  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state];
+  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state
+                                             contentViewDelegate:nil];
 
   [_superview addSubview:view];
 
@@ -202,7 +208,7 @@ TEST_F(SafetyCheckViewTest, DisplaysModuleWithSingleSafeBrowsingIssue) {
 
   // It should initially display one item, i.e. the hero-cell default layout
   // item.
-  ExpectSubviewCount(1, [SafetyCheckItemView class]);
+  ExpectSubviewCount(1, [IconDetailView class]);
 
   ExpectSubview(safety_check::kSafetyCheckViewID, true);
   ExpectSubview(safety_check::kSafeBrowsingItemID, true);
@@ -223,7 +229,8 @@ TEST_F(SafetyCheckViewTest, DisplaysModuleWithSingleUpdateChromeIssue) {
               safeBrowsingState:SafeBrowsingSafetyCheckState::kDefault
                    runningState:RunningSafetyCheckState::kDefault];
 
-  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state];
+  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state
+                                             contentViewDelegate:nil];
 
   [_superview addSubview:view];
 
@@ -231,7 +238,7 @@ TEST_F(SafetyCheckViewTest, DisplaysModuleWithSingleUpdateChromeIssue) {
 
   // It should initially display one item, i.e. the hero-cell default layout
   // item.
-  ExpectSubviewCount(1, [SafetyCheckItemView class]);
+  ExpectSubviewCount(1, [IconDetailView class]);
 
   ExpectSubview(safety_check::kSafetyCheckViewID, true);
   ExpectSubview(safety_check::kUpdateChromeItemID, true);
@@ -254,14 +261,15 @@ TEST_F(SafetyCheckViewTest, DisplaysModuleWithPasswordAndUpdateChromeIssues) {
               safeBrowsingState:SafeBrowsingSafetyCheckState::kDefault
                    runningState:RunningSafetyCheckState::kDefault];
 
-  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state];
+  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state
+                                             contentViewDelegate:nil];
 
   [_superview addSubview:view];
 
   ExpectSubviewCount(1, [SafetyCheckView class]);
 
   // It should initially display two items, i.e. the multi-row layout.
-  ExpectSubviewCount(2, [SafetyCheckItemView class]);
+  ExpectSubviewCount(2, [IconDetailView class]);
 
   ExpectSubview(safety_check::kSafetyCheckViewID, true);
   ExpectSubview(safety_check::kUpdateChromeItemID, true);
@@ -284,14 +292,15 @@ TEST_F(SafetyCheckViewTest, DisplaysModuleWithPasswordAndSafeBrowsingIssues) {
               safeBrowsingState:SafeBrowsingSafetyCheckState::kUnsafe
                    runningState:RunningSafetyCheckState::kDefault];
 
-  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state];
+  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state
+                                             contentViewDelegate:nil];
 
   [_superview addSubview:view];
 
   ExpectSubviewCount(1, [SafetyCheckView class]);
 
   // It should initially display two items, i.e. the multi-row layout.
-  ExpectSubviewCount(2, [SafetyCheckItemView class]);
+  ExpectSubviewCount(2, [IconDetailView class]);
 
   ExpectSubview(safety_check::kSafetyCheckViewID, true);
   ExpectSubview(safety_check::kPasswordItemID, true);
@@ -314,14 +323,15 @@ TEST_F(SafetyCheckViewTest,
               safeBrowsingState:SafeBrowsingSafetyCheckState::kUnsafe
                    runningState:RunningSafetyCheckState::kDefault];
 
-  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state];
+  SafetyCheckView* view = [[SafetyCheckView alloc] initWithState:state
+                                             contentViewDelegate:nil];
 
   [_superview addSubview:view];
 
   ExpectSubviewCount(1, [SafetyCheckView class]);
 
   // It should initially display two items, i.e. the multi-row layout.
-  ExpectSubviewCount(2, [SafetyCheckItemView class]);
+  ExpectSubviewCount(2, [IconDetailView class]);
 
   ExpectSubview(safety_check::kSafetyCheckViewID, true);
   ExpectSubview(safety_check::kUpdateChromeItemID, true);
@@ -331,4 +341,37 @@ TEST_F(SafetyCheckViewTest,
   ExpectSubview(safety_check::kRunningItemID, false);
   ExpectSubview(safety_check::kDefaultItemID, false);
   ExpectSubview(safety_check::kAllSafeItemID, false);
+}
+
+// Tests correctly generating a string representation of `SafetyCheckItemType`.
+TEST_F(SafetyCheckViewTest, CreatesSafetyCheckItemType) {
+  EXPECT_TRUE([NameForSafetyCheckItemType(SafetyCheckItemType::kAllSafe)
+      isEqualToString:@"SafetyCheckItemType::kAllSafe"]);
+  EXPECT_TRUE([NameForSafetyCheckItemType(SafetyCheckItemType::kRunning)
+      isEqualToString:@"SafetyCheckItemType::kRunning"]);
+  EXPECT_TRUE([NameForSafetyCheckItemType(SafetyCheckItemType::kUpdateChrome)
+      isEqualToString:@"SafetyCheckItemType::kUpdateChrome"]);
+  EXPECT_TRUE([NameForSafetyCheckItemType(SafetyCheckItemType::kPassword)
+      isEqualToString:@"SafetyCheckItemType::kPassword"]);
+  EXPECT_TRUE([NameForSafetyCheckItemType(SafetyCheckItemType::kSafeBrowsing)
+      isEqualToString:@"SafetyCheckItemType::kSafeBrowsing"]);
+  EXPECT_TRUE([NameForSafetyCheckItemType(SafetyCheckItemType::kDefault)
+      isEqualToString:@"SafetyCheckItemType::kDefault"]);
+}
+
+// Tests correctly finding the corresponding `SafetyCheckItemType`
+// given its string representation.
+TEST_F(SafetyCheckViewTest, FindsSafetyCheckItemTypeFromName) {
+  EXPECT_EQ(SafetyCheckItemTypeForName(@"SafetyCheckItemType::kAllSafe"),
+            SafetyCheckItemType::kAllSafe);
+  EXPECT_EQ(SafetyCheckItemTypeForName(@"SafetyCheckItemType::kRunning"),
+            SafetyCheckItemType::kRunning);
+  EXPECT_EQ(SafetyCheckItemTypeForName(@"SafetyCheckItemType::kUpdateChrome"),
+            SafetyCheckItemType::kUpdateChrome);
+  EXPECT_EQ(SafetyCheckItemTypeForName(@"SafetyCheckItemType::kPassword"),
+            SafetyCheckItemType::kPassword);
+  EXPECT_EQ(SafetyCheckItemTypeForName(@"SafetyCheckItemType::kSafeBrowsing"),
+            SafetyCheckItemType::kSafeBrowsing);
+  EXPECT_EQ(SafetyCheckItemTypeForName(@"SafetyCheckItemType::kDefault"),
+            SafetyCheckItemType::kDefault);
 }

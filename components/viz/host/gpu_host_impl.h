@@ -6,6 +6,7 @@
 #define COMPONENTS_VIZ_HOST_GPU_HOST_IMPL_H_
 
 #include <map>
+#include <optional>
 #include <queue>
 #include <set>
 #include <string>
@@ -40,7 +41,6 @@
 #include "services/viz/privileged/mojom/gl/gpu_host.mojom.h"
 #include "services/viz/privileged/mojom/gl/gpu_service.mojom.h"
 #include "services/viz/privileged/mojom/viz_main.mojom.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/gpu_extra_info.h"
 #include "url/gurl.h"
 
@@ -74,8 +74,8 @@ class VIZ_HOST_EXPORT GpuHostImpl : public mojom::GpuHost
     virtual void DidInitialize(
         const gpu::GPUInfo& gpu_info,
         const gpu::GpuFeatureInfo& gpu_feature_info,
-        const absl::optional<gpu::GPUInfo>& gpu_info_for_hardware_gpu,
-        const absl::optional<gpu::GpuFeatureInfo>&
+        const std::optional<gpu::GPUInfo>& gpu_info_for_hardware_gpu,
+        const std::optional<gpu::GpuFeatureInfo>&
             gpu_feature_info_for_hardware_gpu,
         const gfx::GpuExtraInfo& gpu_extra_info) = 0;
     virtual void DidFailInitialize() = 0;
@@ -109,7 +109,7 @@ class VIZ_HOST_EXPORT GpuHostImpl : public mojom::GpuHost
 #endif
 
    protected:
-    virtual ~Delegate() {}
+    virtual ~Delegate() = default;
   };
 
   struct VIZ_HOST_EXPORT InitParams {
@@ -128,13 +128,16 @@ class VIZ_HOST_EXPORT GpuHostImpl : public mojom::GpuHost
     std::string product;
 
     // Number of frames to CompositorFrame activation deadline.
-    absl::optional<uint32_t> deadline_to_synchronize_surfaces;
+    std::optional<uint32_t> deadline_to_synchronize_surfaces;
 
     // Task runner corresponding to the main thread.
     scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner;
 
     // Whether this GPU process is used for GPU info collection only.
     bool info_collection_gpu_process = false;
+
+    // Whether the GPU service is running in the host process.
+    bool gpu_service_running_in_process = false;
   };
 
   enum class EstablishChannelStatus {
@@ -220,6 +223,8 @@ class VIZ_HOST_EXPORT GpuHostImpl : public mojom::GpuHost
                       gpu::SurfaceHandle child_window);
 #endif
 
+  void MaybeSendFontRenderParams();
+
  private:
   friend class GpuHostImplTestApi;
 
@@ -248,8 +253,8 @@ class VIZ_HOST_EXPORT GpuHostImpl : public mojom::GpuHost
   void DidInitialize(
       const gpu::GPUInfo& gpu_info,
       const gpu::GpuFeatureInfo& gpu_feature_info,
-      const absl::optional<gpu::GPUInfo>& gpu_info_for_hardware_gpu,
-      const absl::optional<gpu::GpuFeatureInfo>&
+      const std::optional<gpu::GPUInfo>& gpu_info_for_hardware_gpu,
+      const std::optional<gpu::GpuFeatureInfo>&
           gpu_feature_info_for_hardware_gpu,
       const gfx::GpuExtraInfo& gpu_extra_info) override;
   void DidFailInitialize() override;
@@ -275,6 +280,7 @@ class VIZ_HOST_EXPORT GpuHostImpl : public mojom::GpuHost
   void RecordLogMessage(int32_t severity,
                         const std::string& header,
                         const std::string& message) override;
+  void ClearGrShaderDiskCache() override;
 
   // Implements mojom::VizDebugOutput and is called by VizDebugger.
 #if BUILDFLAG(USE_VIZ_DEBUGGER)
@@ -313,8 +319,6 @@ class VIZ_HOST_EXPORT GpuHostImpl : public mojom::GpuHost
 
   std::multimap<int32_t, scoped_refptr<gpu::GpuDiskCache>> client_id_to_caches_;
   std::string shader_prefix_key_;
-
-  const bool shared_bitmap_to_shared_image_flag_;
 
   // These are the channel requests that we have already sent to the GPU
   // service, but haven't heard back about yet.

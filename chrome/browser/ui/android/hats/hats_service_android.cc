@@ -5,10 +5,12 @@
 #include "chrome/browser/ui/android/hats/hats_service_android.h"
 
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/not_fatal_until.h"
 #include "base/notreached.h"
 #include "base/ranges/algorithm.h"
 #include "base/task/sequenced_task_runner.h"
@@ -39,15 +41,18 @@ HatsServiceAndroid::DelayedSurveyTask::DelayedSurveyTask(
     const SurveyStringData& product_specific_string_data,
     base::OnceClosure success_callback,
     base::OnceClosure failure_callback,
-    std::optional<std::string_view> supplied_trigger_id)
-    : web_contents_(web_contents),
-      hats_service_(hats_service),
+    const std::optional<std::string>& supplied_trigger_id,
+    const SurveyOptions& survey_options)
+    : hats_service_(hats_service),
       trigger_(trigger),
       product_specific_bits_data_(product_specific_bits_data),
       product_specific_string_data_(product_specific_string_data),
       success_callback_(std::move(success_callback)),
       failure_callback_(std::move(failure_callback)),
-      supplied_trigger_id_(std::move(supplied_trigger_id)) {}
+      supplied_trigger_id_(supplied_trigger_id),
+      survey_options_(survey_options) {
+  Observe(web_contents);
+}
 
 HatsServiceAndroid::DelayedSurveyTask::~DelayedSurveyTask() = default;
 
@@ -59,16 +64,22 @@ void HatsServiceAndroid::DelayedSurveyTask::Launch() {
   }
 
   message_ = std::make_unique<messages::MessageWrapper>(
-      messages::MessageIdentifier::CHROME_SURVEY, std::move(success_callback_),
+      survey_options_.message_identifier.value_or(
+          messages::MessageIdentifier::CHROME_SURVEY),
+      std::move(success_callback_),
       base::BindOnce(&HatsServiceAndroid::DelayedSurveyTask::DismissCallback,
                      weak_ptr_factory_.GetWeakPtr()));
+
+  if (survey_options_.custom_invitation.has_value()) {
+    message_->SetTitle(survey_options_.custom_invitation.value());
+  }
 
   hats::SurveyUiDelegateAndroid delegate(
       message_.get(), web_contents()->GetTopLevelNativeWindow());
 
   // Create survey client with delegate.
-  hats::SurveyClientAndroid survey_client(trigger_, &delegate,
-                                          hats_service_->profile());
+  hats::SurveyClientAndroid survey_client(
+      trigger_, &delegate, hats_service_->profile(), supplied_trigger_id_);
   survey_client.LaunchSurvey(web_contents()->GetTopLevelNativeWindow(),
                              product_specific_bits_data_,
                              product_specific_string_data_);
@@ -114,11 +125,17 @@ void HatsServiceAndroid::DelayedSurveyTask::DismissCallback(
       reason = ShouldShowSurveyReasonsAndroid::kAndroidDismissedByFeature;
       break;
     case messages::DismissReason::COUNT:
-      reason = ShouldShowSurveyReasonsAndroid::kAndroidUnknown;
       NOTREACHED();
   }
   UMA_HISTOGRAM_ENUMERATION(kHatsShouldShowSurveyReasonAndroidHistogram,
                             reason);
+  hats_service_->RemoveTask(*this);
+}
+
+void HatsServiceAndroid::DelayedSurveyTask::WebContentsDestroyed() {
+  if (!failure_callback_.is_null()) {
+    std::move(failure_callback_).Run();
+  }
   hats_service_->RemoveTask(*this);
 }
 
@@ -148,14 +165,15 @@ void HatsServiceAndroid::LaunchSurveyForWebContents(
     const SurveyStringData& product_specific_string_data,
     base::OnceClosure success_callback,
     base::OnceClosure failure_callback,
-    const std::optional<std::string_view>& supplied_trigger_id) {
+    const std::optional<std::string>& supplied_trigger_id,
+    const SurveyOptions& survey_options) {
   // By using a delayed survey with a delay of 0, we can centralize the object
   // lifecycle management duties for native clank survey triggers.
   LaunchDelayedSurveyForWebContents(
       trigger, web_contents, 0, product_specific_bits_data,
       product_specific_string_data, HatsService::NavigationBehaviour::ALLOW_ANY,
       std::move(success_callback), std::move(failure_callback),
-      supplied_trigger_id);
+      supplied_trigger_id, survey_options);
 }
 
 bool HatsServiceAndroid::LaunchDelayedSurvey(
@@ -176,7 +194,8 @@ bool HatsServiceAndroid::LaunchDelayedSurveyForWebContents(
     NavigationBehaviour navigation_behaviour,
     base::OnceClosure success_callback,
     base::OnceClosure failure_callback,
-    const std::optional<std::string_view>& supplied_trigger_id) {
+    const std::optional<std::string>& supplied_trigger_id,
+    const SurveyOptions& survey_options) {
   CHECK(web_contents);
   CHECK(navigation_behaviour ==
         NavigationBehaviour::ALLOW_ANY);  // Currently only ALLOW_ANY is
@@ -193,7 +212,7 @@ bool HatsServiceAndroid::LaunchDelayedSurveyForWebContents(
   auto result = pending_tasks_.emplace(
       this, trigger, web_contents, product_specific_bits_data,
       product_specific_string_data, std::move(success_callback),
-      std::move(failure_callback), supplied_trigger_id);
+      std::move(failure_callback), supplied_trigger_id, survey_options);
   if (!result.second) {
     return false;
   }
@@ -233,7 +252,8 @@ void HatsServiceAndroid::RecordSurveyAsShown(std::string trigger_id) {
                            return pair.second.trigger_id;
                          });
 
-  DCHECK(trigger_survey_config != survey_configs_by_triggers_.end());
+  CHECK(trigger_survey_config != survey_configs_by_triggers_.end(),
+        base::NotFatalUntil::M130);
   std::string trigger = trigger_survey_config->first;
 
   UMA_HISTOGRAM_ENUMERATION(kHatsShouldShowSurveyReasonAndroidHistogram,

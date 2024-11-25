@@ -8,9 +8,9 @@
 #include <map>
 #include <optional>
 #include <set>
-#include <string_view>
 #include <utility>
 
+#include "ash/constants/web_app_id_constants.h"
 #include "base/base64.h"
 #include "base/check.h"
 #include "base/containers/contains.h"
@@ -22,7 +22,6 @@
 #include "base/memory/weak_ptr.h"
 #include "base/notreached.h"
 #include "base/ranges/algorithm.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -30,6 +29,7 @@
 #include "build/buildflag.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/web_applications/mojom/user_display_mode.mojom-shared.h"
+#include "chrome/browser/web_applications/proto/web_app_install_state.pb.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
 #include "chrome/browser/web_applications/web_app_icon_manager.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
@@ -85,13 +85,10 @@ bool g_skip_main_profile_check_for_testing = false;
 #endif
 
 GURL EncodeIconAsUrl(const SkBitmap& bitmap) {
-  std::vector<unsigned char> output;
-  gfx::PNGCodec::EncodeBGRASkBitmap(bitmap, false, &output);
-  std::string encoded;
-  base::Base64Encode(
-      base::StringPiece(reinterpret_cast<const char*>(output.data()),
-                        output.size()),
-      &encoded);
+  std::optional<std::vector<uint8_t>> output =
+      gfx::PNGCodec::EncodeBGRASkBitmap(bitmap, /*discard_transparency=*/false);
+  std::string encoded =
+      base::Base64Encode(output.value_or(std::vector<uint8_t>()));
   return GURL("data:image/png;base64," + encoded);
 }
 
@@ -211,8 +208,8 @@ DisplayMode ResolveAppDisplayModeForStandaloneLaunchContainer(
     case DisplayMode::kMinimalUi:
       return DisplayMode::kMinimalUi;
     case DisplayMode::kUndefined:
+    case DisplayMode::kPictureInPicture:
       NOTREACHED();
-      [[fallthrough]];
     case DisplayMode::kStandalone:
     case DisplayMode::kFullscreen:
       return DisplayMode::kStandalone;
@@ -268,6 +265,7 @@ DisplayMode ResolveNonIsolatedEffectiveDisplayMode(
     mojom::UserDisplayMode user_display_mode) {
   const std::optional<DisplayMode> resolved_display_mode =
       TryResolveUserDisplayMode(user_display_mode);
+
   if (resolved_display_mode.has_value()) {
     return *resolved_display_mode;
   }
@@ -277,7 +275,6 @@ DisplayMode ResolveNonIsolatedEffectiveDisplayMode(
   if (resolved_override_display_mode.has_value()) {
     return *resolved_override_display_mode;
   }
-
   return ResolveAppDisplayModeForStandaloneLaunchContainer(app_display_mode);
 }
 
@@ -301,15 +298,10 @@ bool AreWebAppsEnabled(Profile* profile) {
   // Web Apps should not be installed to the ChromeOS system profiles except the
   // lock screen app profile.
   if (!ash::ProfileHelper::IsUserProfile(original_profile) &&
-      !ash::ProfileHelper::IsLockScreenAppProfile(profile) &&
       !ash::IsShimlessRmaAppBrowserContext(profile)) {
     return false;
   }
   auto* user_manager = user_manager::UserManager::Get();
-  // Never enable for ARC Kiosk sessions.
-  if (user_manager && user_manager->IsLoggedInAsArcKioskApp()) {
-    return false;
-  }
   // Don't enable if SWAs in Kiosk session are disabled for the next session
   // types.
   if (!base::FeatureList::IsEnabled(ash::features::kKioskEnableSystemWebApps)) {
@@ -334,9 +326,6 @@ bool AreWebAppsUserInstallable(Profile* profile) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // With Lacros, web apps are not installed using the Ash browser.
   if (IsWebAppsCrosapiEnabled()) {
-    return false;
-  }
-  if (ash::ProfileHelper::IsLockScreenAppProfile(profile)) {
     return false;
   }
 #endif
@@ -547,12 +536,14 @@ bool HasAnySpecifiedSourcesAndNoOtherSources(
     WebAppManagementTypes specified_sources) {
   bool has_any_specified_sources = sources.HasAny(specified_sources);
   bool has_no_other_sources =
-      base::Difference(sources, specified_sources).Empty();
+      base::Difference(sources, specified_sources).empty();
   return has_any_specified_sources && has_no_other_sources;
 }
 
-bool CanUserUninstallWebApp(WebAppManagementTypes sources) {
-  return HasAnySpecifiedSourcesAndNoOtherSources(sources,
+bool CanUserUninstallWebApp(const webapps::AppId& app_id,
+                            WebAppManagementTypes sources) {
+  return !WillBeSystemWebApp(app_id, sources) &&
+         HasAnySpecifiedSourcesAndNoOtherSources(sources,
                                                  kUserUninstallableSources);
 }
 
@@ -601,6 +592,7 @@ apps::LaunchContainer ConvertDisplayModeToAppLaunchContainer(
     case DisplayMode::kWindowControlsOverlay:
     case DisplayMode::kTabbed:
     case DisplayMode::kBorderless:
+    case DisplayMode::kPictureInPicture:
       return apps::LaunchContainer::kLaunchContainerWindow;
     case DisplayMode::kUndefined:
       return apps::LaunchContainer::kLaunchContainerNone;
@@ -642,8 +634,14 @@ content::mojom::AlternativeErrorPageOverrideInfoPtr ConstructWebAppErrorPage(
   }
 
   WebAppRegistrar& web_app_registrar = web_app_provider->registrar_unsafe();
+  // TODO(crbug.com/379827962): Evaluate call sites of FindBestAppWithUrlInScope
+  // for correctness.
   const std::optional<webapps::AppId> app_id =
-      web_app_registrar.FindAppWithUrlInScope(url);
+      web_app_registrar.FindBestAppWithUrlInScope(
+          url, {
+                   proto::InstallState::INSTALLED_WITH_OS_INTEGRATION,
+                   proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+               });
   if (!app_id.has_value()) {
     return nullptr;
   }
@@ -679,6 +677,16 @@ content::mojom::AlternativeErrorPageOverrideInfoPtr ConstructWebAppErrorPage(
 
 bool IsValidScopeForLinkCapturing(const GURL& scope) {
   return scope.is_valid() && scope.has_scheme() && scope.SchemeIsHTTPOrHTTPS();
+}
+
+// TODO(http://b/331208955): Remove after migration.
+bool WillBeSystemWebApp(const webapps::AppId& app_id,
+                        WebAppManagementTypes sources) {
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING) && BUILDFLAG(IS_CHROMEOS)
+  return app_id == ash::kGeminiAppId && sources.Has(WebAppManagement::kDefault);
+#else  // BUILDFLAG(GOOGLE_CHROME_BRANDING) && BUILDFLAG(IS_CHROMEOS)
+  return false;
+#endif
 }
 
 }  // namespace web_app

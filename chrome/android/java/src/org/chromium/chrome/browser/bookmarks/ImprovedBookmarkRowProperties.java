@@ -43,6 +43,7 @@ public class ImprovedBookmarkRowProperties {
         int NONE = 3;
     }
 
+    public static final WritableBooleanPropertyKey ENABLED = new WritableBooleanPropertyKey();
     public static final WritableObjectPropertyKey<String> TITLE = new WritableObjectPropertyKey<>();
     public static final WritableObjectPropertyKey<String> DESCRIPTION =
             new WritableObjectPropertyKey<>();
@@ -72,7 +73,6 @@ public class ImprovedBookmarkRowProperties {
     // Not if the row is currently selected, but whether another row in the same list is selected.
     public static final WritableBooleanPropertyKey SELECTION_ACTIVE =
             new WritableBooleanPropertyKey();
-    public static final WritableBooleanPropertyKey DRAG_ENABLED = new WritableBooleanPropertyKey();
     public static final WritableBooleanPropertyKey EDITABLE = new WritableBooleanPropertyKey();
 
     public static final WritableObjectPropertyKey<Runnable> ROW_CLICK_LISTENER =
@@ -90,6 +90,7 @@ public class ImprovedBookmarkRowProperties {
     public static final WritableObjectPropertyKey<String> CONTENT_DESCRIPTION =
             new WritableObjectPropertyKey<>();
 
+    // Whether this bookmark should be marked "local only" if account bookmarks are active.
     public static final WritableBooleanPropertyKey IS_LOCAL_BOOKMARK =
             new WritableBooleanPropertyKey();
 
@@ -103,8 +104,11 @@ public class ImprovedBookmarkRowProperties {
     public static final WritableObjectPropertyKey<LazyOneshotSupplier<Pair<Drawable, Drawable>>>
             FOLDER_START_IMAGE_FOLDER_DRAWABLES = new WritableObjectPropertyKey<>();
     public static final WritableIntPropertyKey FOLDER_CHILD_COUNT = new WritableIntPropertyKey();
+    public static final WritableIntPropertyKey FOLDER_CHILD_COUNT_TEXT_STYLE =
+            new WritableIntPropertyKey();
 
     private static final PropertyKey[] IMPROVED_BOOKMARK_ROW_PROPERTIES = {
+        ENABLED,
         TITLE,
         DESCRIPTION,
         DESCRIPTION_VISIBLE,
@@ -117,7 +121,6 @@ public class ImprovedBookmarkRowProperties {
         POPUP_LISTENER,
         SELECTED,
         SELECTION_ACTIVE,
-        DRAG_ENABLED,
         EDITABLE,
         ROW_CLICK_LISTENER,
         ROW_LONG_CLICK_LISTENER,
@@ -130,7 +133,8 @@ public class ImprovedBookmarkRowProperties {
         FOLDER_START_ICON_TINT,
         FOLDER_START_ICON_DRAWABLE,
         FOLDER_START_IMAGE_FOLDER_DRAWABLES,
-        FOLDER_CHILD_COUNT
+        FOLDER_CHILD_COUNT,
+        FOLDER_CHILD_COUNT_TEXT_STYLE
     };
     public static final PropertyKey[] ALL_KEYS =
             PropertyModel.concatKeys(

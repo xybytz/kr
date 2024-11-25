@@ -21,28 +21,25 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.CallbackHelper;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.MockTab;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tabmodel.TabModelUtils;
-import org.chromium.chrome.browser.tasks.tab_groups.TabGroupModelFilter;
+import org.chromium.chrome.browser.tabmodel.TabGroupModelFilter;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorAction.ActionDelegate;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorAction.ActionObserver;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorAction.ButtonType;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorAction.IconPosition;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorAction.ShowMode;
 import org.chromium.chrome.tab_ui.R;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.tabmodel.MockTabModel;
 import org.chromium.components.browser_ui.share.ShareParams;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate;
@@ -61,10 +58,10 @@ import java.util.Set;
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class TabListEditorShareActionUnitTest {
-    @Rule public JniMocker mJniMocker = new JniMocker();
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
 
-    @Mock private TabGroupModelFilter mTabModelFilter;
+    @Rule public final MockitoRule mMockitoRule = MockitoJUnit.rule();
+
+    @Mock private TabGroupModelFilter mTabGroupModelFilter;
     @Mock private SelectionDelegate<Integer> mSelectionDelegate;
     @Mock private ActionDelegate mDelegate;
     @Mock private DomDistillerUrlUtilsJni mDomDistillerUrlUtilsJni;
@@ -89,7 +86,6 @@ public class TabListEditorShareActionUnitTest {
 
     @Before
     public void setUp() {
-        MockitoAnnotations.initMocks(this);
         mContext = RuntimeEnvironment.application;
         mAction =
                 (TabListEditorShareAction)
@@ -109,24 +105,24 @@ public class TabListEditorShareActionUnitTest {
                                     }
                                 }));
         when(mIncognitoProfile.isOffTheRecord()).thenReturn(true);
-        when(mTabModelFilter.getTabModel()).thenReturn(mTabModel);
+        when(mTabGroupModelFilter.getTabModel()).thenReturn(mTabModel);
         doAnswer(
                         invocation -> {
                             return Collections.singletonList(
-                                    TabModelUtils.getTabById(mTabModel, invocation.getArgument(0)));
+                                    mTabModel.getTabById(invocation.getArgument(0)));
                         })
-                .when(mTabModelFilter)
+                .when(mTabGroupModelFilter)
                 .getRelatedTabList(anyInt());
-        mJniMocker.mock(DomDistillerUrlUtilsJni.TEST_HOOKS, mDomDistillerUrlUtilsJni);
-        mAction.configure(() -> mTabModelFilter, mSelectionDelegate, mDelegate, false);
+        DomDistillerUrlUtilsJni.setInstanceForTesting(mDomDistillerUrlUtilsJni);
     }
 
     @Test
     @SmallTest
     public void testInherentActionProperties() {
+        mAction.configure(() -> mTabGroupModelFilter, mSelectionDelegate, mDelegate, false);
+
         Drawable drawable =
-                AppCompatResources.getDrawable(
-                        mContext, R.drawable.tab_list_editor_share_icon);
+                AppCompatResources.getDrawable(mContext, R.drawable.tab_list_editor_share_icon);
         drawable.setBounds(0, 0, drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight());
 
         Assert.assertEquals(
@@ -151,6 +147,8 @@ public class TabListEditorShareActionUnitTest {
     @Test
     @SmallTest
     public void testShareActionNoTabs() {
+        mAction.configure(() -> mTabGroupModelFilter, mSelectionDelegate, mDelegate, false);
+
         mAction.onSelectionStateChange(new ArrayList<Integer>());
         Assert.assertEquals(
                 false, mAction.getPropertyModel().get(TabListEditorActionProperties.ENABLED));
@@ -161,6 +159,8 @@ public class TabListEditorShareActionUnitTest {
     @Test
     @SmallTest
     public void testShareActionWithOneTab() throws Exception {
+        mAction.configure(() -> mTabGroupModelFilter, mSelectionDelegate, mDelegate, false);
+
         mAction.setSkipUrlCheckForTesting(true);
         List<Integer> tabIds = new ArrayList<>();
         tabIds.add(1);
@@ -200,7 +200,7 @@ public class TabListEditorShareActionUnitTest {
         mAction.addActionObserver(observer);
 
         TabListEditorShareAction.setIntentCallbackForTesting(
-                (result -> {
+                result -> {
                     Assert.assertEquals(Intent.ACTION_SEND, result.getAction());
                     Assert.assertEquals(
                             shareParams.getTextAndUrl(), result.getStringExtra(Intent.EXTRA_TEXT));
@@ -208,11 +208,11 @@ public class TabListEditorShareActionUnitTest {
                     Assert.assertEquals(
                             "1 link from Chrome", result.getStringExtra(Intent.EXTRA_TITLE));
                     Assert.assertNotNull(result.getClipData());
-                }));
+                });
 
         Assert.assertTrue(mAction.perform());
 
-        helper.waitForFirst();
+        helper.waitForOnly();
         mAction.removeActionObserver(observer);
 
         Assert.assertTrue(mAction.perform());
@@ -224,6 +224,8 @@ public class TabListEditorShareActionUnitTest {
     @Test
     @SmallTest
     public void testShareActionWithMultipleTabs() throws Exception {
+        mAction.configure(() -> mTabGroupModelFilter, mSelectionDelegate, mDelegate, false);
+
         mAction.setSkipUrlCheckForTesting(true);
         List<Integer> tabIds = new ArrayList<>();
         tabIds.add(1);
@@ -262,7 +264,7 @@ public class TabListEditorShareActionUnitTest {
         mAction.addActionObserver(observer);
 
         TabListEditorShareAction.setIntentCallbackForTesting(
-                (result -> {
+                result -> {
                     Assert.assertEquals(Intent.ACTION_SEND, result.getAction());
                     Assert.assertEquals(
                             shareParams.getTextAndUrl(), result.getStringExtra(Intent.EXTRA_TEXT));
@@ -270,11 +272,11 @@ public class TabListEditorShareActionUnitTest {
                     Assert.assertEquals(
                             "3 links from Chrome", result.getStringExtra(Intent.EXTRA_TITLE));
                     Assert.assertNotNull(result.getClipData());
-                }));
+                });
 
         Assert.assertTrue(mAction.perform());
 
-        helper.waitForFirst();
+        helper.waitForOnly();
         mAction.removeActionObserver(observer);
 
         Assert.assertTrue(mAction.perform());
@@ -285,7 +287,32 @@ public class TabListEditorShareActionUnitTest {
 
     @Test
     @SmallTest
-    public void testShareActionWithAllFilterableTabs() throws Exception {
+    public void testShareActionWithAllFilterableTabs_actionsOnTabs() throws Exception {
+        mAction.configure(() -> mTabGroupModelFilter, mSelectionDelegate, mDelegate, false);
+
+        List<Integer> tabIds = new ArrayList<>();
+        tabIds.add(4);
+        tabIds.add(5);
+
+        for (int id : tabIds) {
+            mTabModel.addTab(id);
+        }
+        Set<Integer> tabIdsSet = new LinkedHashSet<>(tabIds);
+        when(mSelectionDelegate.getSelectedItems()).thenReturn(tabIdsSet);
+
+        mAction.onSelectionStateChange(tabIds);
+        Assert.assertEquals(
+                false, mAction.getPropertyModel().get(TabListEditorActionProperties.ENABLED));
+        Assert.assertEquals(
+                2, mAction.getPropertyModel().get(TabListEditorActionProperties.ITEM_COUNT));
+    }
+
+    @Test
+    @SmallTest
+    public void testShareActionWithAllFilterableTabs_actionsOnTabsAndRelatedTabs()
+            throws Exception {
+        mAction.configure(() -> mTabGroupModelFilter, mSelectionDelegate, mDelegate, true);
+
         List<Integer> tabIds = new ArrayList<>();
         tabIds.add(4);
         tabIds.add(5);

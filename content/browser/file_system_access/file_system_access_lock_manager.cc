@@ -24,9 +24,9 @@ namespace content {
 using LockHandle = FileSystemAccessLockManager::LockHandle;
 using LockType = FileSystemAccessLockManager::LockType;
 
-// This class represents an active lock on the `path_component`. The lock is
-// kept alive when there is some `LockHandle` to it. The lock is released when
-// all its `LockHandle`s have been destroyed.
+// This class represents an active lock on the `path`. The lock is kept alive
+// when there is some `LockHandle` to it. The lock is released when all its
+// `LockHandle`s have been destroyed.
 //
 // Terminology:
 //  - A "caller" is the caller of `FileSystemAccessLockManager` `TakeLock`
@@ -61,11 +61,11 @@ using LockType = FileSystemAccessLockManager::LockType;
 //    have its `LockHandle`s given to the caller.
 class Lock {
  public:
-  Lock(const base::FilePath::StringType& path_component,
+  Lock(const base::FilePath& path,
        const LockType& type,
        const LockType& exclusive_lock_type,
        base::optional_ref<Lock> parent_lock)
-      : path_component_(path_component),
+      : path_(path),
         type_(type),
         exclusive_lock_type_(exclusive_lock_type),
         parent_lock_(std::move(parent_lock)),
@@ -73,15 +73,14 @@ class Lock {
                     parent_lock_->InPendingSubtree()) {}
 
   virtual ~Lock() {
-    CHECK(pending_callbacks_.empty() && frame_id_lock_handles_.empty());
+    CHECK(pending_callbacks_.empty());
+    CHECK(frame_id_lock_handles_.empty());
   }
 
   Lock(Lock const&) = delete;
   Lock& operator=(Lock const&) = delete;
 
-  const base::FilePath::StringType& path_component() const {
-    return path_component_;
-  }
+  const base::FilePath& path() const { return path_; }
 
   const LockType& type() const { return type_; }
 
@@ -90,23 +89,22 @@ class Lock {
   // Returns whether this lock is contentious with `type`.
   bool IsContentious(LockType type) { return type != type_ || IsExclusive(); }
 
-  Lock* GetChild(const base::FilePath::StringType& path_component) {
+  Lock* GetChild(const base::FilePath& path) {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-    auto child_lock_it = child_locks_.find(path_component);
+    auto child_lock_it = child_locks_.find(path);
     return child_lock_it != child_locks_.end() ? child_lock_it->second.get()
                                                : nullptr;
   }
 
   // Get the child if it exists. If it doesn't, creates it if it can. Otherwise
   // return null.
-  Lock* GetOrCreateChild(const base::FilePath::StringType& path_component,
-                         LockType lock_type) {
+  Lock* GetOrCreateChild(const base::FilePath& path, LockType lock_type) {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    Lock* child = GetChild(path_component);
+    Lock* child = GetChild(path);
 
     if (!child) {
-      return CreateChild(path_component, lock_type);
+      return CreateChild(path, lock_type);
     }
 
     if (!child->IsContentious(lock_type)) {
@@ -116,8 +114,6 @@ class Lock {
     // Evict on contention is only enabled when both FSA Locking Scheme and
     // BFCache are enabled.
     bool evict_on_contention =
-        base::FeatureList::IsEnabled(
-            blink::features::kFileSystemAccessLockingScheme) &&
         base::FeatureList::IsEnabled(features::kFileSystemAccessBFCache);
 
     // Start eviction if we can. Otherwise, we can not take this lock since it
@@ -127,9 +123,9 @@ class Lock {
     }
 
     // Create a child that is pending on the eviction of the current child.
-    std::unique_ptr<Lock> evicting_subroot_lock = TakeChild(path_component);
+    std::unique_ptr<Lock> evicting_subroot_lock = TakeChild(path);
     CHECK(evicting_subroot_lock);
-    child = CreateChild(path_component, lock_type);
+    child = CreateChild(path, lock_type);
     child->SetEvictingSubrootLock(std::move(evicting_subroot_lock));
 
     return child;
@@ -178,34 +174,31 @@ class Lock {
   bool InPendingSubtree() { return is_pending_; }
 
  protected:
-  virtual void DestroySelf() { parent_lock_->ReleaseChild(path_component_); }
+  virtual void DestroySelf() { parent_lock_->ReleaseChild(path_); }
 
  private:
   friend class FileSystemAccessLockManager::LockHandle;
 
-  Lock* CreateChild(const base::FilePath::StringType& path_component,
-                    LockType lock_type) {
+  Lock* CreateChild(const base::FilePath& path, LockType lock_type) {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    Lock* child_lock =
-        new Lock(path_component, lock_type, exclusive_lock_type_, this);
-    child_locks_.emplace(path_component, base::WrapUnique<Lock>(child_lock));
+    Lock* child_lock = new Lock(path, lock_type, exclusive_lock_type_, this);
+    child_locks_.emplace(path, base::WrapUnique<Lock>(child_lock));
     return child_lock;
   }
 
-  std::unique_ptr<Lock> TakeChild(
-      const base::FilePath::StringType& path_component) {
+  std::unique_ptr<Lock> TakeChild(const base::FilePath& path) {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    auto child_node = child_locks_.extract(path_component);
+    auto child_node = child_locks_.extract(path);
     if (child_node.empty()) {
       return nullptr;
     }
     return std::move(child_node.mapped());
   }
 
-  void ReleaseChild(const base::FilePath::StringType& path_component) {
+  void ReleaseChild(const base::FilePath& path) {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-    size_t count_removed = child_locks_.erase(path_component);
+    size_t count_removed = child_locks_.erase(path);
 
     CHECK_EQ(1u, count_removed);
   }
@@ -266,50 +259,84 @@ class Lock {
 
       // If we are an Evicting subroot, then we must destroy ourselves through
       // the `pending_lock` that owns us.
-      Lock* pending_lock = parent_lock_->GetChild(path_component_);
+      Lock* pending_lock = parent_lock_->GetChild(path_);
+      bool in_pending_subtree = InPendingSubtree();
+      CHECK(!in_pending_subtree || !IsPendingSubroot());
 
-      if (InPendingSubtree()) {
-        CHECK(IsPendingSubroot());
+      // `RemoveEvictingSubrootLock` will destroy `this`.
+      pending_lock->RemoveEvictingSubrootLock();
 
-        // When we are in a Pending Subtree, then we've been evicted before our
-        // `evicting_subroot_lock_` has been evicted. The `pending_lock_` still
-        // has to wait on our `evicting_subroot_lock_` to be evicted before it
-        // can be promoted. So replace ourselves in `pending_lock` with our
-        // `evicting_subroot_lock_`.
+      if (in_pending_subtree) {
+        return;
+      }
 
-        // `SetEvictingSubrootLock` will destroy `this`. `pending_lock` uniquely
-        // owns `this` as its evicting subroot `Lock`, so setting a new one will
-        // destroy `this`.
-        pending_lock->SetEvictingSubrootLock(std::move(evicting_subroot_lock_));
-      } else if (pending_lock->InEvictingSubtree()) {
+      if (pending_lock->InEvictingSubtree()) {
         // If the pending lock is in an Evicting subtree, then it should be
         // evicted.
 
-        // `EvictPendingSubtree` will destroy `this`.
         pending_lock->EvictPendingSubtree();
-      } else {
-        // `PromotePendingToTaken` will destroy `this`.
-        pending_lock->PromotePendingToTaken();
+        return;
       }
+
+      // This was the last Evicting Lock that needed to be destroyed to promote
+      // the `pending_lock`.
+      pending_lock->PromotePendingToTaken();
     }
+  }
+
+  // Iterates over all the leaves of a Pending subtree and passes their
+  // `pending_callbacks_` to `callback`.
+  void IteratePendingSubtreeCallbacks(
+      bool stop_pending,
+      const base::RepeatingCallback<void(std::vector<base::OnceClosure>)>&
+          callback) {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    CHECK(InPendingSubtree());
+
+    if (evicting_subroot_lock_) {
+      evicting_subroot_lock_->EvictPendingSubtree();
+    }
+    if (stop_pending) {
+      is_pending_ = false;
+    }
+
+    if (child_locks_.size() > 0) {
+      // This is an ancestor, so it shouldn't have any Pending callbacks.
+      CHECK(pending_callbacks_.size() == 0);
+
+      // May destroy `this` since ancestors are owned by their children, and we
+      // might destroy all the children.
+      for (auto child_locks_iter = child_locks_.begin(),
+                child_locks_end = child_locks_.end();
+           child_locks_iter != child_locks_end;) {
+        // The child may be destroyed so increase the iterator before
+        // continuing.
+        auto& [_path, child] = *(child_locks_iter++);
+
+        // May destroy `this` if none of the leaves' `pending_callbacks` keep
+        // their `LockHandle` alive.
+        child->IteratePendingSubtreeCallbacks(stop_pending, callback);
+      }
+      return;
+    }
+
+    // This is a leaf of a Pending subtree, so it should have Pending callbacks.
+    CHECK(pending_callbacks_.size() > 0);
+
+    // `this` may be destroyed.
+    callback.Run(std::move(pending_callbacks_));
   }
 
   void EvictPendingSubtree() {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     CHECK(InPendingSubtree());
 
-    auto pending_callbacks = std::move(pending_callbacks_);
-
-    // Will destroy `this` if this its an ancestor Lock since ancestors are
-    // owned by their children, and we're destroying all the children.
-    for (auto& [_path_component, child] : child_locks_) {
-      // Destroys `child`.
-      child->EvictPendingSubtree();
-    }
-
-    // Will destroy `this` if this is a leaf of an Pending subtree since a
-    // Pending leaf owns all its LockHandles through its `pending_callbacks_`.
-    pending_callbacks.clear();
+    IteratePendingSubtreeCallbacks(
+        /*stop_pending=*/false,
+        base::BindRepeating(
+            [](std::vector<base::OnceClosure> pending_callbacks) {
+              pending_callbacks.clear();
+            }));
   }
 
   // Promotes a Pending lock to a Taken lock by handing out the `LockHandle`s to
@@ -318,15 +345,16 @@ class Lock {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     CHECK(InPendingSubtree());
 
-    is_pending_ = false;
-    evicting_subroot_lock_ = nullptr;
-    for (auto& [_path_component, child] : child_locks_) {
-      child->PromotePendingToTaken();
-    }
-    for (auto& pending_callback : pending_callbacks_) {
-      std::move(pending_callback).Run();
-    }
-    pending_callbacks_.clear();
+    IteratePendingSubtreeCallbacks(
+        /*stop_pending=*/true,
+        base::BindRepeating(
+            [](std::vector<base::OnceClosure> pending_callbacks) {
+              for (auto& pending_callback : pending_callbacks) {
+                // May destroy `this` if none of the `pending_callbacks`
+                // keep their `LockHandle` alive.
+                std::move(pending_callback).Run();
+              }
+            }));
   }
 
   // Returns if its the subroot of a Pending subtree. See class comment.
@@ -349,8 +377,7 @@ class Lock {
   // Returns if we're the subroot of an Evicting subtree. See class comment.
   bool IsEvictingSubroot() {
     return parent_lock_.has_value() &&
-           parent_lock_->GetChild(path_component_)
-                   ->evicting_subroot_lock_.get() == this;
+           parent_lock_->GetChild(path_)->evicting_subroot_lock_.get() == this;
   }
 
   // Makes `this` a Pending subtree that is waiting on the destruction of the
@@ -361,11 +388,22 @@ class Lock {
     is_pending_ = true;
     evicting_subroot_lock_ = std::move(evicting_subroot_lock);
 
-    // If our `evicting_subroot_lock_` is Pending, then evict it. It will
-    // replace itself with its own `evicting_subroot_lock_`.
-    if (evicting_subroot_lock_->InPendingSubtree()) {
+    // If our `evicting_subroot_lock_` has its own `evicting_subroot_lock_`,
+    // then replace the former with the latter.
+    auto next_evicting_subroot_lock =
+        evicting_subroot_lock_->TakeEvictingSubrootLock();
+    if (next_evicting_subroot_lock) {
+      // Destroys `evicting_subroot_lock_`.
       evicting_subroot_lock_->EvictPendingSubtree();
+      evicting_subroot_lock_ = std::move(next_evicting_subroot_lock);
     }
+  }
+
+  void RemoveEvictingSubrootLock() {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    CHECK(evicting_subroot_lock_);
+
+    evicting_subroot_lock_ = nullptr;
   }
 
   std::unique_ptr<Lock> TakeEvictingSubrootLock() {
@@ -379,8 +417,8 @@ class Lock {
   base::flat_map<GlobalRenderFrameHostId, raw_ref<LockHandle>>
       frame_id_lock_handles_;
 
-  // The file path component of what we're locking within our parent `Lock`.
-  const base::FilePath::StringType path_component_;
+  // The file path of what we're locking within our parent `Lock`.
+  const base::FilePath path_;
 
   const LockType type_;
 
@@ -391,8 +429,8 @@ class Lock {
   // is safe to dereference since `parent_lock_` owns `this`.
   base::optional_ref<Lock> parent_lock_;
 
-  // The map of path components to the respective children.
-  std::map<base::FilePath::StringType, std::unique_ptr<Lock>> child_locks_;
+  // The map of path and lock to the respective children.
+  std::map<base::FilePath, std::unique_ptr<Lock>> child_locks_;
 
   bool is_pending_;
 
@@ -418,7 +456,7 @@ class Lock {
 class RootLock : public Lock {
  public:
   explicit RootLock(
-      base::WeakPtr<FileSystemAccessLockManager> lock_manager,
+      scoped_refptr<FileSystemAccessLockManager> lock_manager,
       const FileSystemAccessLockManager::RootLocator& root_locator)
       : Lock({},
              lock_manager->ancestor_lock_type_,
@@ -430,7 +468,7 @@ class RootLock : public Lock {
  private:
   void DestroySelf() override { lock_manager_->ReleaseRoot(root_locator_); }
 
-  base::WeakPtr<FileSystemAccessLockManager> lock_manager_;
+  scoped_refptr<FileSystemAccessLockManager> lock_manager_;
   FileSystemAccessLockManager::RootLocator root_locator_;
 };
 
@@ -499,7 +537,9 @@ LockHandle::~LockHandle() {
 }
 
 FileSystemAccessLockManager::FileSystemAccessLockManager(
-    base::PassKey<FileSystemAccessManagerImpl> /*pass_key*/) {}
+    base::PassKey<FileSystemAccessManagerImpl> /*pass_key*/)
+    : base::RefCountedDeleteOnSequence<FileSystemAccessLockManager>(
+          base::SequencedTaskRunner::GetCurrentDefault()) {}
 
 FileSystemAccessLockManager::~FileSystemAccessLockManager() = default;
 
@@ -514,11 +554,15 @@ bool FileSystemAccessLockManager::IsContentious(
     return false;
   }
 
-  auto base_component = url.path().BaseName().value();
-  for (const auto& component : url.path().GetComponents()) {
+  base::FilePath cur_component_path;
+  std::vector<base::FilePath::StringType> components =
+      url.path().GetComponents();
+  for (size_t i = 0; i < components.size(); ++i) {
+    cur_component_path = i == 0 ? base::FilePath(components[0])
+                                : cur_component_path.Append(components[i]);
     LockType component_lock_type =
-        component == base_component ? lock_type : ancestor_lock_type_;
-    lock = lock->GetChild(component);
+        i == components.size() - 1 ? lock_type : ancestor_lock_type_;
+    lock = lock->GetChild(cur_component_path);
     if (!lock) {
       // If there's no lock, then it's not contentious.
       return false;
@@ -543,13 +587,16 @@ void FileSystemAccessLockManager::TakeLock(
   CHECK(lock);
 
   // Attempt to take a lock on all components in the path.
-  auto base_component = url.path().BaseName().value();
-  for (const auto& component : url.path().GetComponents()) {
+  base::FilePath cur_component_path;
+  std::vector<base::FilePath::StringType> components =
+      url.path().GetComponents();
+  for (size_t i = 0; i < components.size(); ++i) {
+    cur_component_path = i == 0 ? base::FilePath(components[0])
+                                : cur_component_path.Append(components[i]);
     // Take `lock_type` on the base and ancestor locks on the ancestors.
     LockType component_lock_type =
-        component == base_component ? lock_type : ancestor_lock_type_;
-    lock = lock->GetOrCreateChild(component, component_lock_type);
-
+        i == components.size() - 1 ? lock_type : ancestor_lock_type_;
+    lock = lock->GetOrCreateChild(cur_component_path, component_lock_type);
     if (!lock) {
       // Couldn't take lock due to contention with a lock in `url`'s path held
       // by an active page.
@@ -573,6 +620,8 @@ void FileSystemAccessLockManager::TakeLock(
 void FileSystemAccessLockManager::ReleaseRoot(const RootLocator& root_locator) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  // May destroy `this` if `FileSystemAccessManagerImpl` no longer holds a
+  // `scoped_refptr` to `this`, and this is the last root lock.
   size_t count_removed = root_locks_.erase(root_locator);
 
   DCHECK_EQ(1u, count_removed);
@@ -591,7 +640,7 @@ RootLock* FileSystemAccessLockManager::GetOrCreateRootLock(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   RootLock* root_lock = GetRootLock(root_locator);
   if (!root_lock) {
-    root_lock = new RootLock(weak_factory_.GetWeakPtr(), root_locator);
+    root_lock = new RootLock(this, root_locator);
     root_locks_.emplace(std::move(root_locator),
                         base::WrapUnique<RootLock>(root_lock));
   }
@@ -611,6 +660,12 @@ FileSystemAccessLockManager::GetExclusiveLockType() {
 FileSystemAccessLockManager::LockType
 FileSystemAccessLockManager::GetAncestorLockTypeForTesting() {
   return ancestor_lock_type_;
+}
+
+base::WeakPtr<FileSystemAccessLockManager>
+FileSystemAccessLockManager::GetWeakPtrForTesting() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return weak_factory_.GetWeakPtr();
 }
 
 }  // namespace content

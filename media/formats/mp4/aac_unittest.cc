@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <stdint.h>
 
 #include <string>
@@ -84,7 +89,7 @@ TEST_F(AACTest, ExtensionTest) {
 // Mono channel layout should only be reported if SBR is not
 // specified. Otherwise stereo should be reported.
 // See ISO 14496-3:2005 Section 1.6.5.3 for details about this special casing.
-TEST_F(AACTest, ImplicitSBR_ChannelConfig0) {
+TEST_F(AACTest, ImplicitSBRChannelConfig0) {
   uint8_t buffer[] = {0x13, 0x08};
   std::vector<uint8_t> data;
 
@@ -92,7 +97,7 @@ TEST_F(AACTest, ImplicitSBR_ChannelConfig0) {
 
   EXPECT_TRUE(Parse(data));
 
-  // Test w/o implict SBR.
+  // Test w/o implicit SBR.
   EXPECT_EQ(aac_.GetOutputSamplesPerSecond(false), 24000);
   EXPECT_EQ(aac_.GetChannelLayout(false), CHANNEL_LAYOUT_MONO);
   EXPECT_EQ(aac_.GetProfile(), AudioCodecProfile::kUnknown);
@@ -104,7 +109,7 @@ TEST_F(AACTest, ImplicitSBR_ChannelConfig0) {
 }
 
 // Tests implicit SBR with a stereo channel config.
-TEST_F(AACTest, ImplicitSBR_ChannelConfig1) {
+TEST_F(AACTest, ImplicitSBRChannelConfig1) {
   uint8_t buffer[] = {0x13, 0x10};
   std::vector<uint8_t> data;
 
@@ -112,7 +117,7 @@ TEST_F(AACTest, ImplicitSBR_ChannelConfig1) {
 
   EXPECT_TRUE(Parse(data));
 
-  // Test w/o implict SBR.
+  // Test w/o implicit SBR.
   EXPECT_EQ(aac_.GetOutputSamplesPerSecond(false), 24000);
   EXPECT_EQ(aac_.GetChannelLayout(false), CHANNEL_LAYOUT_STEREO);
   EXPECT_EQ(aac_.GetProfile(), AudioCodecProfile::kUnknown);
@@ -239,7 +244,7 @@ TEST_F(AACTest, UnsupportedExFrequencyIndexTest) {
   EXPECT_TRUE(Parse(data));
 }
 
-TEST_F(AACTest, XHE_AAC) {
+TEST_F(AACTest, XHEAAC) {
   InSequence s;
   uint8_t buffer[] = {0xf9, 0x46, 0x43, 0x22, 0x2c, 0xc0, 0x4c, 0x00,
                       0x85, 0xa0, 0x01, 0x13, 0x84, 0x00, 0x20, 0x00,
@@ -255,51 +260,9 @@ TEST_F(AACTest, XHE_AAC) {
   // ADTS conversion should do nothing since xHE-AAC can't be represented with
   // only two bits for the profile.
   int adts_header_size = 1;  // Choose a non-zero value to make sure it's set.
-  EXPECT_TRUE(aac_.ConvertEsdsToADTS(&data, &adts_header_size));
+  auto adts_buffer = aac_.CreateAdtsFromEsds(data, &adts_header_size);
+  EXPECT_TRUE(adts_buffer.empty());
   EXPECT_EQ(adts_header_size, 0);
-  EXPECT_EQ(data.size(), sizeof(buffer));
-}
-
-TEST_F(AACTest, ConvertEsdsToADTS) {
-  // Prime `aac_` with a codec description.
-  uint8_t buffer[] = {0x12, 0x10};
-  std::vector<uint8_t> codec_desc(buffer, buffer + sizeof(buffer));
-  EXPECT_TRUE(Parse(codec_desc));
-
-  // Build a packet with arbitrary data.
-  uint8_t packet_data[] = {0x00, 0x01, 0x03, 0x04};
-  std::vector<uint8_t> packet(packet_data, packet_data + sizeof(packet_data));
-
-  int adts_header_size = 0;
-  EXPECT_TRUE(aac_.ConvertEsdsToADTS(&packet, &adts_header_size));
-
-  // Make sure the conversion succeeded.
-  const size_t total_size = adts_header_size + sizeof(packet_data);
-  EXPECT_EQ(adts_header_size, kADTSHeaderMinSize);
-  EXPECT_EQ(packet.size(), total_size);
-
-  // Verify the packet data.
-  EXPECT_EQ(0, memcmp(packet.data() + adts_header_size, packet_data,
-                      sizeof(packet_data)));
-
-  // Verify the header data.
-  ADTSStreamParser adts_parser;
-
-  int frame_size = 0;
-  int sample_rate = 0;
-  ChannelLayout channel_layout;
-  int sample_count = 0;
-  bool metadata_frame;
-  std::vector<uint8_t> extra_data;
-
-  adts_parser.ParseFrameHeader(packet.data(), total_size, &frame_size,
-                               &sample_rate, &channel_layout, &sample_count,
-                               &metadata_frame, &extra_data);
-
-  EXPECT_EQ(frame_size, static_cast<int>(total_size));
-  EXPECT_EQ(sample_rate, 44100);
-  EXPECT_EQ(channel_layout, ChannelLayout::CHANNEL_LAYOUT_STEREO);
-  EXPECT_EQ(0, memcmp(extra_data.data(), buffer, extra_data.size()));
 }
 
 TEST_F(AACTest, CreateAdtsFromEsds) {
@@ -316,12 +279,12 @@ TEST_F(AACTest, CreateAdtsFromEsds) {
   const size_t total_size = sizeof(packet) + adts_header_size;
 
   // Make sure the conversion succeeded.
-  EXPECT_TRUE(adts_packet);
+  EXPECT_FALSE(adts_packet.empty());
   EXPECT_EQ(adts_header_size, kADTSHeaderMinSize);
 
   // Verify the packet data.
   EXPECT_EQ(
-      0, memcmp(adts_packet.get() + adts_header_size, packet, sizeof(packet)));
+      0, memcmp(adts_packet.data() + adts_header_size, packet, sizeof(packet)));
 
   ADTSStreamParser adts_parser;
 
@@ -333,7 +296,9 @@ TEST_F(AACTest, CreateAdtsFromEsds) {
   bool metadata_frame;
   std::vector<uint8_t> extra_data;
 
-  adts_parser.ParseFrameHeader(adts_packet.get(), total_size, &frame_size,
+  // TODO(b/40285824): Change ParseFrameHeader to take a span instead of a
+  // `const uint8_t* data` as its first arg.
+  adts_parser.ParseFrameHeader(adts_packet.data(), total_size, &frame_size,
                                &sample_rate, &channel_layout, &sample_count,
                                &metadata_frame, &extra_data);
 

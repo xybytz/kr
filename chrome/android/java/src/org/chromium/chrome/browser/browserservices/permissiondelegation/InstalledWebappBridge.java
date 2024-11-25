@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.browserservices.permissiondelegation;
 import android.net.Uri;
 
 import org.jni_zero.CalledByNative;
+import org.jni_zero.JniType;
 import org.jni_zero.NativeMethods;
 
 import org.chromium.components.content_settings.ContentSettingValues;
@@ -65,11 +66,11 @@ public class InstalledWebappBridge {
 
     @CalledByNative
     private static Permission[] getPermissions(@ContentSettingsType.EnumType int type) {
-        return InstalledWebappPermissionManager.get().getPermissions(type);
+        return InstalledWebappPermissionManager.getPermissions(type);
     }
 
     @CalledByNative
-    private static String getOriginFromPermission(Permission permission) {
+    private static @JniType("std::string") String getOriginFromPermission(Permission permission) {
         return permission.origin.toString();
     }
 
@@ -81,8 +82,8 @@ public class InstalledWebappBridge {
     @CalledByNative
     private static void decidePermission(
             @ContentSettingsType.EnumType int type,
-            String originUrl,
-            String lastCommittedUrl,
+            @JniType("std::string") String originUrl,
+            @JniType("std::string") String lastCommittedUrl,
             long callback) {
         Origin origin = Origin.create(Uri.parse(originUrl));
         if (origin == null) {
@@ -91,11 +92,10 @@ public class InstalledWebappBridge {
         }
         switch (type) {
             case ContentSettingsType.GEOLOCATION:
-                PermissionUpdater.get().getLocationPermission(origin, lastCommittedUrl, callback);
+                PermissionUpdater.getLocationPermission(origin, lastCommittedUrl, callback);
                 break;
             case ContentSettingsType.NOTIFICATIONS:
-                PermissionUpdater.get()
-                        .requestNotificationPermission(origin, lastCommittedUrl, callback);
+                PermissionUpdater.requestNotificationPermission(origin, lastCommittedUrl, callback);
                 break;
             default:
                 throw new IllegalStateException("Unsupported permission type.");

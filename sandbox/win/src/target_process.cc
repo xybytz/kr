@@ -2,11 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "sandbox/win/src/target_process.h"
 
-#include <processenv.h>
 #include <windows.h>
 
+#include <processenv.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -67,7 +72,7 @@ void CopyPolicyToTarget(base::span<const uint8_t> source, void* dest) {
 
   size_t offset = reinterpret_cast<size_t>(source.data());
 
-  for (size_t i = 0; i < sandbox::kMaxServiceCount; i++) {
+  for (size_t i = 0; i < sandbox::kSandboxIpcCount; i++) {
     size_t buffer = reinterpret_cast<size_t>(policy->entry[i]);
     if (buffer) {
       buffer -= offset;
@@ -155,6 +160,7 @@ ResultCode TargetProcess::Create(
   if (startup_info_helper->IsEnvironmentFiltered()) {
     wchar_t* old_environment = ::GetEnvironmentStringsW();
     if (!old_environment) {
+      *win_error = ::GetLastError();
       return SBOX_ERROR_CANNOT_OBTAIN_ENVIRONMENT;
     }
 
@@ -231,15 +237,15 @@ ResultCode TargetProcess::Create(
 }
 
 ResultCode TargetProcess::TransferVariable(const char* name,
-                                           const void* address,
+                                           const void* local_address,
+                                           void* target_address,
                                            size_t size) {
   if (!sandbox_process_info_.IsValid())
     return SBOX_ERROR_UNEXPECTED_CALL;
 
   SIZE_T written;
   if (!::WriteProcessMemory(sandbox_process_info_.process_handle(),
-                            const_cast<void*>(address), address, size,
-                            &written)) {
+                            target_address, local_address, size, &written)) {
     return SBOX_ERROR_CANNOT_WRITE_VARIABLE_VALUE;
   }
   if (written != size)
@@ -313,29 +319,31 @@ ResultCode TargetProcess::Init(
   CHECK_EQ(current_offset, shared_mem_size);
 
   // Set the global variables in the target. These are not used on the broker.
-  g_shared_IPC_size = shared_IPC_size;
-  ret = TransferVariable("g_shared_IPC_size", &g_shared_IPC_size,
-                         sizeof(g_shared_IPC_size));
-  g_shared_IPC_size = 0;
+  size_t transfer_shared_IPC_size = shared_IPC_size;
+  static_assert(sizeof(g_shared_IPC_size) == sizeof(transfer_shared_IPC_size));
+  ret = TransferVariable("g_shared_IPC_size", &transfer_shared_IPC_size,
+                         &g_shared_IPC_size, sizeof(g_shared_IPC_size));
   if (SBOX_ALL_OK != ret) {
     *win_error = ::GetLastError();
     return ret;
   }
   if (policy.has_value()) {
-    g_shared_policy_size = policy->size();
-    ret = TransferVariable("g_shared_policy_size", &g_shared_policy_size,
-                           sizeof(g_shared_policy_size));
-    g_shared_policy_size = 0;
+    size_t transfer_shared_policy_size = policy->size();
+    static_assert(sizeof(g_shared_policy_size) ==
+                  sizeof(transfer_shared_policy_size));
+    ret = TransferVariable("g_shared_policy_size", &transfer_shared_policy_size,
+                           &g_shared_policy_size, sizeof(g_shared_policy_size));
     if (SBOX_ALL_OK != ret) {
       *win_error = ::GetLastError();
       return ret;
     }
   }
   if (delegate_data.has_value()) {
-    g_delegate_data_size = delegate_data->size();
-    ret = TransferVariable("g_delegate_data_size", &g_delegate_data_size,
-                           sizeof(g_delegate_data_size));
-    g_delegate_data_size = 0;
+    size_t transfer_delegate_data_size = delegate_data->size();
+    static_assert(sizeof(g_delegate_data_size) ==
+                  sizeof(transfer_delegate_data_size));
+    ret = TransferVariable("g_delegate_data_size", &transfer_delegate_data_size,
+                           &g_delegate_data_size, sizeof(g_delegate_data_size));
     if (SBOX_ALL_OK != ret) {
       *win_error = ::GetLastError();
       return ret;
@@ -358,10 +366,9 @@ ResultCode TargetProcess::Init(
     return SBOX_ERROR_DUPLICATE_SHARED_SECTION;
   }
 
-  g_shared_section = target_shared_section;
-  ret = TransferVariable("g_shared_section", &g_shared_section,
-                         sizeof(g_shared_section));
-  g_shared_section = nullptr;
+  static_assert(sizeof(g_shared_section) == sizeof(target_shared_section));
+  ret = TransferVariable("g_shared_section", &target_shared_section,
+                         &g_shared_section, sizeof(g_shared_section));
   if (SBOX_ALL_OK != ret) {
     *win_error = ::GetLastError();
     return ret;

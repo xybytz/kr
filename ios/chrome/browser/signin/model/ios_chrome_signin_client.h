@@ -5,14 +5,14 @@
 #ifndef IOS_CHROME_BROWSER_SIGNIN_MODEL_IOS_CHROME_SIGNIN_CLIENT_H_
 #define IOS_CHROME_BROWSER_SIGNIN_MODEL_IOS_CHROME_SIGNIN_CLIENT_H_
 
-#include <memory>
+#import <memory>
 
-#include "components/content_settings/core/browser/cookie_settings.h"
-#include "components/content_settings/core/browser/host_content_settings_map.h"
-#include "components/signin/public/base/signin_client.h"
-#include "net/cookies/cookie_change_dispatcher.h"
+#import "base/memory/raw_ptr.h"
+#import "components/content_settings/core/browser/host_content_settings_map.h"
+#import "components/signin/public/base/signin_client.h"
+#import "net/cookies/cookie_change_dispatcher.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 class WaitForNetworkCallbackHelperIOS;
 
 namespace version_info {
@@ -23,8 +23,7 @@ enum class Channel;
 class IOSChromeSigninClient : public SigninClient {
  public:
   IOSChromeSigninClient(
-      ChromeBrowserState* browser_state,
-      scoped_refptr<content_settings::CookieSettings> cookie_settings,
+      ProfileIOS* profile,
       scoped_refptr<HostContentSettingsMap> host_content_settings_map);
 
   IOSChromeSigninClient(const IOSChromeSigninClient&) = delete;
@@ -42,6 +41,7 @@ class IOSChromeSigninClient : public SigninClient {
   PrefService* GetPrefs() override;
   scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
   network::mojom::CookieManager* GetCookieManager() override;
+  network::mojom::NetworkContext* GetNetworkContext() override;
   void DoFinalInit() override;
   bool AreSigninCookiesAllowed() override;
   bool AreSigninCookiesDeletedOnExit() override;
@@ -52,18 +52,14 @@ class IOSChromeSigninClient : public SigninClient {
   bool AreNetworkCallsDelayed() override;
   void DelayNetworkCall(base::OnceClosure callback) override;
   version_info::Channel GetClientChannel() override;
-  void OnPrimaryAccountChangedWithEventSource(
-      signin::PrimaryAccountChangeEvent event_details,
-      absl::variant<signin_metrics::AccessPoint, signin_metrics::ProfileSignout>
-          event_source) override;
+  void OnPrimaryAccountChanged(
+      signin::PrimaryAccountChangeEvent event_details) override;
 
  private:
   // Helper to delay callbacks until connection becomes online again.
   std::unique_ptr<WaitForNetworkCallbackHelperIOS> network_callback_helper_;
-  // The browser state associated with this service.
-  ChromeBrowserState* browser_state_;
-  // Used to check if sign in cookies are allowed.
-  scoped_refptr<content_settings::CookieSettings> cookie_settings_;
+  // The profile associated with this service.
+  raw_ptr<ProfileIOS> profile_;
   // Used to add and remove content settings observers.
   scoped_refptr<HostContentSettingsMap> host_content_settings_map_;
 };

@@ -24,7 +24,6 @@
 #include "third_party/blink/renderer/platform/crypto.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/weborigin/known_ports.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/reporting_disposition.h"
@@ -53,8 +52,8 @@ String GetRawDirectiveForMessage(
 String GetSha256String(const String& content) {
   DigestValue digest;
   StringUTF8Adaptor utf8_content(content);
-  bool digest_success = ComputeDigest(kHashAlgorithmSha256, utf8_content.data(),
-                                      utf8_content.size(), digest);
+  bool digest_success = ComputeDigest(kHashAlgorithmSha256,
+                                      base::as_byte_span(utf8_content), digest);
   if (!digest_success) {
     return "sha256-...";
   }
@@ -74,7 +73,6 @@ network::mojom::blink::CSPHashAlgorithm ConvertHashAlgorithmToCSPHashAlgorithm(
       return network::mojom::blink::CSPHashAlgorithm::SHA512;
   }
   NOTREACHED();
-  return network::mojom::blink::CSPHashAlgorithm::None;
 }
 
 // IntegrityMetadata (from SRI) has base64-encoded digest values, but CSP uses
@@ -156,13 +154,15 @@ void ReportViolation(
         ContentSecurityPolicyViolationType::kURLViolation,
     const String& sample = String(),
     const String& sample_prefix = String(),
-    absl::optional<base::UnguessableToken> issue_id = absl::nullopt) {
+    std::optional<base::UnguessableToken> issue_id = std::nullopt) {
   String message = CSPDirectiveListIsReportOnly(csp)
                        ? "[Report Only] " + console_message
                        : console_message;
+  auto error_level = CSPDirectiveListIsReportOnly(csp)
+                         ? mojom::blink::ConsoleMessageLevel::kInfo
+                         : mojom::blink::ConsoleMessageLevel::kError;
   policy->LogToConsole(MakeGarbageCollected<ConsoleMessage>(
-      mojom::ConsoleMessageSource::kSecurity,
-      mojom::ConsoleMessageLevel::kError, message));
+      mojom::ConsoleMessageSource::kSecurity, error_level, message));
   policy->ReportViolation(directive_text, effective_type, message, blocked_url,
                           csp.report_endpoints, csp.use_reporting_api,
                           csp.header->header_value, csp.header->type,
@@ -186,11 +186,14 @@ void ReportViolationWithLocation(
   String message = CSPDirectiveListIsReportOnly(csp)
                        ? "[Report Only] " + console_message
                        : console_message;
+  auto error_level = CSPDirectiveListIsReportOnly(csp)
+                         ? mojom::blink::ConsoleMessageLevel::kInfo
+                         : mojom::blink::ConsoleMessageLevel::kError;
   std::unique_ptr<SourceLocation> source_location =
       CaptureSourceLocation(context_url, context_line.OneBasedInt(), 0);
   policy->LogToConsole(MakeGarbageCollected<ConsoleMessage>(
-      mojom::ConsoleMessageSource::kSecurity,
-      mojom::ConsoleMessageLevel::kError, message, source_location->Clone()));
+      mojom::ConsoleMessageSource::kSecurity, error_level, message,
+      source_location->Clone()));
   policy->ReportViolation(directive_text, effective_type, message, blocked_url,
                           csp.report_endpoints, csp.use_reporting_api,
                           csp.header->header_value, csp.header->type,
@@ -210,6 +213,9 @@ void ReportEvalViolation(
     const String& content) {
   String report_message =
       CSPDirectiveListIsReportOnly(csp) ? "[Report Only] " + message : message;
+  auto error_level = CSPDirectiveListIsReportOnly(csp)
+                         ? mojom::blink::ConsoleMessageLevel::kInfo
+                         : mojom::blink::ConsoleMessageLevel::kError;
   // Print a console message if it won't be redundant with a
   // JavaScript exception that the caller will throw. (Exceptions will
   // never get thrown in report-only mode because the caller won't see
@@ -217,8 +223,7 @@ void ReportEvalViolation(
   if (CSPDirectiveListIsReportOnly(csp) ||
       exception_status == ContentSecurityPolicy::kWillNotThrowException) {
     auto* console_message = MakeGarbageCollected<ConsoleMessage>(
-        mojom::ConsoleMessageSource::kSecurity,
-        mojom::ConsoleMessageLevel::kError, report_message);
+        mojom::ConsoleMessageSource::kSecurity, error_level, report_message);
     policy->LogToConsole(console_message);
   }
   policy->ReportViolation(
@@ -239,14 +244,17 @@ void ReportWasmEvalViolation(
     const String& content) {
   String report_message =
       CSPDirectiveListIsReportOnly(csp) ? "[Report Only] " + message : message;
+  auto error_level = CSPDirectiveListIsReportOnly(csp)
+                         ? mojom::blink::ConsoleMessageLevel::kInfo
+                         : mojom::blink::ConsoleMessageLevel::kError;
   // Print a console message if it won't be redundant with a JavaScript
   // exception that the caller will throw. Exceptions will never get thrown in
   // report-only mode because the caller won't see a violation.
   if (CSPDirectiveListIsReportOnly(csp) ||
       exception_status == ContentSecurityPolicy::kWillNotThrowException) {
     auto* console_message = MakeGarbageCollected<ConsoleMessage>(
-        mojom::blink::ConsoleMessageSource::kSecurity,
-        mojom::blink::ConsoleMessageLevel::kError, report_message);
+        mojom::blink::ConsoleMessageSource::kSecurity, error_level,
+        report_message);
     policy->LogToConsole(console_message);
   }
   policy->ReportViolation(
@@ -528,7 +536,6 @@ void ReportViolationForCheckSource(
     case CSPDirectiveName::FencedFrameSrc:
     case CSPDirectiveName::FrameAncestors:
     case CSPDirectiveName::FrameSrc:
-    case CSPDirectiveName::NavigateTo:
     case CSPDirectiveName::ReportTo:
     case CSPDirectiveName::ReportURI:
     case CSPDirectiveName::RequireTrustedTypesFor:
@@ -538,7 +545,6 @@ void ReportViolationForCheckSource(
     case CSPDirectiveName::UpgradeInsecureRequests:
     case CSPDirectiveName::Unknown:
       NOTREACHED();
-      break;
   }
 
   String directive_name =
@@ -635,7 +641,7 @@ bool CSPDirectiveListAllowTrustedTypeAssignmentFailure(
     const String& message,
     const String& sample,
     const String& sample_prefix,
-    absl::optional<base::UnguessableToken> issue_id) {
+    std::optional<base::UnguessableToken> issue_id) {
   if (!CSPDirectiveListRequiresTrustedTypes(csp))
     return true;
 
@@ -891,7 +897,7 @@ bool CSPDirectiveListAllowTrustedTypePolicy(
     const String& policy_name,
     bool is_duplicate,
     ContentSecurityPolicy::AllowTrustedTypePolicyDetails& violation_details,
-    absl::optional<base::UnguessableToken> issue_id) {
+    std::optional<base::UnguessableToken> issue_id) {
   if (!csp.trusted_types ||
       CSPTrustedTypesAllows(*csp.trusted_types, policy_name, is_duplicate,
                             violation_details)) {

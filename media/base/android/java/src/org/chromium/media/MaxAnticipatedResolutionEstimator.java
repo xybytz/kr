@@ -18,12 +18,10 @@ import org.chromium.base.Log;
 import org.chromium.media.MediaCodecUtil.MimeTypes;
 
 /**
- * A utility class to make an estimate for the hints provided to MediaFormat as
- * to the expected maximum resolution to prepare for.
+ * A utility class to make an estimate for the hints provided to MediaFormat as to the expected
+ * maximum resolution to prepare for.
  */
 public class MaxAnticipatedResolutionEstimator {
-    private Context mContext;
-    private DisplayManager mDisplayManager;
     private static final String TAG = "EstimateResolution";
     private static final int SCREEN_WIDTH_4K = 3840;
     private static final int SCREEN_HEIGHT_4K = 2160;
@@ -57,8 +55,11 @@ public class MaxAnticipatedResolutionEstimator {
         }
 
         // Cap screen size at 1080p for non-4K codecs
-        if (!format.getString(MediaFormat.KEY_MIME).equals(MimeTypes.VIDEO_HEVC)
-                && !format.getString(MediaFormat.KEY_MIME).equals(MimeTypes.VIDEO_VP9)) {
+        String mimeType = format.getString(MediaFormat.KEY_MIME);
+        if (!mimeType.equals(MimeTypes.VIDEO_HEVC)
+                && !mimeType.equals(MimeTypes.VIDEO_VP9)
+                && !mimeType.equals(MimeTypes.VIDEO_AV1)
+                && !mimeType.equals(MimeTypes.VIDEO_DV)) {
             resolution.mWidth = Math.min(resolution.mWidth, 1920);
             resolution.mHeight = Math.min(resolution.mHeight, 1080);
         }

@@ -7,10 +7,10 @@
 #include "ash/public/cpp/style/dark_light_mode_controller.h"
 #include "ash/style/mojom/color_scheme.mojom-shared.h"
 #include "ash/webui/common/mojom/sea_pen.mojom.h"
+#include "ash/webui/common/sea_pen_provider.h"
 #include "ash/webui/personalization_app/mojom/personalization_app.mojom.h"
 #include "ash/webui/personalization_app/personalization_app_ambient_provider.h"
 #include "ash/webui/personalization_app/personalization_app_keyboard_backlight_provider.h"
-#include "ash/webui/personalization_app/personalization_app_sea_pen_provider.h"
 #include "ash/webui/personalization_app/personalization_app_theme_provider.h"
 #include "ash/webui/personalization_app/personalization_app_ui.h"
 #include "ash/webui/personalization_app/personalization_app_url_constants.h"
@@ -74,6 +74,10 @@ class MockPersonalizationAppAmbientProvider
               IsGeolocationEnabledForSystemServices,
               (IsGeolocationEnabledForSystemServicesCallback callback),
               (override));
+  MOCK_METHOD(void,
+              IsGeolocationUserModifiable,
+              (IsGeolocationUserModifiableCallback callback),
+              (override));
 };
 
 class MockPersonalizationAppKeyboardBacklightProvider
@@ -103,41 +107,64 @@ class MockPersonalizationAppKeyboardBacklightProvider
   MOCK_METHOD(void, HandleNudgeShown, (), (override));
 };
 
-class MockPersonalizationAppSeaPenProvider
-    : public PersonalizationAppSeaPenProvider {
+class MockSeaPenProvider
+    : public ::ash::common::SeaPenProvider,
+      public ::ash::personalization_app::mojom::SeaPenProvider {
  public:
+  // ::ash::common::SeaPenProvider:
   MOCK_METHOD(void,
               BindInterface,
               (mojo::PendingReceiver<
                   ::ash::personalization_app::mojom::SeaPenProvider> receiver),
               (override));
+  bool IsEligibleForSeaPen() override { return true; }
+  bool IsEligibleForSeaPenTextInput() override { return true; }
+  bool IsManagedSeaPenEnabled() override { return true; }
+  bool IsManagedSeaPenFeedbackEnabled() override { return false; }
+  // ::ash::personalization_app::mojom::SeaPenProvider:
   MOCK_METHOD(void,
-              SearchWallpaper,
-              (const mojom::SeaPenQueryPtr, SearchWallpaperCallback callback),
+              SetSeaPenObserver,
+              (mojo::PendingRemote<mojom::SeaPenObserver>),
+              (override));
+  MOCK_METHOD(void,
+              GetSeaPenThumbnails,
+              (const mojom::SeaPenQueryPtr,
+               GetSeaPenThumbnailsCallback callback),
               (override));
   MOCK_METHOD(void,
               SelectSeaPenThumbnail,
-              (uint32_t, SelectSeaPenThumbnailCallback),
+              (uint32_t, bool preview_mode, SelectSeaPenThumbnailCallback),
               (override));
   MOCK_METHOD(void,
               SelectRecentSeaPenImage,
-              (const base::FilePath& file_path,
-               SelectRecentSeaPenImageCallback),
+              (uint32_t id, bool preview_mode, SelectRecentSeaPenImageCallback),
               (override));
   MOCK_METHOD(void,
-              GetRecentSeaPenImages,
-              (GetRecentSeaPenImagesCallback),
+              GetRecentSeaPenImageIds,
+              (GetRecentSeaPenImageIdsCallback),
               (override));
   MOCK_METHOD(void,
               GetRecentSeaPenImageThumbnail,
-              (const base::FilePath& file_path,
-               GetRecentSeaPenImageThumbnailCallback),
+              (uint32_t id, GetRecentSeaPenImageThumbnailCallback),
               (override));
   MOCK_METHOD(void,
               DeleteRecentSeaPenImage,
-              (const base::FilePath& file_path,
-               DeleteRecentSeaPenImageCallback),
+              (uint32_t id, DeleteRecentSeaPenImageCallback),
               (override));
+  MOCK_METHOD(void,
+              OpenFeedbackDialog,
+              (mojom::SeaPenFeedbackMetadataPtr metadata),
+              (override));
+  MOCK_METHOD(void,
+              ShouldShowSeaPenIntroductionDialog,
+              (ShouldShowSeaPenIntroductionDialogCallback callback),
+              (override));
+  MOCK_METHOD(void, HandleSeaPenIntroductionDialogClosed, (), (override));
+  MOCK_METHOD(void,
+              IsInTabletMode,
+              (IsInTabletModeCallback callback),
+              (override));
+  MOCK_METHOD(void, MakeTransparent, (), (override));
 };
 
 class MockPersonalizationAppThemeProvider
@@ -187,6 +214,10 @@ class MockPersonalizationAppThemeProvider
   MOCK_METHOD(void,
               IsGeolocationEnabledForSystemServices,
               (IsGeolocationEnabledForSystemServicesCallback callback),
+              (override));
+  MOCK_METHOD(void,
+              IsGeolocationUserModifiable,
+              (IsGeolocationUserModifiableCallback callback),
               (override));
 };
 
@@ -353,8 +384,8 @@ TestPersonalizationAppMojomBannedWebUIProvider::NewWebUI(content::WebUI* web_ui,
       testing::StrictMock<MockPersonalizationAppAmbientProvider>>();
   auto keyboard_backlight_provider = std::make_unique<
       testing::StrictMock<MockPersonalizationAppKeyboardBacklightProvider>>();
-  auto sea_pen_provider = std::make_unique<
-      testing::StrictMock<MockPersonalizationAppSeaPenProvider>>();
+  auto sea_pen_provider =
+      std::make_unique<testing::StrictMock<MockSeaPenProvider>>();
   auto theme_provider = std::make_unique<
       testing::StrictMock<MockPersonalizationAppThemeProvider>>();
   auto wallpaper_provider = std::make_unique<

@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/frame/csp/csp_directive_list.h"
 
+#include <optional>
 #include <string>
 
 #include "base/memory/scoped_refptr.h"
@@ -12,7 +13,6 @@
 #include "services/network/public/mojom/content_security_policy.mojom-blink.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/csp/test_util.h"
@@ -856,10 +856,6 @@ TEST_F(CSPDirectiveListTest, ReportURIInMeta) {
   EXPECT_FALSE(directive_list->report_endpoints.empty());
 }
 
-MATCHER_P(HasSubstr, s, "") {
-  return arg.Contains(s);
-}
-
 TEST_F(CSPDirectiveListTest, StrictDynamicIgnoresAllowlistWarning) {
   KURL blocked_url = KURL("https://blocked.com");
   KURL other_blocked_url = KURL("https://other-blocked.com");
@@ -935,10 +931,12 @@ TEST_F(CSPDirectiveListTest, StrictDynamicIgnoresAllowlistWarning) {
         "host-based allowlisting is disabled.";
     if (testCase.console_message) {
       EXPECT_THAT(test_delegate->console_messages(),
-                  testing::Contains(HasSubstr(message)));
+                  testing::Contains(
+                      HasConsole(message, ConsoleMessage::Level::kError)));
     } else {
       EXPECT_THAT(test_delegate->console_messages(),
-                  testing::Not(testing::Contains(HasSubstr(message))));
+                  testing::Not(testing::Contains(
+                      HasConsole(message, ConsoleMessage::Level::kError))));
     }
   }
 }

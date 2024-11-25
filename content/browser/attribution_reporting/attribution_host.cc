@@ -17,12 +17,13 @@
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
+#include "components/attribution_reporting/data_host.mojom.h"
 #include "components/attribution_reporting/features.h"
 #include "components/attribution_reporting/registration_eligibility.mojom.h"
 #include "components/attribution_reporting/suitable_origin.h"
-#include "content/browser/attribution_reporting/attribution_beacon_id.h"
 #include "content/browser/attribution_reporting/attribution_data_host_manager.h"
 #include "content/browser/attribution_reporting/attribution_input_event.h"
 #include "content/browser/attribution_reporting/attribution_manager.h"
@@ -41,11 +42,9 @@
 #include "content/public/common/content_features.h"
 #include "mojo/public/cpp/bindings/message.h"
 #include "net/url_request/url_request.h"
-#include "services/network/public/cpp/attribution_reporting_runtime_features.h"
 #include "services/network/public/cpp/features.h"
 #include "third_party/abseil-cpp/absl/types/variant.h"
 #include "third_party/blink/public/common/navigation/impression.h"
-#include "third_party/blink/public/mojom/conversions/attribution_data_host.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -125,23 +124,70 @@ AttributionInputEvent AttributionHost::GetMostRecentNavigationInputEvent()
   AttributionInputEvent input;
 #if BUILDFLAG(IS_ANDROID)
   if (input_event_tracker_android_) {
-    input.input_event = input_event_tracker_android_->GetMostRecentEvent();
+    AttributionInputEventTrackerAndroid::InputEvent input_event =
+        input_event_tracker_android_->GetMostRecentEvent();
+    input.input_event = std::move(input_event.event);
+    input.input_event_id = input_event.id;
   }
 #endif
   return input;
 }
 
 void AttributionHost::DidStartNavigation(NavigationHandle* navigation_handle) {
-  const auto& impression = navigation_handle->GetImpression();
-
-  // TODO(crbug.com/1428315): Consider checking for navigations taking place in
-  // a prerendered main frame.
-
   // Impression navigations need to navigate the primary main frame to be valid.
   // Impressions should never be attached to same-document navigations but can
   // be the result of a bad renderer.
-  if (!impression || !navigation_handle->IsInPrimaryMainFrame() ||
+
+  // A navigation is considered client bounce if it navigates the current page
+  // away within a short period of time without any user interaction with the
+  // page, and the navigation is not user initiated. Client bounce detection
+  // only cares about primary main frame and non-same-document navigations.
+
+  if (!navigation_handle->IsInPrimaryMainFrame() ||
       navigation_handle->IsSameDocument()) {
+    return;
+  }
+
+  if (primary_main_frame_data_.has_value()) {
+    // Note that `NavigationHandle::HasUserGesture()` does not capture
+    // browser-initiated navigations. The negation of
+    // `NavigationHandle::IsRendererInitiated()` tells us whether the navigation
+    // is browser-initiated.
+    bool has_user_gesture = navigation_handle->HasUserGesture() ||
+                            !navigation_handle->IsRendererInitiated();
+
+    // A user gesture indicates no client-redirect. And, we don't consider a
+    // client-redirect to be a bounce if there was user interaction on the page
+    // or if we timed out on the client bounce detection timers.
+    if (!has_user_gesture && !primary_main_frame_data_->has_user_interaction &&
+        primary_main_frame_data_->num_data_hosts_registered > 0) {
+      CHECK(last_navigation_time_.has_value());
+      base::TimeDelta time_since_last_navigation =
+          base::Time::Now() - *last_navigation_time_;
+
+      if (time_since_last_navigation < base::Seconds(1)) {
+        base::UmaHistogramCounts100(
+            "Conversions.NumDataHostsRegisteredOnClientBounce.1s",
+            primary_main_frame_data_->num_data_hosts_registered);
+      }
+      if (time_since_last_navigation < base::Seconds(5)) {
+        base::UmaHistogramCounts100(
+            "Conversions.NumDataHostsRegisteredOnClientBounce.5s",
+            primary_main_frame_data_->num_data_hosts_registered);
+      }
+      if (time_since_last_navigation < base::Seconds(10)) {
+        base::UmaHistogramCounts100(
+            "Conversions.NumDataHostsRegisteredOnClientBounce.10s",
+            primary_main_frame_data_->num_data_hosts_registered);
+      }
+    }
+  }
+
+  const auto& impression = navigation_handle->GetImpression();
+
+  // TODO(crbug.com/40262156): Consider checking for navigations taking place in
+  // a prerendered main frame.
+  if (!impression) {
     return;
   }
   RenderFrameHostImpl* initiator_frame_host =
@@ -172,11 +218,10 @@ void AttributionHost::DidStartNavigation(NavigationHandle* navigation_handle) {
 
   auto* navigation_request = static_cast<NavigationRequest*>(navigation_handle);
 
-  suitable_context->data_host_manager()->NotifyNavigationRegistrationStarted(
-      impression->attribution_src_token, GetMostRecentNavigationInputEvent(),
-      suitable_context->context_origin(),
-      suitable_context->is_nested_within_fenced_frame(),
-      suitable_context->root_render_frame_id(),
+  AttributionDataHostManager* manager = suitable_context->data_host_manager();
+  manager->NotifyNavigationRegistrationStarted(
+      *std::move(suitable_context), impression->attribution_src_token,
+
       navigation_handle->GetNavigationId(),
       // The devtools_navigation_token is going to be used as the
       // navigation's request devtools inspector ID if there is an enabled
@@ -189,18 +234,31 @@ void AttributionHost::DidStartNavigation(NavigationHandle* navigation_handle) {
 
 void AttributionHost::DidRedirectNavigation(
     NavigationHandle* navigation_handle) {
-  NotifyNavigationRegistrationData(navigation_handle,
-                                   /*is_final_response=*/false);
+  NotifyNavigationRegistrationData(navigation_handle);
 }
 
 void AttributionHost::DidFinishNavigation(NavigationHandle* navigation_handle) {
+  if (navigation_handle->IsInPrimaryMainFrame() &&
+      !navigation_handle->IsSameDocument()) {
+    if (primary_main_frame_data_.has_value()) {
+      // Resets for further client redirects.
+      primary_main_frame_data_->num_data_hosts_registered = 0;
+    }
+
+    // Sets current time to detect further client redirects.
+    last_navigation_time_ = base::Time::Now();
+
+    if (navigation_handle->HasCommitted()) {
+      primary_main_frame_data_ = PrimaryMainFrameData();
+    }
+  }
+
   const auto& impression = navigation_handle->GetImpression();
   if (!impression.has_value()) {
     return;
   }
 
-  NotifyNavigationRegistrationData(navigation_handle,
-                                   /*is_final_response=*/true);
+  NotifyNavigationRegistrationData(navigation_handle);
 
   auto* attribution_manager =
       AttributionManager::FromWebContents(web_contents());
@@ -213,9 +271,16 @@ void AttributionHost::DidFinishNavigation(NavigationHandle* navigation_handle) {
       navigation_handle->GetNavigationId());
 }
 
+void AttributionHost::FrameReceivedUserActivation(
+    RenderFrameHost* render_frame_host) {
+  // We consider user activation from all frames in the page.
+  if (primary_main_frame_data_.has_value()) {
+    primary_main_frame_data_->has_user_interaction = true;
+  }
+}
+
 void AttributionHost::NotifyNavigationRegistrationData(
-    NavigationHandle* navigation_handle,
-    bool is_final_response) {
+    NavigationHandle* navigation_handle) {
   if (!ongoing_registration_eligible_navigations_.contains(
           navigation_handle->GetNavigationId())) {
     return;
@@ -229,6 +294,12 @@ void AttributionHost::NotifyNavigationRegistrationData(
   DCHECK(impression.has_value());
   DCHECK(navigation_handle->IsInPrimaryMainFrame());
   DCHECK(!navigation_handle->IsSameDocument());
+
+  // Populates `is_final_response` based on the headers to handle the case of an
+  // intercepted redirect. See https://crbug.com/1520612.
+  auto* headers = navigation_handle->GetResponseHeaders();
+  const bool is_final_response =
+      !(headers && headers->IsRedirect(/*location=*/nullptr));
 
   // On redirect, the reporting origin should be the origin of the request
   // responsible for initiating the redirect. At this point, the navigation
@@ -260,10 +331,8 @@ void AttributionHost::NotifyNavigationRegistrationData(
 
   bool had_header =
       attribution_manager->GetDataHostManager()
-          ->NotifyNavigationRegistrationData(
-              impression->attribution_src_token,
-              navigation_handle->GetResponseHeaders(), std::move(reporting_url),
-              impression->runtime_features);
+          ->NotifyNavigationRegistrationData(impression->attribution_src_token,
+                                             headers, std::move(reporting_url));
 
   if (had_header) {
     tracker->NotifySecureRegistrationAttempt();
@@ -271,20 +340,24 @@ void AttributionHost::NotifyNavigationRegistrationData(
 }
 
 void AttributionHost::RegisterDataHost(
-    mojo::PendingReceiver<blink::mojom::AttributionDataHost> data_host,
+    mojo::PendingReceiver<attribution_reporting::mojom::DataHost> data_host,
     attribution_reporting::mojom::RegistrationEligibility
-        registration_eligibility) {
+        registration_eligibility,
+    bool is_for_background_requests) {
   auto suitable_context = AttributionSuitableContext::Create(
       static_cast<RenderFrameHostImpl*>(receivers_.GetCurrentTargetFrame()));
   if (!suitable_context.has_value()) {
     return;
   }
 
-  suitable_context->data_host_manager()->RegisterDataHost(
-      std::move(data_host), suitable_context->context_origin(),
-      suitable_context->is_nested_within_fenced_frame(),
-      registration_eligibility, suitable_context->root_render_frame_id(),
-      suitable_context->last_navigation_id());
+  if (primary_main_frame_data_.has_value()) {
+    primary_main_frame_data_->num_data_hosts_registered++;
+  }
+
+  AttributionDataHostManager* manager = suitable_context->data_host_manager();
+  manager->RegisterDataHost(std::move(data_host), *std::move(suitable_context),
+                            registration_eligibility,
+                            is_for_background_requests);
 }
 
 void AttributionHost::NotifyNavigationWithBackgroundRegistrationsWillStart(
@@ -308,7 +381,7 @@ void AttributionHost::NotifyNavigationWithBackgroundRegistrationsWillStart(
 }
 
 void AttributionHost::RegisterNavigationDataHost(
-    mojo::PendingReceiver<blink::mojom::AttributionDataHost> data_host,
+    mojo::PendingReceiver<attribution_reporting::mojom::DataHost> data_host,
     const blink::AttributionSrcToken& attribution_src_token) {
   auto suitable_context = AttributionSuitableContext::Create(
       static_cast<RenderFrameHostImpl*>(receivers_.GetCurrentTargetFrame()));
@@ -338,36 +411,6 @@ void AttributionHost::BindReceiver(
     return;
   }
   attribution_host->receivers_.Bind(rfh, std::move(receiver));
-}
-
-bool AttributionHost::NotifyFencedFrameReportingBeaconStarted(
-    BeaconId beacon_id,
-    std::optional<int64_t> navigation_id,
-    RenderFrameHostImpl* initiator_frame_host,
-    std::string devtools_request_id) {
-  if (!base::FeatureList::IsEnabled(
-          features::kAttributionFencedFrameReportingBeacon)) {
-    return false;
-  }
-
-  auto suitable_context =
-      AttributionSuitableContext::Create(initiator_frame_host);
-  if (!suitable_context.has_value()) {
-    return false;
-  }
-
-  AttributionInputEvent input_event;
-  if (navigation_id.has_value()) {
-    input_event = GetMostRecentNavigationInputEvent();
-  }
-
-  suitable_context->data_host_manager()
-      ->NotifyFencedFrameReportingBeaconStarted(
-          beacon_id, navigation_id, suitable_context->context_origin(),
-          suitable_context->is_nested_within_fenced_frame(), input_event,
-          suitable_context->root_render_frame_id(),
-          std::move(devtools_request_id));
-  return true;
 }
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(AttributionHost);

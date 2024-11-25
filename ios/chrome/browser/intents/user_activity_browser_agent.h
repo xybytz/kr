@@ -10,7 +10,6 @@
 #import "base/scoped_observation.h"
 #import "base/sequence_checker.h"
 #import "ios/chrome/app/app_startup_parameters.h"
-#import "ios/chrome/app/application_delegate/app_state.h"
 #import "ios/chrome/app/application_delegate/startup_information.h"
 #import "ios/chrome/app/application_delegate/tab_opening.h"
 #import "ios/chrome/browser/shared/coordinator/scene/connection_information.h"
@@ -31,7 +30,7 @@ class UserActivityBrowserAgent
   // tab or setup startupParameters to open it later. If a new tab must be
   // opened immediately (e.g. if a Siri Shortcut was triggered by the user while
   // Chrome was already in the foreground), it will be done with the provided
-  // `browserState`. Returns whether it could continue userActivity.
+  // `profile`. Returns whether it could continue userActivity.
   BOOL ContinueUserActivity(NSUserActivity* user_activity,
                             BOOL application_is_active);
 
@@ -86,13 +85,20 @@ class UserActivityBrowserAgent
   void OverloadContinueUserActivityURL(BOOL open_existing_tab,
                                        NSURL* webpage_url);
 
+  // Clears startup parameters.
+  void ClearStartupParameters();
+
+  // Handles the opening of  a new Tab or routes to correct Tab based on a
+  // `ApplicationModeForTabOpening`.
+  void HandleRouteToCorrectTab(ApplicationModeForTabOpening target_mode);
+
   SEQUENCE_CHECKER(sequence_checker_);
 
   // The browser associated with this agent.
   raw_ptr<Browser> browser_ = nullptr;
 
-  // The ChromeBrowserState associated to the browser.
-  raw_ptr<ChromeBrowserState> browser_state_ = nullptr;
+  // The ProfileIOS associated to the browser.
+  raw_ptr<ProfileIOS> profile_ = nullptr;
 
   // Contains information about the initialization of scenes.
   __weak id<ConnectionInformation> connection_information_;

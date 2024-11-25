@@ -9,6 +9,8 @@
 
 #include "base/check.h"
 #include "base/functional/bind.h"
+#include "base/logging.h"
+#include "base/notreached.h"
 #include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "remoting/host/action_executor.h"
@@ -30,8 +32,6 @@
 #include "third_party/webrtc/modules/desktop_capture/desktop_capture_options.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_capturer.h"
 #include "third_party/webrtc/modules/desktop_capture/mouse_cursor_monitor.h"
-
-#include "base/logging.h"
 
 #if BUILDFLAG(IS_WIN)
 #include "remoting/host/win/evaluate_d3d.h"
@@ -75,7 +75,7 @@ class IgnoreXServerGrabsWatchdog : public base::Watchdog::Delegate {
 
   void Alarm() override {
     // Crash the host if IgnoreXServerGrabs() takes too long.
-    CHECK(false) << "IgnoreXServerGrabs() timed out.";
+    NOTREACHED() << "IgnoreXServerGrabs() timed out.";
   }
 
  private:
@@ -188,8 +188,8 @@ BasicDesktopEnvironment::CreateRemoteWebAuthnStateChangeNotifier() {
   return std::make_unique<RemoteWebAuthnExtensionNotifier>();
 }
 
-std::unique_ptr<DesktopCapturer>
-BasicDesktopEnvironment::CreateVideoCapturer() {
+std::unique_ptr<DesktopCapturer> BasicDesktopEnvironment::CreateVideoCapturer(
+    webrtc::ScreenId id) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
   scoped_refptr<base::SingleThreadTaskRunner> capture_task_runner;
@@ -223,12 +223,12 @@ BasicDesktopEnvironment::CreateVideoCapturer() {
   std::unique_ptr<DesktopCapturer> desktop_capturer;
   if (options_.capture_video_on_dedicated_thread()) {
     auto desktop_capturer_wrapper = std::make_unique<DesktopCapturerWrapper>();
-    desktop_capturer_wrapper->CreateCapturer(desktop_capture_options());
+    desktop_capturer_wrapper->CreateCapturer(desktop_capture_options(), id);
     desktop_capturer = std::move(desktop_capturer_wrapper);
   } else {
     auto desktop_capturer_proxy =
         std::make_unique<DesktopCapturerProxy>(std::move(capture_task_runner));
-    desktop_capturer_proxy->CreateCapturer(desktop_capture_options());
+    desktop_capturer_proxy->CreateCapturer(desktop_capture_options(), id);
     desktop_capturer = std::move(desktop_capturer_proxy);
   }
 

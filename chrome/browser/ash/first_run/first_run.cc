@@ -12,7 +12,6 @@
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/ash/arc/arc_util.h"
-#include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/ash/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/browser_process.h"
@@ -20,8 +19,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_observer.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
+#include "chrome/browser/ui/ash/login/login_display_host.h"
 #include "chrome/browser/ui/ash/system_web_apps/system_web_app_ui_utils.h"
-#include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
@@ -40,6 +39,7 @@
 #include "ui/display/screen.h"
 #include "ui/events/event_constants.h"
 #include "ui/gfx/geometry/rect.h"
+#include "url/gurl.h"
 
 namespace ash {
 namespace first_run {
@@ -51,8 +51,8 @@ namespace {
 // public accounts.
 bool IsRegularUserOrSupervisedChild(user_manager::UserManager* user_manager) {
   switch (user_manager->GetActiveUser()->GetType()) {
-    case user_manager::USER_TYPE_REGULAR:
-    case user_manager::USER_TYPE_CHILD:
+    case user_manager::UserType::kRegular:
+    case user_manager::UserType::kChild:
       return true;
     default:
       return false;
@@ -67,7 +67,7 @@ bool ShouldShowGetStarted(Profile* profile,
   if (profile->IsChild())
     return true;
   switch (user_manager->GetActiveUser()->GetType()) {
-    case user_manager::USER_TYPE_REGULAR:
+    case user_manager::UserType::kRegular:
       return !profile->GetProfilePolicyConnector()->IsManaged();
     default:
       return false;
@@ -101,7 +101,10 @@ class AppLauncher final : public ProfileObserver {
   AppLauncher& operator=(const AppLauncher&) = delete;
 
   void LaunchHelpApp() {
-    LaunchSystemWebAppAsync(profile_, SystemWebAppType::HELP);
+    ash::SystemAppLaunchParams params;
+    params.url = GURL("chrome://help-app?launchSource=first-run");
+    params.launch_source = apps::LaunchSource::kFromFirstRun;
+    LaunchSystemWebAppAsync(profile_, SystemWebAppType::HELP, params);
     profile_->GetPrefs()->SetBoolean(prefs::kFirstRunTutorialShown, true);
     delete this;
   }
@@ -146,6 +149,10 @@ bool ShouldLaunchHelpApp(Profile* profile) {
 
   if (command_line->HasSwitch(switches::kForceFirstRunUI)) {
     return true;
+  }
+
+  if (command_line->HasSwitch(switches::kDisableFirstRunUI)) {
+    return false;
   }
 
   if (display::Screen::GetScreen()->InTabletMode()) {

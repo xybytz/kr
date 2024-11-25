@@ -5,6 +5,8 @@
 package org.chromium.chrome.browser.bookmarks;
 
 import static org.junit.Assert.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 
 import android.app.Activity;
 import android.view.View;
@@ -15,32 +17,36 @@ import androidx.test.ext.junit.rules.ActivityScenarioRule;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.JniMocker;
+import org.chromium.base.test.util.Features;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.commerce.ShoppingServiceFactory;
+import org.chromium.chrome.browser.device_reauth.ReauthenticatorBridge;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.page_image_service.ImageServiceBridge;
+import org.chromium.chrome.browser.page_image_service.ImageServiceBridgeJni;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.signin.services.SigninManager;
 import org.chromium.chrome.browser.sync.SyncServiceFactory;
+import org.chromium.chrome.browser.ui.favicon.FaviconHelperJni;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
-import org.chromium.chrome.test.util.browser.Features;
+import org.chromium.components.commerce.core.CommerceFeatureUtils;
+import org.chromium.components.commerce.core.CommerceFeatureUtilsJni;
 import org.chromium.components.commerce.core.ShoppingService;
-import org.chromium.components.favicon.LargeIconBridge;
-import org.chromium.components.favicon.LargeIconBridgeJni;
 import org.chromium.components.signin.AccountManagerFacade;
 import org.chromium.components.signin.AccountManagerFacadeProvider;
 import org.chromium.components.signin.identitymanager.IdentityManager;
+import org.chromium.components.sync.SyncFeatureMap;
 import org.chromium.components.sync.SyncService;
 import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.base.TestActivity;
@@ -52,19 +58,23 @@ import org.chromium.ui.base.TestActivity;
     ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
     ChromeSwitches.DISABLE_NATIVE_INITIALIZATION
 })
+@EnableFeatures({
+    SyncFeatureMap.SYNC_ENABLE_BOOKMARKS_IN_TRANSPORT_MODE,
+    ChromeFeatureList.REPLACE_SYNC_PROMOS_WITH_SIGN_IN_PROMOS
+})
+// TODO(crbug.com/327387704): Add tests with this flag enabled.
+@Features.DisableFeatures(ChromeFeatureList.UNO_PHASE_2_FOLLOW_UP)
 public class BookmarkManagerCoordinatorTest {
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
-    @Rule public JniMocker mJniMocker = new JniMocker();
 
     @Rule
     public ActivityScenarioRule<TestActivity> mActivityScenarioRule =
             new ActivityScenarioRule<>(TestActivity.class);
 
-    @Rule public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
-
     @Mock private SnackbarManager mSnackbarManager;
     @Mock private Profile mProfile;
-    @Mock private LargeIconBridge.Natives mMockLargeIconBridgeJni;
+    @Mock private FaviconHelperJni mFaviconHelperJni;
+    @Mock private ImageServiceBridge.Natives mImageServiceBridgeJni;
     @Mock private SyncService mSyncService;
     @Mock private IdentityServicesProvider mIdentityServicesProvider;
     @Mock private SigninManager mSigninManager;
@@ -72,7 +82,9 @@ public class BookmarkManagerCoordinatorTest {
     @Mock private IdentityManager mIdentityManager;
     @Mock private BookmarkModel mBookmarkModel;
     @Mock private BookmarkUiPrefs mBookmarkUiPrefs;
+    @Mock private CommerceFeatureUtils.Natives mCommerceFeatureUtilsJniMock;
     @Mock private ShoppingService mShoppingService;
+    @Mock private ReauthenticatorBridge mReauthenticatorMock;
 
     private Activity mActivity;
     private BookmarkManagerCoordinator mCoordinator;
@@ -80,18 +92,24 @@ public class BookmarkManagerCoordinatorTest {
     @Before
     public void setUp() {
         // Setup JNI mocks.
-        mJniMocker.mock(LargeIconBridgeJni.TEST_HOOKS, mMockLargeIconBridgeJni);
-
-        Mockito.doReturn(mProfile).when(mProfile).getOriginalProfile();
+        FaviconHelperJni.setInstanceForTesting(mFaviconHelperJni);
+        ImageServiceBridgeJni.setInstanceForTesting(mImageServiceBridgeJni);
+        CommerceFeatureUtilsJni.setInstanceForTesting(mCommerceFeatureUtilsJniMock);
 
         // Setup service mocks.
+        doReturn(mProfile).when(mProfile).getOriginalProfile();
         SyncServiceFactory.setInstanceForTesting(mSyncService);
         IdentityServicesProvider.setInstanceForTests(mIdentityServicesProvider);
-        Mockito.doReturn(mSigninManager).when(mIdentityServicesProvider).getSigninManager(mProfile);
-        Mockito.doReturn(mIdentityManager).when(mSigninManager).getIdentityManager();
+        doReturn(mSigninManager).when(mIdentityServicesProvider).getSigninManager(mProfile);
+        doReturn(mIdentityManager).when(mSigninManager).getIdentityManager();
+        doReturn(mIdentityManager).when(mIdentityServicesProvider).getIdentityManager(any());
         AccountManagerFacadeProvider.setInstanceForTests(mAccountManagerFacade);
         BookmarkModel.setInstanceForTesting(mBookmarkModel);
         ShoppingServiceFactory.setShoppingServiceForTesting(mShoppingService);
+        ReauthenticatorBridge.setInstanceForTesting(mReauthenticatorMock);
+
+        // Setup bookmark model.
+        doReturn(true).when(mBookmarkModel).areAccountBookmarkFoldersActive();
 
         mActivityScenarioRule
                 .getScenario()
@@ -125,12 +143,8 @@ public class BookmarkManagerCoordinatorTest {
         FrameLayout parent = new FrameLayout(mActivity);
         assertNotNull(mCoordinator.buildPersonalizedPromoView(parent));
         assertNotNull(mCoordinator.buildLegacyPromoView(parent));
-        assertNotNull(BookmarkManagerCoordinator.buildSectionHeaderView(parent));
-        assertNotNull(mCoordinator.buildAndInitBookmarkFolderView(parent));
-        assertNotNull(mCoordinator.buildAndInitBookmarkItemRow(parent));
-        assertNotNull(mCoordinator.buildAndInitShoppingItemView(parent));
+        assertNotNull(mCoordinator.buildSectionHeaderView(parent));
         assertNotNull(BookmarkManagerCoordinator.buildDividerView(parent));
-        assertNotNull(BookmarkManagerCoordinator.buildShoppingFilterView(parent));
         assertNotNull(BookmarkManagerCoordinator.buildCompactImprovedBookmarkRow(parent));
         assertNotNull(BookmarkManagerCoordinator.buildVisualImprovedBookmarkRow(parent));
         assertNotNull(mCoordinator.buildSearchBoxRow(parent));

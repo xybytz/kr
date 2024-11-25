@@ -213,11 +213,11 @@ void ArcFlossBridge::CloseBluetoothConnectingSocket(
 void ArcFlossBridge::SdpSearchComplete(
     const floss::FlossDeviceId device,
     const device::BluetoothUUID uuid,
-    const std::vector<floss::BtSdpRecord> records) {
+    const std::vector<floss::BtSdpRecord>& records) {
   mojom::BluetoothAddressPtr address =
       mojom::BluetoothAddress::From(device.address);
   std::vector<bluez::BluetoothServiceRecordBlueZ> records_bluez;
-  for (auto record : records) {
+  for (const auto& record : records) {
     records_bluez.push_back(
         mojo::TypeConverter<bluez::BluetoothServiceRecordBlueZ,
                             floss::BtSdpRecord>::Convert(record));
@@ -328,7 +328,9 @@ void ArcFlossBridge::CreateBluetoothListenSocket(
                                            std::move(callback));
   auto connection_state_changed_callback = base::BindRepeating(
       &ArcFlossBridge::OnConnectionStateChanged, weak_factory_.GetWeakPtr(),
-      sock_wrapper.get(), socket_ready_callback_id);
+      // TODO(crbug.com/40061562): Remove `UnsafeDanglingUntriaged`
+      base::UnsafeDanglingUntriaged(sock_wrapper.get()),
+      socket_ready_callback_id);
   floss::ResponseCallback<floss::FlossDBusClient::BtifStatus>
       response_callback =
           base::BindOnce(&ArcFlossBridge::OnCreateListenSocketCallback,

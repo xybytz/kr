@@ -47,11 +47,6 @@ https://doc.rust-lang.org/cargo/reference/manifest.html), though the crate
 itself is never built, it is only used to collect dependencies through the
 `[dependencies]` section.
 
-These instructions require the presence of nightly `cargo` which is normally found
-in `//third_party/rust-toolchain/bin`. But [on Mac Arm](https://crbug.com/1515913)
-it is missing, and will need to be installed separately with
-[`rustup install nightly`](https://rustup.rs/) and added to the `PATH` environment.
-
 To use a third-party crate "bar" version 3 from first party code:
 1. Change directory to the root `src/` dir of Chromium.
 1. Add the crate to `//third_party/rust/chromium_crates_io/Cargo.toml`:
@@ -68,10 +63,6 @@ To use a third-party crate "bar" version 3 from first party code:
      for the crates. If a patch can not apply, the crate's download will be cancelled and
      an error will be printed. See [patching errors](#patching-errors) below for how to resolve
      this.
-1. Add the new files to git:
-   * `git add -f third_party/rust/chromium_crates_io/vendor`
-   * The `-f` is important, as files may be skipped otherwise from a
-     `.gitignore` inside the crate.
 1. (optional) If the crate is only to be used by tests and tooling, then
    specify the `"test"` group in `//third_party/rust/chromium_crates_io/gnrt_config.toml`:
    ```
@@ -82,27 +73,21 @@ To use a third-party crate "bar" version 3 from first party code:
    * `vpython3 ./tools/crates/run_gnrt.py gen`
    * Or, directly through (nightly) cargo:
      `cargo run --release --manifest-path tools/crates/gnrt/Cargo.toml --target-dir out/gnrt gen`
-1. Verify if all new dependencies are already audited by running `cargo vet`:
-   * Install `cargo vet` if it's not yet installed:
-      * `./tools/crates/run_cargo.py install --git https://github.com/mozilla/cargo-vet cargo-vet`
-      * We use `--git` to install cargo-vet from HEAD in order to use the `--cargo-arg` argument
-        which is not released yet.
-   * `./tools/crates/run_cargo.py -Zunstable-options -C third_party/rust/chromium_crates_io/ vet check --cargo-arg=-Zbindeps --no-registry-suggestions`
+1. Verify if all new dependencies are already audited by running `cargo vet`
+   See [`rust-unsafe.md#cargo-vet-policy`](rust-unsafe.md#cargo-vet-policy) for
+   more details.  This boils down to:
+   * `./tools/crates/run_cargo_vet.py check`
    * If `check` fails, then there are missing audits, which need to be added to
      `//third_party/rust/chromium_crates_io/supply-chain/audits.toml`.
-      * See [auditing_standards.md](https://github.com/google/rust-crate-audits/blob/main/auditing_standards.md)
-        for the criteria for audits.
-      * See [Cargo Vet documentation](https://mozilla.github.io/cargo-vet/recording-audits.html)
-        for how to record the audit in `audits.toml`.
-      * Some audits can be done by any engineer ("ub-risk-0" and "safe-to-run")
-        while others will require specialists from the Security team. These are
-        explained in the
-        [auditing_standards.md](https://github.com/google/rust-crate-audits/blob/main/auditing_standards.md).
-   * Audit updates in `audit.toml` should be part of the submitted CL so that
-     `cargo vet` will continue to pass after the CL lands.
+1. Add the new files to git:
+   * `git add -f third_party/rust/chromium_crates_io/vendor`.
+     (The `-f` is important, as files may be skipped otherwise from a
+     `.gitignore` inside the crate.)
+   * `git add third_party/rust`
 1. Upload the CL. If there is any `unsafe` usage then Security experts will need to
-   audit the "ub-risk" level. Mark any `unsafe` usage with `TODO` code review comments,
-   and include a link to it in the request for third-party and security review.
+   audit the "ub-risk" level.  See
+   [`rust-unsafe.md#code-review-policy`](rust-unsafe.md#code-review-policy) for
+   more details.
 
 ### Cargo features
 
@@ -171,24 +156,28 @@ group in `gnrt_config.toml`.
 
 # Updating existing third-party crates
 
-To update crates to their latest minor versions:
+Third-party crates will get updated semi-automatically through the process
+described in
+[`../tools/crates/create_update_cl.md`](../tools/crates/create_update_cl.md).
+If you nevertheless need to manually update a crate to its latest minor
+version, then follow the steps below:
+
 1. Change directory to the root `src/` dir of Chromium.
-1. Update the versions in `//third_party/rust/chromium_crates_io/Cargo.lock`.
-   * `vpython3 ./tools/crates/run_gnrt.py update`
+1. Update the versions in `//third_party/rust/chromium_crates_io/Cargo.toml`.
+   * `vpython3 ./tools/crates/run_gnrt.py update <crate name>`
    * Or, directly through (nightly) cargo:
-     `cargo run --release --manifest-path tools/crates/gnrt/Cargo.toml --target-dir out/gnrt update`
+     `cargo run --release --manifest-path tools/crates/gnrt/Cargo.toml --target-dir out/gnrt update <crate name>`
 1. Download any updated crate's files:
    * `./tools/crates/run_gnrt.py vendor`
+   * If you want to restrict the update to certain crates, add the crate names
+     as arguments to `vendor`, like: `./tools/crates/run_gnrt.py vendor
+     <crate-name>`
    * Or, directly through (nightly) cargo:
      `cargo run --release --manifest-path tools/crates/gnrt/Cargo.toml --target-dir out/gnrt vendor`
 1. Add the downloaded files to git:
    * `git add -f third_party/rust/chromium_crates_io/vendor`
    * The `-f` is important, as files may be skipped otherwise from a
      `.gitignore` inside the crate.
-1. If a crate in `//third_party/rust/chromium_crates_io/patches` was updated
-   as part of vendoring, then reapply patches to it:
-   * Go to the `//third_party/rust/chromium_crates_io` directory.
-   * `./apply_patches.sh` (this currently requires linux).
 1. Generate the `BUILD.gn` files
    * `vpython3 ./tools/crates/run_gnrt.py gen`
    * Or, directly through (nightly) cargo:
@@ -250,6 +239,40 @@ file, rooted in the `gen` output directory, use
 ```
 #include "the/path/to/the/rust/file.rs.h"
 ```
+
+# Logging
+
+Use the [log](https://docs.rs/log) crate's macros in place of base `LOG`
+macros from C++. They do the same things. The `debug!` macro maps to
+`DLOG(INFO)`, the `info!` macro maps to `LOG(INFO)`, and `warn!` and `error!`
+map to `LOG(WARNING)` and `LOG(ERROR)` respectively. The additional `trace!`
+macro maps to `DLOG(INFO)` (but there is [WIP to map it to `DVLOG(INFO)`](
+https://chromium-review.googlesource.com/c/chromium/src/+/5996820)).
+
+Note that the standard library also includes a helpful
+[`dbg!`](https://doc.rust-lang.org/std/macro.dbg.html) macro which writes
+everything about a variable to `stderr`.
+
+Logging may not yet work in component builds:
+[crbug.com/374023535](https://crbug.com/374023535).
+
+# Tracing
+
+TODO: [crbug.com/377915495](https://crbug.com/377915495).
+
+# Strings
+
+Prefer to use [`BString`](https://docs.rs/bstr/latest/bstr/struct.BString.html)
+and [`BStr`](https://docs.rs/bstr/latest/bstr/struct.BStr.html) to work with
+strings in first-party code instead of `std::String` and `str`. These types do
+not require the strings to be valid UTF-8, and avoid error handling or panic
+crashes when working with strings from C++ and/or from the web. Because the
+web is not UTF-8 encoded, many strings in Chromium are also not.
+
+In cross-language bindings, `&[u8]` can be used to represent a string until
+native support for `BStr` is available in our interop tooling. A `u8` slice
+can be converted to `BStr` or treated as a string with
+[`ByteSlice`](https://docs.rs/bstr/latest/bstr/trait.ByteSlice.html).
 
 # Using VSCode
 

@@ -8,11 +8,11 @@
  * security settings.
  */
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.js';
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
-import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
+import 'chrome://resources/ash/common/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/ash/common/cr_elements/cr_link_row/cr_link_row.js';
 import 'chrome://resources/polymer/v3_0/paper-spinner/paper-spinner-lite.js';
-import '/shared/settings/controls/settings_toggle_button.js';
+import '../controls/settings_toggle_button.js';
 import '../settings_shared.css.js';
 import '../os_settings_page/os_settings_animated_pages.js';
 import '../os_settings_page/os_settings_subpage.js';
@@ -22,24 +22,29 @@ import './peripheral_data_access_protection_dialog.js';
 import '../os_people_page/lock_screen_password_prompt_dialog.js';
 import '../os_people_page/os_sync_browser_proxy.js';
 
-import {SettingsToggleButtonElement} from '/shared/settings/controls/settings_toggle_button.js';
-import {SyncBrowserProxy, SyncBrowserProxyImpl, SyncStatus} from '/shared/settings/people_page/sync_browser_proxy.js';
+import type {SyncBrowserProxy, SyncStatus} from '/shared/settings/people_page/sync_browser_proxy.js';
+import {SignedInState, SyncBrowserProxyImpl} from '/shared/settings/people_page/sync_browser_proxy.js';
+import {PrefsMixin} from '/shared/settings/prefs/prefs_mixin.js';
 import {AUTH_TOKEN_INVALID_EVENT_TYPE} from 'chrome://resources/ash/common/quick_unlock/utils.js';
-import {PrefsMixin} from 'chrome://resources/cr_components/settings_prefs/prefs_mixin.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+import type {RequestTokenReply} from 'chrome://resources/mojo/chromeos/components/in_session_auth/mojom/in_session_auth.mojom-webui.js';
+import {InSessionAuth, Reason} from 'chrome://resources/mojo/chromeos/components/in_session_auth/mojom/in_session_auth.mojom-webui.js';
 import {afterNextRender, flush, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {DeepLinkingMixin} from '../common/deep_linking_mixin.js';
 import {isAccountManagerEnabled, isRevampWayfindingEnabled} from '../common/load_time_booleans.js';
 import {RouteOriginMixin} from '../common/route_origin_mixin.js';
+import type {SettingsToggleButtonElement} from '../controls/settings_toggle_button.js';
 import {LockStateMixin} from '../lock_state_mixin.js';
 import {recordSettingChange} from '../metrics_recorder.js';
 import {Section} from '../mojom-webui/routes.mojom-webui.js';
 import {Setting} from '../mojom-webui/setting.mojom-webui.js';
-import {Route, Router, routes} from '../router.js';
+import type {Route} from '../router.js';
+import {Router, routes} from '../router.js';
 
 import {getTemplate} from './os_privacy_page.html.js';
-import {PeripheralDataAccessBrowserProxy, PeripheralDataAccessBrowserProxyImpl} from './peripheral_data_access_browser_proxy.js';
+import type {PeripheralDataAccessBrowserProxy} from './peripheral_data_access_browser_proxy.js';
+import {PeripheralDataAccessBrowserProxyImpl} from './peripheral_data_access_browser_proxy.js';
 import {PrivacyHubNavigationOrigin} from './privacy_hub_subpage.js';
 
 export interface OsSettingsPrivacyPageElement {
@@ -71,10 +76,20 @@ export class OsSettingsPrivacyPageElement extends
 
       /**
        * Authentication token.
+       * This is only used if `isAuthPanelInSessionEnabled_` is set to false.
        */
       authTokenInfo_: {
         type: Object,
         observer: 'onAuthTokenChanged_',
+      },
+
+      /**
+       * The variable that stores the authentication token we receive
+       * from AuthPanel or ActiveSessionAuth.
+       * This is only used if `isAuthPanelInSessionEnabled_`
+       */
+      authTokenReply_: {
+        type: Object,
       },
 
       showPasswordPromptDialog_: {
@@ -94,7 +109,6 @@ export class OsSettingsPrivacyPageElement extends
         type: Object,
         value: () => new Set<Setting>([
           Setting.kVerifiedAccess,
-          Setting.kUsageStatsAndCrashReports,
         ]),
       },
 
@@ -105,6 +119,18 @@ export class OsSettingsPrivacyPageElement extends
         type: Boolean,
         value() {
           return loadTimeData.getBoolean('fingerprintUnlockEnabled');
+        },
+        readOnly: true,
+      },
+
+      /**
+       * True if auth panel will be used for authentication instead of
+       * password prompt dialog.
+       */
+      isAuthPanelInSessionEnabled_: {
+        type: Boolean,
+        value() {
+          return loadTimeData.getBoolean('isAuthPanelEnabled');
         },
         readOnly: true,
       },
@@ -182,18 +208,6 @@ export class OsSettingsPrivacyPageElement extends
         readOnly: true,
       },
 
-      /**
-       * Whether privacy hub should be displayed.
-       */
-      showPrivacyHubPage_: {
-        type: Boolean,
-        value: function() {
-          return loadTimeData.getBoolean('showPrivacyHubPage') &&
-              !loadTimeData.getBoolean('isGuest');
-        },
-        readOnly: true,
-      },
-
       isHatsSurveyEnabled_: {
         type: Boolean,
         value: function() {
@@ -258,6 +272,11 @@ export class OsSettingsPrivacyPageElement extends
           };
         },
       },
+
+      isAuthenticating_: {
+        type: Boolean,
+        value: false,
+      },
     };
   }
 
@@ -269,6 +288,7 @@ export class OsSettingsPrivacyPageElement extends
   private authTokenInfo_: chrome.quickUnlockPrivate.TokenInfo|undefined;
   private browserProxy_: PeripheralDataAccessBrowserProxy;
   private rowIcons_: Record<string, string>;
+  private authTokenReply_: RequestTokenReply|undefined|null;
 
   /**
    * The timeout ID to pass to clearTimeout() to cancel auth token
@@ -279,6 +299,7 @@ export class OsSettingsPrivacyPageElement extends
   private dataAccessShiftTabPressed_: boolean;
   private fingerprintUnlockEnabled_: boolean;
   private isAccountManagerEnabled_: boolean;
+  private isAuthPanelInSessionEnabled_: boolean;
   private isGuestMode_: boolean;
   private isRevampWayfindingEnabled_: boolean;
   private isRevenBranding_: boolean;
@@ -289,10 +310,10 @@ export class OsSettingsPrivacyPageElement extends
   private section_: Section;
   private showDisableProtectionDialog_: boolean;
   private showPasswordPromptDialog_: boolean;
-  private showPrivacyHubPage_: boolean;
   private showSecureDnsSetting_: boolean;
   private showSyncSettingsRevamp_: boolean;
   private syncBrowserProxy_: SyncBrowserProxy;
+  private isAuthenticating_: boolean;
 
   constructor() {
     super();
@@ -309,7 +330,6 @@ export class OsSettingsPrivacyPageElement extends
       this.supportedSettingIds.add(Setting.kNonSplitSyncEncryptionOptions);
       this.supportedSettingIds.add(Setting.kImproveSearchSuggestions);
       this.supportedSettingIds.add(Setting.kMakeSearchesAndBrowsingBetter);
-      this.supportedSettingIds.add(Setting.kGoogleDriveSearchSuggestions);
     }
 
     this.browserProxy_.isThunderboltSupported().then(enabled => {
@@ -393,15 +413,6 @@ export class OsSettingsPrivacyPageElement extends
         });
         return false;
 
-      case Setting.kGoogleDriveSearchSuggestions:
-        this.afterRenderShowDeepLink_(settingId, () => {
-          const syncPage =
-              this.shadowRoot!.querySelector('os-settings-sync-subpage');
-          return syncPage && syncPage.getPersonalizationOptions() &&
-              syncPage.getPersonalizationOptions()!.getDriveSuggestToggle();
-        });
-        return false;
-
       default:
         // Continue with deep linking attempt.
         return true;
@@ -454,22 +465,75 @@ export class OsSettingsPrivacyPageElement extends
     return '';
   }
 
-  private onPasswordRequested_(): void {
-    this.showPasswordPromptDialog_ = true;
+  private async onPasswordRequested_(): Promise<void> {
+    // We get called twice from `settings-lock-screen-subpage` and
+    // from `settings-fingerprint-list-subpage`. Once when the current route
+    // changed after entering those pages, via the `currentRouteChanged`
+    // overrides, and once from `onAuthTokenChanged` listeners that listen to
+    // changes in `authToken` value, and potentially request a new token.
+    // Prevent double token requests.
+    if (this.isAuthenticating_) {
+      return;
+    }
+
+    this.isAuthenticating_ = true;
+
+    if (!this.isAuthPanelInSessionEnabled_) {
+      this.showPasswordPromptDialog_ = true;
+      this.isAuthenticating_ = false;
+      return;
+    }
+
+    const tokenInfo = await InSessionAuth.getRemote().requestToken(
+        Reason.kAccessAuthenticationSettings,
+        loadTimeData.getString('authPrompt'));
+
+    this.isAuthenticating_ = false;
+
+    if (!tokenInfo.reply) {
+      Router.getInstance().navigateToPreviousRoute();
+      return;
+    }
+
+    this.authTokenReply_ = tokenInfo.reply;
+  }
+
+  private getAuthToken_(): string|undefined {
+    if (!this.isAuthPanelInSessionEnabled_) {
+      return this.authTokenInfo_?.token;
+    }
+    return this.authTokenReply_?.token;
   }
 
   /**
    * Invalidate the token to trigger a password re-prompt. Used for PIN auto
    * submit when too many attempts were made when using PrefStore based PIN.
    */
-  private onInvalidateTokenRequested_(): void {
-    this.authTokenInfo_ = undefined;
+  private async onInvalidateTokenRequested_(): Promise<void> {
+    if (!this.isAuthPanelInSessionEnabled_) {
+      this.authTokenInfo_ = undefined;
+      return;
+    }
+
+    if (this.authTokenReply_) {
+      const token = this.authTokenReply_.token;
+      this.authTokenReply_ = undefined;
+      await InSessionAuth.getRemote().invalidateToken(token);
+    }
   }
 
   private onPasswordPromptDialogClose_(): void {
-    this.showPasswordPromptDialog_ = false;
-    if (!this.authTokenInfo_) {
+    if (this.isAuthPanelInSessionEnabled_ && !this.authTokenReply_) {
       Router.getInstance().navigateToPreviousRoute();
+      return;
+    }
+
+    if (!this.isAuthPanelInSessionEnabled_) {
+      this.showPasswordPromptDialog_ = false;
+      this.isAuthenticating_ = false;
+      if (!this.authTokenInfo_) {
+        Router.getInstance().navigateToPreviousRoute();
+      }
     }
   }
 
@@ -482,6 +546,10 @@ export class OsSettingsPrivacyPageElement extends
    * Should request the password again to get latest token.
    */
   private onAuthTokenInvalid_(): void {
+    if (this.isAuthPanelInSessionEnabled_) {
+      this.authTokenReply_ = undefined;
+      return;
+    }
     this.authTokenInfo_ = undefined;
   }
 
@@ -509,7 +577,8 @@ export class OsSettingsPrivacyPageElement extends
 
     // When ChromeOSAccountManager is disabled, fall back to using the sync
     // username ("alice@gmail.com") as the profile label.
-    if (!this.isAccountManagerEnabled_ && syncStatus && syncStatus.signedIn &&
+    if (!this.isAccountManagerEnabled_ && syncStatus &&
+        this.syncStatus.signedInState === SignedInState.SYNCING &&
         syncStatus.signedInUsername) {
       this.profileLabel_ = syncStatus.signedInUsername;
     }

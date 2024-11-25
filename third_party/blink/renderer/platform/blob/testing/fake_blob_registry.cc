@@ -20,8 +20,8 @@ class FakeBlobRegistry::DataPipeDrainerClient
       : uuid_(uuid),
         content_type_(content_type),
         callback_(std::move(callback)) {}
-  void OnDataAvailable(const void* data, size_t num_bytes) override {
-    length_ += num_bytes;
+  void OnDataAvailable(base::span<const uint8_t> data) override {
+    length_ += data.size();
   }
   void OnDataComplete() override {
     mojo::Remote<mojom::blink::Blob> blob;
@@ -48,9 +48,21 @@ void FakeBlobRegistry::Register(mojo::PendingReceiver<mojom::blink::Blob> blob,
                                 const String& content_disposition,
                                 Vector<mojom::blink::DataElementPtr> elements,
                                 RegisterCallback callback) {
+  Vector<uint8_t> blob_body_bytes;
+  if (support_binary_blob_bodies_) {
+    // Copy the blob's body from `elements`.
+    for (const mojom::blink::DataElementPtr& element : elements) {
+      // The blob body must contain binary data only.
+      CHECK(element->is_bytes());
+
+      const mojom::blink::DataElementBytesPtr& bytes = element->get_bytes();
+      blob_body_bytes.AppendVector(*bytes->embedded_data);
+    }
+  }
+
   registrations.push_back(Registration{uuid, content_type, content_disposition,
                                        std::move(elements)});
-  mojo::MakeSelfOwnedReceiver(std::make_unique<FakeBlob>(uuid),
+  mojo::MakeSelfOwnedReceiver(std::make_unique<FakeBlob>(uuid, blob_body_bytes),
                               std::move(blob));
   std::move(callback).Run();
 }
@@ -64,26 +76,15 @@ void FakeBlobRegistry::RegisterFromStream(
     RegisterFromStreamCallback callback) {
   DCHECK(!drainer_);
   DCHECK(!drainer_client_);
+
+  // `support_binary_blob_bodies_` is not implemented for
+  // `RegisterFromStream()`.
+  CHECK(!support_binary_blob_bodies_);
+
   drainer_client_ = std::make_unique<DataPipeDrainerClient>(
       "someuuid", content_type, std::move(callback));
   drainer_ = std::make_unique<mojo::DataPipeDrainer>(drainer_client_.get(),
                                                      std::move(data));
-}
-
-void FakeBlobRegistry::GetBlobFromUUID(
-    mojo::PendingReceiver<mojom::blink::Blob> blob,
-    const String& uuid,
-    GetBlobFromUUIDCallback callback) {
-  owned_receivers.push_back(OwnedReceiver{uuid});
-  mojo::MakeSelfOwnedReceiver(std::make_unique<FakeBlob>(uuid),
-                              std::move(blob));
-  std::move(callback).Run();
-}
-
-void FakeBlobRegistry::URLStoreForOrigin(
-    const scoped_refptr<const SecurityOrigin>& origin,
-    mojo::PendingAssociatedReceiver<mojom::blink::BlobURLStore> receiver) {
-  NOTREACHED();
 }
 
 }  // namespace blink

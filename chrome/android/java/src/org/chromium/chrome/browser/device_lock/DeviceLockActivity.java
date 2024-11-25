@@ -64,7 +64,9 @@ public class DeviceLockActivity extends SynchronousInitializationActivity
                 new ActivityWindowAndroid(
                         this,
                         /* listenToActivityState= */ true,
-                        IntentRequestTracker.createFromActivity(this));
+                        IntentRequestTracker.createFromActivity(this),
+                        getInsetObserver(),
+                        /* trackOcclusion= */ true);
         mIntentRequestTracker = mWindowAndroid.getIntentRequestTracker();
 
         Bundle fragmentArgs = getIntent().getBundleExtra(ARGUMENT_FRAGMENT_ARGS);
@@ -78,9 +80,11 @@ public class DeviceLockActivity extends SynchronousInitializationActivity
                         ? AccountUtils.createAccountFromName(selectedAccountName)
                         : null;
 
+        assert getProfileProvider().getOriginalProfile() != null;
         ReauthenticatorBridge reauthenticatorBridge =
                 requireDeviceLockReauthentication
-                        ? DeviceLockCoordinator.createDeviceLockAuthenticatorBridge()
+                        ? DeviceLockCoordinator.createDeviceLockAuthenticatorBridge(
+                                this, getProfileProvider().getOriginalProfile())
                         : null;
         mDeviceLockCoordinator =
                 new DeviceLockCoordinator(

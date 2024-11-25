@@ -5,11 +5,12 @@
 #include "chrome/browser/ui/extensions/extension_installed_bubble_model.h"
 
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/extensions/api/commands/command_service.h"
+#include "chrome/browser/extensions/commands/command_service.h"
+#include "chrome/browser/extensions/extension_sync_util.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/signin/signin_promo_util.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/sync/sync_promo_ui.h"
 #include "chrome/common/extensions/api/omnibox/omnibox_handler.h"
 #include "chrome/grit/branded_strings.h"
 #include "chrome/grit/generated_resources.h"
@@ -49,12 +50,12 @@ std::u16string MakeHowToUseText(const extensions::ActionInfo* action,
     extra = command->accelerator().GetShortcutText();
 
   int message_id = 0;
-  if (action && action->type == extensions::ActionInfo::TYPE_BROWSER) {
+  if (action && action->type == extensions::ActionInfo::Type::kBrowser) {
     message_id =
         extra.empty()
             ? IDS_EXTENSION_INSTALLED_BROWSER_ACTION_INFO
             : IDS_EXTENSION_INSTALLED_BROWSER_ACTION_INFO_WITH_SHORTCUT;
-  } else if (action && action->type == extensions::ActionInfo::TYPE_PAGE) {
+  } else if (action && action->type == extensions::ActionInfo::Type::kPage) {
     message_id = extra.empty()
                      ? IDS_EXTENSION_INSTALLED_PAGE_ACTION_INFO
                      : IDS_EXTENSION_INSTALLED_PAGE_ACTION_INFO_WITH_SHORTCUT;
@@ -97,8 +98,13 @@ ExtensionInstalledBubbleModel::ExtensionInstalledBubbleModel(
   show_how_to_manage_ = !command.has_value() || anchor_to_omnibox_;
   show_key_binding_ = command.has_value();
 
-  show_sign_in_promo_ = extensions::util::ShouldSync(extension, profile) &&
-                        SyncPromoUI::ShouldShowSyncPromo(profile);
+  // Note: `ShouldShowSyncPromo` does not check if extensions are syncing in
+  // transport mode. That's why `IsSyncingEnabled` is added so the sign in promo
+  // is not shown in that case.
+  show_sign_in_promo_ =
+      extensions::sync_util::ShouldSync(profile, extension) &&
+      !extensions::sync_util::IsSyncingExtensionsEnabled(profile) &&
+      signin::ShouldShowSyncPromo(*profile);
 
   if (show_how_to_use_)
     how_to_use_text_ = MakeHowToUseText(action_info, command, keyword);

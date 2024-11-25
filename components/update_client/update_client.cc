@@ -187,11 +187,10 @@ void UpdateClientImpl::RemoveObserver(Observer* observer) {
   observer_list_.RemoveObserver(observer);
 }
 
-void UpdateClientImpl::NotifyObservers(Observer::Events event,
-                                       const std::string& id) {
+void UpdateClientImpl::NotifyObservers(const CrxUpdateItem& item) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   for (auto& observer : observer_list_) {
-    observer.OnEvent(event, id);
+    observer.OnEvent(item);
   }
 }
 
@@ -245,28 +244,13 @@ void UpdateClientImpl::Stop() {
   }
 }
 
-void UpdateClientImpl::SendUninstallPing(const CrxComponent& crx_component,
-                                         int reason,
-                                         Callback callback) {
+void UpdateClientImpl::SendPing(const CrxComponent& crx_component,
+                                PingParams ping_params,
+                                Callback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   RunTask(base::MakeRefCounted<TaskSendPing>(
-      update_engine_.get(), crx_component, protocol_request::kEventUninstall, 1,
-      0, reason,
-      base::BindOnce(&UpdateClientImpl::OnTaskComplete, this,
-                     std::move(callback))));
-}
-
-void UpdateClientImpl::SendInstallPing(const CrxComponent& crx_component,
-                                       bool success,
-                                       int error_code,
-                                       int extra_code1,
-                                       Callback callback) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  RunTask(base::MakeRefCounted<TaskSendPing>(
-      update_engine_.get(), crx_component, protocol_request::kEventInstall,
-      success ? 1 : 0, error_code, extra_code1,
+      update_engine_.get(), crx_component, ping_params,
       base::BindOnce(&UpdateClientImpl::OnTaskComplete, this,
                      std::move(callback))));
 }

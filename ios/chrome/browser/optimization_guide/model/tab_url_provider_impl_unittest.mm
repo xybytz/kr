@@ -6,13 +6,14 @@
 
 #import <memory>
 
+#import "base/memory/raw_ptr.h"
 #import "base/test/simple_test_clock.h"
 #import "base/test/task_environment.h"
 #import "components/optimization_guide/core/tab_url_provider.h"
 #import "ios/chrome/browser/shared/model/browser/browser_list.h"
 #import "ios/chrome/browser/shared/model/browser/browser_list_factory.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
@@ -35,17 +36,16 @@ class TabUrlProviderImplTest : public PlatformTest {
   ~TabUrlProviderImplTest() override = default;
 
   void SetUp() override {
-    TestChromeBrowserState::Builder builder;
-    browser_state_ = builder.Build();
-    browser_ = std::make_unique<TestBrowser>(browser_state_.get());
-    other_browser_ = std::make_unique<TestBrowser>(browser_state_.get());
-    incognito_browser_ = std::make_unique<TestBrowser>(
-        browser_state_->GetOffTheRecordChromeBrowserState());
-    browser_list_ =
-        BrowserListFactory::GetForBrowserState(browser_state_.get());
+    TestProfileIOS::Builder builder;
+    profile_ = std::move(builder).Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get());
+    other_browser_ = std::make_unique<TestBrowser>(profile_.get());
+    incognito_browser_ =
+        std::make_unique<TestBrowser>(profile_->GetOffTheRecordProfile());
+    browser_list_ = BrowserListFactory::GetForProfile(profile_.get());
     browser_list_->AddBrowser(browser_.get());
     browser_list_->AddBrowser(other_browser_.get());
-    browser_list_->AddIncognitoBrowser(incognito_browser_.get());
+    browser_list_->AddBrowser(incognito_browser_.get());
 
     tab_url_provider_ =
         std::make_unique<TabUrlProviderImpl>(browser_list_, &clock_);
@@ -58,8 +58,8 @@ class TabUrlProviderImplTest : public PlatformTest {
     fake_web_state->SetCurrentURL(url);
     fake_web_state->SetLastActiveTime(timestamp);
     browser->GetWebStateList()->InsertWebState(
-        browser->GetWebStateList()->count(), std::move(fake_web_state),
-        WebStateList::InsertionFlags::INSERT_ACTIVATE, WebStateOpener());
+        std::move(fake_web_state),
+        WebStateList::InsertionParams::Automatic().Activate());
   }
 
   const std::vector<GURL> GetUrlsOfActiveTabs(
@@ -74,12 +74,12 @@ class TabUrlProviderImplTest : public PlatformTest {
 
  private:
   base::test::TaskEnvironment task_environment_;
-  std::unique_ptr<ChromeBrowserState> browser_state_;
+  std::unique_ptr<ProfileIOS> profile_;
   base::SimpleTestClock clock_;
   std::unique_ptr<TestBrowser> browser_;
   std::unique_ptr<TestBrowser> other_browser_;
   std::unique_ptr<TestBrowser> incognito_browser_;
-  BrowserList* browser_list_;
+  raw_ptr<BrowserList> browser_list_;
   std::unique_ptr<optimization_guide::TabUrlProvider> tab_url_provider_;
 };
 

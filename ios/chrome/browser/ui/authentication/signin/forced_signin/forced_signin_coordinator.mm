@@ -8,16 +8,16 @@
 
 #import "base/notreached.h"
 #import "components/signin/public/identity_manager/identity_manager.h"
+#import "ios/chrome/browser/first_run/ui_bundled/first_run_screen_delegate.h"
+#import "ios/chrome/browser/first_run/ui_bundled/first_run_util.h"
+#import "ios/chrome/browser/first_run/ui_bundled/signin/signin_screen_coordinator.h"
+#import "ios/chrome/browser/screen/ui_bundled/screen_provider.h"
+#import "ios/chrome/browser/screen/ui_bundled/screen_type.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/signin/model/authentication_service.h"
 #import "ios/chrome/browser/signin/model/authentication_service_factory.h"
 #import "ios/chrome/browser/ui/authentication/signin/signin_coordinator+protected.h"
-#import "ios/chrome/browser/ui/first_run/first_run_screen_delegate.h"
-#import "ios/chrome/browser/ui/first_run/first_run_util.h"
-#import "ios/chrome/browser/ui/first_run/signin/signin_screen_coordinator.h"
-#import "ios/chrome/browser/ui/screen/screen_provider.h"
-#import "ios/chrome/browser/ui/screen/screen_type.h"
 
 @interface ForcedSigninCoordinator () <FirstRunScreenDelegate>
 
@@ -36,7 +36,7 @@
                             screenProvider:(ScreenProvider*)screenProvider
                                accessPoint:
                                    (signin_metrics::AccessPoint)accessPoint {
-  DCHECK(!browser->GetBrowserState()->IsOffTheRecord());
+  DCHECK(!browser->GetProfile()->IsOffTheRecord());
   self = [super initWithBaseViewController:viewController
                                    browser:browser
                                accessPoint:accessPoint];
@@ -79,8 +79,7 @@
 - (void)finishPresentingScreens {
   __weak __typeof(self) weakSelf = self;
   AuthenticationService* authService =
-      AuthenticationServiceFactory::GetForBrowserState(
-          self.browser->GetBrowserState());
+      AuthenticationServiceFactory::GetForProfile(self.browser->GetProfile());
   id<SystemIdentity> identity =
       authService->GetPrimaryIdentity(signin::ConsentLevel::kSignin);
   void (^completion)(void) = ^{
@@ -119,13 +118,11 @@
                                promoAction:signin_metrics::PromoAction::
                                                PROMO_ACTION_NO_SIGNIN_PROMO];
     case kHistorySync:
-    case kTangibleSync:
     case kDefaultBrowserPromo:
     case kChoice:
-    case kOmniboxPosition:
+    case kDockingPromo:
     case kStepsCompleted:
       NOTREACHED() << "Type of screen not supported." << static_cast<int>(type);
-      break;
   }
   return nil;
 }
@@ -136,10 +133,9 @@
   self.childCoordinator = nil;
   self.navigationController = nil;
   self.screenProvider = nil;
-  SigninCompletionInfo* completionInfo =
-      [SigninCompletionInfo signinCompletionInfoWithIdentity:identity];
-  [self runCompletionCallbackWithSigninResult:result
-                               completionInfo:completionInfo];
+  id<SystemIdentity> completionIdentity = identity;
+  [self runCompletionWithSigninResult:result
+                   completionIdentity:completionIdentity];
 }
 
 #pragma mark - FirstRunScreenDelegate
@@ -150,10 +146,6 @@
   [self.childCoordinator stop];
   self.childCoordinator = nil;
   [self presentScreen:[self.screenProvider nextScreenType]];
-}
-
-- (void)skipAllScreens {
-  [self finishPresentingScreens];
 }
 
 #pragma mark - SigninCoordinator

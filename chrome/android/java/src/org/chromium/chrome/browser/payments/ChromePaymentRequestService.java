@@ -10,8 +10,10 @@ import android.content.Context;
 import androidx.annotation.Nullable;
 
 import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.autofill.PersonalDataManagerFactory;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.payments.ui.PaymentUiService;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.components.autofill.EditableOption;
@@ -256,7 +258,7 @@ public class ChromePaymentRequestService
         TabModel tabModel = mDelegate.getTabModel(mWebContents);
         if (tabModel == null) return ErrorStrings.TAB_NOT_FOUND;
         String error =
-                mPaymentUiService.buildPaymentRequestUI(
+                mPaymentUiService.buildPaymentRequestUi(
                         /* isWebContentsActive= */ mDelegate.isWebContentsActive(mRenderFrameHost),
                         activity,
                         tabModelSelector,
@@ -322,7 +324,7 @@ public class ChromePaymentRequestService
     @Override
     public @Nullable WebContents openPaymentHandlerWindow(GURL url, long ukmSourceId) {
         @Nullable
-        WebContents paymentHandlerWebContents = mPaymentUiService.showPaymentHandlerUI(url);
+        WebContents paymentHandlerWebContents = mPaymentUiService.showPaymentHandlerUi(url);
         if (paymentHandlerWebContents != null) {
             ServiceWorkerPaymentAppBridge.onOpeningPaymentAppWindow(
                     /* paymentRequestWebContents= */ mWebContents,
@@ -339,12 +341,12 @@ public class ChromePaymentRequestService
     @Override
     public void onPaymentDetailsUpdated(
             PaymentDetails details, boolean hasNotifiedInvokedPaymentApp) {
-        mPaymentUiService.updateDetailsOnPaymentRequestUI(details);
+        mPaymentUiService.updateDetailsOnPaymentRequestUi(details);
 
         if (hasNotifiedInvokedPaymentApp) return;
 
         mPaymentUiService.showShippingAddressErrorIfApplicable(details.error);
-        mPaymentUiService.enableAndUpdatePaymentRequestUIWithPaymentInfo();
+        mPaymentUiService.enableAndUpdatePaymentRequestUiWithPaymentInfo();
     }
 
     // Implements BrowserPaymentRequest:
@@ -354,10 +356,10 @@ public class ChromePaymentRequestService
         Context context = mDelegate.getContext(mRenderFrameHost);
         if (context == null) return ErrorStrings.CONTEXT_NOT_FOUND;
 
-        mPaymentUiService.updateDetailsOnPaymentRequestUI(details);
+        mPaymentUiService.updateDetailsOnPaymentRequestUi(details);
 
         if (isFinishedQueryingPaymentApps && !mHasSkippedAppSelector) {
-            mPaymentUiService.enableAndUpdatePaymentRequestUIWithPaymentInfo();
+            mPaymentUiService.enableAndUpdatePaymentRequestUiWithPaymentInfo();
         }
         return null;
     }
@@ -366,7 +368,7 @@ public class ChromePaymentRequestService
     @Override
     public void onPaymentDetailsNotUpdated(@Nullable String selectedShippingOptionError) {
         mPaymentUiService.showShippingAddressErrorIfApplicable(selectedShippingOptionError);
-        mPaymentUiService.enableAndUpdatePaymentRequestUIWithPaymentInfo();
+        mPaymentUiService.enableAndUpdatePaymentRequestUiWithPaymentInfo();
     }
 
     // Implements PaymentUiService.Delegate:
@@ -383,7 +385,9 @@ public class ChromePaymentRequestService
                         selectedShippingOption,
                         mPaymentUiService.getSelectedContact(),
                         selectedPaymentApp,
-                        mSpec.getPaymentOptions());
+                        mSpec.getPaymentOptions(),
+                        PersonalDataManagerFactory.getForProfile(
+                                Profile.fromWebContents(mWebContents)));
         mPaymentRequestService.invokePaymentApp(selectedPaymentApp, paymentResponseHelper);
         return true;
     }
@@ -521,7 +525,7 @@ public class ChromePaymentRequestService
 
     // Implement PaymentUiService.Delegate:
     @Override
-    public void onPaymentRequestUIFaviconNotAvailable() {
+    public void onPaymentRequestUiFaviconNotAvailable() {
         if (mPaymentRequestService == null) return;
         mPaymentRequestService.warnNoFavicon();
     }

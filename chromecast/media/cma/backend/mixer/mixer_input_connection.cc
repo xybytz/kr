@@ -9,9 +9,9 @@
 
 #include <algorithm>
 #include <limits>
+#include <optional>
 #include <utility>
 
-#include <optional>
 #include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/location.h"
@@ -49,6 +49,7 @@ constexpr base::TimeDelta kInactivityTimeout = base::Seconds(5);
 constexpr int64_t kDefaultMaxTimestampError = 2000;
 // Max absolute value for timestamp errors, to avoid overflow/underflow.
 constexpr int64_t kTimestampErrorLimit = 1000000;
+constexpr int kMaxChannels = 32;
 
 constexpr int kAudioMessageHeaderSize =
     mixer_service::MixerSocket::kAudioMessageHeaderSize;
@@ -1066,7 +1067,8 @@ int MixerInputConnection::FillAudioPlaybackFrames(
       remaining_silence_frames_ = 0;
     }
 
-    float* channels[num_channels_];
+    CHECK_LE(num_channels_, kMaxChannels);
+    float* channels[kMaxChannels];
     for (int c = 0; c < num_channels_; ++c) {
       channels[c] = buffer->channel(c) + write_offset;
     }

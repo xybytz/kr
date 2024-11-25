@@ -144,7 +144,7 @@ public class ShareHelper {
         if (callback != null) {
             window.showIntent(intent, callback, null);
         } else {
-            // TODO(https://crbug.com/1414893): Allow startActivity w/o result via
+            // TODO(crbug.com/40256344): Allow startActivity w/o result via
             // WindowAndroid.
             Activity activity = window.getActivity().get();
             activity.startActivity(intent);
@@ -175,6 +175,12 @@ public class ShareHelper {
          */
         protected void sendChooserIntent(WindowAndroid window, Intent sharingIntent) {
             ThreadUtils.assertOnUiThread();
+
+            if (window.isDestroyed()) {
+                Log.e(TAG, "Can not send intent due to window being destroyed.");
+                return;
+            }
+
             Activity activity = window.getActivity().get();
             assert activity != null;
             final String packageName = activity.getPackageName();
@@ -283,6 +289,7 @@ public class ShareHelper {
             // Remove the weak reference to the context and window when it is removed from the
             // attaching window.
             if (mAttachedContext.get() != null) {
+                Log.i(TAG, "Dispatch cleaning intent to close the share sheet.");
                 // Issue a cleaner intent so the share sheet is cleared. This is a workaround to
                 // close the top ChooserActivity when share isn't completed.
                 Intent cleanerIntent = createCleanupIntent();

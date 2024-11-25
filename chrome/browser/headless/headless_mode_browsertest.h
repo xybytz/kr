@@ -11,6 +11,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/test/browser_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace content {
 class WebContents;
@@ -33,6 +34,8 @@ class HeadlessModeBrowserTest : public InProcessBrowserTest {
   void SetUpOnMainThread() override;
 
  protected:
+  virtual bool IsIncognito();
+
   bool headful_mode() const { return headful_mode_; }
 
   void AppendHeadlessCommandLineSwitches(base::CommandLine* command_line);
@@ -48,14 +51,7 @@ class HeadlessModeBrowserTestWithUserDataDir : public HeadlessModeBrowserTest {
   HeadlessModeBrowserTestWithUserDataDir() = default;
   ~HeadlessModeBrowserTestWithUserDataDir() override = default;
 
-  void SetUpCommandLine(base::CommandLine* command_line) override;
-
-  const base::FilePath& user_data_dir() const {
-    return user_data_dir_.GetPath();
-  }
-
- private:
-  base::ScopedTempDir user_data_dir_;
+  base::FilePath GetUserDataDir() const;
 };
 
 enum StartWindowMode {

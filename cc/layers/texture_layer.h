@@ -6,10 +6,10 @@
 #define CC_LAYERS_TEXTURE_LAYER_H_
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
-#include <optional>
 #include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -103,10 +103,6 @@ class CC_EXPORT TextureLayer : public Layer, SharedBitmapIdRegistrar {
   void SetFlipped(bool flipped);
   bool flipped() const { return flipped_.Read(*this); }
 
-  // Sets whether this texture should use nearest neighbor interpolation as
-  // opposed to bilinear. Defaults to false.
-  void SetNearestNeighbor(bool nearest_neighbor);
-
   // Sets a UV transform to be used at draw time. Defaults to (0, 0) and (1, 1).
   void SetUV(const gfx::PointF& top_left, const gfx::PointF& bottom_right);
 
@@ -125,9 +121,7 @@ class CC_EXPORT TextureLayer : public Layer, SharedBitmapIdRegistrar {
   // Code path for plugins which supply their own mailbox.
   void SetTransferableResource(const viz::TransferableResource& resource,
                                viz::ReleaseCallback release_callback);
-
-  // Set or unset HDR metadata.
-  void SetHdrMetadata(const gfx::HDRMetadata& hdr_metadata);
+  void SetNeedsSetTransferableResource();
 
   void SetLayerTreeHost(LayerTreeHost* layer_tree_host) override;
   bool RequiresSetNeedsDisplayOnHdrHeadroomChange() const override;
@@ -154,6 +148,10 @@ class CC_EXPORT TextureLayer : public Layer, SharedBitmapIdRegistrar {
     return viz::TransferableResource();
   }
 
+  bool needs_set_resource_for_testing() const {
+    return needs_set_resource_.Read(*this);
+  }
+
  protected:
   explicit TextureLayer(TextureLayerClient* client);
   ~TextureLayer() override;
@@ -177,14 +175,12 @@ class CC_EXPORT TextureLayer : public Layer, SharedBitmapIdRegistrar {
       client_;
 
   ProtectedSequenceReadable<bool> flipped_;
-  ProtectedSequenceReadable<bool> nearest_neighbor_;
   ProtectedSequenceReadable<gfx::PointF> uv_top_left_;
   ProtectedSequenceReadable<gfx::PointF> uv_bottom_right_;
   // [bottom left, top left, top right, bottom right]
   ProtectedSequenceReadable<bool> premultiplied_alpha_;
   ProtectedSequenceReadable<bool> blend_background_color_;
   ProtectedSequenceReadable<bool> force_texture_to_opaque_;
-  ProtectedSequenceWritable<gfx::HDRMetadata> hdr_metadata_;
 
   ProtectedSequenceWritable<scoped_refptr<TransferableResourceHolder>>
       resource_holder_;

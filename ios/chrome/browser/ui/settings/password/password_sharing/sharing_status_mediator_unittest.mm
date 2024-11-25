@@ -6,9 +6,9 @@
 
 #import "base/strings/sys_string_conversions.h"
 #import "components/password_manager/core/browser/sharing/recipients_fetcher.h"
-#import "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
+#import "ios/chrome/browser/favicon/model/ios_chrome_favicon_loader_factory.h"
 #import "ios/chrome/browser/shared/model/application_context/application_context.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/ui/symbols/symbols.h"
 #import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/signin/model/authentication_service.h"
@@ -94,38 +94,33 @@ class SharingStatusMediatorTest : public PlatformTest {
             GetApplicationContext()->GetSystemIdentityManager());
     system_identity_manager->AddIdentity(fake_identity_);
 
-    TestChromeBrowserState::Builder builder;
+    TestProfileIOS::Builder builder;
     builder.AddTestingFactory(
         AuthenticationServiceFactory::GetInstance(),
-        AuthenticationServiceFactory::GetDefaultFactory());
+        AuthenticationServiceFactory::GetFactoryWithDelegate(
+            std::make_unique<FakeAuthenticationServiceDelegate>()));
 
-    browser_state_ = builder.Build();
-    AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
-        browser_state_.get(),
-        std::make_unique<FakeAuthenticationServiceDelegate>());
+    profile_ = std::move(builder).Build();
   }
 
   id<SystemIdentity> fake_identity() { return fake_identity_; }
 
   AuthenticationService* GetAuthenticationService() {
-    return AuthenticationServiceFactory::GetForBrowserState(
-        browser_state_.get());
+    return AuthenticationServiceFactory::GetForProfile(profile_.get());
   }
 
   ChromeAccountManagerService* GetAccountManagerService() {
-    return ChromeAccountManagerServiceFactory::GetForBrowserState(
-        browser_state_.get());
+    return ChromeAccountManagerServiceFactory::GetForProfile(profile_.get());
   }
 
   FaviconLoader* GetFaviconLoader() {
-    return IOSChromeFaviconLoaderFactory::GetForBrowserState(
-        browser_state_.get());
+    return IOSChromeFaviconLoaderFactory::GetForProfile(profile_.get());
   }
 
  private:
   web::WebTaskEnvironment task_environment_;
   IOSChromeScopedTestingLocalState scoped_testing_local_state_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   id<SystemIdentity> fake_identity_;
 };
 

@@ -16,8 +16,7 @@ namespace quick_answers {
 namespace {
 using base::Value;
 
-constexpr char kBTagBegin[] = "<b>";
-constexpr char kBTagEnd[] = "</b>";
+const constexpr char* kKnownHTMLTags[] = {"<b>", "</b>", "<i>", "</i>"};
 
 }  // namespace
 
@@ -41,8 +40,9 @@ const Value::Dict* ResultParser::GetFirstDictElementFromList(
 std::string ResultParser::RemoveKnownHtmlTags(const std::string& input) {
   // Copy input string to another string so we don't modify the passed value.
   std::string out = input;
-  base::ReplaceSubstringsAfterOffset(&out, /*start_offset=*/0, kBTagBegin, "");
-  base::ReplaceSubstringsAfterOffset(&out, /*start_offset=*/0, kBTagEnd, "");
+  for (const char* html_tag : kKnownHTMLTags) {
+    base::ReplaceSubstringsAfterOffset(&out, /*start_offset=*/0, html_tag, "");
+  }
   return out;
 }
 
@@ -65,20 +65,16 @@ bool ResultParser::SupportsNewInterface() const {
 std::unique_ptr<ResultParser> ResultParserFactory::Create(
     int one_namespace_type) {
   switch (static_cast<ResultType>(one_namespace_type)) {
-    case ResultType::kKnowledgePanelEntityResult:
-      return std::make_unique<KpEntityResultParser>();
+    // TODO(b/345551832): delete KpEntityResultParser
     case ResultType::kDefinitionResult:
       return std::make_unique<DefinitionResultParser>();
     case ResultType::kUnitConversionResult:
       return std::make_unique<UnitConversionResultParser>();
-      // TODO(llin): Add other result parsers.
-
     // Translation responses are from the Clound server and parsed
     // separately.
     case ResultType::kTranslationResult:
     case ResultType::kNoResult:
       NOTREACHED();
-      break;
   }
 
   return nullptr;

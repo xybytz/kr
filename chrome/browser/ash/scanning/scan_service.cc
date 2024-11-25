@@ -148,7 +148,6 @@ scanning::ScanJobFailureReason GetScanJobFailureReason(
     case lorgnette::ScanFailureMode_INT_MIN_SENTINEL_DO_NOT_USE_:
     case lorgnette::ScanFailureMode_INT_MAX_SENTINEL_DO_NOT_USE_:
       NOTREACHED();
-      return scanning::ScanJobFailureReason::kUnknownScannerError;
   }
 }
 

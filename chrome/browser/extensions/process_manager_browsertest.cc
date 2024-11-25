@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <stddef.h>
 
 #include <memory>
@@ -9,6 +14,7 @@
 
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
@@ -23,6 +29,8 @@
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/extensions/extension_action_test_helper.h"
 #include "chrome/browser/ui/javascript_dialogs/chrome_javascript_app_modal_dialog_view_factory.h"
@@ -58,7 +66,7 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "url/origin.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "ash/constants/ash_switches.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #endif
@@ -188,7 +196,8 @@ class NavigationCompletedObserver : public content::WebContentsObserver {
                .size() == 0;
   }
 
-  std::set<content::RenderFrameHost*> live_original_frames_;
+  std::set<raw_ptr<content::RenderFrameHost, SetExperimental>>
+      live_original_frames_;
   scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
 };
 
@@ -197,7 +206,7 @@ class NavigationCompletedObserver : public content::WebContentsObserver {
 class ProcessManagerBrowserTest : public ExtensionBrowserTest {
  public:
   ProcessManagerBrowserTest() {
-    // TODO(https://crbug.com/1110891): Remove this once Extensions are
+    // TODO(crbug.com/40142347): Remove this once Extensions are
     // supported with BackForwardCache.
     disabled_feature_list_.InitWithFeatures({}, {features::kBackForwardCache});
   }
@@ -306,7 +315,7 @@ class ProcessManagerBrowserTest : public ExtensionBrowserTest {
 class DefaultProfileExtensionBrowserTest : public ExtensionBrowserTest {
  protected:
   DefaultProfileExtensionBrowserTest() {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
     // We want signin profile on ChromeOS, not logged in user profile.
     set_chromeos_user_ = false;
 #endif
@@ -315,7 +324,7 @@ class DefaultProfileExtensionBrowserTest : public ExtensionBrowserTest {
  private:
   void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionBrowserTest::SetUpCommandLine(command_line);
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
     command_line->AppendSwitch(ash::switches::kLoginManager);
     command_line->AppendSwitch(ash::switches::kForceLoginManagerInTests);
 #endif
@@ -335,7 +344,7 @@ IN_PROC_BROWSER_TEST_F(DefaultProfileExtensionBrowserTest, NoExtensionHosts) {
   // the signin profile (profile()) is the off-the-record version.
   Profile* original = profile()->GetOriginalProfile();
   Profile* otr = original->GetPrimaryOTRProfile(/*create_if_needed=*/true);
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   EXPECT_EQ(profile(), otr);
   EXPECT_TRUE(ash::ProfileHelper::IsSigninProfile(original));
 #endif
@@ -393,13 +402,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
 // Test that loading an extension with a browser action does not create a
 // background page and that clicking on the action creates the appropriate
 // ExtensionHost.
-// TODO(http://crbug.com/1271329): Times out frequently on Lacros.
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-#define MAYBE_PopupHostCreation DISABLED_PopupHostCreation
-#else
-#define MAYBE_PopupHostCreation PopupHostCreation
-#endif
-IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest, MAYBE_PopupHostCreation) {
+IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest, PopupHostCreation) {
   ProcessManager* pm = ProcessManager::Get(profile());
 
   // Load an extension with the ability to open a popup but no background
@@ -842,14 +845,14 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
   EXPECT_TRUE(
       policy->CanRequestURL(main_frame->GetProcess()->GetID(), extension_url));
 
-  EXPECT_TRUE(policy->CanCommitURL(extension_frame->GetProcess()->GetID(),
-                                   extension_blob_url));
-  EXPECT_FALSE(policy->CanCommitURL(main_frame->GetProcess()->GetID(),
-                                    extension_blob_url));
-  EXPECT_TRUE(policy->CanCommitURL(extension_frame->GetProcess()->GetID(),
-                                   extension_url));
-  EXPECT_FALSE(
-      policy->CanCommitURL(main_frame->GetProcess()->GetID(), extension_url));
+  EXPECT_TRUE(content::CanCommitURLForTesting(
+      extension_frame->GetProcess()->GetID(), extension_blob_url));
+  EXPECT_FALSE(content::CanCommitURLForTesting(
+      main_frame->GetProcess()->GetID(), extension_blob_url));
+  EXPECT_TRUE(content::CanCommitURLForTesting(
+      extension_frame->GetProcess()->GetID(), extension_url));
+  EXPECT_FALSE(content::CanCommitURLForTesting(
+      main_frame->GetProcess()->GetID(), extension_url));
 
   // Open a new about:blank popup from main frame.  This should stay in the web
   // process.
@@ -1260,7 +1263,7 @@ IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
   }
 }
 
-// TODO(crbug.com/909570): This test is flaky everywhere.
+// TODO(crbug.com/41428657): This test is flaky everywhere.
 IN_PROC_BROWSER_TEST_F(ProcessManagerBrowserTest,
                        DISABLED_NestedURLNavigationsViaNoOpenerPopupBlocked) {
   // Create a simple extension without a background page.

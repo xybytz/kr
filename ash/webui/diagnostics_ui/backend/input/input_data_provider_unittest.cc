@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "ash/webui/diagnostics_ui/backend/input/input_data_provider.h"
 
 #include <cstdint>
@@ -54,6 +59,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/events/ash/event_rewriter_ash.h"
+#include "ui/events/ash/fake_event_rewriter_ash_delegate.h"
 #include "ui/events/ash/keyboard_capability.h"
 #include "ui/events/devices/device_data_manager.h"
 #include "ui/events/devices/device_data_manager_test_api.h"
@@ -261,7 +267,8 @@ class FakeDeviceManager : public ui::DeviceManager {
 };
 
 class FakeInputDataEventWatcher;
-typedef std::map<uint32_t, FakeInputDataEventWatcher*> watchers_t;
+typedef std::map<uint32_t, raw_ptr<FakeInputDataEventWatcher, CtnExperimental>>
+    watchers_t;
 
 // Fake evdev watcher class that lets us manually post input
 // events into an InputDataProvider; this keeps an external
@@ -567,6 +574,13 @@ class FakeInputDeviceInfoHelper : public InputDeviceInfoHelper {
     } else if (base_name == "event14") {
       device_caps = ui::kBaskingTouchScreen;
       EXPECT_EQ(14, id);
+    } else if (base_name == "event15") {
+      device_caps = ui::kSplitModifierKeyboard;
+      info->keyboard_type =
+          ui::KeyboardCapability::DeviceType::kDeviceInternalKeyboard;
+      info->keyboard_top_row_layout =
+          ui::KeyboardCapability::KeyboardTopRowLayout::kKbdTopRowLayoutCustom;
+      EXPECT_EQ(15, id);
     } else if (base_name == kSillyDeviceName) {
       // Simulate a device that is properly described, but has a malformed
       // device name.
@@ -599,73 +613,6 @@ class FakeInputDeviceInfoHelper : public InputDeviceInfoHelper {
 
     return info;
   }
-};
-
-// Test implementation of ui::EventRewriterAsh::Delegate used to check that
-// modifier key rewrites are suppressed appropriately in InputDataProvider.
-class TestEventRewriterAshDelegate : public ui::EventRewriterAsh::Delegate {
- public:
-  // ui::EventRewriterAsh::Delegate:
-  bool RewriteModifierKeys() override {
-    return !suppress_modifier_key_rewrites_;
-  }
-  void SuppressModifierKeyRewrites(bool should_supress) override {
-    suppress_modifier_key_rewrites_ = should_supress;
-  }
-
-  // Not used, only to satisfy interface.
-  bool RewriteMetaTopRowKeyComboEvents(int device_id) const override {
-    return true;
-  }
-  void SuppressMetaTopRowKeyComboRewrites(bool should_suppress) override {}
-  std::optional<ui::mojom::ModifierKey> GetKeyboardRemappedModifierValue(
-      int device_id,
-      ui::mojom::ModifierKey modifier_key,
-      const std::string& pref_name) const override {
-    return std::nullopt;
-  }
-  bool TopRowKeysAreFunctionKeys(int device_id) const override { return false; }
-  bool IsExtensionCommandRegistered(ui::KeyboardCode key_code,
-                                    int flags) const override {
-    return false;
-  }
-  bool IsSearchKeyAcceleratorReserved() const override { return false; }
-  bool NotifyDeprecatedRightClickRewrite() override { return false; }
-  bool NotifyDeprecatedSixPackKeyRewrite(ui::KeyboardCode key_code) override {
-    return false;
-  }
-  void RecordEventRemappedToRightClick(bool alt_based_right_click) override {}
-  void RecordSixPackEventRewrite(ui::KeyboardCode key_code,
-                                 bool alt_based) override {}
-  std::optional<ui::mojom::SimulateRightClickModifier>
-  GetRemapRightClickModifier(int device_id) override {
-    return std::nullopt;
-  }
-
-  std::optional<ui::mojom::SixPackShortcutModifier>
-  GetShortcutModifierForSixPackKey(int device_id,
-                                   ui::KeyboardCode key_code) override {
-    return std::nullopt;
-  }
-
-  void NotifyRightClickRewriteBlockedBySetting(
-      ui::mojom::SimulateRightClickModifier blocked_modifier,
-      ui::mojom::SimulateRightClickModifier active_modifier) override {}
-
-  void NotifySixPackRewriteBlockedBySetting(
-      ui::KeyboardCode key_code,
-      ui::mojom::SixPackShortcutModifier blocked_modifier,
-      ui::mojom::SixPackShortcutModifier active_modifier,
-      int device_id) override {}
-
-  std::optional<ui::mojom::ExtendedFkeysModifier> GetExtendedFkeySetting(
-      int device_id,
-      ui::KeyboardCode key_code) override {
-    return std::nullopt;
-  }
-
- protected:
-  bool suppress_modifier_key_rewrites_ = false;
 };
 
 // Our modifications to InputDataProvider that carries around its own
@@ -721,8 +668,6 @@ class InputDataProviderTest : public AshTestBase {
     AshTestSuite::LoadTestResources();
     AshTestBase::SetUp();
 
-    event_rewriter_delegate_ = std::make_unique<TestEventRewriterAshDelegate>();
-
     // Note: some init for creating widgets is performed in base SetUp
     // instead of the constructor, so our init must also be delayed until
     // SetUp, so we can safely invoke CreateTestWidget().
@@ -732,9 +677,10 @@ class InputDataProviderTest : public AshTestBase {
     system::StatisticsProvider::SetTestProvider(&statistics_provider_);
 
     fake_udev_ = std::make_unique<testing::FakeUdevLoader>();
-    widget_ = CreateTestWidget();
+    widget_ =
+        CreateTestWidget(views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET);
     provider_ = std::make_unique<TestInputDataProvider>(
-        widget_.get(), watchers_, event_rewriter_delegate_.get());
+        widget_.get(), watchers_, &event_rewriter_delegate_);
     DiagnosticsLogController::Initialize(
         std::make_unique<FakeDiagnosticsBrowserDelegate>());
 
@@ -772,7 +718,7 @@ class InputDataProviderTest : public AshTestBase {
   }
 
   bool ModifierRewritesAreSuppressed() {
-    return !event_rewriter_delegate_->RewriteModifierKeys();
+    return !event_rewriter_delegate_.RewriteModifierKeys();
   }
 
  protected:
@@ -851,14 +797,14 @@ class InputDataProviderTest : public AshTestBase {
   std::unique_ptr<views::Widget> widget_;
   // All evdev watchers in use by provider_.
   watchers_t watchers_;
+  ui::test::FakeEventRewriterAshDelegate event_rewriter_delegate_;
   std::unique_ptr<TestInputDataProvider> provider_;
-  std::unique_ptr<TestEventRewriterAshDelegate> event_rewriter_delegate_;
 
  private:
   std::unique_ptr<base::test::ScopedFeatureList> scoped_feature_list_;
 };
 
-TEST_F(InputDataProviderTest, GetConnectedDevices_DeviceInfoMapping) {
+TEST_F(InputDataProviderTest, GetConnectedDevicesDeviceInfoMapping) {
   ui::DeviceEvent event0(ui::DeviceEvent::DeviceType::INPUT,
                          ui::DeviceEvent::ActionType::ADD,
                          base::FilePath("/dev/input/event0"));
@@ -907,7 +853,7 @@ TEST_F(InputDataProviderTest, GetConnectedDevices_DeviceInfoMapping) {
   EXPECT_EQ("Atmel maXTouch Touchscreen", touchscreen->name);
 }
 
-TEST_F(InputDataProviderTest, GetConnectedDevices_HasInternalKeyboard) {
+TEST_F(InputDataProviderTest, GetConnectedDevicesHasInternalKeyboard) {
   // Initialize one internal keyboard in DeviceDataManager.
   std::vector<ui::KeyboardDevice> keyboard_devices;
   keyboard_devices.push_back(
@@ -936,7 +882,57 @@ TEST_F(InputDataProviderTest, GetConnectedDevices_HasInternalKeyboard) {
   ASSERT_EQ(1ul, keyboards.size());
 }
 
-TEST_F(InputDataProviderTest, GetConnectedDevices_AddEventAfterFirstCall) {
+TEST_F(InputDataProviderTest, GetConnectedDevicesSplitModifierKeyboard) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(features::kModifierSplit);
+
+  // Initialize one split modifier keyboard in DeviceDataManager.
+  std::vector<ui::KeyboardDevice> keyboard_devices;
+  keyboard_devices.emplace_back(
+      kDeviceId1, ui::InputDeviceType::INPUT_DEVICE_INTERNAL,
+      "Split Modifier Keyboard", /*has_assistant_key=*/true,
+      /*has_function_key=*/true);
+  ui::DeviceDataManagerTestApi().SetKeyboardDevices(keyboard_devices);
+
+  base::test::TestFuture<std::vector<mojom::KeyboardInfoPtr>,
+                         std::vector<mojom::TouchDeviceInfoPtr>>
+      future;
+  provider_->GetConnectedDevices(future.GetCallback());
+
+  // The return values are supposed to be ready since GetConnectedDevices()
+  // function won't wait for the split modifier keyboard to be added.
+  ASSERT_TRUE(future.IsReady());
+}
+
+TEST_F(InputDataProviderTest, FilterOutSplitModifierKeyboard) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(features::kModifierSplit);
+
+  // Initialize one split modifier keyboard in DeviceDataManager.
+  std::vector<ui::KeyboardDevice> keyboard_devices;
+  keyboard_devices.emplace_back(
+      kDeviceId1, ui::InputDeviceType::INPUT_DEVICE_INTERNAL,
+      "Split Modifier Keyboard", /*has_assistant_key=*/true,
+      /*has_function_key=*/true);
+  ui::DeviceDataManagerTestApi().SetKeyboardDevices(keyboard_devices);
+
+  base::test::TestFuture<std::vector<mojom::KeyboardInfoPtr>,
+                         std::vector<mojom::TouchDeviceInfoPtr>>
+      future;
+  provider_->GetConnectedDevices(future.GetCallback());
+
+  // Add an split modifier keyboard.
+  ui::DeviceEvent event(ui::DeviceEvent::DeviceType::INPUT,
+                        ui::DeviceEvent::ActionType::ADD,
+                        base::FilePath("/dev/input/event15"));
+  provider_->OnDeviceEvent(event);
+  base::RunLoop().RunUntilIdle();
+
+  const auto& keyboards = future.Get<0>();
+  ASSERT_EQ(0ul, keyboards.size());
+}
+
+TEST_F(InputDataProviderTest, GetConnectedDevicesAddEventAfterFirstCall) {
   {
     base::test::TestFuture<std::vector<mojom::KeyboardInfoPtr>,
                            std::vector<mojom::TouchDeviceInfoPtr>>
@@ -974,7 +970,7 @@ TEST_F(InputDataProviderTest, GetConnectedDevices_AddEventAfterFirstCall) {
   }
 }
 
-TEST_F(InputDataProviderTest, GetConnectedDevices_AddUnusualDevices) {
+TEST_F(InputDataProviderTest, GetConnectedDevicesAddUnusualDevices) {
   // Add two devices with unusual bus types, and verify connection types.
 
   ui::DeviceEvent event0(ui::DeviceEvent::DeviceType::INPUT,
@@ -1009,7 +1005,7 @@ TEST_F(InputDataProviderTest, GetConnectedDevices_AddUnusualDevices) {
   EXPECT_EQ(ui::kLogitechTouchKeyboardK400.name, keyboard2->name);
 }
 
-TEST_F(InputDataProviderTest, GetConnectedDevices_Remove) {
+TEST_F(InputDataProviderTest, GetConnectedDevicesRemove) {
   ui::DeviceEvent add_touch_event(ui::DeviceEvent::DeviceType::INPUT,
                                   ui::DeviceEvent::ActionType::ADD,
                                   base::FilePath("/dev/input/event1"));
@@ -1060,7 +1056,7 @@ TEST_F(InputDataProviderTest, GetConnectedDevices_Remove) {
   }
 }
 
-TEST_F(InputDataProviderTest, GetConnectedDevices_NoExternalKeyboards) {
+TEST_F(InputDataProviderTest, GetConnectedDevicesNoExternalKeyboards) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndDisableFeature(
       features::kEnableExternalKeyboardsInDiagnostics);
@@ -1201,7 +1197,7 @@ TEST_F(InputDataProviderTest, KeyboardRegionDetection) {
   EXPECT_EQ(std::nullopt, external_keyboard->region_code);
 }
 
-TEST_F(InputDataProviderTest, KeyboardRegionDetection_Failure) {
+TEST_F(InputDataProviderTest, KeyboardRegionDetectionFailure) {
   statistics_provider_.ClearMachineStatistic(system::kRegionKey);
 
   ui::DeviceEvent event_internal(ui::DeviceEvent::DeviceType::INPUT,
@@ -1276,7 +1272,7 @@ TEST_F(InputDataProviderTest, KeyboardNumberPadDetectionInternal) {
             builtin_keyboard->number_pad_present);
 }
 
-TEST_F(InputDataProviderTest, KeyboardTopRightKey_Clamshell) {
+TEST_F(InputDataProviderTest, KeyboardTopRightKeyClamshell) {
   // Devices without a tablet mode switch should be assumed to be clamshells,
   // with a power key in the top-right.
   ui::DeviceEvent event_keyboard(ui::DeviceEvent::DeviceType::INPUT,
@@ -1298,7 +1294,7 @@ TEST_F(InputDataProviderTest, KeyboardTopRightKey_Clamshell) {
   EXPECT_EQ(mojom::TopRightKey::kPower, keyboard->top_right_key);
 }
 
-TEST_F(InputDataProviderTest, KeyboardTopRightKey_Convertible_ModeSwitchFirst) {
+TEST_F(InputDataProviderTest, KeyboardTopRightKeyConvertibleModeSwitchFirst) {
   // Devices with a tablet mode switch should be assumed to be convertibles,
   // with a lock key in the top-right.
   ui::DeviceEvent event_mode_switch(ui::DeviceEvent::DeviceType::INPUT,
@@ -1324,7 +1320,7 @@ TEST_F(InputDataProviderTest, KeyboardTopRightKey_Convertible_ModeSwitchFirst) {
   EXPECT_EQ(mojom::TopRightKey::kLock, keyboard->top_right_key);
 }
 
-TEST_F(InputDataProviderTest, KeyboardTopRightKey_Convertible_KeyboardFirst) {
+TEST_F(InputDataProviderTest, KeyboardTopRightKeyConvertibleKeyboardFirst) {
   // Devices with a tablet mode switch should be assumed to be convertibles,
   // with a lock key in the top-right, even if we get the tablet mode switch
   // event after the keyboard event.
@@ -1351,7 +1347,7 @@ TEST_F(InputDataProviderTest, KeyboardTopRightKey_Convertible_KeyboardFirst) {
   EXPECT_EQ(mojom::TopRightKey::kLock, keyboard->top_right_key);
 }
 
-TEST_F(InputDataProviderTest, KeyboardTopRightKey_Detachable) {
+TEST_F(InputDataProviderTest, KeyboardTopRightKeyDetachable) {
   // "Internal" keyboards which are connected by USB are actually detachable,
   // and therefore should be assumed to have a lock key in the top-right.
   ui::DeviceEvent event_keyboard(ui::DeviceEvent::DeviceType::INPUT,
@@ -1373,7 +1369,7 @@ TEST_F(InputDataProviderTest, KeyboardTopRightKey_Detachable) {
   EXPECT_EQ(mojom::TopRightKey::kLock, keyboard->top_right_key);
 }
 
-TEST_F(InputDataProviderTest, ObserveConnectedDevices_Keyboards) {
+TEST_F(InputDataProviderTest, ObserveConnectedDevicesKeyboards) {
   FakeConnectedDevicesObserver fake_observer;
   provider_->ObserveConnectedDevices(
       fake_observer.receiver.BindNewPipeAndPassRemote());
@@ -1395,7 +1391,7 @@ TEST_F(InputDataProviderTest, ObserveConnectedDevices_Keyboards) {
   EXPECT_EQ(4u, fake_observer.keyboards_disconnected[0]);
 }
 
-TEST_F(InputDataProviderTest, ObserveConnectedDevices_TouchDevices) {
+TEST_F(InputDataProviderTest, ObserveConnectedDevicesTouchDevices) {
   FakeConnectedDevicesObserver fake_observer;
   provider_->ObserveConnectedDevices(
       fake_observer.receiver.BindNewPipeAndPassRemote());
@@ -1417,7 +1413,7 @@ TEST_F(InputDataProviderTest, ObserveConnectedDevices_TouchDevices) {
   EXPECT_EQ(1u, fake_observer.touch_devices_disconnected[0]);
 }
 
-TEST_F(InputDataProviderTest, ObserveConnectedDevices_NoExternalKeyboards) {
+TEST_F(InputDataProviderTest, ObserveConnectedDevicesNoExternalKeyboards) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndDisableFeature(
       features::kEnableExternalKeyboardsInDiagnostics);
@@ -1472,7 +1468,7 @@ TEST_F(InputDataProviderTest, SillyDeviceDoesNotCrash) {
   base::RunLoop().RunUntilIdle();
 }
 
-TEST_F(InputDataProviderTest, GetKeyboardMechanicalLayout_Unknown1) {
+TEST_F(InputDataProviderTest, GetKeyboardMechanicalLayoutUnknown1) {
   statistics_provider_.ClearMachineStatistic(
       system::kKeyboardMechanicalLayoutKey);
 
@@ -1503,7 +1499,7 @@ TEST_F(InputDataProviderTest, GetKeyboardMechanicalLayout_Unknown1) {
   }
 }
 
-TEST_F(InputDataProviderTest, GetKeyboardMechanicalLayout_Unknown2) {
+TEST_F(InputDataProviderTest, GetKeyboardMechanicalLayoutUnknown2) {
   statistics_provider_.SetMachineStatistic(system::kKeyboardMechanicalLayoutKey,
                                            kInvalidMechnicalLayout);
   ui::DeviceEvent add_keyboard_event(ui::DeviceEvent::DeviceType::INPUT,
@@ -1742,7 +1738,8 @@ TEST_F(InputDataProviderTest, KeyObservationDisconnect) {
 TEST_F(InputDataProviderTest, KeyObservationObeysFocusSwitching) {
   std::unique_ptr<FakeKeyboardObserver> fake_observer =
       std::make_unique<FakeKeyboardObserver>();
-  std::unique_ptr<views::Widget> other_widget = CreateTestWidget();
+  std::unique_ptr<views::Widget> other_widget =
+      CreateTestWidget(views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET);
 
   // Provider's widget must be active and visible.
   provider_->attached_widget_->Show();
@@ -2005,12 +2002,13 @@ TEST_F(InputDataProviderTest, KeyObservationMultipleProviders) {
   // Create a second InputDataProvider, with a separate window/widget,
   // as would happen if multiple instances of the SWA were created.
   watchers_t provider2_watchers;
-  auto provider2_widget = CreateTestWidget();
+  auto provider2_widget =
+      CreateTestWidget(views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET);
 
   std::unique_ptr<TestInputDataProvider> provider2_ =
       std::make_unique<TestInputDataProvider>(provider2_widget.get(),
                                               provider2_watchers,
-                                              event_rewriter_delegate_.get());
+                                              &event_rewriter_delegate_);
   auto& provider1_ = provider_;
 
   std::unique_ptr<FakeKeyboardObserver> fake_observer1 =
@@ -2135,7 +2133,8 @@ TEST_F(InputDataProviderTest, KeyObservationMultipleProviders) {
   fake_observer2->events_.clear();
 
   // Activate a new widget, ensuring neither previous window is active.
-  auto widget3 = CreateTestWidget();
+  auto widget3 =
+      CreateTestWidget(views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET);
   widget3->Activate();
   base::RunLoop().RunUntilIdle();
 

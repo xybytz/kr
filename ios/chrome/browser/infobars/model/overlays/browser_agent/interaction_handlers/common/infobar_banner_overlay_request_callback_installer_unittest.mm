@@ -4,6 +4,7 @@
 
 #import "ios/chrome/browser/infobars/model/overlays/browser_agent/interaction_handlers/common/infobar_banner_overlay_request_callback_installer.h"
 
+#import "base/memory/raw_ptr.h"
 #import "ios/chrome/browser/infobars/model/overlays/browser_agent/interaction_handlers/common/test/mock_infobar_banner_interaction_handler.h"
 #import "ios/chrome/browser/infobars/model/overlays/browser_agent/interaction_handlers/test/mock_infobar_interaction_handler.h"
 #import "ios/chrome/browser/infobars/model/test/fake_infobar_ios.h"
@@ -25,6 +26,7 @@ class InfobarBannerOverlayRequestCallbackInstallerTest : public PlatformTest {
   InfobarBannerOverlayRequestCallbackInstallerTest()
       : installer_(InfobarOverlayRequestConfig::RequestSupport(),
                    &mock_handler_) {
+    OverlayRequestQueue::CreateForWebState(&web_state_);
     std::unique_ptr<OverlayRequest> request =
         OverlayRequest::CreateWithConfig<InfobarOverlayRequestConfig>(
             &infobar_, InfobarOverlayType::kBanner, infobar_.high_priority());
@@ -44,7 +46,7 @@ class InfobarBannerOverlayRequestCallbackInstallerTest : public PlatformTest {
  protected:
   FakeInfobarIOS infobar_;
   web::FakeWebState web_state_;
-  OverlayRequest* request_ = nullptr;
+  raw_ptr<OverlayRequest> request_ = nullptr;
   MockInfobarBannerInteractionHandler mock_handler_;
   InfobarBannerOverlayRequestCallbackInstaller installer_;
 };

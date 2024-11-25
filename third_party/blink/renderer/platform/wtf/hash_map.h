@@ -22,6 +22,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_HASH_MAP_H_
 
 #include <initializer_list>
+#include <iterator>
 
 #include "base/numerics/safe_conversions.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -30,6 +31,8 @@
 #include "third_party/blink/renderer/platform/wtf/construct_traits.h"
 #include "third_party/blink/renderer/platform/wtf/hash_table.h"
 #include "third_party/blink/renderer/platform/wtf/key_value_pair.h"
+#include "third_party/blink/renderer/platform/wtf/type_traits.h"
+#include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
 
 namespace WTF {
 
@@ -71,6 +74,9 @@ struct KeyValuePairExtractor {
 // allowed; for integer keys 0 or -1 can't be used as a key. You can change
 // the restriction with a custom key hash traits. See hash_traits.h for how to
 // define hash traits.
+// Commonly used key types define their key hash traits separately from the
+// class itself, so e.g if you want a `WTF::HashMap<WTF::String, ...>` you must
+// include `string_hash.h`.
 template <typename KeyArg,
           typename MappedArg,
           typename KeyTraitsArg = HashTraits<KeyArg>,
@@ -108,16 +114,7 @@ class HashMap {
   class HashMapValuesProxy;
 
  public:
-  HashMap() {
-    static_assert(Allocator::kIsGarbageCollected ||
-                      !IsPointerToGarbageCollectedType<KeyArg>::value,
-                  "Cannot put raw pointers to garbage-collected classes into "
-                  "an off-heap HashMap.  Use HeapHashMap<> instead.");
-    static_assert(Allocator::kIsGarbageCollected ||
-                      !IsPointerToGarbageCollectedType<MappedArg>::value,
-                  "Cannot put raw pointers to garbage-collected classes into "
-                  "an off-heap HashMap.  Use HeapHashMap<> instead.");
-  }
+  HashMap() = default;
 
 #if DUMP_HASHTABLE_STATS_PER_TABLE
   void DumpStats() { impl_.DumpStats(); }
@@ -132,6 +129,11 @@ class HashMap {
   HashMap(std::initializer_list<ValueType> elements);
   HashMap& operator=(std::initializer_list<ValueType> elements);
 
+  // Useful for constructing from, for example, STL and base maps.
+  template <typename It>
+    requires(std::forward_iterator<It>)
+  HashMap(It begin, It end);
+
   typedef HashTableIteratorAdapter<HashTableType, ValueType> iterator;
   typedef HashTableConstIteratorAdapter<HashTableType, ValueType>
       const_iterator;
@@ -139,8 +141,8 @@ class HashMap {
 
   void swap(HashMap& ref) { impl_.swap(ref.impl_); }
 
-  unsigned size() const;
-  unsigned Capacity() const;
+  wtf_size_t size() const;
+  wtf_size_t Capacity() const;
   void ReserveCapacityForSize(unsigned size) {
     impl_.ReserveCapacityForSize(size);
   }
@@ -183,8 +185,19 @@ class HashMap {
   template <typename IncomingKeyType, typename IncomingMappedType>
   AddResult insert(IncomingKeyType&&, IncomingMappedType&&);
 
+  // NOTE: You cannot continue using an iterator after erase()
+  // (no modifications are allowed during iteration). Consider erase_if()
+  // or RemoveAll().
   void erase(KeyPeekInType);
   void erase(iterator);
+
+  // Erases all elements for which pred(element) returns true.
+  //
+  // The predicate should have a signature compatible with:
+  //   bool pred(const WTF::KeyValuePair<KeyType, MappedType>&);
+  template <typename Pred>
+  void erase_if(Pred pred);
+
   void clear();
   template <typename Collection>
   void RemoveAll(const Collection& to_be_removed) {
@@ -222,6 +235,22 @@ class HashMap {
   AddResult InlineAdd(IncomingKeyType&&, IncomingMappedType&&);
 
   HashTableType impl_;
+
+  struct TypeConstraints {
+    constexpr TypeConstraints() {
+      static_assert(!IsStackAllocatedType<KeyArg>);
+      static_assert(!IsStackAllocatedType<MappedArg>);
+      static_assert(Allocator::kIsGarbageCollected ||
+                        !IsPointerToGarbageCollectedType<KeyArg>::value,
+                    "Cannot put raw pointers to garbage-collected classes into "
+                    "an off-heap HashMap.  Use HeapHashMap<> instead.");
+      static_assert(Allocator::kIsGarbageCollected ||
+                        !IsPointerToGarbageCollectedType<MappedArg>::value,
+                    "Cannot put raw pointers to garbage-collected classes into "
+                    "an off-heap HashMap.  Use HeapHashMap<> instead.");
+    }
+  };
+  NO_UNIQUE_ADDRESS TypeConstraints type_constraints_;
 };
 
 template <typename KeyArg,
@@ -330,8 +359,13 @@ struct HashMapTranslator {
   }
 };
 
-template <typename T, typename U, typename V, typename W, typename X>
-HashMap<T, U, V, W, X>::HashMap(std::initializer_list<ValueType> elements) {
+template <typename KeyArg,
+          typename MappedArg,
+          typename KeyTraitsArg,
+          typename MappedTraitsArg,
+          typename Allocator>
+HashMap<KeyArg, MappedArg, KeyTraitsArg, MappedTraitsArg, Allocator>::HashMap(
+    std::initializer_list<ValueType> elements) {
   if (elements.size()) {
     impl_.ReserveCapacityForSize(
         base::checked_cast<wtf_size_t>(elements.size()));
@@ -347,13 +381,31 @@ auto HashMap<T, U, V, W, X>::operator=(
   return *this;
 }
 
+template <typename KeyArg,
+          typename MappedArg,
+          typename KeyTraitsArg,
+          typename MappedTraitsArg,
+          typename Allocator>
+template <typename It>
+  requires(std::forward_iterator<It>)
+HashMap<KeyArg, MappedArg, KeyTraitsArg, MappedTraitsArg, Allocator>::HashMap(
+    It begin,
+    It end) {
+  if constexpr (std::random_access_iterator<It>) {
+    ReserveCapacityForSize(base::checked_cast<wtf_size_t>(end - begin));
+  }
+  for (; begin != end; ++begin) {
+    insert(begin->first, begin->second);
+  }
+}
+
 template <typename T, typename U, typename V, typename W, typename X>
-inline unsigned HashMap<T, U, V, W, X>::size() const {
+inline wtf_size_t HashMap<T, U, V, W, X>::size() const {
   return impl_.size();
 }
 
 template <typename T, typename U, typename V, typename W, typename X>
-inline unsigned HashMap<T, U, V, W, X>::Capacity() const {
+inline wtf_size_t HashMap<T, U, V, W, X>::Capacity() const {
   return impl_.Capacity();
 }
 
@@ -476,6 +528,12 @@ inline void HashMap<T, U, V, W, X>::erase(iterator it) {
 template <typename T, typename U, typename V, typename W, typename X>
 inline void HashMap<T, U, V, W, X>::erase(KeyPeekInType key) {
   erase(find(key));
+}
+
+template <typename T, typename U, typename V, typename W, typename X>
+template <typename Pred>
+inline void HashMap<T, U, V, W, X>::erase_if(Pred pred) {
+  impl_.erase_if(std::forward<Pred>(pred));
 }
 
 template <typename T, typename U, typename V, typename W, typename X>

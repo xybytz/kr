@@ -5,10 +5,10 @@
 #import "ios/chrome/browser/ui/authentication/signin/consistency_promo_signin/consistency_default_account/consistency_default_account_coordinator.h"
 
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
-#import "ios/chrome/browser/signin/model/authentication_service_factory.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service.h"
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service_factory.h"
+#import "ios/chrome/browser/signin/model/identity_manager_factory.h"
 #import "ios/chrome/browser/signin/model/system_identity.h"
 #import "ios/chrome/browser/sync/model/sync_service_factory.h"
 #import "ios/chrome/browser/ui/authentication/enterprise/enterprise_utils.h"
@@ -16,8 +16,7 @@
 #import "ios/chrome/browser/ui/authentication/signin/consistency_promo_signin/consistency_default_account/consistency_default_account_view_controller.h"
 
 @interface ConsistencyDefaultAccountCoordinator () <
-    ConsistencyDefaultAccountActionDelegate,
-    ConsistencyDefaultAccountMediatorDelegate>
+    ConsistencyDefaultAccountActionDelegate>
 
 @property(nonatomic, strong)
     ConsistencyDefaultAccountViewController* defaultAccountViewController;
@@ -43,14 +42,13 @@
 
 - (void)start {
   [super start];
-  ChromeBrowserState* browserState = self.browser->GetBrowserState();
+  ProfileIOS* profile = self.browser->GetProfile();
   self.mediator = [[ConsistencyDefaultAccountMediator alloc]
-      initWithAccountManagerService:ChromeAccountManagerServiceFactory::
-                                        GetForBrowserState(browserState)
-                        syncService:SyncServiceFactory::GetForBrowserState(
-                                        browserState)
-                        accessPoint:self.accessPoint];
-  self.mediator.delegate = self;
+      initWithIdentityManager:IdentityManagerFactory::GetForProfile(profile)
+        accountManagerService:ChromeAccountManagerServiceFactory::GetForProfile(
+                                  profile)
+                  syncService:SyncServiceFactory::GetForProfile(profile)
+                  accessPoint:self.accessPoint];
   self.defaultAccountViewController =
       [[ConsistencyDefaultAccountViewController alloc] init];
   self.mediator.consumer = self.defaultAccountViewController;
@@ -87,13 +85,6 @@
 - (void)setSelectedIdentity:(id<SystemIdentity>)identity {
   DCHECK(self.mediator);
   self.mediator.selectedIdentity = identity;
-}
-
-#pragma mark - ConsistencyDefaultAccountMediatorDelegate
-
-- (void)consistencyDefaultAccountMediatorNoIdentities:
-    (ConsistencyDefaultAccountMediator*)mediator {
-  [self.delegate consistencyDefaultAccountCoordinatorAllIdentityRemoved:self];
 }
 
 #pragma mark - ConsistencyDefaultAccountActionDelegate

@@ -15,6 +15,7 @@
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/event_target_names.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h"
 #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap_source.h"
@@ -29,6 +30,7 @@ namespace blink {
 class CanvasContextCreationAttributesCore;
 class CanvasResourceProvider;
 class ImageBitmap;
+class ImageEncodeOptions;
 class
     OffscreenCanvasRenderingContext2DOrWebGLRenderingContextOrWebGL2RenderingContextOrImageBitmapRenderingContextOrGPUCanvasContext;
 typedef OffscreenCanvasRenderingContext2DOrWebGLRenderingContextOrWebGL2RenderingContextOrImageBitmapRenderingContextOrGPUCanvasContext
@@ -65,9 +67,11 @@ class CORE_EXPORT OffscreenCanvas final
   // API Methods
   ImageBitmap* transferToImageBitmap(ScriptState*, ExceptionState&);
 
-  ScriptPromise convertToBlob(ScriptState* script_state,
-                              const ImageEncodeOptions* options,
-                              ExceptionState& exception_state);
+  // For deferred canvases this will have the side effect of drawing recorded
+  // commands in order to finalize the frame.
+  ScriptPromise<Blob> convertToBlob(ScriptState* script_state,
+                                    const ImageEncodeOptions* options,
+                                    ExceptionState& exception_state);
 
   void SetSize(gfx::Size) override;
   void RecordTransfer();
@@ -80,7 +84,7 @@ class CORE_EXPORT OffscreenCanvas final
   void SetNeutered();
   CanvasRenderingContext* GetCanvasRenderingContext(
       ExecutionContext*,
-      const String&,
+      CanvasRenderingContext::CanvasRenderingAPI,
       const CanvasContextCreationAttributesCore&);
 
   static void RegisterRenderingContextFactory(
@@ -137,7 +141,13 @@ class CORE_EXPORT OffscreenCanvas final
   // Because OffscreenCanvas is not tied to a DOM, it's visibility cannot be
   // determined synchronously.
   // TODO(junov): Propagate changes in visibility from the placeholder canvas.
-  bool IsPageVisible() override { return true; }
+  bool IsPageVisible() const override { return true; }
+  void SetTransferToGPUTextureWasInvoked() override {
+    transfer_to_gpu_texture_was_invoked_ = true;
+  }
+  bool TransferToGPUTextureWasInvoked() override {
+    return transfer_to_gpu_texture_was_invoked_;
+  }
 
   // EventTarget implementation
   const AtomicString& InterfaceName() const final {
@@ -157,10 +167,10 @@ class CORE_EXPORT OffscreenCanvas final
 
   // ImageBitmapSource implementation
   gfx::Size BitmapSourceSize() const final;
-  ScriptPromise CreateImageBitmap(ScriptState*,
-                                  absl::optional<gfx::Rect>,
-                                  const ImageBitmapOptions*,
-                                  ExceptionState&) final;
+  ScriptPromise<ImageBitmap> CreateImageBitmap(ScriptState*,
+                                               std::optional<gfx::Rect>,
+                                               const ImageBitmapOptions*,
+                                               ExceptionState&) final;
 
   // CanvasImageSource implementation
   scoped_refptr<Image> GetSourceImageForCanvas(
@@ -177,6 +187,9 @@ class CORE_EXPORT OffscreenCanvas final
 
   // overrides CanvasImageSource::IsAccelerated()
   bool IsAccelerated() const final;
+
+  // overrides CanvasRenderingContextHost::EnableAcceleration()
+  bool EnableAcceleration() final;
 
   DispatchEventResult HostDispatchEvent(Event* event) override {
     return DispatchEvent(*event);
@@ -283,6 +296,9 @@ class CORE_EXPORT OffscreenCanvas final
   uint32_t sink_id_ = 0;
 
   bool restoring_gpu_context_ = false;
+  bool transfer_to_gpu_texture_was_invoked_ = false;
+
+  NO_UNIQUE_ADDRESS V8ExternalMemoryAccounterBase external_memory_accounter_;
 };
 
 }  // namespace blink

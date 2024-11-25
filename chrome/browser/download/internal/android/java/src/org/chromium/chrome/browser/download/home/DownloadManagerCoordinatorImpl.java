@@ -50,7 +50,7 @@ class DownloadManagerCoordinatorImpl
     private final SelectionDelegate<ListItem> mSelectionDelegate;
 
     private final Activity mActivity;
-    private final Callback<Context> mSettingsLauncher;
+    private final Callback<Context> mSettingsNavigation;
     private final BackPressHandler[] mBackPressHandlers;
 
     private ViewGroup mMainView;
@@ -62,7 +62,7 @@ class DownloadManagerCoordinatorImpl
             Activity activity,
             DownloadManagerUiConfig config,
             Supplier<Boolean> exploreOfflineTabVisibilitySupplier,
-            Callback<Context> settingsLauncher,
+            Callback<Context> settingsNavigation,
             SnackbarManager snackbarManager,
             ModalDialogManager modalDialogManager,
             Tracker tracker,
@@ -70,7 +70,7 @@ class DownloadManagerCoordinatorImpl
             OfflineContentProvider provider,
             DiscardableReferencePool discardableReferencePool) {
         mActivity = activity;
-        mSettingsLauncher = settingsLauncher;
+        mSettingsNavigation = settingsNavigation;
         mDeleteCoordinator = new DeleteUndoCoordinator(snackbarManager);
         mSelectionDelegate = new SelectionDelegate<ListItem>();
         mListCoordinator =
@@ -108,7 +108,7 @@ class DownloadManagerCoordinatorImpl
 
     /**
      * Creates the top level layout for download home including the toolbar.
-     * TODO(crbug.com/880468) : Investigate if it is better to do in XML.
+     * TODO(crbug.com/41411681) : Investigate if it is better to do in XML.
      */
     private void initializeView() {
         mMainView = new FrameLayout(mActivity);
@@ -198,7 +198,7 @@ class DownloadManagerCoordinatorImpl
     @Override
     public void openSettings() {
         RecordUserAction.record("Android.DownloadManager.Settings");
-        mSettingsLauncher.onResult(mActivity);
+        mSettingsNavigation.onResult(mActivity);
     }
 
     private void notifyFilterChanged(@FilterType int filter) {

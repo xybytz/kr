@@ -17,12 +17,12 @@
 #import "google_apis/gaia/core_account_id.h"
 #import "google_apis/gaia/gaia_auth_util.h"
 #import "ios/chrome/browser/policy/model/cloud/user_policy_switch.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace {
 
-// TODO(crbug.com/1312552): Move
+// TODO(crbug.com/40831740): Move
 // chrome/browser/signin/account_id_from_account_info.h to components/ to be
 // able to reuse the helper here.
 //
@@ -40,7 +40,7 @@ AccountId AccountIdFromAccountInfo(const CoreAccountInfo& account_info) {
 namespace policy {
 
 UserPolicySigninService::UserPolicySigninService(
-    PrefService* browser_state_prefs,
+    PrefService* pref_service,
     PrefService* local_state,
     DeviceManagementService* device_management_service,
     UserCloudPolicyManager* policy_manager,
@@ -51,7 +51,7 @@ UserPolicySigninService::UserPolicySigninService(
                                   policy_manager,
                                   identity_manager,
                                   system_url_loader_factory),
-      browser_state_prefs_(browser_state_prefs) {
+      pref_service_(pref_service) {
   if (identity_manager) {
     scoped_identity_manager_observation_.Observe(identity_manager);
   }
@@ -115,14 +115,19 @@ bool UserPolicySigninService::CanApplyPolicies(bool check_for_refresh_token) {
                                          identity_manager());
 }
 
+std::string UserPolicySigninService::GetProfileId() {
+  // Profile ID hasn't been implemented on iOS yet.
+  return std::string();
+}
+
 base::TimeDelta UserPolicySigninService::GetTryRegistrationDelay() {
-  return GetTryRegistrationDelayFromPrefs(browser_state_prefs_);
+  return GetTryRegistrationDelayFromPrefs(pref_service_);
 }
 
 void UserPolicySigninService::ProhibitSignoutIfNeeded() {}
 
 void UserPolicySigninService::UpdateLastPolicyCheckTime() {
-  UpdateLastPolicyCheckTimeInPrefs(browser_state_prefs_);
+  UpdateLastPolicyCheckTimeInPrefs(pref_service_);
 }
 
 signin::ConsentLevel UserPolicySigninService::GetConsentLevelForRegistration() {

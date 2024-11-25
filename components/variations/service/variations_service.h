@@ -18,6 +18,7 @@
 #include "base/time/time.h"
 #include "build/chromeos_buildflags.h"
 #include "components/variations/client_filterable_state.h"
+#include "components/variations/entropy_provider.h"
 #include "components/variations/service/limited_entropy_synthetic_trial.h"
 #include "components/variations/service/safe_seed_manager.h"
 #include "components/variations/service/ui_string_overrider.h"
@@ -51,6 +52,7 @@ class PrefRegistrySyncable;
 
 namespace variations {
 struct StudyGroupNames;
+class SyntheticTrialRegistry;
 class VariationsSeed;
 }
 
@@ -81,7 +83,7 @@ class VariationsService
     virtual void OnExperimentChangesDetected(Severity severity) = 0;
 
    protected:
-    virtual ~Observer() {}
+    virtual ~Observer() = default;
   };
 
   VariationsService(const VariationsService&) = delete;
@@ -120,6 +122,22 @@ class VariationsService
   // otherwise. Note that that this might be a bit over-broad, returning true
   // for clients that are not actually dogfooders.
   bool IsLikelyDogfoodClient() const;
+
+  // Sets the return value for subsequent calls to `IsLikelyDogfoodClient()`.
+  // This is a convenience function only for testing, because the two approaches
+  // that follow production code paths are cumbersome to get right:
+  // * `SetRestrictMode` also configures this behavior, but must be called early
+  //   during the `VariationsService` initialization flow.
+  // * Enterprise policies also configure this behavior, but the logic is
+  //   different per-platform. In particular, Ash ChromeOS and Lacros each have
+  //   distinct flows vs. other platforms.
+  //
+  // Warning: Depending on exactly when this is called, this might also change
+  // the constructed variations server URL's params. In other cases, it will
+  // cause the server URL to be out of sync with the `restrict_mode_`. In tests
+  // that require these to be in sync, prefer to call `SetRestrictMode()` at the
+  // appropriate time.
+  void SetIsLikelyDogfoodClientForTesting(bool is_dogfood_client);
 
   // Returns the variations server URL. |http_options| determines whether to
   // use the http or https URL. This function will return an empty GURL when
@@ -165,9 +183,21 @@ class VariationsService
   // Register Variations related prefs in the Profile prefs.
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
-  // Factory method for creating a VariationsService. Does not take ownership of
-  // |state_manager|. Caller should ensure that |state_manager| is valid for the
-  // lifetime of this class.
+  // Creates a VariationsService instance. Does not take ownership of
+  // |state_manager|, so callers should ensure that |state_manager| is valid for
+  // the lifetime of this class.
+  //
+  // |client| provides some platform-specific operations for variations. Must
+  // not be null.
+  // |local_state| provides access to Local State prefs. Must not be null.
+  // |state_manager| provides access to metrics state info. Must not be null.
+  // |disable_network_switch| is a command-line switch that can be used to
+  // disable network communication.
+  // |ui_string_overrider| provides overrides for UI strings.
+  // |network_connection_tracker_getter| allows the VariationsService to
+  // observe network state changes.
+  // |synthetic_trial_registry| provides an interface to register synthetic
+  // trials. Must not be null.
   static std::unique_ptr<VariationsService> Create(
       std::unique_ptr<VariationsServiceClient> client,
       PrefService* local_state,
@@ -175,7 +205,8 @@ class VariationsService
       const char* disable_network_switch,
       const UIStringOverrider& ui_string_overrider,
       web_resource::ResourceRequestAllowedNotifier::
-          NetworkConnectionTrackerGetter network_connection_tracker_getter);
+          NetworkConnectionTrackerGetter network_connection_tracker_getter,
+      SyntheticTrialRegistry* synthetic_trial_registry);
 
   // Enables fetching the seed for testing, even for unofficial builds. This
   // should be used along with overriding |DoActualFetch| or using
@@ -259,16 +290,15 @@ class VariationsService
                          bool store_success,
                          VariationsSeed seed);
 
-  // Creates the VariationsService with the given |local_state| prefs service
-  // and |state_manager|. Does not take ownership of |state_manager|. Caller
-  // should ensure that |state_manager| is valid for the lifetime of this class.
-  // Use the |Create| factory method to create a VariationsService.
+  // Use the |Create| factory method to create a VariationsService. See |Create|
+  // for more details.
   VariationsService(
       std::unique_ptr<VariationsServiceClient> client,
       std::unique_ptr<web_resource::ResourceRequestAllowedNotifier> notifier,
       PrefService* local_state,
       metrics::MetricsStateManager* state_manager,
-      const UIStringOverrider& ui_string_overrider);
+      const UIStringOverrider& ui_string_overrider,
+      SyntheticTrialRegistry* synthetic_trial_registry);
 
   // Sets the URL for querying the variations server. Used for testing.
   void set_variations_server_url(const GURL& url) {
@@ -321,6 +351,11 @@ class VariationsService
   FRIEND_TEST_ALL_PREFIXES(VariationsServiceTest, DoNotRetryAfterARetry);
   FRIEND_TEST_ALL_PREFIXES(VariationsServiceTest,
                            DoNotRetryIfInsecureURLIsHTTPS);
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // For the test to access |limited_entropy_synthetic_trial_|.
+  FRIEND_TEST_ALL_PREFIXES(VariationsServiceBrowserTest,
+                           LimitedEntropySyntheticTrialSeedTransfer);
+#endif
 
   void InitResourceRequestedAllowedNotifier();
 
@@ -370,6 +405,8 @@ class VariationsService
 
   // The pref service used to store persist the variations seed.
   raw_ptr<PrefService> local_state_;
+
+  const raw_ptr<SyntheticTrialRegistry> synthetic_trial_registry_;
 
   // Used for instantiating entropy providers for variations seed simulation.
   // Weak pointer.
@@ -427,6 +464,9 @@ class VariationsService
 
   // The main entry point for managing safe mode state.
   SafeSeedManager safe_seed_manager_;
+
+  // Used to provide entropy to field trials.
+  std::unique_ptr<const EntropyProviders> entropy_providers_;
 
   // Member responsible for creating trials from a variations seed.
   VariationsFieldTrialCreator field_trial_creator_;

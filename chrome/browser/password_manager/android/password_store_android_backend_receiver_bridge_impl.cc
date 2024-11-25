@@ -5,18 +5,21 @@
 #include "chrome/browser/password_manager/android/password_store_android_backend_receiver_bridge_impl.h"
 
 #include <jni.h>
+
 #include <cstdint>
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
-#include "chrome/browser/password_manager/android/jni_headers/PasswordStoreAndroidBackendReceiverBridgeImpl_jni.h"
 #include "chrome/browser/password_manager/android/protos/list_affiliated_passwords_result.pb.h"
 #include "chrome/browser/password_manager/android/protos/list_passwords_result.pb.h"
 #include "chrome/browser/password_manager/android/protos/password_with_local_data.pb.h"
 #include "chrome/browser/password_manager/android/unified_password_manager_proto_utils.h"
 #include "components/password_manager/core/browser/password_form.h"
+
+// Must come after all headers that specialize FromJniType() / ToJniType().
+#include "chrome/browser/password_manager/android/jni_headers/PasswordStoreAndroidBackendReceiverBridgeImpl_jni.h"
 
 namespace password_manager {
 
@@ -26,7 +29,8 @@ using JobId = PasswordStoreAndroidBackendReceiverBridge::JobId;
 
 template <typename ProtoType>
 std::vector<PasswordForm> CreateFormsVector(
-    const base::android::JavaRef<jbyteArray>& passwords) {
+    const base::android::JavaRef<jbyteArray>& passwords,
+    password_manager::IsAccountStore is_account_store) {
   std::vector<uint8_t> serialized_result;
   base::android::JavaByteArrayToByteVector(base::android::AttachCurrentThread(),
                                            passwords, &serialized_result);
@@ -34,23 +38,22 @@ std::vector<PasswordForm> CreateFormsVector(
   bool parsing_succeeds = list_passwords_result.ParseFromArray(
       serialized_result.data(), serialized_result.size());
   DCHECK(parsing_succeeds);
-  auto forms = PasswordVectorFromListResult(list_passwords_result);
-  for (auto& form : forms) {
-    // TODO(crbug.com/1348950): Set proper in_store value for GMS Core storage.
-    form.in_store = PasswordForm::Store::kProfileStore;
-  }
-  return forms;
+  return PasswordVectorFromListResult(list_passwords_result, is_account_store);
 }
 
 }  // namespace
 
 std::unique_ptr<PasswordStoreAndroidBackendReceiverBridge>
-PasswordStoreAndroidBackendReceiverBridge::Create() {
-  return std::make_unique<PasswordStoreAndroidBackendReceiverBridgeImpl>();
+PasswordStoreAndroidBackendReceiverBridge::Create(
+    password_manager::IsAccountStore is_account_store) {
+  return std::make_unique<PasswordStoreAndroidBackendReceiverBridgeImpl>(
+      is_account_store);
 }
 
 PasswordStoreAndroidBackendReceiverBridgeImpl::
-    PasswordStoreAndroidBackendReceiverBridgeImpl() {
+    PasswordStoreAndroidBackendReceiverBridgeImpl(
+        password_manager::IsAccountStore is_account_store)
+    : is_account_store_(is_account_store) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(main_sequence_checker_);
   java_object_ = Java_PasswordStoreAndroidBackendReceiverBridgeImpl_create(
       base::android::AttachCurrentThread(), reinterpret_cast<intptr_t>(this));
@@ -81,7 +84,8 @@ void PasswordStoreAndroidBackendReceiverBridgeImpl::OnCompleteWithLogins(
   DCHECK_CALLED_ON_VALID_SEQUENCE(main_sequence_checker_);
   DCHECK(consumer_);
   consumer_->OnCompleteWithLogins(
-      JobId(job_id), CreateFormsVector<ListPasswordsResult>(passwords));
+      JobId(job_id),
+      CreateFormsVector<ListPasswordsResult>(passwords, is_account_store_));
 }
 
 void PasswordStoreAndroidBackendReceiverBridgeImpl::OnCompleteWithBrandedLogins(
@@ -91,8 +95,8 @@ void PasswordStoreAndroidBackendReceiverBridgeImpl::OnCompleteWithBrandedLogins(
   DCHECK_CALLED_ON_VALID_SEQUENCE(main_sequence_checker_);
   DCHECK(consumer_);
   consumer_->OnCompleteWithLogins(
-      JobId(job_id),
-      CreateFormsVector<ListPasswordsWithUiInfoResult>(passwords));
+      JobId(job_id), CreateFormsVector<ListPasswordsWithUiInfoResult>(
+                         passwords, is_account_store_));
 }
 
 void PasswordStoreAndroidBackendReceiverBridgeImpl::
@@ -103,8 +107,8 @@ void PasswordStoreAndroidBackendReceiverBridgeImpl::
   DCHECK_CALLED_ON_VALID_SEQUENCE(main_sequence_checker_);
   CHECK(consumer_);
   consumer_->OnCompleteWithLogins(
-      JobId(job_id),
-      CreateFormsVector<ListAffiliatedPasswordsResult>(passwords));
+      JobId(job_id), CreateFormsVector<ListAffiliatedPasswordsResult>(
+                         passwords, is_account_store_));
 }
 
 void PasswordStoreAndroidBackendReceiverBridgeImpl::OnError(

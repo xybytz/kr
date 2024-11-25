@@ -63,8 +63,14 @@ void UkmDatabaseClient::StartObservation() {
     CHECK_IS_TEST();
     ukm_observer_ = std::make_unique<UkmObserver>(ukm_recorder_for_testing_);
   } else {
-    ukm_observer_ = std::make_unique<UkmObserver>(
-        GetApplicationContext()->GetMetricsServicesManager()->GetUkmService());
+    auto* ukm_service =
+        GetApplicationContext()->GetMetricsServicesManager()->GetUkmService();
+    ukm_observer_ = std::make_unique<UkmObserver>(ukm_service);
+    // First UKM state notification at startup is sent when UKM service is
+    // created by IOSChromeMetricsServiceClient::Initialize(). So, update the
+    // observer with the current consent state.
+    ukm_observer_->InitalizeUkmAllowedState(
+        ukm_service->recording_enabled(ukm::MSBB));
   }
   ukm_data_manager_->StartObservation(ukm_observer_.get());
 }
@@ -91,7 +97,7 @@ UkmDatabaseClientHolder& UkmDatabaseClientHolder::GetInstance() {
 
 // static
 UkmDatabaseClient& UkmDatabaseClientHolder::GetClientInstance(
-    ChromeBrowserState* profile) {
+    ProfileIOS* profile) {
   UkmDatabaseClientHolder& instance = GetInstance();
   base::AutoLock l(instance.lock_);
   if (!instance.clients_for_testing_.empty()) {
@@ -105,7 +111,7 @@ UkmDatabaseClient& UkmDatabaseClientHolder::GetClientInstance(
 
 // static
 void UkmDatabaseClientHolder::SetUkmClientForTesting(
-    ChromeBrowserState* profile,
+    ProfileIOS* profile,
     UkmDatabaseClient* client) {
   UkmDatabaseClientHolder& instance = GetInstance();
   instance.SetUkmClientForTestingInternal(profile, client);
@@ -117,7 +123,7 @@ UkmDatabaseClientHolder::UkmDatabaseClientHolder()
 UkmDatabaseClientHolder::~UkmDatabaseClientHolder() = default;
 
 void UkmDatabaseClientHolder::SetUkmClientForTestingInternal(
-    ChromeBrowserState* profile,
+    ProfileIOS* profile,
     UkmDatabaseClient* client) {
   base::AutoLock l(lock_);
   CHECK(profile);

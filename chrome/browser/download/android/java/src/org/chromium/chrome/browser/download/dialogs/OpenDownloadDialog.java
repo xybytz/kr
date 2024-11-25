@@ -14,7 +14,6 @@ import org.chromium.chrome.browser.download.R;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.modaldialog.ModalDialogProperties;
-import org.chromium.ui.modelutil.PropertyKey;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
 
@@ -40,15 +39,13 @@ public class OpenDownloadDialog {
         int COUNT = 4;
     }
 
-    private PropertyModelChangeProcessor<PropertyModel, OpenDownloadCustomView, PropertyKey>
-            mPropertyModelChangeProcessor;
-
     /**
      * Called to show a dialog for opening a download.
      *
      * @param context Context for showing the dialog.
      * @param modalDialogManager Manager for managing the modal dialog.
      * @param autoOpenEnabled Whether auto-open PDF is enabled.
+     * @param appName Name of the app to open the file, null if there are multiple apps.
      * @param callback Callback to run when confirming the dialog, dismissalCause is passed as a
      *     param.
      */
@@ -56,6 +53,7 @@ public class OpenDownloadDialog {
             Context context,
             ModalDialogManager modalDialogManager,
             boolean autoOpenEnabled,
+            String appName,
             Callback<Integer> callback) {
         OpenDownloadCustomView customView =
                 (OpenDownloadCustomView)
@@ -91,33 +89,31 @@ public class OpenDownloadDialog {
                     }
                 };
         var resources = context.getResources();
-
+        String title = resources.getString(R.string.open_download_dialog_title);
+        String positiveButtonText =
+                resources.getString(R.string.open_download_dialog_continue_text);
+        if (appName != null) {
+            title = resources.getString(R.string.open_download_with_app_dialog_title, appName);
+            positiveButtonText = resources.getString(R.string.open_download_dialog_open_text);
+        }
         PropertyModel propertyModel =
                 new PropertyModel.Builder(OpenDownloadDialogProperties.ALL_KEYS)
-                        .with(
-                                OpenDownloadDialogProperties.TITLE,
-                                resources.getString(R.string.open_download_dialog_title))
-                        .with(
-                                OpenDownloadDialogProperties.SUBTITLE,
-                                resources.getString(R.string.open_download_dialog_text))
+                        .with(OpenDownloadDialogProperties.TITLE, title)
                         .with(
                                 OpenDownloadDialogProperties.AUTO_OPEN_CHECKBOX_CHECKED,
                                 autoOpenEnabled)
                         .build();
-        mPropertyModelChangeProcessor =
-                PropertyModelChangeProcessor.create(
-                        propertyModel,
-                        customView,
-                        OpenDownloadDialogViewBinder::bind,
-                        /* performInitialBind= */ true);
+        PropertyModelChangeProcessor.create(
+                propertyModel,
+                customView,
+                OpenDownloadDialogViewBinder::bind,
+                /* performInitialBind= */ true);
 
         PropertyModel showPropertyModel =
                 new PropertyModel.Builder(ModalDialogProperties.ALL_KEYS)
                         .with(ModalDialogProperties.CONTROLLER, controller)
                         .with(ModalDialogProperties.CUSTOM_VIEW, customView)
-                        .with(
-                                ModalDialogProperties.POSITIVE_BUTTON_TEXT,
-                                resources.getString(R.string.open_download_dialog_open_text))
+                        .with(ModalDialogProperties.POSITIVE_BUTTON_TEXT, positiveButtonText)
                         .with(
                                 ModalDialogProperties.NEGATIVE_BUTTON_TEXT,
                                 resources.getString(R.string.open_download_dialog_cancel_text))

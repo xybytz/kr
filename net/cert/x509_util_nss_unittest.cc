@@ -4,6 +4,8 @@
 
 #include "net/cert/x509_util_nss.h"
 
+#include <string_view>
+
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/time/time.h"
@@ -133,7 +135,7 @@ TEST(X509UtilTest, CreateCERTCertificateListFromX509CertificateErrors) {
   ASSERT_TRUE(ok_cert);
 
   bssl::UniquePtr<CRYPTO_BUFFER> bad_cert =
-      x509_util::CreateCryptoBuffer(base::StringPiece("invalid"));
+      x509_util::CreateCryptoBuffer(std::string_view("invalid"));
   ASSERT_TRUE(bad_cert);
 
   scoped_refptr<X509Certificate> ok_cert2(
@@ -179,7 +181,7 @@ TEST(X509UtilNSSTest, CreateCERTCertificateListFromBytes) {
 
   ScopedCERTCertificateList certs =
       x509_util::CreateCERTCertificateListFromBytes(
-          cert_data.data(), cert_data.size(), X509Certificate::FORMAT_AUTO);
+          base::as_byte_span(cert_data), X509Certificate::FORMAT_AUTO);
   ASSERT_EQ(4U, certs.size());
   EXPECT_STREQ("CN=127.0.0.1,O=Test CA,L=Mountain View,ST=California,C=US",
                certs[0]->subjectName);
@@ -234,11 +236,11 @@ TEST(X509UtilNSSTest, DupCERTCertificateList) {
       certs_dup[1]->subjectName);
 }
 
-TEST(X509UtilNSSTest, DupCERTCertificateList_EmptyList) {
+TEST(X509UtilNSSTest, DupCERTCertificateListEmptyList) {
   EXPECT_EQ(0U, x509_util::DupCERTCertificateList({}).size());
 }
 
-TEST(X509UtilNSSTest, CreateX509CertificateFromCERTCertificate_NoChain) {
+TEST(X509UtilNSSTest, CreateX509CertificateFromCERTCertificateNoChain) {
   ScopedCERTCertificate nss_cert(
       x509_util::CreateCERTCertificateFromBytes(google_der));
   ASSERT_TRUE(nss_cert);
@@ -249,7 +251,7 @@ TEST(X509UtilNSSTest, CreateX509CertificateFromCERTCertificate_NoChain) {
   EXPECT_TRUE(x509_cert->intermediate_buffers().empty());
 }
 
-TEST(X509UtilNSSTest, CreateX509CertificateFromCERTCertificate_EmptyChain) {
+TEST(X509UtilNSSTest, CreateX509CertificateFromCERTCertificateEmptyChain) {
   ScopedCERTCertificate nss_cert(
       x509_util::CreateCERTCertificateFromBytes(google_der));
   ASSERT_TRUE(nss_cert);
@@ -261,7 +263,7 @@ TEST(X509UtilNSSTest, CreateX509CertificateFromCERTCertificate_EmptyChain) {
   EXPECT_TRUE(x509_cert->intermediate_buffers().empty());
 }
 
-TEST(X509UtilNSSTest, CreateX509CertificateFromCERTCertificate_WithChain) {
+TEST(X509UtilNSSTest, CreateX509CertificateFromCERTCertificateWithChain) {
   ScopedCERTCertificate nss_cert(
       x509_util::CreateCERTCertificateFromBytes(google_der));
   ASSERT_TRUE(nss_cert);
@@ -304,7 +306,7 @@ TEST(X509UtilNSSTest, CreateX509CertificateListFromCERTCertificates) {
             x509_util::CryptoBufferAsStringPiece(x509_certs[1]->cert_buffer()));
 }
 
-TEST(X509UtilNSSTest, CreateX509CertificateListFromCERTCertificates_EmptyList) {
+TEST(X509UtilNSSTest, CreateX509CertificateListFromCERTCertificatesEmptyList) {
   ScopedCERTCertificateList nss_certs;
   CertificateList x509_certs =
       x509_util::CreateX509CertificateListFromCERTCertificates(nss_certs);
@@ -337,7 +339,7 @@ TEST(X509UtilNSSTest, GetDefaultNickname) {
       nickname);
 }
 
-TEST(X509UtilNSSTest, GetCERTNameDisplayName_CN) {
+TEST(X509UtilNSSTest, GetCERTNameDisplayNameCN) {
   base::FilePath certs_dir = GetTestCertsDirectory();
 
   ScopedCERTCertificate test_cert =
@@ -352,7 +354,7 @@ TEST(X509UtilNSSTest, GetCERTNameDisplayName_CN) {
   EXPECT_EQ(x509_test_cert->subject().GetDisplayName(), name);
 }
 
-TEST(X509UtilNSSTest, GetCERTNameDisplayName_O) {
+TEST(X509UtilNSSTest, GetCERTNameDisplayNameO) {
   base::FilePath certs_dir =
       GetTestNetDataDirectory().AppendASCII("parse_certificate_unittest");
 

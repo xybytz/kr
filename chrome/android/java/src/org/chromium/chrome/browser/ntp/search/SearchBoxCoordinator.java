@@ -9,6 +9,7 @@ import android.graphics.drawable.Drawable;
 import android.text.TextWatcher;
 import android.view.View;
 import android.view.View.OnClickListener;
+import android.view.View.OnDragListener;
 import android.view.ViewGroup;
 
 import org.chromium.chrome.R;
@@ -78,12 +79,12 @@ public class SearchBoxCoordinator {
         mMediator.setSearchBoxClickListener(listener);
     }
 
-    public void setSearchBoxTextWatcher(TextWatcher textWatcher) {
-        mModel.set(SearchBoxProperties.SEARCH_BOX_TEXT_WATCHER, textWatcher);
+    public void setSearchBoxDragListener(OnDragListener listener) {
+        mMediator.setSearchBoxDragListener(listener);
     }
 
-    public void setSearchBoxHintColor(int hintTextColor) {
-        mModel.set(SearchBoxProperties.SEARCH_BOX_HINT_COLOR, hintTextColor);
+    public void setSearchBoxTextWatcher(TextWatcher textWatcher) {
+        mModel.set(SearchBoxProperties.SEARCH_BOX_TEXT_WATCHER, textWatcher);
     }
 
     public void setVoiceSearchButtonVisibility(boolean visible) {
@@ -129,18 +130,6 @@ public class SearchBoxCoordinator {
 
     public void setTextViewTranslationX(float translationX) {
         mMediator.setTextViewTranslationX(translationX);
-    }
-
-    public void setButtonsHeight(int height) {
-        mMediator.setButtonsHeight(height);
-    }
-
-    public void setButtonsWidth(int width) {
-        mMediator.setButtonsWidth(width);
-    }
-
-    public void setLensButtonLeftMargin(int leftMargin) {
-        mMediator.setLensButtonLeftMargin(leftMargin);
     }
 
     public void setSearchTextSize(float textSize) {

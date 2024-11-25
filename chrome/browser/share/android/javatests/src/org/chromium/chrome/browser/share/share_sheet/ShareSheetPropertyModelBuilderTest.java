@@ -27,7 +27,6 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
@@ -44,7 +43,6 @@ import org.chromium.chrome.browser.share.ShareContentTypeHelper;
 import org.chromium.chrome.browser.share.ShareContentTypeHelper.ContentType;
 import org.chromium.chrome.browser.share.link_to_text.LinkToTextCoordinator.LinkGeneration;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.browser_ui.share.ShareParams;
 import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -60,8 +58,6 @@ public final class ShareSheetPropertyModelBuilderTest {
     @Rule
     public BaseActivityTestRule<BlankUiTestActivity> mActivityTestRule =
             new BaseActivityTestRule<>(BlankUiTestActivity.class);
-
-    @Rule public TestRule mFeatureProcessor = new Features.JUnitProcessor();
 
     @Mock private PackageManager mPackageManager;
     @Mock private Profile mProfile;

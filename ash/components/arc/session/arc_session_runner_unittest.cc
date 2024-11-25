@@ -2,15 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/components/arc/session/arc_session_runner.h"
+
 #include <memory>
 #include <utility>
 
 #include "ash/components/arc/arc_util.h"
-#include "ash/components/arc/session/arc_session_runner.h"
 #include "ash/components/arc/test/fake_arc_session.h"
 #include "base/command_line.h"
-#include "base/functional/bind.h"
-#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -18,6 +17,7 @@
 #include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/cleanup/cleanup.h"
 
 namespace arc {
 
@@ -166,11 +166,9 @@ TEST_F(ArcSessionRunnerTest, Basic) {
   arc_session_runner()->ResumeRunner();
   Observer observer;
   arc_session_runner()->AddObserver(&observer);
-  base::ScopedClosureRunner teardown(base::BindOnce(
-      [](ArcSessionRunner* arc_session_runner, Observer* observer) {
-        arc_session_runner->RemoveObserver(observer);
-      },
-      arc_session_runner(), &observer));
+  absl::Cleanup teardown = [this, &observer] {
+    arc_session_runner()->RemoveObserver(&observer);
+  };
 
   EXPECT_FALSE(arc_session());
 
@@ -201,7 +199,7 @@ TEST_F(ArcSessionRunnerTest, StopMidStartup) {
 }
 
 // Does the same for mini instance.
-TEST_F(ArcSessionRunnerTest, StopMidStartup_MiniInstance) {
+TEST_F(ArcSessionRunnerTest, StopMidStartupMiniInstance) {
   ResetArcSessionFactory(
       base::BindRepeating(&ArcSessionRunnerTest::CreateSuspendedArcSession));
   arc_session_runner()->ResumeRunner();
@@ -229,7 +227,7 @@ TEST_F(ArcSessionRunnerTest, ExpansionPending) {
 }
 
 // Does the same test with a full instance.
-TEST_F(ArcSessionRunnerTest, ExpansionPending_FullInstance) {
+TEST_F(ArcSessionRunnerTest, ExpansionPendingFullInstance) {
   EXPECT_FALSE(arc_session());
   arc_session_runner()->RequestStartMiniInstance();
   EXPECT_FALSE(arc_session());
@@ -242,7 +240,7 @@ TEST_F(ArcSessionRunnerTest, ExpansionPending_FullInstance) {
 }
 
 // Checks the case where RequestStop() is called before resume.
-TEST_F(ArcSessionRunnerTest, ExpansionPending_StopMidStartup) {
+TEST_F(ArcSessionRunnerTest, ExpansionPendingStopMidStartup) {
   EXPECT_FALSE(arc_session());
   arc_session_runner()->RequestStartMiniInstance();
   EXPECT_FALSE(arc_session());
@@ -269,7 +267,7 @@ TEST_F(ArcSessionRunnerTest, BootFailure) {
 }
 
 // Does the same with the mini instance.
-TEST_F(ArcSessionRunnerTest, BootFailure_MiniInstance) {
+TEST_F(ArcSessionRunnerTest, BootFailureMiniInstance) {
   ResetArcSessionFactory(
       base::BindRepeating(&ArcSessionRunnerTest::CreateBootFailureArcSession,
                           ArcStopReason::GENERIC_BOOT_FAILURE));
@@ -294,7 +292,7 @@ TEST_F(ArcSessionRunnerTest, BootFailure_MiniInstance) {
 
 // Similary, CRASH should do same for GENERIC_BOOT_FAILURE case, because
 // in mini instance, Mojo connection should not be established.
-TEST_F(ArcSessionRunnerTest, Crash_MiniInstance) {
+TEST_F(ArcSessionRunnerTest, CrashMiniInstance) {
   ResetArcSessionFactory(
       base::BindRepeating(&ArcSessionRunnerTest::CreateBootFailureArcSession,
                           ArcStopReason::CRASH));
@@ -403,7 +401,7 @@ TEST_F(ArcSessionRunnerTest, RemoveUnknownObserver) {
 }
 
 // Tests UMA recording on mini instance -> full instance -> shutdown case.
-TEST_F(ArcSessionRunnerTest, UmaRecording_StartUpgradeShutdown) {
+TEST_F(ArcSessionRunnerTest, UmaRecordingStartUpgradeShutdown) {
   base::HistogramTester tester;
 
   arc_session_runner()->ResumeRunner();
@@ -423,7 +421,7 @@ TEST_F(ArcSessionRunnerTest, UmaRecording_StartUpgradeShutdown) {
 }
 
 // Tests UMA recording on full instance -> shutdown case.
-TEST_F(ArcSessionRunnerTest, UmaRecording_StartShutdown) {
+TEST_F(ArcSessionRunnerTest, UmaRecordingStartShutdown) {
   base::HistogramTester tester;
 
   arc_session_runner()->ResumeRunner();
@@ -437,7 +435,7 @@ TEST_F(ArcSessionRunnerTest, UmaRecording_StartShutdown) {
 
 // Tests UMA recording on mini instance -> full instance -> crash -> shutdown
 // case.
-TEST_F(ArcSessionRunnerTest, UmaRecording_CrashTwice) {
+TEST_F(ArcSessionRunnerTest, UmaRecordingCrashTwice) {
   base::HistogramTester tester;
 
   arc_session_runner()->ResumeRunner();
@@ -468,7 +466,7 @@ TEST_F(ArcSessionRunnerTest, UmaRecording_CrashTwice) {
 }
 
 // Tests UMA recording on mini instance -> crash -> shutdown case.
-TEST_F(ArcSessionRunnerTest, UmaRecording_CrashMini) {
+TEST_F(ArcSessionRunnerTest, UmaRecordingCrashMini) {
   base::HistogramTester tester;
 
   arc_session_runner()->ResumeRunner();
@@ -488,7 +486,7 @@ TEST_F(ArcSessionRunnerTest, UmaRecording_CrashMini) {
 }
 
 // Tests UMA recording on mini instance -> boot fail -> shutdown case.
-TEST_F(ArcSessionRunnerTest, UmaRecording_BootFail) {
+TEST_F(ArcSessionRunnerTest, UmaRecordingBootFail) {
   base::HistogramTester tester;
 
   arc_session_runner()->ResumeRunner();
@@ -507,7 +505,7 @@ TEST_F(ArcSessionRunnerTest, UmaRecording_BootFail) {
 }
 
 // Tests UMA recording on full instance -> low disk -> shutdown case.
-TEST_F(ArcSessionRunnerTest, UmaRecording_LowDisk) {
+TEST_F(ArcSessionRunnerTest, UmaRecordingLowDisk) {
   base::HistogramTester tester;
 
   arc_session_runner()->ResumeRunner();

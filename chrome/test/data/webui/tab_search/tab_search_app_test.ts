@@ -3,9 +3,10 @@
 // found in the LICENSE file.
 
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
-import {TabSearchApiProxyImpl, TabSearchAppElement} from 'chrome://tab-search.top-chrome/tab_search.js';
+import type {TabSearchAppElement} from 'chrome://tab-search.top-chrome/tab_search.js';
+import {TabSearchApiProxyImpl, TabSearchSection} from 'chrome://tab-search.top-chrome/tab_search.js';
 import {assertEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
+import {microtasksFinished} from 'chrome://webui-test/test_util.js';
 
 import {TestTabSearchApiProxy} from './test_tab_search_api_proxy.js';
 
@@ -25,24 +26,17 @@ suite('TabOrganizationPageTest', () => {
 
     document.body.innerHTML = window.trustedTypes!.emptyHTML;
     document.body.appendChild(tabSearchApp);
-    await flushTasks();
   });
 
-  test('Switching tabs calls setTabIndex', async () => {
-    assertEquals(0, testProxy.getCallCount('setTabIndex'));
-
+  test('Setting tab index from callback router', async () => {
     const crTabs = tabSearchApp.shadowRoot!.querySelector('cr-tabs');
     assertTrue(!!crTabs);
     assertEquals(0, crTabs.selected);
 
-    const allTabs = crTabs.shadowRoot!.querySelectorAll<HTMLElement>('.tab');
-    assertEquals(2, allTabs.length);
-    const newTabIndex = 1;
-    const unselectedTab = allTabs[newTabIndex]!;
-    unselectedTab.click();
+    testProxy.getCallbackRouterRemote().tabSearchSectionChanged(
+        TabSearchSection.kOrganize);
+    await microtasksFinished();
 
-    const [tabIndex] = await testProxy.whenCalled('setTabIndex');
-    assertEquals(newTabIndex, tabIndex);
-    assertEquals(newTabIndex, crTabs.selected);
+    assertEquals(1, crTabs.selected);
   });
 });

@@ -32,9 +32,11 @@
 #include "components/segmentation_platform/internal/selection/segmentation_result_prefs.h"
 #include "components/segmentation_platform/internal/stats.h"
 #include "components/segmentation_platform/public/config.h"
+#include "components/segmentation_platform/public/features.h"
 #include "components/segmentation_platform/public/field_trial_register.h"
 #include "components/segmentation_platform/public/input_context.h"
 #include "components/segmentation_platform/public/input_delegate.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 
 namespace segmentation_platform {
 
@@ -81,7 +83,7 @@ SegmentationPlatformServiceImpl::SegmentationPlatformServiceImpl(
         init_params->storage_dir, init_params->db_provider,
         init_params->task_runner, init_params->clock,
         init_params->ukm_data_manager, std::move(init_params->configs),
-        model_provider_factory_.get(), profile_prefs_,
+        model_provider_factory_.get(), profile_prefs_, init_params->profile_id,
         base::BindRepeating(
             &SegmentationPlatformServiceImpl::OnSegmentationModelUpdated,
             weak_ptr_factory_.GetWeakPtr()));
@@ -96,7 +98,7 @@ SegmentationPlatformServiceImpl::SegmentationPlatformServiceImpl(
   // Construct signal processors.
   DCHECK(!init_params->profile_id.empty());
   signal_handler_.Initialize(
-      storage_service_.get(), init_params->history_service,
+      storage_service_.get(), init_params->history_service, profile_prefs_,
       config_holder->all_segment_ids(), init_params->profile_id,
       base::BindRepeating(
           &SegmentationPlatformServiceImpl::OnModelRefreshNeeded,
@@ -191,11 +193,23 @@ void SegmentationPlatformServiceImpl::CollectTrainingData(
     const TrainingLabels& param,
     SuccessCallback callback) {
   execution_service_.training_data_collector()->CollectTrainingData(
-      segment_id, request_id, param, std::move(callback));
+      segment_id, request_id, ukm::kInvalidSourceId, param,
+      std::move(callback));
+}
+
+void SegmentationPlatformServiceImpl::CollectTrainingData(
+    SegmentId segment_id,
+    TrainingRequestId request_id,
+    ukm::SourceId ukm_source_id,
+    const TrainingLabels& param,
+    SuccessCallback callback) {
+  execution_service_.training_data_collector()->CollectTrainingData(
+      segment_id, request_id, ukm_source_id, param, std::move(callback));
 }
 
 void SegmentationPlatformServiceImpl::EnableMetrics(
     bool signal_collection_allowed) {
+  is_metrics_enabled_ = signal_collection_allowed;
   signal_handler_.EnableMetrics(signal_collection_allowed);
 }
 
@@ -204,7 +218,12 @@ ServiceProxy* SegmentationPlatformServiceImpl::GetServiceProxy() {
 }
 
 DatabaseClient* SegmentationPlatformServiceImpl::GetDatabaseClient() {
-  return database_client_.get();
+  if (base::FeatureList::IsEnabled(features::kSegmentationPlatformUkmEngine)) {
+    return database_client_.get();
+  } else {
+    // The database is not created when the feature is disabled.
+    return nullptr;
+  }
 }
 
 bool SegmentationPlatformServiceImpl::IsPlatformInitialized() {
@@ -275,7 +294,7 @@ void SegmentationPlatformServiceImpl::OnDatabaseInitialized(bool success) {
 
 void SegmentationPlatformServiceImpl::OnSegmentationModelUpdated(
     proto::SegmentInfo segment_info,
-    absl::optional<int64_t> old_model_version) {
+    std::optional<int64_t> old_model_version) {
   CHECK(IsPlatformInitialized());
   if (!segment_info.has_model_metadata()) {
     signal_handler_.OnSignalListUpdated();
@@ -354,6 +373,8 @@ void SegmentationPlatformService::RegisterProfilePrefs(
   registry->RegisterDictionaryPref(kSegmentationResultPref);
   registry->RegisterStringPref(kSegmentationClientResultPrefs, std::string());
   registry->RegisterTimePref(kSegmentationLastDBCompactionTimePref,
+                             base::Time());
+  registry->RegisterTimePref(kSegmentationUmaSqlDatabaseStartTimePref,
                              base::Time());
 }
 

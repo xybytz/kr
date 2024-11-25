@@ -16,6 +16,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/html/html_head_element.h"
 #include "third_party/blink/renderer/core/html/html_meta_element.h"
+#include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
@@ -95,12 +96,14 @@ inline void CheckPropertyMatches(Element& element,
                                  v8::Local<v8::Context> context,
                                  v8::Isolate* isolate,
                                  JavaScriptFrameworkDetectionResult& result) {
-  v8::Local<v8::Object> v8_element = dom_data_store.Get(&element, isolate);
-  if (v8_element.IsEmpty())
+  v8::Local<v8::Object> v8_element;
+  if (!dom_data_store.Get(isolate, &element).ToLocal(&v8_element)) {
     return;
+  }
   v8::Local<v8::Array> property_names;
-  if (!v8_element->GetOwnPropertyNames(context).ToLocal(&property_names))
+  if (!v8_element->GetOwnPropertyNames(context).ToLocal(&property_names)) {
     return;
+  }
 
   DEFINE_STATIC_LOCAL(AtomicString, vue_string, ("__vue__"));
   DEFINE_STATIC_LOCAL(AtomicString, vue_app_string, ("__vue_app__"));
@@ -334,8 +337,8 @@ void DetectFrameworkVersions(Document& document,
 }
 
 void TraverseTreeForFrameworks(Document& document,
+                               v8::Isolate* isolate,
                                v8::Local<v8::Context> context) {
-  v8::Isolate* isolate = context->GetIsolate();
   v8::TryCatch try_catch(isolate);
   JavaScriptFrameworkDetectionResult result;
   AtomicString detected_ng_version;
@@ -359,29 +362,32 @@ void TraverseTreeForFrameworks(Document& document,
 }  // namespace
 
 void DetectJavascriptFrameworksOnLoad(Document& document) {
-  // Only detect Javascript frameworks on the main frame and if URL and BaseURL
-  // is HTTP. Note: Without these checks, ToScriptStateForMainWorld will
-  // initialize WindowProxy and trigger a second DidClearWindowObject() earlier
-  // than expected for Android WebView. The Gin Java Bridge has a race condition
-  // that relies on a second DidClearWindowObject() firing immediately before
-  // executing JavaScript. See the document that explains this in more detail:
-  // https://docs.google.com/document/d/1R5170is5vY425OO2Ru-HJBEraEKu0HjQEakcYldcSzM/edit?usp=sharing
-  if (!document.GetFrame() || !document.GetFrame()->IsMainFrame() ||
-      document.GetFrame()->IsInFencedFrameTree() ||
+  LocalFrame* const frame = document.GetFrame();
+  if (!frame || !frame->IsOutermostMainFrame() ||
       !document.Url().ProtocolIsInHTTPFamily() ||
       !document.BaseURL().ProtocolIsInHTTPFamily()) {
     return;
   }
 
-  ScriptState* script_state = ToScriptStateForMainWorld(document.GetFrame());
-
-  if (!script_state || !script_state->ContextIsValid()) {
+  v8::Isolate* const isolate = ToIsolate(frame);
+  // It would be simpler to call `ToScriptStateForMainWorld()`; however, this
+  // forces WindowProxy initialization, which is somewhat expensive.  If the
+  // WindowProxy isn't already initialized, there are no JS frameworks by
+  // definition. As a bonus, this also helps preserve a historical quirk for Gin
+  // Java Bridge in Android WebView:
+  // https://docs.google.com/document/d/1R5170is5vY425OO2Ru-HJBEraEKu0HjQEakcYldcSzM/edit?usp=sharing
+  v8::HandleScope handle_scope(isolate);
+  v8::Local<v8::Context> context =
+      ToV8ContextMaybeEmpty(frame, DOMWrapperWorld::MainWorld(isolate));
+  if (context.IsEmpty()) {
     return;
   }
 
+  ScriptState* script_state = ScriptState::From(isolate, context);
+  DCHECK(script_state && script_state->ContextIsValid());
+
   ScriptState::Scope scope(script_state);
-  v8::Local<v8::Context> context = script_state->GetContext();
-  TraverseTreeForFrameworks(document, context);
+  TraverseTreeForFrameworks(document, isolate, context);
 }
 
 }  // namespace blink

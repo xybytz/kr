@@ -5,14 +5,13 @@
 #import "ios/chrome/browser/ui/settings/downloads/downloads_settings_coordinator.h"
 
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/shared/public/commands/application_commands.h"
 #import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
 #import "ios/chrome/browser/shared/public/commands/show_signin_command.h"
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service_factory.h"
 #import "ios/chrome/browser/signin/model/identity_manager_factory.h"
 #import "ios/chrome/browser/signin/model/system_identity.h"
-#import "ios/chrome/browser/ui/authentication/signin/signin_completion_info.h"
 #import "ios/chrome/browser/ui/authentication/signin/signin_constants.h"
 #import "ios/chrome/browser/ui/settings/downloads/downloads_settings_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/settings/downloads/downloads_settings_table_view_controller.h"
@@ -58,13 +57,13 @@
 #pragma mark - ChromeCoordinator
 
 - (void)start {
-  ChromeBrowserState* browserState = self.browser->GetBrowserState();
+  ProfileIOS* profile = self.browser->GetProfile();
   _saveToPhotosSettingsMediator = [[SaveToPhotosSettingsMediator alloc]
       initWithAccountManagerService:ChromeAccountManagerServiceFactory::
-                                        GetForBrowserState(browserState)
-                        prefService:browserState->GetPrefs()
-                    identityManager:IdentityManagerFactory::GetForBrowserState(
-                                        browserState)];
+                                        GetForProfile(profile)
+                        prefService:profile->GetPrefs()
+                    identityManager:IdentityManagerFactory::GetForProfile(
+                                        profile)];
 
   _downloadsSettingsTableViewController =
       [[DownloadsSettingsTableViewController alloc] init];
@@ -144,15 +143,15 @@
                             ACCESS_POINT_SAVE_TO_PHOTOS_IOS
             promoAction:signin_metrics::PromoAction::
                             PROMO_ACTION_NO_SIGNIN_PROMO
-               callback:^(SigninCoordinatorResult result,
-                          SigninCompletionInfo* info) {
-                 __strong __typeof(weakSelf) strongSelf = weakSelf;
-                 if (strongSelf && result == SigninCoordinatorResultSuccess &&
-                     info.identity) {
-                   [strongSelf->_saveToPhotosSettingsMediator
-                       setSelectedIdentityGaiaID:info.identity.gaiaID];
-                 }
-               }];
+             completion:^(SigninCoordinatorResult result,
+                          id<SystemIdentity> signinIdentity) {
+               __strong __typeof(weakSelf) strongSelf = weakSelf;
+               if (strongSelf && result == SigninCoordinatorResultSuccess &&
+                   signinIdentity) {
+                 [strongSelf->_saveToPhotosSettingsMediator
+                     setSelectedIdentityGaiaID:signinIdentity.gaiaID];
+               }
+             }];
   [applicationCommandsHandler showSignin:addAccountCommand
                       baseViewController:self.baseViewController];
 }

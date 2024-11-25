@@ -4,16 +4,18 @@
 
 #import "ios/chrome/browser/ui/whats_new/promo/whats_new_scene_agent.h"
 
+#import "base/test/scoped_feature_list.h"
 #import "base/test/task_environment.h"
+#import "components/commerce/core/commerce_feature_list.h"
 #import "ios/chrome/app/application_delegate/app_state.h"
 #import "ios/chrome/app/application_delegate/fake_startup_information.h"
-#import "ios/chrome/browser/promos_manager/constants.h"
-#import "ios/chrome/browser/promos_manager/features.h"
-#import "ios/chrome/browser/promos_manager/mock_promos_manager.h"
+#import "ios/chrome/browser/promos_manager/model/constants.h"
+#import "ios/chrome/browser/promos_manager/model/features.h"
+#import "ios/chrome/browser/promos_manager/model/mock_promos_manager.h"
 #import "ios/chrome/browser/shared/coordinator/scene/scene_state.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/ui/whats_new/constants.h"
 #import "ios/chrome/browser/ui/whats_new/whats_new_util.h"
 #import "testing/platform_test.h"
@@ -26,10 +28,10 @@ class WhatsNewSceneAgentTest : public PlatformTest {
     scene_state_ = [[SceneState alloc] initWithAppState:app_state_];
     scene_state_.scene = static_cast<UIWindowScene*>(
         [[[UIApplication sharedApplication] connectedScenes] anyObject]);
-    std::unique_ptr<TestChromeBrowserState> browser_state_ =
-        TestChromeBrowserState::Builder().Build();
+    std::unique_ptr<TestProfileIOS> profile_ =
+        TestProfileIOS::Builder().Build();
     std::unique_ptr<Browser> browser_ =
-        std::make_unique<TestBrowser>(browser_state_.get(), scene_state_);
+        std::make_unique<TestBrowser>(profile_.get(), scene_state_);
     FakeStartupInformation* startup_information_ =
         [[FakeStartupInformation alloc] init];
     app_state_ =
@@ -50,6 +52,7 @@ class WhatsNewSceneAgentTest : public PlatformTest {
   WhatsNewSceneAgent* agent_;
   // SceneState only weakly holds AppState, so keep it alive here.
   AppState* app_state_;
+  base::test::ScopedFeatureList feature_list_;
   SceneState* scene_state_;
   base::test::TaskEnvironment task_environment_;
   std::unique_ptr<MockPromosManager> promos_manager_;
@@ -57,6 +60,7 @@ class WhatsNewSceneAgentTest : public PlatformTest {
 
 // Tests that the What's New promo continuous registers in the promo manager.
 TEST_F(WhatsNewSceneAgentTest, TestWhatsNewPromoRegistration) {
+  feature_list_.InitAndEnableFeature(commerce::kPriceInsightsIos);
   EXPECT_CALL(*promos_manager_.get(), RegisterPromoForContinuousDisplay(
                                           promos_manager::Promo::WhatsNew))
       .Times(1);

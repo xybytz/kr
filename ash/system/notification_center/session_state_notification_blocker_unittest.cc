@@ -17,6 +17,7 @@
 #include "ash/system/system_notification_controller.h"
 #include "ash/test/ash_test_base.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chromeos/ash/components/policy/restriction_schedule/device_restriction_schedule_controller_delegate_impl.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/public/cpp/notification.h"
 
@@ -256,7 +257,7 @@ TEST_F(SessionStateNotificationBlockerTest, BlockOnPrefService) {
   TestSessionControllerClient* const session_controller_client =
       GetSessionControllerClient();
   session_controller_client->AddUserSession(kUserAccountId.GetUserEmail(),
-                                            user_manager::USER_TYPE_REGULAR,
+                                            user_manager::UserType::kRegular,
                                             false /* provide_pref_service */);
   EXPECT_EQ(0, GetStateChangedCountAndReset());
   EXPECT_FALSE(ShouldShowNotificationAsPopup(notifier_id));
@@ -281,7 +282,7 @@ TEST_F(SessionStateNotificationBlockerTest, BlockInKioskMode) {
   EXPECT_TRUE(ShouldShowNotificationAsPopup(notifier_id));
   EXPECT_TRUE(ShouldShowNotification(notifier_id));
 
-  SimulateKioskMode(user_manager::USER_TYPE_KIOSK_APP);
+  SimulateKioskMode(user_manager::UserType::kKioskApp);
   EXPECT_FALSE(ShouldShowNotificationAsPopup(notifier_id));
   EXPECT_FALSE(ShouldShowNotification(notifier_id));
 }
@@ -362,6 +363,10 @@ TEST_F(SessionStateNotificationBlockerTest, NotificationAllowedDuringOOBE) {
       kTestCases = {
           {BatteryNotification::kNotificationId, true},
           {kOOBELocaleSwitchNotificationId, true},
+          {kOOBEGnubbyNotificationId, true},
+          {policy::DeviceRestrictionScheduleControllerDelegateImpl::
+               kPostLogoutNotificationId,
+           true},
           {"new-fancy-notification", false},
       };
   const SessionState kOOBEStates[] = {SessionState::OOBE,

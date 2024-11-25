@@ -2,12 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "ash/system/audio/unified_volume_view.h"
 
 #include <memory>
 #include <utility>
 
 #include "ash/accessibility/accessibility_controller.h"
+#include "ash/ash_element_identifiers.h"
 #include "ash/constants/ash_features.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
@@ -24,6 +30,7 @@
 #include "ui/chromeos/styles/cros_tokens_color_mappings.h"
 #include "ui/gfx/vector_icon_types.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/view_class_properties.h"
 
 namespace ash {
 
@@ -59,6 +66,9 @@ UnifiedVolumeView::UnifiedVolumeView(
   }
 
   more_button_->SetIconColor(cros_tokens::kCrosSysSecondary);
+  more_button_->SetProperty(views::kElementIdentifierKey,
+                            kQuickSettingsAudioDetailedViewButtonElementId);
+
   // TODO(b/257151067): Update the a11y name id.
   // Adds the live caption button before `more_button_`.
   Shell::Get()->accessibility_controller()->AddObserver(this);
@@ -100,7 +110,8 @@ UnifiedVolumeView::UnifiedVolumeView(
 
 UnifiedVolumeView::UnifiedVolumeView(UnifiedVolumeSliderController* controller,
                                      uint64_t device_id,
-                                     bool is_active_output_node)
+                                     bool is_active_output_node,
+                                     const gfx::Insets& inside_padding)
     : UnifiedSliderView(base::BindRepeating(
                             &UnifiedVolumeSliderController::SliderButtonPressed,
                             base::Unretained(controller)),
@@ -116,7 +127,7 @@ UnifiedVolumeView::UnifiedVolumeView(UnifiedVolumeSliderController* controller,
   CrasAudioHandler::Get()->AddAudioObserver(this);
 
   auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
-      views::BoxLayout::Orientation::kHorizontal, kRadioSliderViewPadding,
+      views::BoxLayout::Orientation::kHorizontal, inside_padding,
       kSliderChildrenViewSpacing));
   slider()->SetBorder(views::CreateEmptyBorder(kRadioSliderPadding));
   slider()->SetPreferredSize(kRadioSliderPreferredSize);
@@ -269,7 +280,7 @@ void UnifiedVolumeView::OnAccessibilityStatusChanged() {
 }
 
 void UnifiedVolumeView::ChildVisibilityChanged(views::View* child) {
-  Layout();
+  DeprecatedLayoutImmediately();
 }
 
 void UnifiedVolumeView::VisibilityChanged(View* starting_from,
@@ -277,7 +288,7 @@ void UnifiedVolumeView::VisibilityChanged(View* starting_from,
   Update(/*by_user=*/true);
 }
 
-BEGIN_METADATA(UnifiedVolumeView, views::View)
+BEGIN_METADATA(UnifiedVolumeView)
 END_METADATA
 
 }  // namespace ash

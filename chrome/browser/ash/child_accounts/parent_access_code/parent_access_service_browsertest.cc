@@ -28,29 +28,6 @@
 namespace ash {
 namespace parent_access {
 
-namespace {
-
-// Dictionary keys for ParentAccessCodeConfig policy.
-constexpr char kFutureConfigDictKey[] = "future_config";
-constexpr char kCurrentConfigDictKey[] = "current_config";
-constexpr char kOldConfigsDictKey[] = "old_configs";
-
-base::Value PolicyFromConfigs(
-    const AccessCodeConfig& future_config,
-    const AccessCodeConfig& current_config,
-    const std::vector<AccessCodeConfig>& old_configs) {
-  base::Value::Dict dict;
-  dict.Set(kFutureConfigDictKey, future_config.ToDictionary());
-  dict.Set(kCurrentConfigDictKey, current_config.ToDictionary());
-  base::Value::List old_configs_value;
-  for (const auto& config : old_configs)
-    old_configs_value.Append(config.ToDictionary());
-  dict.Set(kOldConfigsDictKey, std::move(old_configs_value));
-  return base::Value(std::move(dict));
-}
-
-}  // namespace
-
 // Stores information about results of the access code validation.
 struct CodeValidationResults {
   // Number of successful access code validations.
@@ -150,13 +127,9 @@ class ParentAccessServiceTest : public MixinBasedInProcessBrowserTest {
   }
 
   AccessCodeValues test_values_;
-  LoggedInUserMixin logged_in_user_mixin_{&mixin_host_,
-                                          LoggedInUserMixin::LogInType::kChild,
+  LoggedInUserMixin logged_in_user_mixin_{&mixin_host_, /*test_base=*/this,
                                           embedded_test_server(),
-                                          this,
-                                          true /*should_launch_browser*/,
-                                          std::nullopt /*account_id*/,
-                                          true /*include_initial_user*/};
+                                          LoggedInUserMixin::LogInType::kChild};
   std::unique_ptr<TestParentAccessServiceObserver> test_observer_;
 };
 

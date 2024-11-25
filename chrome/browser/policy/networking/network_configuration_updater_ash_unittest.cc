@@ -15,7 +15,7 @@
 #include "base/run_loop.h"
 #include "base/values.h"
 #include "chrome/browser/ash/login/session/user_session_manager.h"
-#include "chrome/browser/ash/settings/cros_settings.h"
+#include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/ash/settings/device_settings_service.h"
 #include "chrome/browser/ash/settings/scoped_testing_cros_settings.h"
 #include "chrome/browser/policy/networking/device_network_configuration_updater_ash.h"
@@ -26,6 +26,7 @@
 #include "chromeos/ash/components/network/mock_managed_network_configuration_handler.h"
 #include "chromeos/ash/components/network/onc/onc_certificate_importer.h"
 #include "chromeos/ash/components/network/policy_certificate_provider.h"
+#include "chromeos/ash/components/settings/cros_settings.h"
 #include "chromeos/ash/components/system/fake_statistics_provider.h"
 #include "chromeos/ash/components/system/statistics_provider.h"
 #include "chromeos/components/onc/certificate_scope.h"
@@ -304,14 +305,15 @@ class NetworkConfigurationUpdaterAshTest : public testing::Test {
   NetworkConfigurationUpdaterAshTest() : certificate_importer_(nullptr) {}
 
   void SetUp() override {
-    fake_user_ =
-        user_manager_->AddUser(AccountId::FromUserEmail(kFakeUserEmail));
+    fake_user_ = static_cast<ash::FakeChromeUserManager*>(
+                     user_manager::UserManager::Get())
+                     ->AddUser(AccountId::FromUserEmail(kFakeUserEmail));
 
     ash::UserSessionManager::GetInstance()->set_start_session_type_for_testing(
         ash::UserSessionManager::StartSessionType::kPrimary);
 
-    fake_statistics_provider_.SetMachineStatistic(
-        ash::system::kSerialNumberKeyForTest, kFakeSerialNumber);
+    fake_statistics_provider_.SetMachineStatistic(ash::system::kSerialNumberKey,
+                                                  kFakeSerialNumber);
 
     EXPECT_CALL(provider_, IsInitializationComplete(_))
         .WillRepeatedly(Return(false));
@@ -431,13 +433,11 @@ class NetworkConfigurationUpdaterAshTest : public testing::Test {
   std::unique_ptr<ash::onc::CertificateImporter>
       client_certificate_importer_owned_;
 
+  TestingProfile profile_;
+
   StrictMock<MockConfigurationPolicyProvider> provider_;
   std::unique_ptr<PolicyServiceImpl> policy_service_;
-  user_manager::TypedScopedUserManager<user_manager::FakeUserManager>
-      user_manager_{std::make_unique<user_manager::FakeUserManager>()};
   raw_ptr<const user_manager::User> fake_user_;
-
-  TestingProfile profile_;
 
   std::unique_ptr<NetworkConfigurationUpdater> network_configuration_updater_;
 

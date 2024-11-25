@@ -128,7 +128,6 @@ void WriteDebugAnnotationValue(base::trace_event::TraceEvent* trace_event,
 
     default:
       NOTREACHED() << "Don't know how to serialize this value";
-      break;
   }
 }
 

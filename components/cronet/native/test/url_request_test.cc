@@ -10,6 +10,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
+#include "base/notreached.h"
 #include "base/run_loop.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/task_environment.h"
@@ -248,9 +249,8 @@ Cronet_RequestFinishedInfo_FINISHED_REASON MapFinishedReason(
     case TestUrlRequestCallback::ON_CANCELED:
       return Cronet_RequestFinishedInfo_FINISHED_REASON_CANCELED;
     default:
-      CHECK(false) << "Unknown TestUrlRequestCallback::ResponseStep: "
+      NOTREACHED() << "Unknown TestUrlRequestCallback::ResponseStep: "
                    << response_step;
-      return Cronet_RequestFinishedInfo_FINISHED_REASON_FAILED;
   }
 }
 
@@ -287,8 +287,8 @@ class UrlRequestTest : public ::testing::TestWithParam<
   UrlRequestTest& operator=(const UrlRequestTest&) = delete;
 
  protected:
-  UrlRequestTest() {}
-  ~UrlRequestTest() override {}
+  UrlRequestTest() = default;
+  ~UrlRequestTest() override = default;
 
   void SetUp() override { EXPECT_TRUE(cronet::TestServer::Start()); }
 
@@ -1083,7 +1083,7 @@ TEST_P(UrlRequestTest, UploadFailsWithoutInitializingStream) {
   EXPECT_TRUE(callback->on_error_called_);
 }
 
-// TODO(https://crbug.com/954372): Flakes in AssertClosed().
+// TODO(crbug.com/41453771): Flakes in AssertClosed().
 TEST_P(UrlRequestTest, DISABLED_UploadCancelReadSync) {
   auto callback =
       std::make_unique<TestUrlRequestCallback>(GetDirectExecutorParam());
@@ -1125,7 +1125,7 @@ TEST_P(UrlRequestTest, UploadCancelReadAsync) {
   EXPECT_TRUE(callback->on_canceled_called_);
 }
 
-// TODO(https://crbug.com/954372): Flakes in AssertClosed().
+// TODO(crbug.com/41453771): Flakes in AssertClosed().
 TEST_P(UrlRequestTest, DISABLED_UploadCancelRewindSync) {
   auto callback =
       std::make_unique<TestUrlRequestCallback>(GetDirectExecutorParam());

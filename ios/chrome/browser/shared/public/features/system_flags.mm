@@ -13,12 +13,13 @@
 #import "base/feature_list.h"
 #import "base/metrics/field_trial.h"
 #import "base/strings/sys_string_conversions.h"
-#import "build/branding_buildflags.h"
 #import "components/autofill/core/common/autofill_switches.h"
 #import "components/password_manager/core/common/password_manager_features.h"
+#import "components/segmentation_platform/public/constants.h"
 #import "components/variations/variations_associated_data.h"
 #import "ios/chrome/browser/browsing_data/model/browsing_data_features.h"
 #import "ios/chrome/browser/flags/chrome_switches.h"
+#import "ios/chrome/browser/memory/model/features.h"
 #import "ios/chrome/browser/safety_check/model/ios_chrome_safety_check_manager_constants.h"
 #import "ios/chrome/browser/shared/public/features/features.h"
 
@@ -28,7 +29,6 @@ NSString* const kAlternateDiscoverFeedServerURL =
     @"AlternateDiscoverFeedServerURL";
 NSString* const kEnableStartupCrash = @"EnableStartupCrash";
 NSString* const kFirstRunForceEnabled = @"FirstRunForceEnabled";
-NSString* const kSearchEngineForceEnabled = @"SearchEngineForceEnabled";
 NSString* const kUpgradePromoForceEnabled = @"UpgradePromoForceEnabled";
 NSString* const kOriginServerHost = @"AlternateOriginServerHost";
 NSString* const kWhatsNewPromoStatus = @"WhatsNewPromoStatus";
@@ -37,6 +37,8 @@ NSString* const kNextPromoForDisplayOverride = @"NextPromoForDisplayOverride";
 NSString* const kFirstRunRecency = @"FirstRunRecency";
 NSString* const kForceExperienceForDeviceSwitcherExperimentalSettings =
     @"ForceExperienceForDeviceSwitcher";
+NSString* const kForceExperienceForShopperExperimentalSettings =
+    @"ForceExperienceForShopper";
 NSString* const kSafetyCheckUpdateChromeStateOverride =
     @"SafetyCheckUpdateChromeStateOverride";
 NSString* const kSafetyCheckPasswordStateOverride =
@@ -52,10 +54,18 @@ NSString* const kSafetyCheckCompromisedPasswordsCountOverride =
 NSString* const kSimulatePostDeviceRestore = @"SimulatePostDeviceRestore";
 NSString* const kShouldIgnoreHistorySyncDeclineLimits =
     @"ShouldIgnoreHistorySyncDeclineLimits";
+NSString* const kSafetyCheckNotificationsInactivityThreshold =
+    @"SafetyCheckNotificationsInactivityThreshold";
 BASE_FEATURE(kEnableThirdPartyKeyboardWorkaround,
              "EnableThirdPartyKeyboardWorkaround",
              base::FEATURE_ENABLED_BY_DEFAULT);
-
+NSString* const kTabResumptionDecorationOverride =
+    @"TabResumptionDecorationOverride";
+NSString* const kTipsMagicStackLensShopWithImage =
+    @"TipsMagicStackLensShopWithImage";
+NSString* const kTipsMagicStackStateOverride = @"TipsMagicStackStateOverride";
+NSString* const kInactiveTabsDemoMode = @"InactiveTabsDemoMode";
+NSString* const kInactiveTabsTestMode = @"InactiveTabsTestMode";
 }  // namespace
 
 namespace experimental_flags {
@@ -63,11 +73,6 @@ namespace experimental_flags {
 bool AlwaysDisplayFirstRun() {
   return
       [[NSUserDefaults standardUserDefaults] boolForKey:kFirstRunForceEnabled];
-}
-
-bool AlwaysDisplaySearchEngineChoice() {
-  return [[NSUserDefaults standardUserDefaults]
-      boolForKey:kSearchEngineForceEnabled];
 }
 
 bool AlwaysDisplayUpgradePromo() {
@@ -122,14 +127,12 @@ bool ShouldAlwaysShowFollowIPH() {
 }
 
 bool IsMemoryDebuggingEnabled() {
-// Always return true for Chromium builds, but check the user default for
-// official builds because memory debugging should never be enabled on stable.
-#if BUILDFLAG(CHROMIUM_BRANDING)
+#if BUILDFLAG(IOS_ENABLE_MEMORY_DEBUGGING)
   return true;
 #else
   return [[NSUserDefaults standardUserDefaults]
       boolForKey:@"EnableMemoryDebugging"];
-#endif  // BUILDFLAG(CHROMIUM_BRANDING)
+#endif
 }
 
 bool IsOmniboxDebuggingEnabled() {
@@ -256,6 +259,24 @@ std::string GetSegmentForForcedDeviceSwitcherExperience() {
   return segment;
 }
 
+std::string GetSegmentForForcedShopperExperience() {
+  // Checks iOS Experimental Settings.
+  std::string segment =
+      [[NSUserDefaults standardUserDefaults]
+          boolForKey:kForceExperienceForShopperExperimentalSettings]
+          ? segmentation_platform::kShoppingUserUmaName
+          : segmentation_platform::kLegacyNegativeLabel;
+  if (segment.empty()) {
+    // Checks command line flag.
+    base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+    if (command_line->HasSwitch(switches::kForceShopperExperience)) {
+      segment =
+          command_line->GetSwitchValueNative(switches::kForceShopperExperience);
+    }
+  }
+  return segment;
+}
+
 bool SimulatePostDeviceRestore() {
   return [[NSUserDefaults standardUserDefaults]
       boolForKey:kSimulatePostDeviceRestore];
@@ -264,6 +285,52 @@ bool SimulatePostDeviceRestore() {
 bool ShouldIgnoreHistorySyncDeclineLimits() {
   return [[NSUserDefaults standardUserDefaults]
       boolForKey:kShouldIgnoreHistorySyncDeclineLimits];
+}
+
+std::optional<int> GetForcedInactivityThresholdForSafetyCheckNotifications() {
+  int threshold = [[NSUserDefaults standardUserDefaults]
+      integerForKey:kSafetyCheckNotificationsInactivityThreshold];
+
+  if (threshold == 0) {
+    return std::nullopt;
+  }
+
+  return threshold;
+}
+
+std::optional<int> GetForcedTipsMagicStackState() {
+  int tipsIdentifier = [[NSUserDefaults standardUserDefaults]
+      integerForKey:kTipsMagicStackStateOverride];
+
+  if (tipsIdentifier == 0) {
+    return std::nullopt;
+  }
+
+  return tipsIdentifier;
+}
+
+bool ShouldDisplayLensShopTipWithImage() {
+  return [[NSUserDefaults standardUserDefaults]
+      boolForKey:kTipsMagicStackLensShopWithImage];
+}
+
+bool ShouldUseInactiveTabsDemoThreshold() {
+  return
+      [[NSUserDefaults standardUserDefaults] boolForKey:kInactiveTabsDemoMode];
+}
+
+bool ShouldUseInactiveTabsTestThreshold() {
+  return
+      [[NSUserDefaults standardUserDefaults] boolForKey:kInactiveTabsTestMode];
+}
+
+NSString* GetTabResumptionDecorationOverride() {
+  NSString* override_value = [[NSUserDefaults standardUserDefaults]
+      stringForKey:kTabResumptionDecorationOverride];
+  if ([override_value length]) {
+    return override_value;
+  }
+  return nil;
 }
 
 }  // namespace experimental_flags

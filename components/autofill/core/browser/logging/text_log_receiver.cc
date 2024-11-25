@@ -83,7 +83,6 @@ std::vector<std::string> RenderEntry(const base::Value::Dict& entry) {
   } else {
     NOTREACHED();
   }
-  return {};
 }
 
 // Concatenates the rendered contents of a list of log entries.

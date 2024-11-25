@@ -27,13 +27,13 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.CriteriaNotSatisfiedException;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
+import org.chromium.content.browser.webid.IdentityCredentialsDelegate;
 import org.chromium.content_public.browser.ContentFeatureList;
-import org.chromium.content_public.browser.test.util.DigitalCredentialProviderUtils;
-import org.chromium.content_public.browser.test.util.DigitalCredentialProviderUtils.MockIdentityCredentialsDelegate;
+import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 
@@ -44,7 +44,7 @@ import java.util.concurrent.TimeoutException;
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 @Batch(Batch.PER_CLASS)
 public class DigitalCredentialProviderTest {
-    private static final String TEST_PAGE = "/chrome/test/data/android/fedcm_mdocs.html";
+    private static final String TEST_PAGE = "/chrome/test/data/android/dc_mdocs.html";
     private static final String EXPECTED_MDOC = "test-mdoc";
 
     @Rule
@@ -55,14 +55,14 @@ public class DigitalCredentialProviderTest {
 
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule().strictness(Strictness.STRICT_STUBS);
 
-    @Mock public MockIdentityCredentialsDelegate mDelegate;
+    @Mock public IdentityCredentialsDelegate mDelegate;
 
     @Before
     public void setUp() throws Exception {
         mActivityTestRule.getEmbeddedTestServerRule().setServerUsesHttps(true);
         mActivityTestRule.startMainActivityOnBlankPage();
         mTestServer = mActivityTestRule.getTestServer();
-        DigitalCredentialProviderUtils.setDelegateForTesting(mDelegate);
+        DigitalIdentityProvider.setDelegateForTesting(mDelegate);
     }
 
     @Test
@@ -73,8 +73,7 @@ public class DigitalCredentialProviderTest {
                 .thenAnswer(input -> Promise.fulfilled(EXPECTED_MDOC.getBytes()));
 
         mActivityTestRule.loadUrl(mTestServer.getURL(TEST_PAGE));
-        JavaScriptUtils.executeJavaScriptAndWaitForResult(
-                mActivityTestRule.getWebContents(), "request()");
+        DOMUtils.clickNode(mActivityTestRule.getWebContents(), "request_age_only_button");
         CriteriaHelper.pollInstrumentationThread(
                 () -> {
                     try {

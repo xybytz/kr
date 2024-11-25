@@ -13,6 +13,18 @@ namespace extensions {
 // Keys used in JSON representation of extensions.
 namespace manifest_keys {
 
+// A list of keys that do not generate warnings when specified in the manifest,
+// despite the fact that they are not recognized by Chrome. Keys should be
+// added here if they are widely adopted but a developer is unlikely to expect
+// that it would do anything in Chrome, and so wouldn't benefit from a warning.
+inline constexpr const char* const kIgnoredUnrecognizedKeys[] = {
+    // This is used by non-Chromium browsers:
+    // https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/manifest.json/browser_specific_settings
+    "browser_specific_settings",
+    // This is part of the JSON schema definition:
+    // https://json-schema.org/understanding-json-schema/reference/schema#schema
+    "$schema"};
+
 inline constexpr char kAboutPage[] = "about_page";
 inline constexpr char kAction[] = "action";
 inline constexpr char kActionDefaultIcon[] = "default_icon";
@@ -66,6 +78,7 @@ inline constexpr char kHideBookmarkButton[] = "hide_bookmark_button";
 inline constexpr char kHomepageURL[] = "homepage_url";
 inline constexpr char kHostPermissions[] = "host_permissions";
 inline constexpr char kIcons[] = "icons";
+inline constexpr char kIconVariants[] = "icon_variants";
 inline constexpr char kId[] = "id";
 inline constexpr char kImeOptionsPage[] = "options_page";
 inline constexpr char kIndicator[] = "indicator";
@@ -151,7 +164,6 @@ inline constexpr char kTtsVoicesEventTypeSentence[] = "sentence";
 inline constexpr char kTtsVoicesEventTypeStart[] = "start";
 inline constexpr char kTtsVoicesEventTypeWord[] = "word";
 inline constexpr char kTtsVoicesEventTypes[] = "event_types";
-inline constexpr char kTtsVoicesGender[] = "gender";
 inline constexpr char kTtsVoicesLang[] = "lang";
 inline constexpr char kTtsVoicesRemote[] = "remote";
 inline constexpr char kTtsVoicesVoiceName[] = "voice_name";
@@ -171,8 +183,6 @@ inline constexpr char kFileSystemProviderCapabilities[] =
     "file_system_provider_capabilities";
 inline constexpr char kActionHandlers[] = "action_handlers";
 inline constexpr char kActionHandlerActionKey[] = "action";
-inline constexpr char kActionHandlerEnabledOnLockScreenKey[] =
-    "enabled_on_lock_screen";
 #endif
 
 }  // namespace manifest_keys
@@ -277,6 +287,9 @@ inline constexpr char kChromeVersionTooLow[] =
 inline constexpr char kCommandActionIncorrectForManifestActionType[] =
     "The action commands in the manifest do not match the manifest's action "
     "type and were ignored.";
+inline constexpr char kDeclarativeNetRequestPathDuplicates[] =
+    "The same ruleset file appears multiple times with different IDs in the "
+    "manifest 'declarative_net_request.rule_resources' key.";
 inline constexpr char kDeclarativeNetRequestPermissionNeeded[] =
     "The extension requires the 'declarativeNetRequest' or the "
     "'declarativeNetRequestWithHostAccess' permission for the '*' manifest "
@@ -378,6 +391,8 @@ inline constexpr char kInvalidExcludeMatches[] =
     "Invalid value for 'content_scripts[*].exclude_matches'.";
 inline constexpr char kInvalidExportPermissions[] =
     "Permissions are not allowed for extensions that export resources.";
+inline constexpr char kInvalidExportAllowlistEmpty[] =
+    "Empty 'export.allowlist' implies any extension can import this module.";
 inline constexpr char kInvalidExportAllowlistString[] =
     "Invalid value for 'export.allowlist[*]'.";
 inline constexpr char kInvalidExtensionOriginPopup[] =
@@ -435,6 +450,9 @@ inline constexpr char16_t kInvalidImportAndExport[] =
 inline constexpr char kInvalidImportId[] = "Invalid value for 'import[*].id'.";
 inline constexpr char kInvalidImportVersion[] =
     "Invalid value for 'import[*].minimum_version'.";
+inline constexpr char kInvalidImportRepeatedImport[] =
+    "There are multiple occurences of the same extension ID in 'import'. Only "
+    "one version will be installed.";
 inline constexpr char kInvalidInputComponents[] =
     "Invalid value for 'input_components'";
 inline constexpr char16_t kInvalidInputComponents16[] =
@@ -584,10 +602,12 @@ inline constexpr char kInvalidThemeImagesMissing[] =
     "An image specified in the theme is missing.";
 inline constexpr char16_t kInvalidThemeTints[] =
     u"Invalid value for theme images - tints must be decimal numbers.";
-inline constexpr char16_t kInvalidTrialTokensNonEmptyList[] =
-    u"Invalid value for 'trial_tokens'. Must be a non-empty list.";
-inline constexpr char16_t kInvalidTrialTokensValue[] =
-    u"Invalid element in 'trial_tokens'. Must be a non-empty string.";
+inline constexpr char kInvalidTrialTokensNonEmptyList[] =
+    "Invalid value for 'trial_tokens'. Must be a non-empty list.";
+inline constexpr char kInvalidTrialTokensValue[] =
+    "Invalid element in 'trial_tokens'. Must be a non-empty string.";
+inline constexpr char kInvalidTrialTokensValueDuplicate[] =
+    "Duplicate element in 'trial_tokens': '%s'.";
 inline constexpr char kInvalidTrialTokensValueTooLong[] =
     "Invalid element in 'trial_tokens'. Token must not be longer than %zu.";
 inline constexpr char kInvalidTrialTokensTooManyTokens[] =
@@ -611,8 +631,6 @@ inline constexpr char16_t kInvalidTtsVoices[] =
     u"Invalid value for 'tts_engine.voices'.";
 inline constexpr char16_t kInvalidTtsVoicesEventTypes[] =
     u"Invalid value for 'tts_engine.voices[*].event_types'.";
-inline constexpr char kInvalidTtsVoicesGender[] =
-    "Invalid value for 'tts_engine.voices[*].gender'.";
 inline constexpr char16_t kInvalidTtsVoicesLang[] =
     u"Invalid value for 'tts_engine.voices[*].lang'.";
 inline constexpr char16_t kInvalidTtsVoicesRemote[] =
@@ -688,9 +706,6 @@ inline constexpr char kManifestVersionTooHighWarning[] =
 inline constexpr char16_t kMatchOriginAsFallbackCantHavePaths[] =
     u"The path component for scripts with 'match_origin_as_fallback' must be "
     "'*'.";
-inline constexpr char kMatchOriginAsFallbackRestrictedToMV3[] =
-    "The 'match_origin_as_fallback' property is restricted to extensions with "
-    "'manifest_version' set to 3 or higher.";
 inline constexpr char kMissingFile[] =
     "At least one js or css file is required for 'content_scripts[*]'.";
 inline constexpr char16_t kMultipleOverrides[] =
@@ -706,6 +721,7 @@ inline constexpr char16_t kOneUISurfaceOnly[] =
     u"Only one of 'browser_action', 'page_action', and 'app' can be specified.";
 inline constexpr char kPageCaptureNeeded[] =
     "'pageCapture' permission is required.";
+inline constexpr char kPatternMalformed[] = "URL pattern '*' is malformed.";
 inline constexpr char kPermissionCannotBeOptional[] =
     "Permission '*' cannot be listed as optional. This permission will be "
     "omitted.";
@@ -714,6 +730,7 @@ inline constexpr char kPermissionMarkedOptionalAndRequired[] =
     "this permission will be omitted.";
 inline constexpr char kPermissionNotAllowed[] =
     "Access to permission '*' denied.";
+inline constexpr char kPermissionUnknown[] = "Permission '*' is unknown.";
 inline constexpr char kPermissionUnknownOrMalformed[] =
     "Permission '*' is unknown or URL pattern is malformed.";
 inline constexpr char kPluginsRequirementDeprecated[] =
@@ -734,9 +751,6 @@ inline constexpr char16_t
     kTransientBackgroundConflictsWithPersistentBackground[] =
         u"The 'transientBackground' permission cannot be used with a "
         "persistent background page.";
-inline constexpr char kTtsGenderIsDeprecated[] =
-    "Voice gender is deprecated and values will be ignored starting in Chrome "
-    "71";
 inline constexpr char kUnrecognizedManifestKey[] =
     "Unrecognized manifest key '*'.";
 inline constexpr char kUnrecognizedManifestProperty[] =

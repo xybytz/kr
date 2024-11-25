@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -62,6 +63,14 @@ struct BLINK_COMMON_EXPORT
     return data.use_subpixel_positioning;
   }
 
+  static const float& text_contrast(const ::blink::RendererPreferences& data) {
+    return data.text_contrast;
+  }
+
+  static const float& text_gamma(const ::blink::RendererPreferences& data) {
+    return data.text_gamma;
+  }
+
   static const uint32_t& focus_ring_color(
       const ::blink::RendererPreferences& data) {
     return data.focus_ring_color;
@@ -92,7 +101,7 @@ struct BLINK_COMMON_EXPORT
     return data.browser_handles_all_top_level_requests;
   }
 
-  static absl::optional<base::TimeDelta> caret_blink_interval(
+  static std::optional<base::TimeDelta> caret_blink_interval(
       const ::blink::RendererPreferences& data) {
     return data.caret_blink_interval;
   }
@@ -121,6 +130,13 @@ struct BLINK_COMMON_EXPORT
       const ::blink::RendererPreferences& data) {
     return data.enable_encrypted_media;
   }
+
+#if BUILDFLAG(IS_CHROMEOS)
+  static const bool& use_overlay_scrollbar(
+      const ::blink::RendererPreferences& data) {
+    return data.use_overlay_scrollbar;
+  }
+#endif
 
   static const std::string& webrtc_ip_handling_policy(
       const ::blink::RendererPreferences& data) {

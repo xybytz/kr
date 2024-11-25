@@ -52,11 +52,7 @@ void CurrentLocaleView::OnLocaleListSet() {
       break;
     }
   }
-  Layout();
-}
-
-const char* CurrentLocaleView::GetClassName() const {
-  return "CurrentLocaleView";
+  DeprecatedLayoutImmediately();
 }
 
 void CurrentLocaleView::HandleLocaleChange() {
@@ -65,10 +61,6 @@ void CurrentLocaleView::HandleLocaleChange() {
 }
 
 void CurrentLocaleView::UpdateLabelOrImageViewColor(bool active) {
-  if (!chromeos::features::IsJellyEnabled()) {
-    label()->SetEnabledColorId(kColorAshIconColorPrimary);
-    return;
-  }
   TrayItemView::UpdateLabelOrImageViewColor(active);
 
   label()->SetEnabledColorId(active

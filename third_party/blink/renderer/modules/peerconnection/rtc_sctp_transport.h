@@ -19,6 +19,7 @@ namespace blink {
 
 class SctpTransportProxy;
 class RTCDtlsTransport;
+class V8RTCSctpTransportState;
 
 enum class RTCSctpTransportState { kChecking, kConnected, kClosed };
 
@@ -43,9 +44,9 @@ class MODULES_EXPORT RTCSctpTransport final
 
   // rtc_sctp_transport.idl
   RTCDtlsTransport* transport() const;
-  String state() const;
+  V8RTCSctpTransportState state() const;
   double maxMessageSize() const;
-  absl::optional<int16_t> maxChannels() const;
+  std::optional<int16_t> maxChannels() const;
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(statechange, kStatechange)
 

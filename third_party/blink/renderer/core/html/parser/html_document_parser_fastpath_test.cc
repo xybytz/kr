@@ -7,9 +7,10 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_parse_from_string_options.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_supported_type.h"
 #include "third_party/blink/renderer/core/dom/document_fragment.h"
 #include "third_party/blink/renderer/core/dom/text.h"
+#include "third_party/blink/renderer/core/editing/serializers/serialization.h"
 #include "third_party/blink/renderer/core/html/forms/form_controller.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_text_area_element.h"
@@ -17,14 +18,17 @@
 #include "third_party/blink/renderer/core/html/html_div_element.h"
 #include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/html/parser/html_construction_site.h"
+#include "third_party/blink/renderer/core/keywords.h"
 #include "third_party/blink/renderer/core/testing/null_execution_context.h"
 #include "third_party/blink/renderer/core/xml/dom_parser.h"
+#include "third_party/blink/renderer/platform/testing/task_environment.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
 namespace {
 
 TEST(HTMLDocumentParserFastpathTest, SanityCheck) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -33,9 +37,9 @@ TEST(HTMLDocumentParserFastpathTest, SanityCheck) {
   document->body()->AppendChild(div);
   DocumentFragment* fragment = DocumentFragment::Create(*document);
   base::HistogramTester histogram_tester;
-  EXPECT_TRUE(TryParsingHTMLFragment(
-      "<div>test</div>", *document, *fragment, *div,
-      ParserContentPolicy::kAllowScriptingContent, false));
+  EXPECT_TRUE(
+      TryParsingHTMLFragment("<div>test</div>", *document, *fragment, *div,
+                             ParserContentPolicy::kAllowScriptingContent, {}));
   histogram_tester.ExpectTotalCount(
       "Blink.HTMLFastPathParser.UnsupportedTagType.CompositeMaskV2", 0);
   histogram_tester.ExpectTotalCount(
@@ -43,6 +47,7 @@ TEST(HTMLDocumentParserFastpathTest, SanityCheck) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, SetInnerHTMLUsesFastPathSuccess) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -59,6 +64,7 @@ TEST(HTMLDocumentParserFastpathTest, SetInnerHTMLUsesFastPathSuccess) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, SetInnerHTMLUsesFastPathFailure) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -75,13 +81,14 @@ TEST(HTMLDocumentParserFastpathTest, SetInnerHTMLUsesFastPathFailure) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, LongTextIsSplit) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
   document->write("<body></body>");
   auto* div = MakeGarbageCollected<HTMLDivElement>(*document);
   std::vector<LChar> chars(Text::kDefaultLengthLimit + 1, 'a');
-  div->setInnerHTML(String(chars.data(), static_cast<unsigned>(chars.size())));
+  div->setInnerHTML(String(base::span(chars)));
   Text* text_node = To<Text>(div->firstChild());
   ASSERT_TRUE(text_node);
   // Text is split at 64k for performance. See
@@ -90,6 +97,7 @@ TEST(HTMLDocumentParserFastpathTest, LongTextIsSplit) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, MaximumHTMLParserDOMTreeDepth) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -117,6 +125,7 @@ TEST(HTMLDocumentParserFastpathTest, MaximumHTMLParserDOMTreeDepth) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, LogUnsupportedTags) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -137,6 +146,7 @@ TEST(HTMLDocumentParserFastpathTest, LogUnsupportedTags) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, LogUnsupportedTagsWithValidTag) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -158,6 +168,7 @@ TEST(HTMLDocumentParserFastpathTest, LogUnsupportedTagsWithValidTag) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, LogUnsupportedContextTag) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -179,6 +190,7 @@ TEST(HTMLDocumentParserFastpathTest, LogUnsupportedContextTag) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, LogSvg) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -200,6 +212,7 @@ TEST(HTMLDocumentParserFastpathTest, LogSvg) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, HTMLInputElementCheckedState) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -224,6 +237,7 @@ TEST(HTMLDocumentParserFastpathTest, HTMLInputElementCheckedState) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, CharacterReferenceCases) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -239,6 +253,7 @@ TEST(HTMLDocumentParserFastpathTest, CharacterReferenceCases) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, HandlesCompleteCharacterReference) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -256,6 +271,7 @@ TEST(HTMLDocumentParserFastpathTest, HandlesCompleteCharacterReference) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, FailsWithNestedLis) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -274,6 +290,7 @@ TEST(HTMLDocumentParserFastpathTest, FailsWithNestedLis) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, HandlesLi) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -288,6 +305,7 @@ TEST(HTMLDocumentParserFastpathTest, HandlesLi) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, NullMappedToReplacementChar) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -295,9 +313,9 @@ TEST(HTMLDocumentParserFastpathTest, NullMappedToReplacementChar) {
   auto* div = MakeGarbageCollected<HTMLDivElement>(*document);
 
   base::HistogramTester histogram_tester;
-  // Constructor that takes size is needed because of \0 in string.
+  // Constructor that takes a base::span is needed because of \0 in string.
   div->setInnerHTML(
-      String("<div id='x' name='x\0y'></div>", static_cast<size_t>(29)));
+      String(base::span_from_cstring("<div id='x' name='x\0y'></div>")));
   Element* new_div = div->getElementById(AtomicString("x"));
   ASSERT_TRUE(new_div);
   // Null chars are generally mapped to \uFFFD (at least this test should
@@ -307,16 +325,58 @@ TEST(HTMLDocumentParserFastpathTest, NullMappedToReplacementChar) {
 
 // Verifies DOMParser uses the fast path parser.
 TEST(HTMLDocumentParserFastpathTest, DomParserUsesFastPath) {
+  test::TaskEnvironment task_environment;
   V8TestingScope scope;
   auto* parser = DOMParser::Create(scope.GetScriptState());
-  auto* parser_options = ParseFromStringOptions::Create();
   base::HistogramTester histogram_tester;
-  parser->parseFromString("<strong>0</strong> items left", "text/html",
-                          parser_options);
+  parser->parseFromString("<strong>0</strong> items left",
+                          V8SupportedType(V8SupportedType::Enum::kTextHtml));
   histogram_tester.ExpectTotalCount("Blink.HTMLFastPathParser.ParseResult", 1);
 }
 
+TEST(HTMLDocumentParserFastpathTest, BodyWithLeadingWhitespace) {
+  test::TaskEnvironment task_environment;
+  V8TestingScope scope;
+  auto* parser = DOMParser::Create(scope.GetScriptState());
+  base::HistogramTester histogram_tester;
+  Document* document = parser->parseFromString(
+      "\n   <div></div>", V8SupportedType(V8SupportedType::Enum::kTextHtml));
+  histogram_tester.ExpectTotalCount("Blink.HTMLFastPathParser.ParseResult", 1);
+  EXPECT_EQ("<body><div></div></body>", CreateMarkup(document->body()));
+  auto* first_child = document->body()->firstChild();
+  ASSERT_TRUE(first_child);
+}
+
+TEST(HTMLDocumentParserFastpathTest, BodyWithLeadingAndTrailingWhitespace) {
+  test::TaskEnvironment task_environment;
+  V8TestingScope scope;
+  auto* parser = DOMParser::Create(scope.GetScriptState());
+  base::HistogramTester histogram_tester;
+  Document* document = parser->parseFromString(
+      "\n   x<div></div>y ", V8SupportedType(V8SupportedType::Enum::kTextHtml));
+  histogram_tester.ExpectTotalCount("Blink.HTMLFastPathParser.ParseResult", 1);
+  EXPECT_EQ("<body>x<div></div>y </body>", CreateMarkup(document->body()));
+  auto* first_child = document->body()->firstChild();
+  ASSERT_TRUE(first_child);
+}
+
+TEST(HTMLDocumentParserFastpathTest, BodyWithLeadingAndTrailingWhitespace2) {
+  test::TaskEnvironment task_environment;
+  V8TestingScope scope;
+  auto* parser = DOMParser::Create(scope.GetScriptState());
+  base::HistogramTester histogram_tester;
+  Document* document = parser->parseFromString(
+      "\n   x \n  <div></div>y \n   ",
+      V8SupportedType(V8SupportedType::Enum::kTextHtml));
+  histogram_tester.ExpectTotalCount("Blink.HTMLFastPathParser.ParseResult", 1);
+  EXPECT_EQ("<body>x \n  <div></div>y \n   </body>",
+            CreateMarkup(document->body()));
+  auto* first_child = document->body()->firstChild();
+  ASSERT_TRUE(first_child);
+}
+
 TEST(HTMLDocumentParserFastpathTest, MixedEncoding) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());
@@ -331,6 +391,7 @@ TEST(HTMLDocumentParserFastpathTest, MixedEncoding) {
 }
 
 TEST(HTMLDocumentParserFastpathTest, Escaped8BitText) {
+  test::TaskEnvironment task_environment;
   ScopedNullExecutionContext execution_context;
   auto* document =
       HTMLDocument::CreateForTest(execution_context.GetExecutionContext());

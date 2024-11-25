@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <optional>
+#include <string_view>
 
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
@@ -14,19 +15,22 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
+#include "chrome/browser/web_applications/web_app_install_utils.h"
 #include "chrome/browser/web_applications/web_contents/web_app_data_retriever.h"
 #include "chrome/browser/web_applications/web_contents/web_app_icon_downloader.h"
-#include "chrome/browser/web_applications/web_contents/web_app_url_loader.h"
+#include "components/webapps/browser/web_contents/web_app_url_loader.h"
 #include "components/webapps/common/web_page_metadata.mojom.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/blink/public/mojom/manifest/manifest.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "url/url_constants.h"
 
 namespace web_app {
 namespace {
-bool EqualsWithComparison(const GURL& a,
-                          const GURL& b,
-                          WebAppUrlLoader::UrlComparison url_comparison) {
+bool EqualsWithComparison(
+    const GURL& a,
+    const GURL& b,
+    webapps::WebAppUrlLoader::UrlComparison url_comparison) {
   DCHECK(a.is_valid());
   DCHECK(b.is_valid());
   if (a == b) {
@@ -34,12 +38,12 @@ bool EqualsWithComparison(const GURL& a,
   }
   GURL::Replacements replace;
   switch (url_comparison) {
-    case WebAppUrlLoader::UrlComparison::kExact:
+    case webapps::WebAppUrlLoader::UrlComparison::kExact:
       return false;
-    case WebAppUrlLoader::UrlComparison::kSameOrigin:
+    case webapps::WebAppUrlLoader::UrlComparison::kSameOrigin:
       replace.ClearPath();
       [[fallthrough]];
-    case WebAppUrlLoader::UrlComparison::kIgnoreQueryParamsAndRef:
+    case webapps::WebAppUrlLoader::UrlComparison::kIgnoreQueryParamsAndRef:
       replace.ClearQuery();
       replace.ClearRef();
       break;
@@ -50,7 +54,7 @@ bool EqualsWithComparison(const GURL& a,
 
 // TODO(http://b/262606416): Replace FakeWebAppUrlLoader with this by redoing
 // how the web contents dependency is wrapped.
-class FakeWebContentsManager::FakeUrlLoader : public WebAppUrlLoader {
+class FakeWebContentsManager::FakeUrlLoader : public webapps::WebAppUrlLoader {
  public:
   explicit FakeUrlLoader(base::WeakPtr<FakeWebContentsManager> manager)
       : manager_(manager) {}
@@ -73,8 +77,9 @@ class FakeWebContentsManager::FakeUrlLoader : public WebAppUrlLoader {
       DLOG(WARNING) << "No page state at url: " << url.spec();
       base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
-          base::BindOnce(std::move(callback),
-                         WebAppUrlLoaderResult::kFailedErrorPageLoaded));
+          base::BindOnce(
+              std::move(callback),
+              webapps::WebAppUrlLoaderResult::kFailedErrorPageLoaded));
       return;
     }
     FakeWebContentsManager::FakePageState& page = page_it->second;
@@ -85,8 +90,9 @@ class FakeWebContentsManager::FakeUrlLoader : public WebAppUrlLoader {
                                 url_comparison)) {
         base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
             FROM_HERE,
-            base::BindOnce(std::move(callback),
-                           WebAppUrlLoaderResult::kRedirectedUrlLoaded));
+            base::BindOnce(
+                std::move(callback),
+                webapps::WebAppUrlLoaderResult::kRedirectedUrlLoaded));
         return;
       }
     }
@@ -115,14 +121,15 @@ class FakeWebContentsManager::FakeWebAppIconDownloader
   ~FakeWebAppIconDownloader() override = default;
 
   void Start(content::WebContents* web_contents,
-             const base::flat_set<GURL>& extra_icon_urls,
+             const IconUrlSizeSet& extra_icon_urls,
              WebAppIconDownloaderCallback callback,
              IconDownloaderOptions options) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     CHECK(manager_);
     IconsMap icons_map;
     DownloadedIconsHttpResults per_icon_results;
-    for (const GURL& icon_url : extra_icon_urls) {
+    for (const IconUrlWithSize& icon_url_with_size : extra_icon_urls) {
+      const GURL& icon_url = icon_url_with_size.url;
       auto icons_it = manager_->icon_state_.find(icon_url);
       if (icons_it == manager_->icon_state_.end()) {
         DLOG(WARNING) << "No icon state at url: " << icon_url.spec();
@@ -138,7 +145,7 @@ class FakeWebContentsManager::FakeWebAppIconDownloader
           return;
         }
 
-        per_icon_results[icon_url] = 404;
+        per_icon_results[icon_url_with_size] = 404;
         continue;
       }
       FakeWebContentsManager::FakeIconState& icon = icons_it->second;
@@ -155,7 +162,7 @@ class FakeWebContentsManager::FakeWebAppIconDownloader
         return;
       }
       icons_map[icon_url] = icon.bitmaps;
-      per_icon_results[icon_url] = icon.http_status_code;
+      per_icon_results[icon_url_with_size] = icon.http_status_code;
       if (icon.bitmaps.empty() && options.fail_all_if_any_fail) {
         // TODO: Test this codepath when migrating the
         // ManifestUpdateCheckCommand to use WebContentsManager.
@@ -178,7 +185,8 @@ class FakeWebContentsManager::FakeWebAppIconDownloader
         FakeWebContentsManager::FakePageState& page = page_it->second;
         if (!page.favicon_url.is_empty()) {
           icons_map[page.favicon_url] = page.favicon;
-          per_icon_results[page.favicon_url] = page.favicon.empty() ? 404 : 200;
+          per_icon_results[IconUrlWithSize::CreateForUnspecifiedSize(
+              page.favicon_url)] = page.favicon.empty() ? 404 : 200;
           if (page.favicon.empty() && options.fail_all_if_any_fail) {
             base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
                 FROM_HERE,
@@ -237,8 +245,7 @@ class FakeWebContentsManager::FakeWebAppDataRetriever
     }
     std::unique_ptr<WebAppInstallInfo> install_info =
         std::make_unique<WebAppInstallInfo>(
-            GenerateManifestIdFromStartUrlOnly(url));
-    install_info->start_url = url;
+            GenerateManifestIdFromStartUrlOnly(url), url);
     install_info->title = page.title.value_or(base::UTF8ToUTF16(url.spec()));
     if (page.opt_metadata) {
       WebAppDataRetriever::PopulateWebAppInfoFromMetadata(install_info.get(),
@@ -267,7 +274,7 @@ class FakeWebContentsManager::FakeWebAppDataRetriever
       base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(std::move(callback), blink::mojom::ManifestPtr(),
-                         GURL(), /*valid_manifest_for_web_app=*/false,
+                         /*valid_manifest_for_web_app=*/false,
                          webapps::InstallableStatusCode::NO_MANIFEST));
       return;
     }
@@ -277,15 +284,31 @@ class FakeWebContentsManager::FakeWebAppDataRetriever
       std::move(page.on_manifest_fetch).Run();
     }
 
+    // Apply the 'default' values in the manifest spec algorithm.
+    blink::mojom::ManifestPtr manifest =
+        page.manifest_before_default_processing
+            ? page.manifest_before_default_processing->Clone()
+            : blink::mojom::Manifest::New();
+    manifest->manifest_url = page.manifest_url;
+    if (manifest->start_url.is_empty()) {
+      manifest->start_url = url;
+    }
+    if (manifest->id.is_empty()) {
+      manifest->id = manifest->start_url.GetWithoutRef();
+    }
+    if (manifest->scope.is_empty()) {
+      manifest->scope = manifest->start_url.GetWithoutFilename();
+    }
+    CHECK(manifest->scope.ExtractFileName().empty());
+
     base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
-        base::BindOnce(std::move(callback), page.opt_manifest.Clone(),
-                       page.manifest_url, page.valid_manifest_for_web_app,
-                       page.error_code));
+        base::BindOnce(std::move(callback), std::move(manifest),
+                       page.valid_manifest_for_web_app, page.error_code));
   }
 
   void GetIcons(content::WebContents* web_contents,
-                const base::flat_set<GURL>& extra_favicon_urls,
+                const IconUrlSizeSet& extra_favicon_urls,
                 bool skip_page_favicons,
                 bool fail_all_if_any_fail,
                 GetIconsCallback callback) override {
@@ -347,7 +370,8 @@ void FakeWebContentsManager::SetUrlLoaded(content::WebContents* web_contents,
   loaded_urls_[web_contents] = url;
 }
 
-std::unique_ptr<WebAppUrlLoader> FakeWebContentsManager::CreateUrlLoader() {
+std::unique_ptr<webapps::WebAppUrlLoader>
+FakeWebContentsManager::CreateUrlLoader() {
   return std::make_unique<FakeUrlLoader>(weak_factory_.GetWeakPtr());
 }
 
@@ -378,9 +402,10 @@ webapps::AppId FakeWebContentsManager::CreateBasicInstallPageState(
     const GURL& install_url,
     const GURL& manifest_url,
     const GURL& start_url,
-    base::StringPiece16 name) {
+    std::u16string_view name) {
   FakePageState& install_page_state = GetOrCreatePageState(install_url);
-  install_page_state.url_load_result = WebAppUrlLoaderResult::kUrlLoaded;
+  install_page_state.url_load_result =
+      webapps::WebAppUrlLoaderResult::kUrlLoaded;
   install_page_state.redirection_url = std::nullopt;
 
   install_page_state.title = u"Page title";
@@ -388,14 +413,14 @@ webapps::AppId FakeWebContentsManager::CreateBasicInstallPageState(
   install_page_state.manifest_url = manifest_url;
   install_page_state.valid_manifest_for_web_app = true;
 
-  install_page_state.opt_manifest = blink::mojom::Manifest::New();
-  install_page_state.opt_manifest->scope =
-      url::Origin::Create(start_url).GetURL();
-  install_page_state.opt_manifest->start_url = start_url;
-  install_page_state.opt_manifest->id = start_url;
-  install_page_state.opt_manifest->display =
+  install_page_state.manifest_before_default_processing =
+      blink::mojom::Manifest::New();
+  install_page_state.manifest_before_default_processing->id =
+      start_url.GetWithoutRef();
+  install_page_state.manifest_before_default_processing->start_url = start_url;
+  install_page_state.manifest_before_default_processing->display =
       blink::mojom::DisplayMode::kStandalone;
-  install_page_state.opt_manifest->short_name = name;
+  install_page_state.manifest_before_default_processing->short_name = name;
 
   return GenerateAppId(/*manifest_id_path=*/std::nullopt, start_url);
 }
@@ -411,6 +436,10 @@ FakeWebContentsManager::GetOrCreatePageState(const GURL& gurl) {
 }
 void FakeWebContentsManager::DeletePageState(const GURL& gurl) {
   page_state_.erase(gurl);
+}
+
+bool FakeWebContentsManager::HasPageState(const GURL& gurl) {
+  return page_state_.find(gurl) != page_state_.end();
 }
 
 void FakeWebContentsManager::TrackLoadUrlCalls(

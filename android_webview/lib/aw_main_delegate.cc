@@ -49,6 +49,7 @@
 #include "components/spellcheck/spellcheck_buildflags.h"
 #include "components/variations/variations_ids_provider.h"
 #include "components/version_info/android/channel_getter.h"
+#include "components/viz/common/features.h"
 #include "content/public/app/initialize_mojo_core.h"
 #include "content/public/browser/android/media_url_interceptor_register.h"
 #include "content/public/browser/browser_main_runner.h"
@@ -104,7 +105,7 @@ std::optional<int> AwMainDelegate::BasicStartupComplete() {
   cl->AppendSwitch(switches::kDisableNotifications);
 
   // Check damage in OnBeginFrame to prevent unnecessary draws.
-  cl->AppendSwitch(cc::switches::kCheckDamageEarly);
+  cl->AppendSwitch(switches::kCheckDamageEarly);
 
   // This is needed for sharing textures across the different GL threads.
   cl->AppendSwitch(switches::kEnableThreadedTextureMailboxes);
@@ -115,9 +116,6 @@ std::optional<int> AwMainDelegate::BasicStartupComplete() {
   // WebView does not currently support Web Speech Synthesis API,
   // but it does support Web Speech Recognition API (crbug.com/487255).
   cl->AppendSwitch(switches::kDisableSpeechSynthesisAPI);
-
-  // WebView does not currently support the Permissions API (crbug.com/490120)
-  cl->AppendSwitch(switches::kDisablePermissionsAPI);
 
   // WebView does not (yet) save Chromium data during shutdown, so add setting
   // for Chrome to aggressively persist DOM Storage to minimize data loss.
@@ -142,12 +140,6 @@ std::optional<int> AwMainDelegate::BasicStartupComplete() {
   // isn't much point in having the crash dumps there.
   cl->AppendSwitch(switches::kDisableOoprDebugCrashDump);
 
-  // Disable BackForwardCache for Android WebView as it is not supported.
-  // WebView-specific code hasn't been audited and fixed to ensure compliance
-  // with the changed API contracts around new navigation types and changes to
-  // the document lifecycle.
-  cl->AppendSwitch(switches::kDisableBackForwardCache);
-
   // Deemed that performance benefit is not worth the stability cost.
   // See crbug.com/1309151.
   cl->AppendSwitch(switches::kDisableGpuShaderDiskCache);
@@ -165,18 +157,28 @@ std::optional<int> AwMainDelegate::BasicStartupComplete() {
     if (AwDrawFnImpl::IsUsingVulkan())
       cl->AppendSwitch(switches::kWebViewDrawFunctorUsesVulkan);
 
-#if BUILDFLAG(USE_V8_CONTEXT_SNAPSHOT)
-    const gin::V8SnapshotFileType file_type =
-        gin::V8SnapshotFileType::kWithAdditionalContext;
-#else
-    const gin::V8SnapshotFileType file_type = gin::V8SnapshotFileType::kDefault;
-#endif
+#ifdef V8_USE_EXTERNAL_STARTUP_DATA
+#if !BUILDFLAG(USE_V8_CONTEXT_SNAPSHOT) || BUILDFLAG(INCLUDE_BOTH_V8_SNAPSHOTS)
     base::android::RegisterApkAssetWithFileDescriptorStore(
         content::kV8Snapshot32DataDescriptor,
-        gin::V8Initializer::GetSnapshotFilePath(true, file_type));
+        gin::V8Initializer::GetSnapshotFilePath(
+            true, gin::V8SnapshotFileType::kDefault));
     base::android::RegisterApkAssetWithFileDescriptorStore(
         content::kV8Snapshot64DataDescriptor,
-        gin::V8Initializer::GetSnapshotFilePath(false, file_type));
+        gin::V8Initializer::GetSnapshotFilePath(
+            false, gin::V8SnapshotFileType::kDefault));
+#endif
+#if BUILDFLAG(USE_V8_CONTEXT_SNAPSHOT)
+    base::android::RegisterApkAssetWithFileDescriptorStore(
+        content::kV8ContextSnapshot32DataDescriptor,
+        gin::V8Initializer::GetSnapshotFilePath(
+            true, gin::V8SnapshotFileType::kWithAdditionalContext));
+    base::android::RegisterApkAssetWithFileDescriptorStore(
+        content::kV8ContextSnapshot64DataDescriptor,
+        gin::V8Initializer::GetSnapshotFilePath(
+            false, gin::V8SnapshotFileType::kWithAdditionalContext));
+#endif
+#endif  // V8_USE_EXTERNAL_STARTUP_DATA
   }
 
   if (cl->HasSwitch(switches::kWebViewSandboxedRenderer)) {
@@ -184,7 +186,7 @@ std::optional<int> AwMainDelegate::BasicStartupComplete() {
   }
 
   {
-    // TODO(crbug.com/1453407): Consider to migrate all the following overrides
+    // TODO(crbug.com/40271903): Consider to migrate all the following overrides
     // to the new mechanism in android_webview/browser/aw_field_trials.cc.
     base::ScopedAddFeatureFlags features(cl);
 
@@ -203,7 +205,6 @@ std::optional<int> AwMainDelegate::BasicStartupComplete() {
       features.EnableIfNotSet(blink::features::kFencedFramesAPIChanges);
       features.EnableIfNotSet(blink::features::kFencedFramesDefaultMode);
       features.EnableIfNotSet(::features::kFencedFramesEnforceFocus);
-      features.EnableIfNotSet(blink::features::kSharedStorageAPI);
       features.EnableIfNotSet(::features::kPrivacySandboxAdsAPIsOverride);
     }
 
@@ -211,6 +212,11 @@ std::optional<int> AwMainDelegate::BasicStartupComplete() {
 
     // Enabled by default for webview.
     features.EnableIfNotSet(::features::kWebViewThreadSafeMediaDefault);
+
+    // WebView uses kWebViewFrameRateHints to control this. Not using
+    // AwFieldTrials::RegisterFeatureOverrides to avoid misconfiguring
+    // experimients accidentally enabling kUseFrameIntervalDecider for WebView.
+    features.DisableIfNotSet(::features::kUseFrameIntervalDecider);
   }
 
   android_webview::RegisterPathProvider();
@@ -240,12 +246,6 @@ std::optional<int> AwMainDelegate::BasicStartupComplete() {
 
 void AwMainDelegate::PreSandboxStartup() {
   TRACE_EVENT0("startup", "AwMainDelegate::PreSandboxStartup");
-#if defined(ARCH_CPU_ARM_FAMILY)
-  // Create an instance of the CPU class to parse /proc/cpuinfo and cache
-  // cpu_brand info.
-  base::CPU cpu_info;
-#endif
-
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
 
@@ -402,7 +402,7 @@ void AwMainDelegate::InitializeMemorySystem(const bool is_browser_process) {
   // observers of PoissonAllocationSampler. Unfortunately, some potential
   // candidates are still linked and may sneak in through hidden paths.
   // Therefore, we include PoissonAllocationSampler unconditionally.
-  // TODO(crbug.com/1411454): Which observers of PoissonAllocationSampler are
+  // TODO(crbug.com/40062835): Which observers of PoissonAllocationSampler are
   // really in use on Android WebView? Can we add the sampler conditionally or
   // remove it completely?
   memory_system::Initializer()

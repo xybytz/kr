@@ -3,8 +3,24 @@
     --cr-dialog-width: 416px;
   }
 
+  /* When there's an update in progress, set a fixed dialog height to avoid
+   * mid-update visual "jitter" when the dialog height would oscillate as the
+   * dialog title wraps (more of an issue with verbose languages). */
+  :host(:not([update-is-done])) ::part(wrapper) {
+    min-height: 300px;
+  }
+
+  :host(:not([update-is-done])) [slot='footer'] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: flex-end;
+    margin-bottom: 4px;
+  }
+
   [slot='button-container'] {
     display: flex;
+    gap: 10px;
     justify-content: flex-end;
   }
 
@@ -37,11 +53,12 @@
   <cr-dialog id="updateDialog" show-on-attach
       on-close="closeDialog">
     <div slot="title" id="updateDialogTitle" class="firmware-dialog-title-font"
-        tabindex="0" aria-labelledby="updateDialogTitle">
+        aria-labelledby="updateDialogTitle" aria-live="polite">
       [[dialogContent.title]]
     </div>
     <div slot="body" class="firmware-dialog-body-font">
-      <div id="updateDialogBody" aria-hidden="true" tabindex="0">
+      <div id="updateDialogBody" aria-live="[[getDialogBodyAriaLive(installationProgress.*,
+                                              lastDeviceRequestId)]]">
         [[dialogContent.body]]
       </div>
     </div>
@@ -49,7 +66,7 @@
         hidden$="[[!shouldShowProgressBar(installationProgress.*,
                    isInitiallyInflight, lastDeviceRequestId)]]">
       <label id="progress" class="firmware-dialog-installing-font"
-          aria-live="polite" tabindex="0">
+          aria-live="polite">
         [[dialogContent.footer]]
       </label>
       <template is="dom-if"
@@ -70,11 +87,27 @@
     </div>
     <div slot="button-container"
         hidden$="[[!isUpdateDone(installationProgress.state)]]">
-      <cr-button class="action-button"
-          on-click="closeDialog"
-          id="updateDoneButton">
-        [[computeButtonText(installationProgress.state)]]
-      </cr-button>
+      <template is="dom-if"
+          if="[[!updateRequiresRestart()]]" restamp>
+        <cr-button class="action-button"
+            on-click="closeDialog"
+            id="updateDoneButton">
+          [[computeButtonText(installationProgress.state)]]
+        </cr-button>
+      </template>
+      <template is="dom-if"
+          if="[[updateRequiresRestart()]]" restamp>
+        <cr-button class="cancel-button"
+            on-click="closeDialog"
+            id="restartLaterButton">
+          [[i18n('restartLaterButton')]]
+        </cr-button>
+        <cr-button class="action-button"
+            on-click="restartDevice"
+            id="restartNowButton">
+          [[i18n('restartNowButton')]]
+        </cr-button>
+      </template>
     </div>
   </cr-dialog>
 </template>

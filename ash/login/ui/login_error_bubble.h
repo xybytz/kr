@@ -20,8 +20,9 @@ namespace ash {
 // The rest of the bubble is made up of a customizable view  supplied via
 // `SetContent`.
 class ASH_EXPORT LoginErrorBubble : public LoginBaseBubbleView {
+  METADATA_HEADER(LoginErrorBubble, LoginBaseBubbleView)
+
  public:
-  METADATA_HEADER(LoginErrorBubble);
   LoginErrorBubble();
   explicit LoginErrorBubble(base::WeakPtr<views::View> anchor_view);
 
@@ -37,9 +38,6 @@ class ASH_EXPORT LoginErrorBubble : public LoginBaseBubbleView {
   // Covers most cases where content is a simple label containing a message.
   // The eventual theme changes will be handled internally.
   void SetTextContent(const std::u16string& message);
-
-  // views::View:
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
  private:
   raw_ptr<views::View, DanglingUntriaged> content_ = nullptr;

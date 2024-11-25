@@ -5,9 +5,15 @@
 #ifndef ASH_SYSTEM_NOTIFICATION_CENTER_MESSAGE_CENTER_CONSTANTS_H_
 #define ASH_SYSTEM_NOTIFICATION_CENTER_MESSAGE_CENTER_CONSTANTS_H_
 
+#include "chromeos/constants/chromeos_features.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
 
 namespace ash {
+
+// View IDs
+inline constexpr int kNotificationInlineSettingsCancelButton = 1101;
+inline constexpr int kNotificationTurnOffNotificationsButton = 1102;
 
 inline constexpr int kGroupedCollapsedSummaryLabelSpacing = 6;
 inline constexpr int kGroupedCollapsedSummaryTitleLength = 150;
@@ -39,10 +45,28 @@ inline constexpr int kNotificationPillButtonHorizontalSpacing = 12;
 
 inline constexpr auto kNotificationSwipeControlPadding = gfx::Insets::VH(0, 20);
 
+// Constants for notification views.
+inline constexpr int kNotificationAppIconViewSize = 24;
+inline constexpr int kNotificationAppIconImageSize = 16;
+inline constexpr int kNotificationTitleLabelSize = 13;
+inline constexpr int kNotificationMessageLabelSize = 12;
+inline constexpr int kNotificationSecondaryLabelSize = 12;
+inline constexpr int kNotificationControlButtonsHorizontalSpacing = 6;
+
+// Bullet character. The divider symbol between the title and the timestamp.
+inline constexpr char16_t kNotificationTitleRowDivider[] = u"\u2022";
+
+// Target contrast ratio to reach when adjusting colors in dark mode.
+inline constexpr float kDarkModeMinContrastRatio = 6.0;
+
 // Constants for `ash_notification_view`.
 
-// The width of notification that displayed inside the message center.
-inline constexpr int kNotificationInMessageCenterWidth = 344;
+// The width of notification that is displayed inside the message center.
+// (Deprecated)
+inline constexpr int kDeprecatedNotificationInMessageCenterWidth = 344;
+
+// The width of notification that is displayed inside the message center.
+inline constexpr int kNotificationInMessageCenterWidth = 384;
 
 inline constexpr int kProgressBarWithActionButtonsBottomPadding = 16;
 inline constexpr int kProgressBarExpandedBottomPadding =
@@ -140,6 +164,13 @@ inline constexpr int kSlideOutGroupedNotificationAnimationDurationMs = 200;
 
 // System notification notifier ids.
 const char kLockScreenNotifierId[] = "ash.lockscreen_notification_controller";
+
+// Returns the width of the notification in the message center.
+inline int GetNotificationInMessageCenterWidth() {
+  return chromeos::features::IsNotificationWidthIncreaseEnabled()
+             ? kNotificationInMessageCenterWidth
+             : kDeprecatedNotificationInMessageCenterWidth;
+}
 
 }  // namespace ash
 

@@ -3,8 +3,8 @@
 // found in the LICENSE file.
 
 // clang-format off
-import {AutofillManagerProxy, PaymentsManagerProxy, PersonalDataChangedListener} from 'chrome://settings/lazy_load.js';
-import {assertEquals} from 'chrome://webui-test/chai_assert.js';
+import type {AutofillManagerProxy, PaymentsManagerProxy, PersonalDataChangedListener} from 'chrome://settings/lazy_load.js';
+import {assertEquals, assertFalse} from 'chrome://webui-test/chai_assert.js';
 import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
 
 // clang-format on
@@ -15,6 +15,8 @@ export const STUB_USER_ACCOUNT_INFO: chrome.autofillPrivate.AccountInfo = {
   email: 'stub-user@example.com',
   isSyncEnabledForAutofillProfiles: false,
   isEligibleForAddressAccountStorage: false,
+  isAutofillSyncToggleAvailable: false,
+  isAutofillSyncToggleEnabled: false,
 };
 
 /**
@@ -86,13 +88,15 @@ export function createCreditCardEntry():
     chrome.autofillPrivate.CreditCardEntry {
   const cards = ['Visa', 'Mastercard', 'Discover', 'Card'];
   const card = cards[Math.floor(Math.random() * cards.length)];
-  const cardNumber = patternMaker('xxxx', 10);
+  const cardNumber = appendLuhnCheckBit(patternMaker('xxxxxxxxxxxxxxx', 10));
+  const now = new Date();
   return {
     guid: makeGuid(),
     name: 'Jane Doe',
     cardNumber: cardNumber,
     expirationMonth: Math.ceil(Math.random() * 11).toString(),
-    expirationYear: (2016 + Math.floor(Math.random() * 5)).toString(),
+    expirationYear:
+        (now.getFullYear() + Math.floor(Math.random() * 5) + 1).toString(),
     network: `${card}_network`,
     imageSrc: 'chrome://theme/IDR_AUTOFILL_CC_GENERIC',
     metadata: {
@@ -139,6 +143,31 @@ function patternMaker(pattern: string, base: number): string {
   return pattern.replace(/x/g, function() {
     return Math.floor(Math.random() * base).toString(base);
   });
+}
+
+/**
+ * Calculates and appends a Luhn check bit for the given card number.
+ * https://en.wikipedia.org/wiki/Luhn_algorithm
+ * @param cardNumber The card number to calculate a check bit for
+ */
+function appendLuhnCheckBit(cardNumber: string): string {
+  const digitsInReverse = cardNumber.split('').reverse();
+  let sum = 0;
+  let doubleDigit = true;
+  for (const digit of digitsInReverse) {
+    let intDigit = Number(digit);
+    assertFalse(Number.isNaN(intDigit));
+    if (doubleDigit) {
+      intDigit *= 2;
+      sum += Math.floor(intDigit / 10) + (intDigit % 10);
+    } else {
+      sum += intDigit;
+    }
+    doubleDigit = !doubleDigit;
+  }
+
+  const checkDigit = (10 - (sum % 10)) % 10;
+  return cardNumber + checkDigit.toString();
 }
 
 /**
@@ -193,6 +222,7 @@ export class TestAutofillManager extends TestBrowserProxy implements
       'removeAddress',
       'removePersonalDataManagerListener',
       'setPersonalDataManagerListener',
+      'setAutofillSyncToggleEnabled',
     ]);
 
     // Set these to have non-empty data.
@@ -202,6 +232,8 @@ export class TestAutofillManager extends TestBrowserProxy implements
         email: 'stub-user@example.com',
         isSyncEnabledForAutofillProfiles: true,
         isEligibleForAddressAccountStorage: false,
+        isAutofillSyncToggleAvailable: false,
+        isAutofillSyncToggleEnabled: false,
       },
     };
 
@@ -236,6 +268,10 @@ export class TestAutofillManager extends TestBrowserProxy implements
     this.methodCalled('removeAddress');
   }
 
+  setAutofillSyncToggleEnabled(_enabled: boolean) {
+    this.methodCalled('setAutofillSyncToggleEnabled');
+  }
+
   /**
    * Verifies expectations.
    */
@@ -255,7 +291,6 @@ export class PaymentsManagerExpectations {
   requestedCreditCards: number = 0;
   listeningCreditCards: number = 0;
   removedCreditCards: number = 0;
-  clearedCachedCreditCards: number = 0;
   addedVirtualCards: number = 0;
   requestedIbans: number = 0;
   removedIbans: number = 0;
@@ -270,6 +305,7 @@ export class PaymentsManagerExpectations {
  */
 export class TestPaymentsManager extends TestBrowserProxy implements
     PaymentsManagerProxy {
+  private isValidIbanResult_: boolean = true;
   private isUserVerifyingPlatformAuthenticatorAvailable_: boolean|null = null;
   // <if expr="is_win or is_macosx">
   private isDeviceAuthAvailable_: boolean = false;
@@ -288,7 +324,6 @@ export class TestPaymentsManager extends TestBrowserProxy implements
       'addVirtualCard',
       'authenticateUserAndFlipMandatoryAuthToggle',
       'bulkDeleteAllCvcs',
-      'clearCachedCreditCard',
       'getCreditCardList',
       'getIbanList',
       'getLocalCard',
@@ -325,10 +360,6 @@ export class TestPaymentsManager extends TestBrowserProxy implements
     return Promise.resolve(this.data.creditCards);
   }
 
-  clearCachedCreditCard(_guid: string) {
-    this.methodCalled('clearCachedCreditCard');
-  }
-
   logServerCardLinkClicked() {}
 
   logServerIbanLinkClicked() {}
@@ -340,8 +371,6 @@ export class TestPaymentsManager extends TestBrowserProxy implements
   }
 
   saveCreditCard(_creditCard: chrome.autofillPrivate.CreditCardEntry) {}
-
-  setCreditCardFidoAuthEnabledState(_enabled: boolean) {}
 
   addVirtualCard(_cardId: string) {
     this.methodCalled('addVirtualCard');
@@ -360,9 +389,13 @@ export class TestPaymentsManager extends TestBrowserProxy implements
     return Promise.resolve(this.data.ibans);
   }
 
+  setIsValidIban(isValidIbanResult: boolean) {
+    this.isValidIbanResult_ = isValidIbanResult;
+  }
+
   isValidIban(_ibanValue: string) {
     this.methodCalled('isValidIban');
-    return Promise.resolve(true);
+    return Promise.resolve(this.isValidIbanResult_);
   }
 
   setIsUserVerifyingPlatformAuthenticatorAvailable(available: boolean|null) {
@@ -416,10 +449,6 @@ export class TestPaymentsManager extends TestBrowserProxy implements
     assertEquals(
         expected.removedCreditCards, this.getCallCount('removeCreditCard'),
         'removedCreditCards mismatch');
-    assertEquals(
-        expected.clearedCachedCreditCards,
-        this.getCallCount('clearCachedCreditCard'),
-        'clearedCachedCreditCards mismatch');
     assertEquals(
         expected.addedVirtualCards, this.getCallCount('addVirtualCard'),
         'addedVirtualCards mismatch');

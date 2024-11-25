@@ -9,14 +9,6 @@
 
 namespace commerce {
 
-const char kCommerceDailyMetricsLastUpdateTime[] =
-    "commerce_daily_metrics_last_update_time";
-const char kShoppingListBookmarkLastUpdateTime[] =
-    "shopping_list_bookmark_last_update_time";
-const char kShoppingListEnabledPrefName[] = "shopping_list_enabled";
-const char kPriceEmailNotificationsEnabled[] =
-    "price_tracking.email_notifications_enabled";
-
 void RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(
       kPriceEmailNotificationsEnabled, false,
@@ -26,6 +18,13 @@ void RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterTimePref(kShoppingListBookmarkLastUpdateTime, base::Time());
 
   registry->RegisterBooleanPref(kShoppingListEnabledPrefName, true);
+
+  registry->RegisterTimePref(kProductSpecificationsEntryPointLastDismissedTime,
+                             base::Time());
+  registry->RegisterIntegerPref(
+      kProductSpecificationsEntryPointShowIntervalInDays, 0);
+  registry->RegisterIntegerPref(kProductSpecificationsAcceptedDisclosureVersion,
+                                0 /* UNKNOWN */);
 }
 
 }  // namespace commerce

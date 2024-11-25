@@ -5,7 +5,10 @@
 #include "third_party/blink/renderer/core/fetch/fetch_manager.h"
 
 #include <stdint.h>
+
 #include <algorithm>
+#include <optional>
+#include <string_view>
 #include <utility>
 
 #include "base/check.h"
@@ -26,12 +29,12 @@
 #include "services/network/public/mojom/fetch_api.mojom-blink.h"
 #include "services/network/public/mojom/trust_tokens.mojom-blink.h"
 #include "services/network/public/mojom/url_loader_factory.mojom-blink.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/scheme_registry.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/code_cache.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/fetch_later.mojom-blink.h"
+#include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/public/platform/web_url_request_util.h"
@@ -65,6 +68,7 @@
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
+#include "third_party/blink/renderer/core/workers/shared_worker_global_scope.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_forbidden_scope.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
@@ -74,12 +78,14 @@
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/cors/cors.h"
+#include "third_party/blink/renderer/platform/loader/cors/cors_error_string.h"
 #include "third_party/blink/renderer/platform/loader/fetch/buffering_bytes_consumer.h"
 #include "third_party/blink/renderer/platform/loader/fetch/bytes_consumer.h"
 #include "third_party/blink/renderer/platform/loader/fetch/cached_metadata.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_initiator_type_names.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_utils.h"
+#include "third_party/blink/renderer/platform/loader/fetch/memory_cache.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_error.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
@@ -158,19 +164,6 @@ constexpr net::NetworkTrafficAnnotationTag kFetchLaterTrafficAnnotationTag =
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
 //
-// Must remain in sync with FetchKeepAliveRendererMetricType in
-// tools/metrics/histograms/enums.xml.
-enum class FetchKeepAliveRendererMetricType {
-  kLoadingSuceeded = 0,
-  kLoadingFailed = 1,
-  kAbortedByUser = 2,
-  kContextDestroyed = 3,
-  kMaxValue = kContextDestroyed,
-};
-
-// These values are persisted to logs. Entries should not be renumbered and
-// numeric values should never be reused.
-//
 // Must remain in sync with FetchLaterRendererMetricType in
 // tools/metrics/histograms/enums.xml.
 enum class FetchLaterRendererMetricType {
@@ -201,6 +194,14 @@ bool IsFetchLaterUseBackgroundSyncPermissionEnabled() {
 bool IsFetchLaterSendOnEnterBackForwardCacheEnabled() {
   return base::GetFieldTrialParamByFeatureAsBool(features::kFetchLaterAPI,
                                                  "send_on_enter_bfcache", true);
+}
+
+// Tells whether the FetchLater should use the "deferred-fetch" policy.
+// Defaults to false until the discussion is finalized.
+// https://github.com/WICG/pending-beacon/issues/87#issuecomment-2315624105
+bool IsFetchLaterUsePermissionsPolicyEnabled() {
+  return base::GetFieldTrialParamByFeatureAsBool(
+      features::kFetchLaterAPI, "use_permissions_policy", false);
 }
 
 bool HasNonEmptyLocationHeader(const FetchHeaderList* headers) {
@@ -235,18 +236,6 @@ void HistogramNetErrorForTrustTokensOperation(
       net_error);
 }
 
-// These values are persisted to logs. Entries should not be renumbered and
-// numeric values should never be reused.
-enum class FetchManagerLoaderCheckPoint {
-  kConstructor = 0,
-  kFailed = 1,
-  kMaxValue = kFailed,
-};
-
-void SendHistogram(FetchManagerLoaderCheckPoint cp) {
-  base::UmaHistogramEnumeration("Net.Fetch.CheckPoint.FetchManagerLoader", cp);
-}
-
 ResourceLoadPriority ComputeFetchLaterLoadPriority(
     const FetchParameters& params) {
   // FetchLater's ResourceType is ResourceType::kRaw, which should default to
@@ -257,6 +246,149 @@ ResourceLoadPriority ComputeFetchLaterLoadPriority(
       params.GetResourceRequest().GetFetchPriorityHint(),
       params.GetRenderBlockingBehavior());
   // TODO(crbug.com/1465781): Apply kLow when IsSubframeDeprioritizationEnabled.
+}
+
+class FetchManagerResourceRequestContext final : public ResourceRequestContext {
+  STACK_ALLOCATED();
+
+ public:
+  ~FetchManagerResourceRequestContext() override = default;
+
+  // Computes the ResourceLoadPriority. This is called if the priority was not
+  // set.
+  ResourceLoadPriority ComputeLoadPriority(
+      const FetchParameters& params) override {
+    return ComputeFetchLaterLoadPriority(params);
+  }
+
+  void RecordTrace() override {}
+};
+
+// Stores a resolver for Response objects, and a TypeError exception to reject
+// them with. The default exception is created at construction time so it has an
+// appropriate JavaScript stack.
+class ResponseResolver final : public GarbageCollected<ResponseResolver> {
+ public:
+  // ResponseResolver uses the ScriptState held by the ScriptPromiseResolver.
+  explicit ResponseResolver(ScriptPromiseResolver<Response>*);
+
+  ResponseResolver(const ResponseResolver&) = delete;
+  ResponseResolver& operator=(const ResponseResolver&) = delete;
+
+  // Exposed the ExecutionContext from the resolver for use by
+  // FetchManager::Loader.
+  ExecutionContext* GetExecutionContext() {
+    return resolver_->GetExecutionContext();
+  }
+
+  // The caller should clear references to this object after calling one of the
+  // resolve or reject methods, but just to ensure there are no mistakes this
+  // object clears its internal references after resolving or rejecting.
+
+  // Resolves the promise with the specified response.
+  void Resolve(Response* response);
+
+  // Rejects the promise with the supplied object.
+  void Reject(v8::Local<v8::Value> error);
+  void Reject(DOMException*);
+
+  // Rejects the promise with the TypeError exception created at construction
+  // time. Also optionally passes `devtools_request_id`, `issue_id`, and
+  // `issue_summary` to DevTools if they are set; this happens via a side
+  // channel that is inaccessible to the page (so additional information
+  // stored in the `issue_summary` about for example CORS policy violations
+  // is not leaked to the page).
+  void RejectBecauseFailed(std::optional<String> devtools_request_id,
+                           std::optional<base::UnguessableToken> issue_id,
+                           std::optional<String> issue_summary);
+
+  void Trace(Visitor* visitor) const {
+    visitor->Trace(resolver_);
+    visitor->Trace(exception_);
+  }
+
+ private:
+  // Clear all members.
+  void Clear();
+
+  Member<ScriptPromiseResolver<Response>> resolver_;
+  TraceWrapperV8Reference<v8::Value> exception_;
+};
+
+ResponseResolver::ResponseResolver(ScriptPromiseResolver<Response>* resolver)
+    : resolver_(resolver) {
+  auto* script_state = resolver_->GetScriptState();
+  v8::Isolate* isolate = script_state->GetIsolate();
+  // Only use a handle scope as we should be in the right context already.
+  v8::HandleScope scope(isolate);
+  // Create the exception at this point so we get the stack-trace that
+  // belongs to the fetch() call.
+  v8::Local<v8::Value> exception =
+      V8ThrowException::CreateTypeError(isolate, "Failed to fetch");
+  exception_.Reset(isolate, exception);
+}
+
+void ResponseResolver::Resolve(Response* response) {
+  CHECK(resolver_);
+  resolver_->Resolve(response);
+  Clear();
+}
+
+void ResponseResolver::Reject(v8::Local<v8::Value> error) {
+  CHECK(resolver_);
+  resolver_->Reject(error);
+  Clear();
+}
+
+void ResponseResolver::Reject(DOMException* dom_exception) {
+  CHECK(resolver_);
+  resolver_->Reject(dom_exception);
+  Clear();
+}
+
+void ResponseResolver::RejectBecauseFailed(
+    std::optional<String> devtools_request_id,
+    std::optional<base::UnguessableToken> issue_id,
+    std::optional<String> issue_summary) {
+  CHECK(resolver_);
+  auto* script_state = resolver_->GetScriptState();
+  auto* isolate = script_state->GetIsolate();
+  auto context = script_state->GetContext();
+  v8::Local<v8::Value> value = exception_.Get(isolate);
+  exception_.Reset();
+  if (devtools_request_id || issue_id || issue_summary) {
+    ThreadDebugger* debugger = ThreadDebugger::From(isolate);
+    auto* inspector = debugger->GetV8Inspector();
+    if (devtools_request_id) {
+      inspector->associateExceptionData(
+          context, value, V8AtomicString(isolate, "requestId"),
+          V8String(isolate, *devtools_request_id));
+    }
+    if (issue_id) {
+      inspector->associateExceptionData(
+          context, value, V8AtomicString(isolate, "issueId"),
+          V8String(isolate, IdentifiersFactory::IdFromToken(*issue_id)));
+    }
+    if (issue_summary) {
+      inspector->associateExceptionData(context, value,
+                                        V8AtomicString(isolate, "issueSummary"),
+                                        V8String(isolate, *issue_summary));
+    }
+  }
+  resolver_->Reject(value);
+  Clear();
+}
+
+void ResponseResolver::Clear() {
+  resolver_.Clear();
+  exception_.Clear();
+}
+
+// Returns the length of `url` without any fragment parts.
+uint64_t GetUrlLengthWithoutFragment(const KURL& url) {
+  KURL cloned_url = url;
+  cloned_url.RemoveFragmentIdentifier();
+  return url.GetString().length();
 }
 
 }  // namespace
@@ -298,6 +430,7 @@ class FetchLoaderBase : public GarbageCollectedMixin {
     visitor->Trace(script_state_);
     visitor->Trace(signal_);
     visitor->Trace(abort_handle_);
+    visitor->Trace(world_);
   }
 
  protected:
@@ -309,19 +442,20 @@ class FetchLoaderBase : public GarbageCollectedMixin {
   virtual void Failed(
       const String& message,
       DOMException* dom_exception,
-      absl::optional<String> devtools_request_id = absl::nullopt,
-      absl::optional<base::UnguessableToken> issue_id = absl::nullopt) = 0;
+      std::optional<String> devtools_request_id = std::nullopt,
+      std::optional<base::UnguessableToken> issue_id = std::nullopt,
+      std::optional<String> issue_summary = std::nullopt) = 0;
 
   void PerformSchemeFetch(ExceptionState&);
   void PerformNetworkError(
       const String& message,
-      absl::optional<base::UnguessableToken> issue_id = absl::nullopt);
+      std::optional<base::UnguessableToken> issue_id = std::nullopt);
   void FileIssueAndPerformNetworkError(RendererCorsIssueCode,
                                        int64_t identifier);
   void PerformHTTPFetch(ExceptionState&);
   void PerformDataFetch();
   bool AddConsoleMessage(const String& message,
-                         absl::optional<base::UnguessableToken> issue_id);
+                         std::optional<base::UnguessableToken> issue_id);
 
   ExecutionContext* GetExecutionContext() { return execution_context_.Get(); }
   void SetExecutionContext(ExecutionContext* ec) { execution_context_ = ec; }
@@ -329,14 +463,14 @@ class FetchLoaderBase : public GarbageCollectedMixin {
     return fetch_request_data_.Get();
   }
   ScriptState* GetScriptState() { return script_state_.Get(); }
-  scoped_refptr<const DOMWrapperWorld> World() { return world_; }
+  const DOMWrapperWorld* World() { return world_; }
   AbortSignal* Signal() { return signal_.Get(); }
 
  private:
   Member<ExecutionContext> execution_context_;
   Member<FetchRequestData> fetch_request_data_;
   Member<ScriptState> script_state_;
-  scoped_refptr<const DOMWrapperWorld> world_;
+  Member<const DOMWrapperWorld> world_;
   Member<AbortSignal> signal_;
   Member<AbortSignal::AlgorithmHandle> abort_handle_;
 };
@@ -348,7 +482,7 @@ class FetchManager::Loader final
  public:
   Loader(ExecutionContext*,
          FetchManager*,
-         ScriptPromiseResolver*,
+         ScriptPromiseResolver<Response>*,
          FetchRequestData*,
          ScriptState*,
          AbortSignal*);
@@ -357,8 +491,7 @@ class FetchManager::Loader final
 
   void Dispose() override;
 
-  void LogIfKeepalive(const FetchKeepAliveRendererMetricType& type) const;
-  void LogIfKeepalive(const std::string& metric) const;
+  void LogIfKeepalive(std::string_view request_state) const;
 
   // ThreadableLoaderClient implementation.
   bool WillFollowRedirect(uint64_t,
@@ -387,8 +520,7 @@ class FetchManager::Loader final
           loader_(loader),
           integrity_metadata_(integrity_metadata),
           url_(url),
-          response_type_(response_type),
-          finished_(false) {
+          response_type_(response_type) {
       body_->SetClient(this);
 
       OnStateChange();
@@ -404,12 +536,11 @@ class FetchManager::Loader final
 
       Result result = Result::kOk;
       while (result == Result::kOk) {
-        const char* buffer;
-        size_t available;
-        result = body_->BeginRead(&buffer, &available);
+        base::span<const char> buffer;
+        result = body_->BeginRead(buffer);
         if (result == Result::kOk) {
-          buffer_.Append(buffer, base::checked_cast<wtf_size_t>(available));
-          result = body_->EndRead(available);
+          buffer_.Append(buffer);
+          result = body_->EndRead(buffer.size());
         }
         if (result == Result::kShouldWait)
           return;
@@ -434,15 +565,15 @@ class FetchManager::Loader final
               integrity_metadata_,
               SubresourceIntegrityHelper::GetFeatures(
                   loader_->GetExecutionContext()),
-              buffer_.data(), buffer_.size(), url_, report_info);
+              &buffer_, url_, report_info);
         }
         SubresourceIntegrityHelper::DoReport(*loader_->GetExecutionContext(),
                                              report_info);
         if (check_result) {
-          updater_->Update(MakeGarbageCollected<FormDataBytesConsumer>(
-              buffer_.data(), buffer_.size()));
-          loader_->resolver_->Resolve(response_);
-          loader_->resolver_.Clear();
+          updater_->Update(
+              MakeGarbageCollected<FormDataBytesConsumer>(std::move(buffer_)));
+          loader_->response_resolver_->Resolve(response_);
+          loader_->response_resolver_.Clear();
           return;
         }
       }
@@ -469,15 +600,13 @@ class FetchManager::Loader final
    private:
     Member<BytesConsumer> body_;
     Member<PlaceHolderBytesConsumer> updater_;
-    // We cannot store a Response because its JS wrapper can be collected.
-    // TODO(yhirano): Fix this.
     Member<Response> response_;
     Member<FetchManager::Loader> loader_;
     String integrity_metadata_;
     KURL url_;
     const FetchResponseType response_type_;
-    Vector<char> buffer_;
-    bool finished_;
+    SegmentedBuffer buffer_;
+    bool finished_ = false;
   };
 
  private:
@@ -489,14 +618,14 @@ class FetchManager::Loader final
       const ResourceLoaderOptions& resource_loader_options) override;
   // If |dom_exception| is provided, throws the specified DOMException instead
   // of the usual "Failed to fetch" TypeError.
-  void Failed(
-      const String& message,
-      DOMException* dom_exception,
-      absl::optional<String> devtools_request_id = absl::nullopt,
-      absl::optional<base::UnguessableToken> issue_id = absl::nullopt) override;
+  void Failed(const String& message,
+              DOMException* dom_exception,
+              std::optional<String> devtools_request_id = std::nullopt,
+              std::optional<base::UnguessableToken> issue_id = std::nullopt,
+              std::optional<String> issue_summary = std::nullopt) override;
 
   Member<FetchManager> fetch_manager_;
-  Member<ScriptPromiseResolver> resolver_;
+  Member<ResponseResolver> response_resolver_;
   Member<ThreadableLoader> threadable_loader_;
   Member<PlaceHolderBytesConsumer> place_holder_body_;
   bool failed_;
@@ -506,13 +635,12 @@ class FetchManager::Loader final
   Member<SRIVerifier> integrity_verifier_;
   Vector<KURL> url_list_;
   Member<ScriptCachedMetadataHandler> cached_metadata_handler_;
-  TraceWrapperV8Reference<v8::Value> exception_;
   base::TimeTicks request_started_time_;
 };
 
 FetchManager::Loader::Loader(ExecutionContext* execution_context,
                              FetchManager* fetch_manager,
-                             ScriptPromiseResolver* resolver,
+                             ScriptPromiseResolver<Response>* resolver,
                              FetchRequestData* fetch_request_data,
                              ScriptState* script_state,
                              AbortSignal* signal)
@@ -521,7 +649,7 @@ FetchManager::Loader::Loader(ExecutionContext* execution_context,
                       script_state,
                       signal),
       fetch_manager_(fetch_manager),
-      resolver_(resolver),
+      response_resolver_(MakeGarbageCollected<ResponseResolver>(resolver)),
       failed_(false),
       finished_(false),
       response_http_status_code_(0),
@@ -529,16 +657,6 @@ FetchManager::Loader::Loader(ExecutionContext* execution_context,
       request_started_time_(base::TimeTicks::Now()) {
   DCHECK(World());
   url_list_.push_back(fetch_request_data->Url());
-  v8::Isolate* isolate = script_state->GetIsolate();
-  // Only use a handle scope as we should be in the right context already.
-  v8::HandleScope scope(isolate);
-  // Create the exception at this point so we get the stack-trace that belongs
-  // to the fetch() call.
-  v8::Local<v8::Value> exception =
-      V8ThrowException::CreateTypeError(isolate, "Failed to fetch");
-  exception_.Reset(isolate, exception);
-  SendHistogram(FetchManagerLoaderCheckPoint::kConstructor);
-  LogIfKeepalive("FetchKeepAlive.Renderer.Total");
 }
 
 FetchManager::Loader::~Loader() {
@@ -547,12 +665,11 @@ FetchManager::Loader::~Loader() {
 
 void FetchManager::Loader::Trace(Visitor* visitor) const {
   visitor->Trace(fetch_manager_);
-  visitor->Trace(resolver_);
+  visitor->Trace(response_resolver_);
   visitor->Trace(threadable_loader_);
   visitor->Trace(place_holder_body_);
   visitor->Trace(integrity_verifier_);
   visitor->Trace(cached_metadata_handler_);
-  visitor->Trace(exception_);
   FetchLoaderBase::Trace(visitor);
   ThreadableLoaderClient::Trace(visitor);
 }
@@ -607,14 +724,16 @@ void FetchManager::Loader::DidReceiveResponse(
   auto response_type = response.GetType();
   DCHECK_NE(response_type, FetchResponseType::kError);
 
-  LogIfKeepalive(FetchKeepAliveRendererMetricType::kLoadingSuceeded);
+  LogIfKeepalive("Succeeded");
 
   ScriptState::Scope scope(GetScriptState());
 
   response_http_status_code_ = response.HttpStatusCode();
 
   if (response.MimeType() == "application/wasm" &&
-      response.CurrentRequestUrl().ProtocolIsInHTTPFamily()) {
+      (response.CurrentRequestUrl().ProtocolIsInHTTPFamily() ||
+       CommonSchemeRegistry::IsExtensionScheme(
+           response.CurrentRequestUrl().Protocol().Ascii()))) {
     // We create a ScriptCachedMetadataHandler for WASM modules.
     cached_metadata_handler_ =
         MakeGarbageCollected<ScriptCachedMetadataHandler>(
@@ -672,19 +791,18 @@ void FetchManager::Loader::DidReceiveResponse(
       break;
     case FetchResponseType::kError:
       NOTREACHED();
-      break;
   }
   // TODO(crbug.com/1288221): Remove this once the investigation is done.
   CHECK(tainted_response);
 
   response_has_no_store_header_ = response.CacheControlContainsNoStore();
 
-  Response* r =
-      Response::Create(resolver_->GetExecutionContext(), tainted_response);
+  Response* r = Response::Create(response_resolver_->GetExecutionContext(),
+                                 tainted_response);
   r->headers()->SetGuard(Headers::kImmutableGuard);
   if (GetFetchRequestData()->Integrity().empty()) {
-    resolver_->Resolve(r);
-    resolver_.Clear();
+    response_resolver_->Resolve(r);
+    response_resolver_.Clear();
   } else {
     DCHECK(!integrity_verifier_);
     // We have another place holder body for SRI.
@@ -754,12 +872,18 @@ void FetchManager::Loader::DidFail(uint64_t identifier,
     return;
   }
 
-  auto issue_id = error.CorsErrorStatus()
-                      ? absl::optional<base::UnguessableToken>(
-                            error.CorsErrorStatus()->issue_id)
-                      : absl::nullopt;
+  std::optional<base::UnguessableToken> issue_id;
+  std::optional<String> issue_summary;
+  if (const auto& cors_error_status = error.CorsErrorStatus()) {
+    issue_id = cors_error_status->issue_id;
+    if (base::FeatureList::IsEnabled(features::kDevToolsImprovedNetworkError)) {
+      issue_summary = cors::GetErrorStringForIssueSummary(
+          *cors_error_status, fetch_initiator_type_names::kFetch);
+    }
+  }
   Failed(String(), nullptr,
-         IdentifiersFactory::SubresourceRequestId(identifier), issue_id);
+         IdentifiersFactory::SubresourceRequestId(identifier), issue_id,
+         issue_summary);
 }
 
 void FetchManager::Loader::DidFailRedirectCheck(uint64_t identifier) {
@@ -790,7 +914,8 @@ void FetchLoaderBase::Start(ExceptionState& exception_state) {
 
   // "- should fetching |request| be blocked as content security returns
   //    blocked"
-  if (!execution_context_->GetContentSecurityPolicyForWorld(world_.get())
+  CHECK(execution_context_);
+  if (!execution_context_->GetContentSecurityPolicyForWorld(world_.Get())
            ->AllowConnectToSource(fetch_request_data_->Url(),
                                   fetch_request_data_->Url(),
                                   RedirectStatus::kNoRedirect)) {
@@ -883,11 +1008,16 @@ void FetchManager::Loader::Dispose() {
   SetExecutionContext(nullptr);
 }
 
+// https://fetch.spec.whatwg.org/#abort-fetch
+// To abort a fetch() call with a promise, request, responseObject, and an
+// error:
 void FetchManager::Loader::Abort() {
-  if (resolver_) {
-    resolver_->Reject(
-        MakeGarbageCollected<DOMException>(DOMExceptionCode::kAbortError));
-    resolver_.Clear();
+  ScriptState* script_state = GetScriptState();
+  v8::Local<v8::Value> error = Signal()->reason(script_state).V8Value();
+  // 1. Reject promise with error.
+  if (response_resolver_) {
+    response_resolver_->Reject(error);
+    response_resolver_.Clear();
   }
   if (threadable_loader_) {
     // Prevent re-entrancy.
@@ -895,7 +1025,16 @@ void FetchManager::Loader::Abort() {
     threadable_loader_ = nullptr;
     loader->Cancel();
   }
-  LogIfKeepalive(FetchKeepAliveRendererMetricType::kAbortedByUser);
+
+  // 2. If request’s body is non-null and is readable, then cancel request’s
+  //  body with error.
+  if (FetchRequestData* fetch_request_data = GetFetchRequestData()) {
+    if (BodyStreamBuffer* body_stream_buffer = fetch_request_data->Buffer()) {
+      if (ReadableStream* readable_stream = body_stream_buffer->Stream()) {
+        ReadableStream::Cancel(script_state, readable_stream, error);
+      }
+    }
+  }
   NotifyFinished();
 }
 
@@ -968,8 +1107,8 @@ void FetchLoaderBase::FileIssueAndPerformNetworkError(
 
 void FetchLoaderBase::PerformNetworkError(
     const String& message,
-    absl::optional<base::UnguessableToken> issue_id) {
-  Failed(message, nullptr, absl::nullopt, issue_id);
+    std::optional<base::UnguessableToken> issue_id) {
+  Failed(message, nullptr, std::nullopt, issue_id);
 }
 
 void FetchLoaderBase::PerformHTTPFetch(ExceptionState& exception_state) {
@@ -1046,6 +1185,8 @@ void FetchLoaderBase::PerformHTTPFetch(ExceptionState& exception_state) {
   request.SetAdAuctionHeaders(fetch_request_data_->AdAuctionHeaders());
   request.SetAttributionReportingEligibility(
       fetch_request_data_->AttributionReportingEligibility());
+  request.SetAttributionReportingSupport(
+      fetch_request_data_->AttributionSupport());
   request.SetSharedStorageWritableOptedIn(
       fetch_request_data_->SharedStorageWritable());
 
@@ -1055,6 +1196,12 @@ void FetchLoaderBase::PerformHTTPFetch(ExceptionState& exception_state) {
       fetch_request_data_->ServiceWorkerRaceNetworkRequestToken());
 
   request.SetFetchLaterAPI(IsDeferred());
+
+  if (execution_context_->IsSharedWorkerGlobalScope() &&
+      DynamicTo<SharedWorkerGlobalScope>(*execution_context_)
+          ->DoesRequireCrossSiteRequestForCookies()) {
+    request.SetSiteForCookies(net::SiteForCookies());
+  }
 
   // "3. Append `Host`, ..."
   // FIXME: Implement this when the spec is fixed.
@@ -1083,6 +1230,11 @@ void FetchLoaderBase::PerformHTTPFetch(ExceptionState& exception_state) {
             std::move(factory_clone));
   }
 
+  if (fetch_request_data_->Keepalive() && !request.IsFetchLaterAPI()) {
+    FetchUtils::LogFetchKeepAliveRequestMetric(
+        request.GetRequestContext(),
+        FetchUtils::FetchKeepAliveRequestState::kTotal);
+  }
   CreateLoader(std::move(request), resource_loader_options);
 }
 
@@ -1123,13 +1275,10 @@ void FetchManager::Loader::CreateLoader(
 
 bool FetchLoaderBase::AddConsoleMessage(
     const String& message,
-    absl::optional<base::UnguessableToken> issue_id) {
+    std::optional<base::UnguessableToken> issue_id) {
   if (execution_context_->IsContextDestroyed())
     return false;
-  bool issue_only =
-      base::FeatureList::IsEnabled(blink::features::kCORSErrorsIssueOnly) &&
-      issue_id;
-  if (!message.empty() && !issue_only) {
+  if (!message.empty()) {
     // CORS issues are reported via network service instrumentation, with the
     // exception of early errors reported in FileIssueAndPerformNetworkError.
     auto* console_message = MakeGarbageCollected<ConsoleMessage>(
@@ -1146,8 +1295,9 @@ bool FetchLoaderBase::AddConsoleMessage(
 void FetchManager::Loader::Failed(
     const String& message,
     DOMException* dom_exception,
-    absl::optional<String> devtools_request_id,
-    absl::optional<base::UnguessableToken> issue_id) {
+    std::optional<String> devtools_request_id,
+    std::optional<base::UnguessableToken> issue_id,
+    std::optional<String> issue_summary) {
   if (failed_ || finished_) {
     return;
   }
@@ -1155,39 +1305,21 @@ void FetchManager::Loader::Failed(
   if (!AddConsoleMessage(message, issue_id)) {
     return;
   }
-  if (resolver_) {
+  if (response_resolver_) {
     ScriptState::Scope scope(GetScriptState());
     if (dom_exception) {
-      resolver_->Reject(dom_exception);
+      response_resolver_->Reject(dom_exception);
     } else {
-      v8::Local<v8::Value> value =
-          exception_.Get(GetScriptState()->GetIsolate());
-      exception_.Reset();
-      ThreadDebugger* debugger =
-          ThreadDebugger::From(GetScriptState()->GetIsolate());
-      if (devtools_request_id) {
-        debugger->GetV8Inspector()->associateExceptionData(
-            GetScriptState()->GetContext(), value,
-            V8AtomicString(GetScriptState()->GetIsolate(), "requestId"),
-            V8String(GetScriptState()->GetIsolate(), *devtools_request_id));
-      }
-      if (issue_id) {
-        debugger->GetV8Inspector()->associateExceptionData(
-            GetScriptState()->GetContext(), value,
-            V8AtomicString(GetScriptState()->GetIsolate(), "issueId"),
-            V8String(GetScriptState()->GetIsolate(),
-                     IdentifiersFactory::IdFromToken(*issue_id)));
-      }
-      resolver_->Reject(value);
-      SendHistogram(FetchManagerLoaderCheckPoint::kFailed);
-      LogIfKeepalive(FetchKeepAliveRendererMetricType::kLoadingFailed);
+      response_resolver_->RejectBecauseFailed(
+          std::move(devtools_request_id), issue_id, std::move(issue_summary));
+      LogIfKeepalive("Failed");
     }
+    response_resolver_.Clear();
   }
   NotifyFinished();
 }
 
 void FetchManager::Loader::NotifyFinished() {
-  LogIfKeepalive("FetchKeepAlive.Renderer.Total.Finished");
   if (fetch_manager_)
     fetch_manager_->OnLoaderFinished(this);
 }
@@ -1197,34 +1329,18 @@ bool FetchManager::Loader::IsDeferred() const {
 }
 
 void FetchManager::Loader::LogIfKeepalive(
-    const FetchKeepAliveRendererMetricType& type) const {
+    std::string_view request_state) const {
+  return;
+  CHECK(request_state == "Succeeded" || request_state == "Failed");
   if (!GetFetchRequestData()->Keepalive()) {
     return;
   }
-
-  base::UmaHistogramEnumeration("FetchKeepAlive.Renderer.Metrics", type);
 
   base::TimeDelta duration = base::TimeTicks::Now() - request_started_time_;
-  if (type == FetchKeepAliveRendererMetricType::kLoadingSuceeded ||
-      type == FetchKeepAliveRendererMetricType::kLoadingFailed) {
-    base::UmaHistogramMediumTimes("FetchKeepAlive.Renderer.Duration", duration);
-
-    if (type == FetchKeepAliveRendererMetricType::kLoadingSuceeded) {
-      base::UmaHistogramMediumTimes(
-          "FetchKeepAlive.Renderer.Duration.Succeeded", duration);
-    } else {
-      base::UmaHistogramMediumTimes("FetchKeepAlive.Renderer.Duration.Failed",
-                                    duration);
-    }
-  }
-}
-
-void FetchManager::Loader::LogIfKeepalive(const std::string& metric) const {
-  if (!GetFetchRequestData()->Keepalive()) {
-    return;
-  }
-
-  base::UmaHistogramBoolean(metric, true);
+  base::UmaHistogramMediumTimes("FetchKeepAlive.RequestDuration", duration);
+  base::UmaHistogramMediumTimes(
+      base::StrCat({"FetchKeepAlive.RequestDuration.", request_state}),
+      duration);
 }
 
 // A subtype of FetchLoader to handle the deferred fetching algorithm [1].
@@ -1261,7 +1377,7 @@ class FetchLaterManager::DeferredLoader final
                  FetchRequestData* fetch_request_data,
                  ScriptState* script_state,
                  AbortSignal* signal,
-                 const absl::optional<base::TimeDelta>& activate_after)
+                 const std::optional<base::TimeDelta>& activate_after)
       : FetchLoaderBase(ec, fetch_request_data, script_state, signal),
         fetch_later_manager_(fetch_later_manager),
         fetch_later_result_(MakeGarbageCollected<FetchLaterResult>()),
@@ -1355,7 +1471,7 @@ class FetchLaterManager::DeferredLoader final
                           WebFeature::kFetchLaterInvokeStateActivated);
         break;
       default:
-        NOTREACHED_NORETURN();
+        NOTREACHED();
     };
     invoke_state_ = state;
     fetch_later_result_->SetActivated(state == InvokeState::ACTIVATED);
@@ -1407,22 +1523,22 @@ class FetchLaterManager::DeferredLoader final
     loader_.set_disconnect_handler(WTF::BindOnce(
         &DeferredLoader::NotifyFinished, WrapWeakPersistent(this)));
 
-    // https://whatpr.org/fetch/1647/9ca4bda...9994c1d.html#request-a-deferred-fetch
+    // https://whatpr.org/fetch/1647.html#request-a-deferred-fetch
     // Continued with "request a deferred fetch"
-    // 13. If `activate_after_` is not null, then run the following steps in
+    // 12. If `activate_after_` is not null, then run the following steps in
     // parallel:
     if (activate_after_.has_value()) {
-      // 13-1. The user agent should wait until `activate_after_`
-      // milliseconds have passed,
+      // 12-1. The user agent should wait until `activate_after_`
+      // milliseconds have passed ...
       // Implementation followed by `TimerFired()`.
       timer_.StartOneShot(*activate_after_, FROM_HERE);
     }
   }
   void Failed(const String& message,
               DOMException* dom_exception,
-              absl::optional<String> devtools_request_id = absl::nullopt,
-              absl::optional<base::UnguessableToken> issue_id =
-                  absl::nullopt) override {
+              std::optional<String> devtools_request_id = std::nullopt,
+              std::optional<base::UnguessableToken> issue_id = std::nullopt,
+              std::optional<String> issue_summary = std::nullopt) override {
     AddConsoleMessage(message, issue_id);
     NotifyFinished();
   }
@@ -1437,9 +1553,9 @@ class FetchLaterManager::DeferredLoader final
 
   // Triggered by `timer_`.
   void TimerFired(TimerBase*) {
-    // https://whatpr.org/fetch/1647/9ca4bda...9994c1d.html#request-a-deferred-fetch
+    // https://whatpr.org/fetch/1647.html#request-a-deferred-fetch
     // Continued with "request a deferred fetch":
-    // 13-3. Process a deferred fetch given deferredRecord.
+    // 12-3. Process a deferred fetch given deferredRecord.
     Process(FetchLaterRendererMetricType::kActivatedByTimeout);
     NotifyFinished();
   }
@@ -1460,8 +1576,8 @@ class FetchLaterManager::DeferredLoader final
   Member<FetchLaterResult> fetch_later_result_;
 
   // The "activateAfter" to request a deferred fetch.
-  // https://whatpr.org/fetch/1647/9ca4bda...7bff4de.html#request-a-deferred-fetch
-  const absl::optional<base::TimeDelta> activate_after_;
+  // https://whatpr.org/fetch/1647.html#request-a-deferred-fetch
+  const std::optional<base::TimeDelta> activate_after_;
   // A timer to handle `activate_after_`.
   HeapTaskRunnerTimer<DeferredLoader> timer_;
 
@@ -1472,21 +1588,21 @@ class FetchLaterManager::DeferredLoader final
 FetchManager::FetchManager(ExecutionContext* execution_context)
     : ExecutionContextLifecycleObserver(execution_context) {}
 
-ScriptPromise FetchManager::Fetch(ScriptState* script_state,
-                                  FetchRequestData* request,
-                                  AbortSignal* signal,
-                                  ExceptionState& exception_state) {
+ScriptPromise<Response> FetchManager::Fetch(ScriptState* script_state,
+                                            FetchRequestData* request,
+                                            AbortSignal* signal,
+                                            ExceptionState& exception_state) {
   DCHECK(signal);
   if (signal->aborted()) {
-    exception_state.RethrowV8Exception(signal->reason(script_state).V8Value());
-    return ScriptPromise();
+    return ScriptPromise<Response>::Reject(script_state,
+                                           signal->reason(script_state));
   }
 
   request->SetDestination(network::mojom::RequestDestination::kEmpty);
 
-  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver<Response>>(
       script_state, exception_state.GetContext());
-  ScriptPromise promise = resolver->Promise();
+  auto promise = resolver->Promise();
 
   auto* loader = MakeGarbageCollected<Loader>(
       GetExecutionContext(), this, resolver, request, script_state, signal);
@@ -1500,22 +1616,22 @@ FetchLaterResult* FetchLaterManager::FetchLater(
     ScriptState* script_state,
     FetchRequestData* request,
     AbortSignal* signal,
-    absl::optional<DOMHighResTimeStamp> activate_after_ms,
+    std::optional<DOMHighResTimeStamp> activate_after_ms,
     ExceptionState& exception_state) {
-  // https://whatpr.org/fetch/1647/9ca4bda...9994c1d.html#dom-global-fetch-later
+  // https://whatpr.org/fetch/1647.html#dom-global-fetch-later
   // Continuing the fetchLater(input, init) method steps:
   CHECK(signal);
-  // 3. If request’s signal is aborted, then throw signal’s abort reason.
+  // 2. If request’s signal is aborted, then throw signal’s abort reason.
   if (signal->aborted()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kAbortError,
                                       "The user aborted a fetchLater request.");
     return nullptr;
   }
 
-  absl::optional<base::TimeDelta> activate_after = absl::nullopt;
+  std::optional<base::TimeDelta> activate_after = std::nullopt;
   if (activate_after_ms.has_value()) {
     activate_after = base::Milliseconds(*activate_after_ms);
-    // 8. If `activate_after` is less than 0 then throw a RangeError.
+    // 6. If `activate_after` is less than 0 then throw a RangeError.
     if (activate_after->is_negative()) {
       exception_state.ThrowRangeError(
           "fetchLater's activateAfter cannot be negative.");
@@ -1523,11 +1639,20 @@ FetchLaterResult* FetchLaterManager::FetchLater(
     }
   }
 
-  // 12. Let deferredRecord be the result of calling request a deferred fetch
+  // 7. Let deferredRecord be the result of calling "request a deferred fetch"
   // given `request` and `activate_after`. This may throw an exception.
   //
-  // "request a deferred fetch"
-  // https://whatpr.org/fetch/1647/9ca4bda...9994c1d.html#request-a-deferred-fetch
+  // "request a deferred fetch":
+  // https://whatpr.org/fetch/1647.html#request-a-deferred-fetch
+
+  // 1. If request’s client is not a fully active Document, then throw an
+  // "InvalidStateError" DOMException.
+  if (!DomWindow() || GetExecutionContext()->is_in_back_forward_cache()) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kInvalidStateError,
+        "fetchLater can only be called from a fully active Document.");
+    return nullptr;
+  }
 
   // 2. If request’s URL’s scheme is not an HTTPS scheme, then throw a
   // TypeError.
@@ -1542,18 +1667,32 @@ FetchLaterResult* FetchLaterManager::FetchLater(
         "fetchLater was passed an insecure URL.");
     return nullptr;
   }
-  // 4. Set request’s service-workers mode to "none".
-  // Done in `PerformHTTPFetch()`.
-  // 5. If request’s body is not null and request’s body’s source is null, then
-  // throw a TypeError.
-  // This disallows sending deferred fetches with a live ReadableStream.
-  // Equivalent to Step 7 below, as implementation does not set
-  // BufferByteLength() for ReadableStream.
 
-  uint64_t bytes_for_origin = 0;
-  // 7. If request’s body is not null then:
+  // TODO(crbug.com/40276121): Remove this after implementing Step 7.
+  if (IsFetchLaterUsePermissionsPolicyEnabled() &&
+      !GetExecutionContext()->IsFeatureEnabled(
+          mojom::blink::PermissionsPolicyFeature::kDeferredFetch,
+          ReportOptions::kReportOnFailure)) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kNotAllowedError,
+        "Access to fetchLater requires the permissions policy "
+        "\"deferred-fetch\" be enabled for the origin of this document.");
+    return nullptr;
+  }
+
+  // 4. Let `total_request_length` be the length of request’s URL, serialized
+  // with exclude fragment set to true.
+  uint64_t total_request_length = GetUrlLengthWithoutFragment(request->Url());
+
+  // 5. For each (name, value) in header list, increment `total_request_length`
+  // by name’s length + value’s length.
+  for (const auto& header : request->HeaderList()->List()) {
+    total_request_length += header.first.length() + header.second.length();
+  }
+
+  // 6. If request’s body is not null then:
   if (request->Buffer()) {
-    // 7-1. If request’s body’s length is null, then throw a TypeError.
+    // 6-1. If request’s body’s length is null, then throw a TypeError.
     if (request->BufferByteLength() == 0) {
       UseCounter::Count(GetExecutionContext(),
                         WebFeature::kFetchLaterErrorUnknownBodyLength);
@@ -1561,12 +1700,19 @@ FetchLaterResult* FetchLaterManager::FetchLater(
           "fetchLater doesn't support body with unknown length.");
       return nullptr;
     }
-    // 7-2. Set `bytes_for_origin` to request’s body’s length.
-    bytes_for_origin = request->BufferByteLength();
+    // 6-2. If request’s body’s source is null, then throw a TypeError.
+    // This disallows sending deferred fetches with a live ReadableStream.
+    // NOTE: Equivalent to Step 6-1 above, as implementation does not set
+    // BufferByteLength() for ReadableStream.
+
+    // 6-3 Increment totalRequestLength by request’s body’s length.
+    total_request_length += request->BufferByteLength();
   }
+
+  // TODO(crbug.com/40276121): Update the following steps.
   // Run Step 9 below for potential early termination. It also caps
   // `bytes_per_origin`.
-  if (bytes_for_origin > kMaxScheduledDeferredBytesPerOrigin) {
+  if (total_request_length > kMaxScheduledDeferredBytesPerOrigin) {
     UseCounter::Count(GetExecutionContext(),
                       WebFeature::kFetchLaterErrorQuotaExceeded);
     exception_state.ThrowDOMException(
@@ -1584,11 +1730,11 @@ FetchLaterResult* FetchLaterManager::FetchLater(
     // `bytes_for_orign` is capped below the max (64 kilobytes), and the value
     // returned by every deferred_loader has run through the same cap. Hence,
     // the sum here is guaranteed to be <= 128 kilobytes.
-    bytes_for_origin +=
+    total_request_length +=
         deferred_loader->GetDeferredBytesForUrlOrigin(request->Url());
     // 9. If `bytes_for_origin` is greater than 64 kilobytes, then throw a
     // QuotaExceededError.
-    if (bytes_for_origin > kMaxScheduledDeferredBytesPerOrigin) {
+    if (total_request_length > kMaxScheduledDeferredBytesPerOrigin) {
       UseCounter::Count(GetExecutionContext(),
                         WebFeature::kFetchLaterErrorQuotaExceeded);
       exception_state.ThrowDOMException(
@@ -1598,16 +1744,19 @@ FetchLaterResult* FetchLaterManager::FetchLater(
     }
   }
 
+  // 8. Set request’s service-workers mode to "none".
+  // NOTE: Done in `FetchLoaderBase::PerformHTTPFetch()`.
+
   request->SetDestination(network::mojom::RequestDestination::kEmpty);
-  // 10. Set request’s keepalive to true.
+  // 9. Set request’s keepalive to true.
   request->SetKeepalive(true);
 
-  // 11. Let deferredRecord be a new deferred fetch record whose request is
+  // 10. Let deferredRecord be a new deferred fetch record whose request is
   // `request`.
   auto* deferred_loader = MakeGarbageCollected<DeferredLoader>(
       GetExecutionContext(), this, request, script_state, signal,
       activate_after);
-  // 12. Append deferredRecord to request’s client’s fetch group’s deferred
+  // 11. Append deferredRecord to request’s client’s fetch group’s deferred
   // fetch records.
   deferred_loaders_.insert(deferred_loader);
 
@@ -1622,7 +1771,6 @@ void FetchManager::ContextDestroyed() {
   // controller is non-null and record’s done flag is unset and keepalive is
   // false, terminate the fetch record’s controller .
   for (auto& loader : loaders_) {
-    loader->LogIfKeepalive(FetchKeepAliveRendererMetricType::kContextDestroyed);
     loader->Dispose();
   }
 }
@@ -1758,12 +1906,28 @@ FetchLaterManager::PrepareNetworkRequest(
   FetchParameters params(std::move(request), options);
   WebScopedVirtualTimePauser unused_virtual_time_pauser;
   params.OverrideContentType(kFetchLaterContentType);
-  if (PrepareResourceRequest(
-          kFetchLaterResourceType,
-          fetcher->GetProperties().GetFetchClientSettingsObject(), params,
-          fetcher->Context(), unused_virtual_time_pauser,
-          WTF::BindOnce(&ComputeFetchLaterLoadPriority)) != absl::nullopt) {
-    return nullptr;
+  const FetchClientSettingsObject& fetch_client_settings_object =
+      fetcher->GetProperties().GetFetchClientSettingsObject();
+
+  FetchManagerResourceRequestContext resource_request_context;
+  if (!RuntimeEnabledFeatures::
+          MinimimalResourceRequestPrepBeforeCacheLookupEnabled()) {
+    if (PrepareResourceRequest(
+            kFetchLaterResourceType, fetch_client_settings_object, params,
+            fetcher->Context(), unused_virtual_time_pauser,
+            resource_request_context, KURL()) != std::nullopt) {
+      return nullptr;
+    }
+  } else {
+    if (PrepareResourceRequestForCacheAccess(
+            kFetchLaterResourceType, fetch_client_settings_object, KURL(),
+            resource_request_context, fetcher->Context(),
+            params) != std::nullopt) {
+      return nullptr;
+    }
+    UpgradeResourceRequestForLoaderNew(
+        kFetchLaterResourceType, params, fetcher->Context(),
+        resource_request_context, unused_virtual_time_pauser);
   }
 
   // From `ResourceFetcher::StartLoad()`:

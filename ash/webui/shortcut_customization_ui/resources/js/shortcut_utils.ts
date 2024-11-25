@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import '../strings.m.js';
+import '/strings.m.js';
 
 import {loadTimeData} from 'chrome://resources/ash/common/load_time_data.m.js';
 import {VKey as ash_mojom_VKey} from 'chrome://resources/ash/common/shortcut_input_ui/accelerator_keys.mojom-webui.js';
@@ -25,15 +25,8 @@ const modifiers: Modifier[] = [
   Modifier.CONTROL,
   Modifier.ALT,
   Modifier.COMMAND,
+  Modifier.FN_KEY,
 ];
-
-export const keyCodeToModifier: {[keyCode: number]: number} = {
-  16: Modifier.SHIFT,
-  17: Modifier.CONTROL,
-  18: Modifier.ALT,
-  91: Modifier.COMMAND,
-  92: Modifier.COMMAND,
-};
 
 export const unidentifiedKeyCodeToKey: {[keyCode: number]: string} = {
   159: 'MicrophoneMuteToggle',
@@ -48,6 +41,7 @@ export const unidentifiedKeyCodeToKey: {[keyCode: number]: string} = {
 // The keys in this map are pulled from the file:
 // ui/events/keycodes/dom/dom_code_data.inc
 export const keyToIconNameMap: {[key: string]: string|undefined} = {
+  'Accessibility': 'accessibility',
   'ArrowDown': 'arrow-down',
   'ArrowLeft': 'arrow-left',
   'ArrowRight': 'arrow-right',
@@ -113,6 +107,7 @@ export const createEmptyAccelInfoFromAccel =
       return {
         layoutProperties:
             {standardAccelerator: {accelerator: accel, keyDisplay: ''}},
+        acceleratorLocked: false,
         locked: false,
         state: AcceleratorState.kEnabled,
         type: AcceleratorType.kUser,
@@ -204,6 +199,8 @@ export const getSubcategoryNameStringId =
           return `${subcategoryPrefix}Desks`;
         case AcceleratorSubcategory.kChromeVox:
           return `${subcategoryPrefix}ChromeVox`;
+        case AcceleratorSubcategory.kMouseKeys:
+          return `${subcategoryPrefix}MouseKeys`;
         case AcceleratorSubcategory.kVisibility:
           return `${subcategoryPrefix}Visibility`;
         case AcceleratorSubcategory.kAccessibilityNavigation:
@@ -241,7 +238,7 @@ export const canBypassErrorWithRetry =
  * Sort the modifiers in the order of ctrl, alt, shift, meta.
  */
 export const getSortedModifiers = (modifierStrings: string[]): string[] => {
-  const sortOrder = ['meta', 'ctrl', 'alt', 'shift'];
+  const sortOrder = ['meta', 'ctrl', 'alt', 'shift', 'fn'];
   if (modifierStrings.length <= 1) {
     return modifierStrings;
   }
@@ -308,6 +305,8 @@ export function getModifierString(modifier: Modifier): string {
       return 'ctrl';
     case Modifier.ALT:
       return 'alt';
+    case Modifier.FN_KEY:
+      return 'fn';
     case Modifier.COMMAND:
       return 'meta';
     default:
@@ -349,12 +348,17 @@ export const isModifierKey = (keycode: number): boolean => {
   return ModifierKeyCodes.includes(keycode);
 };
 
-export const isValidDefaultAccelerator =
-    (accelerator: Accelerator): boolean => {
-      // A valid default accelerator is one that has modifier(s) and a key or
-      // is function key.
-      return (accelerator.modifiers > 0 && accelerator.keyCode > 0) ||
-          isFunctionKey(accelerator.keyCode);
+export const isValidAccelerator = (accelerator: Accelerator): boolean => {
+  // A valid default accelerator is one that has modifier(s) and a key or
+  // is function key.
+  return (accelerator.modifiers > 0 && accelerator.keyCode > 0) ||
+      isFunctionKey(accelerator.keyCode);
+};
+
+export const containsAccelerator =
+    (accelerators: Accelerator[], accelerator: Accelerator): boolean => {
+      return accelerators.some(
+          accel => areAcceleratorsEqual(accel, accelerator));
     };
 
 export const getSourceAndActionFromAcceleratorId =
@@ -370,12 +374,12 @@ export const getSourceAndActionFromAcceleratorId =
 /**
  *
  * @param keyOrIcon the text for an individual accelerator key.
- * @returns the associated icon name for the given `keyOrIcon` text if it
+ * @returns the associated icon label for the given `keyOrIcon` text if it
  *     exists, otherwise returns `keyOrIcon` itself.
  */
 export const getKeyDisplay = (keyOrIcon: string): string => {
   const iconName = keyToIconNameMap[keyOrIcon];
-  return iconName ? iconName : keyOrIcon;
+  return iconName ? loadTimeData.getString(`iconLabel${keyOrIcon}`) : keyOrIcon;
 };
 
 /**

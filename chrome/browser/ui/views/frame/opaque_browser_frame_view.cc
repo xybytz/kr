@@ -10,7 +10,6 @@
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
-#include "build/chromeos_buildflags.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/layout_constants.h"
@@ -35,6 +34,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/models/image_model.h"
+#include "ui/base/mojom/menu_source_type.mojom.h"
 #include "ui/base/theme_provider.h"
 #include "ui/color/color_provider.h"
 #include "ui/gfx/canvas.h"
@@ -143,6 +143,9 @@ OpaqueBrowserFrameView::OpaqueBrowserFrameView(
                                       this);
   }
   SetLayoutManager(std::unique_ptr<views::LayoutManager>(layout_));
+
+  // Expose this view as a generic container as it contains/paints many things.
+  GetViewAccessibility().SetRole(ax::mojom::Role::kPane);
 }
 
 OpaqueBrowserFrameView::~OpaqueBrowserFrameView() {}
@@ -254,9 +257,7 @@ void OpaqueBrowserFrameView::LayoutWebAppWindowTitle(
 }
 
 int OpaqueBrowserFrameView::GetTopInset(bool restored) const {
-  return browser_view()->ShouldDrawTabStrip()
-             ? layout_->GetTabStripInsetsTop(restored)
-             : layout_->NonClientTopHeight(restored);
+  return layout_->NonClientTopHeight(restored);
 }
 
 void OpaqueBrowserFrameView::UpdateThrobber(bool running) {
@@ -411,19 +412,11 @@ void OpaqueBrowserFrameView::UpdateWindowIcon() {
 
 void OpaqueBrowserFrameView::UpdateWindowTitle() {
   if (!frame()->IsFullscreen() && ShouldShowWindowTitle()) {
-    Layout();
+    DeprecatedLayoutImmediately();
     if (window_title_) {
       window_title_->SchedulePaint();
     }
   }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// OpaqueBrowserFrameView, views::View overrides:
-
-void OpaqueBrowserFrameView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  // Expose this view as a generic container as it contains/paints many things.
-  node_data->role = ax::mojom::Role::kPane;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -564,9 +557,7 @@ bool OpaqueBrowserFrameView::EverHasVisibleBackgroundTabShapes() const {
 
 OpaqueBrowserFrameView::FrameButtonStyle
 OpaqueBrowserFrameView::GetFrameButtonStyle() const {
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX)
   return FrameButtonStyle::kMdButton;
 #else
   return FrameButtonStyle::kImageButton;
@@ -574,7 +565,7 @@ OpaqueBrowserFrameView::GetFrameButtonStyle() const {
 }
 
 void OpaqueBrowserFrameView::UpdateWindowControlsOverlay(
-    const gfx::Rect& bounding_rect) const {
+    const gfx::Rect& bounding_rect) {
   content::WebContents* web_contents = browser_view()->GetActiveWebContents();
   if (web_contents) {
     web_contents->UpdateWindowControlsOverlay(bounding_rect);
@@ -708,7 +699,8 @@ void OpaqueBrowserFrameView::InitWindowCaptionButton(
     int accessibility_string_id,
     ViewID view_id) {
   button->SetCallback(std::move(callback));
-  button->SetAccessibleName(l10n_util::GetStringUTF16(accessibility_string_id));
+  button->GetViewAccessibility().SetName(
+      l10n_util::GetStringUTF16(accessibility_string_id));
   button->SetID(view_id);
   AddChildView(button);
 }
@@ -737,7 +729,7 @@ int OpaqueBrowserFrameView::CalculateCaptionButtonBackgroundXOffset(
     case VIEW_ID_CLOSE_BUTTON:
       return (is_rtl ? 0 : minimize_width + maximize_restore_width);
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 
@@ -791,7 +783,7 @@ void OpaqueBrowserFrameView::WindowIconPressed() {
   menu_runner_->RunMenuAt(
       browser_view()->GetWidget(), window_icon_->button_controller(),
       window_icon_->GetBoundsInScreen(), views::MenuAnchorPosition::kTopLeft,
-      ui::MENU_SOURCE_MOUSE);
+      ui::mojom::MenuSourceType::kMouse);
 #endif
 }
 
@@ -878,10 +870,14 @@ void OpaqueBrowserFrameView::
 void OpaqueBrowserFrameView::
     UpdateCaptionButtonToolTipsForWindowControlsOverlay() {
   if (browser_view()->IsWindowControlsOverlayEnabled()) {
-    minimize_button_->SetTooltipText(minimize_button_->GetAccessibleName());
-    maximize_button_->SetTooltipText(maximize_button_->GetAccessibleName());
-    restore_button_->SetTooltipText(restore_button_->GetAccessibleName());
-    close_button_->SetTooltipText(close_button_->GetAccessibleName());
+    minimize_button_->SetTooltipText(
+        minimize_button_->GetViewAccessibility().GetCachedName());
+    maximize_button_->SetTooltipText(
+        maximize_button_->GetViewAccessibility().GetCachedName());
+    restore_button_->SetTooltipText(
+        restore_button_->GetViewAccessibility().GetCachedName());
+    close_button_->SetTooltipText(
+        close_button_->GetViewAccessibility().GetCachedName());
   } else {
     minimize_button_->SetTooltipText(u"");
     maximize_button_->SetTooltipText(u"");

@@ -7,7 +7,9 @@
 
 #include <map>
 
-#include "ui/events/keycodes/keyboard_codes.h"
+#include "base/memory/raw_ptr.h"
+#include "extensions/common/command.h"
+#include "extensions/common/extension_id.h"
 
 namespace ui {
 class Accelerator;
@@ -24,6 +26,10 @@ class GlobalShortcutListener {
    public:
     // Called when your global shortcut (|accelerator|) is struck.
     virtual void OnKeyPressed(const ui::Accelerator& accelerator) = 0;
+
+    // Called when a command should be executed directly.
+    virtual void ExecuteCommand(const ExtensionId& extension_id,
+                                const std::string& command_id) = 0;
   };
 
   GlobalShortcutListener(const GlobalShortcutListener&) = delete;
@@ -31,6 +37,7 @@ class GlobalShortcutListener {
 
   virtual ~GlobalShortcutListener();
 
+  // The instance may be nullptr.
   static GlobalShortcutListener* GetInstance();
 
   // Register an observer for when a certain |accelerator| is struck. Returns
@@ -51,7 +58,7 @@ class GlobalShortcutListener {
 
   // Stop listening for all accelerators of the given |observer|, does nothing
   // if shortcut handling is suspended.
-  void UnregisterAccelerators(Observer* observer);
+  virtual void UnregisterAccelerators(Observer* observer);
 
   // Suspend/Resume global shortcut handling. Note that when suspending,
   // RegisterAccelerator/UnregisterAccelerator/UnregisterAccelerators are not
@@ -60,6 +67,16 @@ class GlobalShortcutListener {
 
   // Returns whether shortcut handling is currently suspended.
   bool IsShortcutHandlingSuspended() const;
+
+  // Returns true if shortcut registration is managed by the desktop. False
+  // indicates registration is managed by us.
+  virtual bool IsRegistrationHandledExternally() const;
+
+  // Called when an extension's commands are registered.
+  virtual void OnCommandsChanged(const ExtensionId& extension_id,
+                                 const std::string& profile_id,
+                                 const extensions::CommandMap& commands,
+                                 Observer* observer);
 
  protected:
   GlobalShortcutListener();
@@ -87,7 +104,8 @@ class GlobalShortcutListener {
 
   // The map of accelerators that have been successfully registered as global
   // shortcuts and their observer.
-  typedef std::map<ui::Accelerator, Observer*> AcceleratorMap;
+  typedef std::map<ui::Accelerator, raw_ptr<Observer, CtnExperimental>>
+      AcceleratorMap;
   AcceleratorMap accelerator_map_;
 
   // Keeps track of whether shortcut handling is currently suspended.

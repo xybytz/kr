@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <optional>
+
 #include "base/location.h"
 #include "base/task/sequenced_task_runner.h"
 #include "build/chromeos_buildflags.h"
@@ -21,19 +22,17 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "ash/constants/ash_features.h"
+#if BUILDFLAG(IS_CHROMEOS)
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/common/pref_names.h"  // nogncheck
 #include "chromeos/ash/components/standalone_browser/feature_refs.h"
-#include "chromeos/ash/components/standalone_browser/lacros_availability.h"
 #include "components/account_id/account_id.h"  // nogncheck
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/user_manager/fake_user_manager.h"
 #include "components/user_manager/scoped_user_manager.h"
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 namespace extensions {
 
@@ -257,8 +256,9 @@ class ExtensionRegistrarTest : public ExtensionsTest {
   }
 
   void TryDisablingNotAshKeeplistedExtension(bool expect_extension_disabled) {
-    if (expect_extension_disabled)
+    if (expect_extension_disabled) {
       EXPECT_CALL(delegate_, PostDeactivateExtension(extension_));
+    }
 
     // Disable extension because it is not in the ash keep list.
     registrar_->DisableExtension(extension_->id(),
@@ -544,45 +544,11 @@ TEST_F(ExtensionRegistrarTest, DisableNotAshKeeplistedExtension) {
   TryDisablingNotAshKeeplistedExtension(/* expect_extension_disabled= */ true);
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-// Test that a controlled extension that is not on the ash keep-list can be
-// disabled if ash is disabled.
-TEST_F(ExtensionRegistrarTest,
-       DisableNotAshKeeplistedForceInstalledExtensionIfAshDisabled) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitWithFeatures(ash::standalone_browser::GetFeatureRefs(), {});
-  auto fake_user_manager = std::make_unique<user_manager::FakeUserManager>();
-  auto* primary_user =
-      fake_user_manager->AddUser(AccountId::FromUserEmail("test@test"));
-  fake_user_manager->UserLoggedIn(primary_user->GetAccountId(),
-                                  primary_user->username_hash(),
-                                  /*browser_restart=*/false,
-                                  /*is_child=*/false);
-  auto scoped_user_manager = std::make_unique<user_manager::ScopedUserManager>(
-      std::move(fake_user_manager));
-
-  static_cast<TestingPrefServiceSimple*>(pref_service())
-      ->registry()
-      ->RegisterIntegerPref(
-          prefs::kLacrosLaunchSwitch,
-          static_cast<int>(
-              ash::standalone_browser::LacrosAvailability::kLacrosOnly));
-  EXPECT_FALSE(crosapi::browser_util::IsAshWebBrowserEnabled());
-
-  // Prevent the extension from being disabled (by the user).
-  ON_CALL(*delegate(), CanDisableExtension(extension().get()))
-      .WillByDefault(Return(false));
-  AddEnabledExtension();
-
-  TryDisablingNotAshKeeplistedExtension(/* expect_extension_disabled= */ true);
-}
-
+#if BUILDFLAG(IS_CHROMEOS)
 // Test that a controlled extension that is not on the ash keep-list cannot be
 // disabled if ash is still enabled.
 TEST_F(ExtensionRegistrarTest,
        NotDisableNotAshKeeplistedForceInstalledExtensionIfAshEnabled) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitWithFeatures({}, ash::standalone_browser::GetFeatureRefs());
   static_cast<TestingPrefServiceSimple*>(pref_service())
       ->registry()
       ->RegisterIntegerPref(
@@ -598,6 +564,6 @@ TEST_F(ExtensionRegistrarTest,
 
   TryDisablingNotAshKeeplistedExtension(/* expect_extension_disabled= */ false);
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 }  // namespace extensions

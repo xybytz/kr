@@ -10,8 +10,7 @@ import android.graphics.drawable.Drawable;
 import androidx.appcompat.content.res.AppCompatResources;
 
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tasks.tab_groups.TabGroupModelFilter;
-import org.chromium.chrome.browser.tasks.tab_management.TabUiMetricsHelper.TabListEditorActionMetricGroups;
+import org.chromium.chrome.browser.tabmodel.TabGroupModelFilter;
 import org.chromium.chrome.tab_ui.R;
 
 import java.util.List;
@@ -20,6 +19,7 @@ import java.util.List;
 public class TabListEditorUngroupAction extends TabListEditorAction {
     /**
      * Create an action for ungrouping tabs.
+     *
      * @param context for loading resources.
      * @param showMode whether to show an action view.
      * @param buttonType the type of the action view.
@@ -55,16 +55,16 @@ public class TabListEditorUngroupAction extends TabListEditorAction {
     }
 
     @Override
-    public boolean performAction(List<Tab> tabs) {
+    public boolean performAction(List<Tab> tabsToUngroup) {
         assert !editorSupportsActionOnRelatedTabs()
                 : "Ungrouping is not supported when actions apply to related tabs.";
 
+        if (tabsToUngroup == null || tabsToUngroup.isEmpty()) return false;
+
         TabGroupModelFilter filter = getTabGroupModelFilter();
-        for (Tab tab : tabs) {
-            filter.moveTabOutOfGroup(tab.getId());
-        }
-        TabUiMetricsHelper.recordSelectionEditorActionMetrics(
-                TabListEditorActionMetricGroups.UNGROUP);
+        filter.getTabUngrouper()
+                .ungroupTabs(tabsToUngroup, /* trailing= */ true, /* allowDialog= */ true);
+
         return true;
     }
 

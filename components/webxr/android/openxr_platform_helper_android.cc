@@ -11,6 +11,7 @@
 #include "content/public/browser/web_contents.h"
 #include "device/vr/openxr/android/openxr_graphics_binding_open_gles.h"
 #include "device/vr/openxr/openxr_platform.h"
+#include "device/vr/public/cpp/features.h"
 #include "device/vr/public/mojom/isolated_xr_service.mojom.h"
 
 namespace webxr {
@@ -82,6 +83,10 @@ bool OpenXrPlatformHelperAndroid::Initialize() {
 
 bool OpenXrPlatformHelperAndroid::CheckHardwareSupport(
     content::WebContents* web_contents) {
+  if (!device::features::IsOpenXrArEnabled()) {
+    return true;
+  }
+
   XrInstance instance = XR_NULL_HANDLE;
   if (!XR_SUCCEEDED(CreateTemporaryInstance(&instance, web_contents))) {
     return false;
@@ -116,6 +121,15 @@ XrResult OpenXrPlatformHelperAndroid::CreateTemporaryInstance(
   create_info.applicationActivity = activity_.obj();
 
   return CreateInstance(instance, &create_info);
+}
+
+void OpenXrPlatformHelperAndroid::OnInstanceCreateFailure() {
+  // Note that this may be called in the normal case of failing to create a
+  // "temporary" instance that we were using solely to check support, and so
+  // StartXrSession may not have been called yet; however, this method just
+  // forwards the call to the corresponding Java class who appropriately no-ops
+  // if there is no active session.
+  session_coordinator_->EndSession();
 }
 
 XrResult OpenXrPlatformHelperAndroid::DestroyInstance(XrInstance& instance) {

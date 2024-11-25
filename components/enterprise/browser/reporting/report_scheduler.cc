@@ -206,7 +206,6 @@ bool ReportScheduler::SetupBrowserPolicyClientRegistration() {
     client_id = policy::BrowserDMTokenStorage::Get()->RetrieveClientId();
 #else
     NOTREACHED();
-    return true;
 #endif
   }
   if (!dm_token.is_valid() || client_id.empty()) {
@@ -394,7 +393,6 @@ ReportType ReportScheduler::TriggerToReportType(
   switch (trigger) {
     case ReportScheduler::kTriggerNone:
       NOTREACHED();
-      [[fallthrough]];
     case ReportScheduler::kTriggerTimer:
     case ReportScheduler::kTriggerManual:
       return full_report_type_;

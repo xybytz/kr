@@ -4,6 +4,8 @@
 
 #import "ios/chrome/browser/default_browser/model/utils.h"
 
+#import <UIKit/UIKit.h>
+
 #import "base/apple/foundation_util.h"
 #import "base/command_line.h"
 #import "base/ios/ios_util.h"
@@ -15,26 +17,18 @@
 #import "base/strings/string_number_conversions.h"
 #import "base/time/time.h"
 #import "components/feature_engagement/public/event_constants.h"
-#import "components/feature_engagement/public/feature_constants.h"
 #import "components/feature_engagement/public/tracker.h"
-#import "components/sync/service/sync_service.h"
-#import "ios/chrome/browser/feature_engagement/model/tracker_factory.h"
-#import "ios/chrome/browser/settings/model/sync/utils/identity_error_util.h"
+#import "components/prefs/pref_service.h"
 #import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/browser/shared/model/prefs/pref_names.h"
 #import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/signin/model/signin_util.h"
-
-#import <UIKit/UIKit.h>
 
 // Key in NSUserDefaults containing an NSDictionary used to store all the
 // information.
 extern NSString* const kDefaultBrowserUtilsKey;
 
 namespace {
-
-// Key in storage containing an NSDate corresponding to the last time
-// an HTTP(S) link was sent and opened by the app.
-NSString* const kLastHTTPURLOpenTime = @"lastHTTPURLOpenTime";
 
 // Key in storage containing an array of dates. Each date correspond to
 // a general event of interest for Default Browser Promo modals.
@@ -50,72 +44,11 @@ NSString* const kLastSignificantUserEventMadeForIOS =
 NSString* const kLastSignificantUserEventAllTabs =
     @"lastSignificantUserEventAllTabs";
 
-// Key in storage containing an array of dates. Each date correspond to
-// a video event of interest for Default Browser Promo modals.
-NSString* const kLastSignificantUserEventVideo =
-    @"lastSignificantUserEventVideo";
-
-// Key in storage containing a bool indicating if the user has
-// previously interacted with a regular fullscreen promo.
-NSString* const kUserHasInteractedWithFullscreenPromo =
-    @"userHasInteractedWithFullscreenPromo";
-
-// Key in storage containing a bool indicating if the user has
-// previously interacted with a tailored fullscreen promo.
-NSString* const kUserHasInteractedWithTailoredFullscreenPromo =
-    @"userHasInteractedWithTailoredFullscreenPromo";
-
-// Key in storage containing a bool indicating if the user has
-// previously interacted with first run promo.
-NSString* const kUserHasInteractedWithFirstRunPromo =
-    @"userHasInteractedWithFirstRunPromo";
 
 // Key in storage containing an int indicating the number of times the
 // user has interacted with a non-modal promo.
 NSString* const kUserInteractedWithNonModalPromoCount =
     @"userInteractedWithNonModalPromoCount";
-
-// Key in storage containing an int indicating the number of times a fullscreen
-// promo has been displayed.
-NSString* const kDisplayedFullscreenPromoCount = @"displayedPromoCount";
-
-// Key in storage containing an int indicating the number of times a generic
-// promo has been displayed.
-NSString* const kGenericPromoInteractionCount = @"genericPromoInteractionCount";
-
-// Key in storage containing an int indicating the number of times a tailored
-// promo has been displayed.
-NSString* const kTailoredPromoInteractionCount =
-    @"tailoredPromoInteractionCount";
-
-// TODO(crbug.com/1445218): Remove in M116+.
-// Key in storage containing an NSDate indicating the last time a user
-// interacted with the "remind me later" panel.
-NSString* const kRemindMeLaterPromoActionInteraction =
-    @"remindMeLaterPromoActionInteraction";
-
-// TODO(crbug.com/1445240): Remove in M116+.
-// Key in storage containing a bool indicating if the user tapped on
-// button to open settings.
-NSString* const kOpenSettingsActionInteraction =
-    @"openSettingsActionInteraction";
-
-// Key in storage containing the timestamp of the last time the user opened the
-// app via first-party intent.
-NSString* const kTimestampAppLastOpenedViaFirstPartyIntent =
-    @"TimestampAppLastOpenedViaFirstPartyIntent";
-
-// Key in storage containing the timestamp of the last time the user pasted a
-// valid URL into the omnibox.
-NSString* const kTimestampLastValidURLPasted = @"TimestampLastValidURLPasted";
-
-// Key in storage containing the timestamp of the last time the user opened the
-// app via first-party intent.
-NSString* const kTimestampAppLaunchOnColdStart =
-    @"TimestampAppLaunchedOnColdStart";
-
-const char kDefaultBrowserPromoForceShowPromo[] =
-    "default-browser-promo-force-show-promo";
 
 // Action string for "Appear" event of the promo.
 const char kAppearAction[] = "Appear";
@@ -137,30 +70,15 @@ constexpr base::TimeDelta kLatestURLOpenForDefaultBrowser = base::Days(21);
 // Cool down between fullscreen promos.
 constexpr base::TimeDelta kFullscreenPromoCoolDown = base::Days(14);
 
+// Cool down between non-modal promos.
+constexpr base::TimeDelta kNonModalPromoCoolDown = base::Days(14);
+
 // Short cool down between promos.
 constexpr base::TimeDelta kPromosShortCoolDown = base::Days(3);
-
-// Maximum time range between first-party app launches to notify the FET.
-constexpr base::TimeDelta kMaximumTimeBetweenFirstPartyAppLaunches =
-    base::Days(7);
-
-// Maximum time range between app launches on cold start to notify the FET.
-constexpr base::TimeDelta kMaximumTimeBetweenAppColdStartLaunches =
-    base::Days(7);
-
-// Maximum time range between valid user URL pastes to notify the FET.
-constexpr base::TimeDelta kMaximumTimeBetweenValidURLPastes = base::Days(7);
 
 // Time threshold for default browser trigger criteria experiment statistics.
 constexpr base::TimeDelta kTriggerCriteriaExperimentStatExpiration =
     base::Days(14);
-
-// List of DefaultPromoType considered by MostRecentInterestDefaultPromoType.
-const DefaultPromoType kDefaultPromoTypes[] = {
-    DefaultPromoTypeStaySafe,
-    DefaultPromoTypeAllTabs,
-    DefaultPromoTypeMadeForIOS,
-};
 
 // Returns maximum number of past event timestamps to record.
 size_t GetMaxPastTimestampsToRecord() {
@@ -244,11 +162,8 @@ NSString* StorageKeyForDefaultPromoType(DefaultPromoType type) {
       return kLastSignificantUserEventAllTabs;
     case DefaultPromoTypeStaySafe:
       return kLastSignificantUserEventStaySafe;
-    case DefaultPromoTypeVideo:
-      return kLastSignificantUserEventVideo;
   }
   NOTREACHED();
-  return nil;
 }
 
 // Loads from NSUserDefaults the time of the non-expired events for the
@@ -307,13 +222,6 @@ std::vector<base::Time> LoadActiveTimestampsForKey(NSString* key,
   return times;
 }
 
-// Loads from NSUserDefaults the time of the non-expired events for the
-// given promo type.
-std::vector<base::Time> LoadTimestampsForPromoType(DefaultPromoType type) {
-  return LoadActiveTimestampsForKey(StorageKeyForDefaultPromoType(type),
-                                    kUserActivityTimestampExpiration);
-}
-
 // Stores the time of the last recorded events for `key`.
 void StoreTimestampsForKey(NSString* key, std::vector<base::Time> times) {
   NSMutableArray<NSDate*>* dates =
@@ -331,12 +239,6 @@ void StoreTimestampsForKey(NSString* key, std::vector<base::Time> times) {
   }
 
   SetObjectIntoStorageForKey(key, dates);
-}
-
-// Stores the time of the last recorded events for `type`.
-void StoreTimestampsForPromoType(DefaultPromoType type,
-                                 std::vector<base::Time> times) {
-  StoreTimestampsForKey(StorageKeyForDefaultPromoType(type), times);
 }
 
 // Returns whether an event was logged for key occuring less than `delay`
@@ -363,27 +265,6 @@ bool HasRecordedEventForKeyMoreThanDelay(NSString* key, base::TimeDelta delay) {
   return base::Time::Now() - time > delay;
 }
 
-// Returns true if there exists a recorded interaction with a non-modal promo
-// more recent than the last recorded interaction with a fullscreen promo.
-bool IsLastNonModalMoreRecentThanLastFullscreen() {
-  NSDate* last_non_modal_interaction = GetObjectFromStorageForKey<NSDate>(
-      kLastTimeUserInteractedWithNonModalPromo);
-  if (!last_non_modal_interaction) {
-    return false;
-  }
-
-  NSDate* last_fullscreen_interaction = GetObjectFromStorageForKey<NSDate>(
-      kLastTimeUserInteractedWithFullscreenPromo);
-  if (!last_fullscreen_interaction) {
-    return true;
-  }
-
-  NSComparisonResult comparison_result =
-      [last_non_modal_interaction compare:last_fullscreen_interaction];
-
-  return comparison_result == NSOrderedDescending;
-}
-
 // Copy the NSDate object in NSUserDefaults from the origin key to the
 // destination key. Does nothing if the origin key is empty.
 void CopyNSDateFromKeyToKey(NSString* originKey, NSString* destinationKey) {
@@ -405,14 +286,6 @@ BOOL HasUserInteractedWithFirstRunPromoBefore() {
   NSNumber* number =
       GetObjectFromStorageForKey<NSNumber>(kUserHasInteractedWithFirstRunPromo);
   return number.boolValue;
-}
-
-// Returns the number of times a fullscreen default browser promo has been
-// displayed.
-NSInteger DisplayedFullscreenPromoCount() {
-  NSNumber* number =
-      GetObjectFromStorageForKey<NSNumber>(kDisplayedFullscreenPromoCount);
-  return number.integerValue;
 }
 
 // Returns the number of time the fullscreen default browser promo has been
@@ -483,13 +356,9 @@ void StoreCurrentTimestampForKey(NSString* key) {
   StoreTimestampsForKey(key, timestamps);
 }
 
-std::string GetVideoPromoVariant() {
-  return base::GetFieldTrialParamValueByFeature(
-      kDefaultBrowserVideoPromo, "default_browser_video_promo_variant");
-}
-
 }  // namespace
 
+NSString* const kLastHTTPURLOpenTime = @"lastHTTPURLOpenTime";
 NSString* const kLastTimeUserInteractedWithNonModalPromo =
     @"lastTimeUserInteractedWithNonModalPromo";
 NSString* const kLastTimeUserInteractedWithFullscreenPromo =
@@ -507,16 +376,37 @@ NSString* const kBookmarkUseCount = @"BookmarkUseCount";
 NSString* const kAutofillUseCount = @"AutofillUseCount";
 NSString* const kSpecialTabsUseCount = @"SpecialTabUseCount";
 
-const char kVideoConditionsFullscreenPromo[] =
-    "video_conditions_fullscreen_promo";
-const char kVideoConditionsHalfscreenPromo[] =
-    "video_conditions_halfscreen_promo";
-const char kGenericConditionsFullscreenPromo[] =
-    "generic_conditions_fullscreen_promo";
-const char kGenericConditionsHalfscreenPromo[] =
-    "generic_conditions_halfscreen_promo";
-const char kDefaultBrowserVideoPromoVariant[] =
-    "default_browser_video_promo_variant";
+NSString* const kUserHasInteractedWithFullscreenPromo =
+    @"userHasInteractedWithFullscreenPromo";
+NSString* const kUserHasInteractedWithTailoredFullscreenPromo =
+    @"userHasInteractedWithTailoredFullscreenPromo";
+NSString* const kUserHasInteractedWithFirstRunPromo =
+    @"userHasInteractedWithFirstRunPromo";
+NSString* const kDisplayedFullscreenPromoCount = @"displayedPromoCount";
+NSString* const kGenericPromoInteractionCount = @"genericPromoInteractionCount";
+NSString* const kTailoredPromoInteractionCount =
+    @"tailoredPromoInteractionCount";
+constexpr base::TimeDelta kBlueDotPromoDuration = base::Days(15);
+constexpr base::TimeDelta kBlueDotPromoReoccurrancePeriod = base::Days(360);
+
+// Migration to FET keys.
+NSString* const kFRETimestampMigrationDone = @"fre_timestamp_migration_done";
+NSString* const kPromoInterestEventMigrationDone =
+    @"promo_interest_event_migration_done";
+NSString* const kPromoImpressionsMigrationDone =
+    @"promo_impressions_migration_done";
+NSString* const kTimestampTriggerCriteriaExperimentStarted =
+    @"TimestampTriggerCriteriaExperimentStarted";
+
+std::vector<base::Time> LoadTimestampsForPromoType(DefaultPromoType type) {
+  return LoadActiveTimestampsForKey(StorageKeyForDefaultPromoType(type),
+                                    kUserActivityTimestampExpiration);
+}
+
+void StoreTimestampsForPromoType(DefaultPromoType type,
+                                 std::vector<base::Time> times) {
+  StoreTimestampsForKey(StorageKeyForDefaultPromoType(type), times);
+}
 
 void SetObjectIntoStorageForKey(NSString* key, NSObject* data) {
   UpdateStorageWithDictionary(@{key : data});
@@ -541,125 +431,101 @@ void LogToFETDefaultBrowserPromoShown(feature_engagement::Tracker* tracker) {
   tracker->NotifyEvent(feature_engagement::events::kDefaultBrowserPromoShown);
 }
 
-void LogToFETUserPastedURLIntoOmnibox(feature_engagement::Tracker* tracker) {
-  base::RecordAction(
-      base::UserMetricsAction("Mobile.Omnibox.iOS.PastedValidURL"));
+bool HasDefaultBrowserBlueDotDisplayTimestamp() {
+  return !GetApplicationContext()
+              ->GetLocalState()
+              ->FindPreference(
+                  prefs::kIosDefaultBrowserBlueDotPromoFirstDisplay)
+              ->IsDefaultValue();
+}
 
-  // OTR browsers can sometimes pass a null tracker, check for that here.
-  if (!tracker) {
+void ResetDefaultBrowserBlueDotDisplayTimestampIfNeeded() {
+  BOOL has_timestamp = HasDefaultBrowserBlueDotDisplayTimestamp();
+
+  if (!has_timestamp) {
     return;
   }
 
-  if (HasRecentValidURLPastesAndRecordsCurrentPaste()) {
-    tracker->NotifyEvent(feature_engagement::events::kBlueDotPromoCriterionMet);
+  base::Time timestamp = GetApplicationContext()->GetLocalState()->GetTime(
+      prefs::kIosDefaultBrowserBlueDotPromoFirstDisplay);
 
-    if (IsDefaultBrowserVideoPromoEnabled()) {
-      tracker->NotifyEvent(
-          feature_engagement::events::kDefaultBrowserVideoPromoConditionsMet);
-    }
+  // If more than `kBlueDotPromoReoccurrancePeriod` past since previous blue
+  // dot display, user should again become eligible for blue dot promo.
+  if (base::Time::Now() - timestamp >= kBlueDotPromoReoccurrancePeriod) {
+    GetApplicationContext()->GetLocalState()->ClearPref(
+        prefs::kIosDefaultBrowserBlueDotPromoFirstDisplay);
+  }
+}
+
+void RecordDefaultBrowserBlueDotFirstDisplay() {
+  if (!HasDefaultBrowserBlueDotDisplayTimestamp()) {
+    GetApplicationContext()->GetLocalState()->SetTime(
+        prefs::kIosDefaultBrowserBlueDotPromoFirstDisplay, base::Time::Now());
   }
 }
 
 bool ShouldTriggerDefaultBrowserHighlightFeature(
-    const base::Feature& feature,
-    feature_engagement::Tracker* tracker,
-    syncer::SyncService* syncService) {
-  if (IsChromeLikelyDefaultBrowser() ||
-      (syncService && ShouldIndicateIdentityErrorInOverflowMenu(syncService))) {
+    feature_engagement::Tracker* tracker) {
+  if (IsChromeLikelyDefaultBrowser()) {
     return false;
   }
 
-  // We need to ask the FET whether or not we should show this IPH because if
-  // yes, this will automatically notify the other dependent FET features that
-  // their criteria have been met. We then automatically dismiss it. Since it's
-  // just a shadow feature to enable the other two needed for the blue dot
-  // promo, we ignore `ShouldTriggerHelpUI`'s return value.
-  if (tracker->ShouldTriggerHelpUI(
-          feature_engagement::kIPHiOSDefaultBrowserBadgeEligibilityFeature)) {
-    tracker->Dismissed(
-        feature_engagement::kIPHiOSDefaultBrowserBadgeEligibilityFeature);
+  ResetDefaultBrowserBlueDotDisplayTimestampIfNeeded();
+
+  if (HasDefaultBrowserBlueDotDisplayTimestamp()) {
+    base::Time timestamp = GetApplicationContext()->GetLocalState()->GetTime(
+        prefs::kIosDefaultBrowserBlueDotPromoFirstDisplay);
+    if (base::Time::Now() - timestamp >= kBlueDotPromoDuration) {
+      return false;
+    }
   }
 
-  // Now, we ask the appropriate FET feature if it should trigger, i.e. if we
+  // We ask the appropriate FET feature if it should trigger, i.e. if we
   // should show the blue dot promo badge.
-  if (tracker->ShouldTriggerHelpUI(feature)) {
-    tracker->Dismissed(feature);
+  if (tracker->ShouldTriggerHelpUI(
+          feature_engagement::kIPHiOSDefaultBrowserOverflowMenuBadgeFeature)) {
+    tracker->Dismissed(
+        feature_engagement::kIPHiOSDefaultBrowserOverflowMenuBadgeFeature);
     return true;
   }
 
   return false;
 }
 
-bool IsDefaultBrowserVideoPromoEnabled() {
-  return base::FeatureList::IsEnabled(kDefaultBrowserVideoPromo);
-}
-
-bool ShouldForceDefaultPromoType() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      kDefaultBrowserPromoForceShowPromo);
-}
-
-DefaultPromoType ForceDefaultPromoType() {
-  DCHECK(ShouldForceDefaultPromoType());
-  std::string type =
-      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          kDefaultBrowserPromoForceShowPromo);
-  int default_promo_type = 0;
-  if (base::StringToInt(type, &default_promo_type)) {
-    switch (default_promo_type) {
-      case DefaultPromoTypeGeneral:
-      case DefaultPromoTypeStaySafe:
-      case DefaultPromoTypeMadeForIOS:
-      case DefaultPromoTypeAllTabs:
-      case DefaultPromoTypeVideo:
-        return static_cast<DefaultPromoType>(default_promo_type);
-    }
-  }
-
-  return DefaultPromoType::DefaultPromoTypeGeneral;
-}
-
 bool IsDefaultBrowserTriggerCriteraExperimentEnabled() {
-  return base::FeatureList::IsEnabled(kDefaultBrowserTriggerCriteriaExperiment);
-}
-
-bool IsFullScreenPromoOnOmniboxCopyPasteEnabled() {
-  return base::FeatureList::IsEnabled(kFullScreenPromoOnOmniboxCopyPaste);
-}
-
-bool IsDBVideoPromoHalfscreenEnabled() {
-  return GetVideoPromoVariant().compare(kVideoConditionsHalfscreenPromo) == 0;
-}
-
-bool IsDBVideoPromoFullscreenEnabled() {
-  return GetVideoPromoVariant().compare(kVideoConditionsFullscreenPromo) == 0;
-}
-
-bool IsDBVideoPromoWithGenericFullscreenEnabled() {
-  return GetVideoPromoVariant().compare(kGenericConditionsFullscreenPromo) == 0;
-}
-
-bool IsDBVideoPromoWithGenericHalfscreenEnabled() {
-  return GetVideoPromoVariant().compare(kGenericConditionsHalfscreenPromo) == 0;
-}
-
-bool IsNonModalDefaultBrowserPromoCooldownRefactorEnabled() {
   return base::FeatureList::IsEnabled(
-      kNonModalDefaultBrowserPromoCooldownRefactor);
+      feature_engagement::kDefaultBrowserTriggerCriteriaExperiment);
 }
 
-bool IsDefaultBrowserVideoInSettingsEnabled() {
-  return base::FeatureList::IsEnabled(kDefaultBrowserVideoInSettings);
+void SetTriggerCriteriaExperimentStartTimestamp() {
+  SetObjectIntoStorageForKey(kTimestampTriggerCriteriaExperimentStarted,
+                             [NSDate date]);
+}
+
+bool HasTriggerCriteriaExperimentStarted() {
+  NSDate* date = GetObjectFromStorageForKey<NSDate>(
+      kTimestampTriggerCriteriaExperimentStarted);
+  return date != nil;
+}
+
+bool HasTriggerCriteriaExperimentStarted21days() {
+  return HasRecordedEventForKeyMoreThanDelay(
+      kTimestampTriggerCriteriaExperimentStarted, base::Days(21));
 }
 
 bool HasUserInteractedWithFullscreenPromoBefore() {
   if (base::FeatureList::IsEnabled(
           feature_engagement::kDefaultBrowserEligibilitySlidingWindow)) {
-    return HasRecordedEventForKeyLessThanDelay(
-        kLastTimeUserInteractedWithFullscreenPromo,
-        base::Days(
-            feature_engagement::kDefaultBrowserEligibilitySlidingWindowParam
-                .Get()));
+    // When the total promo count is 1 it means that user has seen only the FRE
+    // promo. The cooldown from FRE will be taken care of in
+    // ```ComputeCooldown```. Here we only need to check the timestamp of the
+    // last promo if users seen more than FRE.
+    return DisplayedFullscreenPromoCount() > 1 &&
+           HasRecordedEventForKeyLessThanDelay(
+               kLastTimeUserInteractedWithFullscreenPromo,
+               base::Days(
+                   feature_engagement::
+                       kDefaultBrowserEligibilitySlidingWindowParam.Get()));
   }
 
   NSNumber* number = GetObjectFromStorageForKey<NSNumber>(
@@ -676,6 +542,12 @@ bool HasUserInteractedWithTailoredFullscreenPromoBefore() {
 NSInteger UserInteractionWithNonModalPromoCount() {
   NSNumber* number = GetObjectFromStorageForKey<NSNumber>(
       kUserInteractedWithNonModalPromoCount);
+  return number.integerValue;
+}
+
+NSInteger DisplayedFullscreenPromoCount() {
+  NSNumber* number =
+      GetObjectFromStorageForKey<NSNumber>(kDisplayedFullscreenPromoCount);
   return number.integerValue;
 }
 
@@ -710,25 +582,16 @@ void LogUserInteractionWithTailoredFullscreenPromo() {
   });
 }
 
-void LogUserInteractionWithNonModalPromo() {
-  const NSInteger interaction_count = UserInteractionWithNonModalPromoCount();
-
-  if (IsNonModalDefaultBrowserPromoCooldownRefactorEnabled()) {
-    UpdateStorageWithDictionary(@{
-      kLastTimeUserInteractedWithNonModalPromo : [NSDate date],
-      kUserInteractedWithNonModalPromoCount : @(interaction_count + 1),
-    });
-  } else {
-    const NSInteger displayed_promo_count = DisplayedFullscreenPromoCount();
-    UpdateStorageWithDictionary(@{
-      kLastTimeUserInteractedWithFullscreenPromo : [NSDate date],
-      kUserInteractedWithNonModalPromoCount : @(interaction_count + 1),
-      kDisplayedFullscreenPromoCount : @(displayed_promo_count + 1),
-    });
-  }
+void LogUserInteractionWithNonModalPromo(
+    NSInteger currentNonModalPromoInteractionsCount) {
+  UpdateStorageWithDictionary(@{
+    kLastTimeUserInteractedWithNonModalPromo : [NSDate date],
+    kUserInteractedWithNonModalPromoCount :
+        @(currentNonModalPromoInteractionsCount + 1),
+  });
 }
 
-void LogUserInteractionWithFirstRunPromo(BOOL openedSettings) {
+void LogUserInteractionWithFirstRunPromo() {
   const NSInteger displayed_promo_count = DisplayedFullscreenPromoCount();
   UpdateStorageWithDictionary(@{
     kUserHasInteractedWithFirstRunPromo : @YES,
@@ -737,75 +600,54 @@ void LogUserInteractionWithFirstRunPromo(BOOL openedSettings) {
   });
 }
 
-void LogCopyPasteInOmniboxForDefaultBrowserPromo() {
-  LogLikelyInterestedDefaultBrowserUserActivity(DefaultPromoTypeGeneral);
+void CleanupStorageForTriggerExperiment() {
+  NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+
+  [defaults removeObjectForKey:kAllTimestampsAppLaunchColdStart];
+  [defaults removeObjectForKey:kAllTimestampsAppLaunchWarmStart];
+  [defaults removeObjectForKey:kAllTimestampsAppLaunchIndirectStart];
+  [defaults removeObjectForKey:kAutofillUseCount];
+  [defaults removeObjectForKey:kSpecialTabsUseCount];
+  [defaults removeObjectForKey:kOmniboxUseCount];
+}
+
+void LogCopyPasteInOmniboxForCriteriaExperiment() {
+  if (!IsDefaultBrowserTriggerCriteraExperimentEnabled()) {
+    CleanupStorageForTriggerExperiment();
+    return;
+  }
   StoreCurrentTimestampForKey(kOmniboxUseCount);
 }
 
-void LogBookmarkUseForDefaultBrowserPromo() {
-  LogLikelyInterestedDefaultBrowserUserActivity(DefaultPromoTypeAllTabs);
+void LogBookmarkUseForCriteriaExperiment() {
+  if (!IsDefaultBrowserTriggerCriteraExperimentEnabled()) {
+    CleanupStorageForTriggerExperiment();
+    return;
+  }
+
   StoreCurrentTimestampForKey(kBookmarkUseCount);
 }
 
-void LogAutofillUseForDefaultBrowserPromo() {
+void LogAutofillUseForCriteriaExperiment() {
+  if (!IsDefaultBrowserTriggerCriteraExperimentEnabled()) {
+    CleanupStorageForTriggerExperiment();
+    return;
+  }
   StoreCurrentTimestampForKey(kAutofillUseCount);
 }
 
-void LogRemoteTabsUsedForDefaultBrowserPromo() {
-  LogLikelyInterestedDefaultBrowserUserActivity(DefaultPromoTypeAllTabs);
+void LogRemoteTabsUseForCriteriaExperiment() {
+  if (!IsDefaultBrowserTriggerCriteraExperimentEnabled()) {
+    CleanupStorageForTriggerExperiment();
+    return;
+  }
+
   StoreCurrentTimestampForKey(kSpecialTabsUseCount);
 }
 
-void LogPinnedTabsUsedForDefaultBrowserPromo() {
-  StoreCurrentTimestampForKey(kSpecialTabsUseCount);
-}
-
-bool HasRecentFirstPartyIntentLaunchesAndRecordsCurrentLaunch() {
-  const base::TimeDelta max_session_time = base::Hours(6);
-
-  if (HasRecordedEventForKeyLessThanDelay(
-          kTimestampAppLastOpenedViaFirstPartyIntent,
-          kMaximumTimeBetweenFirstPartyAppLaunches)) {
-    if (HasRecordedEventForKeyMoreThanDelay(
-            kTimestampAppLastOpenedViaFirstPartyIntent, max_session_time)) {
-      SetObjectIntoStorageForKey(kTimestampAppLastOpenedViaFirstPartyIntent,
-                                 [NSDate date]);
-      return YES;
-    }
-
-    return NO;
-  }
-
-  SetObjectIntoStorageForKey(kTimestampAppLastOpenedViaFirstPartyIntent,
-                             [NSDate date]);
-  return NO;
-}
-
-bool HasRecentValidURLPastesAndRecordsCurrentPaste() {
-  if (HasRecordedEventForKeyLessThanDelay(kTimestampLastValidURLPasted,
-                                          kMaximumTimeBetweenValidURLPastes)) {
-    SetObjectIntoStorageForKey(kTimestampLastValidURLPasted, [NSDate date]);
-    return YES;
-  }
-
-  SetObjectIntoStorageForKey(kTimestampLastValidURLPasted, [NSDate date]);
-  return NO;
-}
-
-bool HasRecentTimestampForKey(NSString* eventKey) {
-  const base::TimeDelta max_session_time = base::Hours(6);
-
-  if (HasRecordedEventForKeyLessThanDelay(eventKey, max_session_time)) {
-    return YES;
-  }
-
-  SetObjectIntoStorageForKey(eventKey, [NSDate date]);
-  return NO;
-}
-
-bool IsChromeLikelyDefaultBrowser7Days() {
+bool IsChromeLikelyDefaultBrowserXDays(int days) {
   return HasRecordedEventForKeyLessThanDelay(kLastHTTPURLOpenTime,
-                                             base::Days(7));
+                                             base::Days(days));
 }
 
 bool IsChromeLikelyDefaultBrowser() {
@@ -813,47 +655,26 @@ bool IsChromeLikelyDefaultBrowser() {
                                              kLatestURLOpenForDefaultBrowser);
 }
 
+bool IsChromeLikelyDefaultBrowser7Days() {
+  return HasRecordedEventForKeyLessThanDelay(kLastHTTPURLOpenTime,
+                                             base::Days(7));
+}
+
+bool IsChromePotentiallyNoLongerDefaultBrowser(int likelyDefaultInterval,
+                                               int likelyNotDefaultInterval) {
+  bool wasLikelyDefaultBrowser =
+      IsChromeLikelyDefaultBrowserXDays(likelyDefaultInterval);
+  bool isStillLikelyDefaultBrowser =
+      IsChromeLikelyDefaultBrowserXDays(likelyNotDefaultInterval);
+  return wasLikelyDefaultBrowser && !isStillLikelyDefaultBrowser;
+}
+
 bool IsLikelyInterestedDefaultBrowserUser(DefaultPromoType promo_type) {
   std::vector<base::Time> times = LoadTimestampsForPromoType(promo_type);
   return !times.empty();
 }
 
-DefaultPromoType MostRecentInterestDefaultPromoType(
-    BOOL skip_all_tabs_promo_type) {
-  DefaultPromoType most_recent_event_type = DefaultPromoTypeGeneral;
-  base::Time most_recent_event_time = base::Time::Min();
-
-  for (DefaultPromoType promo_type : kDefaultPromoTypes) {
-    // Ignore DefaultPromoTypeAllTabs if the extra requirements are not met.
-    if (promo_type == DefaultPromoTypeAllTabs && skip_all_tabs_promo_type) {
-      continue;
-    }
-
-    std::vector<base::Time> times = LoadTimestampsForPromoType(promo_type);
-    if (times.empty()) {
-      continue;
-    }
-
-    const base::Time last_time_for_type = times.back();
-    if (last_time_for_type >= most_recent_event_time) {
-      most_recent_event_type = promo_type;
-      most_recent_event_time = last_time_for_type;
-    }
-  }
-  return most_recent_event_type;
-}
-
 bool UserInFullscreenPromoCooldown() {
-  // Sets the last fullscreen promo interaction to the same value as the last
-  // non-modal promo interaction if the latter is more recent. This is
-  // to allow a smooth transition back from the cooldown period separation
-  // between the two promo types, if a rollback is needed.
-  if (!IsNonModalDefaultBrowserPromoCooldownRefactorEnabled() &&
-      IsLastNonModalMoreRecentThanLastFullscreen()) {
-    CopyNSDateFromKeyToKey(kLastTimeUserInteractedWithNonModalPromo,
-                           kLastTimeUserInteractedWithFullscreenPromo);
-  }
-
   return HasRecordedEventForKeyLessThanDelay(
       kLastTimeUserInteractedWithFullscreenPromo, ComputeCooldown());
 }
@@ -872,8 +693,7 @@ bool UserInNonModalPromoCooldown() {
   }
 
   return HasRecordedEventForKeyLessThanDelay(
-      kLastTimeUserInteractedWithNonModalPromo,
-      base::Days(kNonModalDefaultBrowserPromoCooldownRefactorParam.Get()));
+      kLastTimeUserInteractedWithNonModalPromo, kNonModalPromoCoolDown);
 }
 
 // Visible for testing.
@@ -897,7 +717,6 @@ const NSArray<NSString*>* DefaultBrowserUtilsLegacyKeysForTesting() {
     kDisplayedFullscreenPromoCount,
     kTailoredPromoInteractionCount,
     kGenericPromoInteractionCount,
-    kRemindMeLaterPromoActionInteraction,
     // clang-format on
   ];
 
@@ -915,105 +734,9 @@ int GetNonModalDefaultBrowserPromoImpressionLimit() {
   return limit;
 }
 
-bool HasAppLaunchedOnColdStartAndRecordsLaunch() {
-  if (HasRecordedEventForKeyLessThanDelay(
-          kTimestampAppLaunchOnColdStart,
-          kMaximumTimeBetweenAppColdStartLaunches)) {
-    SetObjectIntoStorageForKey(kTimestampAppLaunchOnColdStart, [NSDate date]);
-    return YES;
-  }
-
-  // Add a new timestamp if the timestamp was never recorded or if it was
-  // recorded more than the maximum time between app cold starts.
-  SetObjectIntoStorageForKey(kTimestampAppLaunchOnColdStart, [NSDate date]);
-  return NO;
-}
-
-bool ShouldRegisterPromoWithPromoManager(bool is_signed_in,
-                                         bool is_omnibox_copy_paste,
-                                         feature_engagement::Tracker* tracker) {
-  if (ShouldForceDefaultPromoType()) {
-    return YES;
-  }
-
-  // Consider showing the default browser promo if (1) launch is not after a
-  // crash, (2) chrome is not likely set as default browser.
-  if (!GetApplicationContext()->WasLastShutdownClean() ||
-      IsChromeLikelyDefaultBrowser()) {
-    return NO;
-  }
-
-  // Consider showing full-screen promo on omnibox copy-paste event iff
-  // corresponding experiment is enabled.
-  if (IsFullScreenPromoOnOmniboxCopyPasteEnabled() != is_omnibox_copy_paste) {
-    return NO;
-  }
-
-  // If in trigger criteria experiment, then show default browser promo skipping
-  // further checks.
-  if (IsDefaultBrowserTriggerCriteraExperimentEnabled()) {
-    return YES;
-  }
-
-  // Consider showing the default browser promo if (1) the user has not seen a
-  // default browser promo too recently, (2) the user is eligible for either the
-  // tailored or generic default browser promo.
-  return !UserInFullscreenPromoCooldown() &&
-         (IsTailoredPromoEligibleUser(is_signed_in) ||
-          IsGeneralPromoEligibleUser(is_signed_in) ||
-          IsVideoPromoEligibleUser(tracker));
-}
-
-bool IsTailoredPromoEligibleUser(bool is_signed_in) {
-  bool is_all_tabs_promo_eligible =
-      IsLikelyInterestedDefaultBrowserUser(DefaultPromoTypeAllTabs) &&
-      is_signed_in;
-  bool is_eligible =
-      IsLikelyInterestedDefaultBrowserUser(DefaultPromoTypeMadeForIOS) ||
-      is_all_tabs_promo_eligible ||
-      IsLikelyInterestedDefaultBrowserUser(DefaultPromoTypeStaySafe);
-
-  if (!is_eligible) {
-    return false;
-  }
-
-  return !HasUserInteractedWithTailoredFullscreenPromoBefore();
-}
-
-bool IsGeneralPromoEligibleUser(bool is_signed_in) {
-  return !HasUserInteractedWithFullscreenPromoBefore() &&
-         (IsLikelyInterestedDefaultBrowserUser(DefaultPromoTypeGeneral) ||
-          is_signed_in);
-}
-
-bool IsVideoPromoEligibleUser(feature_engagement::Tracker* tracker) {
-  BOOL is_db_video_promo_enabled =
-      IsDBVideoPromoHalfscreenEnabled() || IsDBVideoPromoFullscreenEnabled();
-  if (!is_db_video_promo_enabled) {
-    return false;
-  }
-
-  if (!tracker ||
-      !tracker->WouldTriggerHelpUI(
-          feature_engagement::kIPHiOSDefaultBrowserVideoPromoTriggerFeature)) {
-    return false;
-  }
-
-  return true;
-}
-
 bool IsPostRestoreDefaultBrowserEligibleUser() {
   return IsFirstSessionAfterDeviceRestore() == signin::Tribool::kTrue &&
          IsChromeLikelyDefaultBrowser();
-}
-
-void CleanupUnusedStorage() {
-  NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
-
-  // TODO(crbug.com/1445240): Remove in M116+.
-  [defaults removeObjectForKey:kOpenSettingsActionInteraction];
-  // TODO(crbug.com/1445218): Remove in M116+.
-  [defaults removeObjectForKey:kRemindMeLaterPromoActionInteraction];
 }
 
 DefaultPromoTypeForUMA GetDefaultPromoTypeForUMA(DefaultPromoType type) {
@@ -1027,7 +750,7 @@ DefaultPromoTypeForUMA GetDefaultPromoTypeForUMA(DefaultPromoType type) {
     case DefaultPromoTypeAllTabs:
       return DefaultPromoTypeForUMA::kAllTabs;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 
@@ -1052,7 +775,7 @@ void LogDefaultBrowserPromoHistogramForAction(
           "IOS.DefaultBrowserFullscreenTailoredPromoStaySafe", action);
       break;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 
@@ -1067,16 +790,8 @@ const std::string IOSDefaultBrowserPromoActionToString(
       return "Dismiss";
     case IOSDefaultBrowserPromoAction::kRemindMeLater:
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
-}
-
-void CleanupStorageForTriggerExperiment() {
-  NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
-
-  [defaults removeObjectForKey:kAllTimestampsAppLaunchColdStart];
-  [defaults removeObjectForKey:kAllTimestampsAppLaunchWarmStart];
-  [defaults removeObjectForKey:kAllTimestampsAppLaunchIndirectStart];
 }
 
 void RecordPromoStatsToUMAForActionString(PromoStatistics* promo_stats,
@@ -1191,4 +906,106 @@ void LogBrowserIndirectlylaunched() {
   }
 
   StoreCurrentTimestampForKey(kAllTimestampsAppLaunchIndirectStart);
+}
+
+// Migration to FET
+
+base::Time GetDefaultBrowserFREPromoTimestampIfLast() {
+  // Get FRE promo timestamp. It is the last seen timestamp if user has seen
+  // only 1 promo. If user has seen more promos, then we assume that FRE
+  // happened far past enough for it not be important.
+  if (HasUserInteractedWithFirstRunPromoBefore() &&
+      DisplayedFullscreenPromoCount() == 1) {
+    NSDate* timestamp = GetObjectFromStorageForKey<NSDate>(
+        kLastTimeUserInteractedWithFullscreenPromo);
+    if (timestamp != nil) {
+      return base::Time::FromNSDate(timestamp);
+    }
+  }
+
+  return base::Time::UnixEpoch();
+}
+
+base::Time GetGenericDefaultBrowserPromoTimestamp() {
+  // Get the latest promo timestamp if user has seen the generic promo before
+  // even when the generic promo is not the latest promo. This is the best we
+  // can get considering the actual timestamp is overwritten.
+  NSNumber* number = GetObjectFromStorageForKey<NSNumber>(
+      kUserHasInteractedWithFullscreenPromo);
+  if (number.boolValue) {
+    NSDate* timestamp = GetObjectFromStorageForKey<NSDate>(
+        kLastTimeUserInteractedWithFullscreenPromo);
+    if (timestamp != nil) {
+      return base::Time::FromNSDate(timestamp);
+    }
+  }
+
+  return base::Time::UnixEpoch();
+}
+
+base::Time GetTailoredDefaultBrowserPromoTimestamp() {
+  // Get the latest promo timestamp if user has seen the tailored promo before
+  // even when the tailored promo is not the latest promo. This is the best we
+  // can get considering the actual timestamp is overwritten.
+  if (HasUserInteractedWithTailoredFullscreenPromoBefore()) {
+    NSDate* timestamp = GetObjectFromStorageForKey<NSDate>(
+        kLastTimeUserInteractedWithFullscreenPromo);
+    if (timestamp != nil) {
+      return base::Time::FromNSDate(timestamp);
+    }
+  }
+
+  return base::Time::UnixEpoch();
+}
+
+void LogFRETimestampMigrationDone() {
+  NSDictionary<NSString*, NSObject*>* update =
+      @{kFRETimestampMigrationDone : @YES};
+  UpdateStorageWithDictionary(update);
+}
+
+BOOL FRETimestampMigrationDone() {
+  NSNumber* number =
+      GetObjectFromStorageForKey<NSNumber>(kFRETimestampMigrationDone);
+  return number.boolValue;
+}
+
+void LogPromoInterestEventMigrationDone() {
+  NSDictionary<NSString*, NSObject*>* update =
+      @{kPromoInterestEventMigrationDone : @YES};
+  UpdateStorageWithDictionary(update);
+}
+
+BOOL IsPromoInterestEventMigrationDone() {
+  NSNumber* number =
+      GetObjectFromStorageForKey<NSNumber>(kPromoInterestEventMigrationDone);
+  return number.boolValue;
+}
+
+void LogPromoImpressionsMigrationDone() {
+  NSDictionary<NSString*, NSObject*>* update =
+      @{kPromoImpressionsMigrationDone : @YES};
+  UpdateStorageWithDictionary(update);
+}
+
+BOOL IsPromoImpressionsMigrationDone() {
+  NSNumber* number =
+      GetObjectFromStorageForKey<NSNumber>(kPromoImpressionsMigrationDone);
+  return number.boolValue;
+}
+
+void RecordDefaultBrowserPromoLastAction(IOSDefaultBrowserPromoAction action) {
+  GetApplicationContext()->GetLocalState()->SetInteger(
+      prefs::kIosDefaultBrowserPromoLastAction, static_cast<int>(action));
+}
+
+std::optional<IOSDefaultBrowserPromoAction> DefaultBrowserPromoLastAction() {
+  const PrefService::Preference* last_action =
+      GetApplicationContext()->GetLocalState()->FindPreference(
+          prefs::kIosDefaultBrowserPromoLastAction);
+  if (last_action->IsDefaultValue()) {
+    return std::nullopt;
+  }
+  int last_action_int = last_action->GetValue()->GetInt();
+  return static_cast<IOSDefaultBrowserPromoAction>(last_action_int);
 }

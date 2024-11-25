@@ -16,7 +16,6 @@
 #include "base/scoped_observation.h"
 #include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ash/apps/apk_web_app_installer.h"
-#include "chrome/browser/ash/crosapi/browser_manager.h"
 #include "chrome/browser/ash/crosapi/web_app_service_ash.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
@@ -177,6 +176,7 @@ class ApkWebAppService : public KeyedService,
 
   // croapi::WebAppServiceAsh::Observer overrides:
   void OnWebAppProviderBridgeConnected() override;
+  void OnWebAppServiceAshDestroyed() override;
 
   void MaybeRemoveArcPackageForWebApp(const webapps::AppId& web_app_id);
   void OnDidGetWebAppIcon(const std::string& package_name,
@@ -229,11 +229,6 @@ class ApkWebAppService : public KeyedService,
   base::ScopedObservation<crosapi::WebAppServiceAsh,
                           crosapi::WebAppServiceAsh::Observer>
       web_app_service_observer_{this};
-
-  // Web app installation currently requires Lacros to be always running.
-  // TODO(crbug.com/1174246): support web app installation in lacros when lacros
-  // is not running all the time (idempotent installation).
-  std::unique_ptr<crosapi::BrowserManager::ScopedKeepAlive> keep_alive_;
 
   // Must go last.
   base::WeakPtrFactory<ApkWebAppService> weak_ptr_factory_{this};

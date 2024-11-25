@@ -10,7 +10,7 @@
 #import "ios/chrome/browser/shared/coordinator/alert/action_sheet_coordinator.h"
 #import "ios/chrome/browser/shared/coordinator/alert/alert_coordinator.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/ui/settings/autofill/autofill_add_credit_card_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/settings/autofill/autofill_add_credit_card_mediator.h"
 #import "ios/chrome/browser/ui/settings/autofill/autofill_add_credit_card_mediator_delegate.h"
@@ -43,8 +43,8 @@
   // There is no personal data manager in OTR (incognito). Get the original
   // one so the user can add credit cards.
   autofill::PersonalDataManager* personalDataManager =
-      autofill::PersonalDataManagerFactory::GetForBrowserState(
-          self.browser->GetBrowserState()->GetOriginalChromeBrowserState());
+      autofill::PersonalDataManagerFactory::GetForProfile(
+          self.browser->GetProfile()->GetOriginalProfile());
 
   self.mediator = [[AutofillAddCreditCardMediator alloc]
          initWithDelegate:self

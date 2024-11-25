@@ -8,6 +8,7 @@
 
 #include "ash/style/radio_button.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/views/accessibility/view_accessibility.h"
 
 namespace ash {
 
@@ -17,7 +18,7 @@ RadioButtonGroup::RadioButtonGroup(int group_width)
     : OptionButtonGroup(group_width),
       icon_direction_(RadioButton::IconDirection::kLeading),
       icon_type_(RadioButton::IconType::kCircle) {
-  SetAccessibilityProperties(ax::mojom::Role::kRadioGroup);
+  GetViewAccessibility().SetRole(ax::mojom::Role::kRadioGroup);
 }
 
 RadioButtonGroup::RadioButtonGroup(int group_width,
@@ -34,7 +35,7 @@ RadioButtonGroup::RadioButtonGroup(int group_width,
                         image_label_spacing),
       icon_direction_(icon_direction),
       icon_type_(icon_type) {
-  SetAccessibilityProperties(ax::mojom::Role::kRadioGroup);
+  GetViewAccessibility().SetRole(ax::mojom::Role::kRadioGroup);
 }
 
 RadioButtonGroup::~RadioButtonGroup() = default;
@@ -50,12 +51,14 @@ RadioButton* RadioButtonGroup::AddButton(RadioButton::PressedCallback callback,
 }
 
 void RadioButtonGroup::OnButtonSelected(OptionButtonBase* button) {
-  if (!button->selected())
+  if (!button->selected()) {
     return;
+  }
 
   for (ash::OptionButtonBase* b : buttons_) {
-    if (b != button)
+    if (b != button) {
       b->SetSelected(false);
+    }
   }
   button->ScrollViewToVisible();
 }
@@ -64,7 +67,7 @@ void RadioButtonGroup::OnButtonClicked(OptionButtonBase* button) {
   button->SetSelected(true);
 }
 
-BEGIN_METADATA(RadioButtonGroup, OptionButtonGroup)
+BEGIN_METADATA(RadioButtonGroup)
 END_METADATA
 
 }  // namespace ash

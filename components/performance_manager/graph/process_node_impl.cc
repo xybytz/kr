@@ -4,19 +4,26 @@
 
 #include "components/performance_manager/graph/process_node_impl.h"
 
+#include <optional>
 #include <utility>
 
 #include "base/check_op.h"
+#include "base/command_line.h"
 #include "base/containers/contains.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/read_only_shared_memory_region.h"
+#include "base/trace_event/named_trigger.h"
 #include "components/performance_manager/graph/frame_node_impl.h"
 #include "components/performance_manager/graph/graph_impl.h"
-#include "components/performance_manager/graph/graph_impl_util.h"
 #include "components/performance_manager/graph/page_node_impl.h"
 #include "components/performance_manager/graph/worker_node_impl.h"
 #include "components/performance_manager/public/execution_context/execution_context_registry.h"
+#include "components/performance_manager/public/scenarios/performance_scenarios.h"
 #include "components/performance_manager/v8_memory/v8_context_tracker.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/common/content_switches.h"
+#include "third_party/perfetto/include/perfetto/tracing/track.h"
 
 namespace performance_manager {
 
@@ -32,19 +39,14 @@ content::ProcessType ValidateBrowserChildProcessType(
   return process_type;
 }
 
-void FireBackgroundTracingTriggerOnUI(const std::string& trigger_name) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  content::BackgroundTracingManager::EmitNamedTrigger(
-      content::BackgroundTracingManager::kContentTriggerConfig);
-}
-
 }  // namespace
 
 ProcessNodeImpl::ProcessNodeImpl(BrowserProcessNodeTag tag)
     : ProcessNodeImpl(content::PROCESS_TYPE_BROWSER,
                       AnyChildProcessHostProxy{},
-                      base::TaskPriority::HIGHEST) {}
+                      base::TaskPriority::HIGHEST) {
+  tracing_track_.emplace(perfetto::ProcessTrack::Current());
+}
 
 ProcessNodeImpl::ProcessNodeImpl(RenderProcessHostProxy proxy,
                                  base::TaskPriority priority)
@@ -90,20 +92,27 @@ ProcessNodeImpl::ProcessNodeImpl(content::ProcessType process_type,
 ProcessNodeImpl::~ProcessNodeImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // Crash if this process node is destroyed while still hosting a worker node.
-  // TODO(https://crbug.com/1058705): Turn this into a DCHECK once the issue is
+  // TODO(crbug.com/40051698): Turn this into a DCHECK once the issue is
   //                                  resolved.
   CHECK(worker_nodes_.empty());
-  DCHECK(!frozen_frame_data_);
-  DCHECK(!process_priority_data_);
 }
 
-void ProcessNodeImpl::Bind(
+void ProcessNodeImpl::BindRenderProcessCoordinationUnit(
     mojo::PendingReceiver<mojom::ProcessCoordinationUnit> receiver) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // A RenderProcessHost can be reused if the backing process suddenly dies, in
   // which case we will receive a new receiver from the newly spawned process.
-  receiver_.reset();
-  receiver_.Bind(std::move(receiver));
+  render_process_receiver_.reset();
+  render_process_receiver_.Bind(std::move(receiver));
+}
+
+void ProcessNodeImpl::BindChildProcessCoordinationUnit(
+    mojo::PendingReceiver<mojom::ChildProcessCoordinationUnit> receiver) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // A RenderProcessHost can be reused if the backing process suddenly dies, in
+  // which case we will receive a new receiver from the newly spawned process.
+  child_process_receiver_.reset();
+  child_process_receiver_.Bind(std::move(receiver));
 }
 
 void ProcessNodeImpl::SetMainThreadTaskLoadIsLow(
@@ -181,13 +190,29 @@ void ProcessNodeImpl::OnRemoteIframeDetached(
   }
 }
 
-void ProcessNodeImpl::FireBackgroundTracingTrigger(
-    const std::string& trigger_name) {
+void ProcessNodeImpl::InitializeChildProcessCoordination(
+    uint64_t process_track_id,
+    InitializeChildProcessCoordinationCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK_EQ(process_type_, content::PROCESS_TYPE_RENDERER);
-  content::GetUIThreadTaskRunner({})->PostTask(
-      FROM_HERE,
-      base::BindOnce(&FireBackgroundTracingTriggerOnUI, trigger_name));
+
+  // Should not be called for the Browser process, which already has a track.
+  // Otherwise, it's ok to overwrite `tracing_track_`, since processes can be
+  // re-initialized for the same ProcessNode (eg. after a crash).
+  CHECK_NE(process_type_, content::PROCESS_TYPE_BROWSER);
+  tracing_track_.emplace(perfetto::Track::Global(process_track_id));
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kSingleProcess)) {
+    // The "child process" is actually running in the same process space. The
+    // global shared memory region is already mapped in, and the per-process
+    // shared memory region can't be used because regions for different
+    // "processes" would overwrite each other.
+    std::move(callback).Run(base::ReadOnlySharedMemoryRegion(),
+                            base::ReadOnlySharedMemoryRegion());
+    return;
+  }
+  std::move(callback).Run(GetGlobalSharedScenarioRegion(),
+                          GetSharedScenarioRegionForProcessNode(this));
 }
 
 content::ProcessType ProcessNodeImpl::GetProcessType() const {
@@ -216,7 +241,7 @@ base::TimeTicks ProcessNodeImpl::GetLaunchTime() const {
   return launch_time_;
 }
 
-absl::optional<int32_t> ProcessNodeImpl::GetExitStatus() const {
+std::optional<int32_t> ProcessNodeImpl::GetExitStatus() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return exit_status_;
 }
@@ -240,6 +265,11 @@ uint64_t ProcessNodeImpl::GetPrivateFootprintKb() const {
 uint64_t ProcessNodeImpl::GetResidentSetKb() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return resident_set_kb_;
+}
+
+uint64_t ProcessNodeImpl::GetPrivateSwapKb() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return private_swap_kb_;
 }
 
 RenderProcessHostId ProcessNodeImpl::GetRenderProcessHostId() const {
@@ -271,16 +301,22 @@ ProcessNode::ContentTypes ProcessNodeImpl::GetHostedContentTypes() const {
   return hosted_content_types_;
 }
 
-const base::flat_set<FrameNodeImpl*>& ProcessNodeImpl::frame_nodes() const {
+ProcessNode::NodeSetView<FrameNodeImpl*> ProcessNodeImpl::frame_nodes() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(process_type_, content::PROCESS_TYPE_RENDERER);
-  return frame_nodes_;
+  return NodeSetView<FrameNodeImpl*>(frame_nodes_);
 }
 
-const base::flat_set<WorkerNodeImpl*>& ProcessNodeImpl::worker_nodes() const {
+ProcessNode::NodeSetView<WorkerNodeImpl*> ProcessNodeImpl::worker_nodes()
+    const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(process_type_, content::PROCESS_TYPE_RENDERER);
-  return worker_nodes_;
+  return NodeSetView<WorkerNodeImpl*>(worker_nodes_);
+}
+
+std::optional<perfetto::Track> ProcessNodeImpl::tracing_track() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return tracing_track_;
 }
 
 void ProcessNodeImpl::SetProcessExitStatus(int32_t exit_status) {
@@ -293,7 +329,8 @@ void ProcessNodeImpl::SetProcessExitStatus(int32_t exit_status) {
   process_.SetAndNotify(this, base::Process());
 
   // No more message should be received from this process.
-  receiver_.reset();
+  render_process_receiver_.reset();
+  child_process_receiver_.reset();
 }
 
 void ProcessNodeImpl::SetProcessMetricsName(const std::string& metrics_name) {
@@ -353,12 +390,6 @@ void ProcessNodeImpl::add_hosted_content_type(ContentType content_type) {
   hosted_content_types_.Put(content_type);
 }
 
-// static
-void ProcessNodeImpl::FireBackgroundTracingTriggerOnUIForTesting(
-    const std::string& trigger_name) {
-  FireBackgroundTracingTriggerOnUI(trigger_name);
-}
-
 base::WeakPtr<ProcessNodeImpl> ProcessNodeImpl::GetWeakPtrOnUIThread() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   return weak_this_;
@@ -384,6 +415,7 @@ void ProcessNodeImpl::SetProcessImpl(base::Process process,
   // process.
   private_footprint_kb_ = 0;
   resident_set_kb_ = 0;
+  private_swap_kb_ = 0;
 
   process_id_ = new_pid;
   launch_time_ = launch_time;
@@ -392,45 +424,24 @@ void ProcessNodeImpl::SetProcessImpl(base::Process process,
   process_.SetAndNotify(this, std::move(process));
 }
 
-bool ProcessNodeImpl::VisitFrameNodes(const FrameNodeVisitor& visitor) const {
+ProcessNode::NodeSetView<const FrameNode*> ProcessNodeImpl::GetFrameNodes()
+    const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK_EQ(process_type_, content::PROCESS_TYPE_RENDERER);
-  for (auto* frame_impl : frame_nodes()) {
-    const FrameNode* frame = frame_impl;
-    if (!visitor(frame)) {
-      return false;
-    }
-  }
-  return true;
+  return NodeSetView<const FrameNode*>(frame_nodes_);
 }
 
-bool ProcessNodeImpl::VisitWorkerNodes(const WorkerNodeVisitor& visitor) const {
+ProcessNode::NodeSetView<const WorkerNode*> ProcessNodeImpl::GetWorkerNodes()
+    const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK_EQ(process_type_, content::PROCESS_TYPE_RENDERER);
-  for (auto* worker_impl : worker_nodes_) {
-    const WorkerNode* worker = worker_impl;
-    if (!visitor(worker)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-base::flat_set<const FrameNode*> ProcessNodeImpl::GetFrameNodes() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return UpcastNodeSet<FrameNode>(frame_nodes());
-}
-
-base::flat_set<const WorkerNode*> ProcessNodeImpl::GetWorkerNodes() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return UpcastNodeSet<WorkerNode>(worker_nodes_);
+  return NodeSetView<const WorkerNode*>(worker_nodes_);
 }
 
 void ProcessNodeImpl::OnAllFramesInProcessFrozen() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(process_type_, content::PROCESS_TYPE_RENDERER);
-  for (auto* observer : GetObservers())
-    observer->OnAllFramesInProcessFrozen(this);
+  for (auto& observer : GetObservers()) {
+    observer.OnAllFramesInProcessFrozen(this);
+  }
 }
 
 void ProcessNodeImpl::OnJoiningGraph() {
@@ -438,15 +449,10 @@ void ProcessNodeImpl::OnJoiningGraph() {
 
   // Make sure all weak pointers, even `weak_this_` that was created on the UI
   // thread in the constructor, can only be dereferenced on the graph sequence.
-  //
-  // If this is the first pointer dereferenced, it will bind all pointers from
-  // `weak_factory_` to the current sequence. If not, get() will DCHECK.
-  // DCHECK'ing the return value of get() prevents the compiler from optimizing
-  // it away.
-  //
-  // TODO(crbug.com/1134162): Use WeakPtrFactory::BindToCurrentSequence for this
-  // (it's clearer but currently not exposed publicly).
-  DCHECK(GetWeakPtr().get());
+  weak_factory_.BindToCurrentSequence(
+      base::subtle::BindWeakPtrFactoryPassKey());
+
+  NodeAttachedDataStorage::Create(this);
 }
 
 void ProcessNodeImpl::OnBeforeLeavingGraph() {
@@ -463,8 +469,7 @@ void ProcessNodeImpl::OnBeforeLeavingGraph() {
 
 void ProcessNodeImpl::RemoveNodeAttachedData() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  frozen_frame_data_.Reset();
-  process_priority_data_.reset();
+  DestroyNodeInlineDataStorage();
 }
 
 }  // namespace performance_manager

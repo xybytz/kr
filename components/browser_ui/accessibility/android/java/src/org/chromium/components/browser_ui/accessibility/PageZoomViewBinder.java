@@ -20,21 +20,16 @@ class PageZoomViewBinder {
             ((SeekBar) view.findViewById(R.id.page_zoom_slider))
                     .setProgress(model.get(PageZoomProperties.CURRENT_SEEK_VALUE));
 
-            TextView textView = ((TextView) view.findViewById(R.id.page_zoom_current_zoom_level));
+            TextView textView = view.findViewById(R.id.page_zoom_current_zoom_level);
 
             long zoomLevel =
                     Math.round(
                             100
                                     * PageZoomUtils.convertSeekBarValueToZoomLevel(
                                             model.get(PageZoomProperties.CURRENT_SEEK_VALUE)));
-            textView.setText(
-                    view.getContext()
-                            .getResources()
-                            .getString(R.string.page_zoom_level, zoomLevel));
+            textView.setText(view.getContext().getString(R.string.page_zoom_level, zoomLevel));
             textView.setContentDescription(
-                    view.getContext()
-                            .getResources()
-                            .getString(R.string.page_zoom_level_label, zoomLevel));
+                    view.getContext().getString(R.string.page_zoom_level_label, zoomLevel));
         } else if (PageZoomProperties.MAXIMUM_SEEK_VALUE == propertyKey) {
             ((SeekBar) view.findViewById(R.id.page_zoom_slider))
                     .setMax(model.get(PageZoomProperties.MAXIMUM_SEEK_VALUE));

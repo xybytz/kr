@@ -9,8 +9,8 @@
 #import "base/metrics/user_metrics_action.h"
 #import "components/handoff/pref_names_ios.h"
 #import "components/prefs/pref_member.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/shared/model/prefs/pref_backed_boolean.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_link_header_footer_item.h"
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_switch_cell.h"
@@ -51,14 +51,14 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 #pragma mark - Initialization
 
-- (instancetype)initWithBrowserState:(ChromeBrowserState*)browserState {
-  DCHECK(browserState);
+- (instancetype)initWithProfile:(ProfileIOS*)profile {
+  DCHECK(profile);
 
   self = [super initWithStyle:ChromeTableViewStyle()];
   if (self) {
     self.title = l10n_util::GetNSString(IDS_IOS_OPTIONS_CONTINUITY_LABEL);
     _handoffEnabled = [[PrefBackedBoolean alloc]
-        initWithPrefService:browserState->GetPrefs()
+        initWithPrefService:profile->GetPrefs()
                    prefName:prefs::kIosHandoffToOtherDevices];
     _handoffEnabled.observer = self;
   }

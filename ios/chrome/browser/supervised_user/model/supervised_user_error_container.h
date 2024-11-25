@@ -14,7 +14,7 @@
 #import "components/supervised_user/core/browser/supervised_user_interstitial.h"
 #import "components/supervised_user/core/browser/supervised_user_service_observer.h"
 #import "components/supervised_user/core/browser/supervised_user_url_filter.h"
-#import "components/supervised_user/core/common/supervised_user_utils.h"
+#import "components/supervised_user/core/browser/supervised_user_utils.h"
 #import "ios/components/security_interstitials/ios_blocking_page_controller_client.h"
 #import "ios/components/security_interstitials/ios_security_interstitial_page.h"
 #import "ios/web/public/web_state_observer.h"
@@ -142,12 +142,6 @@ class SupervisedUserInterstitialBlockingPage
 
   // web::WebStateObserver implementation:
   void WebStateDestroyed(web::WebState* web_state) override;
-  void PageLoaded(
-      web::WebState* web_state,
-      web::PageLoadCompletionStatus load_completion_status) override;
-
-  // Marks the SU interstitial first time banner as shown for a visible page.
-  void MaybeUpdateFirstTimeInterstitialBanner();
 
   const std::unique_ptr<supervised_user::SupervisedUserInterstitial>
       interstitial_;

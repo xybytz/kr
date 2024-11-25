@@ -152,24 +152,29 @@ PageSwitcher::~PageSwitcher() {
     model_->RemoveObserver(this);
 }
 
-gfx::Size PageSwitcher::CalculatePreferredSize() const {
+gfx::Size PageSwitcher::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
+  views::SizeBounds content_available_size(available_size);
+  content_available_size.set_width(2 * PageSwitcher::kMaxButtonRadius);
+
+  gfx::Insets insets = GetInsets();
+  content_available_size.Enlarge(-insets.width(), -insets.height());
+
+  gfx::Size buttons_size = buttons_->GetPreferredSize(content_available_size);
+
   // Always return a size with correct width so that container resize is not
   // needed when more pages are added.
   return gfx::Size(2 * PageSwitcher::kMaxButtonRadius,
-                   buttons_->GetPreferredSize().height());
+                   buttons_size.height() + insets.height());
 }
 
-void PageSwitcher::Layout() {
+void PageSwitcher::Layout(PassKey) {
   gfx::Rect rect(GetContentsBounds());
   if (rect.IsEmpty())
     return;
   gfx::Size buttons_size(buttons_->GetPreferredSize());
   rect.ClampToCenteredSize(buttons_size);
   buttons_->SetBoundsRect(rect);
-}
-
-const char* PageSwitcher::GetClassName() const {
-  return "PageSwitcher";
 }
 
 void PageSwitcher::OnThemeChanged() {

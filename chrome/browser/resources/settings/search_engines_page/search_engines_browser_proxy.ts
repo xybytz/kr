@@ -28,6 +28,8 @@ export interface SearchEngine {
   id: number;
   isManaged: boolean;
   isOmniboxExtension: boolean;
+  isPrepopulated: boolean;
+  isStarterPack: boolean;
   keyword: string;
   modelIndex: number;
   name: string;
@@ -86,7 +88,8 @@ export enum ChoiceMadeLocation {
 
 export interface SearchEnginesBrowserProxy {
   setDefaultSearchEngine(
-      modelIndex: number, choiceMadeLocation: ChoiceMadeLocation): void;
+      modelIndex: number, choiceMadeLocation: ChoiceMadeLocation,
+      saveGuestChoice: boolean|null): void;
 
   setIsActiveSearchEngine(modelIndex: number, isActive: boolean): void;
 
@@ -100,6 +103,8 @@ export interface SearchEnginesBrowserProxy {
       searchEngine: string, keyword: string, queryUrl: string): void;
 
   getSearchEnginesList(): Promise<SearchEnginesInfo>;
+
+  getSaveGuestChoice(): Promise<boolean|null>;
 
   validateSearchEngineInput(fieldName: string, fieldValue: string):
       Promise<boolean>;
@@ -115,8 +120,11 @@ export interface SearchEnginesBrowserProxy {
 export class SearchEnginesBrowserProxyImpl implements
     SearchEnginesBrowserProxy {
   setDefaultSearchEngine(
-      modelIndex: number, choiceMadeLocation: ChoiceMadeLocation) {
-    chrome.send('setDefaultSearchEngine', [modelIndex, choiceMadeLocation]);
+      modelIndex: number, choiceMadeLocation: ChoiceMadeLocation,
+      saveGuestChoice?: boolean|null) {
+    chrome.send(
+        'setDefaultSearchEngine',
+        [modelIndex, choiceMadeLocation, saveGuestChoice]);
   }
 
   setIsActiveSearchEngine(modelIndex: number, isActive: boolean) {
@@ -149,6 +157,10 @@ export class SearchEnginesBrowserProxyImpl implements
 
   getSearchEnginesList() {
     return sendWithPromise('getSearchEnginesList');
+  }
+
+  getSaveGuestChoice() {
+    return sendWithPromise('getSaveGuestChoice');
   }
 
   validateSearchEngineInput(fieldName: string, fieldValue: string) {

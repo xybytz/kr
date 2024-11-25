@@ -11,19 +11,23 @@
 import '/strings.m.js';
 import 'chrome://resources/ash/common/personalization/common.css.js';
 import 'chrome://resources/ash/common/personalization/cros_button_style.css.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
-import 'chrome://resources/cr_elements/cr_icons.css.js';
-import 'chrome://resources/cr_elements/icons.html.js';
+import 'chrome://resources/ash/common/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_icons.css.js';
+import 'chrome://resources/ash/common/cr_elements/icons.html.js';
 import 'chrome://resources/polymer/v3_0/iron-a11y-keys/iron-a11y-keys.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 import 'chrome://resources/polymer/v3_0/iron-selector/iron-selector.js';
 
 import {assert} from 'chrome://resources/ash/common/assert.js';
+import {AnchorAlignment, CrActionMenuElement} from 'chrome://resources/ash/common/cr_elements/cr_action_menu/cr_action_menu.js';
 import {getSeaPenTemplates, SeaPenTemplate} from 'chrome://resources/ash/common/sea_pen/constants.js';
-import {isSeaPenEnabled} from 'chrome://resources/ash/common/sea_pen/load_time_booleans.js';
-import {SeaPenTemplateId} from 'chrome://resources/ash/common/sea_pen/sea_pen.mojom-webui.js';
-import {isNonEmptyArray} from 'chrome://resources/ash/common/sea_pen/sea_pen_utils.js';
-import {AnchorAlignment} from 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
+import {isSeaPenEnabled, isSeaPenTextInputEnabled} from 'chrome://resources/ash/common/sea_pen/load_time_booleans.js';
+import {cleanUpSeaPenQueryStates} from 'chrome://resources/ash/common/sea_pen/sea_pen_controller.js';
+import {SeaPenTemplateId} from 'chrome://resources/ash/common/sea_pen/sea_pen_generated.mojom-webui.js';
+import {logSeaPenTemplateSelect} from 'chrome://resources/ash/common/sea_pen/sea_pen_metrics_logger.js';
+import {getSeaPenStore} from 'chrome://resources/ash/common/sea_pen/sea_pen_store.js';
+import {getTemplateIdFromString, isNonEmptyArray} from 'chrome://resources/ash/common/sea_pen/sea_pen_utils.js';
+import {getTransitionEnabled, setTransitionsEnabled} from 'chrome://resources/ash/common/sea_pen/transition.js';
 import {IronA11yKeysElement} from 'chrome://resources/polymer/v3_0/iron-a11y-keys/iron-a11y-keys.js';
 import {IronSelectorElement} from 'chrome://resources/polymer/v3_0/iron-selector/iron-selector.js';
 
@@ -97,6 +101,7 @@ export class PersonalizationBreadcrumbElement extends WithPersonalizationStore {
         type: Array,
         computed:
             'computeBreadcrumbs_(path, collections_, collectionId, albums_, albumsShared_, googlePhotosAlbumId, seaPenTemplates_, seaPenTemplateId, topicSource)',
+        observer: 'onBreadcrumbsChanged_',
       },
 
       collections_: {
@@ -147,6 +152,23 @@ export class PersonalizationBreadcrumbElement extends WithPersonalizationStore {
     this.watch(
         'albumsShared_', state => state.wallpaper.googlePhotos.albumsShared);
     this.updateFromStore();
+  }
+
+  private onBreadcrumbsChanged_() {
+    requestAnimationFrame(() => {
+      // Note that only 1 breadcrumb is focusable at any given time. When
+      // breadcrumbs change, the previously selected breadcrumb might not be in
+      // DOM anymore. To allow keyboard users to focus the breadcrumbs again, we
+      // add the first breadcrumb back to tab order.
+      const allBreadcrumbs = this.$.selector.items as HTMLElement[];
+      const hasFocusableBreadcrumb =
+          allBreadcrumbs.some(el => el.getAttribute('tabindex') === '0');
+
+      if (!hasFocusableBreadcrumb && allBreadcrumbs.length > 0) {
+        this.$.selector.selectIndex(0);
+        allBreadcrumbs[0].setAttribute('tabindex', '0');
+      }
+    });
   }
 
   /** Handle keyboard navigation. */
@@ -224,11 +246,19 @@ export class PersonalizationBreadcrumbElement extends WithPersonalizationStore {
         break;
       case Paths.SEA_PEN_COLLECTION:
         breadcrumbs.push(this.i18n('wallpaperLabel'));
-        breadcrumbs.push(this.i18n('seaPenLabel'));
+        if (isSeaPenTextInputEnabled()) {
+          breadcrumbs.push(this.i18n('seaPenFreeformWallpaperTemplatesLabel'));
+        } else {
+          breadcrumbs.push(this.i18n('seaPenLabel'));
+        }
         break;
       case Paths.SEA_PEN_RESULTS:
         breadcrumbs.push(this.i18n('wallpaperLabel'));
-        breadcrumbs.push(this.i18n('seaPenLabel'));
+        if (isSeaPenTextInputEnabled()) {
+          breadcrumbs.push(this.i18n('seaPenFreeformWallpaperTemplatesLabel'));
+        } else {
+          breadcrumbs.push(this.i18n('seaPenLabel'));
+        }
         if (this.seaPenTemplateId && isNonEmptyArray(this.seaPenTemplates_)) {
           const template = this.seaPenTemplates_.find(
               template => template.id.toString() === this.seaPenTemplateId);
@@ -236,6 +266,10 @@ export class PersonalizationBreadcrumbElement extends WithPersonalizationStore {
             breadcrumbs.push(template.title);
           }
         }
+        break;
+      case Paths.SEA_PEN_FREEFORM:
+        breadcrumbs.push(this.i18n('wallpaperLabel'));
+        breadcrumbs.push(this.i18n('seaPenLabel'));
         break;
       case Paths.USER:
         breadcrumbs.push(this.i18n('avatarLabel'));
@@ -284,18 +318,29 @@ export class PersonalizationBreadcrumbElement extends WithPersonalizationStore {
         // with new path.
         const breadcrumb = e.target as HTMLElement;
         breadcrumb.blur();
-        PersonalizationRouterElement.instance().goToRoute(newPath as Paths);
+        this.goBackToRoute_(newPath as Paths);
       }
     }
   }
 
   private onClickMenuIcon_(e: Event) {
     const targetElement = e.currentTarget as HTMLElement;
+    const rect = targetElement.getBoundingClientRect();
+    // Anchors the menu at the top-left corner of the chip while also
+    // accounting for the scrolling of the page.
     const config = {
       anchorAlignmentX: AnchorAlignment.AFTER_START,
       anchorAlignmentY: AnchorAlignment.AFTER_START,
+      minX: 0,
+      minY: 0,
+      maxX: window.innerWidth,
+      maxY: window.innerHeight,
+      top: rect.top - document.scrollingElement!.scrollTop,
+      left: rect.left - document.scrollingElement!.scrollLeft,
     };
-    const menuElement = this.shadowRoot!.querySelector('cr-action-menu');
+    const menuElement =
+        this.shadowRoot!.querySelector<CrActionMenuElement>('cr-action-menu');
+    menuElement!.shadowRoot!.getElementById('dialog')!.style.position = 'fixed';
     menuElement!.showAt(targetElement, config);
   }
 
@@ -303,8 +348,34 @@ export class PersonalizationBreadcrumbElement extends WithPersonalizationStore {
     const targetElement = e.currentTarget as HTMLElement;
     const templateId = targetElement.dataset['id'];
     assert(!!templateId, 'templateId is required');
-    PersonalizationRouterElement.instance().goToRoute(
-        Paths.SEA_PEN_RESULTS, {seaPenTemplateId: templateId});
+
+    // cleans up the Sea Pen states such as thumbnail response status code,
+    // thumbnail loading status and Sea Pen query when
+    // switching template; otherwise, states from the last query search will
+    // remain in sea-pen-images element.
+    cleanUpSeaPenQueryStates(getSeaPenStore());
+    const transitionsEnabled = getTransitionEnabled();
+    // disables the page transition when switching templates from the drop down.
+    // Then resets it back to the original value after routing is done to not
+    // interfere with other page transitions.
+    setTransitionsEnabled(false);
+
+    // log metrics for the selected template.
+    if (templateId) {
+      logSeaPenTemplateSelect(getTemplateIdFromString(templateId));
+    }
+
+    PersonalizationRouterElement.instance()
+        .goToRoute(Paths.SEA_PEN_RESULTS, {seaPenTemplateId: templateId})
+        ?.finally(() => {
+          setTransitionsEnabled(transitionsEnabled);
+        });
+    this.closeOptionMenu_();
+  }
+
+  private closeOptionMenu_() {
+    const menuElement = this.shadowRoot!.querySelector('cr-action-menu');
+    menuElement!.close();
   }
 
   private shouldShowSeaPenDropdown_(path: string, breadcrumb: string): boolean {
@@ -317,13 +388,21 @@ export class PersonalizationBreadcrumbElement extends WithPersonalizationStore {
     return path === Paths.SEA_PEN_RESULTS && !!template;
   }
 
-  private getAriaSelected_(
+  private getAriaChecked_(
       templateId: SeaPenTemplateId, seaPenTemplateId: string): 'true'|'false' {
     return templateId.toString() === seaPenTemplateId ? 'true' : 'false';
   }
 
   private onHomeIconClick_() {
-    PersonalizationRouterElement.instance().goToRoute(Paths.ROOT);
+    this.goBackToRoute_(Paths.ROOT);
+  }
+
+  // Helper method to apply back transition style when navigating to path.
+  private goBackToRoute_(path: Paths) {
+    document.documentElement.classList.add('back-transition');
+    PersonalizationRouterElement.instance().goToRoute(path)?.finally(() => {
+      document.documentElement.classList.remove('back-transition');
+    });
   }
 }
 

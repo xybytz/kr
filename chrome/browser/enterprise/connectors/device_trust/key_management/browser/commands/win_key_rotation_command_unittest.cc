@@ -34,11 +34,8 @@ const char kFakeDmServerUrl[] =
     "7C1.2.3&request=browser_public_key_upload";
 
 void CheckCommandArgs(const std::vector<std::string>& args) {
-  std::string token_base64;
-  base::Base64Encode(kFakeDMToken, &token_base64);
-  std::string nonce_base64;
-  base::Base64Encode(kFakeDMToken, &token_base64);
-  base::Base64Encode(kNonce, &nonce_base64);
+  std::string token_base64 = base::Base64Encode(kFakeDMToken);
+  std::string nonce_base64 = base::Base64Encode(kNonce);
   EXPECT_EQ(token_base64, args[0]);
   EXPECT_EQ(kFakeDmServerUrl, args[1]);
   EXPECT_EQ(nonce_base64, args[2]);
@@ -161,9 +158,8 @@ TEST_F(WinKeyRotationCommandTest, UserLevelInstall) {
 
   WinKeyRotationCommand command(base::BindLambdaForTesting(
       [](const wchar_t* command, const std::vector<std::string>& args,
-         std::optional<DWORD>* return_code) {
+         std::optional<DWORD>* return_code) -> HRESULT {
         NOTREACHED() << "Should not get to launching the command.";
-        return S_OK;
       }));
 
   base::test::TestFuture<KeyRotationCommand::Status> future_status;

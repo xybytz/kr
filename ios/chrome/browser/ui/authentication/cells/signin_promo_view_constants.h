@@ -23,10 +23,9 @@ typedef NS_ENUM(NSInteger, SigninPromoViewStyle) {
   // plain button, all stacked vertically.
   SigninPromoViewStyleStandard = 0,
   // Compact style with vertical layout and avatar/logo.
-  SigninPromoViewStyleCompactHorizontal = 1,
-  SigninPromoViewStyleCompactVertical = 2,
+  SigninPromoViewStyleCompact = 2,
   // Style containing a single rounded corners colored button.
-  // TODO(crbug.com/1467810): This is a weird construct used only by recent
+  // TODO(crbug.com/40924554): This is a weird construct used only by recent
   // tabs, where SigninPromoView shows the button and other views show the
   // text/illustration. We should consider adopting SigninPromoViewStyleStandard
   // in that UI, or bringing the text/illustration here.

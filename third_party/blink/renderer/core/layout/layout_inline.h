@@ -137,6 +137,12 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
   void AddChild(LayoutObject* new_child,
                 LayoutObject* before_child = nullptr) override;
 
+  // A block-in-inline became floated or out-of-flow positioned. The anonymous
+  // wrapper around it may therefore need to be removed, if it no longer
+  // contains any in-flow blocks at all.
+  void BlockInInlineBecameFloatingOrOutOfFlow(
+      LayoutBlockFlow* anonymous_block_child);
+
   Element* GetNode() const {
     NOT_DESTROYED();
     return To<Element>(LayoutBoxModelObject::GetNode());
@@ -190,8 +196,7 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
   }
   void UpdateShouldCreateBoxFragment();
 
-  PhysicalRect LocalCaretRect(int, LayoutUnit* extra_width_to_end_of_line)
-      const final;
+  PhysicalRect LocalCaretRect(int) const final;
 
   // When this LayoutInline doesn't generate line boxes of its own, regenerate
   // the rects of the line boxes and hit test the rects.
@@ -210,9 +215,6 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
   PhysicalRect AbsoluteBoundingBoxRectHandlingEmptyInline(
       MapCoordinatesFlags = 0) const final;
 
-  PhysicalRect VisualRectInDocument(
-      VisualRectFlags = kDefaultVisualRectFlags) const override;
-
   const char* GetName() const override {
     NOT_DESTROYED();
     return "LayoutInline";
@@ -229,8 +231,9 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
 
   void InvalidateDisplayItemClients(PaintInvalidationReason) const override;
 
-  void AbsoluteQuads(Vector<gfx::QuadF>& quads,
-                     MapCoordinatesFlags mode = 0) const override;
+  void QuadsInAncestorInternal(Vector<gfx::QuadF>&,
+                               const LayoutBoxModelObject* ancestor,
+                               MapCoordinatesFlags) const override;
 
   PhysicalOffset OffsetFromContainerInternal(
       const LayoutObject*,
@@ -239,8 +242,9 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
  private:
   bool AbsoluteTransformDependsOnPoint(const LayoutObject& object) const;
   void QuadsForSelfInternal(Vector<gfx::QuadF>& quads,
+                            const LayoutBoxModelObject* ancestor,
                             MapCoordinatesFlags mode,
-                            bool map_to_absolute) const;
+                            bool map_to_ancestor) const;
 
   LayoutObjectChildList* VirtualChildren() final {
     NOT_DESTROYED();
@@ -286,11 +290,6 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
   LayoutBox* CreateAnonymousBoxToSplit(
       const LayoutBox* box_to_split) const final;
 
-  void UpdateLayout() final {
-    NOT_DESTROYED();
-    NOTREACHED();
-  }  // Do nothing for layout()
-
   void Paint(const PaintInfo&) const final;
 
   bool NodeAtPoint(HitTestResult&,
@@ -304,12 +303,6 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
   LayoutUnit OffsetTop(const Element*) const final;
   LayoutUnit OffsetWidth() const final;
   LayoutUnit OffsetHeight() const final;
-
-  // This method differs from VisualOverflowRect() in that
-  // 1. it doesn't include the rects for culled inline boxes, which aren't
-  //    necessary for paint invalidation;
-  // 2. it is in physical coordinates.
-  PhysicalRect LocalVisualRectIgnoringVisibility() const override;
 
   bool MapToVisualRectInAncestorSpaceInternal(
       const LayoutBoxModelObject* ancestor,
@@ -330,7 +323,7 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
 
   void ImageChanged(WrappedImagePtr, CanDeferInvalidation) final;
 
-  void AddAnnotatedRegions(Vector<AnnotatedRegionValue>&) final;
+  void AddDraggableRegions(Vector<DraggableRegionValue>&) final;
 
   void UpdateFromStyle() final;
   bool AnonymousHasStylePropagationOverride() final {
@@ -338,7 +331,7 @@ class CORE_EXPORT LayoutInline : public LayoutBoxModelObject {
     return true;
   }
 
-  absl::optional<PhysicalOffset> FirstLineBoxTopLeftInternal() const;
+  std::optional<PhysicalOffset> FirstLineBoxTopLeftInternal() const;
   PhysicalOffset AnchorPhysicalLocation() const;
 
   LayoutObjectChildList children_;

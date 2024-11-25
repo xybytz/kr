@@ -16,7 +16,7 @@
 #include "build/branding_buildflags.h"
 #include "chrome/common/channel_info.h"
 #include "components/version_info/version_info.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 
 namespace shell_integration {
 
@@ -61,7 +61,7 @@ bool SetAsDefaultBrowser() {
                                           toOpenContentType:UTTypeHTML
                                           completionHandler:^(NSError*){
                                           }];
-    // TODO(https://crbug.com/1393452): Passing empty completion handlers,
+    // TODO(crbug.com/40248220): Passing empty completion handlers,
     // above, is kinda broken, but given that this API is synchronous, nothing
     // better can be done. This entire API should be rebuilt.
   } else {
@@ -128,7 +128,7 @@ bool SetAsDefaultClientForScheme(const std::string& scheme) {
                  completionHandler:^(NSError*){
                  }];
 
-    // TODO(https://crbug.com/1393452): Passing empty completion handlers,
+    // TODO(crbug.com/40248220): Passing empty completion handlers,
     // above, is kinda broken, but given that this API is synchronous, nothing
     // better can be done. This entire API should be rebuilt.
     return true;
@@ -275,7 +275,7 @@ DefaultWebClientSetPermission GetPlatformSpecificDefaultWebClientSetPermission(
     WebClientSetMethod method) {
   // This should be `SET_DEFAULT_INTERACTIVE`, but that changes how
   // `DefaultBrowserWorker` and `DefaultSchemeClientWorker` work.
-  // TODO(https://crbug.com/1393452): Migrate all callers to the new API,
+  // TODO(crbug.com/40248220): Migrate all callers to the new API,
   // migrate all the Mac code to integrate with it, and change this to return
   // the correct value.
   return SET_DEFAULT_UNATTENDED;

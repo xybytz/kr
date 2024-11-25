@@ -4,12 +4,16 @@
 
 package org.chromium.components.browser_ui.bottomsheet;
 
+import android.content.Context;
 import android.view.View;
 
+import androidx.annotation.ColorInt;
 import androidx.annotation.IntDef;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.chromium.base.supplier.ObservableSupplierImpl;
+import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -58,15 +62,25 @@ public interface BottomSheetContent {
     }
 
     /**
-     * Gets the {@link View} that holds the content to be displayed in the Chrome Home bottom
-     * sheet.
+     * Gets the {@link View} that holds the content to be displayed in the Chrome Home bottom sheet.
+     *
      * @return The content view.
      */
     View getContentView();
 
     /**
-     * Get the {@link View} that contains the toolbar specific to the content being
-     * displayed. If null is returned, the omnibox is used.
+     * Gets the background color for the bottom sheet content, defaulting to the semantic default
+     * background color if no background color is specified by the content. This should return null
+     * if the sheet content is showing tab content / a page preview.
+     */
+    @ColorInt
+    default Integer getBackgroundColor() {
+        return SemanticColorUtils.getDefaultBgColor(getContentView().getContext());
+    }
+
+    /**
+     * Get the {@link View} that contains the toolbar specific to the content being displayed. If
+     * null is returned, the omnibox is used.
      *
      * @return The toolbar view.
      */
@@ -194,15 +208,16 @@ public interface BottomSheetContent {
     default void onBackPressed() {}
 
     /**
-     * @return The resource id of the content description for the bottom sheet. This is
-     *         generally the name of the feature/content that is showing. 'Swipe down to close.'
-     *         will be automatically appended after the content description.
+     * Returns the content description for the bottom sheet. This is generally the name of the
+     * feature/content that is showing. It can be a dynamic string. 'Swipe down to close.' will be
+     * automatically appended after the content description.
      */
-    int getSheetContentDescriptionStringId();
+    @NonNull
+    String getSheetContentDescription(Context context);
 
     /**
-     * @return The resource id of the string announced when the sheet is opened at half height.
-     *         This is typically the name of your feature followed by 'opened at half height'.
+     * @return The resource id of the string announced when the sheet is opened at half height. This
+     *     is typically the name of your feature followed by 'opened at half height'.
      */
     int getSheetHalfHeightAccessibilityStringId();
 
@@ -224,6 +239,19 @@ public interface BottomSheetContent {
      *     the sheet is dismissed. If returning true here, this content's priority should be LOW.
      */
     default boolean canSuppressInAnyState() {
+        return false;
+    }
+
+    /**
+     * Whether long press gestures should move the bottom sheet.
+     *
+     * <p>Should NOT be overridden to return `true` if the bottom sheet contains any UI that
+     * responds to long presses. Otherwise bugs will occur when long press is used. See
+     * crbug.com/41384419.
+     *
+     * @return True if long press should move the bottom sheet.
+     */
+    default boolean shouldLongPressMoveSheet() {
         return false;
     }
 }

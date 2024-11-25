@@ -12,6 +12,7 @@
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/vector_icons.h"
 
@@ -28,7 +29,9 @@ Checkbox::Checkbox(int button_width,
                        std::move(callback),
                        label,
                        insets,
-                       image_label_spacing) {}
+                       image_label_spacing) {
+  GetViewAccessibility().SetRole(ax::mojom::Role::kCheckBox);
+}
 
 Checkbox::~Checkbox() = default;
 
@@ -44,12 +47,7 @@ bool Checkbox::IsIconOnTheLeftSide() {
   return true;
 }
 
-void Checkbox::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  OptionButtonBase::GetAccessibleNodeData(node_data);
-  node_data->role = ax::mojom::Role::kCheckBox;
-}
-
-BEGIN_METADATA(Checkbox, OptionButtonBase)
+BEGIN_METADATA(Checkbox)
 END_METADATA
 
 }  // namespace ash

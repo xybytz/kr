@@ -2,7 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/ui/webui/ash/settings/pages/internet/internet_section.h"
+
+#include <array>
 
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/hotspot_config_service.h"
@@ -11,9 +18,9 @@
 #include "ash/webui/network_ui/traffic_counters_resource_provider.h"
 #include "ash/webui/settings/public/constants/routes.mojom.h"
 #include "base/containers/contains.h"
+#include "base/containers/span.h"
 #include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/no_destructor.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/ui/webui/ash/cellular_setup/cellular_setup_localized_strings_provider.h"
 #include "chrome/browser/ui/webui/ash/settings/pages/internet/internet_handler.h"
@@ -72,8 +79,8 @@ enum class NetworkDiscoveryState {
   kMaxValue = kNewNetwork,
 };
 
-const std::vector<SearchConcept>& GetNetworkSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetNetworkSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_NETWORK_SETTINGS,
        mojom::kNetworkSectionPath,
        mojom::SearchResultIcon::kWifi,
@@ -82,11 +89,11 @@ const std::vector<SearchConcept>& GetNetworkSearchConcepts() {
        {.section = mojom::Section::kNetwork},
        {IDS_OS_SETTINGS_TAG_NETWORK_SETTINGS_ALT1, SearchConcept::kAltTagEnd}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetEthernetConnectedSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetEthernetConnectedSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_ETHERNET_CONFIGURE,
        mojom::kEthernetDetailsSubpagePath,
        mojom::SearchResultIcon::kEthernet,
@@ -126,11 +133,11 @@ const std::vector<SearchConcept>& GetEthernetConnectedSearchConcepts() {
         IDS_OS_SETTINGS_TAG_PROXY_ALT3, IDS_OS_SETTINGS_TAG_PROXY_ALT4,
         SearchConcept::kAltTagEnd}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetEthernetNotConnectedSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetEthernetNotConnectedSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_ETHERNET,
        mojom::kNetworkSectionPath,
        mojom::SearchResultIcon::kEthernet,
@@ -138,11 +145,11 @@ const std::vector<SearchConcept>& GetEthernetNotConnectedSearchConcepts() {
        mojom::SearchResultType::kSection,
        {.section = mojom::Section::kNetwork}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetWifiSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetWifiSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_WIFI,
        mojom::kWifiNetworksSubpagePath,
        mojom::SearchResultIcon::kWifi,
@@ -159,11 +166,11 @@ const std::vector<SearchConcept>& GetWifiSearchConcepts() {
        {IDS_OS_SETTINGS_TAG_KNOWN_NETWORKS_ALT1,
         IDS_OS_SETTINGS_TAG_KNOWN_NETWORKS_ALT2, SearchConcept::kAltTagEnd}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetWifiOnSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetWifiOnSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_WIFI_TURN_OFF,
        mojom::kWifiNetworksSubpagePath,
        mojom::SearchResultIcon::kWifi,
@@ -178,11 +185,11 @@ const std::vector<SearchConcept>& GetWifiOnSearchConcepts() {
        mojom::SearchResultType::kSetting,
        {.setting = mojom::Setting::kWifiAddNetwork}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetWifiOffSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetWifiOffSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_WIFI_TURN_ON,
        mojom::kWifiNetworksSubpagePath,
        mojom::SearchResultIcon::kWifi,
@@ -191,11 +198,11 @@ const std::vector<SearchConcept>& GetWifiOffSearchConcepts() {
        {.setting = mojom::Setting::kWifiOnOff},
        {IDS_OS_SETTINGS_TAG_WIFI_TURN_ON_ALT1, SearchConcept::kAltTagEnd}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetWifiConnectedSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetWifiConnectedSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_DISCONNECT_WIFI,
        mojom::kWifiDetailsSubpagePath,
        mojom::SearchResultIcon::kWifi,
@@ -251,11 +258,11 @@ const std::vector<SearchConcept>& GetWifiConnectedSearchConcepts() {
        {IDS_OS_SETTINGS_TAG_AUTO_CONNECT_NETWORK_ALT1,
         SearchConcept::kAltTagEnd}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetWifiMeteredSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetWifiMeteredSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_SETTINGS_INTERNET_NETWORK_METERED,
        mojom::kWifiDetailsSubpagePath,
        mojom::SearchResultIcon::kWifi,
@@ -263,11 +270,11 @@ const std::vector<SearchConcept>& GetWifiMeteredSearchConcepts() {
        mojom::SearchResultType::kSetting,
        {.setting = mojom::Setting::kWifiMetered}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetWifiHiddenSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetWifiHiddenSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_HIDDEN_NETWORK,
        mojom::kWifiDetailsSubpagePath,
        mojom::SearchResultIcon::kWifi,
@@ -276,11 +283,11 @@ const std::vector<SearchConcept>& GetWifiHiddenSearchConcepts() {
        {.setting = mojom::Setting::kWifiHidden},
        {IDS_OS_SETTINGS_TAG_HIDDEN_NETWORK_ALT1, SearchConcept::kAltTagEnd}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetCellularSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetCellularSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_CELLULAR,
        mojom::kCellularNetworksSubpagePath,
        mojom::SearchResultIcon::kCellular,
@@ -303,11 +310,11 @@ const std::vector<SearchConcept>& GetCellularSearchConcepts() {
        mojom::SearchResultType::kSetting,
        {.setting = mojom::Setting::kCellularRoaming}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetCellularOnSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetCellularOnSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_CELLULAR_TURN_OFF,
        mojom::kNetworkSectionPath,
        mojom::SearchResultIcon::kCellular,
@@ -316,11 +323,11 @@ const std::vector<SearchConcept>& GetCellularOnSearchConcepts() {
        {.setting = mojom::Setting::kMobileOnOff},
        {IDS_OS_SETTINGS_TAG_CELLULAR_TURN_OFF_ALT1, SearchConcept::kAltTagEnd}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetCellularOffSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetCellularOffSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_CELLULAR_TURN_ON,
        mojom::kNetworkSectionPath,
        mojom::SearchResultIcon::kCellular,
@@ -329,11 +336,11 @@ const std::vector<SearchConcept>& GetCellularOffSearchConcepts() {
        {.setting = mojom::Setting::kMobileOnOff},
        {IDS_OS_SETTINGS_TAG_CELLULAR_TURN_ON_ALT1, SearchConcept::kAltTagEnd}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetCellularConnectedSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetCellularConnectedSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_CELLULAR_DISCONNECT,
        mojom::kCellularDetailsSubpagePath,
        mojom::SearchResultIcon::kCellular,
@@ -375,11 +382,11 @@ const std::vector<SearchConcept>& GetCellularConnectedSearchConcepts() {
        {IDS_OS_SETTINGS_TAG_AUTO_CONNECT_NETWORK_ALT1,
         SearchConcept::kAltTagEnd}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetCellularAddESimSearchTerms() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetCellularAddESimSearchTerms() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_ADD_ESIM,
        mojom::kMobileDataNetworksSubpagePath,
        mojom::SearchResultIcon::kCellular,
@@ -389,13 +396,13 @@ const std::vector<SearchConcept>& GetCellularAddESimSearchTerms() {
        {IDS_OS_SETTINGS_TAG_ADD_ESIM_ALT1, IDS_OS_SETTINGS_TAG_ADD_ESIM_ALT2,
         SearchConcept::kAltTagEnd}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>&
+base::span<const SearchConcept>
 GeActiveCellularNetworkApnSettingsSearchConcepts() {
   if (ash::features::IsApnRevampEnabled()) {
-    static const base::NoDestructor<std::vector<SearchConcept>> tags(
+    static constexpr auto tags = std::to_array<SearchConcept>(
         {{IDS_OS_SETTINGS_TAG_CELLULAR_APN_SETTINGS,
           mojom::kApnSubpagePath,
           mojom::SearchResultIcon::kCellular,
@@ -411,10 +418,10 @@ GeActiveCellularNetworkApnSettingsSearchConcepts() {
           mojom::SearchResultType::kSetting,
           {.setting = mojom::Setting::kCellularAddApn},
           {IDS_OS_SETTINGS_TAG_ADD_APN_ALT1, SearchConcept::kAltTagEnd}}});
-    return *tags;
+    return tags;
   }
 
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_CELLULAR_APN,
        mojom::kCellularDetailsSubpagePath,
        mojom::SearchResultIcon::kCellular,
@@ -422,12 +429,12 @@ GeActiveCellularNetworkApnSettingsSearchConcepts() {
        mojom::SearchResultType::kSetting,
        {.setting = mojom::Setting::kCellularApn}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>&
+base::span<const SearchConcept>
 GetCellularPrimaryIsNonPolicyESimSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_CELLULAR_REMOVE_PROFILE,
        mojom::kCellularDetailsSubpagePath,
        mojom::SearchResultIcon::kCellular,
@@ -445,11 +452,11 @@ GetCellularPrimaryIsNonPolicyESimSearchConcepts() {
        {IDS_OS_SETTINGS_TAG_CELLULAR_RENAME_PROFILE_ALT1,
         SearchConcept::kAltTagEnd}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetCellularMeteredSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetCellularMeteredSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_SETTINGS_INTERNET_NETWORK_METERED,
        mojom::kCellularDetailsSubpagePath,
        mojom::SearchResultIcon::kCellular,
@@ -457,79 +464,102 @@ const std::vector<SearchConcept>& GetCellularMeteredSearchConcepts() {
        mojom::SearchResultType::kSetting,
        {.setting = mojom::Setting::kCellularMetered}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetInstantTetheringSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags([] {
-    SearchConcept instant_tethering_concept{
-        IDS_OS_SETTINGS_TAG_INSTANT_MOBILE_NETWORKS,
-        mojom::kMobileDataNetworksSubpagePath,
-        mojom::SearchResultIcon::kInstantTethering,
-        mojom::SearchResultDefaultRank::kMedium,
-        mojom::SearchResultType::kSubpage,
-        {.subpage = mojom::Subpage::kMobileDataNetworks},
-    };
+base::span<const SearchConcept> GetInstantTetheringSearchConcepts() {
+  auto make_concepts = [](bool revamped) {
+    return std::to_array<SearchConcept>({
+        {IDS_OS_SETTINGS_TAG_INSTANT_MOBILE_NETWORKS,
+         mojom::kMobileDataNetworksSubpagePath,
+         mojom::SearchResultIcon::kInstantTethering,
+         mojom::SearchResultDefaultRank::kMedium,
+         mojom::SearchResultType::kSubpage,
+         {.subpage = mojom::Subpage::kMobileDataNetworks},
+         {revamped ? IDS_OS_SETTINGS_TAG_INSTANT_MOBILE_NETWORKS_ALT1
+                   : SearchConcept::kAltTagEnd,
+          SearchConcept::kAltTagEnd}},
+    });
+  };
 
-    if (ash::features::IsInstantHotspotRebrandEnabled()) {
-      instant_tethering_concept.alt_tag_ids[0] =
-          IDS_OS_SETTINGS_TAG_INSTANT_MOBILE_NETWORKS_ALT1;
-      instant_tethering_concept.alt_tag_ids[1] = SearchConcept::kAltTagEnd;
-    }
-
-    return std::vector<SearchConcept>{instant_tethering_concept};
-  }());
-  return *tags;
+  static constexpr auto revamped_tags = make_concepts(true);
+  static constexpr auto original_tags = make_concepts(false);
+  return ash::features::IsInstantHotspotRebrandEnabled() ? revamped_tags
+                                                         : original_tags;
 }
 
-const std::vector<SearchConcept>& GetInstantTetheringOnSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
-      {IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_TURN_OFF,
-       mojom::kMobileDataNetworksSubpagePath,
-       mojom::SearchResultIcon::kInstantTethering,
-       mojom::SearchResultDefaultRank::kMedium,
-       mojom::SearchResultType::kSetting,
-       {.setting = mojom::Setting::kInstantTetheringOnOff},
-       {IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_TURN_OFF_ALT1,
-        SearchConcept::kAltTagEnd}},
-  });
-  return *tags;
+base::span<const SearchConcept> GetInstantTetheringOnSearchConcepts() {
+  auto make_concepts = [](bool revamped) {
+    return std::to_array<SearchConcept>({
+        {revamped ? IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_TURN_OFF
+                  : IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_TURN_OFF_LEGACY,
+         mojom::kMobileDataNetworksSubpagePath,
+         mojom::SearchResultIcon::kInstantTethering,
+         mojom::SearchResultDefaultRank::kMedium,
+         mojom::SearchResultType::kSetting,
+         {.setting = mojom::Setting::kInstantTetheringOnOff},
+         {revamped ? IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_TURN_OFF_ALT1
+                   : IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_TURN_OFF_ALT1_LEGACY,
+          SearchConcept::kAltTagEnd}},
+    });
+  };
+
+  static constexpr auto revamped_tags = make_concepts(true);
+  static constexpr auto original_tags = make_concepts(false);
+  return ash::features::IsInstantHotspotRebrandEnabled() ? revamped_tags
+                                                         : original_tags;
 }
 
-const std::vector<SearchConcept>& GetInstantTetheringOffSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
-      {IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_TURN_ON,
-       mojom::kMobileDataNetworksSubpagePath,
-       mojom::SearchResultIcon::kInstantTethering,
-       mojom::SearchResultDefaultRank::kMedium,
-       mojom::SearchResultType::kSetting,
-       {.setting = mojom::Setting::kInstantTetheringOnOff},
-       {IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_TURN_ON_ALT1,
-        SearchConcept::kAltTagEnd}},
-  });
-  return *tags;
+base::span<const SearchConcept> GetInstantTetheringOffSearchConcepts() {
+  auto make_concepts = [](bool revamped) {
+    return std::to_array<SearchConcept>({
+        {revamped ? IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_TURN_ON
+                  : IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_TURN_ON_LEGACY,
+         mojom::kMobileDataNetworksSubpagePath,
+         mojom::SearchResultIcon::kInstantTethering,
+         mojom::SearchResultDefaultRank::kMedium,
+         mojom::SearchResultType::kSetting,
+         {.setting = mojom::Setting::kInstantTetheringOnOff},
+         {revamped ? IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_TURN_ON_ALT1
+                   : IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_TURN_ON_ALT1_LEGACY,
+          SearchConcept::kAltTagEnd}},
+    });
+  };
+
+  static constexpr auto revamped_tags = make_concepts(true);
+  static constexpr auto original_tags = make_concepts(false);
+  return ash::features::IsInstantHotspotRebrandEnabled() ? revamped_tags
+                                                         : original_tags;
 }
 
-const std::vector<SearchConcept>& GetInstantTetheringConnectedSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
-      {IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_DISCONNECT,
-       mojom::kTetherDetailsSubpagePath,
-       mojom::SearchResultIcon::kInstantTethering,
-       mojom::SearchResultDefaultRank::kMedium,
-       mojom::SearchResultType::kSetting,
-       {.setting = mojom::Setting::kDisconnectTetherNetwork}},
-      {IDS_OS_SETTINGS_TAG_INSTANT_TETHERING,
-       mojom::kTetherDetailsSubpagePath,
-       mojom::SearchResultIcon::kInstantTethering,
-       mojom::SearchResultDefaultRank::kMedium,
-       mojom::SearchResultType::kSubpage,
-       {.subpage = mojom::Subpage::kTetherDetails}},
-  });
-  return *tags;
+base::span<const SearchConcept> GetInstantTetheringConnectedSearchConcepts() {
+  auto make_concepts = [](bool revamped) {
+    return std::to_array<SearchConcept>({
+        {revamped ? IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_DISCONNECT
+                  : IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_DISCONNECT_LEGACY,
+         mojom::kTetherDetailsSubpagePath,
+         mojom::SearchResultIcon::kInstantTethering,
+         mojom::SearchResultDefaultRank::kMedium,
+         mojom::SearchResultType::kSetting,
+         {.setting = mojom::Setting::kDisconnectTetherNetwork}},
+        {revamped ? IDS_OS_SETTINGS_TAG_INSTANT_TETHERING
+                  : IDS_OS_SETTINGS_TAG_INSTANT_TETHERING_LEGACY,
+         mojom::kTetherDetailsSubpagePath,
+         mojom::SearchResultIcon::kInstantTethering,
+         mojom::SearchResultDefaultRank::kMedium,
+         mojom::SearchResultType::kSubpage,
+         {.subpage = mojom::Subpage::kTetherDetails}},
+    });
+  };
+
+  static constexpr auto revamped_tags = make_concepts(true);
+  static constexpr auto original_tags = make_concepts(false);
+  return ash::features::IsInstantHotspotRebrandEnabled() ? revamped_tags
+                                                         : original_tags;
 }
 
-const std::vector<SearchConcept>& GetVpnConnectedSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetVpnConnectedSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_VPN,
        mojom::kVpnDetailsSubpagePath,
        mojom::SearchResultIcon::kWifi,
@@ -537,11 +567,11 @@ const std::vector<SearchConcept>& GetVpnConnectedSearchConcepts() {
        mojom::SearchResultType::kSubpage,
        {.subpage = mojom::Subpage::kVpnDetails}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetHotspotSubpageSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetHotspotSubpageSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_HOTSPOT,
        mojom::kHotspotSubpagePath,
        mojom::SearchResultIcon::kHotspot,
@@ -549,11 +579,11 @@ const std::vector<SearchConcept>& GetHotspotSubpageSearchConcepts() {
        mojom::SearchResultType::kSubpage,
        {.subpage = mojom::Subpage::kHotspotDetails}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetHotspotOnSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetHotspotOnSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_HOTSPOT_TURN_OFF,
        mojom::kHotspotSubpagePath,
        mojom::SearchResultIcon::kHotspot,
@@ -561,11 +591,11 @@ const std::vector<SearchConcept>& GetHotspotOnSearchConcepts() {
        mojom::SearchResultType::kSetting,
        {.setting = mojom::Setting::kHotspotOnOff}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetHotspotOffSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetHotspotOffSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_HOTSPOT_TURN_ON,
        mojom::kHotspotSubpagePath,
        mojom::SearchResultIcon::kHotspot,
@@ -573,11 +603,11 @@ const std::vector<SearchConcept>& GetHotspotOffSearchConcepts() {
        mojom::SearchResultType::kSetting,
        {.setting = mojom::Setting::kHotspotOnOff}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<SearchConcept>& GetHotspotAutoDisabledSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetHotspotAutoDisabledSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_HOTSPOT_AUTO_DISABLED,
        mojom::kHotspotSubpagePath,
        mojom::SearchResultIcon::kHotspot,
@@ -588,21 +618,21 @@ const std::vector<SearchConcept>& GetHotspotAutoDisabledSearchConcepts() {
         IDS_OS_SETTINGS_TAG_HOTSPOT_AUTO_DISABLED_ALT2,
         SearchConcept::kAltTagEnd}},
   });
-  return *tags;
+  return tags;
 }
 
-const std::vector<mojom::Setting>& GetEthernetDetailsSettings() {
-  static const base::NoDestructor<std::vector<mojom::Setting>> settings({
+base::span<const mojom::Setting> GetEthernetDetailsSettings() {
+  static constexpr auto settings = std::to_array({
       mojom::Setting::kConfigureEthernet,
       mojom::Setting::kEthernetAutoConfigureIp,
       mojom::Setting::kEthernetDns,
       mojom::Setting::kEthernetProxy,
   });
-  return *settings;
+  return settings;
 }
 
-const std::vector<mojom::Setting>& GetWifiDetailsSettings() {
-  static const base::NoDestructor<std::vector<mojom::Setting>> settings({
+base::span<const mojom::Setting> GetWifiDetailsSettings() {
+  static constexpr auto settings = std::to_array({
       mojom::Setting::kDisconnectWifiNetwork,
       mojom::Setting::kPreferWifiNetwork,
       mojom::Setting::kForgetWifiNetwork,
@@ -613,11 +643,11 @@ const std::vector<mojom::Setting>& GetWifiDetailsSettings() {
       mojom::Setting::kWifiMetered,
       mojom::Setting::kWifiHidden,
   });
-  return *settings;
+  return settings;
 }
 
-const std::vector<mojom::Setting>& GetCellularDetailsSettings() {
-  static const base::NoDestructor<std::vector<mojom::Setting>> settings({
+base::span<const mojom::Setting> GetCellularDetailsSettings() {
+  static constexpr auto settings = std::to_array({
       mojom::Setting::kCellularSimLock,
       mojom::Setting::kCellularRoaming,
       mojom::Setting::kCellularApn,
@@ -631,22 +661,22 @@ const std::vector<mojom::Setting>& GetCellularDetailsSettings() {
       mojom::Setting::kCellularRenameESimNetwork,
       mojom::Setting::kCellularAddApn,
   });
-  return *settings;
+  return settings;
 }
 
-const std::vector<mojom::Setting>& GetHotspotDetailsSettings() {
-  static const base::NoDestructor<std::vector<mojom::Setting>> settings({
+base::span<const mojom::Setting> GetHotspotDetailsSettings() {
+  static constexpr auto settings = std::to_array({
       mojom::Setting::kHotspotOnOff,
       mojom::Setting::kHotspotAutoDisabled,
   });
-  return *settings;
+  return settings;
 }
 
-const std::vector<mojom::Setting>& GetTetherDetailsSettings() {
-  static const base::NoDestructor<std::vector<mojom::Setting>> settings({
+base::span<const mojom::Setting> GetTetherDetailsSettings() {
+  static constexpr auto settings = std::to_array({
       mojom::Setting::kDisconnectTetherNetwork,
   });
-  return *settings;
+  return settings;
 }
 
 bool IsConnected(network_config::mojom::ConnectionStateType connection_state) {
@@ -735,12 +765,10 @@ InternetSection::InternetSection(Profile* profile,
   cros_network_config_->AddObserver(
       network_config_receiver_.BindNewPipeAndPassRemote());
 
-  if (ash::features::IsHotspotEnabled()) {
-    // Receive updates when hotspot info changed.
-    GetHotspotConfigService(cros_hotspot_config_.BindNewPipeAndPassReceiver());
-    cros_hotspot_config_->AddObserver(
-        hotspot_config_receiver_.BindNewPipeAndPassRemote());
-  }
+  // Receive updates when hotspot info changed.
+  GetHotspotConfigService(cros_hotspot_config_.BindNewPipeAndPassReceiver());
+  cros_hotspot_config_->AddObserver(
+      hotspot_config_receiver_.BindNewPipeAndPassRemote());
 
   // Fetch initial list of devices and active networks.
   FetchDeviceList();
@@ -791,10 +819,20 @@ void InternetSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
       {"internetConfigName", IDS_SETTINGS_INTERNET_CONFIG_NAME},
       {"internetDetailPageTitle", IDS_SETTINGS_INTERNET_DETAIL},
       {"internetDeviceBusy", IDS_SETTINGS_INTERNET_DEVICE_BUSY},
+      {"internetDeviceFlashing", IDS_SETTINGS_INTERNET_DEVICE_FLASHING},
       {"internetJoinType", IDS_SETTINGS_INTERNET_JOIN_TYPE},
       {"internetKnownNetworksPageTitle", IDS_SETTINGS_INTERNET_KNOWN_NETWORKS},
+      {"internetYourDeviceHotspots",
+       IDS_SETTINGS_INTERNET_YOUR_DEVICE_HOTSPOTS},
+      {"internetTetherNotificationControlTitle",
+       IDS_SETTINGS_INTERNET_TETHER_NOTIFICATION_CONTROL_TITLE},
+      {"internetTetherNotificationControlDescription",
+       IDS_SETTINGS_INTERNET_TETHER_NOTIFICATION_CONTROL_DESCRIPTION},
       {"internetNoNetworks", IDS_SETTINGS_INTERNET_NO_NETWORKS},
-      {"internetPageTitle", IDS_SETTINGS_INTERNET},
+      {"internetNoTetherHosts", IDS_SETTINGS_INTERNET_NO_TETHER_HOSTS},
+      {"internetPageTitle", features::IsInstantHotspotRebrandEnabled()
+                                ? IDS_SETTINGS_INTERNET
+                                : IDS_SETTINGS_INTERNET_LEGACY},
       {"internetSummaryButtonA11yLabel",
        IDS_SETTINGS_INTERNET_SUMMARY_BUTTON_ACCESSIBILITY_LABEL},
       {"internetToggleTetherA11yLabel",
@@ -883,12 +921,6 @@ void InternetSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
       {"networkSectionNetwork", IDS_SETTINGS_INTERNET_NETWORK_SECTION_NETWORK},
       {"networkSectionNetworkExpandA11yLabel",
        IDS_SETTINGS_INTERNET_NETWORK_SECTION_NETWORK_ACCESSIBILITY_LABEL},
-      {"networkSectionPasspointRemovalTitle",
-       IDS_SETTINGS_INTERNET_NETWORK_SECTION_PASSPOINT_REMOVAL_TITLE},
-      {"networkSectionPasspointRemovalDescription",
-       IDS_SETTINGS_INTERNET_NETWORK_SECTION_PASSPOINT_REMOVAL_DESCRIPTION},
-      {"networkSectionPasspointRemovalInformation",
-       IDS_SETTINGS_INTERNET_NETWORK_SECTION_PASSPOINT_REMOVAL_INFORMATION},
       {"networkSectionPasspointGoToSubscriptionTitle",
        IDS_SETTINGS_INTERNET_NETWORK_SECTION_PASSPOINT_GO_TO_SUBSCRIPTION_TITLE},
       {"networkSectionPasspointGoToSubscriptionInformation",
@@ -1107,8 +1139,6 @@ void InternetSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
        IDS_SETTINGS_INTERNET_PASSPOINT_LEARN_MORE_A11Y},
       {"passpointRemoveCancelA11yLabel",
        IDS_SETTINGS_INTERNET_PASSPOINT_REMOVE_CANCEL_A11Y},
-      {"passpointRemoveConfirmA11yLabel",
-       IDS_SETTINGS_INTERNET_PASSPOINT_REMOVE_CONFIRM_A11Y},
   };
   html_source->AddLocalizedStrings(kLocalizedStrings);
 
@@ -1132,22 +1162,13 @@ void InternetSection::AddLoadTimeData(content::WebUIDataSource* html_source) {
       "showMeteredToggle",
       base::FeatureList::IsEnabled(::features::kMeteredShowToggle));
   html_source->AddBoolean(
+      "trafficCountersForWifiTesting",
+      ash::features::IsTrafficCountersForWiFiTestingEnabled());
+  html_source->AddBoolean(
       "showHiddenToggle",
       base::FeatureList::IsEnabled(::features::kShowHiddenNetworkToggle));
-  html_source->AddBoolean("isSmdsSupportEnabled",
-                          ash::features::IsSmdsSupportEnabled());
-  html_source->AddBoolean("isHotspotEnabled",
-                          ash::features::IsHotspotEnabled());
   html_source->AddBoolean("isInstantHotspotRebrandEnabled",
                           ash::features::IsInstantHotspotRebrandEnabled());
-  html_source->AddBoolean("isPasspointEnabled",
-                          ash::features::IsPasspointARCSupportEnabled());
-  html_source->AddBoolean("isPasspointSettingsEnabled",
-                          ash::features::IsPasspointSettingsEnabled() &&
-                              ash::features::IsPasspointARCSupportEnabled());
-
-  html_source->AddBoolean("isSuppressTextMessagesEnabled",
-                          ash::features::IsSuppressTextMessagesEnabled());
 
   html_source->AddString("networkGoogleNameserversLearnMoreUrl",
                          chrome::kGoogleNameserversLearnMoreURL);
@@ -1233,7 +1254,9 @@ void InternetSection::AddHandlers(content::WebUI* web_ui) {
 }
 
 int InternetSection::GetSectionNameMessageId() const {
-  return IDS_SETTINGS_INTERNET;
+  return features::IsInstantHotspotRebrandEnabled()
+             ? IDS_SETTINGS_INTERNET
+             : IDS_SETTINGS_INTERNET_LEGACY;
 }
 
 mojom::Section InternetSection::GetSection() const {
@@ -1359,7 +1382,9 @@ void InternetSection::RegisterHierarchy(HierarchyGenerator* generator) const {
   // Instant Tethering. Although this is a multi-device feature, its UI resides
   // in the network section.
   generator->RegisterNestedSubpage(
-      IDS_SETTINGS_INTERNET_INSTANT_TETHERING_DETAILS,
+      features::IsInstantHotspotRebrandEnabled()
+          ? IDS_SETTINGS_INTERNET_INSTANT_TETHERING_DETAILS
+          : IDS_SETTINGS_INTERNET_INSTANT_TETHERING_DETAILS_LEGACY,
       mojom::Subpage::kTetherDetails, mojom::Subpage::kMobileDataNetworks,
       mojom::SearchResultIcon::kInstantTethering,
       mojom::SearchResultDefaultRank::kMedium,
@@ -1423,10 +1448,8 @@ void InternetSection::OnHotspotInfoChanged() {
 }
 
 void InternetSection::FetchHotspotInfo() {
-  if (ash::features::IsHotspotEnabled()) {
-    cros_hotspot_config_->GetHotspotInfo(base::BindOnce(
-        &InternetSection::OnHotspotInfo, base::Unretained(this)));
-  }
+  cros_hotspot_config_->GetHotspotInfo(
+      base::BindOnce(&InternetSection::OnHotspotInfo, base::Unretained(this)));
 }
 
 void InternetSection::OnHotspotInfo(

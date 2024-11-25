@@ -5,14 +5,15 @@
 
 #import <Foundation/Foundation.h>
 
+#import "base/memory/raw_ptr.h"
 #import "base/test/bind.h"
 #import "base/test/scoped_feature_list.h"
-#import "components/password_manager/core/browser/affiliation/mock_affiliation_service.h"
+#import "components/affiliations/core/browser/mock_affiliation_service.h"
 #import "components/password_manager/core/browser/well_known_change_password/well_known_change_password_util.h"
 #import "components/password_manager/core/common/password_manager_features.h"
 #import "components/ukm/test_ukm_recorder.h"
-#import "ios/chrome/browser/passwords/model/ios_chrome_affiliation_service_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/affiliations/model/ios_chrome_affiliation_service_factory.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/test/fakes/fake_web_client.h"
 #import "ios/web/public/test/fakes/fake_web_state_delegate.h"
@@ -34,13 +35,13 @@
 
 namespace {
 
+using affiliations::FacetURI;
 using base::test::ios::WaitUntilConditionOrTimeout;
 using net::test_server::BasicHttpResponse;
 using net::test_server::EmbeddedTestServer;
 using net::test_server::EmbeddedTestServerHandle;
 using net::test_server::HttpRequest;
 using net::test_server::HttpResponse;
-using password_manager::FacetURI;
 using password_manager::kWellKnownChangePasswordPath;
 using password_manager::kWellKnownNotExistingResourcePath;
 using password_manager::WellKnownChangePasswordResult;
@@ -67,7 +68,7 @@ void LoadUrlWithTransition(web::WebState* web_state,
 }
 
 std::unique_ptr<KeyedService> MakeMockAffiliationService(web::BrowserState*) {
-  return std::make_unique<NiceMock<password_manager::MockAffiliationService>>();
+  return std::make_unique<NiceMock<affiliations::MockAffiliationService>>();
 }
 
 }  // namespace
@@ -79,18 +80,17 @@ class WellKnownChangePasswordTabHelperTest : public PlatformTest {
   using UkmBuilder =
       ukm::builders::PasswordManager_WellKnownChangePasswordResult;
   WellKnownChangePasswordTabHelperTest()
-      : web_client_(std::make_unique<web::FakeWebClient>()),
-        task_environment_(web::WebTaskEnvironment::Options::IO_MAINLOOP) {
+      : web_client_(std::make_unique<web::FakeWebClient>()) {
     test_server_->RegisterRequestHandler(base::BindRepeating(
         &WellKnownChangePasswordTabHelperTest::HandleRequest,
         base::Unretained(this)));
 
-    TestChromeBrowserState::Builder builder;
+    TestProfileIOS::Builder builder;
     builder.AddTestingFactory(IOSChromeAffiliationServiceFactory::GetInstance(),
                               base::BindRepeating(&MakeMockAffiliationService));
-    browser_state_ = builder.Build();
+    profile_ = std::move(builder).Build();
 
-    web::WebState::CreateParams params(browser_state_.get());
+    web::WebState::CreateParams params(profile_.get());
     web_state_ = web::WebState::Create(params);
     web_state_->GetView();
     web_state_->SetKeepRenderProcessAlive(true);
@@ -101,15 +101,13 @@ class WellKnownChangePasswordTabHelperTest : public PlatformTest {
     EXPECT_TRUE(test_server_->InitializeAndListen());
     test_server_->StartAcceptingConnections();
 
-    affiliation_service_ =
-        static_cast<password_manager::MockAffiliationService*>(
-            IOSChromeAffiliationServiceFactory::GetForBrowserState(
-                browser_state_.get()));
+    affiliation_service_ = static_cast<affiliations::MockAffiliationService*>(
+        IOSChromeAffiliationServiceFactory::GetForProfile(profile_.get()));
 
     web_state()->SetDelegate(&delegate_);
     password_manager::WellKnownChangePasswordTabHelper::CreateForWebState(
         web_state());
-    browser_state_->SetSharedURLLoaderFactory(
+    profile_->SetSharedURLLoaderFactory(
         base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
             &test_url_loader_factory_));
     test_recorder_ = std::make_unique<ukm::TestAutoSetUkmRecorder>();
@@ -151,8 +149,9 @@ class WellKnownChangePasswordTabHelperTest : public PlatformTest {
   web::WebState* web_state() const { return web_state_.get(); }
 
   web::ScopedTestingWebClient web_client_;
-  web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  web::WebTaskEnvironment task_environment_{
+      web::WebTaskEnvironment::MainThreadType::IO};
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<web::WebState> web_state_;
 
  private:
@@ -164,7 +163,7 @@ class WellKnownChangePasswordTabHelperTest : public PlatformTest {
   base::test::ScopedFeatureList feature_list_;
   network::TestURLLoaderFactory test_url_loader_factory_;
   web::FakeWebStateDelegate delegate_;
-  password_manager::MockAffiliationService* affiliation_service_ = nullptr;
+  raw_ptr<affiliations::MockAffiliationService> affiliation_service_ = nullptr;
 };
 
 GURL WellKnownChangePasswordTabHelperTest::GetNavigatedUrl() const {

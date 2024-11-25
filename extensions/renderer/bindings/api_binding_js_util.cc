@@ -5,6 +5,7 @@
 #include "extensions/renderer/bindings/api_binding_js_util.h"
 
 #include <optional>
+
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "content/public/renderer/v8_value_converter.h"
@@ -76,12 +77,10 @@ void APIBindingJSUtil::SendRequest(
   if (!options.IsEmpty() && !options->IsUndefined() && !options->IsNull()) {
     if (!options->IsObject()) {
       NOTREACHED();
-      return;
     }
     v8::Local<v8::Object> options_obj = options.As<v8::Object>();
     if (!options_obj->GetPrototype()->IsNull()) {
       NOTREACHED();
-      return;
     }
     gin::Dictionary options_dict(isolate, options_obj);
     // NOTE: We don't throw any errors here if customCallback is of an invalid
@@ -136,7 +135,6 @@ void APIBindingJSUtil::CreateCustomEvent(gin::Arguments* arguments,
   if (!v8_event_name->IsUndefined()) {
     if (!v8_event_name->IsString()) {
       NOTREACHED();
-      return;
     }
     event_name = gin::V8ToString(isolate, v8_event_name);
   }
@@ -283,7 +281,6 @@ void APIBindingJSUtil::ValidateType(gin::Arguments* arguments,
     // We shouldn't be asked to validate unknown specs, but since this comes
     // from JS, assume nothing.
     NOTREACHED();
-    return;
   }
 
   std::string error;
@@ -307,22 +304,18 @@ void APIBindingJSUtil::AddCustomSignature(
 
   if (!signature->IsArray()) {
     NOTREACHED();
-    return;
   }
 
   std::unique_ptr<base::Value> base_signature =
       content::V8ValueConverter::Create()->FromV8Value(signature, context);
   if (!base_signature->is_list()) {
     NOTREACHED();
-    return;
   }
 
   type_refs_->AddCustomSignature(
       custom_signature_name,
       APISignature::CreateFromValues(*base_signature, nullptr /*returns_async*/,
-                                     nullptr /*access_checker*/,
-                                     custom_signature_name,
-                                     false /*is_event_signature*/));
+                                     nullptr /*access_checker*/));
 }
 
 void APIBindingJSUtil::ValidateCustomSignature(
@@ -342,7 +335,6 @@ void APIBindingJSUtil::ValidateCustomSignature(
   v8::LocalVector<v8::Value> vector_arguments(isolate);
   if (!gin::ConvertFromV8(isolate, arguments_to_validate, &vector_arguments)) {
     NOTREACHED();
-    return;
   }
 
   APISignature::V8ParseResult parse_result =

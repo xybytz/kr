@@ -93,6 +93,7 @@ export let AuthCompletedCredentials;
  *   service: string,
  *   dontResizeNonEmbeddedPages: boolean,
  *   clientId: string,
+ *   clientVersion: (string|undefined),
  *   gaiaPath: string,
  *   emailDomain: string,
  *   showTos: string,
@@ -105,11 +106,13 @@ export let AuthCompletedCredentials;
  *   samlAclUrl: string,
  *   isSupervisedUser: boolean,
  *   isDeviceOwner: boolean,
+ *   needPassword: (boolean|undefined),
  *   ssoProfile: string,
  *   urlParameterToAutofillSAMLUsername: string,
  *   frameUrl: URL,
  *   isFirstUser : (boolean|undefined),
  *   recordAccountCreation : (boolean|undefined),
+ *   autoReloadAttempts : number,
  * }}
  */
 export let AuthParams;
@@ -174,8 +177,6 @@ export const SUPPORTED_PARAMS = [
                    // window.
   'clientId',      // Chrome client id.
   'needPassword',  // Whether the host is interested in getting a password.
-                   // If this set to |false|, |confirmPasswordCallback| is
-                   // not called before dispatching |authCopleted|.
                    // Default is |true|.
   'flow',          // One of 'default', 'enterprise', or
                    // 'cfm' or 'enterpriseLicense'.
@@ -234,6 +235,10 @@ export const SUPPORTED_PARAMS = [
   'pwl',
   // Control if the account creation during sign in flow should be handled.
   'recordAccountCreation',
+  // Url parameter for the number of automatic reloads done to the
+  // authentication flow to avoid login page timeout. Added for
+  // `DeviceAuthenticationFlowAutoReloadInterval` policy.
+  'autoReloadAttempts',
 ];
 
 // Timeout in ms to wait for the message from Gaia indicating end of the flow.
@@ -436,7 +441,6 @@ export class Authenticator extends EventTarget {
 
     this.clientId_ = null;
 
-    this.confirmPasswordCallback = null;
     this.noPasswordCallback = null;
     this.onePasswordCallback = null;
     this.insecureContentBlockedCallback = null;
@@ -808,6 +812,9 @@ export class Authenticator extends EventTarget {
       if (data.rart) {
         url = appendParam(url, 'rart', data.rart);
       }
+      if (data.autoReloadAttempts) {
+        url = appendParam(url, 'auto_reload_attempts', data.autoReloadAttempts);
+      }
 
       return url;
     }
@@ -893,6 +900,9 @@ export class Authenticator extends EventTarget {
     if (data.pwl) {
       url = appendParam(url, 'pwl', data.pwl);
     }
+    if (data.autoReloadAttempts) {
+      url = appendParam(url, 'auto_reload_attempts', data.autoReloadAttempts);
+    }
 
     return url;
   }
@@ -922,7 +932,7 @@ export class Authenticator extends EventTarget {
 
     if (this.isConstrainedWindow_) {
       let isEmbeddedPage = false;
-      if (this.idpOrigin_ && currentUrl.lastIndexOf(this.idpOrigin_) === 0) {
+      if (this.idpOrigin_ && currentUrl.startsWith(this.idpOrigin_)) {
         const headers = details.responseHeaders;
         for (let i = 0; headers && i < headers.length; ++i) {
           if (headers[i].name.toLowerCase() === EMBEDDED_FORM_HEADER) {
@@ -997,7 +1007,8 @@ export class Authenticator extends EventTarget {
       return;
     }
     const currentUrl = details.url;
-    if (currentUrl.lastIndexOf(this.idpOrigin_, 0) !== 0) {
+    if (this.idpOrigin_ === null || this.idpOrigin_ === undefined ||
+      !currentUrl.startsWith(this.idpOrigin_)) {
       return;
     }
 
@@ -1086,20 +1097,6 @@ export class Authenticator extends EventTarget {
   }
 
   /**
-   * Invoked by the hosting page to verify the Saml password.
-   */
-  verifyConfirmedPassword(password) {
-    if (!this.samlHandler_.verifyConfirmedPassword(password)) {
-      this.confirmPasswordCallback(
-          this.email_, this.samlHandler_.scrapedPasswordCount);
-      return;
-    }
-
-    this.password_ = password;
-    this.onAuthCompleted_();
-  }
-
-  /**
    * Check Saml flow and start password confirmation flow if needed.
    * Otherwise, continue with auto completion.
    * @private
@@ -1176,14 +1173,6 @@ export class Authenticator extends EventTarget {
           this.onePasswordCallback();
         }
         this.onAuthCompleted_();
-        return;
-      }
-
-      if (this.confirmPasswordCallback) {
-        // Confirm scraped password. The flow follows in
-        // verifyConfirmedPassword.
-        this.confirmPasswordCallback(
-            this.email_, this.samlHandler_.scrapedPasswordCount);
         return;
       }
     }
@@ -1394,7 +1383,7 @@ export class Authenticator extends EventTarget {
 
     // Posts a message to IdP pages to initiate communication.
     const currentUrl = this.webview_.src;
-    if (currentUrl.lastIndexOf(this.idpOrigin_) === 0) {
+    if (this.idpOrigin_ && currentUrl.startsWith(this.idpOrigin_)) {
       const msg = {
         'method': 'handshake',
       };

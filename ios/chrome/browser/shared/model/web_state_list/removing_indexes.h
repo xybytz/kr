@@ -10,6 +10,8 @@
 
 #include "third_party/abseil-cpp/absl/types/variant.h"
 
+class TabGroupRange;
+
 // RemovingIndexes is a class storing a list of indexes that will soon be
 // closed in a WebStateList (or a serialized representation) and providing
 // support methods to fix the indexes of other WebStates.
@@ -19,6 +21,13 @@
 // criteria).
 class RemovingIndexes {
  public:
+  // Represents a range of indices.
+  struct Range {
+    int start;
+    int count;
+  };
+
+  explicit RemovingIndexes(Range range);
   explicit RemovingIndexes(std::vector<int> indexes);
   RemovingIndexes(std::initializer_list<int> indexes);
 
@@ -30,12 +39,12 @@ class RemovingIndexes {
 
   ~RemovingIndexes();
 
-  // Helper that return a RemovingIndexes corresponding to a continous range
-  // of indexes.
-  static RemovingIndexes Range(int start, int count);
-
   // Returns the number of WebState that will be closed.
   int count() const;
+
+  // Returns the minimum range that contains all closed WebStates (but may
+  // also contains WebStates that are not closed).
+  Range span() const;
 
   // Returns whether index is present in the list of indexes to close.
   bool Contains(int index) const;
@@ -44,6 +53,11 @@ class RemovingIndexes {
   // scheduled to be removed, will return WebStateList::kInvalidIndex.
   int IndexAfterRemoval(int index) const;
 
+  // Returns the new value of tab group range after the removal. The group is
+  // moved and resized down accordingly. If all members of the range are
+  // removed, the range ends up empty (`count` is 0).
+  TabGroupRange RangeAfterRemoval(TabGroupRange range) const;
+
  private:
   // Represents an empty RemovingIndexes.
   class EmptyStorage {
@@ -51,11 +65,17 @@ class RemovingIndexes {
     // Returns the number of items to remove.
     int Count() const;
 
+    // Returns the minimum range of items that are closed.
+    Range Span() const;
+
     // Returns whether `index` will be removed.
     bool ContainsIndex(int index) const;
 
     // Returns the updated value of `index` after items have been removed.
     int IndexAfterRemoval(int index) const;
+
+    // Returns the updated value of `range` after items have been removed.
+    TabGroupRange RangeAfterRemoval(TabGroupRange range) const;
   };
 
   // Represents a RemovingIndexes with a single index.
@@ -66,23 +86,32 @@ class RemovingIndexes {
     // Returns the number of items to remove.
     int Count() const;
 
+    // Returns the minimum range of items that are closed.
+    Range Span() const;
+
     // Returns whether `index` will be removed.
     bool ContainsIndex(int index) const;
 
     // Returns the updated value of `index` after items have been removed.
     int IndexAfterRemoval(int index) const;
+
+    // Returns the updated value of `range` after items have been removed.
+    TabGroupRange RangeAfterRemoval(TabGroupRange range) const;
 
    private:
     int index_;
   };
 
-  // Represents a RemovingIndexes with a contigous range of indexes.
+  // Represents a RemovingIndexes with a contiguous range of indexes.
   class RangeStorage {
    public:
-    RangeStorage(int start, int count);
+    RangeStorage(Range range);
 
     // Returns the number of items to remove.
     int Count() const;
+
+    // Returns the minimum range of items that are closed.
+    Range Span() const;
 
     // Returns whether `index` will be removed.
     bool ContainsIndex(int index) const;
@@ -90,9 +119,11 @@ class RemovingIndexes {
     // Returns the updated value of `index` after items have been removed.
     int IndexAfterRemoval(int index) const;
 
+    // Returns the updated value of `range` after items have been removed.
+    TabGroupRange RangeAfterRemoval(TabGroupRange range) const;
+
    private:
-    int start_;
-    int count_;
+    Range range_;
   };
 
   // Represents a RemovingIndexes with two or more indexes.
@@ -110,11 +141,17 @@ class RemovingIndexes {
     // Returns the number of items to remove.
     int Count() const;
 
+    // Returns the minimum range of items that are closed.
+    Range Span() const;
+
     // Returns whether `index` will be removed.
     bool ContainsIndex(int index) const;
 
     // Returns the updated value of `index` after items have been removed.
     int IndexAfterRemoval(int index) const;
+
+    // Returns the updated value of `range` after items have been removed.
+    TabGroupRange RangeAfterRemoval(TabGroupRange range) const;
 
    private:
     std::vector<int> indexes_;
@@ -122,11 +159,13 @@ class RemovingIndexes {
 
   // Alias for the variant storing the indexes to remove. Using a variant
   // allow not allocating for the common case of removing one element or
-  // a contigous range.
+  // a contiguous range.
   using Storage =
       absl::variant<EmptyStorage, OneIndexStorage, RangeStorage, VectorStorage>;
 
-  // Helper methods to create the storage from a vector or and initializer list.
+  // Helper methods to create the storage from a range, a vector or an
+  // initializer list.
+  static Storage StorageFromRange(Range range);
   static Storage StorageFromVector(std::vector<int> indexes);
   static Storage StorageFromInitializerList(std::initializer_list<int> indexes);
 

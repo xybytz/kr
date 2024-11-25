@@ -8,9 +8,9 @@
 #include <stddef.h>
 
 #include <map>
+#include <optional>
 #include <set>
 
-#include <optional>
 #include "android_webview/browser/gfx/begin_frame_source_webview.h"
 #include "android_webview/browser/gfx/child_frame.h"
 #include "android_webview/browser/gfx/compositor_frame_producer.h"
@@ -59,7 +59,8 @@ class BrowserViewRenderer : public content::SynchronousCompositorClient,
 
   BrowserViewRenderer(
       BrowserViewRendererClient* client,
-      const scoped_refptr<base::SingleThreadTaskRunner>& ui_task_runner);
+      const scoped_refptr<base::SingleThreadTaskRunner>& ui_task_runner,
+      const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner);
 
   BrowserViewRenderer(const BrowserViewRenderer&) = delete;
   BrowserViewRenderer& operator=(const BrowserViewRenderer&) = delete;
@@ -86,6 +87,8 @@ class BrowserViewRenderer : public content::SynchronousCompositorClient,
   // frame is produced.
   bool OnDrawHardware();
   bool OnDrawSoftware(SkCanvas* canvas);
+
+  float GetVelocityInPixelsPerSecond();
 
   bool NeedToDrawBackgroundColor();
 
@@ -162,6 +165,8 @@ class BrowserViewRenderer : public content::SynchronousCompositorClient,
 
   void AddBeginFrameCompletionCallback(base::OnceClosure callback) override;
 
+  void SetThreads(const std::vector<viz::Thread>& threads) override;
+
   // CompositorFrameProducer overrides
   base::WeakPtr<CompositorFrameProducer> GetWeakPtr() override;
   void RemoveCompositorFrameConsumer(
@@ -224,6 +229,8 @@ class BrowserViewRenderer : public content::SynchronousCompositorClient,
   // view renderer's state.
   std::string ToString() const;
 
+  void SetBrowserIOThreadId(base::PlatformThreadId thread_id);
+
   const raw_ptr<BrowserViewRendererClient> client_;
   const scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner_;
   raw_ptr<CompositorFrameConsumer> current_compositor_frame_consumer_;
@@ -236,7 +243,9 @@ class BrowserViewRenderer : public content::SynchronousCompositorClient,
   // A map from compositor's per-WebView unique ID to the compositor's raw
   // pointer. A raw pointer here is fine because the entry will be erased when
   // a compositor is destroyed.
-  std::map<viz::FrameSinkId, content::SynchronousCompositor*> compositor_map_;
+  std::map<viz::FrameSinkId,
+           raw_ptr<content::SynchronousCompositor, CtnExperimental>>
+      compositor_map_;
 
   bool is_paused_;
   bool view_visible_;
@@ -288,7 +297,10 @@ class BrowserViewRenderer : public content::SynchronousCompositorClient,
 
   std::unique_ptr<BeginFrameSourceWebView> begin_frame_source_;
 
-  base::WeakPtrFactory<CompositorFrameProducer> weak_ptr_factory_{this};
+  std::vector<viz::Thread> renderer_threads_;
+  base::PlatformThreadId browser_io_thread_id_ = base::kInvalidThreadId;
+
+  base::WeakPtrFactory<BrowserViewRenderer> weak_ptr_factory_{this};
 };
 
 }  // namespace android_webview

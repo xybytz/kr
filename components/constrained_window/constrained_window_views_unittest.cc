@@ -3,13 +3,14 @@
 // found in the LICENSE file.
 
 #include "components/constrained_window/constrained_window_views.h"
-#include "base/memory/raw_ptr.h"
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
 #include "components/constrained_window/constrained_window_views_client.h"
 #include "components/web_modal/test_web_contents_modal_dialog_host.h"
+#include "ui/base/mojom/ui_base_types.mojom-shared.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/geometry/point.h"
@@ -100,7 +101,8 @@ class ConstrainedWindowViewsTest : public views::ViewsTestBase {
 
     // Create a dialog host sufficiently large enough to accommodate dialog
     // size changes during testing.
-    dialog_host_widget_ = CreateTestWidget();
+    dialog_host_widget_ =
+        CreateTestWidget(views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET);
     dialog_host_widget_->SetBounds(GetPrimaryDisplayWorkArea());
     dialog_host_ = std::make_unique<web_modal::TestWebContentsModalDialogHost>(
         dialog_host_widget_->GetNativeView());
@@ -108,7 +110,7 @@ class ConstrainedWindowViewsTest : public views::ViewsTestBase {
 
     // Make sure the dialog size is dominated by the preferred size of the
     // contents.
-    gfx::Size preferred_size = dialog()->GetRootView()->GetPreferredSize();
+    gfx::Size preferred_size = dialog()->GetRootView()->GetPreferredSize({});
     preferred_size.Enlarge(300, 300);
     contents_->SetPreferredSize(preferred_size);
   }
@@ -153,7 +155,7 @@ class ConstrainedWindowViewsTest : public views::ViewsTestBase {
 TEST_F(ConstrainedWindowViewsTest, GrowModalDialogSize) {
   UpdateWidgetModalDialogPosition(dialog(), dialog_host());
   gfx::Size expected_size = GetDialogSize();
-  gfx::Size preferred_size = contents()->GetPreferredSize();
+  gfx::Size preferred_size = contents()->GetPreferredSize({});
   expected_size.Enlarge(50, 50);
   preferred_size.Enlarge(50, 50);
   contents()->SetPreferredSize(preferred_size);
@@ -166,7 +168,7 @@ TEST_F(ConstrainedWindowViewsTest, GrowModalDialogSize) {
 TEST_F(ConstrainedWindowViewsTest, ShrinkModalDialogSize) {
   UpdateWidgetModalDialogPosition(dialog(), dialog_host());
   gfx::Size expected_size = GetDialogSize();
-  gfx::Size preferred_size = contents()->GetPreferredSize();
+  gfx::Size preferred_size = contents()->GetPreferredSize({});
   expected_size.Enlarge(-50, -50);
   preferred_size.Enlarge(-50, -50);
   contents()->SetPreferredSize(preferred_size);
@@ -225,7 +227,7 @@ TEST_F(ConstrainedWindowViewsTest, MAYBE_NullModalParent) {
   SetConstrainedWindowViewsClient(
       std::make_unique<TestConstrainedWindowViewsClient>());
   auto delegate = std::make_unique<views::DialogDelegate>();
-  delegate->SetModalType(ui::MODAL_TYPE_WINDOW);
+  delegate->SetModalType(ui::mojom::ModalType::kWindow);
   views::Widget* widget =
       CreateBrowserModalDialogViews(delegate.get(), nullptr);
   widget->Show();
@@ -233,8 +235,9 @@ TEST_F(ConstrainedWindowViewsTest, MAYBE_NullModalParent) {
   widget->CloseNow();
 }
 
-// Make sure windows with modal dialogs that are positioned off-screen are
-// properly clamped to the nearest screen.
+// Make sure dialogs hosted by windows partially off-screen are positioned to
+// maximize overlap with the screen's working area while respecting the host
+// window's viewport.
 TEST_F(ConstrainedWindowViewsTest, ClampDialogHostWindowToNearestDisplay) {
   views::Widget* host_widget = dialog_host_widget();
   const gfx::Rect original_host_bounds = host_widget->GetWindowBoundsInScreen();
@@ -254,32 +257,36 @@ TEST_F(ConstrainedWindowViewsTest, ClampDialogHostWindowToNearestDisplay) {
   EXPECT_EQ(screen->GetNumDisplays(), 1);
   const gfx::Rect extents = display.work_area();
 
-  // Move the host completely off the screen.
-  gfx::Rect offscreen_host_bounds = host_widget->GetWindowBoundsInScreen();
-  offscreen_host_bounds.set_origin(
-      gfx::Point(extents.right(), extents.bottom()));
-  host_widget->SetBounds(offscreen_host_bounds);
+  // Move the host partially off-screen.
+  gfx::Rect host_bounds = host_widget->GetWindowBoundsInScreen();
+  host_bounds.set_origin(
+      gfx::Point(extents.right() - 50, extents.bottom() - 50));
+  host_widget->SetBounds(host_bounds);
 
-  // Make sure the host is fully off the screen.
-  EXPECT_FALSE(extents.Intersects(host_widget->GetWindowBoundsInScreen()));
+  // The host window should be positioned partially off-screen.
+  EXPECT_TRUE(extents.Intersects(host_widget->GetWindowBoundsInScreen()));
+  EXPECT_FALSE(extents.Contains(host_widget->GetWindowBoundsInScreen()));
 
-  // Update the dialog's position. The dialog and its host should be
-  // repositioned into the work area of the host display.
+  // Update the dialog's position.
   UpdateWebContentsModalDialogPosition(dialog(), dialog_host());
-  gfx::Rect repositioned_host_bounds = host_widget->GetWindowBoundsInScreen();
   const gfx::Rect dialog_bounds = dialog()->GetRootView()->GetBoundsInScreen();
 
   if (SupportsGlobalScreenCoordinates()) {
-    // The host window should be completely within the work area of the display.
-    EXPECT_TRUE(extents.Contains(repositioned_host_bounds));
-
-    // The dialog should be completely within the host's client area.
-    EXPECT_TRUE(repositioned_host_bounds.Contains(dialog_bounds));
+    if (PlatformClipsChildrenToViewport()) {
+      // The dialog should be repositioned to maximize overlap with the display
+      // whilst remaining within the host window's bounds.
+      EXPECT_TRUE(extents.Intersects(dialog_bounds));
+      EXPECT_TRUE(host_bounds.Intersects(dialog_bounds));
+      EXPECT_EQ(dialog_bounds.origin(), host_bounds.origin());
+    } else {
+      // The dialog should be repositioned completely onto the display.
+      EXPECT_TRUE(extents.Contains(dialog_bounds));
+    }
   } else {
     // The dialog with bounds set using relative positioning should fit within
     // the bounds of the host.
-    repositioned_host_bounds.set_origin({0, 0});
-    EXPECT_TRUE(repositioned_host_bounds.Contains(dialog_bounds));
+    host_bounds.set_origin({0, 0});
+    EXPECT_TRUE(host_bounds.Contains(dialog_bounds));
   }
 }
 

@@ -31,6 +31,26 @@
 
 namespace blink {
 
+class FetchRespondWithFulfill final
+    : public ThenCallable<Response, FetchRespondWithFulfill> {
+ public:
+  explicit FetchRespondWithFulfill(FetchRespondWithObserver* observer)
+      : observer_(observer) {}
+
+  void Trace(Visitor* visitor) const override {
+    visitor->Trace(observer_);
+    ThenCallable<Response, FetchRespondWithFulfill>::Trace(visitor);
+  }
+
+  void React(ScriptState* script_state, Response* response) {
+    DCHECK(observer_);
+    observer_->OnResponseFulfilled(script_state, response);
+  }
+
+ private:
+  Member<FetchRespondWithObserver> observer_;
+};
+
 FetchEvent* FetchEvent::Create(ScriptState* script_state,
                                const AtomicString& type,
                                const FetchEventInit* initializer) {
@@ -56,18 +76,22 @@ bool FetchEvent::isReload() const {
 }
 
 void FetchEvent::respondWith(ScriptState* script_state,
-                             ScriptPromise script_promise,
+                             ScriptPromise<Response> script_promise,
                              ExceptionState& exception_state) {
   stopImmediatePropagation();
-  if (observer_)
-    observer_->RespondWith(script_state, script_promise, exception_state);
+  if (observer_) {
+    observer_->RespondWith(
+        script_state, script_promise,
+        MakeGarbageCollected<FetchRespondWithFulfill>(observer_),
+        exception_state);
+  }
 }
 
-ScriptPromise FetchEvent::preloadResponse(ScriptState* script_state) {
+ScriptPromise<IDLAny> FetchEvent::preloadResponse(ScriptState* script_state) {
   return preload_response_property_->Promise(script_state->World());
 }
 
-ScriptPromise FetchEvent::handled(ScriptState* script_state) {
+ScriptPromise<IDLUndefined> FetchEvent::handled(ScriptState* script_state) {
   return handled_property_->Promise(script_state->World());
 }
 
@@ -107,12 +131,13 @@ FetchEvent::FetchEvent(ScriptState* script_state,
       observer_(respond_with_observer),
       preload_response_property_(MakeGarbageCollected<PreloadResponseProperty>(
           ExecutionContext::From(script_state))),
-      handled_property_(
-          MakeGarbageCollected<ScriptPromiseProperty<ToV8UndefinedGenerator,
-                                                     Member<DOMException>>>(
-              ExecutionContext::From(script_state))) {
-  if (!navigation_preload_sent)
-    preload_response_property_->ResolveWithUndefined();
+      handled_property_(MakeGarbageCollected<
+                        ScriptPromiseProperty<IDLUndefined, DOMException>>(
+          ExecutionContext::From(script_state))) {
+  if (!navigation_preload_sent) {
+    preload_response_property_->Resolve(ScriptValue(
+        script_state->GetIsolate(), v8::Undefined(script_state->GetIsolate())));
+  }
 
   client_id_ = initializer->clientId();
   resulting_client_id_ = initializer->resultingClientId();
@@ -167,8 +192,9 @@ void FetchEvent::OnNavigationPreloadResponse(
       response_type == network::mojom::FetchResponseType::kOpaqueRedirect
           ? response_data->CreateOpaqueRedirectFilteredResponse()
           : response_data->CreateBasicFilteredResponse();
-  preload_response_property_->Resolve(
-      Response::Create(ExecutionContext::From(script_state), tainted_response));
+  preload_response_property_->Resolve(ScriptValue::From(
+      script_state, Response::Create(ExecutionContext::From(script_state),
+                                     tainted_response)));
 }
 
 void FetchEvent::OnNavigationPreloadError(

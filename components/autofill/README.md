@@ -1,7 +1,7 @@
 # Autofill
 
 Autofill is a [layered
-component](https://sites.google.com/a/chromium.org/dev/developers/design-documents/layered-components-design).
+component](https://www.chromium.org/developers/design-documents/layered-components-design).
 It has the following structure:
 
 - [`core/`](https://source.chromium.org/chromium/chromium/src/+/main:components/autofill/core): Code shared by `content/` and `ios/`.
@@ -92,7 +92,7 @@ corresponds to a [`Profile`](https://www.chromium.org/developers/design-document
   but `AutofillDriverIOS*` instead of `ContentAutofill*`, and a different but
   identically named `AutofillAgent`.
 * Chrome vs WebView: WebView also uses `AutofillManager` and everything south
-  of it, but `AwAutofillClient` instead of `ChromeAutofillClient`, and
+  of it, but `AndroidAutofillClient` instead of `ChromeAutofillClient`, and
   `AndroidAutofillManager` instead of `BrowserAutofillManager`.
 
 ### Links to files
@@ -132,8 +132,8 @@ corresponds to a [`Profile`](https://www.chromium.org/developers/design-document
     - [`autofill_agent.h`](https://source.chromium.org/chromium/chromium/src/+/main:components/autofill/ios/browser/autofill_agent.h)
     - [`autofill_driver_ios.h`](https://source.chromium.org/chromium/chromium/src/+/main:components/autofill/ios/browser/autofill_driver_ios.h)
   - [`form_util/`](https://source.chromium.org/chromium/chromium/src/+/main:components/autofill/ios/form_util)
-    - [`form.js`](https://source.chromium.org/chromium/chromium/src/+/main:components/autofill/ios/form_util/resources/form.js)
-    - [`fill.js`](https://source.chromium.org/chromium/chromium/src/+/main:components/autofill/ios/form_util/resources/fill.js)
+    - [`form.ts`](https://source.chromium.org/chromium/chromium/src/+/main:components/autofill/ios/form_util/resources/form.ts)
+    - [`fill.ts`](https://source.chromium.org/chromium/chromium/src/+/main:components/autofill/ios/form_util/resources/fill.ts)
 
 # Related directories
 
@@ -192,7 +192,7 @@ may sacrifice a little bit of correctness in favor of simplicity.
       * Serves as bridge from platform aganostic `BrowserAutofillManager` to the
         OS specific logic.
     * Implements `AutofillClient` interface.
-    * Has siblings `AwAutofillClient`, `ChromeAutofillClientIOS` and
+    * Has siblings `AndroidAutofillClient`, `ChromeAutofillClientIOS` and
       `WebViewAutofillClientIOS`.
   * `PersonalDataManager`
     * One instance per `BrowserContext` (Chrome profile). In incognito mode, the
@@ -263,11 +263,10 @@ may sacrifice a little bit of correctness in favor of simplicity.
     exceptions for a few field types (email addresses, promo codes, IBANs, CVV
     fields).
   * We perform local heuristics even for smaller forms but only for promo codes
-    and IBANs (see `ParseSingleFieldForms`).
+    and IBANs (see `ParseSingleFields`).
   * Regular expressions for parsing are provided via
-    `components/autofill/core/common/autofill_regex_constants.h` or
-    `components/autofill/core/browser/form_parsing/regex_patterns.h` if
-    `features::kAutofillParsingPatternProvider` is enabled.
+    `components/autofill/core/browser/form_parsing/regex_patterns.h` and
+    `components/autofill/core/browser/form_parsing/*/*regex_patterns.json`.
 * Crowd sourcing
   * `AutofillCrowdsourcingManager` is responsible for downloading field
     classifications and uploading type votes.
@@ -376,28 +375,26 @@ that the website accepted the submitted values, not that the HTTP request
 succeeded):
 
 * A **regular HTTP form submission** (`FormTracker::WillSubmitForm()`).
-  * Triggers `SubmissionSource::FORM_SUBMISSION` with `known_success=false`.
+  * Triggers `SubmissionSource::FORM_SUBMISSION`.
 * A **main-frame navigation** was initiated in the content area but not triggered by
   a link click (`FormTracker::DidStartNavigation()`) - only if the frame has a
   `last_interacted_form_` or form-less element that the user interacted with.
-  * Triggers `SubmissionSource::PROBABLY_FORM_SUBMITTED` with
-    `known_success=false`.
+  * Triggers `SubmissionSource::PROBABLY_FORM_SUBMITTED`.
 * After a **same document navigation**
   (`FormTracker::DidFinishSameDocumentNavigation()`), the last interacted form
   is/becomes unfocusable or removed. The former condition is tested via
   `WebNode::IsFocusable()` and considers various styles (e.g. "display: none" on
   the node or a parent, "visibility: hidden") and attributes (e.g. "inert",
   tabindex="-1", "disabled") which prevent focusability.
-  * Triggers `SubmissionSource::SAME_DOCUMENT_NAVIGATION` with
-    `known_success=true`.
+  * Triggers `SubmissionSource::SAME_DOCUMENT_NAVIGATION`.
 * After a **successful AJAX/XMLHttpRequest request**
   (`AutofillAgent::AjaxSucceeded()`), the last interacted form is/becomes
   unfocusable or removed.
   * Triggers `SubmissionSource::XHR_SUCCEEDED` if the form is already
-    inaccessible or removed and the XHR succeeds (`known_success=true`).
+    inaccessible or removed and the XHR succeeds.
 * The **subframe** or non-primary main frame containing the form was
   **detached** (`FormTracker::WillDetach()`)
-  * Triggers `SubmissionSource::FRAME_DETACHED` with `known_success=true`.
+  * Triggers `SubmissionSource::FRAME_DETACHED`.
 
 ## When are votes uploaded?
 
@@ -410,7 +407,7 @@ Autofill votes are theoretically uploaded
 * when a the user **removes focus** from a form (this could happen because the
   user clicks on a custom autofill dropdown rendered by the website or if the
   user just clicks on the background).
-  (`BrowserAutofillManager::OnFocusNoLongerOnFormImpl()` ->
+  (`BrowserAutofillManager::OnFocusOnNonFormFieldImpl()` ->
   `BrowserAutofillManager::ProcessPendingFormForUpload()`).
 
   `observed_submission=false` is passed.
@@ -420,7 +417,7 @@ Autofill votes are theoretically uploaded
 
   `observed_submission=false` is passed.
 
-In practice we allow only one upload per (form x submission source) every
+In practice we allow only one vote upload per (form x submission source) every
 `kAutofillUploadThrottlingPeriodInDays` days.
 
 In case `observed_submission == true`, the votes are generated on a background

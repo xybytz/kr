@@ -14,6 +14,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "base/containers/unique_ptr_adapters.h"
 #include "base/feature_list.h"
 #include "base/functional/callback.h"
@@ -27,7 +28,6 @@
 #include "base/values.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/global_request_id.h"
-#include "extensions/browser/api/declarative/rules_registry.h"
 #include "extensions/browser/api/declarative_webrequest/request_stage.h"
 #include "extensions/browser/api/web_request/extension_web_request_event_router.h"
 #include "extensions/browser/api/web_request/web_request_permissions.h"
@@ -36,7 +36,7 @@
 #include "extensions/browser/extension_api_frame_id_map.h"
 #include "extensions/browser/extension_function.h"
 #include "extensions/browser/extension_registry_observer.h"
-#include "extensions/browser/guest_view/web_view/web_view_guest.h"
+#include "extensions/common/extension_id.h"
 #include "ipc/ipc_sender.h"
 #include "net/base/auth.h"
 #include "net/base/completion_once_callback.h"
@@ -58,7 +58,12 @@ class HttpResponseHeaders;
 class SiteForCookies;
 }  // namespace net
 
+namespace network {
+class URLLoaderFactoryBuilder;
+}  // namespace network
+
 namespace extensions {
+class WebViewGuest;
 
 // Support class for the WebRequest API. Lives on the UI thread. Most of the
 // work is done by ExtensionWebRequestEventRouter below. This class observes
@@ -89,6 +94,11 @@ class WebRequestAPI : public BrowserContextKeyedAPI,
         scoped_refptr<net::HttpResponseHeaders> response_headers,
         int32_t request_id,
         AuthRequestCallback callback);
+
+    // Called when an extension that can execute declarativeNetRequest actions
+    // is unloaded, so orphaned DNR actions on current requests can be cleaned
+    // up.
+    virtual void OnDNRExtensionUnloaded(const Extension* extension) = 0;
   };
 
   // A ProxySet is a set of proxies used by WebRequestAPI: It holds Proxy
@@ -128,6 +138,8 @@ class WebRequestAPI : public BrowserContextKeyedAPI,
         const content::GlobalRequestID& request_id,
         AuthRequestCallback callback);
 
+    void OnDNRExtensionUnloaded(const Extension* extension);
+
    private:
     // Although these members are initialized on the UI thread, we expect at
     // least one memory barrier before actually calling Generate in the IO
@@ -135,7 +147,8 @@ class WebRequestAPI : public BrowserContextKeyedAPI,
     std::set<std::unique_ptr<Proxy>, base::UniquePtrComparator> proxies_;
 
     // Bi-directional mapping between request ID and Proxy for faster lookup.
-    std::map<content::GlobalRequestID, Proxy*> request_id_to_proxy_map_;
+    std::map<content::GlobalRequestID, raw_ptr<Proxy, CtnExperimental>>
+        request_id_to_proxy_map_;
     std::map<Proxy*, std::set<content::GlobalRequestID>>
         proxy_to_request_id_map_;
   };
@@ -201,7 +214,7 @@ class WebRequestAPI : public BrowserContextKeyedAPI,
       content::ContentBrowserClient::URLLoaderFactoryType type,
       std::optional<int64_t> navigation_id,
       ukm::SourceIdObj ukm_source_id,
-      mojo::PendingReceiver<network::mojom::URLLoaderFactory>* factory_receiver,
+      network::URLLoaderFactoryBuilder& factory_builder,
       mojo::PendingRemote<network::mojom::TrustedURLLoaderHeaderClient>*
           header_client,
       scoped_refptr<base::SequencedTaskRunner> navigation_response_task_runner,
@@ -217,7 +230,7 @@ class WebRequestAPI : public BrowserContextKeyedAPI,
       const net::AuthChallengeInfo& auth_info,
       scoped_refptr<net::HttpResponseHeaders> response_headers,
       const content::GlobalRequestID& request_id,
-      bool is_main_frame,
+      bool is_request_for_navigation,
       AuthRequestCallback callback,
       WebViewGuest* web_view_guest);
 
@@ -287,7 +300,7 @@ class WebRequestAPI : public BrowserContextKeyedAPI,
   // in ExtensionWebRequestEventRouter, or not, if the owning BrowserContext
   // goes away or the WeakPtr instance bound in the callback is invalidated.
   void UpdateActiveListener(
-      content::BrowserContext* browser_context,
+      void* browser_context_id,
       WebRequestEventRouter::ListenerUpdateType update_type,
       const ExtensionId& extension_id,
       const std::string& sub_event_name,
@@ -325,7 +338,7 @@ class WebRequestInternalFunction : public ExtensionFunction {
  protected:
   ~WebRequestInternalFunction() override = default;
 
-  const std::string& extension_id_safe() const {
+  const ExtensionId& extension_id_safe() const {
     return extension() ? extension_id() : base::EmptyString();
   }
 };

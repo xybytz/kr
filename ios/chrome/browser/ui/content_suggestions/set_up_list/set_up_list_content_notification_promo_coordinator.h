@@ -9,7 +9,6 @@
 
 #import "ios/chrome/common/ui/promo_style/promo_style_view_controller_delegate.h"
 
-@protocol NotificationsConfirmationPresenter;
 @protocol SetUpListContentNotificationPromoCoordinatorDelegate;
 
 // Enum actions for content notification promo action UMA metrics. Entries
@@ -47,7 +46,8 @@ enum class ContentNotificationSetUpListPromoEvent {
 enum class ContentNotificationPromptAction {
   kGoToSettingsTapped = 0,
   kNoThanksTapped = 1,
-  kMaxValue = kNoThanksTapped,
+  kAccepted = 2,
+  kMaxValue = kAccepted,
 };
 // LINT.ThenChange(/tools/metrics/histograms/metadata/content/enums.xml)
 
@@ -71,10 +71,6 @@ enum class ContentNotificationPromptAction {
 @property(nonatomic, weak)
     id<SetUpListContentNotificationPromoCoordinatorDelegate>
         delegate;
-
-// The presenter displays the notification confirmation message.
-@property(nonatomic, weak) id<NotificationsConfirmationPresenter>
-    messagePresenter;
 
 @end
 

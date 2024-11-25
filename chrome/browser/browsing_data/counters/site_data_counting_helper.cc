@@ -19,6 +19,7 @@
 #include "content/public/browser/session_storage_usage_info.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/storage_usage_info.h"
+#include "content/public/common/content_features.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "net/cookies/cookie_util.h"
 #include "ppapi/buildflags/buildflags.h"
@@ -67,6 +68,9 @@ void SiteDataCountingHelper::CountAndDestroySelfWhenFinished() {
   if (quota_manager) {
     // Count storage keys with filesystem, websql, indexeddb, serviceworkers,
     // cachestorage, and medialicense using quota manager.
+    // TODO(crbug.com/40264778): For now, media licenses are part of the quota
+    // management system, but when dis-integrated, remove media license logic
+    // from quota logic.
     auto buckets_callback =
         base::BindRepeating(&SiteDataCountingHelper::GetQuotaBucketsCallback,
                             base::Unretained(this));
@@ -90,15 +94,26 @@ void SiteDataCountingHelper::CountAndDestroySelfWhenFinished() {
         &SiteDataCountingHelper::GetLocalStorageUsageInfoCallback,
         base::Unretained(this), special_storage_policy);
     dom_storage->GetLocalStorageUsage(std::move(local_callback));
-    // TODO(772337): Enable session storage counting when deletion is fixed.
+    // TODO(crbug.com/41348517): Enable session storage counting when deletion
+    // is fixed.
   }
 
+// TODO(crbug.com/40272342): Add CdmStorageManager logic to count origins, and
+// add test to browsing_data_remover_browsertest.cc to test counting logic.
 #if BUILDFLAG(IS_ANDROID)
   // Count origins with media licenses on Android.
   tasks_ += 1;
   Done(cdm::MediaDrmStorageImpl::GetOriginsModifiedBetween(profile_->GetPrefs(),
                                                            begin_, end_));
 #endif  // BUILDFLAG(IS_ANDROID)
+
+#if BUILDFLAG(ENABLE_LIBRARY_CDMS)
+  tasks_ += 1;
+  auto cdm_storage_callback = base::BindOnce(
+      &SiteDataCountingHelper::GetCdmStorageCallback, base::Unretained(this));
+  partition->GetCdmStorageDataModel()->GetUsagePerAllStorageKeys(
+      std::move(cdm_storage_callback), begin_, end_);
+#endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
 
   // Counting site usage data and durable permissions.
   auto* hcsm = HostContentSettingsMapFactory::GetForProfile(profile_);
@@ -144,13 +159,24 @@ void SiteDataCountingHelper::GetCookiesCallback(
   for (const net::CanonicalCookie& cookie : cookies) {
     if (cookie.CreationDate() >= begin_ && cookie.CreationDate() < end_) {
       GURL url = net::cookie_util::CookieOriginToURL(cookie.Domain(),
-                                                     cookie.IsSecure());
+                                                     cookie.SecureAttribute());
       origins.push_back(url);
     }
   }
   content::GetUIThreadTaskRunner({})->PostTask(
       FROM_HERE, base::BindOnce(&SiteDataCountingHelper::Done,
                                 base::Unretained(this), origins));
+}
+
+void SiteDataCountingHelper::GetCdmStorageCallback(
+    const CdmStorageKeyUsageSize& usage_per_storage_keys) {
+  std::vector<GURL> urls;
+
+  for (auto const& [key, _] : usage_per_storage_keys) {
+    urls.emplace_back(key.origin().GetURL());
+  }
+
+  Done(urls);
 }
 
 void SiteDataCountingHelper::GetQuotaBucketsCallback(

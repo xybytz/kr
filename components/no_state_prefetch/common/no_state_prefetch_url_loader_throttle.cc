@@ -24,16 +24,16 @@ namespace {
 const char kPurposeHeaderName[] = "Purpose";
 const char kPurposeHeaderValue[] = "prefetch";
 
-void CallCancelPrerenderForUnsupportedScheme(
-    mojo::PendingRemote<prerender::mojom::PrerenderCanceler> canceler) {
-  mojo::Remote<prerender::mojom::PrerenderCanceler>(std::move(canceler))
-      ->CancelPrerenderForUnsupportedScheme();
+void CallCancelNoStatePrefetchForUnsupportedScheme(
+    mojo::PendingRemote<prerender::mojom::NoStatePrefetchCanceler> canceler) {
+  mojo::Remote<prerender::mojom::NoStatePrefetchCanceler>(std::move(canceler))
+      ->CancelNoStatePrefetchForUnsupportedScheme();
 }
 
 }  // namespace
 
 NoStatePrefetchURLLoaderThrottle::NoStatePrefetchURLLoaderThrottle(
-    mojo::PendingRemote<prerender::mojom::PrerenderCanceler> canceler)
+    mojo::PendingRemote<prerender::mojom::NoStatePrefetchCanceler> canceler)
     : canceler_(std::move(canceler)) {
   DCHECK(canceler_);
 }
@@ -41,13 +41,6 @@ NoStatePrefetchURLLoaderThrottle::NoStatePrefetchURLLoaderThrottle(
 NoStatePrefetchURLLoaderThrottle::~NoStatePrefetchURLLoaderThrottle() {
   if (destruction_closure_)
     std::move(destruction_closure_).Run();
-}
-
-void NoStatePrefetchURLLoaderThrottle::PrerenderUsed() {
-  if (original_request_priority_)
-    delegate_->SetPriority(original_request_priority_.value());
-  if (deferred_)
-    delegate_->Resume();
 }
 
 void NoStatePrefetchURLLoaderThrottle::DetachFromCurrentSequence() {
@@ -88,7 +81,7 @@ void NoStatePrefetchURLLoaderThrottle::WillStartRequest(
     // WillRedirectRequest() and NoStatePrefetchContents::CheckURL(). See
     // http://crbug.com/673771.
     delegate_->CancelWithError(net::ERR_ABORTED);
-    CallCancelPrerenderForUnsupportedScheme(std::move(canceler_));
+    CallCancelNoStatePrefetchForUnsupportedScheme(std::move(canceler_));
     return;
   }
 
@@ -109,7 +102,6 @@ void NoStatePrefetchURLLoaderThrottle::WillStartRequest(
   if (request->load_flags & net::LOAD_IGNORE_LIMITS) {
     DCHECK_EQ(request->priority, net::MAXIMUM_PRIORITY);
   } else if (request->priority != net::IDLE) {
-    original_request_priority_ = request->priority;
     request->priority = net::IDLE;
   }
 #endif  // BUILDFLAG(IS_ANDROID)
@@ -133,14 +125,15 @@ void NoStatePrefetchURLLoaderThrottle::WillRedirectRequest(
 
   std::string follow_only_when_prerender_shown_header;
   if (response_head.headers) {
-    response_head.headers->GetNormalizedHeader(
-        kFollowOnlyWhenPrerenderShown,
-        &follow_only_when_prerender_shown_header);
+    follow_only_when_prerender_shown_header =
+        response_head.headers
+            ->GetNormalizedHeader(kFollowOnlyWhenPrerenderShown)
+            .value_or(std::string());
   }
   // Abort any prerenders with requests which redirect to invalid schemes.
   if (!DoesURLHaveValidScheme(redirect_info->new_url)) {
     delegate_->CancelWithError(net::ERR_ABORTED);
-    CallCancelPrerenderForUnsupportedScheme(std::move(canceler_));
+    CallCancelNoStatePrefetchForUnsupportedScheme(std::move(canceler_));
   } else if (follow_only_when_prerender_shown_header == "1" &&
              request_destination_ !=
                  network::mojom::RequestDestination::kDocument) {

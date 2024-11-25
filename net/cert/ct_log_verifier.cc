@@ -49,7 +49,6 @@ const EVP_MD* GetEvpAlg(ct::DigitallySigned::HashAlgorithm alg) {
     case ct::DigitallySigned::HASH_ALGO_NONE:
     default:
       NOTREACHED();
-      return nullptr;
   }
 }
 

@@ -260,7 +260,6 @@ PotentialPasswordTheftSignalProcessor::
     }
   }
   NOTREACHED();
-  return extension_telemetry_pw_account_type;
 }
 
 bool PotentialPasswordTheftSignalProcessor::IsPasswordQueueEmptyForTest() {

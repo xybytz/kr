@@ -9,6 +9,8 @@ import androidx.annotation.Nullable;
 
 import org.chromium.chrome.browser.browsing_data.TimePeriod;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tabmodel.TabClosureParams;
+import org.chromium.chrome.browser.tabmodel.TabGroupModelFilter;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 
 import java.util.ArrayList;
@@ -22,7 +24,13 @@ class QuickDeleteTabsFilter {
     static final long ONE_WEEK_IN_MS = ONE_DAY_IN_MS * 7;
     static final long FOUR_WEEKS_IN_MS = ONE_WEEK_IN_MS * 4;
 
-    private final TabModel mTabModel;
+    private final TabGroupModelFilter mTabGroupModelFilter;
+
+    /**
+     * List of tabs that are filtered for deletion. This should get updated every time the time
+     * period changes and again when the deletion is confirmed.
+     */
+    private @Nullable List<Tab> mTabs;
 
     /**
      * This is needed because the code relies on {@link System#currentTimeMillis()} which is not
@@ -31,17 +39,19 @@ class QuickDeleteTabsFilter {
     private @Nullable Long mCurrentTimeForTesting;
 
     /**
-     * @param tabModel A regular {@link TabModel} which is used to observe the tab related changes.
+     * @param tabModel A regular {@link TabGroupModelFilter} which is used to observe the tab
+     *     related changes.
      */
-    QuickDeleteTabsFilter(@NonNull TabModel tabModel) {
-        assert !tabModel.isIncognito() : "Incognito tab model is not supported.";
-        mTabModel = tabModel;
+    QuickDeleteTabsFilter(@NonNull TabGroupModelFilter tabGroupModelFilter) {
+        assert !tabGroupModelFilter.isIncognito() : "Incognito tab model is not supported.";
+        mTabGroupModelFilter = tabGroupModelFilter;
     }
 
     private List<Tab> getListOfAllTabsToBeClosed() {
         List<Tab> mTabList = new ArrayList<>();
-        for (int i = 0; i < mTabModel.getCount(); ++i) {
-            Tab tab = mTabModel.getTabAt(i);
+        TabModel tabModel = mTabGroupModelFilter.getTabModel();
+        for (int i = 0; i < tabModel.getCount(); ++i) {
+            Tab tab = tabModel.getTabAt(i);
             if (tab == null || tab.isCustomTab()) continue;
             mTabList.add(tab);
         }
@@ -77,23 +87,38 @@ class QuickDeleteTabsFilter {
         }
     }
 
-    /**
-     * A method to close tabs which were either created or had a navigation committed, in the
-     * last 15 minutes.
-     */
-    void closeTabsFilteredForQuickDelete(@TimePeriod int timePeriod) {
-        List<Tab> mTabs = getListOfTabsToBeClosed(timePeriod);
-        mTabModel.closeMultipleTabs(mTabs, /* canUndo= */ false);
+    /** Closes list of tabs currently filtered for deletion. */
+    void closeTabsFilteredForQuickDelete() {
+        assert mTabs != null;
+        mTabGroupModelFilter.closeTabs(
+                TabClosureParams.closeTabs(mTabs)
+                        .allowUndo(false)
+                        .saveToTabRestoreService(false)
+                        .build());
     }
 
-    List<Tab> getListOfTabsToBeClosed(@TimePeriod int timePeriod) {
+    /** Return list of tabs currently filtered for deletion. */
+    List<Tab> getListOfTabsFilteredToBeClosed() {
+        assert mTabs != null;
+        return mTabs;
+    }
+
+    /**
+     * Prepares a list of tabs which were either created or had a navigation committed within the
+     * time period.
+     */
+    // TODO(crbug.com/40255099): Re-use CBD implementation of tab filtering & closure instead of
+    // doing it here.
+    void prepareListOfTabsToBeClosed(@TimePeriod int timePeriod) {
         if (TimePeriod.ALL_TIME == timePeriod) {
-            return getListOfAllTabsToBeClosed();
+            mTabs = getListOfAllTabsToBeClosed();
+            return;
         }
 
         List<Tab> mTabList = new ArrayList<>();
-        for (int i = 0; i < mTabModel.getCount(); ++i) {
-            Tab tab = mTabModel.getTabAt(i);
+        TabModel tabModel = mTabGroupModelFilter.getTabModel();
+        for (int i = 0; i < tabModel.getCount(); ++i) {
+            Tab tab = tabModel.getTabAt(i);
             if (tab == null || tab.isCustomTab()) continue;
 
             final long recentNavigationTime = tab.getLastNavigationCommittedTimestampMillis();
@@ -103,6 +128,7 @@ class QuickDeleteTabsFilter {
                 mTabList.add(tab);
             }
         }
-        return mTabList;
+
+        mTabs = mTabList;
     }
 }

@@ -7,6 +7,7 @@
 #include "ash/accessibility/accessibility_controller.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/constants/tray_background_view_catalog.h"
+#include "ash/display/window_tree_host_manager.h"
 #include "ash/metrics/user_metrics_recorder.h"
 #include "ash/public/cpp/accessibility_controller_enums.h"
 #include "ash/public/cpp/shelf_config.h"
@@ -29,6 +30,7 @@
 #include "ui/color/color_id.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/image_view.h"
 
@@ -88,6 +90,9 @@ DictationButtonTray::DictationButtonTray(
   shell->accessibility_controller()->AddObserver(this);
   shell->session_controller()->AddObserver(this);
   shell->window_tree_host_manager()->input_method()->AddObserver(this);
+
+  GetViewAccessibility().SetName(
+      l10n_util::GetStringUTF16(IDS_ASH_DICTATION_BUTTON_ACCESSIBLE_NAME));
 }
 
 DictationButtonTray::~DictationButtonTray() {
@@ -138,7 +143,7 @@ void DictationButtonTray::Initialize() {
   UpdateVisibility();
 }
 
-void DictationButtonTray::ClickedOutsideBubble() {}
+void DictationButtonTray::ClickedOutsideBubble(const ui::LocatedEvent& event) {}
 
 void DictationButtonTray::UpdateTrayItemColor(bool is_active) {
   if (progress_indicator_) {
@@ -146,10 +151,6 @@ void DictationButtonTray::UpdateTrayItemColor(bool is_active) {
         is_active ? cros_tokens::kCrosSysSystemOnPrimaryContainer
                   : cros_tokens::kCrosSysPrimary);
   }
-}
-
-std::u16string DictationButtonTray::GetAccessibleNameForTray() {
-  return l10n_util::GetStringUTF16(IDS_ASH_DICTATION_BUTTON_ACCESSIBLE_NAME);
 }
 
 void DictationButtonTray::HandleLocaleChange() {
@@ -168,8 +169,8 @@ void DictationButtonTray::OnThemeChanged() {
     progress_indicator_->InvalidateLayer();
 }
 
-void DictationButtonTray::Layout() {
-  TrayBackgroundView::Layout();
+void DictationButtonTray::Layout(PassKey) {
+  LayoutSuperclass<TrayBackgroundView>(this);
   UpdateProgressIndicatorBounds();
 }
 
@@ -262,7 +263,7 @@ void DictationButtonTray::TextInputChanged(const ui::TextInputClient* client) {
   CheckDictationStatusAndUpdateIcon();
 }
 
-BEGIN_METADATA(DictationButtonTray, TrayBackgroundView)
+BEGIN_METADATA(DictationButtonTray)
 END_METADATA
 
 }  // namespace ash

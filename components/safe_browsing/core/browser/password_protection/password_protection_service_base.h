@@ -119,12 +119,11 @@ class PasswordProtectionServiceBase : public history::HistoryServiceObserver {
 // extension is not supported.
 #if !BUILDFLAG(IS_ANDROID)
   // Triggers the safeBrowsingPrivate.OnPolicySpecifiedPasswordReuseDetected.
-  virtual void MaybeReportPasswordReuseDetected(
-      PasswordProtectionRequest* request,
-      const std::string& username,
-      PasswordType password_type,
-      bool is_phishing_url,
-      bool warning_shown) = 0;
+  virtual void MaybeReportPasswordReuseDetected(const GURL& main_frame_url,
+                                                const std::string& username,
+                                                PasswordType password_type,
+                                                bool is_phishing_url,
+                                                bool warning_shown) = 0;
 
   // Called when a protected password change is detected. Must be called on
   // UI thread.
@@ -326,9 +325,8 @@ class PasswordProtectionServiceBase : public history::HistoryServiceObserver {
   // If primary account is signed in.
   virtual bool IsPrimaryAccountSignedIn() const = 0;
 
-  // If the domain for the account is equal to |kNoHostedDomainFound|,
-  // this means that the account is a Gmail account.
-  virtual bool IsAccountGmail(const std::string& username) const = 0;
+  // If |username| maps to a consumer account (vs. an enterprise account).
+  virtual bool IsAccountConsumer(const std::string& username) const = 0;
 
   // Gets the account based off of the username from a list of signed in
   // accounts.
@@ -408,8 +406,8 @@ class PasswordProtectionServiceBase : public history::HistoryServiceObserver {
                            NoSendPingPrivateIpHostname);
 
   // Overridden from history::HistoryServiceObserver.
-  void OnURLsDeleted(history::HistoryService* history_service,
-                     const history::DeletionInfo& deletion_info) override;
+  void OnHistoryDeletions(history::HistoryService* history_service,
+                          const history::DeletionInfo& deletion_info) override;
 
   void HistoryServiceBeingDeleted(
       history::HistoryService* history_service) override;

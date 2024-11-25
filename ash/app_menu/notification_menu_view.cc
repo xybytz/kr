@@ -41,16 +41,17 @@ NotificationMenuView::NotificationMenuView(
 
 NotificationMenuView::~NotificationMenuView() = default;
 
-gfx::Size NotificationMenuView::CalculatePreferredSize() const {
+gfx::Size NotificationMenuView::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
   return gfx::Size(
       views::MenuConfig::instance().touchable_menu_min_width,
       double_separator_->GetPreferredSize().height() +
-          header_view_->GetPreferredSize().height() +
+          header_view_->GetPreferredSize({}).height() +
           kNotificationItemViewHeight +
           (overflow_view_ ? overflow_view_->GetPreferredSize().height() : 0));
 }
 
-void NotificationMenuView::Layout() {
+void NotificationMenuView::Layout(PassKey) {
   int y = 0;
   double_separator_->SetBoundsRect(gfx::Rect(
       gfx::Point(0, y),
@@ -59,8 +60,8 @@ void NotificationMenuView::Layout() {
   y += double_separator_->GetPreferredSize().height();
 
   header_view_->SetBoundsRect(
-      gfx::Rect(gfx::Point(0, y), header_view_->GetPreferredSize()));
-  y += header_view_->GetPreferredSize().height();
+      gfx::Rect(gfx::Point(0, y), header_view_->GetPreferredSize({})));
+  y += header_view_->height();
 
   auto* item = GetDisplayedNotificationItemView();
   if (item) {
@@ -110,7 +111,7 @@ void NotificationMenuView::AddNotificationItemView(
     // ensure that enough room is allocated for the overflow view.
     notification_item_view_delegate_->OnOverflowAddedOrRemoved();
   }
-  Layout();
+  DeprecatedLayoutImmediately();
 }
 
 void NotificationMenuView::UpdateNotificationItemView(

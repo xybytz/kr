@@ -8,6 +8,7 @@
 
 import {AutomationPredicate} from './automation_predicate.js';
 import {constants} from './constants.js';
+import {TestImportManager} from './testing/test_import_manager.js';
 import {AutomationTreeWalker, AutomationTreeWalkerRestriction} from './tree_walker.js';
 
 type AutomationNode = chrome.automation.AutomationNode;
@@ -64,14 +65,10 @@ export class AutomationUtil {
 
       // Chrome automatically calculates these attributes.
       case 'posInSet':
-        // TODO(b/314203187): node.htmlAttributes may be undefined.
-        return Boolean(node.htmlAttributes!['aria-posinset']) ||
-            (node.root!.role !== RoleType.ROOT_WEB_AREA &&
-             Boolean(node.posInSet));
+        return node.root!.role !== RoleType.ROOT_WEB_AREA &&
+            Boolean(node.posInSet);
       case 'setSize':
-        // TODO(b/314203187): node.htmlAttributes may be undefined.
-        return Boolean(node.htmlAttributes!['aria-setsize']) ||
-            Boolean(node.setSize);
+        return Boolean(node.setSize);
 
       // These attributes default to false for empty strings.
       case 'roleDescription':
@@ -417,7 +414,7 @@ export class AutomationUtil {
     const prevAncestors = AutomationUtil.getAncestors(prevNode);
     const ancestors = AutomationUtil.getAncestors(node);
     const divergence = AutomationUtil.getDivergence(prevAncestors, ancestors);
-    return ancestors[divergence - 1];
+    return ancestors[divergence - 1]!;
   }
 
   /**
@@ -540,3 +537,5 @@ function createWalker(
 
   return new AutomationTreeWalker(cur, dir, restrictions);
 }
+
+TestImportManager.exportForTesting(AutomationUtil);

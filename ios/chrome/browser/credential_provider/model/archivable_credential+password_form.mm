@@ -6,7 +6,7 @@
 
 #import "base/strings/sys_string_conversions.h"
 #import "base/strings/utf_string_conversions.h"
-#import "components/password_manager/core/browser/affiliation/affiliation_utils.h"
+#import "components/affiliations/core/browser/affiliation_utils.h"
 #import "components/password_manager/core/browser/password_form.h"
 #import "components/password_manager/core/browser/password_manager_util.h"
 #import "components/password_manager/core/browser/password_ui_utils.h"
@@ -31,7 +31,7 @@ password_manager::PasswordForm PasswordFormFromCredential(
 
   form.url = password_manager_util::StripAuthAndParams(url);
   form.signon_realm = form.url.DeprecatedGetOriginAsURL().spec();
-  form.username_value = SysNSStringToUTF16(credential.user);
+  form.username_value = SysNSStringToUTF16(credential.username);
   form.password_value = SysNSStringToUTF16(credential.password);
   form.times_used_in_html_form = credential.rank;
   form.SetNoteWithEmptyUniqueDisplayName(SysNSStringToUTF16(credential.note));
@@ -43,19 +43,20 @@ password_manager::PasswordForm PasswordFormFromCredential(
 
 - (instancetype)initWithPasswordForm:
                     (const password_manager::PasswordForm&)passwordForm
-                             favicon:(NSString*)favicon {
+                             favicon:(NSString*)favicon
+                                gaia:(NSString*)gaia {
   if (passwordForm.blocked_by_user) {
     return nil;
   }
-  std::string site_name =
+  std::string siteName =
       password_manager::GetShownOrigin(url::Origin::Create(passwordForm.url));
 
-  NSString* serviceName = SysUTF8ToNSString(site_name);
+  NSString* serviceName = SysUTF8ToNSString(siteName);
   NSString* note =
       SysUTF16ToNSString(passwordForm.GetNoteWithEmptyUniqueDisplayName());
 
   NSString* serviceIdentifier = @"";
-  if (password_manager::IsValidAndroidFacetURI(passwordForm.signon_realm)) {
+  if (affiliations::IsValidAndroidFacetURI(passwordForm.signon_realm)) {
     NSString* webRealm = SysUTF8ToNSString(passwordForm.affiliated_web_realm);
     url::Origin origin =
         url::Origin::Create(GURL(passwordForm.affiliated_web_realm));
@@ -86,13 +87,16 @@ password_manager::PasswordForm PasswordFormFromCredential(
 
   DCHECK(serviceIdentifier.length);
 
+  BOOL inAccountStore = (passwordForm.in_store ==
+                         password_manager::PasswordForm::Store::kAccountStore);
   return [self initWithFavicon:favicon
+                          gaia:inAccountStore ? gaia : nil
                       password:SysUTF16ToNSString(passwordForm.password_value)
                           rank:passwordForm.times_used_in_html_form
               recordIdentifier:RecordIdentifierForPasswordForm(passwordForm)
              serviceIdentifier:serviceIdentifier
                    serviceName:serviceName
-                          user:SysUTF16ToNSString(passwordForm.username_value)
+                      username:SysUTF16ToNSString(passwordForm.username_value)
                           note:note];
 }
 

@@ -5,8 +5,8 @@
 #include "remoting/host/file_transfer/local_file_operations.h"
 
 #include <cstdint>
-
 #include <optional>
+
 #include "base/files/file_path.h"
 #include "base/files/file_proxy.h"
 #include "base/files/file_util.h"
@@ -84,8 +84,7 @@ class LocalFileReader : public FileOperations::Reader {
                        const base::File::Info& info);
   void OnReadResult(ReadCallback callback,
                     base::File::Error error,
-                    const char* data,
-                    int bytes_read);
+                    base::span<const char> data);
 
   void SetState(FileOperations::State state);
 
@@ -257,8 +256,7 @@ void LocalFileReader::OnGetInfoResult(OpenCallback callback,
 
 void LocalFileReader::OnReadResult(ReadCallback callback,
                                    base::File::Error error,
-                                   const char* data,
-                                   int bytes_read) {
+                                   base::span<const char> data) {
   if (error != base::File::FILE_OK) {
     SetState(FileOperations::kFailed);
     std::move(callback).Run(protocol::MakeFileTransferError(
@@ -266,19 +264,19 @@ void LocalFileReader::OnReadResult(ReadCallback callback,
     return;
   }
 
-  offset_ += bytes_read;
-  SetState(bytes_read > 0 ? FileOperations::kReady : FileOperations::kComplete);
+  offset_ += data.size();
+  SetState(data.size() > 0 ? FileOperations::kReady
+                           : FileOperations::kComplete);
 
   // The read buffer is provided and owned by FileProxy, so there's no way to
   // avoid a copy, here.
-  std::move(callback).Run(std::vector<std::uint8_t>(data, data + bytes_read));
+  std::move(callback).Run(std::vector<std::uint8_t>(data.begin(), data.end()));
 }
 
 void LocalFileReader::SetState(FileOperations::State state) {
   switch (state) {
     case FileOperations::kCreated:
       NOTREACHED();  // Can never return to initial state.
-      break;
     case FileOperations::kReady:
       DCHECK_EQ(FileOperations::kBusy, state_);
       break;
@@ -328,12 +326,9 @@ void LocalFileWriter::WriteChunk(std::vector<std::uint8_t> data,
   //               worth checking for? If so, what should we do in that case,
   //               given that callback is moved into the task and not returned
   //               on error?
-
-  // Ensure buffer pointer is obtained before data is moved.
-  const std::uint8_t* buffer = data.data();
-  const std::size_t size = data.size();
-  file_proxy_->Write(bytes_written_, reinterpret_cast<const char*>(buffer),
-                     size,
+  // Ensure span is obtained before data is moved.
+  auto data_span = base::make_span(data);
+  file_proxy_->Write(bytes_written_, data_span,
                      base::BindOnce(&LocalFileWriter::OnWriteResult,
                                     weak_ptr_factory_.GetWeakPtr(),
                                     std::move(data), std::move(callback)));
@@ -529,7 +524,6 @@ void LocalFileWriter::SetState(FileOperations::State state) {
   switch (state) {
     case FileOperations::kCreated:
       NOTREACHED();  // Can never return to initial state.
-      break;
     case FileOperations::kReady:
       DCHECK(state_ == FileOperations::kBusy);
       break;

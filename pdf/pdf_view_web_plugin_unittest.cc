@@ -9,6 +9,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -17,9 +18,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
-#include "base/strings/string_piece.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/values_test_util.h"
 #include "base/time/time.h"
@@ -40,10 +39,12 @@
 #include "pdf/pdf_accessibility_image_fetcher.h"
 #include "pdf/pdf_features.h"
 #include "pdf/test/mock_web_associated_url_loader.h"
+#include "pdf/test/mouse_event_builder.h"
 #include "pdf/test/test_helpers.h"
 #include "pdf/test/test_pdfium_engine.h"
 #include "printing/metafile_skia.h"
 #include "services/network/public/mojom/referrer_policy.mojom-shared.h"
+#include "services/screen_ai/buildflags/buildflags.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/input/web_coalesced_input_event.h"
@@ -60,7 +61,6 @@
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/public/platform/web_url_response.h"
-#include "third_party/blink/public/web/blink.h"
 #include "third_party/blink/public/web/web_associated_url_loader.h"
 #include "third_party/blink/public/web/web_associated_url_loader_client.h"
 #include "third_party/blink/public/web/web_plugin_container.h"
@@ -86,21 +86,29 @@
 #include "ui/latency/latency_info.h"
 #include "url/gurl.h"
 
+#if BUILDFLAG(ENABLE_PDF_INK2)
+#include "pdf/pdf_ink_brush.h"
+#include "pdf/pdf_ink_module_client.h"
+#include "pdf/test/pdf_ink_test_helpers.h"
+#include "third_party/ink/src/ink/strokes/stroke.h"
+#endif
+
 namespace chrome_pdf {
 
 namespace {
 
+using ::testing::_;
 using ::testing::AnyNumber;
 using ::testing::ElementsAre;
 using ::testing::ElementsAreArray;
 using ::testing::Eq;
 using ::testing::InSequence;
-using ::testing::Invoke;
 using ::testing::IsEmpty;
 using ::testing::IsFalse;
 using ::testing::IsTrue;
 using ::testing::MockFunction;
 using ::testing::NiceMock;
+using ::testing::Pair;
 using ::testing::Pointwise;
 using ::testing::Return;
 using ::testing::SaveArg;
@@ -116,6 +124,12 @@ constexpr gfx::Size kCanvasSize(100, 100);
 constexpr SkColor kDefaultColor = SK_ColorGREEN;
 
 constexpr SkColor kPaintColor = SK_ColorRED;
+
+// This constant should have the same value as the one in
+// `pdf_view_web_plugin.cc`.
+// LINT.IfChange(searchify_state_propagation_delay)
+constexpr base::TimeDelta kSearchifyStatePropagationDelay = base::Seconds(1);
+// LINT.ThenChange(//pdf/pdf_view_web_plugin.cc:searchify_state_propagation_delay)
 
 struct PaintParams {
   // The plugin container's device scale.
@@ -133,8 +147,8 @@ struct PaintParams {
 };
 
 MATCHER(SearchStringResultEq, "") {
-  PDFEngine::Client::SearchStringResult l = std::get<0>(arg);
-  PDFEngine::Client::SearchStringResult r = std::get<1>(arg);
+  PDFiumEngineClient::SearchStringResult l = std::get<0>(arg);
+  PDFiumEngineClient::SearchStringResult r = std::get<1>(arg);
   return l.start_index == r.start_index && l.length == r.length;
 }
 
@@ -148,11 +162,11 @@ MATCHER_P(IsExpectedImeKeyEvent, expected_text, "") {
          event.native_key_code == expected_text[0] &&
          event.dom_code == static_cast<int>(ui::DomCode::NONE) &&
          event.dom_key == ui::DomKey::NONE && !event.is_system_key &&
-         !event.is_browser_shortcut && event.text == expected_text &&
-         event.unmodified_text == expected_text;
+         !event.is_browser_shortcut && event.text.data() == expected_text &&
+         event.unmodified_text.data() == expected_text;
 }
 
-base::Value::Dict ParseMessage(base::StringPiece json) {
+base::Value::Dict ParseMessage(std::string_view json) {
   return std::move(base::test::ParseJson(json).GetDict());
 }
 
@@ -208,15 +222,15 @@ class FakePdfViewWebPluginClient : public PdfViewWebPlugin::Client {
       ON_CALL(*associated_loader, LoadAsynchronously)
           .WillByDefault([](const blink::WebURLRequest& /*request*/,
                             blink::WebAssociatedURLLoaderClient* client) {
-            // TODO(crbug.com/1322928): Must trigger callback to free
+            // TODO(crbug.com/40224475): Must trigger callback to free
             // `UrlLoader`.
             client->DidReceiveResponse(blink::WebURLResponse());
             client->DidFinishLoading();
           });
       return associated_loader;
     });
-    ON_CALL(*this, GetIsolate)
-        .WillByDefault(Return(blink::MainThreadIsolate()));
+    ON_CALL(*this, GetIsolate).WillByDefault(Return(GetBlinkIsolate()));
+    ON_CALL(*this, DeviceScaleFactor).WillByDefault(Return(1.0f));
     ON_CALL(*this, GetEmbedderOriginString)
         .WillByDefault(
             Return("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/"));
@@ -233,7 +247,7 @@ class FakePdfViewWebPluginClient : public PdfViewWebPlugin::Client {
 
   MOCK_METHOD(std::unique_ptr<PDFiumEngine>,
               CreateEngine,
-              (PDFEngine::Client*, PDFiumFormFiller::ScriptOption),
+              (PDFiumEngineClient*, PDFiumFormFiller::ScriptOption),
               (override));
 
   MOCK_METHOD(void,
@@ -314,11 +328,27 @@ class FakePdfViewWebPluginClient : public PdfViewWebPlugin::Client {
 
   MOCK_METHOD(std::unique_ptr<PdfAccessibilityDataHandler>,
               CreateAccessibilityDataHandler,
-              (PdfAccessibilityActionHandler*, PdfAccessibilityImageFetcher*),
+              (PdfAccessibilityActionHandler*,
+               PdfAccessibilityImageFetcher*,
+               blink::WebPluginContainer*,
+               bool),
               (override));
+#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
+  MOCK_METHOD(void,
+              PerformOcr,
+              (const SkBitmap& image,
+               base::OnceCallback<void(screen_ai::mojom::VisualAnnotationPtr)>
+                   callback),
+              (override));
+
+  MOCK_METHOD(void,
+              SetOcrDisconnectedCallback,
+              (base::RepeatingClosure callback),
+              (override));
+#endif  // BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
 };
 
-class FakePdfService : public pdf::mojom::PdfService {
+class FakePdfHost : public pdf::mojom::PdfHost {
  public:
   MOCK_METHOD(void,
               SetListener,
@@ -335,6 +365,9 @@ class FakePdfService : public pdf::mojom::PdfService {
               (const gfx::PointF&, int32_t, const gfx::PointF&, int32_t),
               (override));
   MOCK_METHOD(void, SetPluginCanSave, (bool), (override));
+#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
+  MOCK_METHOD(void, OnSearchifyStarted, (), (override));
+#endif
 };
 
 }  // namespace
@@ -348,15 +381,15 @@ class PdfViewWebPluginWithoutInitializeTest
     void operator()(PdfViewWebPlugin* ptr) { ptr->Destroy(); }
   };
 
-  static void AddToPluginParams(base::StringPiece name,
-                                base::StringPiece value,
+  static void AddToPluginParams(std::string_view name,
+                                std::string_view value,
                                 blink::WebPluginParams& params) {
     params.attribute_names.push_back(blink::WebString::FromUTF8(name));
     params.attribute_values.push_back(blink::WebString::FromUTF8(value));
   }
 
-  void SetUpPlugin(base::StringPiece document_url,
-                   const blink::WebPluginParams& params) {
+  void SetUpPlugin(std::string_view document_url,
+                   blink::WebPluginParams params) {
     auto client = std::make_unique<NiceMock<FakePdfViewWebPluginClient>>();
     client_ptr_ = client.get();
 
@@ -367,7 +400,7 @@ class PdfViewWebPluginWithoutInitializeTest
         });
     ON_CALL(*client_ptr_, CreateEngine)
         .WillByDefault([this](
-                           PDFEngine::Client* client,
+                           PDFiumEngineClient* client,
                            PDFiumFormFiller::ScriptOption /*script_option*/) {
           auto engine = std::make_unique<NiceMock<TestPDFiumEngine>>(client);
           engine_ptr_ = engine.get();
@@ -385,9 +418,9 @@ class PdfViewWebPluginWithoutInitializeTest
     plugin_ =
         std::unique_ptr<PdfViewWebPlugin, PluginDeleter>(new PdfViewWebPlugin(
             std::move(client),
-            mojo::AssociatedRemote<pdf::mojom::PdfService>(
+            mojo::AssociatedRemote<pdf::mojom::PdfHost>(
                 pdf_receiver_.BindNewEndpointAndPassDedicatedRemote()),
-            params));
+            std::move(params)));
   }
 
   void SetUpPluginWithUrl(const std::string& url) {
@@ -395,7 +428,7 @@ class PdfViewWebPluginWithoutInitializeTest
     AddToPluginParams("src", url, params);
     SetUpPluginParams(params);
 
-    SetUpPlugin(url, params);
+    SetUpPlugin(url, std::move(params));
   }
 
   // Allows derived classes to customize plugin parameters within
@@ -420,8 +453,8 @@ class PdfViewWebPluginWithoutInitializeTest
     plugin_->OnMessage(message);
   }
 
-  NiceMock<FakePdfService> pdf_service_;
-  mojo::AssociatedReceiver<pdf::mojom::PdfService> pdf_receiver_{&pdf_service_};
+  NiceMock<FakePdfHost> pdf_host_;
+  mojo::AssociatedReceiver<pdf::mojom::PdfHost> pdf_receiver_{&pdf_host_};
 
   // Must outlive raw_ptrs below.
   std::unique_ptr<PdfViewWebPlugin, PluginDeleter> plugin_;
@@ -538,6 +571,16 @@ class PdfViewWebPluginTest : public PdfViewWebPluginWithoutInitializeTest {
         << window_rect.ToString();
   }
 
+  ui::Cursor TestSendInputEvent(const blink::WebInputEvent& event,
+                                blink::WebInputEventResult expected_result) {
+    ui::Cursor cursor;
+    EXPECT_EQ(
+        expected_result,
+        plugin_->HandleInputEvent(
+            blink::WebCoalescedInputEvent(event, ui::LatencyInfo()), &cursor));
+    return cursor;
+  }
+
   // Provides the cc::PaintCanvas for painting.
   gfx::Canvas canvas_{kCanvasSize, /*image_scale=*/1.0f, /*is_opaque=*/true};
 };
@@ -602,7 +645,7 @@ TEST_F(PdfViewWebPluginWithoutInitializeTest, InitializeForPrintPreview) {
 
 TEST_F(PdfViewWebPluginTest, CreateUrlLoader) {
   EXPECT_CALL(*client_ptr_, DidStartLoading).Times(0);
-  EXPECT_CALL(pdf_service_, UpdateContentRestrictions).Times(0);
+  EXPECT_CALL(pdf_host_, UpdateContentRestrictions).Times(0);
   plugin_->CreateUrlLoader();
 
   EXPECT_EQ(PdfViewWebPlugin::DocumentLoadState::kLoading,
@@ -612,9 +655,8 @@ TEST_F(PdfViewWebPluginTest, CreateUrlLoader) {
 
 TEST_F(PdfViewWebPluginFullFrameTest, CreateUrlLoader) {
   EXPECT_CALL(*client_ptr_, DidStartLoading);
-  EXPECT_CALL(pdf_service_,
-              UpdateContentRestrictions(kContentRestrictionSave |
-                                        kContentRestrictionPrint));
+  EXPECT_CALL(pdf_host_, UpdateContentRestrictions(kContentRestrictionSave |
+                                                   kContentRestrictionPrint));
   plugin_->CreateUrlLoader();
 
   EXPECT_EQ(PdfViewWebPlugin::DocumentLoadState::kLoading,
@@ -644,7 +686,7 @@ TEST_F(PdfViewWebPluginTest, DocumentLoadComplete) {
   EXPECT_CALL(*client_ptr_, PostMessage);
   EXPECT_CALL(*client_ptr_, PostMessage(base::test::IsJson(R"({
     "type": "formFocusChange",
-    "focused": false,
+    "focused": "none",
   })")));
   ExpectUpdateTextInputState(blink::WebTextInputType::kWebTextInputTypeNone);
   EXPECT_CALL(*client_ptr_, PostMessage(base::test::IsJson(R"({
@@ -654,7 +696,7 @@ TEST_F(PdfViewWebPluginTest, DocumentLoadComplete) {
   EXPECT_CALL(*accessibility_data_handler_ptr_, SetAccessibilityDocInfo)
       .Times(0);
   EXPECT_CALL(*client_ptr_, DidStopLoading).Times(0);
-  EXPECT_CALL(pdf_service_, UpdateContentRestrictions).Times(0);
+  EXPECT_CALL(pdf_host_, UpdateContentRestrictions).Times(0);
   plugin_->DocumentLoadComplete();
 
   EXPECT_EQ(PdfViewWebPlugin::DocumentLoadState::kComplete,
@@ -673,7 +715,7 @@ TEST_F(PdfViewWebPluginFullFrameTest, DocumentLoadComplete) {
   EXPECT_CALL(*client_ptr_, PostMessage);
   EXPECT_CALL(*client_ptr_, PostMessage(base::test::IsJson(R"({
     "type": "formFocusChange",
-    "focused": false,
+    "focused": "none",
   })")));
   ExpectUpdateTextInputState(blink::WebTextInputType::kWebTextInputTypeNone);
   EXPECT_CALL(*client_ptr_, PostMessage(base::test::IsJson(R"({
@@ -683,10 +725,10 @@ TEST_F(PdfViewWebPluginFullFrameTest, DocumentLoadComplete) {
   EXPECT_CALL(*accessibility_data_handler_ptr_, SetAccessibilityDocInfo)
       .Times(0);
   EXPECT_CALL(*client_ptr_, DidStopLoading);
-  EXPECT_CALL(pdf_service_, UpdateContentRestrictions(kContentRestrictionPrint |
-                                                      kContentRestrictionPaste |
-                                                      kContentRestrictionCut |
-                                                      kContentRestrictionCopy));
+  EXPECT_CALL(pdf_host_, UpdateContentRestrictions(kContentRestrictionPrint |
+                                                   kContentRestrictionPaste |
+                                                   kContentRestrictionCut |
+                                                   kContentRestrictionCopy));
   plugin_->DocumentLoadComplete();
 
   EXPECT_EQ(PdfViewWebPlugin::DocumentLoadState::kComplete,
@@ -722,7 +764,7 @@ TEST_F(PdfViewWebPluginTest, DocumentHasUnsupportedFeature) {
   EXPECT_CALL(*client_ptr_, RecordComputedAction("PDF_Unsupported_feature2"));
 
   // `HasUnsupportedFeature()` is not called if the viewer is not full-frame.
-  EXPECT_CALL(pdf_service_, HasUnsupportedFeature).Times(0);
+  EXPECT_CALL(pdf_host_, HasUnsupportedFeature).Times(0);
 
   plugin_->DocumentHasUnsupportedFeature("feature1");
   plugin_->DocumentHasUnsupportedFeature("feature2");
@@ -736,7 +778,7 @@ TEST_F(PdfViewWebPluginTest, DocumentHasUnsupportedFeatureWithRepeatedFeature) {
   EXPECT_CALL(*client_ptr_, RecordComputedAction("PDF_Unsupported_feature"));
 
   // `HasUnsupportedFeature()` is not called if the viewer is not full-frame.
-  EXPECT_CALL(pdf_service_, HasUnsupportedFeature).Times(0);
+  EXPECT_CALL(pdf_host_, HasUnsupportedFeature).Times(0);
 
   plugin_->DocumentHasUnsupportedFeature("feature");
   plugin_->DocumentHasUnsupportedFeature("feature");
@@ -750,7 +792,7 @@ TEST_F(PdfViewWebPluginFullFrameTest, DocumentHasUnsupportedFeature) {
   EXPECT_CALL(*client_ptr_, RecordComputedAction("PDF_Unsupported_feature2"));
 
   // `HasUnsupportedFeature()` is called once for all features.
-  EXPECT_CALL(pdf_service_, HasUnsupportedFeature);
+  EXPECT_CALL(pdf_host_, HasUnsupportedFeature);
 
   plugin_->DocumentHasUnsupportedFeature("feature1");
   plugin_->DocumentHasUnsupportedFeature("feature2");
@@ -765,7 +807,7 @@ TEST_F(PdfViewWebPluginFullFrameTest,
   EXPECT_CALL(*client_ptr_, RecordComputedAction("PDF_Unsupported_feature"));
 
   // `HasUnsupportedFeature()` is called once for all features.
-  EXPECT_CALL(pdf_service_, HasUnsupportedFeature);
+  EXPECT_CALL(pdf_host_, HasUnsupportedFeature);
 
   plugin_->DocumentHasUnsupportedFeature("feature");
   plugin_->DocumentHasUnsupportedFeature("feature");
@@ -1240,8 +1282,8 @@ TEST_F(PdfViewWebPluginTest, OnPaintWithMultiplePaintRects) {
   EXPECT_FALSE(ready[2].flush_now());
 
   // All the requested paints should share the same `SkImage`.
-  EXPECT_NE(&ready[0].image(), &ready[1].image());
-  EXPECT_EQ(&ready[1].image(), &ready[2].image());
+  EXPECT_NE(ready[0].image(), ready[1].image());
+  EXPECT_EQ(ready[1].image(), ready[2].image());
 }
 
 TEST_F(PdfViewWebPluginTest, UpdateLayerTransformWithIdentity) {
@@ -1429,11 +1471,8 @@ TEST_F(PdfViewWebPluginTest, HandleInputEvent) {
   mouse_event.SetType(blink::WebInputEvent::Type::kMouseDown);
   mouse_event.SetPositionInWidget(10.0f, 20.0f);
 
-  ui::Cursor dummy_cursor;
-  EXPECT_EQ(blink::WebInputEventResult::kHandledApplication,
-            plugin_->HandleInputEvent(
-                blink::WebCoalescedInputEvent(mouse_event, ui::LatencyInfo()),
-                &dummy_cursor));
+  TestSendInputEvent(mouse_event,
+                     blink::WebInputEventResult::kHandledApplication);
 }
 
 class PdfViewWebPluginImeTest : public PdfViewWebPluginTest {
@@ -1452,7 +1491,7 @@ class PdfViewWebPluginImeTest : public PdfViewWebPluginTest {
     std::u16string expected_text16 = expected_text.Utf16();
     if (expected_text16.size()) {
       for (const auto& c : expected_text16) {
-        base::StringPiece16 expected_key(&c, 1);
+        std::u16string_view expected_key(&c, 1);
         EXPECT_CALL(*engine_ptr_,
                     HandleInputEvent(IsExpectedImeKeyEvent(expected_key)))
             .WillOnce(Return(true));
@@ -1468,7 +1507,7 @@ class PdfViewWebPluginImeTest : public PdfViewWebPluginTest {
     std::u16string expected_text16 = text.Utf16();
     if (expected_text16.size()) {
       for (const auto& c : expected_text16) {
-        base::StringPiece16 event(&c, 1);
+        std::u16string_view event(&c, 1);
         EXPECT_CALL(*engine_ptr_,
                     HandleInputEvent(IsExpectedImeKeyEvent(event)))
             .WillOnce(Return(true));
@@ -1524,8 +1563,8 @@ TEST_F(PdfViewWebPluginTest, SelectionChanged) {
   SetDocumentDimensions({16, 9});
 
   AccessibilityViewportInfo viewport_info;
-  EXPECT_CALL(pdf_service_, SelectionChanged(gfx::PointF(-8.0f, -20.0f), 40,
-                                             gfx::PointF(52.0f, 60.0f), 80));
+  EXPECT_CALL(pdf_host_, SelectionChanged(gfx::PointF(-8.0f, -20.0f), 40,
+                                          gfx::PointF(52.0f, 60.0f), 80));
   EXPECT_CALL(*accessibility_data_handler_ptr_, SetAccessibilityViewportInfo)
       .WillOnce(SaveArg<0>(&viewport_info));
   plugin_->SelectionChanged({-10, -20, 30, 40}, {50, 60, 70, 80});
@@ -1541,8 +1580,8 @@ TEST_F(PdfViewWebPluginTest, SelectionChangedNegativeOrigin) {
   SetDocumentDimensions({16, 9});
 
   AccessibilityViewportInfo viewport_info;
-  EXPECT_CALL(pdf_service_, SelectionChanged(gfx::PointF(-8.0f, -20.0f), 40,
-                                             gfx::PointF(52.0f, 60.0f), 80));
+  EXPECT_CALL(pdf_host_, SelectionChanged(gfx::PointF(-8.0f, -20.0f), 40,
+                                          gfx::PointF(52.0f, 60.0f), 80));
   EXPECT_CALL(*accessibility_data_handler_ptr_, SetAccessibilityViewportInfo)
       .WillOnce(SaveArg<0>(&viewport_info));
   plugin_->SelectionChanged({-10, -20, 30, 40}, {50, 60, 70, 80});
@@ -1558,8 +1597,8 @@ TEST_F(PdfViewWebPluginTest, SelectionChangedScaled) {
   SetDocumentDimensions({16, 9});
 
   AccessibilityViewportInfo viewport_info;
-  EXPECT_CALL(pdf_service_, SelectionChanged(gfx::PointF(-8.0f, -20.0f), 40,
-                                             gfx::PointF(52.0f, 60.0f), 80));
+  EXPECT_CALL(pdf_host_, SelectionChanged(gfx::PointF(-8.0f, -20.0f), 40,
+                                          gfx::PointF(52.0f, 60.0f), 80));
   EXPECT_CALL(*accessibility_data_handler_ptr_, SetAccessibilityViewportInfo)
       .WillOnce(SaveArg<0>(&viewport_info));
   plugin_->SelectionChanged({-20, -40, 60, 80}, {100, 120, 140, 160});
@@ -1606,35 +1645,35 @@ TEST_F(PdfViewWebPluginTest, FormTextFieldFocusChangeUpdatesTextInputType) {
             plugin_->GetPluginTextInputType());
 
   ExpectUpdateTextInputState(blink::WebTextInputType::kWebTextInputTypeText);
-  plugin_->FormFieldFocusChange(PDFEngine::FocusFieldType::kText);
+  plugin_->FormFieldFocusChange(PDFiumEngineClient::FocusFieldType::kText);
 
   ExpectUpdateTextInputState(blink::WebTextInputType::kWebTextInputTypeNone);
-  plugin_->FormFieldFocusChange(PDFEngine::FocusFieldType::kNoFocus);
+  plugin_->FormFieldFocusChange(PDFiumEngineClient::FocusFieldType::kNoFocus);
 
   ExpectUpdateTextInputState(blink::WebTextInputType::kWebTextInputTypeText);
-  plugin_->FormFieldFocusChange(PDFEngine::FocusFieldType::kText);
+  plugin_->FormFieldFocusChange(PDFiumEngineClient::FocusFieldType::kText);
 
   ExpectUpdateTextInputState(blink::WebTextInputType::kWebTextInputTypeNone);
-  plugin_->FormFieldFocusChange(PDFEngine::FocusFieldType::kNonText);
+  plugin_->FormFieldFocusChange(PDFiumEngineClient::FocusFieldType::kNonText);
 }
 
 TEST_F(PdfViewWebPluginTest, SearchString) {
-  static constexpr char16_t kPattern[] = u"fox";
-  static constexpr char16_t kTarget[] =
+  static constexpr char16_t kNeedle[] = u"fox";
+  static constexpr char16_t kHaystack[] =
       u"The quick brown fox jumped over the lazy Fox";
 
   {
-    static constexpr PDFEngine::Client::SearchStringResult kExpectation[] = {
+    static constexpr PDFiumEngineClient::SearchStringResult kExpectation[] = {
         {16, 3}};
     EXPECT_THAT(
-        plugin_->SearchString(kTarget, kPattern, /*case_sensitive=*/true),
+        plugin_->SearchString(kNeedle, kHaystack, /*case_sensitive=*/true),
         Pointwise(SearchStringResultEq(), kExpectation));
   }
   {
-    static constexpr PDFEngine::Client::SearchStringResult kExpectation[] = {
+    static constexpr PDFiumEngineClient::SearchStringResult kExpectation[] = {
         {16, 3}, {41, 3}};
     EXPECT_THAT(
-        plugin_->SearchString(kTarget, kPattern, /*case_sensitive=*/false),
+        plugin_->SearchString(kNeedle, kHaystack, /*case_sensitive=*/false),
         Pointwise(SearchStringResultEq(), kExpectation));
   }
 }
@@ -1693,7 +1732,7 @@ TEST_F(PdfViewWebPluginTest, CaretChange) {
 }
 
 TEST_F(PdfViewWebPluginTest, EnteredEditMode) {
-  EXPECT_CALL(pdf_service_, SetPluginCanSave(true));
+  EXPECT_CALL(pdf_host_, SetPluginCanSave(true));
   EXPECT_CALL(*client_ptr_, PostMessage).Times(AnyNumber());
   EXPECT_CALL(*client_ptr_, PostMessage(base::test::IsJson(R"({
     "type": "setIsEditing",
@@ -1730,6 +1769,74 @@ TEST_F(PdfViewWebPluginTest, OnDocumentLoadComplete) {
   plugin_->DocumentLoadComplete();
 }
 
+TEST_F(PdfViewWebPluginTest, OnSearchifyStarted) {
+  base::Value::Dict message;
+  message.Set("type", "showSearchifyInProgress");
+  message.Set("show", true);
+
+  EXPECT_CALL(*client_ptr_, PostMessage(Eq(std::ref(message))));
+
+  plugin_->OnSearchifyStateChange(true);
+
+  // Wait for the state to be propagated.
+  base::RunLoop run_loop;
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE, run_loop.QuitClosure(), kSearchifyStatePropagationDelay);
+  run_loop.Run();
+}
+
+TEST_F(PdfViewWebPluginTest, OnSearchifyStartedAndStoppedFast) {
+  base::Value::Dict message;
+  message.Set("type", "showSearchifyInProgress");
+  message.Set("show", false);
+
+  // Since `PdfViewWebPlugin` does not keep two distinct states for "progress
+  // indicator is showing" and "progress indicator will be shown", an
+  // unnecessary hide message is sent to UI. This has no effect in the UI as the
+  // progress indicator is already not showing.
+  EXPECT_CALL(*client_ptr_, PostMessage(Eq(std::ref(message))));
+
+  plugin_->OnSearchifyStateChange(true);
+  plugin_->OnSearchifyStateChange(false);
+
+  // Wait for the state to be propagated.
+  base::RunLoop run_loop;
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE, run_loop.QuitClosure(), kSearchifyStatePropagationDelay);
+  run_loop.Run();
+}
+
+TEST_F(PdfViewWebPluginTest, OnSearchifyStartedAndStoppedWithDelay) {
+  base::Value::Dict message_show;
+  message_show.Set("type", "showSearchifyInProgress");
+  message_show.Set("show", true);
+
+  base::Value::Dict message_hide;
+  message_hide.Set("type", "showSearchifyInProgress");
+  message_hide.Set("show", false);
+
+  EXPECT_CALL(*client_ptr_, PostMessage(Eq(std::ref(message_show))));
+  EXPECT_CALL(*client_ptr_, PostMessage(Eq(std::ref(message_hide))));
+
+  plugin_->OnSearchifyStateChange(true);
+
+  // Wait for the state to be propagated and indicator be shown.
+  base::RunLoop run_loop;
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE, run_loop.QuitClosure(), kSearchifyStatePropagationDelay * 2);
+  run_loop.Run();
+
+  plugin_->OnSearchifyStateChange(false);
+}
+
+TEST_F(PdfViewWebPluginTest, OnHasSearchifyText) {
+  base::Value::Dict message;
+  message.Set("type", "setHasSearchifyText");
+
+  EXPECT_CALL(*client_ptr_, PostMessage(Eq(std::ref(message))));
+  plugin_->OnHasSearchifyText();
+}
+
 class PdfViewWebPluginWithDocInfoTest : public PdfViewWebPluginTest {
  public:
   void SetUp() override {
@@ -1744,7 +1851,7 @@ class PdfViewWebPluginWithDocInfoTest : public PdfViewWebPluginTest {
  protected:
   class TestPDFiumEngineWithDocInfo : public TestPDFiumEngine {
    public:
-    explicit TestPDFiumEngineWithDocInfo(PDFEngine::Client* client)
+    explicit TestPDFiumEngineWithDocInfo(PDFiumEngineClient* client)
         : TestPDFiumEngine(client) {
       InitializeDocumentAttachments();
       InitializeDocumentMetadata();
@@ -1942,7 +2049,7 @@ TEST_F(PdfViewWebPluginSaveTest, AnnotationInNonEditMode) {
   AddDataToValue(base::make_span(TestPDFiumEngine::kLoadedData),
                  expected_response);
 
-  EXPECT_CALL(pdf_service_, SetPluginCanSave(true));
+  EXPECT_CALL(pdf_host_, SetPluginCanSave(true));
   ExpectUpdateTextInputState(blink::WebTextInputType::kWebTextInputTypeNone);
   EXPECT_CALL(*client_ptr_, PostMessage(base::test::IsJson(expected_response)));
 
@@ -1956,6 +2063,7 @@ TEST_F(PdfViewWebPluginSaveTest, AnnotationInNonEditMode) {
 }
 
 TEST_F(PdfViewWebPluginSaveTest, AnnotationInEditMode) {
+  EXPECT_CALL(pdf_host_, SetPluginCanSave(true));
   plugin_->EnteredEditMode();
   pdf_receiver_.FlushForTesting();
 
@@ -1968,7 +2076,6 @@ TEST_F(PdfViewWebPluginSaveTest, AnnotationInEditMode) {
   AddDataToValue(base::make_span(TestPDFiumEngine::kSaveData),
                  expected_response);
 
-  EXPECT_CALL(pdf_service_, SetPluginCanSave(true));
   ExpectUpdateTextInputState(blink::WebTextInputType::kWebTextInputTypeNone);
   EXPECT_CALL(*client_ptr_, PostMessage(base::test::IsJson(expected_response)));
 
@@ -1984,13 +2091,10 @@ TEST_F(PdfViewWebPluginSaveTest, AnnotationInEditMode) {
 
 TEST_F(PdfViewWebPluginSaveTest, OriginalInNonEditMode) {
   {
-    InSequence pdf_service_sequence;
+    InSequence pdf_host_sequence;
 
-    EXPECT_CALL(pdf_service_, SetPluginCanSave(false));
-    EXPECT_CALL(
-        pdf_service_,
-        SaveUrlAs(GURL(kPdfUrl), network::mojom::ReferrerPolicy::kDefault));
-    EXPECT_CALL(pdf_service_, SetPluginCanSave(false));
+    EXPECT_CALL(pdf_host_, SaveUrlAs(GURL(kPdfUrl),
+                                     network::mojom::ReferrerPolicy::kDefault));
   }
 
   ExpectUpdateTextInputState(blink::WebTextInputType::kWebTextInputTypeNone);
@@ -2013,13 +2117,12 @@ TEST_F(PdfViewWebPluginSaveTest, OriginalInEditMode) {
   pdf_receiver_.FlushForTesting();
 
   {
-    InSequence pdf_service_sequence;
+    InSequence pdf_host_sequence;
 
-    EXPECT_CALL(pdf_service_, SetPluginCanSave(false));
-    EXPECT_CALL(
-        pdf_service_,
-        SaveUrlAs(GURL(kPdfUrl), network::mojom::ReferrerPolicy::kDefault));
-    EXPECT_CALL(pdf_service_, SetPluginCanSave(true));
+    EXPECT_CALL(pdf_host_, SetPluginCanSave(false));
+    EXPECT_CALL(pdf_host_, SaveUrlAs(GURL(kPdfUrl),
+                                     network::mojom::ReferrerPolicy::kDefault));
+    EXPECT_CALL(pdf_host_, SetPluginCanSave(true));
   }
 
   ExpectUpdateTextInputState(blink::WebTextInputType::kWebTextInputTypeNone);
@@ -2084,8 +2187,7 @@ TEST_F(PdfViewWebPluginSaveTest, EditedInEditMode) {
 class PdfViewWebPluginSubmitFormTest
     : public PdfViewWebPluginWithoutInitializeTest {
  protected:
-  void SubmitForm(const std::string& url,
-                  base::StringPiece form_data = "data") {
+  void SubmitForm(const std::string& url, std::string_view form_data = "data") {
     EXPECT_TRUE(plugin_->InitializeForTesting());
 
     EXPECT_CALL(*client_ptr_, CreateAssociatedURLLoader).WillOnce([this]() {
@@ -2094,7 +2196,7 @@ class PdfViewWebPluginSubmitFormTest
       EXPECT_CALL(*associated_loader, LoadAsynchronously)
           .WillOnce([this](const blink::WebURLRequest& request,
                            blink::WebAssociatedURLLoaderClient* /*client*/) {
-            // TODO(crbug.com/1322928): The `UrlLoader` created by `LoadUrl()`
+            // TODO(crbug.com/40224475): The `UrlLoader` created by `LoadUrl()`
             // and `SubmitForm()` shouldn't use different ownership semantics.
             // The loader created by `SubmitForm()` is owned by the plugin, and
             // cannot leak past the destruction of the plugin.
@@ -2111,7 +2213,7 @@ class PdfViewWebPluginSubmitFormTest
 
     EXPECT_CALL(*client_ptr_, CreateAssociatedURLLoader).Times(0);
 
-    constexpr base::StringPiece kFormData = "form data";
+    constexpr std::string_view kFormData = "form data";
     plugin_->SubmitForm(url, kFormData.data(), kFormData.size());
   }
 
@@ -2129,7 +2231,7 @@ TEST_F(PdfViewWebPluginSubmitFormTest, RequestMethod) {
 TEST_F(PdfViewWebPluginSubmitFormTest, RequestBody) {
   SetUpPluginWithUrl("https://www.example.com/path/to/the.pdf");
 
-  constexpr base::StringPiece kFormData = "form data";
+  constexpr std::string_view kFormData = "form data";
   SubmitForm(/*url=*/"", kFormData);
 
   blink::WebHTTPBody::Element element;
@@ -2289,7 +2391,7 @@ class PdfViewWebPluginPrintPreviewTest : public PdfViewWebPluginTest {
 
 TEST_F(PdfViewWebPluginPrintPreviewTest, HandleResetPrintPreviewModeMessage) {
   EXPECT_CALL(*client_ptr_, CreateEngine)
-      .WillOnce([](PDFEngine::Client* client,
+      .WillOnce([](PDFiumEngineClient* client,
                    PDFiumFormFiller::ScriptOption script_option) {
         EXPECT_EQ(PDFiumFormFiller::ScriptOption::kNoJavaScript, script_option);
 
@@ -2312,7 +2414,7 @@ TEST_F(PdfViewWebPluginPrintPreviewTest, HandleResetPrintPreviewModeMessage) {
 TEST_F(PdfViewWebPluginPrintPreviewTest,
        HandleResetPrintPreviewModeMessageForPdf) {
   EXPECT_CALL(*client_ptr_, CreateEngine)
-      .WillOnce([](PDFEngine::Client* client,
+      .WillOnce([](PDFiumEngineClient* client,
                    PDFiumFormFiller::ScriptOption script_option) {
         EXPECT_EQ(PDFiumFormFiller::ScriptOption::kNoJavaScript, script_option);
 
@@ -2339,7 +2441,7 @@ TEST_F(PdfViewWebPluginPrintPreviewTest,
 TEST_F(PdfViewWebPluginPrintPreviewTest,
        HandleResetPrintPreviewModeMessageSetGrayscale) {
   EXPECT_CALL(*client_ptr_, CreateEngine)
-      .WillOnce([](PDFEngine::Client* client,
+      .WillOnce([](PDFiumEngineClient* client,
                    PDFiumFormFiller::ScriptOption /*script_option*/) {
         auto engine = std::make_unique<NiceMock<TestPDFiumEngine>>(client);
         EXPECT_CALL(*engine, SetGrayscale(true));
@@ -2366,7 +2468,7 @@ TEST_F(PdfViewWebPluginPrintPreviewTest, DocumentLoadComplete) {
   EXPECT_CALL(*client_ptr_, PostMessage);
   EXPECT_CALL(*client_ptr_, PostMessage(base::test::IsJson(R"({
     "type": "formFocusChange",
-    "focused": false,
+    "focused": "none",
   })")));
   ExpectUpdateTextInputState(blink::WebTextInputType::kWebTextInputTypeNone);
   EXPECT_CALL(*client_ptr_, PostMessage(base::test::IsJson(R"({
@@ -2375,7 +2477,7 @@ TEST_F(PdfViewWebPluginPrintPreviewTest, DocumentLoadComplete) {
   EXPECT_CALL(*accessibility_data_handler_ptr_, SetAccessibilityDocInfo)
       .Times(0);
   EXPECT_CALL(*client_ptr_, DidStopLoading).Times(0);
-  EXPECT_CALL(pdf_service_, UpdateContentRestrictions).Times(0);
+  EXPECT_CALL(pdf_host_, UpdateContentRestrictions).Times(0);
   plugin_->DocumentLoadComplete();
 
   EXPECT_EQ(PdfViewWebPlugin::DocumentLoadState::kComplete,
@@ -2443,5 +2545,407 @@ TEST_F(PdfViewWebPluginPrintPreviewTest,
     "pinchPhase": 0,
   })"));
 }
+
+#if BUILDFLAG(ENABLE_PDF_INK2)
+class PdfViewWebPluginInkTest : public PdfViewWebPluginTest {
+ protected:
+  void SetUpWithTrivialInkStrokes() {
+    // Set up the engine so the plugin can draw strokes. The exact strokes do
+    // not matter.
+    EXPECT_CALL(*engine_ptr_, HandleInputEvent).Times(0);
+    ON_CALL(*engine_ptr_, GetPageContentsRect)
+        .WillByDefault([](int page_index) -> gfx::Rect {
+          return gfx::Rect(/*x=*/0, /*y=*/0, /*width=*/100, /*height=*/50);
+        });
+    ON_CALL(*engine_ptr_, GetThumbnailSize)
+        .WillByDefault(Return(gfx::Size(50, 25)));
+    ON_CALL(*engine_ptr_, IsPageVisible)
+        .WillByDefault([](int page_index) -> bool { return true; });
+
+    // Draw some trivial strokes.
+    plugin_->OnMessage(
+        CreateSetAnnotationModeMessageForTesting(/*enable=*/true));
+    TestSendInputEvent(
+        MouseEventBuilder().CreateLeftClickAtPosition({10, 10}).Build(),
+        blink::WebInputEventResult::kHandledApplication);
+    TestSendInputEvent(
+        MouseEventBuilder().CreateLeftMouseUpAtPosition({20, 20}).Build(),
+        blink::WebInputEventResult::kHandledApplication);
+  }
+
+  void SendThumbnail(std::string_view message_id, const gfx::Size& page_size) {
+    base::Value::Dict reply;
+    reply.Set("type", "getThumbnailReply");
+    reply.Set("messageId", message_id);
+    plugin_->SendThumbnailForTesting(
+        std::move(reply), /*page_index=*/0,
+        Thumbnail(page_size, /*device_pixel_ratio=*/1));
+  }
+
+ private:
+  base::test::ScopedFeatureList feature_list_{features::kPdfInk2};
+};
+
+TEST_F(PdfViewWebPluginInkTest, Invalidate) {
+  plugin_->set_in_paint_for_testing(true);
+  EXPECT_EQ(0u, plugin_->deferred_invalidates_for_testing().size());
+  SetUpWithTrivialInkStrokes();
+  EXPECT_EQ(3u, plugin_->deferred_invalidates_for_testing().size());
+}
+
+TEST_F(PdfViewWebPluginInkTest, LoadV2InkPathsForPageAndUpdateShapeActive) {
+  const std::map<InkModeledShapeId, ink::ModeledShape> kEmptyMap;
+  const std::map<InkModeledShapeId, ink::ModeledShape> kMap0{
+      {InkModeledShapeId(0), ink::ModeledShape()},
+  };
+  const std::map<InkModeledShapeId, ink::ModeledShape> kMap1{
+      {InkModeledShapeId(1), ink::ModeledShape()},
+      {InkModeledShapeId(2), ink::ModeledShape()},
+  };
+  const std::map<InkModeledShapeId, ink::ModeledShape> kMap2{
+      {InkModeledShapeId(3), ink::ModeledShape()},
+      {InkModeledShapeId(4), ink::ModeledShape()},
+      {InkModeledShapeId(5), ink::ModeledShape()},
+  };
+
+  EXPECT_CALL(*engine_ptr_, LoadV2InkPathsForPage(testing::Lt(12)))
+      .Times(12)
+      .WillOnce(Return(kMap0))
+      .WillOnce(Return(kMap1))
+      .WillRepeatedly(Return(kEmptyMap));
+  EXPECT_CALL(*engine_ptr_, LoadV2InkPathsForPage(12)).WillOnce(Return(kMap2));
+
+  const PdfInkModuleClient::DocumentV2InkPathShapesMap result =
+      plugin_->ink_module_client_for_testing()->LoadV2InkPathsFromPdf();
+  EXPECT_THAT(
+      result,
+      ElementsAre(Pair(0, ElementsAre(Pair(InkModeledShapeId(0), _))),
+                  Pair(1, ElementsAre(Pair(InkModeledShapeId(1), _),
+                                      Pair(InkModeledShapeId(2), _))),
+                  Pair(12, ElementsAre(Pair(InkModeledShapeId(3), _),
+                                       Pair(InkModeledShapeId(4), _),
+                                       Pair(InkModeledShapeId(5), _)))));
+
+  EXPECT_CALL(*engine_ptr_, UpdateShapeActive(0, InkModeledShapeId(0), false));
+  plugin_->ink_module_client_for_testing()->UpdateShapeActive(
+      /*page_index=*/0, InkModeledShapeId(0),
+      /*active=*/false);
+}
+
+TEST_F(PdfViewWebPluginInkTest, SendThumbnailUpdatesInkThumbnail) {
+  SetUpWithTrivialInkStrokes();
+
+  EXPECT_CALL(*client_ptr_, PostMessage)
+      .WillOnce([](const base::Value::Dict& dict) {
+        auto expected = base::test::ParseJsonDict(R"({
+            "type": "getThumbnailReply",
+            "messageId": "foo",
+            "width": 216,
+            "height": 108,
+        })");
+        EXPECT_THAT(dict, base::test::DictionaryHasValues(expected));
+
+        // Test `dict` contains the image data, but not the exact value.
+        const auto* blob = dict.FindBlob("imageData");
+        ASSERT_TRUE(blob);
+        EXPECT_FALSE(blob->empty());
+      })
+      .WillOnce([](const base::Value::Dict& dict) {
+        auto expected = base::test::ParseJsonDict(R"({
+            "type": "updateInk2Thumbnail",
+            "pageNumber": 1,
+            "width": 216,
+            "height": 108,
+        })");
+        EXPECT_THAT(dict, base::test::DictionaryHasValues(expected));
+
+        // Test `dict` contains the image data, but not the exact value.
+        const auto* blob = dict.FindBlob("imageData");
+        ASSERT_TRUE(blob);
+        EXPECT_FALSE(blob->empty());
+      });
+  SendThumbnail(/*message_id=*/"foo", /*page_size=*/{50, 25});
+}
+
+TEST_F(PdfViewWebPluginInkTest, SendThumbnailWithNoStrokes) {
+  EXPECT_CALL(*client_ptr_, PostMessage)
+      .WillOnce([](const base::Value::Dict& dict) {
+        auto expected = base::test::ParseJsonDict(R"({
+            "type": "getThumbnailReply",
+            "messageId": "foo",
+            "width": 216,
+            "height": 108,
+        })");
+        EXPECT_THAT(dict, base::test::DictionaryHasValues(expected));
+
+        // Test `dict` contains the image data, but not the exact value.
+        const auto* blob = dict.FindBlob("imageData");
+        ASSERT_TRUE(blob);
+        EXPECT_FALSE(blob->empty());
+      });
+  SendThumbnail(/*message_id=*/"foo", /*page_size=*/{50, 25});
+}
+
+TEST_F(PdfViewWebPluginInkTest, UpdateCursor) {
+  UpdatePluginGeometryWithoutWaiting(2.0f, {0, 0, 20, 20});
+
+  ON_CALL(*engine_ptr_, HandleInputEvent)
+      .WillByDefault([this](const blink::WebInputEvent& event) -> bool {
+        plugin_->UpdateCursor(ui::mojom::CursorType::kPointer);
+        return false;
+      });
+
+  blink::WebMouseEvent mouse_event;
+  mouse_event.SetType(blink::WebInputEvent::Type::kMouseMove);
+  mouse_event.SetPositionInWidget(10.0f, 20.0f);
+
+  ui::Cursor cursor;
+  EXPECT_EQ(ui::mojom::CursorType::kNull, cursor.type());
+  cursor =
+      TestSendInputEvent(mouse_event, blink::WebInputEventResult::kNotHandled);
+  EXPECT_EQ(ui::mojom::CursorType::kPointer, cursor.type());
+
+  plugin_->OnMessage(CreateSetAnnotationModeMessageForTesting(/*enable=*/true));
+  cursor =
+      TestSendInputEvent(mouse_event, blink::WebInputEventResult::kNotHandled);
+  EXPECT_EQ(ui::mojom::CursorType::kCustom, cursor.type());
+
+  plugin_->OnMessage(
+      CreateSetAnnotationModeMessageForTesting(/*enable=*/false));
+  cursor =
+      TestSendInputEvent(mouse_event, blink::WebInputEventResult::kNotHandled);
+  EXPECT_EQ(ui::mojom::CursorType::kPointer, cursor.type());
+}
+
+TEST_F(PdfViewWebPluginInkTest, GetZoom) {
+  // Demonstrate that default zoom is identity.
+  EXPECT_EQ(1.0f, plugin_->ink_module_client_for_testing()->GetZoom());
+
+  // Verify that changing the plugin zoom shows effect.
+  EXPECT_CALL(*engine_ptr_, ZoomUpdated(2.0f));
+  plugin_->OnMessage(ParseMessage(R"({
+    "type": "viewport",
+    "userInitiated": false,
+    "zoom": 2,
+    "layoutOptions": {
+      "direction": 0,
+      "defaultPageOrientation": 0,
+      "twoUpViewEnabled": false,
+    },
+    "xOffset": 0,
+    "yOffset": 0,
+    "pinchPhase": 0,
+  })"));
+  EXPECT_EQ(2.0f, plugin_->ink_module_client_for_testing()->GetZoom());
+
+  // Verify that changing the platform device scale shows effect.
+  ON_CALL(*client_ptr_, DeviceScaleFactor).WillByDefault(Return(1.25f));
+  EXPECT_CALL(*engine_ptr_, ZoomUpdated(2.5f));
+  constexpr gfx::Rect kWindowRect(12, 24, 36, 48);
+  plugin_->UpdateGeometry(kWindowRect, kWindowRect, kWindowRect,
+                          /*is_visible=*/true);
+  EXPECT_EQ(2.5f, plugin_->ink_module_client_for_testing()->GetZoom());
+}
+
+TEST_F(PdfViewWebPluginInkTest, UpdateThumbnail) {
+  SetUpWithTrivialInkStrokes();
+
+  EXPECT_CALL(*client_ptr_, PostMessage)
+      .WillOnce([](const base::Value::Dict& dict) {
+        auto expected = base::test::ParseJsonDict(R"({
+            "type": "updateInk2Thumbnail",
+            "pageNumber": 1,
+            "width": 50,
+            "height": 25,
+        })");
+        EXPECT_THAT(dict, base::test::DictionaryHasValues(expected));
+
+        // Test `dict` contains the image data, but not the exact value.
+        const auto* blob = dict.FindBlob("imageData");
+        ASSERT_TRUE(blob);
+        EXPECT_FALSE(blob->empty());
+      });
+
+  plugin_->ink_module_client_for_testing()->UpdateThumbnail(/*page_index=*/0);
+}
+
+TEST_F(PdfViewWebPluginInkTest, UpdateThumbnailWithNoStrokes) {
+  ON_CALL(*engine_ptr_, GetThumbnailSize)
+      .WillByDefault(Return(gfx::Size(50, 25)));
+
+  EXPECT_CALL(*client_ptr_, PostMessage).Times(0);
+  plugin_->ink_module_client_for_testing()->UpdateThumbnail(/*page_index=*/0);
+}
+
+TEST_F(PdfViewWebPluginInkTest, AddUpdateDiscardStroke) {
+  const PdfInkBrush kBrush(PdfInkBrush::Type::kPen, SK_ColorRED, /*size=*/4.0f);
+  constexpr InkStrokeId kStrokeId(1);
+  constexpr int kPageIndex = 0;
+
+  EXPECT_CALL(*engine_ptr_, ApplyStroke(kPageIndex, kStrokeId, _));
+
+  const ink::Stroke kStroke(kBrush.ink_brush());
+  plugin_->ink_module_client_for_testing()->StrokeAdded(kPageIndex, kStrokeId,
+                                                        kStroke);
+
+  EXPECT_CALL(*engine_ptr_, UpdateStrokeActive(kPageIndex, kStrokeId, false));
+
+  plugin_->ink_module_client_for_testing()->UpdateStrokeActive(
+      kPageIndex, kStrokeId,
+      /*active=*/false);
+
+  EXPECT_CALL(*engine_ptr_, DiscardStroke(kPageIndex, kStrokeId));
+
+  plugin_->ink_module_client_for_testing()->DiscardStroke(kPageIndex,
+                                                          kStrokeId);
+}
+
+TEST_F(PdfViewWebPluginInkTest, VisiblePageIndexFromPoint) {
+  ON_CALL(*engine_ptr_, GetPageContentsRect)
+      .WillByDefault([](int page_index) -> gfx::Rect {
+        // Uniform 80x180 page sizes, with a `kVerticalEmptySpace` gap above
+        // every page.
+        constexpr int kVerticalEmptySpace = 20;
+        constexpr int kHeight = 180;
+        int y = kHeight * page_index + kVerticalEmptySpace * (page_index + 1);
+        return gfx::Rect(/*x=*/10, /*y=*/y, /*width=*/80, /*height=*/kHeight);
+      });
+
+  // Top-left corner of screen.
+  constexpr gfx::PointF kScreenTopLeftCorner(0.0f, 0.0f);
+  // Top-left corner of first page.
+  constexpr gfx::PointF kPage0TopLeftCorner(10.0f, 20.0f);
+  // Just outside the top-left corner of first page.
+  constexpr gfx::PointF kPage0OutsideTopLeftCorner(10.0f, 19.938f);
+  // Bottom-right corner of first page.
+  constexpr gfx::PointF kPage0BottomRightCorner(89.999f, 199.0f);
+  // Just outside the bottom-right corner of first page.
+  constexpr gfx::PointF kPage0OutsideBottomRightCorner(90.0f, 199.0f);
+  // Gap between first and second page.
+  constexpr gfx::PointF kPage0Page1Gap(50.0f, 201.0f);
+  // Top of second page.
+  constexpr gfx::PointF kPage1Top(50.0f, 220.0f);
+  // Middle of last page.
+  constexpr gfx::PointF kPage12Middle(50.0f, 2510.0f);
+  // Bottom of last page.
+  constexpr gfx::PointF kPage12Bottom(60.0f, 2599.0f);
+  // Beyond the last page.
+  constexpr gfx::PointF kPageBelowLast(60.0f, 2700.0f);
+
+  // Start with the first 2 pages visible.
+  ON_CALL(*engine_ptr_, IsPageVisible)
+      .WillByDefault([](int page_index) -> bool {
+        return page_index >= 0 && page_index <= 1;
+      });
+
+  PdfInkModuleClient* ink_module_client =
+      plugin_->ink_module_client_for_testing();
+  EXPECT_EQ(-1,
+            ink_module_client->VisiblePageIndexFromPoint(kScreenTopLeftCorner));
+  EXPECT_EQ(0,
+            ink_module_client->VisiblePageIndexFromPoint(kPage0TopLeftCorner));
+  EXPECT_EQ(-1, ink_module_client->VisiblePageIndexFromPoint(
+                    kPage0OutsideTopLeftCorner));
+  EXPECT_EQ(
+      0, ink_module_client->VisiblePageIndexFromPoint(kPage0BottomRightCorner));
+  EXPECT_EQ(-1, ink_module_client->VisiblePageIndexFromPoint(
+                    kPage0OutsideBottomRightCorner));
+  EXPECT_EQ(-1, ink_module_client->VisiblePageIndexFromPoint(kPage0Page1Gap));
+  EXPECT_EQ(1, ink_module_client->VisiblePageIndexFromPoint(kPage1Top));
+  EXPECT_EQ(-1, ink_module_client->VisiblePageIndexFromPoint(kPage12Middle));
+  EXPECT_EQ(-1, ink_module_client->VisiblePageIndexFromPoint(kPage12Bottom));
+  EXPECT_EQ(-1, ink_module_client->VisiblePageIndexFromPoint(kPageBelowLast));
+
+  // Change the visible page to the last page.
+  ON_CALL(*engine_ptr_, IsPageVisible)
+      .WillByDefault([](int page_index) -> bool { return page_index == 12; });
+
+  EXPECT_EQ(-1,
+            ink_module_client->VisiblePageIndexFromPoint(kScreenTopLeftCorner));
+  EXPECT_EQ(-1,
+            ink_module_client->VisiblePageIndexFromPoint(kPage0TopLeftCorner));
+  EXPECT_EQ(-1, ink_module_client->VisiblePageIndexFromPoint(
+                    kPage0OutsideTopLeftCorner));
+  EXPECT_EQ(-1, ink_module_client->VisiblePageIndexFromPoint(
+                    kPage0BottomRightCorner));
+  EXPECT_EQ(-1, ink_module_client->VisiblePageIndexFromPoint(
+                    kPage0OutsideBottomRightCorner));
+  EXPECT_EQ(-1, ink_module_client->VisiblePageIndexFromPoint(kPage0Page1Gap));
+  EXPECT_EQ(-1, ink_module_client->VisiblePageIndexFromPoint(kPage1Top));
+  EXPECT_EQ(12, ink_module_client->VisiblePageIndexFromPoint(kPage12Middle));
+  EXPECT_EQ(12, ink_module_client->VisiblePageIndexFromPoint(kPage12Bottom));
+  EXPECT_EQ(-1, ink_module_client->VisiblePageIndexFromPoint(kPageBelowLast));
+}
+
+TEST_F(PdfViewWebPluginInkTest, AnnotationModeSetsFormAndClearsText) {
+  EXPECT_CALL(*engine_ptr_, SetFormHighlight(false));
+  EXPECT_CALL(*engine_ptr_, ClearTextSelection());
+
+  plugin_->OnMessage(CreateSetAnnotationModeMessageForTesting(/*enable=*/true));
+  EXPECT_TRUE(plugin_->IsInAnnotationMode());
+
+  EXPECT_CALL(*engine_ptr_, SetFormHighlight(true));
+
+  plugin_->OnMessage(
+      CreateSetAnnotationModeMessageForTesting(/*enable=*/false));
+  EXPECT_FALSE(plugin_->IsInAnnotationMode());
+}
+
+class PdfViewWebPluginInk2SaveTest : public PdfViewWebPluginSaveTest {
+ private:
+  base::test::ScopedFeatureList feature_list_{features::kPdfInk2};
+};
+
+TEST_F(PdfViewWebPluginInk2SaveTest, AnnotationInNonEditMode) {
+  plugin_->ink_module_client_for_testing()->StrokeFinished();
+
+  base::Value expected_response = base::test::ParseJson(R"({
+    "type": "saveData",
+    "token": "annotation-in-non-edit-mode",
+    "fileName": "example.pdf",
+    "editModeForTesting": false,
+  })");
+  AddDataToValue(base::make_span(TestPDFiumEngine::kSaveData),
+                 expected_response);
+
+  ExpectUpdateTextInputState(blink::WebTextInputType::kWebTextInputTypeNone);
+  EXPECT_CALL(*client_ptr_, PostMessage(base::test::IsJson(expected_response)));
+
+  plugin_->OnMessage(ParseMessage(R"({
+    "type": "save",
+    "saveRequestType": 0,
+    "token": "annotation-in-non-edit-mode",
+  })"));
+
+  pdf_receiver_.FlushForTesting();
+}
+
+TEST_F(PdfViewWebPluginInk2SaveTest, AnnotationInEditMode) {
+  plugin_->ink_module_client_for_testing()->StrokeFinished();
+
+  plugin_->EnteredEditMode();
+  pdf_receiver_.FlushForTesting();
+
+  base::Value expected_response = base::test::ParseJson(R"({
+    "type": "saveData",
+    "token": "annotation-in-edit-mode",
+    "fileName": "example.pdf",
+    "editModeForTesting": true,
+  })");
+  AddDataToValue(base::make_span(TestPDFiumEngine::kSaveData),
+                 expected_response);
+
+  ExpectUpdateTextInputState(blink::WebTextInputType::kWebTextInputTypeNone);
+  EXPECT_CALL(*client_ptr_, PostMessage(base::test::IsJson(expected_response)));
+
+  plugin_->OnMessage(ParseMessage(R"({
+    "type": "save",
+    "saveRequestType": 0,
+    "token": "annotation-in-edit-mode",
+  })"));
+
+  pdf_receiver_.FlushForTesting();
+}
+#endif  // BUILDFLAG(ENABLE_PDF_INK2)
 
 }  // namespace chrome_pdf

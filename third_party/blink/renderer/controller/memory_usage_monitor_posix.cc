@@ -22,7 +22,7 @@ bool ReadFileContents(int fd, base::span<char> contents) {
   ssize_t res = read(fd, contents.data(), contents.size() - 1);
   if (res <= 0)
     return false;
-  contents.data()[res] = '\0';
+  contents[res] = '\0';
   return true;
 }
 

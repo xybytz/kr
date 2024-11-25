@@ -4,14 +4,21 @@
 
 package org.chromium.chrome.browser.back_press;
 
+import android.view.Window;
+
 import androidx.activity.BackEventCompat;
+import androidx.annotation.IntDef;
 
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.components.browser_ui.widget.gesture.BackPressHandler.Type;
+import org.chromium.ui.UiUtils;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
- * A utility class to record back press related histograms. TODO(https://crbug.com/1509190): Move
- * other histogram recording to this class.
+ * A utility class to record back press related histograms. TODO(crbug.com/41481803): Move other
+ * histogram recording to this class.
  */
 public class BackPressMetrics {
     private static final String EDGE_HISTOGRAM = "Android.BackPress.SwipeEdge";
@@ -21,6 +28,20 @@ public class BackPressMetrics {
             "Android.BackPress.Intercept.LeftEdge";
     private static final String INTERCEPT_FROM_RIGHT_HISTOGRAM =
             "Android.BackPress.Intercept.RightEdge";
+
+    @IntDef({
+        PredictiveGestureNavPhase.ACTIVATED,
+        PredictiveGestureNavPhase.CANCELLED,
+        PredictiveGestureNavPhase.COMPLETED
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface PredictiveGestureNavPhase {
+        int ACTIVATED = 0;
+        int CANCELLED = 1;
+        int COMPLETED = 2;
+
+        int NUM_ENTRIES = 3;
+    }
 
     /**
      * @param type The {@link Type} of the back press handler.
@@ -42,5 +63,60 @@ public class BackPressMetrics {
      */
     public static void recordTabNavigationSwipedFromEdge(int edge) {
         RecordHistogram.recordEnumeratedHistogram(TAB_HISTORY_EDGE_HISTOGRAM, edge, 2);
+    }
+
+    /**
+     * @param didNavStartInBetween Whether a navigation is started during the gesture.
+     * @param window The window in which the navigation gesture occurs.
+     */
+    public static void recordNavStatusDuringGesture(boolean didNavStartInBetween, Window window) {
+        RecordHistogram.recordBooleanHistogram(
+                "Navigation.DuringGesture.NavStarted", didNavStartInBetween);
+        if (UiUtils.isGestureNavigationMode(window)) {
+            RecordHistogram.recordBooleanHistogram(
+                    "Navigation.DuringGesture.NavStarted.GestureMode", didNavStartInBetween);
+        } else {
+            RecordHistogram.recordBooleanHistogram(
+                    "Navigation.DuringGesture.NavStarted.3ButtonMode", didNavStartInBetween);
+        }
+    }
+
+    /**
+     * @param isNavigationInProgress Whether a navigation has started and not finished yet.
+     * @param window The window in which the navigation gesture occurs.
+     */
+    public static void recordNavStatusOnGestureStart(
+            boolean isNavigationInProgress, Window window) {
+        RecordHistogram.recordBooleanHistogram(
+                "Navigation.OnGestureStart.NavigationInProgress", isNavigationInProgress);
+        if (UiUtils.isGestureNavigationMode(window)) {
+            RecordHistogram.recordBooleanHistogram(
+                    "Navigation.OnGestureStart.NavigationInProgress.GestureMode",
+                    isNavigationInProgress);
+        } else {
+            RecordHistogram.recordBooleanHistogram(
+                    "Navigation.OnGestureStart.NavigationInProgress.3ButtonMode",
+                    isNavigationInProgress);
+        }
+    }
+
+    /**
+     * Record the phase when a gesture nav is started.
+     *
+     * @param transition If a back forward transition is triggered by this gesture.
+     * @param phase The current {@link PredictiveGestureNavPhase}.
+     */
+    public static void recordPredictiveGestureNav(
+            boolean transition, @PredictiveGestureNavPhase int phase) {
+        RecordHistogram.recordEnumeratedHistogram(
+                "Android.PredictiveGestureNavigation",
+                phase,
+                PredictiveGestureNavPhase.NUM_ENTRIES);
+        RecordHistogram.recordEnumeratedHistogram(
+                transition
+                        ? "Android.PredictiveGestureNavigation.WithTransition"
+                        : "Android.PredictiveGestureNavigation.WithoutTransition",
+                phase,
+                PredictiveGestureNavPhase.NUM_ENTRIES);
     }
 }

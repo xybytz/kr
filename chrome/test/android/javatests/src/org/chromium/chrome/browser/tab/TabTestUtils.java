@@ -13,10 +13,9 @@ import org.mockito.Mockito;
 
 import org.chromium.base.ObserverList;
 import org.chromium.base.ObserverList.RewindableIterator;
-import org.chromium.base.test.util.JniMocker;
+import org.chromium.base.ThreadUtils;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.common.ResourceRequestBody;
 import org.chromium.url.GURL;
 
@@ -40,6 +39,7 @@ public class TabTestUtils {
             Tab parent,
             @Nullable @TabCreationState Integer creationState,
             @Nullable LoadUrlParams loadUrlParams,
+            @Nullable String titleForLazyLoad,
             WebContents webContents,
             @Nullable TabDelegateFactory delegateFactory,
             boolean initiallyHidden,
@@ -50,6 +50,7 @@ public class TabTestUtils {
                         parent,
                         creationState,
                         loadUrlParams,
+                        titleForLazyLoad,
                         webContents,
                         delegateFactory,
                         initiallyHidden,
@@ -123,7 +124,7 @@ public class TabTestUtils {
                             return new View(context);
                         }
                     };
-            TestThreadUtils.runOnUiThreadBlocking(
+            ThreadUtils.runOnUiThreadBlocking(
                     () -> {
                         SadTab.initForTesting(tab, sadTab);
                         sadTab.show(
@@ -224,8 +225,8 @@ public class TabTestUtils {
     }
 
     /** Mock Tab interface impl JNI for testing. */
-    public static void mockTabJni(JniMocker jniMocker) {
+    public static void mockTabJni() {
         TabImpl.Natives tabImplJni = Mockito.mock(TabImpl.Natives.class);
-        jniMocker.mock(TabImplJni.TEST_HOOKS, tabImplJni);
+        TabImplJni.setInstanceForTesting(tabImplJni);
     }
 }

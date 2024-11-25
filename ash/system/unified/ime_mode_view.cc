@@ -65,10 +65,6 @@ void ImeModeView::HandleLocaleChange() {
 }
 
 void ImeModeView::UpdateLabelOrImageViewColor(bool active) {
-  if (!chromeos::features::IsJellyEnabled()) {
-    label()->SetEnabledColorId(kColorAshIconColorPrimary);
-    return;
-  }
   TrayItemView::UpdateLabelOrImageViewColor(active);
 
   label()->SetEnabledColorId(active
@@ -114,7 +110,7 @@ void ImeModeView::Update() {
   label()->SetCustomAccessibleName(description);
   label()->SetElideBehavior(gfx::NO_ELIDE);
 
-  Layout();
+  DeprecatedLayoutImmediately();
 }
 
 BEGIN_METADATA(ImeModeView)

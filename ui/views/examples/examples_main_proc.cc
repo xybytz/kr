@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
@@ -24,7 +25,6 @@
 #include "base/test/test_discardable_memory_allocator.h"
 #include "base/test/test_timeouts.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "components/viz/host/host_frame_sink_manager.h"
 #include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
@@ -55,7 +55,7 @@
 #include "ui/wm/core/wm_state.h"
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "ui/views/examples/examples_views_delegate_chromeos.h"
 #endif
 
@@ -68,6 +68,10 @@
 #include "ui/views/examples/examples_skia_gold_pixel_diff.h"
 #endif
 
+#if BUILDFLAG(IS_MAC)
+#include "ui/views/examples/examples_main_proc_mac_parts.h"
+#endif
+
 #if BUILDFLAG(IS_OZONE)
 #include "ui/ozone/public/ozone_platform.h"
 #endif
@@ -77,9 +81,15 @@ namespace views::examples {
 base::LazyInstance<base::TestDiscardableMemoryAllocator>::DestructorAtExit
     g_discardable_memory_allocator = LAZY_INSTANCE_INITIALIZER;
 
-ExamplesExitCode ExamplesMainProc(bool under_test) {
+bool g_initialized_once = false;
+
+ExamplesExitCode ExamplesMainProc(bool under_test, ExampleVector examples) {
 #if BUILDFLAG(IS_WIN)
   ui::ScopedOleInitializer ole_initializer;
+#endif
+
+#if BUILDFLAG(IS_MAC)
+  ExamplesMainProcMacParts();
 #endif
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
@@ -101,15 +111,31 @@ ExamplesExitCode ExamplesMainProc(bool under_test) {
   if (under_test)
     command_line->AppendSwitch(switches::kEnablePixelOutputInTests);
 
-  mojo::core::Init();
-
 #if BUILDFLAG(IS_OZONE)
   ui::OzonePlatform::InitParams params;
   params.single_process = true;
   ui::OzonePlatform::InitializeForGPU(params);
 #endif
 
-  gl::init::InitializeGLOneOff(/*gpu_preference=*/gl::GpuPreference::kDefault);
+  // ExamplesMainProc can be called multiple times in a test suite.
+  // These methods should only be initialized once.
+  if (!g_initialized_once) {
+    mojo::core::Init();
+
+    gl::init::InitializeGLOneOff(
+        /*gpu_preference=*/gl::GpuPreference::kDefault);
+
+    base::i18n::InitializeICU();
+
+    ui::RegisterPathProvider();
+
+    base::DiscardableMemoryAllocator::SetInstance(
+        g_discardable_memory_allocator.Pointer());
+
+    gfx::InitializeFonts();
+
+    g_initialized_once = true;
+  }
 
   // Viz depends on the task environment to correctly tear down.
   base::test::TaskEnvironment task_environment(
@@ -119,10 +145,6 @@ ExamplesExitCode ExamplesMainProc(bool under_test) {
   auto context_factories =
       std::make_unique<ui::TestContextFactories>(under_test,
                                                  /*output_to_window=*/true);
-
-  base::i18n::InitializeICU();
-
-  ui::RegisterPathProvider();
 
   base::FilePath ui_test_pak_path;
   CHECK(base::PathService::Get(ui::UI_TEST_PAK, &ui_test_pak_path));
@@ -135,11 +157,6 @@ ExamplesExitCode ExamplesMainProc(bool under_test) {
       views_examples_resources_pak_path.AppendASCII(
           "views_examples_resources.pak"),
       ui::k100Percent);
-
-  base::DiscardableMemoryAllocator::SetInstance(
-      g_discardable_memory_allocator.Pointer());
-
-  gfx::InitializeFonts();
 
   ui::ColorProviderManager::Get().AppendColorProviderInitializer(
       base::BindRepeating(&AddExamplesColorMixers));
@@ -154,9 +171,9 @@ ExamplesExitCode ExamplesMainProc(bool under_test) {
   ExamplesExitCode compare_result = ExamplesExitCode::kSucceeded;
 
   {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
     ExamplesViewsDelegateChromeOS views_delegate;
-#else  // BUILDFLAG(IS_CHROMEOS_ASH)
+#else  // BUILDFLAG(IS_CHROMEOS)
     views::DesktopTestViewsDelegate views_delegate;
 #if BUILDFLAG(IS_MAC)
     views_delegate.set_context_factory(context_factories->GetContextFactory());
@@ -164,7 +181,7 @@ ExamplesExitCode ExamplesMainProc(bool under_test) {
 #if defined(USE_AURA)
     wm::WMState wm_state;
 #endif
-#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 #if BUILDFLAG(IS_MAC)
     display::ScopedNativeScreen desktop_screen;
 #elif BUILDFLAG(ENABLE_DESKTOP_AURA)
@@ -195,7 +212,12 @@ ExamplesExitCode ExamplesMainProc(bool under_test) {
     base::test::ScopedDisableRunLoopTimeout disable_timeout;
 #endif
 
-    views::examples::ShowExamplesWindow(run_loop.QuitClosure());
+    if (examples.empty()) {
+      views::examples::ShowExamplesWindow(run_loop.QuitClosure());
+    } else {
+      views::examples::ShowExamplesWindow(run_loop.QuitClosure(),
+                                          std::move(examples));
+    }
 
     run_loop.Run();
 

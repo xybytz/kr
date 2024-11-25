@@ -6,16 +6,16 @@ import 'chrome://apps/app_list.js';
 import 'chrome://apps/app_item.js';
 import 'chrome://apps/deprecated_apps_link.js';
 
-import {AppInfo, PageRemote, RunOnOsLoginMode} from 'chrome://apps/app_home.mojom-webui.js';
-import {AppHomeEmptyPageElement} from 'chrome://apps/app_home_empty_page.js';
+import type {AppInfo, PageRemote} from 'chrome://apps/app_home.mojom-webui.js';
+import {RunOnOsLoginMode} from 'chrome://apps/app_home.mojom-webui.js';
+import type {AppHomeEmptyPageElement} from 'chrome://apps/app_home_empty_page.js';
 import {AppHomeUserAction} from 'chrome://apps/app_home_utils.js';
-import {AppListElement} from 'chrome://apps/app_list.js';
+import type {AppListElement} from 'chrome://apps/app_list.js';
 import {BrowserProxy} from 'chrome://apps/browser_proxy.js';
-import {DeprecatedAppsLinkElement} from 'chrome://apps/deprecated_apps_link.js';
-import {CrCheckboxElement} from 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.js';
-import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {waitAfterNextRender} from 'chrome://webui-test/polymer_test_util.js';
+import type {DeprecatedAppsLinkElement} from 'chrome://apps/deprecated_apps_link.js';
+import type {CrCheckboxElement} from 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.js';
+import {assertEquals, assertFalse, assertNull, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {microtasksFinished} from 'chrome://webui-test/test_util.js';
 
 import {TestAppHomeBrowserProxy} from './test_app_home_browser_proxy.js';
 
@@ -65,6 +65,7 @@ suite('AppListTest', () => {
           mayUninstall: true,
           openInWindow: false,
           isDeprecatedApp: false,
+          storePageUrl: null,
         },
         {
           id: 'ahfgeienlihckogmotestdlkjgocpleb',
@@ -80,6 +81,7 @@ suite('AppListTest', () => {
           mayUninstall: false,
           openInWindow: false,
           isDeprecatedApp: false,
+          storePageUrl: null,
         },
       ],
     };
@@ -98,6 +100,7 @@ suite('AppListTest', () => {
       openInWindow: false,
       mayUninstall: true,
       isDeprecatedApp: false,
+      storePageUrl: null,
     };
     deprecatedAppInfo = {
       id: 'mplpmdejoamenolpcojgegminhcnmibo',
@@ -126,7 +129,7 @@ suite('AppListTest', () => {
     document.body.innerHTML = window.trustedTypes!.emptyHTML;
     appListElement = document.createElement('app-list');
     document.body.appendChild(appListElement);
-    await waitAfterNextRender(appListElement);
+    await microtasksFinished();
   });
 
   test('app list present', () => {
@@ -160,7 +163,6 @@ suite('AppListTest', () => {
     // Test adding an app.
     callbackRouterRemote.addApp(testAppInfo);
     await callbackRouterRemote.$.flushForTesting();
-    flush();
     let appItemList =
         Array.from(appListElement.shadowRoot!.querySelectorAll('app-item'));
     assertTrue(
@@ -171,7 +173,6 @@ suite('AppListTest', () => {
     // Test removing an app
     callbackRouterRemote.removeApp(testAppInfo);
     await callbackRouterRemote.$.flushForTesting();
-    flush();
     appItemList =
         Array.from(appListElement.shadowRoot!.querySelectorAll('app-item'));
     assertFalse(!!appItemList.find(
@@ -283,7 +284,6 @@ suite('AppListTest', () => {
     // on or off.
     openInWindow.click();
     await callbackRouterRemote.$.flushForTesting();
-    flush();
     assertTrue(openInWindow.checked);
     assertEquals(
         1,
@@ -293,7 +293,6 @@ suite('AppListTest', () => {
 
     openInWindow.click();
     await callbackRouterRemote.$.flushForTesting();
-    flush();
     assertFalse(openInWindow.checked);
     assertEquals(
         1,
@@ -321,7 +320,6 @@ suite('AppListTest', () => {
     // on or off.
     launchOnStartup.click();
     await callbackRouterRemote.$.flushForTesting();
-    flush();
     assertTrue(launchOnStartup.checked);
     assertEquals(
         1,
@@ -331,7 +329,6 @@ suite('AppListTest', () => {
 
     launchOnStartup.click();
     await callbackRouterRemote.$.flushForTesting();
-    flush();
     assertFalse(launchOnStartup.checked);
     assertEquals(
         1,
@@ -361,7 +358,6 @@ suite('AppListTest', () => {
     // not get fired.
     launchOnStartup.click();
     await callbackRouterRemote.$.flushForTesting();
-    flush();
     assertFalse(launchOnStartup.checked);
     assertEquals(
         0,
@@ -458,7 +454,6 @@ suite('AppListTest', () => {
         .then((appId: string) => assertEquals(appId, apps.appList[1]!.id));
 
     await callbackRouterRemote.$.flushForTesting();
-    flush();
     assertEquals(
         appItem.shadowRoot!.querySelector<HTMLImageElement>('#iconImage')!.src,
         apps.appList[1]!.iconUrl.url);
@@ -563,7 +558,6 @@ suite('AppListTest', () => {
         'repeat(2, max(100% / 2, 112px))';
     callbackRouterRemote.addApp(testAppInfo);
     await callbackRouterRemote.$.flushForTesting();
-    flush();
     document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight'}));
     assertEquals(
         apps.appList[0]!.id, appListElement.shadowRoot!.activeElement?.id);
@@ -609,20 +603,19 @@ suite('AppListTest', () => {
     const deprecatedAppsLink: DeprecatedAppsLinkElement =
         document.createElement('deprecated-apps-link');
     document.body.appendChild(deprecatedAppsLink);
-    await waitAfterNextRender(deprecatedAppsLink);
+    await microtasksFinished();
 
     assertTrue(!!deprecatedAppsLink);
-    const linkContainer: HTMLElement =
+    const linkContainer =
         deprecatedAppsLink.shadowRoot!.querySelector<HTMLImageElement>(
-            '#container')!;
-    assertEquals(
-        linkContainer!.style.display, 'none', 'Deprecation link is not hidden');
+            '#container');
+    assertNull(linkContainer, 'Deprecation link is not hidden.');
 
     const appItems = appListElement.shadowRoot!.querySelectorAll('app-item');
     assertTrue(!!appItems, 'No apps.');
 
     appItems.forEach((item) => {
-      const deprecatedIcon: HTMLElement =
+      const deprecatedIcon =
           item!.shadowRoot!.querySelector<HTMLImageElement>('#deprecatedIcon')!;
       assertTrue(
           deprecatedIcon.hidden,
@@ -636,28 +629,25 @@ suite('AppListTest', () => {
     const deprecatedAppsLink: DeprecatedAppsLinkElement =
         document.createElement('deprecated-apps-link');
     document.body.appendChild(deprecatedAppsLink);
-    await waitAfterNextRender(deprecatedAppsLink);
+    await microtasksFinished();
     assertTrue(!!deprecatedAppsLink);
-    const linkContainer: HTMLElement =
+    const linkContainer =
         deprecatedAppsLink.shadowRoot!.querySelector<HTMLImageElement>(
-            '#container')!;
-    assertEquals(
-        linkContainer!.style.display, 'inline-flex',
-        'Removal link is hidden when it shouldn\'t be.');
+            '#container');
+    assertTrue(!!linkContainer);
   });
 
   test('Deprecated app icon', async () => {
     // Test adding an app.
     callbackRouterRemote.addApp(deprecatedAppInfo);
     await callbackRouterRemote.$.flushForTesting();
-    flush();
 
-    const appItems = appListElement.shadowRoot!.querySelectorAll('.item')!;
+    const appItems = appListElement.shadowRoot!.querySelectorAll('.item');
     assertTrue(!!appItems, 'No apps.');
 
     let found = false;
     appItems.forEach((item) => {
-      const deprecatedIcon: HTMLElement =
+      const deprecatedIcon =
           item!.shadowRoot!.querySelector<HTMLImageElement>('#deprecatedIcon')!;
       if (item!.id === deprecatedAppInfo.id) {
         found = true;
@@ -677,8 +667,6 @@ suite('AppListTest', () => {
     // Test adding an app.
     callbackRouterRemote.addApp(deprecatedAppInfo);
     await callbackRouterRemote.$.flushForTesting();
-    flush();
-    waitAfterNextRender(appListElement);
 
     const appItem =
         appListElement.shadowRoot!.querySelector('#' + deprecatedAppInfo.id)!;
@@ -705,17 +693,15 @@ suite('AppListTest', () => {
     callbackRouterRemote.addApp(deprecatedAppInfo);
     testBrowserProxy.fakeHandler.addAppToList(deprecatedAppInfo);
     await callbackRouterRemote.$.flushForTesting();
-    flush();
 
     const deprecatedAppsLink: DeprecatedAppsLinkElement =
         document.createElement('deprecated-apps-link');
     document.body.appendChild(deprecatedAppsLink);
-    await waitAfterNextRender(deprecatedAppsLink);
+    await microtasksFinished();
 
     assertTrue(!!deprecatedAppsLink);
-    const link: HTMLElement =
-        deprecatedAppsLink.shadowRoot!.querySelector<HTMLImageElement>(
-            '#deprecated-apps-link')!;
+    const link = deprecatedAppsLink.shadowRoot!.querySelector<HTMLImageElement>(
+        '#deprecated-apps-link')!;
 
     link.click();
 
@@ -726,13 +712,12 @@ suite('AppListTest', () => {
     const emptyPage: AppHomeEmptyPageElement =
         document.createElement('app-home-empty-page');
     document.body.appendChild(emptyPage);
-    await waitAfterNextRender(emptyPage);
+    await microtasksFinished();
 
     callbackRouterRemote.removeApp(apps.appList[0]!);
     callbackRouterRemote.removeApp(apps.appList[1]!);
     callbackRouterRemote.removeApp(deprecatedAppInfo);
     await callbackRouterRemote.$.flushForTesting();
-    flush();
 
     const appItems = appListElement.shadowRoot!.querySelectorAll('app-item');
     assertEquals(appItems.length, 0);
@@ -771,14 +756,12 @@ suite('AppListTest', () => {
     // Launch on Startup check.
     launchOnStartup.click();
     await callbackRouterRemote.$.flushForTesting();
-    flush();
     assertTrue(launchOnStartup.checked);
     assertFalse(contextMenu.hidden);
 
     // Open In Window check.
     openInWindow.click();
     await callbackRouterRemote.$.flushForTesting();
-    flush();
     assertTrue(openInWindow.checked);
     assertFalse(contextMenu.hidden);
   });

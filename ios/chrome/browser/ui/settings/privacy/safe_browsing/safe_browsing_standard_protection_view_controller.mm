@@ -8,6 +8,7 @@
 #import "base/metrics/user_metrics.h"
 #import "base/metrics/user_metrics_action.h"
 #import "components/safe_browsing/core/common/features.h"
+#import "ios/chrome/browser/keyboard/ui_bundled/UIKeyCommand+Chrome.h"
 #import "ios/chrome/browser/net/model/crurl.h"
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_info_button_cell.h"
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_switch_cell.h"
@@ -55,7 +56,7 @@ const CGFloat kSafeBrowsingStandardProtectionContentInset = 16;
 @implementation SafeBrowsingStandardProtectionViewController
 
 - (instancetype)initWithStyle:(UITableViewStyle)style {
-  if (self = [super initWithStyle:style]) {
+  if ((self = [super initWithStyle:style])) {
     // Wraps view controller to properly show navigation bar, otherwise "Done"
     // button won't show.
     self.navigationController =
@@ -131,6 +132,23 @@ const CGFloat kSafeBrowsingStandardProtectionContentInset = 16;
   return cell;
 }
 
+#pragma mark - UIResponder
+
+// To always be able to register key commands via -keyCommands, the VC must be
+// able to become first responder.
+- (BOOL)canBecomeFirstResponder {
+  return YES;
+}
+
+- (NSArray<UIKeyCommand*>*)keyCommands {
+  return @[ UIKeyCommand.cr_close ];
+}
+
+- (void)keyCommand_close {
+  base::RecordAction(base::UserMetricsAction("MobileKeyCommandClose"));
+  [self dismissViewControllerAnimated:YES completion:nil];
+}
+
 #pragma mark - SettingsControllerProtocol
 
 - (void)reportDismissalUserAction {
@@ -204,15 +222,6 @@ const CGFloat kSafeBrowsingStandardProtectionContentInset = 16;
   [super loadModel];
   TableViewModel* model = self.tableViewModel;
 
-  if (!base::FeatureList::IsEnabled(
-          safe_browsing::kFriendlierSafeBrowsingSettingsStandardProtection)) {
-    [model addSectionWithIdentifier:SectionIdentifierHeaderShield];
-    [model addSectionWithIdentifier:SectionIdentifierHeaderMetric];
-    [model setHeader:self.shieldIconHeader
-        forSectionWithIdentifier:SectionIdentifierHeaderShield];
-    [model setHeader:self.metricIconHeader
-        forSectionWithIdentifier:SectionIdentifierHeaderMetric];
-  }
   [model
       addSectionWithIdentifier:SectionIdentifierSafeBrowsingStandardProtection];
   for (TableViewItem* item in self.safeBrowsingStandardProtectionItems) {

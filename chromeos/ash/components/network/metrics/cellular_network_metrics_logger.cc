@@ -7,6 +7,7 @@
 #include "ash/constants/ash_features.h"
 #include "base/metrics/histogram_functions.h"
 
+#include "chromeos/ash/components/dbus/hermes/constants.h"
 #include "chromeos/ash/components/network/metrics/connection_info_metrics_logger.h"
 #include "chromeos/ash/components/network/metrics/connection_results.h"
 #include "chromeos/ash/components/network/network_metadata_store.h"
@@ -19,6 +20,11 @@ namespace ash {
 namespace {
 
 using ApnType = chromeos::network_config::mojom::ApnType;
+
+const base::TimeDelta kSmdsScanDurationMinimum = base::Milliseconds(1);
+const base::TimeDelta kSmdsScanDurationMaximum = base::Milliseconds(
+    ::ash::hermes_constants::kHermesNetworkOperationTimeoutMs);
+const size_t kSmdsScanDurationBuckets = 50;
 
 std::optional<CellularNetworkMetricsLogger::ApnTypes> GetApnTypes(
     std::vector<ApnType> apn_types) {
@@ -164,13 +170,21 @@ CellularNetworkMetricsLogger::~CellularNetworkMetricsLogger() = default;
 
 // static
 void CellularNetworkMetricsLogger::LogCreateCustomApnResult(
-    bool success,
-    chromeos::network_config::mojom::ApnPropertiesPtr apn) {
-  base::UmaHistogramBoolean(kCreateCustomApnResultHistogram, success);
+    CreateCustomApnResult result,
+    chromeos::network_config::mojom::ApnPropertiesPtr apn,
+    const std::optional<std::string>& shill_error) {
+  base::UmaHistogramEnumeration(kCreateCustomApnResultHistogram, result);
 
   // Only emit APN property metrics if the APN was successfully added.
-  if (!success)
+  if (result != CreateCustomApnResult::kSuccess) {
+    if (shill_error) {
+      ShillConnectResult connect_result =
+          ShillErrorToConnectResult(*shill_error);
+      base::UmaHistogramEnumeration(kCreateCustomApnShillErrorHistogram,
+                                    connect_result);
+    }
     return;
+  }
 
   base::UmaHistogramEnumeration(kCreateCustomApnAuthenticationTypeHistogram,
                                 apn->authentication);
@@ -185,6 +199,35 @@ void CellularNetworkMetricsLogger::LogCreateCustomApnResult(
   }
   base::UmaHistogramEnumeration(kCreateCustomApnApnTypesHistogram,
                                 apn_types.value());
+}
+
+// static
+void CellularNetworkMetricsLogger::LogCreateExclusivelyEnabledCustomApnResult(
+    bool success,
+    chromeos::network_config::mojom::ApnPropertiesPtr apn) {
+  base::UmaHistogramBoolean(kCreateExclusivelyEnabledCustomApnResultHistogram,
+                            success);
+
+  // Only emit APN property metrics if the APN was successfully added.
+  if (!success) {
+    return;
+  }
+
+  base::UmaHistogramEnumeration(
+      kCreateExclusivelyEnabledCustomApnAuthenticationTypeHistogram,
+      apn->authentication);
+  base::UmaHistogramEnumeration(
+      kCreateExclusivelyEnabledCustomApnIpTypeHistogram, apn->ip_type);
+
+  std::optional<CellularNetworkMetricsLogger::ApnTypes> apn_types =
+      GetApnTypes(apn->apn_types);
+  if (!apn_types.has_value()) {
+    NET_LOG(DEBUG) << "CreateExclusivelyEnabledCustomApn.ApnTypes not logged "
+                   << "for APN because it doesn't have any APN types.";
+    return;
+  }
+  base::UmaHistogramEnumeration(
+      kCreateExclusivelyEnabledCustomApnApnTypesHistogram, apn_types.value());
 }
 
 // static
@@ -268,8 +311,17 @@ void CellularNetworkMetricsLogger::LogManagedCustomApnMigrationType(
 }
 
 // static
-void CellularNetworkMetricsLogger::LogSmdsScanProfileCount(size_t count) {
-  base::UmaHistogramCounts100(kSmdsScanProfileCount, count);
+void CellularNetworkMetricsLogger::LogSmdsScanProfileCount(
+    size_t count,
+    SmdsScanMethod method) {
+  switch (method) {
+    case SmdsScanMethod::kViaPolicy:
+      base::UmaHistogramCounts100(kSmdsScanViaPolicyProfileCount, count);
+      break;
+    case SmdsScanMethod::kViaUser:
+      base::UmaHistogramCounts100(kSmdsScanViaUserProfileCount, count);
+      break;
+  }
 }
 
 // static
@@ -288,7 +340,9 @@ void CellularNetworkMetricsLogger::LogSmdsScanDuration(
     histogram =
         success ? kSmdsScanOtherDurationSuccess : kSmdsScanOtherDurationFailure;
   }
-  base::UmaHistogramTimes(histogram, duration);
+  base::UmaHistogramCustomTimes(histogram, duration, kSmdsScanDurationMinimum,
+                                kSmdsScanDurationMaximum,
+                                kSmdsScanDurationBuckets);
 }
 
 // static
@@ -301,6 +355,12 @@ void CellularNetworkMetricsLogger::LogESimUserInstallMethod(
 void CellularNetworkMetricsLogger::LogESimPolicyInstallMethod(
     ESimPolicyInstallMethod method) {
   base::UmaHistogramEnumeration(kESimPolicyInstallMethod, method);
+}
+
+// static
+void CellularNetworkMetricsLogger::LogESimPolicyInstallNoAvailableProfiles(
+    ESimPolicyInstallMethod method) {
+  base::UmaHistogramEnumeration(kESimPolicyInstallNoAvailableProfiles, method);
 }
 
 // static
@@ -407,6 +467,8 @@ bool CellularNetworkMetricsLogger::HermesResponseStatusIsUserError(
       [[fallthrough]];
     case HermesResponseStatus::kErrorModemMessageProcessing:
       [[fallthrough]];
+    case HermesResponseStatus::kErrorNoResponse:
+      [[fallthrough]];
     case HermesResponseStatus::kErrorUnknownResponse:
       return false;
     case HermesResponseStatus::kErrorAlreadyDisabled:
@@ -422,8 +484,6 @@ bool CellularNetworkMetricsLogger::HermesResponseStatusIsUserError(
     case HermesResponseStatus::kErrorNeedConfirmationCode:
       [[fallthrough]];
     case HermesResponseStatus::kErrorInvalidResponse:
-      [[fallthrough]];
-    case HermesResponseStatus::kErrorNoResponse:
       [[fallthrough]];
     case HermesResponseStatus::kErrorMalformedResponse:
       [[fallthrough]];

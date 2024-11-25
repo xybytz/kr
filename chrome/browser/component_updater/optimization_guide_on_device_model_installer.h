@@ -40,8 +40,11 @@ class OptimizationGuideOnDeviceModelInstallerPolicy
   update_client::InstallerAttributes GetInstallerAttributes() const override;
   bool AllowCachedCopies() const override;
   bool AllowUpdatesOnMeteredConnections() const override;
+  static const std::string GetOnDeviceModelExtensionId();
+  static void UpdateOnDemand();
 
  private:
+  // The on-device state manager should be accessed in the UI thread.
   scoped_refptr<optimization_guide::OnDeviceModelComponentStateManager>
       state_manager_;
 };
@@ -49,7 +52,8 @@ class OptimizationGuideOnDeviceModelInstallerPolicy
 void RegisterOptimizationGuideOnDeviceModelComponent(
     ComponentUpdateService* cus,
     scoped_refptr<optimization_guide::OnDeviceModelComponentStateManager>
-        state_manager);
+        state_manager,
+    bool is_already_installing);
 
 void UninstallOptimizationGuideOnDeviceModelComponent(
     scoped_refptr<optimization_guide::OnDeviceModelComponentStateManager>

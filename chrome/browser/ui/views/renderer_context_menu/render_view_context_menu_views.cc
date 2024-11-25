@@ -15,7 +15,6 @@
 #include "base/scoped_observation.h"
 #include "base/task/current_thread.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
@@ -34,6 +33,7 @@
 #include "ui/aura/window.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/mojom/menu_source_type.mojom-forward.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/menu/menu_host.h"
@@ -138,7 +138,7 @@ RenderViewContextMenuViews* RenderViewContextMenuViews::Create(
 
 void RenderViewContextMenuViews::RunMenuAt(views::Widget* parent,
                                            const gfx::Point& point,
-                                           ui::MenuSourceType type) {
+                                           ui::mojom::MenuSourceType type) {
   static_cast<ToolkitDelegateViews*>(toolkit_delegate())->
       RunMenuAt(parent, point, type);
 }
@@ -238,7 +238,7 @@ bool RenderViewContextMenuViews::GetAcceleratorForCommandId(
         return true;
       }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
       // Chromebooks typically do not have an F11 key, so do not show an
       // accelerator here.
       return false;
@@ -276,13 +276,11 @@ bool RenderViewContextMenuViews::GetAcceleratorForCommandId(
 #endif
 
     case IDC_CONTENT_CLIPBOARD_HISTORY_MENU:
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
       *accel = ui::Accelerator(ui::VKEY_V, ui::EF_COMMAND_DOWN);
       return true;
-#elif BUILDFLAG(IS_CHROMEOS_LACROS)
-      return false;
 #else
-      NOTREACHED_NORETURN();
+      NOTREACHED();
 #endif
     default:
       return false;
@@ -294,16 +292,24 @@ void RenderViewContextMenuViews::ExecuteCommand(int command_id,
   switch (command_id) {
     case IDC_WRITING_DIRECTION_DEFAULT:
       // WebKit's current behavior is for this menu item to always be disabled.
-      NOTREACHED_NORETURN();
+      NOTREACHED();
 
     case IDC_WRITING_DIRECTION_RTL:
     case IDC_WRITING_DIRECTION_LTR: {
-      content::RenderViewHost* view_host = GetRenderViewHost();
-      view_host->GetWidget()->UpdateTextDirection(
-          (command_id == IDC_WRITING_DIRECTION_RTL)
-              ? base::i18n::RIGHT_TO_LEFT
-              : base::i18n::LEFT_TO_RIGHT);
-      view_host->GetWidget()->NotifyTextDirection();
+      // Note: we get the local render frame host so that the writing mode
+      // settings changes apply to the correct frame. See crbug.com/1129073
+      // for a description of what happens if we use the outermost frame.
+      content::RenderFrameHost* rfh = GetRenderFrameHost();
+      // It's possible that the frame drops out from under us while the context
+      // menu is open. In this case, we'll not perform the action, but still
+      // record metrics.
+      if (rfh) {
+        rfh->GetRenderWidgetHost()->UpdateTextDirection(
+            (command_id == IDC_WRITING_DIRECTION_RTL)
+                ? base::i18n::RIGHT_TO_LEFT
+                : base::i18n::LEFT_TO_RIGHT);
+        rfh->GetRenderWidgetHost()->NotifyTextDirection();
+      }
       RenderViewContextMenu::RecordUsedItem(command_id);
       break;
     }

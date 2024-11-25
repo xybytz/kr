@@ -153,7 +153,7 @@ WebFrame::WebFrame(mojom::blink::TreeScopeType scope,
   DCHECK(frame_token.value());
 }
 
-void WebFrame::Close() {}
+void WebFrame::Close(DetachReason detach_reason) {}
 
 Frame* WebFrame::ToCoreFrame(const WebFrame& frame) {
   if (auto* web_local_frame = DynamicTo<WebLocalFrameImpl>(&frame))
@@ -161,7 +161,6 @@ Frame* WebFrame::ToCoreFrame(const WebFrame& frame) {
   if (frame.IsWebRemoteFrame())
     return To<WebRemoteFrameImpl>(frame).GetFrame();
   NOTREACHED();
-  return nullptr;
 }
 
 }  // namespace blink

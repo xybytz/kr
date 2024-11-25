@@ -22,14 +22,21 @@ public interface ModuleProvider {
      */
     void hideModule();
 
+    /**
+     * Updates the module's data if necessary. This API allows the module to decide whether to
+     * refresh the data.
+     */
+    default void updateModule() {}
+
     /** Gets the type of the module. */
     @ModuleType
     int getModuleType();
 
     /**
-     * Returns whether the given context menu item is supported. The option of
-     * ContextMenuItemId.HIDE_MODULE and ContextMenuItemId.SHOW_CUSTOMIZE_SETTINGS are supported by
-     * default.
+     * Returns whether the given context menu item is supported.
+     * ContextMenuItemId.SHOW_CUSTOMIZE_SETTINGS: supported by all modules by default;
+     * ContextMenuItemId.HIDE_MODULE: supported by all modules by default expect the {@link
+     * ModuleType.SINGLE_TAB}.
      */
     default boolean isContextMenuItemSupported(@ContextMenuItemId int menuItemId) {
         return false;
@@ -47,6 +54,9 @@ public interface ModuleProvider {
     /** Called when a context menu is created and shown. */
     void onContextMenuCreated();
 
-    /** Returns the title of the module. */
-    String getModuleTitle(Context context);
+    /** Returns the text shown on the context menu to hide the module. */
+    String getModuleContextMenuHideText(Context context);
+
+    /** Called when the module is visible to users on the magic stack. */
+    default void onViewCreated() {}
 }

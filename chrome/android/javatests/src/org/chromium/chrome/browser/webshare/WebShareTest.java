@@ -18,6 +18,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
@@ -29,7 +30,6 @@ import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
 import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.TouchCommon;
 import org.chromium.net.test.EmbeddedTestServer;
 
@@ -66,7 +66,7 @@ public class WebShareTest {
     private Intent mReceivedIntent;
 
     /** Waits until the JavaScript code supplies a result. */
-    private class WebShareUpdateWaiter extends EmptyTabObserver {
+    private static class WebShareUpdateWaiter extends EmptyTabObserver {
         private CallbackHelper mCallbackHelper;
         private String mStatus;
 
@@ -99,7 +99,7 @@ public class WebShareTest {
 
         mTab = sActivityTestRule.getActivity().getActivityTab();
         mUpdateWaiter = new WebShareUpdateWaiter();
-        TestThreadUtils.runOnUiThreadBlocking(() -> mTab.addObserver(mUpdateWaiter));
+        ThreadUtils.runOnUiThreadBlocking(() -> mTab.addObserver(mUpdateWaiter));
 
         mReceivedIntent = null;
     }
@@ -107,15 +107,11 @@ public class WebShareTest {
     @After
     public void tearDown() {
         if (mTab != null) {
-            TestThreadUtils.runOnUiThreadBlocking(() -> mTab.removeObserver(mUpdateWaiter));
+            ThreadUtils.runOnUiThreadBlocking(() -> mTab.removeObserver(mUpdateWaiter));
         }
     }
 
-    /**
-     * Verify that WebShare fails if called without a user gesture.
-     *
-     * @throws Exception
-     */
+    /** Verify that WebShare fails if called without a user gesture. */
     @Test
     @MediumTest
     @Feature({"WebShare"})
@@ -128,11 +124,7 @@ public class WebShareTest {
                 mUpdateWaiter.waitForUpdate());
     }
 
-    /**
-     * Verify WebShare fails if share of .apk is called from a user gesture.
-     *
-     * @throws Exception
-     */
+    /** Verify WebShare fails if share of .apk is called from a user gesture. */
     @Test
     @MediumTest
     @Feature({"WebShare"})
@@ -144,11 +136,7 @@ public class WebShareTest {
                 "Fail: NotAllowedError: Permission denied", mUpdateWaiter.waitForUpdate());
     }
 
-    /**
-     * Verify WebShare fails if share of .dex is called from a user gesture.
-     *
-     * @throws Exception
-     */
+    /** Verify WebShare fails if share of .dex is called from a user gesture. */
     @Test
     @MediumTest
     @Feature({"WebShare"})
@@ -160,11 +148,7 @@ public class WebShareTest {
                 "Fail: NotAllowedError: Permission denied", mUpdateWaiter.waitForUpdate());
     }
 
-    /**
-     * Verify WebShare fails if share of many files is called from a user gesture.
-     *
-     * @throws Exception
-     */
+    /** Verify WebShare fails if share of many files is called from a user gesture. */
     @Test
     @MediumTest
     @Feature({"WebShare"})
@@ -178,11 +162,7 @@ public class WebShareTest {
                 mUpdateWaiter.waitForUpdate());
     }
 
-    /**
-     * Verify WebShare fails if share of large files is called from a user gesture.
-     *
-     * @throws Exception
-     */
+    /** Verify WebShare fails if share of large files is called from a user gesture. */
     @Test
     @MediumTest
     @Feature({"WebShare"})
@@ -196,11 +176,7 @@ public class WebShareTest {
                 mUpdateWaiter.waitForUpdate());
     }
 
-    /**
-     * Verify WebShare fails if share of long text is called from a user gesture.
-     *
-     * @throws Exception
-     */
+    /** Verify WebShare fails if share of long text is called from a user gesture. */
     @Test
     @MediumTest
     @Feature({"WebShare"})
@@ -214,11 +190,7 @@ public class WebShareTest {
                 mUpdateWaiter.waitForUpdate());
     }
 
-    /**
-     * Verify WebShare fails if share of file name '/' is called from a user gesture.
-     *
-     * @throws Exception
-     */
+    /** Verify WebShare fails if share of file name '/' is called from a user gesture. */
     @Test
     @MediumTest
     @Feature({"WebShare"})

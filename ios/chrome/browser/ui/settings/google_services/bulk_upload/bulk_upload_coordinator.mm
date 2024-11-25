@@ -10,9 +10,10 @@
 #import "base/metrics/user_metrics.h"
 #import "components/sync/service/sync_service.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
 #import "ios/chrome/browser/shared/public/commands/snackbar_commands.h"
+#import "ios/chrome/browser/shared/ui/util/snackbar_util.h"
 #import "ios/chrome/browser/signin/model/identity_manager_factory.h"
 #import "ios/chrome/browser/sync/model/sync_service_factory.h"
 #import "ios/chrome/browser/ui/settings/google_services/bulk_upload/bulk_upload_coordinator_delegate.h"
@@ -34,15 +35,9 @@
   id<SnackbarCommands> _snackbarCommandsHandler;
 }
 
-@synthesize baseNavigationController = _baseNavigationController;
-
-- (instancetype)initWithBaseNavigationController:
-                    (UINavigationController*)navigationController
-                                         browser:(Browser*)browser {
-  if (self = [super initWithBaseViewController:navigationController
-                                       browser:browser]) {
-    _baseNavigationController = navigationController;
-  }
+- (instancetype)initWithBaseViewController:(UIViewController*)viewController
+                                   browser:(Browser*)browser {
+  self = [super initWithBaseViewController:viewController browser:browser];
   return self;
 }
 
@@ -56,19 +51,22 @@
   _viewController = [[BulkUploadViewController alloc] init];
   _viewController.delegate = self;
 
-  ChromeBrowserState* browserState = self.browser->GetBrowserState();
+  ProfileIOS* profile = self.browser->GetProfile();
   signin::IdentityManager* identityManager =
-      IdentityManagerFactory::GetForBrowserState(browserState);
-  syncer::SyncService* syncService =
-      SyncServiceFactory::GetForBrowserState(browserState);
+      IdentityManagerFactory::GetForProfile(profile);
+  syncer::SyncService* syncService = SyncServiceFactory::GetForProfile(profile);
   _mediator = [[BulkUploadMediator alloc] initWithSyncService:syncService
                                               identityManager:identityManager];
   _mediator.delegate = self;
   _mediator.consumer = _viewController;
   _viewController.mutator = _mediator;
 
-  [self.baseNavigationController pushViewController:_viewController
-                                           animated:YES];
+  UINavigationController* navigationController = [[UINavigationController alloc]
+      initWithRootViewController:_viewController];
+
+  [self.baseViewController presentViewController:navigationController
+                                        animated:YES
+                                      completion:nil];
 }
 
 - (void)stop {
@@ -81,7 +79,11 @@
   _viewController.mutator = nil;
   _viewController.delegate = nil;
   if (!_viewControllerIsDismissed) {
-    [self.baseNavigationController popViewControllerAnimated:YES];
+    if (_viewController.presentingViewController) {
+      [_viewController.presentingViewController
+          dismissViewControllerAnimated:YES
+                             completion:nil];
+    }
   }
   _viewController = nil;
 }
@@ -117,7 +119,7 @@
 
 - (void)displayInSnackbar:(NSString*)message {
   [self.snackbarCommandsHandler
-      showSnackbarMessage:[MDCSnackbarMessage messageWithText:message]];
+      showSnackbarMessage:CreateSnackbarMessage(message)];
 }
 
 @end

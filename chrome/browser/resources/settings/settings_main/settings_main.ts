@@ -7,12 +7,12 @@
  * 'settings-main' displays the selected settings page.
  */
 import 'chrome://resources/cr_components/managed_footnote/managed_footnote.js';
-import 'chrome://resources/cr_components/settings_prefs/prefs.js';
+import '/shared/settings/prefs/prefs.js';
 import 'chrome://resources/cr_elements/cr_shared_style.css.js';
 import 'chrome://resources/cr_elements/cr_hidden_style.css.js';
 import 'chrome://resources/cr_elements/icons.html.js';
 import 'chrome://resources/js/search_highlight_utils.js';
-import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
+import 'chrome://resources/cr_elements/cr_icon/cr_icon.js';
 import '../about_page/about_page.js';
 import '../basic_page/basic_page.js';
 import '../search_settings.js';
@@ -23,7 +23,7 @@ import {getInstance as getAnnouncerInstance} from 'chrome://resources/cr_element
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {loadTimeData} from '../i18n_setup.js';
-import {PageVisibility} from '../page_visibility.js';
+import type {PageVisibility} from '../page_visibility.js';
 import {routes} from '../route.js';
 import {RouteObserverMixin, Router} from '../router.js';
 
@@ -107,7 +107,7 @@ export class SettingsMainElement extends SettingsMainElementBase {
   private showNoResultsFound_: boolean;
   private showingSubpage_: boolean;
   toolbarSpinnerActive: boolean;
-  pageVisibility: PageVisibility;
+  pageVisibility?: PageVisibility;
 
   /**
    * Updates the hidden state of the about and settings pages based on the

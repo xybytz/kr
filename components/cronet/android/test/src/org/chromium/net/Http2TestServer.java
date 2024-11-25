@@ -6,7 +6,6 @@ package org.chromium.net;
 
 import android.content.Context;
 import android.os.Build;
-import android.os.ConditionVariable;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
@@ -34,7 +33,10 @@ import org.chromium.base.Log;
 import org.chromium.net.test.util.CertTestUtil;
 
 import java.io.File;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /** Wrapper class to start a HTTP/2 test server. */
 public final class Http2TestServer {
@@ -49,9 +51,11 @@ public final class Http2TestServer {
 
     public static final String SERVER_CERT_PEM;
     private static final String SERVER_KEY_PKCS8_PEM;
+    // Used to start http2 test server.
+    private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(1);
 
     static {
-        // TODO(crbug/1490552): Fallback to MockCertVerifier when custom CAs are not supported.
+        // TODO(crbug.com/40284777): Fallback to MockCertVerifier when custom CAs are not supported.
         // Currently, MockCertVerifier uses different certificates, so make the server also use
         // those.
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.M) {
@@ -126,7 +130,16 @@ public final class Http2TestServer {
         return getServerUrl() + Http2TestHandler.SERVE_SIMPLE_BROTLI_RESPONSE;
     }
 
-    /** @return url of the reporting collector */
+    /**
+     * @return url of a shared-brotli-encoded server resource.
+     */
+    public static String getServeSharedBrotliResponse() {
+        return getServerUrl() + Http2TestHandler.SERVE_SHARED_BROTLI_RESPONSE;
+    }
+
+    /**
+     * @return url of the reporting collector
+     */
     public static String getReportingCollectorUrl() {
         return getServerUrl() + Http2TestHandler.REPORTING_COLLECTOR_PATH;
     }
@@ -165,15 +178,16 @@ public final class Http2TestServer {
                         new File(CertTestUtil.CERTS_DIRECTORY + certFileName),
                         new File(CertTestUtil.CERTS_DIRECTORY + keyFileName),
                         hangingUrlLatch);
-        new Thread(http2TestServerRunnable).start();
-        http2TestServerRunnable.blockUntilStarted();
-        return true;
+        // This will run synchronously as we can't run the test before we have
+        // started the test-server, if the test-server has failed to start then
+        // the caller should assert on the value returned to make sure that the test
+        // fails if the server has failed to start up.
+        return EXECUTOR.submit(http2TestServerRunnable).get();
     }
 
     private Http2TestServer() {}
 
-    private static class Http2TestServerRunnable implements Runnable {
-        private final ConditionVariable mBlock = new ConditionVariable();
+    private static class Http2TestServerRunnable implements Callable<Boolean> {
         private final SslContext mSslCtx;
         private final CountDownLatch mHangingUrlLatch;
 
@@ -204,46 +218,34 @@ public final class Http2TestServer {
             mHangingUrlLatch = hangingUrlLatch;
         }
 
-        public void blockUntilStarted() {
-            mBlock.block();
-        }
-
         @Override
-        public void run() {
-            boolean retry = false;
-            do {
+        public Boolean call() throws Exception {
+            for(int retries = 0; retries < 10; retries++) {
                 try {
                     // Configure the server.
                     EventLoopGroup group = new NioEventLoopGroup();
-                    try {
-                        ServerBootstrap b = new ServerBootstrap();
-                        b.option(ChannelOption.SO_BACKLOG, 1024);
-                        b.group(group)
-                                .channel(NioServerSocketChannel.class)
-                                .handler(new LoggingHandler(LogLevel.INFO))
-                                .childHandler(
-                                        new Http2ServerInitializer(mSslCtx, mHangingUrlLatch));
+                    ServerBootstrap b = new ServerBootstrap();
+                    b.option(ChannelOption.SO_BACKLOG, 1024);
+                    b.group(group)
+                            .channel(NioServerSocketChannel.class)
+                            .handler(new LoggingHandler(LogLevel.INFO))
+                            .childHandler(new Http2ServerInitializer(mSslCtx, mHangingUrlLatch));
 
-                        sServerChannel = b.bind(PORT).sync().channel();
-                        Log.i(TAG, "Netty HTTP/2 server started on " + getServerUrl());
-                        mBlock.open();
-                        sServerChannel.closeFuture().sync();
-                    } finally {
-                        group.shutdownGracefully();
-                    }
-                    Log.i(TAG, "Stopped Http2TestServerRunnable!");
-                    retry = false;
+                    sServerChannel = b.bind(PORT).sync().channel();
+                    Log.i(TAG, "Netty HTTP/2 server started on " + getServerUrl());
+                    return true;
                 } catch (Exception e) {
-                    Log.e(TAG, "Netty server failed to start", e);
-                    // Retry once if we hit https://github.com/netty/netty/issues/2616 before the
-                    // server starts.
-                    retry =
-                            !retry
-                                    && sServerChannel == null
-                                    && e.toString()
-                                            .contains("java.nio.channels.ClosedChannelException");
+                    // Netty test server fails to startup and this is a common issue
+                    // https://github.com/netty/netty/issues/2616. It is not well understood
+                    // why this is happening or how to fix it, we can workaround this by
+                    // trying to restart the server several times before giving up.
+                    // See crbug/1519471 for more information.
+                    Log.w(TAG, "Netty server failed to start", e);
+                    // Sleep for half a second before trying again.
+                    Thread.sleep(/* milliseconds = */ 500);
                 }
-            } while (retry);
+            }
+            return false;
         }
     }
 

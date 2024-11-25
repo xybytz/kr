@@ -37,16 +37,18 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.ui.R;
 import org.chromium.ui.accessibility.AccessibilityState;
 import org.chromium.ui.base.MimeTypeUtils;
+import org.chromium.ui.base.UiAndroidFeatureList;
+import org.chromium.ui.base.UiAndroidFeatureMap;
 import org.chromium.ui.dragdrop.AnimatedImageDragShadowBuilder.CursorOffset;
 import org.chromium.ui.dragdrop.AnimatedImageDragShadowBuilder.DragShadowSpec;
+import org.chromium.ui.dragdrop.DragDropMetricUtils.UrlIntentSource;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
 /**
- * Drag and drop helper class in charge of building the clip data, wrapping calls to
- * {@link android.view.View#startDragAndDrop}. Also used for mocking out real function calls to
- * Android.
+ * Drag and drop helper class in charge of building the clip data, wrapping calls to {@link
+ * android.view.View#startDragAndDrop}. Also used for mocking out real function calls to Android.
  */
 public class DragAndDropDelegateImpl implements DragAndDropDelegate, DragStateTracker {
     /**
@@ -110,6 +112,7 @@ public class DragAndDropDelegateImpl implements DragAndDropDelegate, DragStateTr
             @NonNull View containerView,
             @NonNull Bitmap shadowImage,
             @NonNull DropDataAndroid dropData,
+            @NonNull Context context,
             int cursorOffsetX,
             int cursorOffsetY,
             int dragObjRectWidth,
@@ -120,6 +123,7 @@ public class DragAndDropDelegateImpl implements DragAndDropDelegate, DragStateTr
         View.DragShadowBuilder dragShadowBuilder =
                 createDragShadowBuilder(
                         containerView,
+                        context,
                         shadowImage,
                         dropData.hasImage(),
                         windowWidth,
@@ -152,7 +156,8 @@ public class DragAndDropDelegateImpl implements DragAndDropDelegate, DragStateTr
             @NonNull DragShadowBuilder dragShadowBuilder,
             @NonNull DropDataAndroid dropData) {
         ClipData clipdata = buildClipData(dropData);
-        if (clipdata == null) {
+        if (clipdata == null
+                && !UiAndroidFeatureMap.isEnabled(UiAndroidFeatureList.DRAG_DROP_EMPTY)) {
             return false;
         }
 
@@ -252,21 +257,13 @@ public class DragAndDropDelegateImpl implements DragAndDropDelegate, DragStateTr
                 if (cachedUri == null) {
                     return null;
                 }
-                ClipData clipData =
-                        ClipData.newUri(
-                                ContextUtils.getApplicationContext().getContentResolver(),
-                                null,
-                                cachedUri);
-                if (dropData.hasLink()) {
-                    clipData.addItem(
-                            ContextUtils.getApplicationContext().getContentResolver(),
-                            new Item(dropData.gurl.getSpec()));
-                }
-                return clipData;
+                return ClipData.newUri(
+                        ContextUtils.getApplicationContext().getContentResolver(), null, cachedUri);
             case DragTargetType.LINK:
                 if (mDragAndDropBrowserDelegate != null) {
                     Intent intent =
-                            mDragAndDropBrowserDelegate.createLinkIntent(dropData.gurl.getSpec());
+                            mDragAndDropBrowserDelegate.createUrlIntent(
+                                    dropData.gurl.getSpec(), UrlIntentSource.LINK);
                     if (intent != null) {
                         return new ClipData(
                                 null,
@@ -292,7 +289,10 @@ public class DragAndDropDelegateImpl implements DragAndDropDelegate, DragStateTr
 
     protected int buildFlags(DropDataAndroid dropData) {
         if (dropData.hasBrowserContent()) {
-            return View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_OPAQUE;
+            int flag = View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_OPAQUE;
+            return mDragAndDropBrowserDelegate == null
+                    ? flag
+                    : mDragAndDropBrowserDelegate.buildFlags(flag, dropData);
         }
         int flag = 0;
         if (dropData.isPlainText() || dropData.hasLink()) {
@@ -311,6 +311,7 @@ public class DragAndDropDelegateImpl implements DragAndDropDelegate, DragStateTr
 
     protected View.DragShadowBuilder createDragShadowBuilder(
             View containerView,
+            Context context,
             Bitmap shadowImage,
             boolean isImage,
             int windowWidth,
@@ -319,7 +320,6 @@ public class DragAndDropDelegateImpl implements DragAndDropDelegate, DragStateTr
             int cursorOffsetY,
             int dragObjRectWidth,
             int dragObjRectHeight) {
-        Context context = containerView.getContext();
         ImageView imageView = new ImageView(context);
         if (isImage) {
             // If drag shadow image is an 1*1 image, it is not considered as a valid drag shadow.
@@ -360,6 +360,7 @@ public class DragAndDropDelegateImpl implements DragAndDropDelegate, DragStateTr
                                     dragShadowSpec);
                     return new AnimatedImageDragShadowBuilder(
                             containerView,
+                            context,
                             shadowImage,
                             cursorOffset.x,
                             cursorOffset.y,
@@ -433,7 +434,7 @@ public class DragAndDropDelegateImpl implements DragAndDropDelegate, DragStateTr
                 "Android.DragDrop.FromWebContent.DropInWebContent.DistanceDip", dropDistance, 51);
 
         long dropDuration = SystemClock.elapsedRealtime() - mDragStartSystemElapsedTime;
-        RecordHistogram.recordMediumTimesHistogram(
+        RecordHistogram.deprecatedRecordMediumTimesHistogram(
                 "Android.DragDrop.FromWebContent.DropInWebContent.Duration", dropDuration);
     }
 
@@ -456,19 +457,23 @@ public class DragAndDropDelegateImpl implements DragAndDropDelegate, DragStateTr
         // Only record metrics when drop does not happen for ContentView.
         if (!mIsDropOnView) {
             assert mDragStartSystemElapsedTime > 0;
-            assert mDragTargetType != DragTargetType.INVALID;
+            assert mDragTargetType != DragTargetType.INVALID
+                    || UiAndroidFeatureMap.isEnabled(UiAndroidFeatureList.DRAG_DROP_EMPTY);
             long dragDuration = SystemClock.elapsedRealtime() - mDragStartSystemElapsedTime;
             recordDragDurationAndResult(dragDuration, dragResult);
             recordDragTargetType(mDragTargetType);
         }
-
-        DropDataProviderUtils.clearImageCache(!mIsDropOnView && dragResult);
+        // Allow drop into ContentView when files are supported by clank.
+        boolean imageInUse =
+                !mIsDropOnView
+                        || UiAndroidFeatureMap.isEnabled(UiAndroidFeatureList.DRAG_DROP_FILES);
+        DropDataProviderUtils.clearImageCache(imageInUse && dragResult);
     }
 
     /**
      * Return the {@link DragTargetType} based on the content of DropDataAndroid. The result will
-     * bias plain text > image > link.
-     * TODO(https://crbug.com/1299994): Manage the ClipData bias with EventForwarder in one place.
+     * bias plain text > image > link. TODO(crbug.com/40823936): Manage the ClipData bias with
+     * EventForwarder in one place.
      */
     static @DragTargetType int getDragTargetType(DropDataAndroid dropDataAndroid) {
         if (dropDataAndroid.hasBrowserContent()) {
@@ -508,7 +513,7 @@ public class DragAndDropDelegateImpl implements DragAndDropDelegate, DragStateTr
     private void recordDragDurationAndResult(long duration, boolean result) {
         String histogramPrefix = "Android.DragDrop.FromWebContent.Duration.";
         String suffix = result ? "Success" : "Canceled";
-        RecordHistogram.recordMediumTimesHistogram(histogramPrefix + suffix, duration);
+        RecordHistogram.deprecatedRecordMediumTimesHistogram(histogramPrefix + suffix, duration);
     }
 
     @VisibleForTesting

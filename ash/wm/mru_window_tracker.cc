@@ -4,10 +4,11 @@
 
 #include "ash/wm/mru_window_tracker.h"
 
-#include "ash/constants/app_types.h"
+#include <vector>
+
+#include "ash/focus/ash_focus_rules.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
-#include "ash/wm/ash_focus_rules.h"
 #include "ash/wm/desks/desk.h"
 #include "ash/wm/desks/desks_controller.h"
 #include "ash/wm/desks/desks_util.h"
@@ -20,7 +21,10 @@
 #include "base/containers/adapters.h"
 #include "base/containers/contains.h"
 #include "base/memory/raw_ptr.h"
+#include "base/notreached.h"
 #include "base/ranges/algorithm.h"
+#include "chromeos/ui/base/app_types.h"
+#include "chromeos/ui/base/window_properties.h"
 #include "components/app_restore/window_properties.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
@@ -37,7 +41,7 @@ using WindowList = MruWindowTracker::WindowList;
 // A class that observes a window that should not be destroyed inside a certain
 // scope. This class is added to investigate crbug.com/937381 to see if it's
 // possible that a window is destroyed while building up the mru window list.
-// TODO(crbug.com/937381): Remove this class once we figure out the reason.
+// TODO(crbug.com/41444457): Remove this class once we figure out the reason.
 class ScopedWindowClosingObserver : public aura::WindowObserver {
  public:
   explicit ScopedWindowClosingObserver(aura::Window* window) : window_(window) {
@@ -54,7 +58,7 @@ class ScopedWindowClosingObserver : public aura::WindowObserver {
   }
 
   // aura::WindowObserver:
-  void OnWindowDestroyed(aura::Window* window) override { CHECK(false); }
+  void OnWindowDestroyed(aura::Window* window) override { NOTREACHED(); }
 
  private:
   raw_ptr<aura::Window> window_;
@@ -74,7 +78,7 @@ bool IsNonSysModalWindowConsideredActivatable(aura::Window* window) {
 
   // Exclude system modal because we only care about non systm modal windows.
   if (window->GetProperty(aura::client::kModalKey) ==
-      static_cast<int>(ui::MODAL_TYPE_SYSTEM)) {
+      ui::mojom::ModalType::kSystem) {
     return false;
   }
 
@@ -112,7 +116,7 @@ bool CanIncludeWindowInCycleWithPipList(aura::Window* window) {
           window->GetProperty(ash::kPipOriginalWindowKey));
 }
 
-// Returns a list of windows ordered by their stacking order such that the most
+// Returns a list of windows ordered by their usage recency such that the most
 // recently used window is at the front of the list.
 // If |mru_windows| is passed, these windows are moved to the front of the list.
 // If |desks_mru_type| is `kAllDesks`, then all active and inactive desk
@@ -162,6 +166,7 @@ MruWindowTracker::WindowList BuildWindowListInternal(
         if (!can_include_window_predicate(window))
           continue;
 
+        DCHECK(!window->GetProperty(kExcludeInMruKey));
         windows.emplace_back(window);
       }
     }
@@ -225,6 +230,11 @@ bool CanIncludeWindowInMruList(aura::Window* window) {
          !window->GetProperty(kOverviewUiKey);
 }
 
+bool CanIncludeWindowInAppMruList(aura::Window* window) {
+  return window->GetProperty(chromeos::kAppTypeKey) !=
+         chromeos::AppType::NON_APP;
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // MruWindowTracker, public:
 
@@ -241,11 +251,8 @@ MruWindowTracker::~MruWindowTracker() {
 
 WindowList MruWindowTracker::BuildAppWindowList(
     DesksMruType desks_mru_type) const {
-  return BuildWindowListInternal(
-      &mru_windows_, desks_mru_type, [](aura::Window* w) {
-        return w->GetProperty(aura::client::kAppType) !=
-               static_cast<int>(ash::AppType::NON_APP);
-      });
+  return BuildWindowListInternal(&mru_windows_, desks_mru_type,
+                                 CanIncludeWindowInAppMruList);
 }
 
 WindowList MruWindowTracker::BuildMruWindowList(
@@ -301,7 +308,7 @@ void MruWindowTracker::OnWindowAlteredByWindowRestore(aura::Window* window) {
   // If nothing was erased, this is a window not currently observed so we want
   // to observe it as windows created from window restore aren't activated on
   // creation.
-  size_t num_erased = base::Erase(mru_windows_, window);
+  size_t num_erased = std::erase(mru_windows_, window);
   if (num_erased == 0u)
     window->AddObserver(this);
 
@@ -345,7 +352,7 @@ void MruWindowTracker::OnWindowDestroyed(aura::Window* window) {
   // It's possible for OnWindowActivated() to be called after
   // OnWindowDestroying(). This means we need to override OnWindowDestroyed()
   // else we may end up with a deleted window in |mru_windows_|.
-  base::Erase(mru_windows_, window);
+  std::erase(mru_windows_, window);
   window->RemoveObserver(this);
 }
 

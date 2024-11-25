@@ -8,13 +8,9 @@
 #import <Foundation/Foundation.h>
 
 #include "components/signin/public/base/signin_metrics.h"
+#include "ios/chrome/browser/ui/authentication/signin/signin_constants.h"
 
-@class SigninCompletionInfo;
-typedef NS_ENUM(NSUInteger, SigninCoordinatorResult);
 @protocol SystemIdentity;
-
-using ShowSigninCommandCompletionCallback =
-    void (^)(SigninCoordinatorResult result, SigninCompletionInfo*);
 
 enum class AuthenticationOperation {
   // Operation to start a re-authenticate operation. The user is presented with
@@ -22,13 +18,10 @@ enum class AuthenticationOperation {
   // is a primary account. Please note that the primary account can disappear
   // (for external reasons) when the reauth is in progress.
   kPrimaryAccountReauth,
-  // Operation to start a re-authenticate operation. The user is presented with
-  // the SSOAuth re-authenticate dialog. This command can only be used if there
-  // is no primary account.
-  kSigninAndSyncReauth,
-  // Operation to start a sign-in and sync operation. The user is presented with
-  // the sign-in page with the user consent.
-  kSigninAndSync,
+  // Operation to sign-in again with the previously signed-in account. The user
+  // is presented with the SSOAuth dialog. This command can only be used if
+  // there is no primary account.
+  kResignin,
   // Operation to start a sign-in only operation. The user is presented with
   // the consistency web sign-in dialog.
   kSigninOnly,
@@ -39,11 +32,6 @@ enum class AuthenticationOperation {
   // Operation to start a forced sign-in operation. The user is presented with
   // the sign-in page with information about the policy and cannot dimiss it.
   kForcedSigninAndSync,
-  // Operation to start a sign-in and sync operation. The user is presented with
-  // the sign-in page with the user consent. The views are the newer FRE style
-  // views with the first being a screen that asks the user if they want to
-  // sign in and the second being the "tangible sync" screen.
-  kSigninAndSyncWithTwoScreens,
   // Operation to trigger sign-in only operation, without presenting UI if an
   // identity is selected in `-ShowSigninCommand.identity`. Otherwise,
   // a dialog to choose an identity is presented and the user is signed in as
@@ -70,16 +58,17 @@ enum class AuthenticationOperation {
                          identity:(id<SystemIdentity>)identity
                       accessPoint:(signin_metrics::AccessPoint)accessPoint
                       promoAction:(signin_metrics::PromoAction)promoAction
-                         callback:(ShowSigninCommandCompletionCallback)callback
+                       completion:
+                           (SigninCoordinatorCompletionCallback)completion
     NS_DESIGNATED_INITIALIZER;
 
-// Initializes a ShowSigninCommand with `identity` and `callback` set to nil.
+// Initializes a ShowSigninCommand with `identity` and `completion` set to nil.
 - (instancetype)initWithOperation:(AuthenticationOperation)operation
                       accessPoint:(signin_metrics::AccessPoint)accessPoint
                       promoAction:(signin_metrics::PromoAction)promoAction;
 
 // Initializes a ShowSigninCommand with PROMO_ACTION_NO_SIGNIN_PROMO and a nil
-// callback.
+// completion.
 - (instancetype)initWithOperation:(AuthenticationOperation)operation
                       accessPoint:(signin_metrics::AccessPoint)accessPoint;
 
@@ -88,9 +77,9 @@ enum class AuthenticationOperation {
 // Default value: NO.
 @property(nonatomic, assign) BOOL skipIfUINotAvaible;
 
-// The callback to be invoked after the operation is complete.
+// The completion to be invoked after the operation is complete.
 @property(nonatomic, copy, readonly)
-    ShowSigninCommandCompletionCallback callback;
+    SigninCoordinatorCompletionCallback completion;
 
 // The operation to perform during the sign-in flow.
 @property(nonatomic, readonly) AuthenticationOperation operation;

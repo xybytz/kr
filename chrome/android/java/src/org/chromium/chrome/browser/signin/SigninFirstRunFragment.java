@@ -34,20 +34,23 @@ import org.chromium.chrome.browser.firstrun.FirstRunUtils;
 import org.chromium.chrome.browser.firstrun.MobileFreProgress;
 import org.chromium.chrome.browser.firstrun.SkipTosDialogPolicyListener;
 import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManagerImpl;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.profiles.ProfileProvider;
 import org.chromium.chrome.browser.ui.device_lock.DeviceLockCoordinator;
 import org.chromium.chrome.browser.ui.signin.SigninUtils;
-import org.chromium.chrome.browser.ui.signin.fre.SigninFirstRunCoordinator;
-import org.chromium.chrome.browser.ui.signin.fre.SigninFirstRunView;
+import org.chromium.chrome.browser.ui.signin.fullscreen_signin.FullscreenSigninConfig;
+import org.chromium.chrome.browser.ui.signin.fullscreen_signin.FullscreenSigninCoordinator;
+import org.chromium.chrome.browser.ui.signin.fullscreen_signin.FullscreenSigninView;
 import org.chromium.components.browser_ui.device_lock.DeviceLockActivityLauncher;
 import org.chromium.components.signin.AccountManagerFacadeProvider;
+import org.chromium.components.signin.metrics.SigninAccessPoint;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.modaldialog.ModalDialogManagerHolder;
 
 /** This fragment handles the sign-in without sync consent during the FRE. */
 public class SigninFirstRunFragment extends Fragment
         implements FirstRunFragment,
-                SigninFirstRunCoordinator.Delegate,
+                FullscreenSigninCoordinator.Delegate,
                 DeviceLockCoordinator.Delegate {
     @VisibleForTesting static final int ADD_ACCOUNT_REQUEST_CODE = 1;
 
@@ -56,7 +59,7 @@ public class SigninFirstRunFragment extends Fragment
     private View mMainView;
     private ModalDialogManager mModalDialogManager;
     private SkipTosDialogPolicyListener mSkipTosDialogPolicyListener;
-    private SigninFirstRunCoordinator mSigninFirstRunCoordinator;
+    private FullscreenSigninCoordinator mFullscreenSigninCoordinator;
     private DeviceLockCoordinator mDeviceLockCoordinator;
     private boolean mExitFirstRunCalled;
     private boolean mDelayedExitFirstRunCalledForTesting;
@@ -67,12 +70,14 @@ public class SigninFirstRunFragment extends Fragment
     public void onAttach(Context context) {
         super.onAttach(context);
         mModalDialogManager = ((ModalDialogManagerHolder) getActivity()).getModalDialogManager();
-        mSigninFirstRunCoordinator =
-                new SigninFirstRunCoordinator(
+        mFullscreenSigninCoordinator =
+                new FullscreenSigninCoordinator(
                         requireContext(),
                         mModalDialogManager,
                         this,
-                        PrivacyPreferencesManagerImpl.getInstance());
+                        PrivacyPreferencesManagerImpl.getInstance(),
+                        new FullscreenSigninConfig(),
+                        SigninAccessPoint.START_PAGE);
 
         if (getPageDelegate().isLaunchedFromCct()) {
             mSkipTosDialogPolicyListener =
@@ -95,7 +100,7 @@ public class SigninFirstRunFragment extends Fragment
             mSkipTosDialogPolicyListener.destroy();
             mSkipTosDialogPolicyListener = null;
         }
-        mSigninFirstRunCoordinator.destroy();
+        mFullscreenSigninCoordinator.destroy();
     }
 
     @Override
@@ -111,7 +116,7 @@ public class SigninFirstRunFragment extends Fragment
                 inflateFragmentView(
                         (LayoutInflater)
                                 getActivity().getSystemService(Context.LAYOUT_INFLATER_SERVICE),
-                        newConfig);
+                        getActivity());
         mFragmentView.addView(mMainView);
     }
 
@@ -119,7 +124,7 @@ public class SigninFirstRunFragment extends Fragment
     public View onCreateView(
             LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         mFragmentView = new FrameLayout(getActivity());
-        mMainView = inflateFragmentView(inflater, getResources().getConfiguration());
+        mMainView = inflateFragmentView(inflater, getActivity());
         mFragmentView.addView(mMainView);
 
         return mFragmentView;
@@ -132,7 +137,7 @@ public class SigninFirstRunFragment extends Fragment
                 && data != null) {
             String addedAccountName = data.getStringExtra(AccountManager.KEY_ACCOUNT_NAME);
             if (addedAccountName != null) {
-                mSigninFirstRunCoordinator.onAccountSelected(addedAccountName);
+                mFullscreenSigninCoordinator.onAccountSelected(addedAccountName);
             }
         }
     }
@@ -150,10 +155,10 @@ public class SigninFirstRunFragment extends Fragment
     /** Implements {@link FirstRunFragment}. */
     @Override
     public void reset() {
-        mSigninFirstRunCoordinator.reset();
+        mFullscreenSigninCoordinator.reset();
     }
 
-    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    /** Implements {@link FullscreenSigninCoordinator.Delegate}. */
     @Override
     public void addAccount() {
         recordFreProgressHistogram(MobileFreProgress.WELCOME_ADD_ACCOUNT);
@@ -171,37 +176,37 @@ public class SigninFirstRunFragment extends Fragment
                         });
     }
 
-    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    /** Implements {@link FullscreenSigninCoordinator.Delegate}. */
     @Override
     public void acceptTermsOfService(boolean allowMetricsAndCrashUploading) {
         getPageDelegate().acceptTermsOfService(allowMetricsAndCrashUploading);
     }
 
-    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    /** Implements {@link FullscreenSigninCoordinator.Delegate}. */
     @Override
     public void advanceToNextPage() {
         getPageDelegate().advanceToNextPage();
     }
 
-    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    /** Implements {@link FullscreenSigninCoordinator.Delegate}. */
     @Override
     public void recordFreProgressHistogram(@MobileFreProgress int state) {
         getPageDelegate().recordFreProgressHistogram(state);
     }
 
-    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    /** Implements {@link FullscreenSigninCoordinator.Delegate}. */
     @Override
     public void recordNativePolicyAndChildStatusLoadedHistogram() {
         getPageDelegate().recordNativePolicyAndChildStatusLoadedHistogram();
     }
 
-    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    /** Implements {@link FullscreenSigninCoordinator.Delegate}. */
     @Override
     public void recordNativeInitializedHistogram() {
         getPageDelegate().recordNativeInitializedHistogram();
     }
 
-    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    /** Implements {@link FullscreenSigninCoordinator.Delegate}. */
     @Override
     public void showInfoPage(@StringRes int url) {
         getPageDelegate().showInfoPage(url);
@@ -212,22 +217,34 @@ public class SigninFirstRunFragment extends Fragment
         return getPageDelegate().getProfileProviderSupplier();
     }
 
-    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    /** Implements {@link FullscreenSigninCoordinator.Delegate}. */
     @Override
     public OneshotSupplier<Boolean> getPolicyLoadListener() {
         return getPageDelegate().getPolicyLoadListener();
     }
 
-    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    /** Implements {@link FullscreenSigninCoordinator.Delegate}. */
     @Override
     public OneshotSupplier<Boolean> getChildAccountStatusSupplier() {
         return getPageDelegate().getChildAccountStatusSupplier();
     }
 
-    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    /** Implements {@link FullscreenSigninCoordinator.Delegate}. */
     @Override
     public Promise<Void> getNativeInitializationPromise() {
         return getPageDelegate().getNativeInitializationPromise();
+    }
+
+    /** Implements {@link FullscreenSigninCoordinator.Delegate}. */
+    @Override
+    public boolean shouldDisplayManagementNoticeOnManagedDevices() {
+        return true;
+    }
+
+    /** Implements {@link FullscreenSigninCoordinator.Delegate}. */
+    @Override
+    public boolean shouldDisplayFooterText() {
+        return true;
     }
 
     @MainThread
@@ -252,32 +269,32 @@ public class SigninFirstRunFragment extends Fragment
         }
     }
 
-    private View inflateFragmentView(LayoutInflater inflater, Configuration configuration) {
-        // Since the landscape view has two panes the minimum screenWidth to show it is set to
-        // 600dp for phones.
-        boolean useLandscapeLayout =
-                getPageDelegate().canUseLandscapeLayout()
-                        && configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                        && configuration.screenWidthDp >= 600;
+    private View inflateFragmentView(LayoutInflater inflater, Activity activity) {
+        boolean useLandscapeLayout = SigninUtils.shouldShowDualPanesHorizontalLayout(activity);
 
-        final SigninFirstRunView view =
-                (SigninFirstRunView)
+        final FullscreenSigninView view =
+                (FullscreenSigninView)
                         inflater.inflate(
                                 useLandscapeLayout
-                                        ? R.layout.signin_first_run_landscape_view
-                                        : R.layout.signin_first_run_portrait_view,
+                                        ? R.layout.fullscreen_signin_landscape_view
+                                        : R.layout.fullscreen_signin_portrait_view,
                                 null,
                                 false);
-        mSigninFirstRunCoordinator.setView(view);
+        mFullscreenSigninCoordinator.setView(view);
         return view;
     }
 
-    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    /** Implements {@link FullscreenSigninCoordinator.Delegate}. */
     @Override
     public void displayDeviceLockPage(Account selectedAccount) {
+        Profile profile = ProfileProvider.getOrCreateProfile(getProfileSupplier().get(), false);
         mDeviceLockCoordinator =
                 new DeviceLockCoordinator(
-                        this, getPageDelegate().getWindowAndroid(), getActivity(), selectedAccount);
+                        this,
+                        getPageDelegate().getWindowAndroid(),
+                        profile,
+                        getActivity(),
+                        selectedAccount);
     }
 
     /** Implements {@link DeviceLockCoordinator.Delegate}. */
@@ -296,14 +313,19 @@ public class SigninFirstRunFragment extends Fragment
         if (mDeviceLockCoordinator != null) {
             mDeviceLockCoordinator.destroy();
             mDeviceLockCoordinator = null;
-            mSigninFirstRunCoordinator.continueSignIn();
+
+            // Hold off on continuing sign-in if the delegate is null (due to the host activity
+            // being killed in the background.
+            if (getPageDelegate() != null) {
+                mFullscreenSigninCoordinator.continueSignIn();
+            }
         }
     }
 
     /** Implements {@link DeviceLockCoordinator.Delegate}. */
     @Override
     public void onDeviceLockRefused() {
-        mSigninFirstRunCoordinator.cancelSignInAndDismiss();
+        mFullscreenSigninCoordinator.cancelSignInAndDismiss();
     }
 
     @Override

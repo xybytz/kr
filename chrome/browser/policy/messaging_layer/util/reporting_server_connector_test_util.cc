@@ -27,7 +27,6 @@
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
 #include "components/policy/core/common/cloud/device_management_service.h"
 #include "components/policy/core/common/cloud/dm_token.h"
-#include "components/policy/core/common/cloud/encrypted_reporting_job_configuration.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_client.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_service.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_store.h"
@@ -81,13 +80,14 @@ ReportingServerConnector::TestEnvironment::TestEnvironment()
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   fake_statistics_provider_ =
       std::make_unique<ash::system::ScopedFakeStatisticsProvider>();
-  fake_statistics_provider_->SetMachineStatistic(
-      ash::system::kSerialNumberKeyForTest, "fake-serial-number");
+  fake_statistics_provider_->SetMachineStatistic(ash::system::kSerialNumberKey,
+                                                 "fake-serial-number");
 #endif
   device_management_service_ =
       std::make_unique<policy::DeviceManagementService>(
           std::make_unique<policy::DeviceManagementServiceConfiguration>(
-              "", "", kServerUrl));
+              /*dm_server_url=*/"", /*realtime_reporting_server_url=*/"",
+              /*encrypted_reporting_server_url=*/kServerUrl));
   device_management_service_->ScheduleInitialization(0);
   TestingBrowserProcess::GetGlobal()->SetSharedURLLoaderFactory(
       url_loader_factory_.GetSafeWeakWrapper());
@@ -106,11 +106,11 @@ ReportingServerConnector::TestEnvironment::TestEnvironment()
   auto delegate =
       std::make_unique<FakeDelegate>(device_management_service_.get());
   SetEncryptedReportingClient(
-      std::make_unique<EncryptedReportingClient>(std::move(delegate)));
+      EncryptedReportingClient::Create(std::move(delegate)));
 }
 
 ReportingServerConnector::TestEnvironment::~TestEnvironment() {
-  policy::EncryptedReportingJobConfiguration::ResetUploadsStateForTest();
+  EncryptedReportingClient::ResetUploadsStateForTest();
   base::Singleton<ReportingServerConnector>::OnExit(nullptr);
 }
 

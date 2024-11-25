@@ -10,32 +10,32 @@ import type {VolumeManager} from '../../background/js/volume_manager.js';
 import {getMimeType, startIOTask} from '../../common/js/api.js';
 import {unwrapEntry} from '../../common/js/entry_utils.js';
 import {type AnnotatedTask, getDefaultTask} from '../../common/js/file_tasks.js';
-import {FilesAppDirEntry, FilesAppEntry} from '../../common/js/files_app_entry_types.js';
+import type {FilesAppDirEntry, FilesAppEntry} from '../../common/js/files_app_entry_types.js';
 import {recordDirectoryListLoadWithTolerance, startInterval} from '../../common/js/metrics.js';
 import {str, strf} from '../../common/js/translations.js';
 import {checkAPIError} from '../../common/js/util.js';
 import {fetchFileTasks} from '../../state/ducks/current_directory.js';
 import {type FileData, type FileKey, type FileTasks as StoreFileTasks, PropStatus, type State} from '../../state/state.js';
 import {getFilesData, getStore, type Store, waitForState} from '../../state/store.js';
-import {XfPasswordDialog} from '../../widgets/xf_password_dialog.js';
+import type {XfPasswordDialog} from '../../widgets/xf_password_dialog.js';
 
-import {DirectoryModel} from './directory_model.js';
-import {FileSelection, FileSelectionHandler} from './file_selection.js';
+import type {DirectoryModel} from './directory_model.js';
+import type {FileSelection, FileSelectionHandler} from './file_selection.js';
 import {FileTasks, TaskPickerType} from './file_tasks.js';
-import {FileTransferController} from './file_transfer_controller.js';
-import {MetadataModel} from './metadata/metadata_model.js';
-import {MetadataUpdateController} from './metadata_update_controller.js';
+import type {FileTransferController} from './file_transfer_controller.js';
+import type {MetadataModel} from './metadata/metadata_model.js';
+import type {MetadataUpdateController} from './metadata_update_controller.js';
 import {EventType, TaskHistory} from './task_history.js';
 import type {ComboButtonSelectEvent} from './ui/combobutton.js';
 import {Command} from './ui/command.js';
-import {FileManagerUI} from './ui/file_manager_ui.js';
+import type {FileManagerUI} from './ui/file_manager_ui.js';
 
 /**
  * Type of the object stashed in the Map extractTasks_.
  */
 interface ExtractingTasks {
   entries: Array<Entry|FilesAppEntry>;
-  params: chrome.fileManagerPrivate.IOTaskParams;
+  params: chrome.fileManagerPrivate.IoTaskParams;
 }
 
 export class TaskController {
@@ -569,17 +569,17 @@ export class TaskController {
     // TaskController only manages IOTasks related to zip extract that were
     // started in this window.
     if (!(this.extractTasks_.has(taskId) &&
-          event.type === chrome.fileManagerPrivate.IOTaskType.EXTRACT)) {
+          event.type === chrome.fileManagerPrivate.IoTaskType.EXTRACT)) {
       return;
     }
 
     switch (event.state) {
-      case chrome.fileManagerPrivate.IOTaskState.SUCCESS:
-      case chrome.fileManagerPrivate.IOTaskState.CANCELLED:
-      case chrome.fileManagerPrivate.IOTaskState.ERROR:
+      case chrome.fileManagerPrivate.IoTaskState.SUCCESS:
+      case chrome.fileManagerPrivate.IoTaskState.CANCELLED:
+      case chrome.fileManagerPrivate.IoTaskState.ERROR:
         this.deleteExtractTaskDetails_(taskId);
         break;
-      case chrome.fileManagerPrivate.IOTaskState.NEED_PASSWORD:
+      case chrome.fileManagerPrivate.IoTaskState.NEED_PASSWORD:
         this.handleMissingPassword_(taskId);
         break;
     }
@@ -596,7 +596,7 @@ export class TaskController {
       destination: DirectoryEntry|FilesAppDirEntry): Promise<void> {
     const params = {
       destinationFolder: destination,
-    } as chrome.fileManagerPrivate.IOTaskParams;
+    } as chrome.fileManagerPrivate.IoTaskParams;
     return this.startExtractTask_(entries, params);
   }
 
@@ -606,10 +606,10 @@ export class TaskController {
    */
   private async startExtractTask_(
       entries: Array<Entry|FilesAppEntry>,
-      params: chrome.fileManagerPrivate.IOTaskParams): Promise<void> {
+      params: chrome.fileManagerPrivate.IoTaskParams): Promise<void> {
     try {
       const taskId = await startIOTask(
-          chrome.fileManagerPrivate.IOTaskType.EXTRACT, entries, params);
+          chrome.fileManagerPrivate.IoTaskType.EXTRACT, entries, params);
       this.extractTasks_.set(taskId, {entries, params});
     } catch (error: any) {
       console.warn('Error getting extract taskID', error);
@@ -622,7 +622,7 @@ export class TaskController {
    */
   private async startGetPasswordThenExtractTask_(
       entry: Entry|FilesAppEntry,
-      params: chrome.fileManagerPrivate.IOTaskParams) {
+      params: chrome.fileManagerPrivate.IoTaskParams) {
     let password: string|null = null;
     // Ask for password.
     try {

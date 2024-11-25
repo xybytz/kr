@@ -5,7 +5,8 @@
 // clang-format off
 import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {SafetyCheckExtensionsElement, SafetyCheckExtensionsBrowserProxyImpl, HatsBrowserProxyImpl, LifetimeBrowserProxyImpl, MetricsBrowserProxyImpl, OpenWindowProxyImpl, PasswordCheckReferrer, PasswordManagerImpl, Router, routes, SafetyCheckBrowserProxy, PasswordManagerPage, SafetyCheckBrowserProxyImpl, SafetyCheckCallbackConstants, SafetyCheckExtensionsStatus, SafetyCheckIconStatus, SafetyCheckInteractions, SafetyCheckParentStatus, SafetyCheckPasswordsStatus, SafetyCheckSafeBrowsingStatus, SafetyCheckUpdatesStatus, SettingsSafetyCheckChildElement, SettingsSafetyCheckExtensionsChildElement, SettingsSafetyCheckPageElement, SettingsSafetyCheckPasswordsChildElement, SettingsSafetyCheckSafeBrowsingChildElement ,SettingsSafetyCheckUpdatesChildElement, TrustSafetyInteraction} from 'chrome://settings/settings.js';
+import type {SafetyCheckExtensionsElement, SafetyCheckBrowserProxy, SettingsSafetyCheckChildElement, SettingsSafetyCheckExtensionsChildElement, SettingsSafetyCheckPageElement, SettingsSafetyCheckPasswordsChildElement, SettingsSafetyCheckSafeBrowsingChildElement ,SettingsSafetyCheckUpdatesChildElement} from 'chrome://settings/settings.js';
+import {SafetyCheckExtensionsBrowserProxyImpl, HatsBrowserProxyImpl, LifetimeBrowserProxyImpl, MetricsBrowserProxyImpl, OpenWindowProxyImpl, PasswordCheckReferrer, PasswordManagerImpl, Router, routes, PasswordManagerPage, SafetyCheckBrowserProxyImpl, SafetyCheckCallbackConstants, SafetyCheckExtensionsStatus, SafetyCheckIconStatus, SafetyCheckInteractions, SafetyCheckParentStatus, SafetyCheckPasswordsStatus, SafetyCheckSafeBrowsingStatus, SafetyCheckUpdatesStatus, TrustSafetyInteraction} from 'chrome://settings/settings.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
 import {TestOpenWindowProxy} from 'chrome://webui-test/test_open_window_proxy.js';
@@ -134,7 +135,7 @@ suite('SafetyCheckPageUiTests', function() {
     assertTrue(!!page.shadowRoot!.querySelector('#safetyCheckParentButton'));
     assertFalse(!!page.shadowRoot!.querySelector('cr-icon-button'));
     // Collapse is not opened.
-    const collapse = page.shadowRoot!.querySelector('iron-collapse')!;
+    const collapse = page.shadowRoot!.querySelector('cr-collapse')!;
     assertFalse(collapse.opened);
 
     // User starts check.
@@ -179,7 +180,7 @@ suite('SafetyCheckPageUiTests', function() {
     assertFalse(!!page.shadowRoot!.querySelector('#safetyCheckParentButton'));
     assertTrue(!!page.shadowRoot!.querySelector('cr-icon-button'));
     // Collapse is opened.
-    assertTrue(page.shadowRoot!.querySelector('iron-collapse')!.opened);
+    assertTrue(page.shadowRoot!.querySelector('cr-collapse')!.opened);
 
     // Ensure the automatic browser proxy calls are started.
     return safetyCheckBrowserProxy.whenCalled('getParentRanDisplayString');
@@ -320,7 +321,7 @@ suite('SafetyCheckChildTests', function() {
     flush();
     assertTrue(!!page.shadowRoot!.querySelector('#rowClickableIndicator'));
     assertEquals(
-        'cr:arrow-right',
+        'cr:chevron-right',
         page.shadowRoot!.querySelector('#rowClickableIndicator')!.getAttribute(
             'iron-icon'));
   });

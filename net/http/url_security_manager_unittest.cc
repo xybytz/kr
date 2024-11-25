@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40284755): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "net/http/url_security_manager.h"
 
 #include <utility>
@@ -87,7 +92,7 @@ TEST(URLSecurityManager, CanDelegate) {
   }
 }
 
-TEST(URLSecurityManager, CanDelegate_NoAllowlist) {
+TEST(URLSecurityManager, CanDelegateNoAllowlist) {
   // Nothing can delegate in this case.
   std::unique_ptr<URLSecurityManager> url_security_manager(
       URLSecurityManager::Create());

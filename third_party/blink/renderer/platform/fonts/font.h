@@ -146,8 +146,13 @@ class PLATFORM_EXPORT Font {
 
   // Glyph bounds will be the minimum rect containing all glyph strokes, in
   // coordinates using (<text run x position>, <baseline position>) as the
-  // origin.
+  // origin. If the pointer is not null, glyph_bounds is expected to be
+  // default-initialized.
   float Width(const TextRun&, gfx::RectF* glyph_bounds = nullptr) const;
+  float SubRunWidth(const TextRun&,
+                    unsigned from,
+                    unsigned to,
+                    gfx::RectF* glyph_bounds = nullptr) const;
 
   int OffsetForPosition(const TextRun&,
                         float position,
@@ -158,11 +163,6 @@ class PLATFORM_EXPORT Font {
                                   float height,
                                   int from = 0,
                                   int to = -1) const;
-
-  // Returns a vector of same size as TextRun.length() with advances measured
-  // in pixels from the left bounding box of the full TextRun to the left bound
-  // of the glyph rendered by each character. Values should always be positive.
-  Vector<double> IndividualCharacterAdvances(const TextRun&) const;
 
   // Metrics that we query the FontFallbackList for.
   float SpaceWidth() const {

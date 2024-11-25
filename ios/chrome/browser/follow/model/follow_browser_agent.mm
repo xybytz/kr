@@ -18,16 +18,16 @@
 #import "ios/chrome/browser/follow/model/follow_service.h"
 #import "ios/chrome/browser/follow/model/follow_service_factory.h"
 #import "ios/chrome/browser/follow/model/web_page_urls.h"
+#import "ios/chrome/browser/ntp/shared/metrics/feed_metrics_constants.h"
+#import "ios/chrome/browser/ntp/shared/metrics/feed_metrics_recorder.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/shared/model/prefs/pref_names.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/shared/public/commands/feed_commands.h"
 #import "ios/chrome/browser/shared/public/commands/new_tab_page_commands.h"
 #import "ios/chrome/browser/shared/public/commands/snackbar_commands.h"
 #import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/shared/public/features/system_flags.h"
-#import "ios/chrome/browser/ui/ntp/metrics/feed_metrics_constants.h"
-#import "ios/chrome/browser/ui/ntp/metrics/feed_metrics_recorder.h"
 #import "ios/chrome/grit/ios_strings.h"
 #import "ui/base/l10n/l10n_util_mac.h"
 
@@ -36,29 +36,12 @@ namespace {
 // Maximum number of times the First Follow UI must be shown.
 constexpr int kFirstFollowModalShownMaxCount = 3;
 
-// Old deprecated key used to store how many time the First Follow UI
-// has been displayed in NSUserDefaults. Needs to be removed when the
-// migration code in `ShouldShowFirstFollowUI()` is removed.
-NSString* const kDisplayedFirstFollowModalCountKey =
-    @"DisplayedFirstFollowModalCount";
-
 // Time delay in showing and announcing the notification after a site is
 // followed/unfollowed from follow feed management.
 const base::TimeDelta kSnackbarMessageVoiceOverDelay = base::Seconds(0.8);
 
 // Returns whether the First Follow UI must be displayed.
 bool ShouldShowFirstFollowUI(PrefService* pref_service) {
-  // Migrate the old preference from NSUserDefaults if it exists. This code
-  // needs to be removed in version M-120.
-  NSUserDefaults* user_defaults = [NSUserDefaults standardUserDefaults];
-  if ([user_defaults objectForKey:kDisplayedFirstFollowModalCountKey]) {
-    const NSUInteger count =
-        [user_defaults integerForKey:kDisplayedFirstFollowModalCountKey];
-
-    pref_service->SetInteger(prefs::kFirstFollowUIShownCount, count);
-    [user_defaults removeObjectForKey:kDisplayedFirstFollowModalCountKey];
-  }
-
   if (experimental_flags::ShouldAlwaysShowFirstFollow()) {
     return true;
   }
@@ -186,9 +169,9 @@ void FollowBrowserAgent::ShowOverlayMessage(FollowSource source,
   // followed/unfollowed the site through feed management. This is to avoid the
   // announcement being cut off by the addition of a new row to the feed
   // management table.
-  // TODO(crbug.com/1398955): Temporary solution. A permanent solution should be
-  // in place to make sure that the agent verifies that the feed management UI
-  // is updated before showing the snackbar message.
+  // TODO(crbug.com/40249735): Temporary solution. A permanent solution should
+  // be in place to make sure that the agent verifies that the feed management
+  // UI is updated before showing the snackbar message.
   if (UIAccessibilityIsVoiceOverRunning() &&
       source == FollowSource::Management) {
     base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
@@ -256,7 +239,7 @@ void FollowBrowserAgent::OnFollowSuccess(WebPageURLs* web_page_urls,
 
   // Enable the feed prefs to show the feed and to expand it if they
   // are disabled.
-  PrefService* const pref_service = browser_->GetBrowserState()->GetPrefs();
+  PrefService* const pref_service = browser_->GetProfile()->GetPrefs();
   if (!pref_service->GetBoolean(prefs::kArticlesForYouEnabled))
     pref_service->SetBoolean(prefs::kArticlesForYouEnabled, true);
 
@@ -412,8 +395,8 @@ void FollowBrowserAgent::OnUnfollowFailure(WebPageURLs* web_page_urls,
 
 raw_ptr<FollowService> FollowBrowserAgent::GetFollowService() {
   if (!service_) {
-    ChromeBrowserState* browser_state = browser_->GetBrowserState();
-    service_ = FollowServiceFactory::GetForBrowserState(browser_state);
+    ProfileIOS* profile = browser_->GetProfile();
+    service_ = FollowServiceFactory::GetForProfile(profile);
     DCHECK(service_);
   }
   return service_;
@@ -421,10 +404,9 @@ raw_ptr<FollowService> FollowBrowserAgent::GetFollowService() {
 
 FeedMetricsRecorder* FollowBrowserAgent::GetMetricsRecorder() {
   if (!metrics_recorder_) {
-    ChromeBrowserState* browser_state = browser_->GetBrowserState();
-    metrics_recorder_ =
-        DiscoverFeedServiceFactory::GetForBrowserState(browser_state)
-            ->GetFeedMetricsRecorder();
+    ProfileIOS* profile = browser_->GetProfile();
+    metrics_recorder_ = DiscoverFeedServiceFactory::GetForProfile(profile)
+                            ->GetFeedMetricsRecorder();
   }
   return metrics_recorder_;
 }

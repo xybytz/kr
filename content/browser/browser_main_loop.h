@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 
+#include "base/callback_list.h"
 #include "base/functional/callback_helpers.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ref.h"
@@ -53,10 +54,6 @@ class AudioSystem;
 class SystemMessageWindowWin;
 #elif (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(USE_UDEV)
 class DeviceMonitorLinux;
-#endif
-class UserInputMonitor;
-#if BUILDFLAG(IS_MAC)
-class DeviceMonitorMac;
 #endif
 }  // namespace media
 
@@ -172,9 +169,6 @@ class CONTENT_EXPORT BrowserMainLoop {
   MediaStreamManager* media_stream_manager() const {
     return media_stream_manager_.get();
   }
-  media::UserInputMonitor* user_input_monitor() const {
-    return user_input_monitor_.get();
-  }
   MediaKeysListenerManagerImpl* media_keys_listener_manager() const {
     return media_keys_listener_manager_.get();
   }
@@ -218,12 +212,6 @@ class CONTENT_EXPORT BrowserMainLoop {
   // Binds a receiver to the singleton CompositingModeReporter.
   void GetCompositingModeReporter(
       mojo::PendingReceiver<viz::mojom::CompositingModeReporter> receiver);
-
-#if BUILDFLAG(IS_MAC)
-  media::DeviceMonitorMac* device_monitor_mac() const {
-    return device_monitor_mac_.get();
-  }
-#endif
 
   SmsProvider* GetSmsProvider();
   void SetSmsProviderForTesting(std::unique_ptr<SmsProvider>);
@@ -356,9 +344,6 @@ class CONTENT_EXPORT BrowserMainLoop {
   // ***************************************************************************
   std::unique_ptr<MediaKeysListenerManagerImpl> media_keys_listener_manager_;
 
-  // |user_input_monitor_| has to outlive |audio_manager_|, so declared first.
-  std::unique_ptr<media::UserInputMonitor> user_input_monitor_;
-
   // Support for out-of-process Data Decoder.
   std::unique_ptr<data_decoder::ServiceProvider> data_decoder_service_provider_;
 
@@ -377,8 +362,6 @@ class CONTENT_EXPORT BrowserMainLoop {
   std::unique_ptr<media::SystemMessageWindowWin> system_message_window_;
 #elif (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(USE_UDEV)
   std::unique_ptr<media::DeviceMonitorLinux> device_monitor_linux_;
-#elif BUILDFLAG(IS_MAC)
-  std::unique_ptr<media::DeviceMonitorMac> device_monitor_mac_;
 #endif
 
   std::unique_ptr<MediaStreamManager> media_stream_manager_;
@@ -399,6 +382,7 @@ class CONTENT_EXPORT BrowserMainLoop {
 
   // Members initialized in |PreMainMessageLoopRun()| --------------------------
   scoped_refptr<responsiveness::Watcher> responsiveness_watcher_;
+  base::CallbackListSubscription idle_callback_subscription_;
 
   // Members not associated with a specific phase.
   std::unique_ptr<SmsProvider> sms_provider_;

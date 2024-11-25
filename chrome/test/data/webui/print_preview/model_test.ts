@@ -2,19 +2,40 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {ColorOption, Destination, DestinationOrigin, DpiOption, DuplexMode, DuplexOption, makeRecentDestination, MarginsType, PrinterType, PrintPreviewModelElement, PrintTicket, RecentDestination, ScalingType, Size} from 'chrome://print/print_preview.js';
-// <if expr="is_chromeos">
-import {ColorModeRestriction,  DuplexModeRestriction, GooglePromotedDestinationId, PinModeRestriction, PrinterStatusReason} from 'chrome://print/print_preview.js';
-// </if>
+import type {ColorOption, DpiOption, DuplexOption, PrintPreviewModelElement, PrintTicket, RecentDestination, Settings} from 'chrome://print/print_preview.js';
+import {
+  // <if expr="is_chromeos">
+  ColorModeRestriction,
+  // </if>
+  Destination, DestinationOrigin, DuplexMode,
+  // <if expr="is_chromeos">
+  DuplexModeRestriction, GooglePromotedDestinationId,
+  // </if>
+  makeRecentDestination, MarginsType,
+  // <if expr="is_chromeos">
+  PinModeRestriction, PrinterStatusReason,
+  // </if>
+  PrinterType, ScalingType, Size} from 'chrome://print/print_preview.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {assertDeepEquals, assertEquals, assertFalse, assertNotEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
 
-import {getCddTemplateWithAdvancedSettings} from './print_preview_test_utils.js';
-// <if expr="is_chromeos">
-import {getCddTemplate} from './print_preview_test_utils.js';
+import {
+  // <if expr="is_chromeos">
+  getCddTemplate,
+  // </if>
+  getCddTemplateWithAdvancedSettings} from './print_preview_test_utils.js';
+
 // </if>
+
+function assertMarginsSettingsResetToDefault(settings: Settings) {
+  assertEquals(settings.margins.value, MarginsType.DEFAULT);
+  assertFalse('marginTop' in settings.customMargins.value);
+  assertFalse('marginRight' in settings.customMargins.value);
+  assertFalse('marginBottom' in settings.customMargins.value);
+  assertFalse('marginLeft' in settings.customMargins.value);
+}
 
 suite('ModelTest', function() {
   let model: PrintPreviewModelElement;
@@ -92,7 +113,7 @@ suite('ModelTest', function() {
      *     reset to its default value.
      */
     const testStickySetting = function(
-        setting: string, field: string): Promise<void> {
+        setting: keyof Settings, field: string): Promise<void> {
       const promise = eventToPromise('sticky-setting-changed', model);
       model.setSetting(setting, stickySettingsChange[field]);
       settingsSet.push(field);
@@ -573,20 +594,6 @@ suite('ModelTest', function() {
     assertEquals(false, model.getSettingValue('duplex'));
   });
 
-  // <if expr="is_chromeos">
-  // Tests that printToGoogleDrive is set correctly on the print ticket for Save
-  // to Drive CrOS.
-  test('PrintToGoogleDriveCros', function() {
-    const driveDestination = new Destination(
-        GooglePromotedDestinationId.SAVE_TO_DRIVE_CROS, DestinationOrigin.LOCAL,
-        'Save to Google Drive');
-    initializeModel();
-    model.destination = driveDestination;
-    const ticket = model.createPrintTicket(driveDestination, false, false);
-    assertTrue(JSON.parse(ticket).printToGoogleDrive);
-  });
-  // </if>
-
   /**
    * Tests the behaviour of the CDD attribute `reset_to_default`, specifically
    * that when a setting has a default value in CDD and the user selects another
@@ -732,7 +739,96 @@ suite('ModelTest', function() {
         stickyMediaSizeDisplayName);
   });
 
+  /**
+   * Tests that setStickySettings() stores custom margins as integers.
+   */
+  test('CustomMarginsAreInts', function() {
+    model.setStickySettings(JSON.stringify({
+      version: 2,
+      customMargins: {
+        marginTop: 100.5,
+        marginRight: 200,
+        marginBottom: 333.333333,
+        marginLeft: 400,
+      },
+      marginsType: MarginsType.CUSTOM,
+    }));
+    model.applyStickySettings();
+    assertEquals(model.settings.margins.value, MarginsType.CUSTOM);
+    assertTrue('marginTop' in model.settings.customMargins.value);
+    assertTrue('marginRight' in model.settings.customMargins.value);
+    assertTrue('marginBottom' in model.settings.customMargins.value);
+    assertTrue('marginLeft' in model.settings.customMargins.value);
+    assertEquals(model.settings.customMargins.value.marginTop, 101);
+    assertEquals(model.settings.customMargins.value.marginRight, 200);
+    assertEquals(model.settings.customMargins.value.marginBottom, 333);
+    assertEquals(model.settings.customMargins.value.marginLeft, 400);
+  });
+
+  /**
+   * Tests that if setStickySettings() stored the margins type as custom, but
+   * have no customMargins, then fall back to the default margins type.
+   */
+  test('CustomMarginsAreNotEmpty', function() {
+    model.setStickySettings(JSON.stringify({
+      version: 2,
+      marginsType: MarginsType.CUSTOM,
+    }));
+    model.applyStickySettings();
+    assertMarginsSettingsResetToDefault(model.settings);
+  });
+
+  /**
+   * Tests that if setStickySettings() stored negative custom margins, then fall
+   * back to the default margins type.
+   */
+  test('CustomMarginsAreNotNegative', function() {
+    model.setStickySettings(JSON.stringify({
+      version: 2,
+      customMargins: {
+        marginTop: 100,
+        marginRight: 200,
+        marginBottom: -333,
+        marginLeft: 400,
+      },
+      marginsType: MarginsType.CUSTOM,
+    }));
+    model.applyStickySettings();
+    assertMarginsSettingsResetToDefault(model.settings);
+  });
+
+  /**
+   * Tests that if setStickySettings() stored custom margins as strings, then
+   * fall back to the default margins type.
+   */
+  test('CustomMarginsAreNotStrings', function() {
+    model.setStickySettings(JSON.stringify({
+      version: 2,
+      customMargins: {
+        marginTop: 100,
+        marginRight: 200,
+        marginBottom: 333,
+        marginLeft: 'bad',
+      },
+      marginsType: MarginsType.CUSTOM,
+    }));
+    model.applyStickySettings();
+    assertMarginsSettingsResetToDefault(model.settings);
+  });
+
   // <if expr="is_chromeos">
+  // Tests that printToGoogleDrive is set correctly on the print ticket for Save
+  // to Drive CrOS.
+  test('PrintToGoogleDriveCros', function() {
+    const driveDestination = new Destination(
+        GooglePromotedDestinationId.SAVE_TO_DRIVE_CROS, DestinationOrigin.LOCAL,
+        'Save to Google Drive');
+    initializeModel();
+    model.destination = driveDestination;
+    const ticket = model.createPrintTicket(driveDestination, false, false);
+    assertTrue(JSON.parse(ticket).printToGoogleDrive);
+  });
+
   test('PolicyDefaultsOverrideDestinationDefaults', function() {
     const testDestination1 = new Destination(
         /*id_=*/ 'TestDestination1',

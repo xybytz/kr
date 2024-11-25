@@ -5,14 +5,15 @@
 #ifndef IOS_CHROME_BROWSER_AUTOCOMPLETE_MODEL_AUTOCOMPLETE_PROVIDER_CLIENT_IMPL_H_
 #define IOS_CHROME_BROWSER_AUTOCOMPLETE_MODEL_AUTOCOMPLETE_PROVIDER_CLIENT_IMPL_H_
 
-#include "components/omnibox/browser/actions/omnibox_pedal.h"
-#include "components/omnibox/browser/autocomplete_provider_client.h"
-#include "ios/chrome/browser/autocomplete/model/autocomplete_scheme_classifier_impl.h"
-#include "ios/chrome/browser/autocomplete/model/tab_matcher_impl.h"
+#import "base/memory/raw_ptr.h"
+#import "components/omnibox/browser/actions/omnibox_pedal.h"
+#import "components/omnibox/browser/autocomplete_provider_client.h"
+#import "ios/chrome/browser/autocomplete/model/autocomplete_scheme_classifier_impl.h"
+#import "ios/chrome/browser/autocomplete/model/tab_matcher_impl.h"
 
-class ChromeBrowserState;
 class AutocompleteScoringModelService;
 class OnDeviceTailModelService;
+class ProfileIOS;
 struct ProviderStateService;
 
 namespace unified_consent {
@@ -27,7 +28,7 @@ class ComponentUpdateService;
 // AutocompleteProviderClient interface.
 class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
  public:
-  explicit AutocompleteProviderClientImpl(ChromeBrowserState* browser_state);
+  explicit AutocompleteProviderClientImpl(ProfileIOS* profile);
 
   AutocompleteProviderClientImpl(const AutocompleteProviderClientImpl&) =
       delete;
@@ -45,8 +46,7 @@ class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
   AutocompleteClassifier* GetAutocompleteClassifier() override;
   history::HistoryService* GetHistoryService() override;
   scoped_refptr<history::TopSites> GetTopSites() override;
-  bookmarks::BookmarkModel* GetLocalOrSyncableBookmarkModel() override;
-  bookmarks::BookmarkModel* GetAccountBookmarkModel() override;
+  bookmarks::BookmarkModel* GetBookmarkModel() override;
   history::URLDatabase* GetInMemoryDatabase() override;
   InMemoryURLIndex* GetInMemoryURLIndex() override;
   TemplateURLService* GetTemplateURLService() override;
@@ -60,7 +60,6 @@ class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
   scoped_refptr<ShortcutsBackend> GetShortcutsBackendIfExists() override;
   std::unique_ptr<KeywordExtensionsDelegate> GetKeywordExtensionsDelegate(
       KeywordProvider* keyword_provider) override;
-  query_tiles::TileService* GetQueryTileService() const override;
   OmniboxTriggeredFeatureService* GetOmniboxTriggeredFeatureService()
       const override;
   AutocompleteScoringModelService* GetAutocompleteScoringModelService()
@@ -78,7 +77,7 @@ class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
   bool IsIncognitoProfile() const override;
   bool IsGuestSession() const override;
   bool SearchSuggestEnabled() const override;
-  bool IsPersonalizedUrlDataCollectionActive() const override;
+  bool IsUrlDataCollectionActive() const override;
   bool IsAuthenticated() const override;
   bool IsSyncActive() const override;
   void Classify(
@@ -93,6 +92,8 @@ class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
       const std::u16string& term) override;
   void PrefetchImage(const GURL& url) override;
   const TabMatcher& GetTabMatcher() const override;
+  bool in_background_state() const override;
+  void set_in_background_state(bool in_background_state) override;
 
   // OmniboxAction::Client implementation.
   void OpenSharingHub() override {}
@@ -102,7 +103,7 @@ class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
   void PromptPageTranslation() override {}
 
  private:
-  ChromeBrowserState* browser_state_;
+  raw_ptr<ProfileIOS> profile_;
   AutocompleteSchemeClassifierImpl scheme_classifier_;
   std::unique_ptr<unified_consent::UrlKeyedDataCollectionConsentHelper>
       url_consent_helper_;
@@ -110,6 +111,8 @@ class AutocompleteProviderClientImpl : public AutocompleteProviderClient {
       omnibox_triggered_feature_service_;
   TabMatcherImpl tab_matcher_;
   std::unique_ptr<OmniboxPedalProvider> pedal_provider_;
+  // Whether or not the app is currently in the background state.
+  bool in_background_state_ = false;
 };
 
 #endif  // IOS_CHROME_BROWSER_AUTOCOMPLETE_MODEL_AUTOCOMPLETE_PROVIDER_CLIENT_IMPL_H_

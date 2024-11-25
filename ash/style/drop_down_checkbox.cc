@@ -80,7 +80,9 @@ class CheckboxMenuOptionGroup : public CheckboxGroup {
                       0,
                       kMenuItemInnerPadding,
                       kCheckmarkLabelSpacing) {
-    SetAccessibilityProperties(ax::mojom::Role::kListBox);
+    GetViewAccessibility().SetRole(ax::mojom::Role::kListBox);
+    GetViewAccessibility().SetName(
+        std::string(), ax::mojom::NameFrom::kAttributeExplicitlyEmpty);
   }
 
   // CheckboxGroup:
@@ -92,11 +94,6 @@ class CheckboxMenuOptionGroup : public CheckboxGroup {
     button->set_delegate(this);
     buttons_.push_back(button);
     return button;
-  }
-
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
-    CheckboxGroup::GetAccessibleNodeData(node_data);
-    node_data->SetNameExplicitlyEmpty();
   }
 };
 
@@ -189,7 +186,7 @@ class DropDownCheckbox::MenuView : public views::View {
   raw_ptr<CheckboxMenuOptionGroup> menu_item_group_;
 };
 
-BEGIN_METADATA(DropDownCheckbox, MenuView, views::View)
+BEGIN_METADATA(DropDownCheckbox, MenuView)
 END_METADATA
 
 //------------------------------------------------------------------------------
@@ -234,14 +231,14 @@ class DropDownCheckbox::EventHandler : public ui::EventHandler {
         drop_down_checkbox_->menu_->GetWindowBoundsInScreen().Contains(
             event_location);
     switch (event->type()) {
-      case ui::ET_MOUSEWHEEL:
+      case ui::EventType::kMousewheel:
         // Close menu if scrolling outside menu.
         if (!event_in_menu) {
           drop_down_checkbox_->CloseDropDownMenu();
         }
         break;
-      case ui::ET_MOUSE_PRESSED:
-      case ui::ET_TOUCH_PRESSED:
+      case ui::EventType::kMousePressed:
+      case ui::EventType::kTouchPressed:
         // Close menu if pressing outside menu and label button.
         if (!event_in_menu && !event_in_drop_down_checkbox) {
           event->StopPropagation();
@@ -275,8 +272,8 @@ DropDownCheckbox::DropDownCheckbox(const std::u16string& title,
   model_->AddObserver(selection_model_.get());
 
   // Set up layout.
-  auto* const layout = SetLayoutManager(std::make_unique<views::FlexLayout>());
-  layout->SetInteriorMargin(kDropDownCheckboxBorderInsets);
+  SetLayoutManager(std::make_unique<views::FlexLayout>())
+      ->SetInteriorMargin(kDropDownCheckboxBorderInsets);
   // Allow `title_` to shrink and elide, so that `drop_down_arrow_` on the
   // right always remains visible.
   title_->SetProperty(
@@ -299,12 +296,12 @@ DropDownCheckbox::DropDownCheckbox(const std::u16string& title,
   views::InstallRoundRectHighlightPathGenerator(
       this, gfx::Insets(), kDropDownCheckboxRoundedCorners);
   StyleUtil::SetUpInkDropForButton(this);
-  layout->SetChildViewIgnoredByLayout(views::FocusRing::Get(this),
-                                      /*ignored=*/true);
+  views::FocusRing::Get(this)->SetProperty(views::kViewIgnoredByLayoutKey,
+                                           /*ignored=*/true);
 
   event_handler_ = std::make_unique<EventHandler>(this);
 
-  SetAccessibilityProperties(ax::mojom::Role::kPopUpButton);
+  GetViewAccessibility().SetRole(ax::mojom::Role::kPopUpButton);
 }
 
 DropDownCheckbox::~DropDownCheckbox() = default;
@@ -357,9 +354,9 @@ void DropDownCheckbox::RemovedFromWidget() {
   widget_observer_.Reset();
 }
 
-void DropDownCheckbox::Layout() {
-  views::Button::Layout();
-  views::FocusRing::Get(this)->Layout();
+void DropDownCheckbox::Layout(PassKey) {
+  LayoutSuperclass<views::Button>(this);
+  views::FocusRing::Get(this)->DeprecatedLayoutImmediately();
 }
 
 void DropDownCheckbox::OnWidgetBoundsChanged(views::Widget* widget,
@@ -439,7 +436,9 @@ void DropDownCheckbox::ShowDropDownMenu() {
   auto menu_view = std::make_unique<MenuView>(this);
   menu_view_ = menu_view.get();
 
-  views::Widget::InitParams params(views::Widget::InitParams::TYPE_POPUP);
+  views::Widget::InitParams params(
+      views::Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET,
+      views::Widget::InitParams::TYPE_POPUP);
   params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
   params.shadow_type = views::Widget::InitParams::ShadowType::kDrop;
   params.shadow_elevation = kMenuShadowElevation;
@@ -482,7 +481,7 @@ void DropDownCheckbox::OnPerformAction() {
   }
 }
 
-BEGIN_METADATA(DropDownCheckbox, views::Button)
+BEGIN_METADATA(DropDownCheckbox)
 END_METADATA
 
 }  // namespace ash

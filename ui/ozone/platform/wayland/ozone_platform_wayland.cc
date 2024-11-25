@@ -9,9 +9,8 @@
 #include <utility>
 #include <vector>
 
-#include <components/exo/wayland/protocol/aura-shell-client-protocol.h>
-
 #include "base/command_line.h"
+#include "base/files/scoped_file.h"
 #include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/message_loop/message_pump_type.h"
@@ -33,12 +32,13 @@
 #include "ui/gfx/native_widget_types.h"
 #include "ui/ozone/common/base_keyboard_hook.h"
 #include "ui/ozone/common/features.h"
+#include "ui/ozone/platform/wayland/common/drm_render_node_handle.h"
 #include "ui/ozone/platform/wayland/common/wayland_util.h"
 #include "ui/ozone/platform/wayland/gpu/wayland_buffer_manager_gpu.h"
 #include "ui/ozone/platform/wayland/gpu/wayland_gl_egl_utility.h"
 #include "ui/ozone/platform/wayland/gpu/wayland_overlay_manager.h"
 #include "ui/ozone/platform/wayland/gpu/wayland_surface_factory.h"
-#include "ui/ozone/platform/wayland/host/surface_augmenter.h"
+#include "ui/ozone/platform/wayland/host/drm_syncobj_ioctl_wrapper.h"
 #include "ui/ozone/platform/wayland/host/wayland_buffer_manager_connector.h"
 #include "ui/ozone/platform/wayland/host/wayland_buffer_manager_host.h"
 #include "ui/ozone/platform/wayland/host/wayland_connection.h"
@@ -51,7 +51,6 @@
 #include "ui/ozone/platform/wayland/host/wayland_seat.h"
 #include "ui/ozone/platform/wayland/host/wayland_window.h"
 #include "ui/ozone/platform/wayland/host/wayland_window_manager.h"
-#include "ui/ozone/platform/wayland/host/wayland_zaura_shell.h"
 #include "ui/ozone/platform/wayland/wayland_utils.h"
 #include "ui/ozone/public/gpu_platform_support_host.h"
 #include "ui/ozone/public/ozone_platform.h"
@@ -77,7 +76,9 @@
 #endif
 
 #if defined(WAYLAND_GBM)
-#include "ui/ozone/platform/wayland/gpu/drm_render_node_path_finder.h"
+#include "ui/gfx/linux/drm_util_linux.h"
+#include "ui/gfx/linux/gbm_device.h"
+#include "ui/ozone/platform/wayland/common/drm_render_node_path_finder.h"
 #endif
 
 namespace ui {
@@ -204,6 +205,15 @@ class OzonePlatformWayland : public OzonePlatform,
       if (!buffer_manager_->SupportsFormat(format)) {
         return false;
       }
+      // Return false here if creating buffers for certain formats is not
+      // possible (e.g. YUV formats are not supported by linux system libgbm
+      // gbm_bo_create) even though |buffer_manager_| may indicate it can be
+      // imported as wl_buffer.
+      auto* gbm_device = buffer_manager_->GetGbmDevice();
+      if (!gbm_device || !gbm_device->CanCreateBufferForFormat(
+                             GetFourCCFormatFromBufferFormat(format))) {
+        return false;
+      }
     } else {
       if (supported_buffer_formats_.find(format) ==
           supported_buffer_formats_.end()) {
@@ -254,15 +264,29 @@ class OzonePlatformWayland : public OzonePlatform,
     // event.
     bool use_threaded_polling = args.single_process;
 
+    base::ScopedFD drm_render_node_fd;
 #if defined(WAYLAND_GBM)
+    DrmRenderNodeHandle drm_render_node;
+    base::FilePath drm_node_path = path_finder_.GetDrmRenderNodePath();
+    if (drm_node_path.empty() || !drm_render_node.Initialize(drm_node_path)) {
+      LOG(WARNING) << "Failed to initialize drm render node handle.";
+    } else {
+      drm_render_node_fd = drm_render_node.PassFD();
+    }
     if (use_threaded_polling) {
       // If gbm is used, wl_egl is not used so threaded polling is not required.
-      use_threaded_polling = path_finder_.GetDrmRenderNodePath().empty();
+      use_threaded_polling = drm_node_path.empty();
     }
 #endif
     if (!connection_->Initialize(use_threaded_polling)) {
       LOG(ERROR) << "Failed to initialize Wayland platform";
       return false;
+    }
+
+    if (drm_render_node_fd.is_valid()) {
+      connection_->buffer_manager_host()->SetDrmSyncobjWrapper(
+          std::make_unique<DrmSyncobjIoctlWrapper>(
+              std::move(drm_render_node_fd)));
     }
 
     buffer_manager_connector_ = std::make_unique<WaylandBufferManagerConnector>(
@@ -340,8 +364,13 @@ class OzonePlatformWayland : public OzonePlatform,
       // their parents. As for toplevel surfaces, clients simply don't know
       // their position on screens and always assume they are located at some
       // arbitrary position.
-      properties->supports_global_screen_coordinates =
-          kDefaultScreenCoordinateEnabled;
+      properties->supports_global_screen_coordinates = false;
+
+      // TODO(crbug.com/40800718): Revisit (and maybe remove) once proper
+      // support, probably backed by org.freedesktop.portal.Screenshot.PickColor
+      // API is implemented.
+      properties->supports_color_picker_dialog = false;
+
       initialised = true;
     }
 
@@ -349,10 +378,13 @@ class OzonePlatformWayland : public OzonePlatform,
   }
 
   const PlatformRuntimeProperties& GetPlatformRuntimeProperties() override {
-    using SupportsSsdForTest =
-        OzonePlatform::PlatformRuntimeProperties::SupportsSsdForTest;
+    using SupportsForTest =
+        OzonePlatform::PlatformRuntimeProperties::SupportsForTest;
     const auto& override_supports_ssd_for_test = OzonePlatform::
         PlatformRuntimeProperties::override_supports_ssd_for_test;
+    const auto& override_supports_per_window_scaling_for_test =
+        OzonePlatform::PlatformRuntimeProperties::
+            override_supports_per_window_scaling_for_test;
 
     static OzonePlatform::PlatformRuntimeProperties properties;
     if (connection_) {
@@ -361,15 +393,11 @@ class OzonePlatformWayland : public OzonePlatform,
       // the browser process side.
       properties.supports_server_side_window_decorations =
           (connection_->xdg_decoration_manager_v1() != nullptr &&
-          override_supports_ssd_for_test == SupportsSsdForTest::kNotSet) ||
-          override_supports_ssd_for_test == SupportsSsdForTest::kYes;
+           override_supports_ssd_for_test == SupportsForTest::kNotSet) ||
+          override_supports_ssd_for_test == SupportsForTest::kYes;
       properties.supports_overlays =
           connection_->ShouldUseOverlayDelegation() &&
           connection_->viewporter();
-      properties.supports_non_backed_solid_color_buffers =
-          connection_->ShouldUseOverlayDelegation() &&
-          connection_->buffer_manager_host()
-              ->SupportsNonBackedSolidColorBuffers();
       properties.supports_single_pixel_buffer =
           ui::IsWaylandOverlayDelegationEnabled() &&
           connection_->buffer_manager_host()->SupportsSinglePixelBuffer();
@@ -380,11 +408,13 @@ class OzonePlatformWayland : public OzonePlatform,
       properties.needs_background_image =
           connection_->ShouldUseOverlayDelegation() &&
           connection_->viewporter();
-      if (connection_->zaura_shell()) {
-        properties.supports_activation =
-            zaura_shell_get_version(connection_->zaura_shell()->wl_object()) >=
-            ZAURA_TOPLEVEL_ACTIVATE_SINCE_VERSION;
-      }
+      properties.supports_subwindows_as_accelerated_widgets = true;
+      properties.supports_per_window_scaling =
+          (connection_->UsePerSurfaceScaling() &&
+           override_supports_per_window_scaling_for_test ==
+               SupportsForTest::kNotSet) ||
+          (override_supports_per_window_scaling_for_test ==
+           SupportsForTest::kYes);
 
       if (surface_factory_) {
         DCHECK(has_initialized_gpu());
@@ -395,9 +425,6 @@ class OzonePlatformWayland : public OzonePlatform,
       DCHECK(has_initialized_gpu());
       // These properties are set when the GetPlatformRuntimeProperties is
       // called on the gpu process side.
-      properties.supports_non_backed_solid_color_buffers =
-          buffer_manager_->supports_overlays() &&
-          buffer_manager_->supports_non_backed_solid_color_buffers();
       properties.supports_single_pixel_buffer =
           ui::IsWaylandOverlayDelegationEnabled() &&
           buffer_manager_->supports_single_pixel_buffer();
@@ -407,13 +434,6 @@ class OzonePlatformWayland : public OzonePlatform,
           buffer_manager_->supports_viewporter();
       properties.supports_native_pixmaps =
           surface_factory_->SupportsNativePixmaps();
-      properties.supports_clip_rect = buffer_manager_->supports_clip_rect();
-      properties.supports_affine_transform =
-          buffer_manager_->supports_affine_transform();
-      properties.supports_out_of_window_clip_rect =
-          buffer_manager_->supports_out_of_window_clip_rect();
-      properties.has_transformation_fix =
-          buffer_manager_->has_transformation_fix();
     }
     return properties;
   }
@@ -455,10 +475,18 @@ class OzonePlatformWayland : public OzonePlatform,
     connection_->SetShutdownCb(std::move(shutdown_cb));
   }
 
+  void PostMainMessageLoopRun() override {
+    // TODO(b/324294360): This will cause a lot of dangling pointers, which
+    // breaks linux wayland bot. Fix them and enable on linux as well.
+#if BUILDFLAG(IS_CHROMEOS) || !PA_BUILDFLAG(ENABLE_DANGLING_RAW_PTR_CHECKS)
+    connection_.reset();
+#endif
+  }
+
   std::unique_ptr<PlatformKeyboardHook> CreateKeyboardHook(
       PlatformKeyboardHookTypes type,
       base::RepeatingCallback<void(KeyEvent* event)> callback,
-      absl::optional<base::flat_set<DomCode>> dom_codes,
+      std::optional<base::flat_set<DomCode>> dom_codes,
       gfx::AcceleratedWidget accelerated_widget) override {
     DCHECK(connection_);
     auto* seat = connection_->seat();

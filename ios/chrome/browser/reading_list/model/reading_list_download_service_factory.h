@@ -5,21 +5,20 @@
 #ifndef IOS_CHROME_BROWSER_READING_LIST_MODEL_READING_LIST_DOWNLOAD_SERVICE_FACTORY_H_
 #define IOS_CHROME_BROWSER_READING_LIST_MODEL_READING_LIST_DOWNLOAD_SERVICE_FACTORY_H_
 
-#include <memory>
+#import <memory>
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 class ReadingListDownloadService;
 
 // Singleton that creates the ReadingListDownloadService and associates that
-// service with ChromeBrowserState.
+// service with Profile.
 class ReadingListDownloadServiceFactory
     : public BrowserStateKeyedServiceFactory {
  public:
-  static ReadingListDownloadService* GetForBrowserState(
-      ChromeBrowserState* browser_state);
+  static ReadingListDownloadService* GetForProfile(ProfileIOS* profile);
   static ReadingListDownloadServiceFactory* GetInstance();
 
   ReadingListDownloadServiceFactory(const ReadingListDownloadServiceFactory&) =

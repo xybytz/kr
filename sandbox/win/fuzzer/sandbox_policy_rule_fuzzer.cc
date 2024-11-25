@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -23,24 +28,22 @@ constexpr size_t maxParams = 2;
 std::unique_ptr<sandbox::PolicyBase> InitPolicy() {
   auto policy = std::make_unique<sandbox::PolicyBase>("");
   auto* config = policy->GetConfig();
+  CHECK(config);
 
   auto result = config->SetFakeGdiInit();
-  if (result != sandbox::SBOX_ALL_OK)
-    return nullptr;
+  CHECK_EQ(result, sandbox::SBOX_ALL_OK);
 
   result = config->AllowFileAccess(sandbox::FileSemantics::kAllowAny,
                                    L"\\??\\pipe\\chrome.*");
-  if (result != sandbox::SBOX_ALL_OK)
-    return nullptr;
+  CHECK_EQ(result, sandbox::SBOX_ALL_OK);
 
   result = config->AllowFileAccess(sandbox::FileSemantics::kAllowReadonly,
-                                   L"\\\\.\\pipe\\chrome.unused.*");
-  if (result != sandbox::SBOX_ALL_OK)
-    return nullptr;
+                                   L"\\??\\pipe\\chrome.unused.*");
+  CHECK_EQ(result, sandbox::SBOX_ALL_OK);
 
-  result = config->AllowFileAccess(sandbox::FileSemantics::kAllowAny, L"*.log");
-  if (result != sandbox::SBOX_ALL_OK)
-    return nullptr;
+  result = config->AllowFileAccess(sandbox::FileSemantics::kAllowAny,
+                                   L"\\??\\*.log");
+  CHECK_EQ(result, sandbox::SBOX_ALL_OK);
 
   sandbox::BrokerServicesBase::FreezeTargetConfigForTesting(
       policy->GetConfig());
@@ -114,7 +117,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // We send the fuzzer generated data to every available policy rule.
   // Only some of the services will be registered, but it will
   // quickly skip those that have nothing registered.
-  for (size_t i = 0; i < sandbox::kMaxIpcTag; i++) {
+  for (size_t i = 0; i < sandbox::kSandboxIpcCount; i++) {
     policy->EvalPolicy(static_cast<sandbox::IpcTag>(i), real_params);
   }
 

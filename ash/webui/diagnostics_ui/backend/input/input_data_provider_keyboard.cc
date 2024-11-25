@@ -2,10 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "ash/webui/diagnostics_ui/backend/input/input_data_provider_keyboard.h"
 
 #include <fcntl.h>
 #include <linux/input.h>
+
+#include <string_view>
 #include <vector>
 
 #include "ash/constants/ash_switches.h"
@@ -19,7 +26,6 @@
 #include "base/command_line.h"
 #include "base/containers/fixed_flat_map.h"
 #include "base/logging.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "chromeos/ash/components/system/statistics_provider.h"
 #include "ui/events/ash/keyboard_capability.h"
@@ -146,18 +152,18 @@ constexpr uint32_t kScancodesDrallion[] = {
 
 // Turkish F-Type xkb keyboard layout id which is used to differentiate between
 // a device from 'tr' region with Q-Type vs F-Type.
-constexpr base::StringPiece kTurkishFLayoutId = "xkb:tr:f:tur";
+constexpr std::string_view kTurkishFLayoutId = "xkb:tr:f:tur";
 
 // |kTurkeyRegionCode| is the real turkey region code.
 // |kTurkeyFLayoutRegionCode| is used purely in the diagnostics app to
 // accurately display F-Type keyboard layouts.
-constexpr base::StringPiece kTurkeyRegionCode = "tr";
-constexpr base::StringPiece kTurkeyFLayoutRegionCode = "tr.f";
+constexpr std::string_view kTurkeyRegionCode = "tr";
+constexpr std::string_view kTurkeyFLayoutRegionCode = "tr.f";
 
 mojom::MechanicalLayout GetSystemMechanicalLayout() {
   system::StatisticsProvider* stats_provider =
       system::StatisticsProvider::GetInstance();
-  const std::optional<base::StringPiece> layout_string =
+  const std::optional<std::string_view> layout_string =
       stats_provider->GetMachineStatistic(system::kKeyboardMechanicalLayoutKey);
   if (!layout_string) {
     LOG(ERROR) << "Couldn't determine mechanical layout";
@@ -178,7 +184,7 @@ mojom::MechanicalLayout GetSystemMechanicalLayout() {
 std::optional<std::string> GetRegionCode() {
   system::StatisticsProvider* stats_provider =
       system::StatisticsProvider::GetInstance();
-  const std::optional<base::StringPiece> layout_string =
+  const std::optional<std::string_view> layout_string =
       stats_provider->GetMachineStatistic(system::kRegionKey);
   if (!layout_string) {
     LOG(ERROR) << "Couldn't determine region";
@@ -244,6 +250,7 @@ constexpr mojom::TopRowKey ConvertTopRowActionKeyToDiagnosticsTopRowKey(
     case ui::TopRowActionKey::kAllApplications:
     case ui::TopRowActionKey::kEmojiPicker:
     case ui::TopRowActionKey::kDictation:
+    case ui::TopRowActionKey::kAccessibility:
     case ui::TopRowActionKey::kUnknown:
       return mojom::TopRowKey::kUnknown;
     case ui::TopRowActionKey::kNone:
@@ -484,7 +491,7 @@ mojom::KeyEventPtr InputDataProviderKeyboard::ConstructInputKeyEvent(
   }
 
   // Do the same if F1-F15 was pressed.
-  const auto* jter = kFKeyOrder.find(event->key_code);
+  const auto jter = kFKeyOrder.find(event->key_code);
   if (event->top_row_position == -1 && jter != kFKeyOrder.end()) {
     event->top_row_position = jter->second;
   }

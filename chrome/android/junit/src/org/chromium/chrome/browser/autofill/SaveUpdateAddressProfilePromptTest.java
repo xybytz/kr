@@ -23,26 +23,21 @@ import androidx.test.filters.SmallTest;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 import org.robolectric.Robolectric;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.Callback;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.autofill.editors.AddressEditorCoordinator;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.sync.SyncServiceFactory;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.autofill.AutofillProfile;
 import org.chromium.components.signin.identitymanager.IdentityManager;
 import org.chromium.components.sync.SyncService;
@@ -55,15 +50,10 @@ import org.chromium.ui.test.util.modaldialog.FakeModalDialogManager;
 /** Unit tests for {@link SaveUpdateAddressProfilePrompt}. */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
-@EnableFeatures({
-    ChromeFeatureList.AUTOFILL_ADDRESS_PROFILE_SAVE_PROMPT_NICKNAME_SUPPORT,
-    ChromeFeatureList.AUTOFILL_ENABLE_SUPPORT_FOR_HONORIFIC_PREFIXES
-})
 public class SaveUpdateAddressProfilePromptTest {
     private static final long NATIVE_SAVE_UPDATE_ADDRESS_PROFILE_PROMPT_CONTROLLER = 100L;
     private static final boolean NO_MIGRATION = false;
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
-    @Rule public JniMocker mJniMocker = new JniMocker();
+    @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
 
     @Mock private SaveUpdateAddressProfilePromptController.Natives mPromptControllerJni;
     @Mock private AutofillProfileBridge.Natives mAutofillProfileBridgeJni;
@@ -83,8 +73,7 @@ public class SaveUpdateAddressProfilePromptTest {
 
     @Before
     public void setUp() {
-        MockitoAnnotations.initMocks(this);
-        PersonalDataManager.setInstanceForTesting(mPersonalDataManager);
+        PersonalDataManagerFactory.setInstanceForTesting(mPersonalDataManager);
         when(mPersonalDataManager.getDefaultCountryCodeForNewAddress()).thenReturn("US");
         SyncServiceFactory.setInstanceForTesting(mSyncService);
         IdentityServicesProvider.setInstanceForTests(mIdentityServicesProvider);
@@ -95,9 +84,8 @@ public class SaveUpdateAddressProfilePromptTest {
         mPromptController =
                 SaveUpdateAddressProfilePromptController.create(
                         NATIVE_SAVE_UPDATE_ADDRESS_PROFILE_PROMPT_CONTROLLER);
-        mJniMocker.mock(
-                SaveUpdateAddressProfilePromptControllerJni.TEST_HOOKS, mPromptControllerJni);
-        mJniMocker.mock(AutofillProfileBridgeJni.TEST_HOOKS, mAutofillProfileBridgeJni);
+        SaveUpdateAddressProfilePromptControllerJni.setInstanceForTesting(mPromptControllerJni);
+        AutofillProfileBridgeJni.setInstanceForTesting(mAutofillProfileBridgeJni);
     }
 
     private void createAndShowPrompt(boolean isUpdate) {
@@ -191,30 +179,30 @@ public class SaveUpdateAddressProfilePromptTest {
 
     @Test
     @SmallTest
-    public void dialogStrings_SourceNotice() {
+    public void dialogStrings_RecordTypeNotice() {
         createAndShowPrompt(false, true);
         View dialog = mPrompt.getDialogViewForTesting();
 
-        mPrompt.setSourceNotice(null);
+        mPrompt.setRecordTypeNotice(null);
         assertEquals(
                 View.GONE,
-                dialog.findViewById(R.id.autofill_address_profile_prompt_source_notice)
+                dialog.findViewById(R.id.autofill_address_profile_prompt_record_type_notice)
                         .getVisibility());
 
-        mPrompt.setSourceNotice("");
+        mPrompt.setRecordTypeNotice("");
         assertEquals(
                 View.GONE,
-                dialog.findViewById(R.id.autofill_address_profile_prompt_source_notice)
+                dialog.findViewById(R.id.autofill_address_profile_prompt_record_type_notice)
                         .getVisibility());
 
-        mPrompt.setSourceNotice("source notice");
+        mPrompt.setRecordTypeNotice("record type notice");
         assertEquals(
                 View.VISIBLE,
-                dialog.findViewById(R.id.autofill_address_profile_prompt_source_notice)
+                dialog.findViewById(R.id.autofill_address_profile_prompt_record_type_notice)
                         .getVisibility());
         validateTextView(
-                dialog.findViewById(R.id.autofill_address_profile_prompt_source_notice),
-                "source notice");
+                dialog.findViewById(R.id.autofill_address_profile_prompt_record_type_notice),
+                "record type notice");
     }
 
     @Test
@@ -259,51 +247,6 @@ public class SaveUpdateAddressProfilePromptTest {
         assertEquals(dialog.findViewById(R.id.header_new).getVisibility(), View.VISIBLE);
         assertEquals(dialog.findViewById(R.id.header_old).getVisibility(), View.VISIBLE);
         assertEquals(dialog.findViewById(R.id.no_header_space).getVisibility(), View.GONE);
-    }
-
-    @Test
-    @SmallTest
-    @DisableFeatures(ChromeFeatureList.AUTOFILL_ADDRESS_PROFILE_SAVE_PROMPT_NICKNAME_SUPPORT)
-    public void setupAddressNickname_FeatureDisabled() {
-        createAndShowPrompt(false);
-
-        View dialog = mPrompt.getDialogViewForTesting();
-        assertEquals(dialog.findViewById(R.id.nickname_input_layout).getVisibility(), View.GONE);
-    }
-
-    @Test
-    @SmallTest
-    public void setupAddressNickname_FeatureEnabled() {
-        createAndShowPrompt(false);
-
-        View dialog = mPrompt.getDialogViewForTesting();
-        TextView nicknameInput = dialog.findViewById(R.id.nickname_input);
-
-        assertEquals(nicknameInput.getVisibility(), View.VISIBLE);
-        assertEquals(nicknameInput.getHint(), "Add a label");
-
-        nicknameInput.requestFocus();
-        assertEquals(nicknameInput.getHint(), "Label");
-
-        nicknameInput.setText("Text");
-        nicknameInput.clearFocus();
-        assertEquals(nicknameInput.getHint(), "Label");
-
-        nicknameInput.requestFocus();
-        assertEquals(nicknameInput.getHint(), "Label");
-
-        nicknameInput.setText("");
-        nicknameInput.clearFocus();
-        assertEquals(nicknameInput.getHint(), "Add a label");
-    }
-
-    @Test
-    @SmallTest
-    public void setupAddressNickname_NoNicknamesDuringUpdate() {
-        createAndShowPrompt(true);
-
-        View dialog = mPrompt.getDialogViewForTesting();
-        assertNull(dialog.findViewById(R.id.nickname_input_layout));
     }
 
     @Test

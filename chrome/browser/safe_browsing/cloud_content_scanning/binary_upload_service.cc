@@ -9,12 +9,13 @@
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/enterprise/connectors/analysis/analysis_settings.h"
 #include "chrome/browser/enterprise/connectors/common.h"
 #include "chrome/browser/policy/chrome_browser_policy_connector.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/cloud_binary_upload_service_factory.h"
 #include "components/enterprise/common/strings.h"
+#include "components/enterprise/connectors/core/analysis_settings.h"
+#include "components/safe_browsing/core/common/safebrowsing_switches.h"
 #include "net/base/url_util.h"
 #include "third_party/abseil-cpp/absl/types/variant.h"
 
@@ -25,8 +26,6 @@
 namespace safe_browsing {
 namespace {
 
-constexpr char kCloudBinaryUploadServiceUrlFlag[] = "binary-upload-service-url";
-
 std::optional<GURL> GetUrlOverride() {
   // Ignore this flag on Stable and Beta to avoid abuse.
   if (!g_browser_process || !g_browser_process->browser_policy_connector()
@@ -35,9 +34,9 @@ std::optional<GURL> GetUrlOverride() {
   }
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(kCloudBinaryUploadServiceUrlFlag)) {
-    GURL url = GURL(
-        command_line->GetSwitchValueASCII(kCloudBinaryUploadServiceUrlFlag));
+  if (command_line->HasSwitch(switches::kCloudBinaryUploadServiceUrlFlag)) {
+    GURL url = GURL(command_line->GetSwitchValueASCII(
+        switches::kCloudBinaryUploadServiceUrlFlag));
     if (url.is_valid())
       return url;
     else
@@ -69,6 +68,8 @@ std::string BinaryUploadService::ResultToString(Result result) {
       return "FILE_ENCRYPTED";
     case Result::TOO_MANY_REQUESTS:
       return "TOO_MANY_REQUESTS";
+    case Result::INCOMPLETE_RESPONSE:
+      return "INCOMPLETE_RESPONSE";
   }
 }
 
@@ -89,6 +90,7 @@ BinaryUploadService::Request::Data::operator=(
   size = other.size;
   mime_type = other.mime_type;
   page = other.page.Duplicate();
+  is_obfuscated = other.is_obfuscated;
   return *this;
 }
 
@@ -228,6 +230,21 @@ void BinaryUploadService::Request::set_printer_type(
       ->set_printer_type(printer_type);
 }
 
+void BinaryUploadService::Request::set_clipboard_source_type(
+    enterprise_connectors::ContentMetaData::CopiedTextSource::
+        CopiedTextSourceType source_type) {
+  content_analysis_request_.mutable_request_data()
+      ->mutable_copied_text_source()
+      ->set_context(source_type);
+}
+
+void BinaryUploadService::Request::set_clipboard_source_url(
+    const std::string& url) {
+  content_analysis_request_.mutable_request_data()
+      ->mutable_copied_text_source()
+      ->set_url(url);
+}
+
 void BinaryUploadService::Request::set_password(const std::string& password) {
   content_analysis_request_.mutable_request_data()->set_decryption_key(
       password);
@@ -236,6 +253,16 @@ void BinaryUploadService::Request::set_password(const std::string& password) {
 void BinaryUploadService::Request::set_reason(
     enterprise_connectors::ContentAnalysisRequest::Reason reason) {
   content_analysis_request_.set_reason(reason);
+}
+
+void BinaryUploadService::Request::set_require_metadata_verdict(
+    bool require_metadata_verdict) {
+  content_analysis_request_.set_require_metadata_verdict(
+      require_metadata_verdict);
+}
+
+void BinaryUploadService::Request::set_blocking(bool blocking) {
+  content_analysis_request_.set_blocking(blocking);
 }
 
 std::string BinaryUploadService::Request::SetRandomRequestToken() {
@@ -294,8 +321,9 @@ uint64_t BinaryUploadService::Request::user_action_requests_count() const {
 }
 
 GURL BinaryUploadService::Request::tab_url() const {
-  if (!content_analysis_request_.has_request_data())
+  if (!content_analysis_request_.has_request_data()) {
     return GURL();
+  }
   return GURL(content_analysis_request_.request_data().tab_url());
 }
 
@@ -312,9 +340,14 @@ BinaryUploadService::Request::reason() const {
   return content_analysis_request_.reason();
 }
 
+bool BinaryUploadService::Request::blocking() const {
+  return content_analysis_request_.blocking();
+}
+
 void BinaryUploadService::Request::StartRequest() {
-  if (!request_start_callback_.is_null())
+  if (!request_start_callback_.is_null()) {
     std::move(request_start_callback_).Run(*this);
+  }
 }
 
 void BinaryUploadService::Request::FinishRequest(
@@ -361,8 +394,9 @@ GURL BinaryUploadService::Request::GetUrlWithParams() const {
                                     connector);
   }
 
-  for (const std::string& tag : content_analysis_request_.tags())
+  for (const std::string& tag : content_analysis_request_.tags()) {
     url = net::AppendQueryParameter(url, enterprise::kUrlParamTag, tag);
+  }
 
   return url;
 }

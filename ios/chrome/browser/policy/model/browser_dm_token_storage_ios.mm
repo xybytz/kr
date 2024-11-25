@@ -53,7 +53,6 @@ bool StoreDMTokenInDirAppDataDir(const std::string& token,
   base::FilePath token_file_path;
   if (!GetDmTokenFilePath(&token_file_path, client_id, /*create_dir=*/true)) {
     NOTREACHED();
-    return false;
   }
 
   if (!base::ImportantFileWriter::WriteFileAtomically(token_file_path, token)) {
@@ -69,7 +68,6 @@ bool DeleteDMTokenFromAppDataDir(const std::string& client_id) {
   base::FilePath token_file_path;
   if (!GetDmTokenFilePath(&token_file_path, client_id, /*create_dir=*/false)) {
     NOTREACHED();
-    return false;
   }
 
   return base::DeleteFile(token_file_path);

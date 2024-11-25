@@ -34,6 +34,7 @@ import org.chromium.chrome.browser.feed.sort_ui.FeedOptionsCoordinator;
 import org.chromium.chrome.browser.feed.sort_ui.FeedOptionsCoordinator.OptionChangedListener;
 import org.chromium.chrome.browser.feed.v2.ContentOrder;
 import org.chromium.chrome.browser.feed.v2.FeedUserActionType;
+import org.chromium.chrome.browser.feed.webfeed.WebFeedBridge;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.new_tab_url.DseNewTabUrlManager;
 import org.chromium.chrome.browser.ntp.NewTabPageLaunchOrigin;
@@ -42,6 +43,7 @@ import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.preferences.PrefChangeRegistrar;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
+import org.chromium.chrome.browser.signin.SigninAndHistorySyncActivityLauncherImpl;
 import org.chromium.chrome.browser.signin.SyncConsentActivityLauncherImpl;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.signin.services.SigninManager;
@@ -49,7 +51,9 @@ import org.chromium.chrome.browser.suggestions.SuggestionsMetrics;
 import org.chromium.chrome.browser.ui.native_page.TouchEnabledDelegate;
 import org.chromium.chrome.browser.ui.signin.PersonalizedSigninPromoView;
 import org.chromium.chrome.browser.ui.signin.SyncPromoController;
+import org.chromium.chrome.browser.ui.signin.account_picker.AccountPickerBottomSheetStrings;
 import org.chromium.chrome.browser.xsurface.ListLayoutHelper;
+import org.chromium.chrome.browser.xsurface.feed.FeedUserInteractionReliabilityLogger.ClosedReason;
 import org.chromium.chrome.browser.xsurface.feed.StreamType;
 import org.chromium.components.browser_ui.widget.displaystyle.DisplayStyleObserver;
 import org.chromium.components.browser_ui.widget.displaystyle.HorizontalDisplayStyle;
@@ -215,7 +219,7 @@ public class FeedSurfaceMediator
     private final FeedActionDelegate mActionDelegate;
     private final FeedOptionsCoordinator mOptionsCoordinator;
 
-    // It is non-null for NTP on tablets when SurfacePolish is enabled.
+    // It is non-null for NTP on tablets.
     private @Nullable final UiConfig mUiConfig;
     private final DisplayStyleObserver mDisplayStyleObserver = this::onDisplayStyleChanged;
 
@@ -252,6 +256,7 @@ public class FeedSurfaceMediator
     private boolean mSettingUpStreams;
     private boolean mIsNewTabSearchEngineUrlAndroidEnabled;
     private boolean mIsPropertiesInitializedForStream;
+    private @ClosedReason int mClosedReason = ClosedReason.SUSPEND_APP;
 
     /**
      * @param coordinator The {@link FeedSurfaceCoordinator} that interacts with this class.
@@ -287,7 +292,7 @@ public class FeedSurfaceMediator
                 DseNewTabUrlManager.isNewTabSearchEngineUrlAndroidEnabled();
         mUiConfig = uiConfig;
 
-        /**
+        /*
          * When feature flag isNewTabSearchEngineUrlAndroidEnabled is enabled, the Feeds may be
          * hidden without showing its header. Therefore, FeedSurfaceMediator needs to observe
          * whether the DSE is changed and update Pref.ENABLE_SNIPPETS_BY_DSE even when Feeds isn't
@@ -422,7 +427,7 @@ public class FeedSurfaceMediator
                 .getView()
                 .addOnLayoutChangeListener(
                         (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-                            mSnapScrollHelper.handleScroll();
+                            mCoordinator.getView().postOnAnimation(mSnapScrollHelper::handleScroll);
                             float pixelToDp = mContext.getResources().getDisplayMetrics().density;
                             int widthDp = (int) ((right - left) / pixelToDp);
                             updateLayout(widthDp < SMALL_WIDTH_DP);
@@ -547,8 +552,7 @@ public class FeedSurfaceMediator
         mSigninManager.getIdentityManager().addObserver(this);
 
         mSectionHeaderModel.set(SectionHeaderListProperties.MENU_MODEL_LIST_KEY, mFeedMenuModel);
-        mSectionHeaderModel.set(
-                SectionHeaderListProperties.MENU_DELEGATE_KEY, this::onItemSelected);
+        mSectionHeaderModel.set(SectionHeaderListProperties.MENU_DELEGATE_KEY, this);
 
         setUpWebFeedTab();
 
@@ -578,12 +582,17 @@ public class FeedSurfaceMediator
 
                     @Override
                     public void onScrolled(RecyclerView v, int dx, int dy) {
-                        if (mSnapScrollHelper != null) {
-                            mSnapScrollHelper.handleScroll();
-                        }
-                        for (ScrollListener listener : mScrollListeners) {
-                            listener.onScrolled(dx, dy);
-                        }
+                        mCoordinator
+                                .getView()
+                                .postOnAnimation(
+                                        () -> {
+                                            if (mSnapScrollHelper != null) {
+                                                mSnapScrollHelper.handleScroll();
+                                            }
+                                            for (ScrollListener listener : mScrollListeners) {
+                                                listener.onScrolled(dx, dy);
+                                            }
+                                        });
                     }
                 };
         mCoordinator.getRecyclerView().addOnScrollListener(mStreamScrollListener);
@@ -654,7 +663,7 @@ public class FeedSurfaceMediator
         if (hasWebFeedTab == shouldHaveWebFeedTab) return;
         if (shouldHaveWebFeedTab) {
             addHeaderAndStream(
-                    mContext.getResources().getString(R.string.ntp_following),
+                    mContext.getString(R.string.ntp_following),
                     mCoordinator.createFeedStream(StreamKind.FOLLOWING, new StreamsMediatorImpl()));
             if (FeedFeatures.shouldUseNewIndicator(mProfile)) {
                 PropertyModel followingHeaderModel =
@@ -663,7 +672,7 @@ public class FeedSurfaceMediator
                                 .get(getTabIdForSection(StreamKind.FOLLOWING));
                 followingHeaderModel.set(
                         SectionHeaderProperties.BADGE_TEXT_KEY,
-                        mContext.getResources().getString(R.string.ntp_new));
+                        mContext.getString(R.string.ntp_new));
 
                 // Set up a content changed listener on the main feed to start animation
                 // after main feed loads more than 1 feed card.
@@ -738,6 +747,7 @@ public class FeedSurfaceMediator
     /** Unbinds the stream with option for stream to put a placeholder for its contents. */
     private void unbindStream(boolean shouldPlaceSpacer, boolean switchingStream) {
         if (mCurrentStream == null) return;
+        mClosedReason = mCurrentStream.getClosedReason();
         mCoordinator.getHybridListRenderer().onSurfaceClosed();
         mCurrentStream.unbind(shouldPlaceSpacer, switchingStream);
         mCurrentStream.removeOnContentChangedListener(mStreamContentChangedListener);
@@ -760,10 +770,6 @@ public class FeedSurfaceMediator
     long getLastFetchTimeMsForCurrentStream() {
         if (mCurrentStream == null) return 0;
         return mCurrentStream.getLastFetchTimeMs();
-    }
-
-    boolean isPlaceholderShown() {
-        return mCurrentStream == null ? false : mCurrentStream.isPlaceholderShown();
     }
 
     Stream getCurrentStreamForTesting() {
@@ -801,15 +807,22 @@ public class FeedSurfaceMediator
 
     /**
      * Determines whether a signin promo should be shown.
+     *
      * @return Whether the SignPromo should be visible.
      */
     private boolean shouldShowSigninPromo() {
         SyncPromoController.resetNtpSyncPromoLimitsIfHiddenForTooLong();
+        AccountPickerBottomSheetStrings bottomSheetStrings =
+                new AccountPickerBottomSheetStrings.Builder(
+                                R.string.signin_account_picker_bottom_sheet_title)
+                        .build();
         SyncPromoController promoController =
                 new SyncPromoController(
                         mProfile,
-                        SigninAccessPoint.NTP_CONTENT_SUGGESTIONS,
-                        SyncConsentActivityLauncherImpl.get());
+                        bottomSheetStrings,
+                        SigninAccessPoint.NTP_FEED_TOP_PROMO,
+                        SyncConsentActivityLauncherImpl.get(),
+                        SigninAndHistorySyncActivityLauncherImpl.get());
         if (!SignInPromo.shouldCreatePromo() || !promoController.canShowSyncPromo()) {
             return false;
         }
@@ -913,7 +926,7 @@ public class FeedSurfaceMediator
         // It is possible that updateSectionHeader() is called when the surface which contains the
         // Feeds isn't visible or headers of streams haven't been added, returns here.
         // See https://crbug.com/1485070 and https://crbug.com/1488210.
-        // TODO(https://crbug.com/1488630): Figure out the root cause of setting
+        // TODO(crbug.com/40934702): Figure out the root cause of setting
         // SectionHeaderListProperties.CURRENT_TAB_INDEX_KEY to -1 and fix it.
         if (!mIsPropertiesInitializedForStream
                 || mSectionHeaderModel.get(SectionHeaderListProperties.CURRENT_TAB_INDEX_KEY) < 0) {
@@ -983,7 +996,7 @@ public class FeedSurfaceMediator
         // which is called by the prefService observer.
         getPrefService().setBoolean(Pref.ARTICLES_LIST_VISIBLE, isExpanded);
         FeedUma.recordFeedControlsAction(FeedUma.CONTROLS_ACTION_TOGGLED_FEED);
-        SuggestionsMetrics.recordArticlesListVisible();
+        SuggestionsMetrics.recordArticlesListVisible(mProfile);
 
         int streamType =
                 mTabToStreamMap
@@ -1019,9 +1032,7 @@ public class FeedSurfaceMediator
             }
         }
 
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.WEB_FEED)
-                && FeedServiceBridge.isSignedIn()
-                && isExpanded) {
+        if (WebFeedBridge.isWebFeedEnabled() && FeedServiceBridge.isSignedIn() && isExpanded) {
             return res.getString(R.string.ntp_discover_on);
         } else if (isDefaultSearchEngineGoogle) {
             return isExpanded
@@ -1039,7 +1050,7 @@ public class FeedSurfaceMediator
 
         // Do not display Manage menu items for the supervised-user feed.
         if (FeedServiceBridge.isSignedIn() && !mCoordinator.shouldDisplaySupervisedFeed()) {
-            if (ChromeFeatureList.isEnabled(ChromeFeatureList.WEB_FEED)) {
+            if (WebFeedBridge.isWebFeedEnabled()) {
                 itemList.add(
                         buildMenuListItem(
                                 R.string.ntp_manage_feed,
@@ -1355,6 +1366,8 @@ public class FeedSurfaceMediator
                 return StreamType.FOR_YOU;
             case StreamKind.FOLLOWING:
                 return StreamType.WEB_FEED;
+            case StreamKind.SUPERVISED_USER:
+                return StreamType.SUPERVISED_USER_FEED;
             default:
                 return StreamType.UNSPECIFIED;
         }
@@ -1393,5 +1406,9 @@ public class FeedSurfaceMediator
         mSectionHeaderModel.set(
                 SectionHeaderListProperties.IS_NARROW_WINDOW_ON_TABLET_KEY,
                 newDisplayStyle.horizontal < HorizontalDisplayStyle.WIDE);
+    }
+
+    public @ClosedReason int getClosedReason() {
+        return mClosedReason;
     }
 }

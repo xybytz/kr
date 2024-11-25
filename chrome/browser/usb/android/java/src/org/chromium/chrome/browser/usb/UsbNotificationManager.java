@@ -17,7 +17,7 @@ import org.chromium.chrome.browser.notifications.channels.ChromeChannelDefinitio
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.ChromeSharedPreferences;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.components.browser_ui.notifications.NotificationManagerProxy;
+import org.chromium.components.browser_ui.notifications.BaseNotificationManagerProxy;
 import org.chromium.components.browser_ui.notifications.NotificationMetadata;
 import org.chromium.components.browser_ui.notifications.NotificationWrapper;
 import org.chromium.components.browser_ui.notifications.NotificationWrapperBuilder;
@@ -48,12 +48,13 @@ public class UsbNotificationManager {
     public static final String NOTIFICATION_URL_EXTRA = "NotificationUrl";
 
     private UsbNotificationManagerDelegate mDelegate;
-    private NotificationManagerProxy mNotificationManager;
+    private BaseNotificationManagerProxy mNotificationManager;
     private SharedPreferencesManager mSharedPreferences;
     private final List<Integer> mNotificationIds = new ArrayList<Integer>();
 
     public UsbNotificationManager(
-            NotificationManagerProxy notificationManager, UsbNotificationManagerDelegate delegate) {
+            BaseNotificationManagerProxy notificationManager,
+            UsbNotificationManagerDelegate delegate) {
         mDelegate = delegate;
         mNotificationManager = notificationManager;
         mSharedPreferences = ChromeSharedPreferences.getInstance();
@@ -202,8 +203,7 @@ public class UsbNotificationManager {
                 ChromePreferenceKeys.USB_NOTIFICATION_IDS, notificationIds);
     }
 
-    private static boolean shouldStartService(
-            Context context, boolean isConnected, int notificationTabId) {
+    private static boolean shouldStartService(boolean isConnected, int notificationTabId) {
         if (isConnected) return true;
         SharedPreferencesManager sharedPreferences = ChromeSharedPreferences.getInstance();
         Set<String> notificationIds =
@@ -213,8 +213,9 @@ public class UsbNotificationManager {
     }
 
     /**
-     * Send an intent to the usb notification service to either create or destroy the
-     * notification identified by notificationTabId.
+     * Send an intent to the usb notification service to either create or destroy the notification
+     * identified by notificationTabId.
+     *
      * @param context The activity context.
      * @param service The usb notification service class.
      * @param notificationTabId The tab id.
@@ -230,7 +231,7 @@ public class UsbNotificationManager {
             GURL url,
             boolean isIncognito) {
         boolean isConnected = UsbBridge.isWebContentsConnectedToUsbDevice(webContents);
-        if (!shouldStartService(context, isConnected, notificationTabId)) return;
+        if (!shouldStartService(isConnected, notificationTabId)) return;
         Intent intent = new Intent(context, service);
         intent.setAction(ACTION_USB_UPDATE);
         intent.putExtra(NOTIFICATION_ID_EXTRA, notificationTabId);

@@ -5,19 +5,16 @@
 package org.chromium.base;
 
 import org.junit.Assert;
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.FeatureList.TestValues;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Features.EnableFeatures;
-import org.chromium.base.test.util.Features.JUnitProcessor;
 
 /** Unit tests for {@link FeatureList}. */
 @RunWith(BaseRobolectricTestRunner.class)
 public class FeatureListUnitTest {
-    @Rule public JUnitProcessor mFeaturesProcessor = new JUnitProcessor();
 
     private static final String FEATURE_A = "FeatureA";
     private static final String FEATURE_A_PARAM_1 = "Param1InFeatureA";
@@ -28,14 +25,13 @@ public class FeatureListUnitTest {
     public void test_getTestValueForFeature_noOverride_throwsException() {
         Assert.assertThrows(
                 IllegalArgumentException.class,
-                () -> FeatureList.getTestValueForFeature(FEATURE_A));
+                () -> FeatureList.getTestValueForFeatureStrict(FEATURE_A));
     }
 
     @Test
     public void test_getTestValueForFeature_canUseDefaults_noException() {
-        FeatureList.setTestCanUseDefaultsForTesting();
-
-        Assert.assertNull(FeatureList.getTestValueForFeature(FEATURE_A));
+        FeatureList.setDisableNativeForTesting(false);
+        Assert.assertNull(FeatureList.getTestValueForFeatureStrict(FEATURE_A));
     }
 
     @Test
@@ -49,12 +45,12 @@ public class FeatureListUnitTest {
         testValues.addFeatureFlagOverride(FEATURE_A, true);
         FeatureList.setTestValues(testValues);
 
-        Assert.assertEquals(true, FeatureList.getTestValueForFeature(FEATURE_A));
+        Assert.assertEquals(true, FeatureList.getTestValueForFeatureStrict(FEATURE_A));
 
         testValues.addFeatureFlagOverride(FEATURE_A, false);
         FeatureList.setTestValues(testValues);
 
-        Assert.assertEquals(false, FeatureList.getTestValueForFeature(FEATURE_A));
+        Assert.assertEquals(false, FeatureList.getTestValueForFeatureStrict(FEATURE_A));
     }
 
     @Test
@@ -79,7 +75,7 @@ public class FeatureListUnitTest {
 
         Assert.assertThrows(
                 IllegalArgumentException.class,
-                () -> FeatureList.getTestValueForFeature(FEATURE_B));
+                () -> FeatureList.getTestValueForFeatureStrict(FEATURE_B));
     }
 
     @Test
@@ -95,8 +91,8 @@ public class FeatureListUnitTest {
         FeatureList.setTestValues(testValues1);
         FeatureList.mergeTestValues(testValues2, true);
 
-        Assert.assertEquals(false, FeatureList.getTestValueForFeature(FEATURE_A));
-        Assert.assertEquals(true, FeatureList.getTestValueForFeature(FEATURE_B));
+        Assert.assertEquals(false, FeatureList.getTestValueForFeatureStrict(FEATURE_A));
+        Assert.assertEquals(true, FeatureList.getTestValueForFeatureStrict(FEATURE_B));
         Assert.assertEquals(
                 "paramValue1",
                 FeatureList.getTestValueForFieldTrialParam(FEATURE_A, FEATURE_A_PARAM_1));
@@ -118,7 +114,7 @@ public class FeatureListUnitTest {
         FeatureList.setTestValues(testValues1);
         FeatureList.mergeTestValues(testValues2, true);
 
-        Assert.assertEquals(true, FeatureList.getTestValueForFeature(FEATURE_A));
+        Assert.assertEquals(true, FeatureList.getTestValueForFeatureStrict(FEATURE_A));
         Assert.assertEquals(
                 "true", FeatureList.getTestValueForFieldTrialParam(FEATURE_A, FEATURE_A_PARAM_1));
     }
@@ -136,7 +132,7 @@ public class FeatureListUnitTest {
         FeatureList.setTestValues(testValues1);
         FeatureList.mergeTestValues(testValues2, false);
 
-        Assert.assertEquals(false, FeatureList.getTestValueForFeature(FEATURE_A));
+        Assert.assertEquals(false, FeatureList.getTestValueForFeatureStrict(FEATURE_A));
         Assert.assertEquals(
                 "false", FeatureList.getTestValueForFieldTrialParam(FEATURE_A, FEATURE_A_PARAM_1));
     }
@@ -144,14 +140,14 @@ public class FeatureListUnitTest {
     @Test
     @EnableFeatures({FEATURE_A, FEATURE_B})
     public void test_setTestValues_replacesAnnotation() {
-        FeatureList.setTestCanUseDefaultsForTesting();
+        FeatureList.setDisableNativeForTesting(false);
 
         TestValues testValues = new TestValues();
         testValues.addFeatureFlagOverride(FEATURE_A, false);
         FeatureList.setTestValues(testValues);
 
-        Assert.assertEquals(false, FeatureList.getTestValueForFeature(FEATURE_A));
-        Assert.assertNull(FeatureList.getTestValueForFeature(FEATURE_B));
+        Assert.assertEquals(false, FeatureList.getTestValueForFeatureStrict(FEATURE_A));
+        Assert.assertNull(FeatureList.getTestValueForFeatureStrict(FEATURE_B));
     }
 
     @Test
@@ -161,8 +157,8 @@ public class FeatureListUnitTest {
         testValues.addFeatureFlagOverride(FEATURE_A, false);
         FeatureList.mergeTestValues(testValues, true);
 
-        Assert.assertEquals(false, FeatureList.getTestValueForFeature(FEATURE_A));
-        Assert.assertEquals(true, FeatureList.getTestValueForFeature(FEATURE_B));
+        Assert.assertEquals(false, FeatureList.getTestValueForFeatureStrict(FEATURE_A));
+        Assert.assertEquals(true, FeatureList.getTestValueForFeatureStrict(FEATURE_B));
     }
 
     @Test
@@ -172,7 +168,7 @@ public class FeatureListUnitTest {
         testValues.addFeatureFlagOverride(FEATURE_A, false);
         FeatureList.mergeTestValues(testValues, false);
 
-        Assert.assertEquals(true, FeatureList.getTestValueForFeature(FEATURE_A));
-        Assert.assertEquals(true, FeatureList.getTestValueForFeature(FEATURE_B));
+        Assert.assertEquals(true, FeatureList.getTestValueForFeatureStrict(FEATURE_A));
+        Assert.assertEquals(true, FeatureList.getTestValueForFeatureStrict(FEATURE_B));
     }
 }

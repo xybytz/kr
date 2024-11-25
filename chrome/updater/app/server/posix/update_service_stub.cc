@@ -61,9 +61,11 @@ namespace {
 
 [[nodiscard]] mojom::AppStatePtr MakeMojoAppState(
     const updater::UpdateService::AppState& app_state) {
-  return mojom::AppState::New(app_state.app_id, app_state.version.GetString(),
-                              app_state.ap, app_state.brand_code,
-                              app_state.brand_path, app_state.ecp);
+  return mojom::AppState::New(
+      app_state.app_id, app_state.version.GetString(), app_state.ap,
+      app_state.brand_code, app_state.brand_path, app_state.ecp,
+      app_state.ap_path, app_state.ap_key, app_state.version_path,
+      app_state.version_key, app_state.cohort);
 }
 
 [[nodiscard]] mojom::UpdateStatePtr MakeMojoUpdateState(
@@ -103,8 +105,9 @@ class StateChangeObserverWrapper
 
 // Binds a callback that forwards state change callbacks and the OnComplete
 // callback to a StateChangeObserver.
-[[nodiscard]] std::pair<UpdateService::StateChangeCallback,
-                        UpdateService::Callback>
+[[nodiscard]] std::pair<
+    base::RepeatingCallback<void(const UpdateService::UpdateState&)>,
+    base::OnceCallback<void(UpdateService::Result)>>
 MakeStateChangeObserverCallbacks(
     std::unique_ptr<mojo::Remote<mojom::StateChangeObserver>> observer) {
   auto wrapper =
@@ -149,32 +152,37 @@ class UpdateServiceStubUntrusted : public mojom::UpdateService {
                   std::move(callback));
   }
 
-  // The rest of updater::mojom::UpdateService is rejected.
-  void FetchPolicies(FetchPoliciesCallback callback) override {
-    VLOG(1) << __func__ << " rejected (untrusted caller)";
+  void CheckForUpdate(
+      const std::string& app_id,
+      UpdateService::Priority priority,
+      UpdateService::PolicySameVersionUpdate policy_same_version_update,
+      UpdateCallback callback) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    std::move(callback).Run(kErrorPermissionDenied);
+    impl_->CheckForUpdate(app_id, priority, policy_same_version_update,
+                          std::move(callback));
   }
 
+  void RunPeriodicTasks(RunPeriodicTasksCallback callback) override {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    impl_->RunPeriodicTasks(std::move(callback));
+  }
+
+  void FetchPolicies(FetchPoliciesCallback callback) override {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    impl_->FetchPolicies(std::move(callback));
+  }
+
+  void UpdateAll(UpdateAllCallback callback) override {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    impl_->UpdateAll(std::move(callback));
+  }
+
+  // The rest of updater::mojom::UpdateService is rejected.
   void RegisterApp(mojom::RegistrationRequestPtr request,
                    RegisterAppCallback callback) override {
     VLOG(1) << __func__ << " rejected (untrusted caller)";
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     std::move(callback).Run(kErrorPermissionDenied);
-  }
-
-  void RunPeriodicTasks(RunPeriodicTasksCallback callback) override {
-    VLOG(1) << __func__ << " rejected (untrusted caller)";
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    std::move(callback).Run();
-  }
-
-  void UpdateAll(UpdateAllCallback callback) override {
-    VLOG(1) << __func__ << " rejected (untrusted caller)";
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    mojo::Remote<mojom::StateChangeObserver> observer;
-    std::move(callback).Run(observer.BindNewPipeAndPassReceiver());
-    observer->OnComplete(mojom::UpdateService_Result::kPermissionDenied);
   }
 
   void Install(mojom::RegistrationRequestPtr registration,
@@ -205,16 +213,6 @@ class UpdateServiceStubUntrusted : public mojom::UpdateService {
     mojo::Remote<mojom::StateChangeObserver> observer;
     std::move(callback).Run(observer.BindNewPipeAndPassReceiver());
     observer->OnComplete(mojom::UpdateService_Result::kPermissionDenied);
-  }
-
-  void CheckForUpdate(
-      const std::string& app_id,
-      UpdateService::Priority priority,
-      UpdateService::PolicySameVersionUpdate policy_same_version_update,
-      UpdateCallback callback) override {
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    impl_->CheckForUpdate(app_id, priority, policy_same_version_update,
-                          std::move(callback));
   }
 
  private:
@@ -402,18 +400,16 @@ UpdateServiceStub::UpdateServiceStub(
     base::RepeatingClosure task_end_listener,
     base::RepeatingClosure endpoint_created_listener_for_testing)
     : filter_(std::make_unique<UpdateServiceStubUntrusted>(this)),
-      server_(
-          {.server_name = GetUpdateServiceServerName(scope),
-           .message_pipe_id =
+      server_({GetUpdateServiceServerName(scope),
                named_mojo_ipc_server::EndpointOptions::kUseIsolatedConnection},
-          base::BindRepeating(base::BindRepeating(
-              [](mojom::UpdateService* interface,
-                 mojom::UpdateService* filter,
-                 std::unique_ptr<named_mojo_ipc_server::ConnectionInfo> info) {
-                return IsConnectionTrusted(*info) ? interface : filter;
-              },
-              this,
-              filter_.get()))),
+              base::BindRepeating(base::BindRepeating(
+                  [](mojom::UpdateService* interface,
+                     mojom::UpdateService* filter,
+                     const named_mojo_ipc_server::ConnectionInfo& info) {
+                    return IsConnectionTrusted(info) ? interface : filter;
+                  },
+                  this,
+                  filter_.get()))),
       impl_(impl),
       task_start_listener_(task_start_listener),
       task_end_listener_(task_end_listener) {

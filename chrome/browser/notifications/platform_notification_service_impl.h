@@ -30,9 +30,9 @@
 class GURL;
 class Profile;
 
-namespace content {
+namespace blink {
 struct NotificationResources;
-}  // namespace content
+}  // namespace blink
 
 // The platform notification service is the profile-specific entry point through
 // which Web Notifications can be controlled.
@@ -95,11 +95,14 @@ class PlatformNotificationServiceImpl
   friend class PushMessagingBrowserTest;
   FRIEND_TEST_ALL_PREFIXES(PlatformNotificationServiceTest,
                            CreateNotificationFromData);
+  FRIEND_TEST_ALL_PREFIXES(PlatformNotificationServiceTest_WebApps,
+                           CreateNotificationFromData);
   FRIEND_TEST_ALL_PREFIXES(PlatformNotificationServiceTest,
                            DisplayNameForContextMessage);
   FRIEND_TEST_ALL_PREFIXES(PlatformNotificationServiceTest,
                            RecordNotificationUkmEvent);
-  FRIEND_TEST_ALL_PREFIXES(PlatformNotificationServiceTest, IncomingCallWebApp);
+  FRIEND_TEST_ALL_PREFIXES(PlatformNotificationServiceTest_WebApps,
+                           IncomingCallWebApp);
   FRIEND_TEST_ALL_PREFIXES(
       PlatformNotificationServiceTest_WebAppNotificationIconAndTitle,
       FindWebAppIconAndTitle_NoApp);
@@ -121,10 +124,10 @@ class PlatformNotificationServiceImpl
       const ContentSettingsPattern& secondary_pattern,
       ContentSettingsTypeSet content_type_set) override;
 
-  static void DidGetBackgroundSourceId(
+  static void RecordNotificationUkmEventWithSourceId(
       base::OnceClosure recorded_closure,
       const content::NotificationDatabaseData& data,
-      std::optional<ukm::SourceId> source_id);
+      ukm::SourceId source_id);
 
   // Creates a new Web Notification-based Notification object. Should only be
   // called when the notification is first shown. |web_app_hint_url| is used to

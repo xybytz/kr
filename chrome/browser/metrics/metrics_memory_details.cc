@@ -70,7 +70,6 @@ void MetricsMemoryDetails::UpdateHistograms() {
           continue;
         case ProcessMemoryInformation::RENDERER_UNKNOWN:
           NOTREACHED() << "Unknown renderer process type.";
-          continue;
         case ProcessMemoryInformation::RENDERER_NORMAL:
         default:
           renderer_count++;

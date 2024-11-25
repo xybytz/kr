@@ -5,56 +5,63 @@
 #ifndef CHROME_UPDATER_UTIL_UTIL_H_
 #define CHROME_UPDATER_UTIL_UTIL_H_
 
+#include <cmath>
+#include <concepts>
+#include <limits>
 #include <optional>
 #include <ostream>
 #include <string>
 #include <type_traits>
-#include <utility>
+#include <vector>
 
-#include "base/command_line.h"
-#include "base/files/file_path.h"
-#include "base/strings/string_piece.h"
-#include "base/strings/string_util.h"
-#include "base/task/sequenced_task_runner.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/ref_counted.h"
 #include "base/types/cxx23_to_underlying.h"
+#include "base/version.h"
 #include "build/build_config.h"
 #include "chrome/updater/tag.h"
 #include "chrome/updater/updater_scope.h"
+#include "chrome/updater/updater_version.h"
 
 class GURL;
 
-// Externally-defined printers for base types.
 namespace base {
 
 class CommandLine;
-class Version;
+class FilePath;
 
+// Enables insertion of optional `base` types. Must be in the `base` namespace
+// for insertion into gTest expectations to work.
 template <class T>
-std::ostream& operator<<(std::ostream& os, const std::optional<T>& opt) {
-  if (opt.has_value()) {
-    return os << opt.value();
-  } else {
+inline std::ostream& operator<<(std::ostream& os, std::optional<T> opt) {
+  if (!opt.has_value()) {
     return os << "std::nullopt";
   }
+  return os << opt.value();
 }
 
 }  // namespace base
 
 namespace updater {
 
-// This template function enables logging enum value as the underlying type.
-template <typename T>
-std::ostream& operator<<(
-    typename std::enable_if<std::is_enum<T>::value, std::ostream>::type& stream,
-    const T& e) {
-  return stream << base::to_underlying(e);
-}
-
-namespace tagging {
-struct TagArgs;
-}
-
 struct RegistrationRequest;
+
+// Converts an unsigned integral to a signed one. Returns -1 if the value is
+// out of the range of the target type.
+template <std::unsigned_integral T>
+[[nodiscard]] auto ToSignedIntegral(T value) {
+  using Result = std::make_signed_t<T>;
+  return value <= std::numeric_limits<Result>::max()
+             ? static_cast<Result>(value)
+             : -1;
+}
+
+// Inserts an enum value as the underlying type.
+template <typename T>
+  requires(std::is_enum_v<T>)
+inline std::ostream& operator<<(std::ostream& os, const T& e) {
+  return os << base::to_underlying(e);
+}
 
 // Returns the versioned install directory under which the program stores its
 // executables. For example, on macOS this function may return
@@ -115,9 +122,8 @@ std::optional<base::FilePath> GetCrashDatabasePath(UpdaterScope scope);
 // Returns the path to the crashpad database, creating it if it does not exist.
 std::optional<base::FilePath> EnsureCrashDatabasePath(UpdaterScope scope);
 
-// Return the parsed values from --tag command line argument. The functions
-// return {} if there was no tag at all. An error is set if the tag fails to
-// parse.
+// Contains the parsed values from the tag. The tag is provided as a command
+// line argument to the `--install` or the `--handoff` switch.
 struct TagParsingResult {
   TagParsingResult();
   TagParsingResult(std::optional<tagging::TagArgs> tag_args,
@@ -129,6 +135,8 @@ struct TagParsingResult {
   tagging::ErrorCode error = tagging::ErrorCode::kSuccess;
 };
 
+// These functions return {} if there was no tag at all. An error is set if the
+// tag fails to parse.
 TagParsingResult GetTagArgsForCommandLine(
     const base::CommandLine& command_line);
 TagParsingResult GetTagArgs();
@@ -145,7 +153,8 @@ std::optional<base::FilePath> GetLogFilePath(UpdaterScope scope);
 void InitLogging(UpdaterScope updater_scope);
 
 // Returns HTTP user-agent value.
-std::string GetUpdaterUserAgent();
+std::string GetUpdaterUserAgent(
+    const base::Version& updater_version = base::Version(kUpdaterVersion));
 
 // Returns a new GURL by appending the given query parameter name and the
 // value. Unsafe characters in the name and the value are escaped like
@@ -216,6 +225,10 @@ void InitializeThreadPool(const char* name);
 // updater as root.
 bool WrongUser(UpdaterScope scope);
 
+// Returns whether a user has previously accepted a EULA / ToS for at least one
+// of the listed apps.
+bool EulaAccepted(const std::vector<std::string>& app_ids);
+
 // Imports metadata from legacy updaters.
 bool MigrateLegacyUpdaters(
     UpdaterScope scope,
@@ -223,7 +236,24 @@ bool MigrateLegacyUpdaters(
         register_callback);
 
 // Delete everything other than `except` under `except.DirName()`.
-[[nodiscard]] bool DeleteExcept(const std::optional<base::FilePath>& except);
+[[nodiscard]] bool DeleteExcept(std::optional<base::FilePath> except);
+
+// Returns the quotient of dividing two integer numbers (m/n) rounded up.
+template <typename T>
+  requires(std::integral<T>)
+[[nodiscard]] constexpr T CeilingDivide(T m, T n) {
+  return std::ceil(static_cast<double>(m) / n);
+}
+
+// Returns a value in the [0, 100] range or -1 if the progress could not
+// be computed.
+[[nodiscard]] int GetDownloadProgress(int64_t downloaded_bytes,
+                                      int64_t total_bytes);
+
+// Returns the absolute path to the enterprise companion app executable bundled
+// with the updater.
+[[nodiscard]] std::optional<base::FilePath>
+GetBundledEnterpriseCompanionExecutablePath(UpdaterScope scope);
 
 }  // namespace updater
 

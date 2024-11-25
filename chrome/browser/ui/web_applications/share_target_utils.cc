@@ -11,7 +11,6 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/web_share_target/target_util.h"
 #include "components/services/app_service/public/cpp/intent_util.h"
@@ -25,7 +24,7 @@
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "chrome/browser/ash/file_manager/fileapi_util.h"
 #include "chrome/browser/profiles/profile.h"
 #endif
@@ -111,13 +110,13 @@ NavigateParams NavigateParamsForShareTarget(
 
       storage::FileSystemURL file_system_url;
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
       storage::FileSystemContext* file_system_context =
           file_manager::util::GetFileManagerFileSystemContext(
               browser->profile());
       file_system_url =
           file_system_context->CrackURLInFirstPartyContext(file->url);
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
       const std::string filename =
           (file->file_name.has_value() && !file->file_name->path().empty())
@@ -167,8 +166,9 @@ NavigateParams NavigateParamsForShareTarget(
     if (share_target.method == apps::ShareTarget::Method::kPost) {
       nav_params.extra_headers =
           "Content-Type: application/x-www-form-urlencoded\r\n";
-      nav_params.post_data = network::ResourceRequestBody::CreateFromBytes(
-          serialization.c_str(), serialization.length());
+      nav_params.post_data =
+          network::ResourceRequestBody::CreateFromCopyOfBytes(
+              base::as_byte_span(serialization));
     } else {
       GURL::Replacements replacements;
       replacements.SetQueryStr(serialization);
@@ -176,8 +176,8 @@ NavigateParams NavigateParamsForShareTarget(
     }
   }
 #else
-  // TODO(crbug.com/1153194): Support Web Share Target on Windows.
-  // TODO(crbug.com/1153195): Support Web Share Target on Mac.
+  // TODO(crbug.com/40158988): Support Web Share Target on Windows.
+  // TODO(crbug.com/40734106): Support Web Share Target on Mac.
   NOTIMPLEMENTED();
 #endif  // BUILDFLAG(IS_CHROMEOS)
 

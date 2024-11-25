@@ -36,8 +36,9 @@ enum class SodaFeature {
 class ASH_EXPORT AccessibilityDetailedView
     : public TrayDetailedView,
       public speech::SodaInstaller::Observer {
+  METADATA_HEADER(AccessibilityDetailedView, TrayDetailedView)
+
  public:
-  METADATA_HEADER(AccessibilityDetailedView);
   explicit AccessibilityDetailedView(DetailedViewDelegate* delegate);
 
   AccessibilityDetailedView(const AccessibilityDetailedView&) = delete;
@@ -93,6 +94,7 @@ class ASH_EXPORT AccessibilityDetailedView
   HoverHighlightView* AddHighlightMouseCursorView(views::View* container);
   HoverHighlightView* AddHighlightKeyboardFocusView(views::View* container);
   HoverHighlightView* AddStickyKeysView(views::View* container);
+  HoverHighlightView* AddReducedAnimationsView(views::View* container);
 
   // Adds a HoverHighlightView to the scroll list and returns it.
   HoverHighlightView* AddScrollListFeatureItem(views::View* container,
@@ -142,6 +144,7 @@ class ASH_EXPORT AccessibilityDetailedView
   raw_ptr<HoverHighlightView> highlight_mouse_cursor_view_ = nullptr;
   raw_ptr<HoverHighlightView> highlight_keyboard_focus_view_ = nullptr;
   raw_ptr<HoverHighlightView> sticky_keys_view_ = nullptr;
+  raw_ptr<HoverHighlightView> reduced_animations_view_ = nullptr;
 
   // Views that appear in the top section listing enabled items. Created if the
   // feature is enabled, otherwise nullptr. Owned by views hierarchy.
@@ -163,6 +166,7 @@ class ASH_EXPORT AccessibilityDetailedView
   raw_ptr<HoverHighlightView> highlight_mouse_cursor_top_view_ = nullptr;
   raw_ptr<HoverHighlightView> highlight_keyboard_focus_top_view_ = nullptr;
   raw_ptr<HoverHighlightView> sticky_keys_top_view_ = nullptr;
+  raw_ptr<HoverHighlightView> reduced_animations_top_view_ = nullptr;
 
   raw_ptr<views::Button> help_view_ = nullptr;
   raw_ptr<views::Button> settings_view_ = nullptr;

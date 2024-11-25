@@ -29,7 +29,6 @@ struct IconFramePreferenceKey: PreferenceKey {
 }
 
 /// A view displaying a single destination.
-@available(iOS 15, *)
 struct OverflowMenuDestinationView: View {
   /// Parameters providing any necessary data to layout the view.
   enum LayoutParameters {
@@ -96,6 +95,12 @@ struct OverflowMenuDestinationView: View {
 
     /// The width of the new label badge.
     static let newLabelBadgeWidth: CGFloat = 20
+
+    /// The top padding of the hover effect on destination items.
+    static let hoverEffectTopPadding: CGFloat = 10
+
+    /// The bottom padding of the hover effect on destination items.
+    static let hoverEffectBottomPadding: CGFloat = 3
   }
 
   static let viewNamespace = "destinationView"
@@ -155,17 +160,28 @@ struct OverflowMenuDestinationView: View {
     if editMode?.wrappedValue.isEditing == true {
       buttonContent
     } else {
-      Button(
-        action: {
-          metricsHandler?.popupMenuTookAction()
-          metricsHandler?.popupMenuUserSelectedDestination()
-          destination.handler()
-        },
-        label: {
-          buttonContent
-        }
+      ZStack(alignment: .top) {
+        RoundedRectangle(cornerRadius: Dimensions.cornerRadius)
+          .opacity(0)
+        Button(
+          action: {
+            metricsHandler?.popupMenuTookAction()
+            metricsHandler?.popupMenuUserSelectedDestination()
+            destination.handler()
+          },
+          label: {
+            buttonContent
+          }
+        )
+        .buttonStyle(IsPressedStyle(isPressed: $isPressed))
+      }
+      .padding(.top, Dimensions.hoverEffectTopPadding)
+      .padding(.bottom, Dimensions.hoverEffectBottomPadding)
+      .contentShape(
+        .hoverEffect,
+        RoundedRectangle(cornerRadius: Dimensions.cornerRadius)
       )
-      .buttonStyle(IsPressedStyle(isPressed: $isPressed))
+      .hoverEffect(.automatic)
     }
   }
 
@@ -264,7 +280,7 @@ struct OverflowMenuDestinationView: View {
   }
 
   /// Build the image to be displayed, based on the configuration of the item.
-  /// TODO(crbug.com/1315544): Remove this once only the symbols are present.
+  /// TODO(crbug.com/40833570): Remove this once only the symbols are present.
   @ViewBuilder
   func iconBuilder(interiorPadding: CGFloat, image: Image) -> some View {
     let configuredImage = image.overlay {

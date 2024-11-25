@@ -16,7 +16,22 @@ enum class EditorTone {
   kFormalize = 5,
   kFreeformRewrite = 6,
   kUnknown = 7,
-  kMaxValue = kUnknown,
+  kProofread = 8,
+  kMaxValue = kProofread,
+};
+
+// Must match with IMEEditorCriticalStates in enums.xml
+//
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class EditorCriticalStates {
+  // Recorded whenever the native card UI is shown to a user, regardless of the
+  // contents of the card (ie includes promo and editor card).
+  kShowUI = 0,
+  // Recorded whenever a request is sent to the server.
+  kRequestTriggered = 1,
+  // Recorded whenever a text suggestion is inserted to a text field.
+  kTextInserted = 2,
 };
 
 // Must match with IMEEditorStates in enums.xml
@@ -66,7 +81,82 @@ enum class EditorStates {
   kApproveConsent = 16,
   // Increase by 1 when a user clicks to decline the consent.
   kDeclineConsent = 17,
-  kMaxValue = kDeclineConsent,
+  // Increase by 1 when the feature is blocked.
+  kBlocked = 18,
+  // Increase by 1 when the feature is blocked because user is in an unsupported
+  // country.
+  kBlockedByUnsupportedRegion = 19,
+  // Increase by 1 when the feature is blocked because user is using a managed
+  // device.
+  // kBlockedByManagedStatus_DEPRECATED = 20,
+  // Increase by 1 when the feature is blocked because the consent status does
+  // not satisfy.
+  kBlockedByConsent = 21,
+  // Increase by 1 when the feature is blocked because the setting toggle is
+  // switched off.
+  kBlockedBySetting = 22,
+  // Increase by 1 when the feature is blocked because the text is too long.
+  kBlockedByTextLength = 23,
+  // Increase by 1 when the feature is blocked because the focused text input
+  // residing in a url found in the url denylist.
+  kBlockedByUrl = 24,
+  // Increase by 1 when the feature is blocked because the focused text input
+  // residing in an app found in the app denylist.
+  kBlockedByApp = 25,
+  // Increase by 1 when the feature is blocked because the current active input
+  // method is not supported.
+  kBlockedByInputMethod = 26,
+  // Increase by 1 when the feature is blocked because the current active input
+  // type is not allowed.
+  kBlockedByInputType = 27,
+  // Increase by 1 when the feature is blocked because the current app type is
+  // not supported.
+  kBlockedByAppType = 28,
+  // Increase by 1 when the feature is blocked because the current form factor
+  // is not supported.
+  kBlockedByInvalidFormFactor = 29,
+  // Increase by 1 when the feature is blocked because user is not connected to
+  // internet.
+  kBlockedByNetworkStatus = 30,
+  // Increase by 1 when user receives unknown error from the server.
+  kErrorUnknown = 31,
+  // Increase by 1 when user receives invalid argument error from the server.
+  kErrorInvalidArgument = 32,
+  // Increase by 1 when user receives resource exhausted error from the server.
+  kErrorResourceExhausted = 33,
+  // Increase by 1 when user receives backend failure error from the server.
+  kErrorBackendFailure = 34,
+  // Increase by 1 when user receives internet connection error from the server.
+  kErrorNoInternetConnection = 35,
+  // Increase by 1 when user receives unsupported language error from the
+  // server.
+  kErrorUnsupportedLanguage = 36,
+  // Increase by 1 when user receives blocked output error from the server.
+  kErrorBlockedOutputs = 37,
+  // Increase by 1 when user receives restricted region error from the server.
+  kErrorRestrictedRegion = 38,
+  // Increase by 1 when the native promo card is shown.
+  kPromoCardImpression = 39,
+  // Increase by 1 when user clicks "Dismiss" on the promo card.
+  kPromoCardExplicitDismissal = 40,
+  // Increase by 1 when the webui consent screen is shown.
+  kConsentScreenImpression = 41,
+  // Increase by 1 when a text insertion has been requested.
+  kTextInsertionRequested = 42,
+  // Increase by 1 when text has been queued for insertion.
+  kTextQueuedForInsertion = 43,
+  // Increase by 1 when any request is made.
+  kRequest = 44,
+  // Increase by 1 when the feature is blocked because user does not have the
+  // capability (age, account type) to use the feature.
+  kBlockedByUnsupportedCapability = 45,
+  //  Increase by 1 when the feature is blocked because the capability value has
+  //  been been fetched and determined yet.
+  kBlockedByUnknownCapability = 46,
+  //  Increase by 1 when the feature is blocked because there is an associated
+  //  policy that disables the feature.
+  kBlockedByPolicy = 47,
+  kMaxValue = kBlockedByPolicy,
 };
 
 }  // namespace ash::input_method

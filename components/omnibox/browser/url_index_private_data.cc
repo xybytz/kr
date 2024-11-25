@@ -8,19 +8,21 @@
 
 #include <algorithm>
 #include <limits>
+#include <map>
 #include <memory>
 #include <numeric>
 #include <set>
 #include <string>
 #include <utility>
+#include <vector>
 
-#include "base/containers/cxx20_erase.h"
 #include "base/containers/flat_set.h"
 #include "base/containers/stack.h"
 #include "base/feature_list.h"
 #include "base/i18n/case_conversion.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/not_fatal_until.h"
 #include "base/ranges/algorithm.h"
 #include "base/stl_util.h"
 #include "base/strings/string_split.h"
@@ -221,7 +223,7 @@ ScoredHistoryMatches URLIndexPrivateData::HistoryItemsForTerms(
     // It's possible this'll still end up with duplicates as having unique
     // URL IDs does not guarantee having unique `stripped_destination_url`.
     std::set<HistoryID> seen_history_ids;
-    base::EraseIf(scored_items, [&](const auto& scored_item) {
+    std::erase_if(scored_items, [&](const auto& scored_item) {
       HistoryID scored_item_id = scored_item.url_info.id();
       bool duplicate = seen_history_ids.count(scored_item_id);
       seen_history_ids.insert(scored_item_id);
@@ -242,11 +244,10 @@ ScoredHistoryMatches URLIndexPrivateData::HistoryItemsForTerms(
     search_term_cache_.clear();
   } else {
     // Remove any stale SearchTermCacheItems.
-    base::EraseIf(
-        search_term_cache_,
-        [](const std::pair<std::u16string, SearchTermCacheItem>& item) {
-          return !item.second.used_;
-        });
+    std::erase_if(search_term_cache_,
+                  [](const SearchTermCacheMap::value_type& item) {
+                    return !item.second.used_;
+                  });
   }
 
   return scored_items;
@@ -374,8 +375,6 @@ scoped_refptr<URLIndexPrivateData> URLIndexPrivateData::RebuildFromHistory(
   if (!history_db)
     return nullptr;
 
-  base::TimeTicks beginning_time = base::TimeTicks::Now();
-
   history::URLDatabase::URLEnumerator history_enum;
   if (!history_db->InitURLEnumeratorForSignificant(&history_enum))
     return nullptr;
@@ -400,8 +399,6 @@ scoped_refptr<URLIndexPrivateData> URLIndexPrivateData::RebuildFromHistory(
     }
   }
 
-  UMA_HISTOGRAM_TIMES("History.InMemoryURLIndexingTime",
-                      base::TimeTicks::Now() - beginning_time);
   UMA_HISTOGRAM_COUNTS_1M("History.InMemoryURLHistoryItems",
                           rebuilt_data->history_id_word_map_.size());
   // TODO(manukh): Add histograms if we decide to experiment with
@@ -487,7 +484,7 @@ HistoryIDVector URLIndexPrivateData::HistoryIDsFromWords(
       history_ids = {term_history_set.begin(), term_history_set.end()};
     } else {
       // set-intersection
-      base::EraseIf(history_ids, base::IsNotIn<HistoryIDSet>(term_history_set));
+      std::erase_if(history_ids, base::IsNotIn<HistoryIDSet>(term_history_set));
     }
   }
   return history_ids;
@@ -667,7 +664,7 @@ void URLIndexPrivateData::HistoryIdsToScoredMatches(
   }
 
   // Filter bad matches and other matches we don't want to display.
-  base::EraseIf(history_ids, [&](const HistoryID history_id) {
+  std::erase_if(history_ids, [&](const HistoryID history_id) {
     return ShouldExclude(history_id, host_filter, template_url_service);
   });
 
@@ -699,7 +696,7 @@ void URLIndexPrivateData::HistoryIdsToScoredMatches(
     auto hist_pos = history_info_map_.find(history_id);
     const history::URLRow& hist_item = hist_pos->second.url_row;
     auto starts_pos = word_starts_map_.find(history_id);
-    DCHECK(starts_pos != word_starts_map_.end());
+    CHECK(starts_pos != word_starts_map_.end(), base::NotFatalUntil::M130);
 
     bool is_highly_visited_host =
         !host_filter.empty() ||
@@ -879,14 +876,15 @@ void URLIndexPrivateData::RemoveRowWordsFromIndex(const history::URLRow& row) {
   // Reconcile any changes to word usage.
   for (WordID word_id : word_id_set) {
     auto word_id_history_map_iter = word_id_history_map_.find(word_id);
-    DCHECK(word_id_history_map_iter != word_id_history_map_.end());
+    CHECK(word_id_history_map_iter != word_id_history_map_.end(),
+          base::NotFatalUntil::M130);
 
     word_id_history_map_iter->second.erase(history_id);
     if (!word_id_history_map_iter->second.empty())
       continue;
 
     // The word is no longer in use. Reconcile any changes to character usage.
-    std::u16string word = word_list_[word_id];
+    const std::u16string& word = word_list_[word_id];
     for (char16_t uni_char : Char16SetFromString16(word)) {
       auto char_word_map_iter = char_word_map_.find(uni_char);
       char_word_map_iter->second.erase(word_id);
@@ -965,13 +963,14 @@ URLIndexPrivateData::GetTermsAndWordStartsOffsets(
       base::SplitString(lower_raw_string, base::kWhitespaceUTF16,
                         base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
   if (lower_raw_terms.empty()) {
-    return {{}, {}};
+    return {String16Vector(), WordStarts()};
   }
 
   WordStarts lower_terms_to_word_starts_offsets;
   CalculateWordStartsOffsets(lower_raw_terms,
                              &lower_terms_to_word_starts_offsets);
-  return {lower_raw_terms, lower_terms_to_word_starts_offsets};
+  return {std::move(lower_raw_terms),
+          std::move(lower_terms_to_word_starts_offsets)};
 }
 
 URLIndexPrivateData::SearchTermCacheItem::~SearchTermCacheItem() = default;
@@ -988,12 +987,14 @@ URLIndexPrivateData::HistoryItemFactorGreater::~HistoryItemFactorGreater() =
 bool URLIndexPrivateData::HistoryItemFactorGreater::operator()(
     const HistoryID h1,
     const HistoryID h2) {
-  auto entry1(history_info_map_.find(h1));
-  if (entry1 == history_info_map_.end())
+  auto entry1(history_info_map_->find(h1));
+  if (entry1 == history_info_map_->end()) {
     return false;
-  auto entry2(history_info_map_.find(h2));
-  if (entry2 == history_info_map_.end())
+  }
+  auto entry2(history_info_map_->find(h2));
+  if (entry2 == history_info_map_->end()) {
     return true;
+  }
   const history::URLRow& r1(entry1->second.url_row);
   const history::URLRow& r2(entry2->second.url_row);
   // First cut: typed count, visit count, recency.

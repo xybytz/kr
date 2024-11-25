@@ -11,6 +11,7 @@ import static org.junit.Assert.assertTrue;
 import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Rect;
+import android.os.Bundle;
 import android.view.View;
 
 import androidx.lifecycle.Lifecycle.State;
@@ -29,18 +30,22 @@ import org.mockito.junit.MockitoRule;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
+import org.robolectric.shadows.ShadowLooper;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.base.test.util.Features.DisableFeatures;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.chrome.browser.profiles.ProfileManagerUtils;
 import org.chromium.chrome.browser.settings.SettingsActivityUnitTest.ShadowProfileManagerUtils;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.browser_ui.settings.CustomDividerFragment;
 import org.chromium.components.browser_ui.settings.PaddedItemDecorationWithDivider;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.concurrent.TimeoutException;
 
@@ -55,7 +60,6 @@ public class SettingsActivityUnitTest {
         protected static void flushPersistentDataForAllProfiles() {}
     }
 
-    @Rule public Features.JUnitProcessor featuresRule = new Features.JUnitProcessor();
     @Rule public MockitoRule mockitoRule = MockitoJUnit.rule();
 
     private ActivityScenario<SettingsActivity> mActivityScenario;
@@ -67,7 +71,7 @@ public class SettingsActivityUnitTest {
     @Before
     public void setup() {
         ChromeBrowserInitializer.setForTesting(mInitializer);
-        Profile.setLastUsedProfileForTesting(mProfile);
+        ProfileManager.setLastUsedProfileForTesting(mProfile);
     }
 
     @After
@@ -79,43 +83,113 @@ public class SettingsActivityUnitTest {
     }
 
     @Test
+    @DisableFeatures({ChromeFeatureList.SETTINGS_SINGLE_ACTIVITY})
     public void testDefaultLaunchProcess() {
-        launchSettingsActivity(TestSettingsFragment.class.getName());
+        startSettings(TestEmbeddableFragment.class.getName());
         mActivityScenario.moveToState(State.CREATED);
 
         assertTrue(
                 "SettingsActivity is using a wrong fragment.",
-                mSettingsActivity.getMainFragment() instanceof TestSettingsFragment);
+                mSettingsActivity.getMainFragment() instanceof TestEmbeddableFragment);
+        assertNotNull(mSettingsActivity.getIntentRequestTracker());
+    }
+
+    @Test
+    @EnableFeatures({ChromeFeatureList.SETTINGS_SINGLE_ACTIVITY})
+    public void testDefaultLaunchProcessSingleActivity() {
+        startSettings(TestEmbeddableFragment.class.getName());
+        mActivityScenario.moveToState(State.CREATED);
+
+        assertTrue(
+                "SettingsActivity is using a wrong fragment.",
+                mSettingsActivity.getMainFragment() instanceof TestEmbeddableFragment);
+        assertNotNull(mSettingsActivity.getIntentRequestTracker());
+    }
+
+    @Test
+    @DisableFeatures({ChromeFeatureList.SETTINGS_SINGLE_ACTIVITY})
+    public void testUpdateTitle() {
+        startSettings(TestEmbeddableFragment.class.getName());
+        mActivityScenario.moveToState(State.RESUMED);
+
+        assertEquals("Activity title is not set.", "test title", mSettingsActivity.getTitle());
+    }
+
+    @Test
+    @EnableFeatures({ChromeFeatureList.SETTINGS_SINGLE_ACTIVITY})
+    public void testUpdateTitleSingleActivity() {
+        startSettings(TestEmbeddableFragment.class.getName());
+        mActivityScenario.moveToState(State.RESUMED);
+
+        // Simulate opening a new fragment.
+        Bundle args = new Bundle();
+        args.putString(TestEmbeddableFragment.EXTRA_TITLE, "new title");
+        Intent intent =
+                SettingsIntentUtil.createIntent(
+                        mSettingsActivity, TestEmbeddableFragment.class.getName(), args);
+
+        // Android temporarily pauses an activity while delivering a new intent.
+        mActivityScenario.moveToState(State.STARTED);
+        mSettingsActivity.onNewIntent(intent);
+        mActivityScenario.moveToState(State.RESUMED);
+
+        // Wait for the UI update.
+        ShadowLooper.runUiThreadTasks();
+
+        assertEquals("Activity title is not updated.", "new title", mSettingsActivity.getTitle());
+    }
+
+    @Test
+    @EnableFeatures({ChromeFeatureList.SETTINGS_SINGLE_ACTIVITY})
+    public void testIntentFlags() {
+        startSettings(TestEmbeddableFragment.class.getName());
+        mActivityScenario.moveToState(State.RESUMED);
+
+        Intent embeddableFragmentIntent =
+                SettingsIntentUtil.createIntent(
+                        mSettingsActivity, TestEmbeddableFragment.class.getName(), null);
+        assertEquals(
+                "Incorrect intent flags for embeddable fragments",
+                Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                embeddableFragmentIntent.getFlags());
+
+        Intent standaloneFragmentIntent =
+                SettingsIntentUtil.createIntent(
+                        mSettingsActivity, TestStandaloneFragment.class.getName(), null);
+        assertEquals(
+                "Incorrect intent flags for standalone fragments",
+                0,
+                standaloneFragmentIntent.getFlags());
     }
 
     @Test
     public void testBackPress() throws TimeoutException {
-        launchSettingsActivity(TestSettingsFragment.class.getName());
+        startSettings(TestStandaloneFragment.class.getName());
         assertTrue(
                 "SettingsActivity is using a wrong fragment.",
-                mSettingsActivity.getMainFragment() instanceof TestSettingsFragment);
-        TestSettingsFragment mainFragment =
-                (TestSettingsFragment) mSettingsActivity.getMainFragment();
+                mSettingsActivity.getMainFragment() instanceof TestStandaloneFragment);
+        TestStandaloneFragment mainFragment =
+                (TestStandaloneFragment) mSettingsActivity.getMainFragment();
         mainFragment.getHandleBackPressChangedSupplier().set(true);
         Assert.assertTrue(
-                "TestSettingsFragment will handle back press",
+                "TestStandaloneFragment will handle back press",
                 mSettingsActivity.getOnBackPressedDispatcher().hasEnabledCallbacks());
 
         // Simulate back press.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 mSettingsActivity.getOnBackPressedDispatcher()::onBackPressed);
-        mainFragment.getBackPressCallback().waitForFirst();
+        mainFragment.getBackPressCallback().waitForOnly();
 
         mainFragment.getHandleBackPressChangedSupplier().set(false);
         Assert.assertFalse(
-                "TestSettingsFragment will not handle back press",
+                "TestStandaloneFragment will not handle back press",
                 mSettingsActivity.getOnBackPressedDispatcher().hasEnabledCallbacks());
     }
 
     @Test
     @Config(qualifiers = "w720dp-h1024dp")
     public void addPaddingToContentOnWideDisplay() {
-        launchSettingsActivity(TestSettingsFragment.class.getName());
+        startSettings(TestEmbeddableFragment.class.getName());
         mActivityScenario.moveToState(State.CREATED);
         mActivityScenario.moveToState(State.STARTED);
         mActivityScenario.moveToState(State.RESUMED);
@@ -134,7 +208,7 @@ public class SettingsActivityUnitTest {
     @Test
     @Config(qualifiers = "w320dp-h1024dp")
     public void addPaddingToContentOnNarrowDisplay() {
-        launchSettingsActivity(TestSettingsFragment.class.getName());
+        startSettings(TestEmbeddableFragment.class.getName());
         mActivityScenario.moveToState(State.CREATED);
         mActivityScenario.moveToState(State.STARTED);
         mActivityScenario.moveToState(State.RESUMED);
@@ -152,7 +226,7 @@ public class SettingsActivityUnitTest {
     @Config(qualifiers = "w720dp-h1024dp")
     public void addPaddingToContentOnWideDisplay_NoDivider() {
         CustomDividerTestSettingsFragment.sHasDivider = false;
-        launchSettingsActivity(CustomDividerTestSettingsFragment.class.getName());
+        startSettings(CustomDividerTestSettingsFragment.class.getName());
         mActivityScenario.moveToState(State.CREATED);
         mActivityScenario.moveToState(State.STARTED);
         mActivityScenario.moveToState(State.RESUMED);
@@ -176,7 +250,7 @@ public class SettingsActivityUnitTest {
     public void addPaddingToContentOnWideDisplay_HasCustomDivider() {
         CustomDividerTestSettingsFragment.sHasDivider = true;
 
-        launchSettingsActivity(CustomDividerTestSettingsFragment.class.getName());
+        startSettings(CustomDividerTestSettingsFragment.class.getName());
         mActivityScenario.moveToState(State.CREATED);
         mActivityScenario.moveToState(State.STARTED);
         mActivityScenario.moveToState(State.RESUMED);
@@ -210,11 +284,11 @@ public class SettingsActivityUnitTest {
         }
     }
 
-    private void launchSettingsActivity(String fragmentName) {
+    private void startSettings(String fragmentName) {
         assert mActivityScenario == null : "Should be called once per test.";
-        Intent intent = new Intent();
-        intent.setClass(ContextUtils.getApplicationContext(), SettingsActivity.class);
-        intent.putExtra(SettingsActivity.EXTRA_SHOW_FRAGMENT, fragmentName);
+        Intent intent =
+                SettingsIntentUtil.createIntent(
+                        ContextUtils.getApplicationContext(), fragmentName, null);
         mActivityScenario = ActivityScenario.launch(intent);
         mActivityScenario.onActivity(activity -> mSettingsActivity = activity);
     }
@@ -229,7 +303,7 @@ public class SettingsActivityUnitTest {
     }
 
     /** Class that override the divider behavior. */
-    public static class CustomDividerTestSettingsFragment extends TestSettingsFragment
+    public static class CustomDividerTestSettingsFragment extends TestEmbeddableFragment
             implements CustomDividerFragment {
         static final int DIVIDER_START_PADDING = 10;
         static final int DIVIDER_END_PADDING = 15;

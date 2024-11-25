@@ -6,6 +6,7 @@
 
 #include "base/command_line.h"
 #include "base/debug/dump_without_crashing.h"
+#include "base/logging.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
@@ -59,7 +60,7 @@ bool AppServiceProxyFactory::IsAppServiceAvailableForProfile(Profile* profile) {
 
 // static
 AppServiceProxy* AppServiceProxyFactory::GetForProfile(Profile* profile) {
-  // TODO(https://crbug.com/1122463): remove this and convert back to a DCHECK
+  // TODO(crbug.com/40146603): remove this and convert back to a DCHECK
   // once we have audited and removed code paths that call here with a profile
   // that doesn't have an App Service.
   if (!IsAppServiceAvailableForProfile(profile)) {
@@ -105,9 +106,11 @@ AppServiceProxyFactory::AppServiceProxyFactory()
 
 AppServiceProxyFactory::~AppServiceProxyFactory() = default;
 
-KeyedService* AppServiceProxyFactory::BuildServiceInstanceFor(
+std::unique_ptr<KeyedService>
+AppServiceProxyFactory::BuildServiceInstanceForBrowserContext(
     content::BrowserContext* context) const {
-  auto* proxy = new AppServiceProxy(Profile::FromBrowserContext(context));
+  auto proxy =
+      std::make_unique<AppServiceProxy>(Profile::FromBrowserContext(context));
   proxy->Initialize();
   return proxy;
 }
@@ -124,7 +127,7 @@ content::BrowserContext* AppServiceProxyFactory::GetBrowserContextToUse(
   // are served.
   if (profile->IsGuestSession()) {
     return profile->IsOffTheRecord()
-               ? chrome::GetBrowserContextOwnInstanceInIncognito(context)
+               ? GetBrowserContextOwnInstanceInIncognito(context)
                : nullptr;
   }
   if (ash::ProfileHelper::IsSigninProfile(profile)) {
@@ -132,10 +135,10 @@ content::BrowserContext* AppServiceProxyFactory::GetBrowserContextToUse(
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-  // TODO(https://crbug.com/1122463): replace this with
+  // TODO(crbug.com/40146603): replace this with
   // BrowserContextKeyedServiceFactory::GetBrowserContextToUse(context) once
   // all non-guest incognito accesses have been removed.
-  return chrome::GetBrowserContextRedirectedInIncognito(context);
+  return GetBrowserContextRedirectedInIncognito(context);
 }
 
 bool AppServiceProxyFactory::ServiceIsCreatedWithBrowserContext() const {

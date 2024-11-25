@@ -1,5 +1,0 @@
-monorail {
-  component: "UI>Browser>Passwords"
-}
-os: IOS
-team_email: "bling-transactions@google.com"

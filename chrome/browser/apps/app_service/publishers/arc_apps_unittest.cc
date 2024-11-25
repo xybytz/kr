@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 
+#include "ash/components/arc/app/arc_app_constants.h"
 #include "ash/components/arc/arc_features.h"
 #include "ash/components/arc/arc_prefs.h"
 #include "ash/components/arc/arc_util.h"
@@ -21,6 +22,7 @@
 #include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/ranges/algorithm.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
@@ -70,7 +72,8 @@
 namespace {
 
 const char kTestPackageName[] = "com.example.this";
-const apps::PackageId kTestPackageId(apps::AppType::kArc, "com.example.this");
+const apps::PackageId kTestPackageId(apps::PackageType::kArc,
+                                     "com.example.this");
 
 std::vector<arc::IntentFilter> CreateFilterList(
     const std::string& package_name,
@@ -439,6 +442,59 @@ TEST_F(ArcAppsPublisherTest, DisableOSSettingArcSettings) {
   ASSERT_TRUE(found);
 }
 
+// Verifies that disabling OS settings by SystemFeaturesDisableList policy and
+// re-enabling does not remove the local settings block.
+TEST_F(ArcAppsPublisherTest, DisableAndBlockOSSettingArcSettings) {
+  arc_test()->app_instance()->SendRefreshAppList(GetArcSettingsAppInfo());
+
+  // Change SystemFeaturesDisableList policy to disable OS Setting.
+  {
+    ScopedListPrefUpdate update(
+        local_state_->Get(), policy::policy_prefs::kSystemFeaturesDisableList);
+    update->Append(static_cast<int>(policy::SystemFeature::kOsSettings));
+  }
+
+  // Verify that ARC settings readiness is set to disabled by policy.
+  bool found = app_service_proxy()->AppRegistryCache().ForOneApp(
+      arc::kSettingsAppId, [](const apps::AppUpdate& update) {
+        EXPECT_EQ(update.Readiness(), apps::Readiness::kDisabledByPolicy);
+      });
+  ASSERT_TRUE(found);
+
+  // Blocks the ARC settings app. It stays in kDisabledByPolicy.
+  app_service_proxy()->BlockApps({arc::kSettingsAppId});
+  found = app_service_proxy()->AppRegistryCache().ForOneApp(
+      arc::kSettingsAppId, [](const apps::AppUpdate& update) {
+        EXPECT_EQ(update.Readiness(), apps::Readiness::kDisabledByPolicy);
+      });
+  ASSERT_TRUE(found);
+
+  // Clear SystemFeaturesDisableList policy.
+  {
+    ScopedListPrefUpdate update(
+        local_state_->Get(), policy::policy_prefs::kSystemFeaturesDisableList);
+    update->clear();
+  }
+
+  // ARC settings should be in kDisabledByLocalSettings.
+  found = app_service_proxy()->AppRegistryCache().ForOneApp(
+      arc::kSettingsAppId, [](const apps::AppUpdate& update) {
+        EXPECT_EQ(update.Readiness(),
+                  apps::Readiness::kDisabledByLocalSettings);
+      });
+  ASSERT_TRUE(found);
+
+  // Unblocks the app.
+  app_service_proxy()->UnblockApps({arc::kSettingsAppId});
+
+  // Verify that ARC settings readiness is set to ready.
+  found = app_service_proxy()->AppRegistryCache().ForOneApp(
+      arc::kSettingsAppId, [](const apps::AppUpdate& update) {
+        EXPECT_EQ(update.Readiness(), apps::Readiness::kReady);
+      });
+  ASSERT_TRUE(found);
+}
+
 class ArcAppsPublisherManagedProfileTest : public ArcAppsPublisherTest {
  public:
   std::unique_ptr<TestingProfile> MakeProfile() override {
@@ -469,6 +525,117 @@ TEST_F(ArcAppsPublisherManagedProfileTest, SetSupportedLinksByDefault) {
 
   ASSERT_EQ(app_id, preferred_apps().FindPreferredAppForUrl(
                         GURL("https://www.example.com/foo")));
+}
+
+// Verifies that a call to set the default supported links preference from the
+// ARC system is ignored if the policy ArcOpenLinksInBrowserByDefault for
+// a managed profile is set to true.
+TEST_F(ArcAppsPublisherManagedProfileTest, SetSupportedLinksDisabledByPolicy) {
+  constexpr char kTestAuthority[] = "www.example.com";
+  const auto& fake_apps = arc_test()->fake_apps();
+  std::string package_name = fake_apps[0]->package_name;
+  std::string app_id = ArcAppListPrefs::GetAppId(fake_apps[0]->package_name,
+                                                 fake_apps[0]->activity);
+  arc_test()->app_instance()->SendRefreshAppList(fake_apps);
+  profile()->GetPrefs()->SetBoolean(arc::prefs::kArcOpenLinksInBrowserByDefault,
+                                    true);
+
+  // Update intent filters and supported links for the app, as if it was just
+  // installed.
+  intent_helper()->OnIntentFiltersUpdatedForPackage(
+      package_name, CreateFilterList(package_name, {kTestAuthority}));
+  VerifyIntentFilters(app_id, {kTestAuthority});
+  intent_helper()->OnSupportedLinksChanged(
+      CreateSupportedLinks(package_name), {},
+      arc::mojom::SupportedLinkChangeSource::kArcSystem);
+
+  ASSERT_EQ(std::nullopt, preferred_apps().FindPreferredAppForUrl(
+                              GURL("https://www.example.com/foo")));
+}
+
+TEST_F(ArcAppsPublisherManagedProfileTest,
+       SetSupportedLinksIgnoresWorkspaceInstall) {
+  constexpr char kTestAuthority[] = "drive.google.com";
+  std::string package_name = "com.google.android.apps.docs";
+  std::string activity_name = base::StrCat({package_name, ".MainActivity"});
+  std::string app_id = ArcAppListPrefs::GetAppId(package_name, activity_name);
+
+  arc::mojom::AppInfoPtr app =
+      arc::mojom::AppInfo::New("Google Drive", package_name, activity_name);
+  std::vector<arc::mojom::AppInfoPtr> app_list;
+  app_list.push_back(std::move(app));
+
+  arc_test()->app_instance()->SendRefreshAppList(std::move(app_list));
+
+  // Update intent filters and supported links for the app, as if it was just
+  // installed.
+  intent_helper()->OnIntentFiltersUpdatedForPackage(
+      package_name, CreateFilterList(package_name, {kTestAuthority}));
+  VerifyIntentFilters(app_id, {kTestAuthority});
+  intent_helper()->OnSupportedLinksChanged(
+      CreateSupportedLinks(package_name), {},
+      arc::mojom::SupportedLinkChangeSource::kArcSystem);
+
+  ASSERT_EQ(std::nullopt, preferred_apps().FindPreferredAppForUrl(
+                              GURL("https://drive.google.com/foo")));
+}
+
+TEST_F(ArcAppsPublisherManagedProfileTest,
+       SetSupportedLinksAllowsWorkspaceUserChange) {
+  constexpr char kTestAuthority[] = "docs.google.com";
+  std::string package_name = "com.google.android.apps.docs.editor.docs";
+  std::string activity_name = base::StrCat({package_name, ".MainActivity"});
+  std::string app_id = ArcAppListPrefs::GetAppId(package_name, activity_name);
+
+  arc::mojom::AppInfoPtr app =
+      arc::mojom::AppInfo::New("Google Docs", package_name, activity_name);
+  std::vector<arc::mojom::AppInfoPtr> app_list;
+  app_list.push_back(std::move(app));
+
+  arc_test()->app_instance()->SendRefreshAppList(std::move(app_list));
+  intent_helper()->OnIntentFiltersUpdatedForPackage(
+      package_name, CreateFilterList(package_name, {kTestAuthority}));
+
+  intent_helper()->OnSupportedLinksChanged(
+      CreateSupportedLinks(package_name), {},
+      arc::mojom::SupportedLinkChangeSource::kUserPreference);
+
+  ASSERT_EQ(app_id, preferred_apps().FindPreferredAppForUrl(
+                        GURL("https://docs.google.com/document/")));
+}
+
+TEST_F(ArcAppsPublisherManagedProfileTest,
+       SetSupportedLinksAllowsWorkspaceUpdate) {
+  constexpr char kDriveAuthority[] = "drive.google.com";
+  constexpr char kDocsAuthority[] = "docs.google.com";
+  std::string package_name = "com.google.android.apps.docs";
+  std::string activity_name = base::StrCat({package_name, ".MainActivity"});
+  std::string app_id = ArcAppListPrefs::GetAppId(package_name, activity_name);
+
+  arc::mojom::AppInfoPtr app =
+      arc::mojom::AppInfo::New("Google Drive", package_name, activity_name);
+  std::vector<arc::mojom::AppInfoPtr> app_list;
+  app_list.push_back(std::move(app));
+  arc_test()->app_instance()->SendRefreshAppList(std::move(app_list));
+  intent_helper()->OnIntentFiltersUpdatedForPackage(
+      package_name, CreateFilterList(package_name, {kDriveAuthority}));
+
+  apps::AppServiceProxyFactory::GetForProfile(profile())
+      ->SetSupportedLinksPreference(app_id);
+  ASSERT_EQ(app_id, preferred_apps().FindPreferredAppForUrl(
+                        GURL("https://drive.google.com/foo")));
+
+  // Simulate the app being updated to add a new intent filter.
+  intent_helper()->OnIntentFiltersUpdatedForPackage(
+      package_name,
+      CreateFilterList(package_name, {kDriveAuthority, kDocsAuthority}));
+  intent_helper()->OnSupportedLinksChanged(
+      CreateSupportedLinks(package_name), {},
+      arc::mojom::SupportedLinkChangeSource::kArcSystem);
+
+  // Verify that the new intent filter is also marked as preferred.
+  ASSERT_EQ(app_id, preferred_apps().FindPreferredAppForUrl(
+                        GURL("https://docs.google.com/document")));
 }
 
 // Verifies that ARC permissions are published to App Service correctly.

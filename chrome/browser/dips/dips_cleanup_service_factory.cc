@@ -5,7 +5,10 @@
 #include "chrome/browser/dips/dips_cleanup_service_factory.h"
 
 #include "base/no_destructor.h"
+#include "chrome/browser/dips/chrome_dips_delegate.h"
 #include "chrome/browser/dips/dips_cleanup_service.h"
+#include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/common/content_features.h"
 
 // static
@@ -20,29 +23,37 @@ DIPSCleanupServiceFactory* DIPSCleanupServiceFactory::GetInstance() {
   return instance.get();
 }
 
-/*static*/
-ProfileSelections DIPSCleanupServiceFactory::CreateProfileSelections() {
-  if (!base::FeatureList::IsEnabled(features::kDIPS)) {
-    return ProfileSelections::Builder()
-        .WithRegular(ProfileSelection::kOriginalOnly)
-        .WithGuest(ProfileSelection::kNone)
-        .WithSystem(ProfileSelection::kNone)
-        .WithAshInternals(ProfileSelection::kNone)
-        .Build();
-  }
-
-  return ProfileSelections::BuildNoProfilesSelected();
-}
-
 DIPSCleanupServiceFactory::DIPSCleanupServiceFactory()
-    : ProfileKeyedServiceFactory("DIPSCleanupService",
-                                 CreateProfileSelections()) {}
+    : BrowserContextKeyedServiceFactory(
+          "DIPSCleanupService",
+          BrowserContextDependencyManager::GetInstance()) {}
 
 DIPSCleanupServiceFactory::~DIPSCleanupServiceFactory() = default;
 
-KeyedService* DIPSCleanupServiceFactory::BuildServiceInstanceFor(
+content::BrowserContext* DIPSCleanupServiceFactory::GetBrowserContextToUse(
     content::BrowserContext* context) const {
-  return new DIPSCleanupService(context);
+  // Only enable when DIPS is turned off.
+  if (base::FeatureList::IsEnabled(features::kDIPS)) {
+    return nullptr;
+  }
+
+  // Only enable for profiles where DIPS is normally enabled.
+  if (!ChromeDipsDelegate::Create()->ShouldEnableDips(context)) {
+    return nullptr;
+  }
+
+  // Only enable for profiles where the DIPS DB is written to disk.
+  if (context->IsOffTheRecord()) {
+    return nullptr;
+  }
+
+  return context;
+}
+
+std::unique_ptr<KeyedService>
+DIPSCleanupServiceFactory::BuildServiceInstanceForBrowserContext(
+    content::BrowserContext* context) const {
+  return std::make_unique<DIPSCleanupService>(context);
 }
 
 bool DIPSCleanupServiceFactory::ServiceIsCreatedWithBrowserContext() const {

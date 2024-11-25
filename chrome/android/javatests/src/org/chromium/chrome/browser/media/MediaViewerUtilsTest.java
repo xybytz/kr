@@ -15,18 +15,15 @@ import androidx.test.platform.app.InstrumentationRegistry;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
 import org.chromium.chrome.browser.customtabs.CustomTabsIntentTestUtils;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.TestContentProvider;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.ui.util.ColorUtils;
 
@@ -37,11 +34,8 @@ public class MediaViewerUtilsTest {
     @Rule
     public CustomTabActivityTestRule mCustomTabActivityTestRule = new CustomTabActivityTestRule();
 
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
-
     @Test
     @MediumTest
-    @DisabledTest(message = "crbug.com/1489541")
     public void testCustomTabActivityInLightMode() throws Exception {
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(
                 CustomTabsIntentTestUtils.createMinimalCustomTabIntentWithTheme(

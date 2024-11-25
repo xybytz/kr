@@ -21,7 +21,7 @@
 #import "ios/web/web_state/web_state_impl.h"
 #import "ios/web/web_view/wk_security_origin_util.h"
 #import "ios/web/webui/mojo_facade.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "url/gurl.h"
 #import "url/origin.h"
 
@@ -79,7 +79,7 @@ void RecordHistogramForPermissionRequestForWKMediaCaptureType(
 @implementation CRWWKUIHandler
 
 - (instancetype)init {
-  if (self = [super init]) {
+  if ((self = [super init])) {
     _mainTaskRunner = base::SequencedTaskRunner::GetCurrentDefault();
     CHECK(_mainTaskRunner);
   }
@@ -154,7 +154,7 @@ void RecordHistogramForPermissionRequestForWKMediaCaptureType(
                        : [self.delegate documentURLForWebViewHandler:self];
 
   // There is no reliable way to tell if there was a user gesture, so this code
-  // checks if user has recently tapped on web view. TODO(crbug.com/809706):
+  // checks if user has recently tapped on web view. TODO(crbug.com/40561701):
   // Remove the usage of -userIsInteracting when rdar://19989909 is fixed.
   bool initiatedByUser = [self.delegate UIHandler:self
                             isUserInitiatedAction:action];
@@ -180,9 +180,15 @@ void RecordHistogramForPermissionRequestForWKMediaCaptureType(
   // WKWebViewConfigurationProvider are different objects because WKWebView
   // makes a shallow copy of the config inside init, so every WKWebView
   // owns a separate shallow copy of WKWebViewConfiguration.
-  return [self.delegate UIHandler:self
-      createWebViewWithConfiguration:configuration
-                         forWebState:childWebState];
+  WKWebView* newWebView = [self.delegate UIHandler:self
+                    createWebViewWithConfiguration:configuration
+                                       forWebState:childWebState];
+
+  if (childWebState->GetDelegate()) {
+    childWebState->GetDelegate()->OnNewWebViewCreated(childWebState);
+  }
+
+  return newWebView;
 }
 
 - (void)webViewDidClose:(WKWebView*)webView {

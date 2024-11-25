@@ -15,6 +15,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/notification_display_service.h"
+#include "chrome/browser/notifications/notification_display_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
@@ -63,40 +64,25 @@ void ShowSyncSetup(Profile* profile) {
     chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(
         profile, chromeos::settings::mojom::kSyncSetupSubpagePath);
   } else {
-    // TODO(crbug.com/1286405): remove this once it's not possible to use ash
+    // TODO(crbug.com/40210838): remove this once it's not possible to use ash
     // as a primary browser.
     chrome::ShowSettingsSubPageForProfile(profile, chrome::kSyncSetupSubPage);
   }
 }
 
 void TriggerSyncKeyRetrieval(Profile* profile) {
-  if (!crosapi::browser_util::IsAshWebBrowserEnabled() &&
-      base::FeatureList::IsEnabled(
-          trusted_vault::kChromeOSTrustedVaultUseWebUIDialog)) {
-    OpenDialogForSyncKeyRetrieval(
-        profile, syncer::TrustedVaultUserActionTriggerForUMA::kNotification);
-  } else {
-    // TODO(crbug.com/1434656): clean up once not reachable.
-    chrome::ScopedTabbedBrowserDisplayer displayer(profile);
-    OpenTabForSyncKeyRetrieval(
-        displayer.browser(),
-        syncer::TrustedVaultUserActionTriggerForUMA::kNotification);
-  }
+  chrome::ScopedTabbedBrowserDisplayer displayer(profile);
+  OpenTabForSyncKeyRetrieval(
+      displayer.browser(),
+      syncer::TrustedVaultUserActionTriggerForUMA::kNotification);
 }
 
 void TriggerSyncRecoverabilityDegradedFix(Profile* profile) {
-  if (!crosapi::browser_util::IsAshWebBrowserEnabled() &&
-      base::FeatureList::IsEnabled(
-          trusted_vault::kChromeOSTrustedVaultUseWebUIDialog)) {
-    OpenDialogForSyncKeyRecoverabilityDegraded(
-        profile, syncer::TrustedVaultUserActionTriggerForUMA::kNotification);
-  } else {
-    // TODO(crbug.com/1434656): clean up once not reachable.
-    chrome::ScopedTabbedBrowserDisplayer displayer(profile);
-    OpenTabForSyncKeyRecoverabilityDegraded(
-        displayer.browser(),
-        syncer::TrustedVaultUserActionTriggerForUMA::kNotification);
-  }
+  // TODO(crbug.com/40264837): clean up once not reachable.
+  chrome::ScopedTabbedBrowserDisplayer displayer(profile);
+  OpenTabForSyncKeyRecoverabilityDegraded(
+      displayer.browser(),
+      syncer::TrustedVaultUserActionTriggerForUMA::kNotification);
 }
 
 BubbleViewParameters GetBubbleViewParameters(
@@ -181,7 +167,8 @@ void SyncErrorNotifier::OnStateChanged(syncer::SyncService* service) {
     return;
   }
 
-  auto* display_service = NotificationDisplayService::GetForProfile(profile_);
+  auto* display_service =
+      NotificationDisplayServiceFactory::GetForProfile(profile_);
   if (!should_display_notification) {
     notification_displayed_ = false;
     display_service->Close(NotificationHandler::Type::TRANSIENT,

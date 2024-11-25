@@ -7,7 +7,6 @@ package org.chromium.chrome.browser.pwd_check_wrapper;
 import org.chromium.chrome.browser.password_check.PasswordCheck;
 import org.chromium.chrome.browser.password_check.PasswordCheckFactory;
 import org.chromium.chrome.browser.password_check.PasswordCheckUIStatus;
-import org.chromium.components.browser_ui.settings.SettingsLauncher;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -15,11 +14,6 @@ class ChromeNativePasswordCheckController
         implements PasswordCheckController, PasswordCheck.Observer {
     private CompletableFuture<Integer> mPasswordsTotalCount;
     private CompletableFuture<PasswordCheckResult> mPasswordCheckResult;
-    private final PasswordCheck mPasswordCheck;
-
-    public ChromeNativePasswordCheckController(SettingsLauncher settingsLauncher) {
-        mPasswordCheck = PasswordCheckFactory.getOrCreate(settingsLauncher);
-    }
 
     @Override
     public CompletableFuture<PasswordCheckResult> checkPasswords(
@@ -27,24 +21,44 @@ class ChromeNativePasswordCheckController
         mPasswordCheckResult = new CompletableFuture<>();
         mPasswordsTotalCount = new CompletableFuture<>();
         // Start observing the password check events (including data loads).
-        mPasswordCheck.addObserver(this, false);
-        mPasswordCheck.startCheck();
+        getPasswordCheck().addObserver(this, false);
+        getPasswordCheck().startCheck();
         return mPasswordCheckResult;
     }
 
     @Override
     public void destroy() {
-        mPasswordCheck.stopCheck();
-        mPasswordCheck.removeObserver(this);
+        PasswordCheck passwordCheck = PasswordCheckFactory.getPasswordCheckInstance();
+        if (passwordCheck == null) return;
+
+        passwordCheck.stopCheck();
+        passwordCheck.removeObserver(this);
     }
 
     @Override
     public CompletableFuture<PasswordCheckResult> getBreachedCredentialsCount(
             int passwordStorageType) {
         mPasswordCheckResult = new CompletableFuture<>();
+
+        // Check if the user is signed out.
+        if (!getPasswordCheck().hasAccountForRequest()) {
+            PasswordCheckNativeException error =
+                    new PasswordCheckNativeException(
+                            "The user is signed out of their account.",
+                            PasswordCheckUIStatus.ERROR_SIGNED_OUT);
+            mPasswordCheckResult.complete(new PasswordCheckResult(error));
+            return mPasswordCheckResult;
+        }
+
         mPasswordsTotalCount = new CompletableFuture<>();
-        mPasswordCheck.addObserver(this, true);
+        getPasswordCheck().addObserver(this, true);
         return mPasswordCheckResult;
+    }
+
+    private PasswordCheck getPasswordCheck() {
+        PasswordCheck passwordCheck = PasswordCheckFactory.getOrCreate();
+        assert passwordCheck != null : "Password Check UI component needs native counterpart!";
+        return passwordCheck;
     }
 
     // PasswordCheck.Observer implementation.
@@ -52,16 +66,16 @@ class ChromeNativePasswordCheckController
     public void onCompromisedCredentialsFetchCompleted() {
         mPasswordsTotalCount.thenAccept(
                 totalCount -> {
-                    int breachedCount = mPasswordCheck.getCompromisedCredentialsCount();
+                    int breachedCount = getPasswordCheck().getCompromisedCredentialsCount();
                     mPasswordCheckResult.complete(
                             new PasswordCheckResult(totalCount, breachedCount));
-                    mPasswordCheck.removeObserver(this);
+                    getPasswordCheck().removeObserver(this);
                 });
     }
 
     @Override
     public void onSavedPasswordsFetchCompleted() {
-        int totalCount = mPasswordCheck.getSavedPasswordsCount();
+        int totalCount = getPasswordCheck().getSavedPasswordsCount();
         mPasswordsTotalCount.complete(totalCount);
     }
 
@@ -78,12 +92,12 @@ class ChromeNativePasswordCheckController
                             "Password check finished with the error " + status + ".", status);
             mPasswordCheckResult.complete(new PasswordCheckResult(error));
         } else {
-            int totalCount = mPasswordCheck.getSavedPasswordsCount();
-            int breachedCount = mPasswordCheck.getCompromisedCredentialsCount();
+            int totalCount = getPasswordCheck().getSavedPasswordsCount();
+            int breachedCount = getPasswordCheck().getCompromisedCredentialsCount();
             mPasswordCheckResult.complete(new PasswordCheckResult(totalCount, breachedCount));
         }
 
-        mPasswordCheck.removeObserver(this);
+        getPasswordCheck().removeObserver(this);
     }
 
     /** Not relevant for this controller. */

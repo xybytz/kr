@@ -5,10 +5,12 @@
 #include "components/autofill/core/browser/address_normalizer_impl.h"
 
 #include <stddef.h>
+
 #include <utility>
 
 #include "base/cancelable_callback.h"
 #include "base/check_op.h"
+#include "base/containers/to_vector.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
 #include "base/location.h"
@@ -70,8 +72,7 @@ void FormatPhoneNumberToE164(AutofillProfile* profile,
                              const std::string& region_code,
                              const std::string& app_locale) {
   const std::string formatted_number = i18n::FormatPhoneForResponse(
-      base::UTF16ToUTF8(
-          profile->GetInfo(AutofillType(PHONE_HOME_WHOLE_NUMBER), app_locale)),
+      base::UTF16ToUTF8(profile->GetInfo(PHONE_HOME_WHOLE_NUMBER, app_locale)),
       region_code);
 
   profile->SetRawInfo(PHONE_HOME_WHOLE_NUMBER,
@@ -282,7 +283,7 @@ void AddressNormalizerImpl::StartAddressNormalization(
     const base::android::JavaParamRef<jobject>& jprofile,
     jint jtimeout_seconds,
     const base::android::JavaParamRef<jobject>& jdelegate) {
-  // TODO(crbug.com/1484006): Check if existing profile needs to be passed.
+  // TODO(crbug.com/40282123): Check if existing profile needs to be passed.
   AutofillProfile profile = AutofillProfile::CreateFromJavaObject(
       jprofile, /*existing_profile=*/nullptr, app_locale_);
 
@@ -316,7 +317,7 @@ void AddressNormalizerImpl::OnAddressValidationRulesLoaded(
     for (size_t i = 0; i < it->second.size(); ++i) {
       // Some NormalizationRequest are null, and served only to load the rules.
       if (it->second[i]) {
-        // TODO(crbug.com/777417): |success| appears to be true even when the
+        // TODO(crbug.com/40546097): |success| appears to be true even when the
         // key was not actually found.
         it->second[i]->OnRulesLoaded(AreRulesLoadedForRegion(region_code),
                                      address_validator_.get());
@@ -336,10 +337,8 @@ void AddressNormalizerImpl::OnAddressValidatorCreated(
   // Make a copy of region keys before calling LoadRulesForRegion on them,
   // because LoadRulesForRegion may synchronously modify
   // |pending_normalization_|.
-  std::vector<std::string> region_keys;
-  region_keys.reserve(pending_normalization_.size());
-  for (const auto& entry : pending_normalization_)
-    region_keys.push_back(entry.first);
+  std::vector<std::string> region_keys = base::ToVector(
+      pending_normalization_, [](const auto& entry) { return entry.first; });
 
   // Load rules for regions with pending normalization requests.
   for (const std::string& region : region_keys)

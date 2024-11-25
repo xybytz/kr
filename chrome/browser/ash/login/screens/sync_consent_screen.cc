@@ -89,9 +89,6 @@ constexpr base::TimeDelta kWaitTimeoutForTest = base::Milliseconds(1);
 std::optional<bool> sync_disabled_by_policy_for_test;
 std::optional<bool> sync_engine_initialized_for_test;
 
-SyncConsentScreen::SyncConsentScreenExitTestDelegate* test_exit_delegate_ =
-    nullptr;
-
 syncer::SyncService* GetSyncService(Profile* profile) {
   if (SyncServiceFactory::HasSyncService(profile))
     return SyncServiceFactory::GetForProfile(profile);
@@ -112,7 +109,8 @@ bool IsMinorMode(Profile* profile, const user_manager::User* user) {
   const AccountInfo account_info =
       identity_manager->FindExtendedAccountInfoByGaiaId(gaia_id);
   auto capability =
-      account_info.capabilities.can_offer_extended_chrome_sync_promos();
+      account_info.capabilities
+          .can_show_history_sync_opt_ins_without_minor_mode_restrictions();
   base::UmaHistogramBoolean("OOBE.SyncConsentScreen.IsCapabilityKnown",
                             capability != signin::Tribool::kUnknown);
   return capability != signin::Tribool::kTrue;
@@ -130,6 +128,7 @@ base::TimeDelta GetWaitTimeout() {
 
 // static
 std::string SyncConsentScreen::GetResultString(Result result) {
+  // LINT.IfChange(UsageMetrics)
   switch (result) {
     case Result::NEXT:
       return "Next";
@@ -138,6 +137,7 @@ std::string SyncConsentScreen::GetResultString(Result result) {
     case Result::NOT_APPLICABLE:
       return BaseScreen::kNotApplicable;
   }
+  // LINT.ThenChange(//tools/metrics/histograms/metadata/oobe/histograms.xml)
 }
 
 // static
@@ -202,12 +202,7 @@ void SyncConsentScreen::Finish(Result result) {
   bool sync_enabled = service && service->IsSyncFeatureEnabled() &&
                       service->GetUserSettings()->IsSyncEverythingEnabled();
   base::UmaHistogramBoolean("OOBE.SyncConsentScreen.SyncEnabled", sync_enabled);
-  if (test_exit_delegate_) {
-    CHECK_IS_TEST();
-    test_exit_delegate_->OnSyncConsentScreenExit(result, exit_callback_);
-  } else {
-    exit_callback_.Run(result);
-  }
+  exit_callback_.Run(result);
 }
 
 bool SyncConsentScreen::MaybeSkip(WizardContext& context) {
@@ -253,21 +248,20 @@ void SyncConsentScreen::ShowImpl() {
   // Show the entire screen.
   // If SyncScreenBehavior is show, this should show the sync consent screen.
   // If SyncScreenBehavior is unknown, this should show the loading throbber.
-  if (view_)
+  if (view_) {
     view_->Show(crosapi::browser_util::IsLacrosEnabled());
+  }
 
-  if (ash::features::AreLocalPasswordsEnabledForConsumers()) {
-    if (context()->extra_factors_token) {
-      session_refresher_ = AuthSessionStorage::Get()->KeepAlive(
-          context()->extra_factors_token.value());
-    }
+  if (context()->extra_factors_token) {
+    session_refresher_ = AuthSessionStorage::Get()->KeepAlive(
+        context()->extra_factors_token.value());
   }
 }
 
 void SyncConsentScreen::HideImpl() {
   session_refresher_.reset();
   sync_service_observation_.Reset();
-  timeout_waiter_.AbandonAndStop();
+  timeout_waiter_.Stop();
 }
 
 void SyncConsentScreen::OnStateChanged(syncer::SyncService* sync) {
@@ -282,7 +276,6 @@ void SyncConsentScreen::MaybeEnableSyncForSkip() {
     case SyncScreenBehavior::kUnknown:
     case SyncScreenBehavior::kShow:
       NOTREACHED();
-      return;
     case SyncScreenBehavior::kSkipNonGaiaAccount:
     case SyncScreenBehavior::kSkipPublicAccount:
     case SyncScreenBehavior::kSkipPermissionsPolicy:
@@ -309,12 +302,6 @@ void SyncConsentScreen::SetDelegateForTesting(
   test_delegate_ = delegate;
 }
 
-// static
-void SyncConsentScreen::SetSyncConsentScreenExitTestDelegate(
-    SyncConsentScreen::SyncConsentScreenExitTestDelegate* test_delegate) {
-  test_exit_delegate_ = test_delegate;
-}
-
 SyncConsentScreen::SyncConsentScreenTestDelegate*
 SyncConsentScreen::GetDelegateForTesting() const {
   return test_delegate_;
@@ -327,8 +314,9 @@ SyncConsentScreen::SyncScreenBehavior SyncConsentScreen::GetSyncScreenBehavior(
     return SyncScreenBehavior::kSkipNonGaiaAccount;
 
   // Skip for public user.
-  if (user_->GetType() == user_manager::USER_TYPE_PUBLIC_ACCOUNT)
+  if (user_->GetType() == user_manager::UserType::kPublicAccount) {
     return SyncScreenBehavior::kSkipPublicAccount;
+  }
 
   // Skip for non-branded (e.g. developer) builds. Check this after the account
   // type checks so we don't try to enable sync in browser_tests for those
@@ -340,7 +328,7 @@ SyncConsentScreen::SyncScreenBehavior SyncConsentScreen::GetSyncScreenBehavior(
       user_manager::UserManager::Get();
   // Skip for non-regular ephemeral users.
   if (user_manager->IsUserNonCryptohomeDataEphemeral(user_->GetAccountId()) &&
-      (user_->GetType() != user_manager::USER_TYPE_REGULAR)) {
+      (user_->GetType() != user_manager::UserType::kRegular)) {
     return SyncScreenBehavior::kSkipAndEnableEmphemeralUser;
   }
 
@@ -377,7 +365,7 @@ void SyncConsentScreen::UpdateScreen(const WizardContext& context) {
       view_->ShowLoadedStep(IsOsSyncLacros());
     }
     GetSyncService(profile_)->RemoveObserver(this);
-    timeout_waiter_.AbandonAndStop();
+    timeout_waiter_.Stop();
     base::UmaHistogramCustomTimes("OOBE.SyncConsentScreen.LoadingTime",
                                   base::TimeTicks::Now() - start_time_,
                                   base::Milliseconds(1), base::Seconds(10), 50);
@@ -561,13 +549,7 @@ void SyncConsentScreen::OnUserAction(const base::Value::List& args) {
     syncer::UserSelectableOsTypeSet os_empty_set;
     sync_settings->SetSelectedOsTypes(/*sync_all_os_types=*/true, os_empty_set);
 
-    if (test_exit_delegate_) {
-      CHECK_IS_TEST();
-      test_exit_delegate_->OnSyncConsentScreenExit(Result::NEXT,
-                                                   exit_callback_);
-    } else {
-      exit_callback_.Run(Result::NEXT);
-    }
+    exit_callback_.Run(Result::NEXT);
 
     return;
   }
@@ -583,13 +565,7 @@ void SyncConsentScreen::OnUserAction(const base::Value::List& args) {
     sync_settings->SetSelectedOsTypes(/*sync_all_os_types=*/false,
                                       os_empty_set);
 
-    if (test_exit_delegate_) {
-      CHECK_IS_TEST();
-      test_exit_delegate_->OnSyncConsentScreenExit(Result::DECLINE,
-                                                   exit_callback_);
-    } else {
-      exit_callback_.Run(Result::DECLINE);
-    }
+    exit_callback_.Run(Result::DECLINE);
     return;
   }
   if (action_id == kUserActionLacrosCustom) {
@@ -633,14 +609,7 @@ void SyncConsentScreen::OnUserAction(const base::Value::List& args) {
     profile_->GetPrefs()->SetBoolean(settings::prefs::kSyncOsWallpaper,
                                      wallpaper_synced);
 
-    if (test_exit_delegate_) {
-      CHECK_IS_TEST();
-      test_exit_delegate_->OnSyncConsentScreenExit(Result::NEXT,
-                                                   exit_callback_);
-    } else {
-      exit_callback_.Run(Result::NEXT);
-    }
-
+    exit_callback_.Run(Result::NEXT);
     return;
   }
   BaseScreen::OnUserAction(args);

@@ -17,7 +17,7 @@
 #include "components/leveldb_proto/public/proto_database.h"
 #include "components/leveldb_proto/public/proto_database_provider.h"
 #include "ios/chrome/browser/shared/model/browser_state/browser_state_otr_helper.h"
-#include "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #include "ios/web/public/browser_state.h"
 #include "ios/web/public/thread/web_thread.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -55,10 +55,10 @@ DomDistillerServiceFactory* DomDistillerServiceFactory::GetInstance() {
 }
 
 // static
-DomDistillerService* DomDistillerServiceFactory::GetForBrowserState(
-    ChromeBrowserState* browser_state) {
+DomDistillerService* DomDistillerServiceFactory::GetForProfile(
+    ProfileIOS* profile) {
   return static_cast<DomDistillerKeyedService*>(
-      GetInstance()->GetServiceForBrowserState(browser_state, true));
+      GetInstance()->GetServiceForBrowserState(profile, true));
 }
 
 DomDistillerServiceFactory::DomDistillerServiceFactory()
@@ -85,7 +85,7 @@ DomDistillerServiceFactory::BuildServiceInstanceFor(
           std::move(distiller_url_fetcher_factory), options);
   std::unique_ptr<DistilledPagePrefs> distilled_page_prefs =
       std::make_unique<DistilledPagePrefs>(
-          ChromeBrowserState::FromBrowserState(context)->GetPrefs());
+          ProfileIOS::FromBrowserState(context)->GetPrefs());
 
   return std::make_unique<DomDistillerKeyedService>(
       std::move(distiller_factory), std::move(distiller_page_factory),

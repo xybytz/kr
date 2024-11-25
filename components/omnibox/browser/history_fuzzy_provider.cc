@@ -19,6 +19,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/not_fatal_until.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
 #include "base/time/time.h"
@@ -169,7 +170,6 @@ void Edit::ApplyTo(std::u16string& text) const {
     case Kind::KEEP:
     default: {
       NOTREACHED();
-      break;
     }
   }
 }
@@ -408,8 +408,8 @@ class LoadSignificantUrls : public history::HistoryDBTask {
  public:
   using Callback = base::OnceCallback<void(Node)>;
 
-  LoadSignificantUrls(base::WaitableEvent* event, Callback callback)
-      : wait_event_(event), callback_(std::move(callback)) {}
+  explicit LoadSignificantUrls(Callback callback)
+      : callback_(std::move(callback)) {}
   ~LoadSignificantUrls() override = default;
 
   bool RunOnDBThread(history::HistoryBackend* backend,
@@ -436,12 +436,10 @@ class LoadSignificantUrls : public history::HistoryDBTask {
 
   void DoneRunOnMainThread() override {
     std::move(callback_).Run(std::move(node_));
-    wait_event_->Signal();
   }
 
  private:
   Node node_;
-  raw_ptr<base::WaitableEvent, AcrossTasksDanglingUntriaged> wait_event_;
   Callback callback_;
 };
 
@@ -489,7 +487,6 @@ HistoryFuzzyProvider::HistoryFuzzyProvider(AutocompleteProviderClient* client)
     client->GetHistoryService()->ScheduleDBTask(
         FROM_HERE,
         std::make_unique<fuzzy::LoadSignificantUrls>(
-            &urls_loaded_event_,
             base::BindOnce(&HistoryFuzzyProvider::OnUrlsLoaded,
                            weak_ptr_factory_.GetWeakPtr())),
         &task_tracker_);
@@ -625,6 +622,11 @@ void HistoryFuzzyProvider::DoAutocomplete() {
       }
       matches_.resize(provider_max_matches_);
     }
+
+    for (AutocompleteMatch& match : matches_) {
+      match.provider = this;
+    }
+
     RecordMatchConversion(kMetricMatchConversionHistoryQuick,
                           count_history_quick);
     RecordMatchConversion(kMetricMatchConversionBookmark, count_bookmark);
@@ -646,7 +648,7 @@ int HistoryFuzzyProvider::AddConvertedMatches(const ACMatches& matches,
   // so ranking of the final result set will be more nuanced than ranking here.
   ACMatches::const_iterator it = std::min_element(
       matches.begin(), matches.end(), AutocompleteMatch::MoreRelevant);
-  DCHECK(it != matches.end());
+  CHECK(it != matches.end(), base::NotFatalUntil::M130);
   matches_.push_back(*it);
 
   // Update match in place. Note, `match.provider` will be reassigned after
@@ -671,13 +673,12 @@ int HistoryFuzzyProvider::AddConvertedMatches(const ACMatches& matches,
   // artificially high confidence to this suggestion.
   match.scoring_signals.reset();
 
-  match.provider = this;
-
   return 1;
 }
 
 void HistoryFuzzyProvider::OnUrlsLoaded(fuzzy::Node node) {
   root_ = std::move(node);
+  urls_loaded_event_.Signal();
 }
 
 void HistoryFuzzyProvider::OnURLVisited(
@@ -691,7 +692,7 @@ void HistoryFuzzyProvider::OnURLVisited(
   }
 }
 
-void HistoryFuzzyProvider::OnURLsDeleted(
+void HistoryFuzzyProvider::OnHistoryDeletions(
     history::HistoryService* history_service,
     const history::DeletionInfo& deletion_info) {
   // Note, this implementation is conservative in terms of user privacy; it

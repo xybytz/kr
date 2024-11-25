@@ -4,15 +4,20 @@
 
 package org.chromium.base.test.transit;
 
+import android.app.Activity;
 import android.view.View;
 
 import org.hamcrest.Matcher;
 
-import org.chromium.base.test.transit.ViewConditions.DisplayedCondition;
-import org.chromium.base.test.transit.ViewConditions.DoesNotExistAnymoreCondition;
+import org.chromium.base.Callback;
+import org.chromium.base.test.transit.ViewConditions.NotDisplayedAnymoreCondition;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * The elements that define a {@link ConditionalState}.
@@ -25,21 +30,48 @@ import java.util.List;
  * </pre>
  */
 public class Elements {
-    private final List<Condition> mEnterConditions;
-    private final List<Condition> mExitConditions;
+    static final Elements EMPTY = new Elements();
 
-    /** Private constructor, instantiated by {@link Builder#build(ConditionalState)}. */
-    private Elements(List<Condition> enterConditions, List<Condition> exitConditions) {
-        mEnterConditions = enterConditions;
-        mExitConditions = exitConditions;
+    private ArrayList<Element<?>> mElements = new ArrayList<>();
+    private Map<Condition, ElementFactory> mElementFactories = new HashMap<>();
+    private ArrayList<Condition> mOtherEnterConditions = new ArrayList<>();
+    private ArrayList<Condition> mOtherExitConditions = new ArrayList<>();
+
+    Elements() {}
+
+    Builder newBuilder() {
+        return new Builder(this);
     }
 
-    List<Condition> getEnterConditions() {
-        return mEnterConditions;
+    Set<String> getElementIds() {
+        Set<String> elementIds = new HashSet<>();
+        for (Element<?> element : mElements) {
+            elementIds.add(element.getId());
+        }
+        return elementIds;
     }
 
-    List<Condition> getExitConditions() {
-        return mExitConditions;
+    List<Element<?>> getElements() {
+        return mElements;
+    }
+
+    Map<Condition, ElementFactory> getElementFactories() {
+        return mElementFactories;
+    }
+
+    List<Condition> getOtherEnterConditions() {
+        return mOtherEnterConditions;
+    }
+
+    List<Condition> getOtherExitConditions() {
+        return mOtherExitConditions;
+    }
+
+    void addAll(Elements otherElements) {
+        mElements.addAll(otherElements.mElements);
+        mElementFactories.putAll(otherElements.mElementFactories);
+        mOtherEnterConditions.addAll(otherElements.mOtherEnterConditions);
+        mOtherExitConditions.addAll(otherElements.mOtherExitConditions);
     }
 
     /**
@@ -49,83 +81,142 @@ public class Elements {
      * ConditionalState's elements by calling the declare___() methods.
      */
     public static class Builder {
-        private ArrayList<ViewElement> mViewElements = new ArrayList<>();
+        private Elements mOwner;
+        private ArrayList<Element<?>> mElements = new ArrayList<>();
+        private Map<Condition, ElementFactory> mElementFactories = new HashMap<>();
         private ArrayList<Condition> mOtherEnterConditions = new ArrayList<>();
         private ArrayList<Condition> mOtherExitConditions = new ArrayList<>();
 
-        Builder() {}
+        /** Instantiate by calling {@link Elements#newBuilder()}. */
+        private Builder(Elements owner) {
+            mOwner = owner;
+        }
 
-        /**
-         * Declare as an element a single view that matches |viewMatcher| which will be gone after
-         * the ConditionalState is FINISHED.
-         */
-        public Builder declareView(Matcher<View> viewMatcher) {
-            declareView(viewMatcher, /* owned= */ true);
-            return this;
+        /** Declare as an element an Android Activity of type |activityClass|. */
+        public <T extends Activity> ActivityElement<T> declareActivity(Class<T> activityClass) {
+            assertNotBuilt();
+            ActivityElement<T> element = new ActivityElement<>(activityClass);
+            mElements.add(element);
+            return element;
+        }
+
+        /** Declare as an element a View that matches |viewMatcher|. */
+        public ViewElement declareView(ViewSpec viewSpec) {
+            return declareView(viewSpec, ViewElement.Options.DEFAULT);
+        }
+
+        /** Declare as an element a View that matches |viewMatcher| with extra Options. */
+        public ViewElement declareView(ViewSpec viewSpec, ViewElement.Options options) {
+            assertNotBuilt();
+            ViewElement element = new ViewElement(viewSpec, options);
+            mElements.add(element);
+            return element;
         }
 
         /**
-         * Declare as an element a single view that matches |viewMatcher| which will not necessarily
-         * be gone after the ConditionalState is FINISHED.
+         * Declare an {@link ElementFactory} gated by a {@link Condition}.
+         *
+         * <p>When the Condition becomes fulfilled, |delayedDeclarations| will be run to declare new
+         * Elements.
          */
-        public Builder declareUnownedView(Matcher<View> viewMatcher) {
-            declareView(viewMatcher, /* owned= */ false);
-            return this;
-        }
-
-        private Builder declareView(Matcher<View> viewMatcher, boolean owned) {
-            mViewElements.add(new ViewElement(viewMatcher, owned));
-            return this;
+        public void declareElementFactory(
+                Condition condition, Callback<Elements.Builder> delayedDeclarations) {
+            assertNotBuilt();
+            mElementFactories.put(condition, new ElementFactory(mOwner, delayedDeclarations));
         }
 
         /**
-         * Declare as an element a generic enter Condition. It must remain true as long as the
-         * ConditionalState is ACTIVE.
+         * Declare an {@link ElementFactory} gated by an {@link Element}'s enter Condition.
+         *
+         * <p>When the {@link Element}'s enter Condition becomes fulfilled, |delayedDeclarations|
+         * will be run to declare new Elements.
          */
-        public Builder declareEnterCondition(Condition condition) {
+        public void declareElementFactory(
+                Element<?> element, Callback<Elements.Builder> delayedDeclarations) {
+            declareElementFactory(element.getEnterCondition(), delayedDeclarations);
+        }
+
+        /** Declare as a Condition that a View is not displayed. */
+        public void declareNoView(ViewSpec viewSpec) {
+            declareNoView(viewSpec.getViewMatcher());
+        }
+
+        /** Declare as a Condition that a View is not displayed. */
+        public void declareNoView(Matcher<View> viewMatcher) {
+            assertNotBuilt();
+            mOtherEnterConditions.add(new NotDisplayedAnymoreCondition(viewMatcher));
+        }
+
+        /**
+         * Declare as an element a logical check that must return true when and as long as the
+         * Station is ACTIVE.
+         *
+         * <p>Differs from {@link #declareEnterCondition(Condition)} in that shared-scope
+         * LogicalElements do not generate exit Conditions when going to another ConditionalState
+         * with the same LogicalElement.
+         */
+        public LogicalElement<?> declareLogicalElement(LogicalElement<?> logicalElement) {
+            assertNotBuilt();
+            mElements.add(logicalElement);
+            return logicalElement;
+        }
+
+        /**
+         * Declare as an element a generic enter Condition. It must be true for a transition into
+         * this ConditionalState to be complete.
+         *
+         * <p>No promises are made that the Condition is true as long as the ConditionalState is
+         * ACTIVE. For these cases, use {@link LogicalElement}.
+         *
+         * <p>Further, no promises are made that the Condition is false after exiting the State. Use
+         * a scoped {@link LogicalElement} in this case.
+         */
+        public <T extends Condition> T declareEnterCondition(T condition) {
+            assertNotBuilt();
             mOtherEnterConditions.add(condition);
-            return this;
-        }
-
-        /** Declare as an element a generic exit Condition. */
-        public Builder declareExitCondition(Condition condition) {
-            mOtherExitConditions.add(condition);
-            return this;
+            return condition;
         }
 
         /**
-         * Instantiates the {@link Elements} of a given |conditionalState| after they were declared
-         * by calling the Builder's declare___() methods.
+         * Declare as an element a generic exit Condition. It must be true for a transition out of
+         * this ConditionalState to be complete.
+         *
+         * <p>No promises are made that the Condition is false as long as the ConditionalState is
+         * ACTIVE. For these cases, use a scoped {@link LogicalElement}.
          */
-        Elements build(ConditionalState conditionalState) {
-            ArrayList<Condition> enterConditions = new ArrayList<>();
-            ArrayList<Condition> exitConditions = new ArrayList<>();
-
-            for (ViewElement viewElement : mViewElements) {
-                DisplayedCondition displayedCondition =
-                        new DisplayedCondition(viewElement.mViewMatcher);
-                enterConditions.add(displayedCondition);
-                if (viewElement.mOwned) {
-                    exitConditions.add(
-                            new DoesNotExistAnymoreCondition(
-                                    viewElement.mViewMatcher, displayedCondition));
-                }
-            }
-
-            enterConditions.addAll(mOtherEnterConditions);
-            exitConditions.addAll(mOtherExitConditions);
-
-            return new Elements(enterConditions, exitConditions);
+        public <T extends Condition> T declareExitCondition(T condition) {
+            assertNotBuilt();
+            mOtherExitConditions.add(condition);
+            return condition;
         }
-    }
 
-    private static class ViewElement {
-        private final Matcher<View> mViewMatcher;
-        private final boolean mOwned;
+        /** Declare a custom Element. */
+        public <T extends Element<?>> T declareElement(T element) {
+            assertNotBuilt();
+            mElements.add(element);
+            return element;
+        }
 
-        public ViewElement(Matcher<View> viewMatcher, boolean owned) {
-            mViewMatcher = viewMatcher;
-            mOwned = owned;
+        /**
+         * Adds newly declared {@link Elements} (from calling the Builders declare___() methods) to
+         * the original {@link Elements} owned by a ConditionalState.
+         */
+        Elements consolidate() {
+            assertNotBuilt();
+            Elements newElements = new Elements();
+            newElements.mElements.addAll(mElements);
+            newElements.mElementFactories.putAll(mElementFactories);
+            newElements.mOtherEnterConditions.addAll(mOtherEnterConditions);
+            newElements.mOtherExitConditions.addAll(mOtherExitConditions);
+            mOwner.addAll(newElements);
+            mOwner = null;
+            return newElements;
+        }
+
+        private void assertNotBuilt() {
+            assert mOwner != null
+                    : "Elements.Builder already built; if in declareElementFactory(), probably"
+                            + " using the outer Elements.Builder instead of the nested one";
         }
     }
 }

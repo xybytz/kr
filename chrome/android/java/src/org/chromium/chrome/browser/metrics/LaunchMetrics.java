@@ -7,7 +7,6 @@ package org.chromium.chrome.browser.metrics;
 import org.jni_zero.JNINamespace;
 import org.jni_zero.NativeMethods;
 
-import org.chromium.base.StrictModeContext;
 import org.chromium.blink.mojom.DisplayMode;
 import org.chromium.chrome.browser.browserservices.intents.WebappInfo;
 import org.chromium.chrome.browser.browserservices.metrics.WebApkUkmRecorder;
@@ -94,7 +93,7 @@ public class LaunchMetrics {
                             webContents);
             if (webappInfo != null && webappInfo.isForWebApk()) {
                 WebApkUkmRecorder.recordWebApkLaunch(
-                        webappInfo.manifestId(),
+                        webappInfo.manifestIdWithFallback(),
                         webappInfo.distributor(),
                         webappInfo.webApkVersionCode(),
                         launch.mSource);
@@ -105,9 +104,10 @@ public class LaunchMetrics {
 
     /**
      * Records metrics about the state of the homepage on launch.
+     *
      * @param showHomeButton Whether the home button is shown.
      * @param homepageIsNtp Whether the homepage is set to the NTP.
-     * @param homepageUrl The homepage GURL.
+     * @param homepageGurl The homepage GURL.
      */
     public static void recordHomePageLaunchMetrics(
             boolean showHomeButton, boolean homepageIsNtp, GURL homepageGurl) {
@@ -123,12 +123,9 @@ public class LaunchMetrics {
      * {@link ShortcutSource.WEBAPK_UNKNOWN} otherwise.
      */
     private static int getSourceForWebApkFromWebappDataStorage(WebappInfo webappInfo) {
-        WebappDataStorage storage = null;
-
-        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
-            WebappRegistry.warmUpSharedPrefsForId(webappInfo.id());
-            storage = WebappRegistry.getInstance().getWebappDataStorage(webappInfo.id());
-        }
+        WebappRegistry.warmUpSharedPrefsForId(webappInfo.id());
+        WebappDataStorage storage =
+                WebappRegistry.getInstance().getWebappDataStorage(webappInfo.id());
 
         if (storage == null) {
             return ShortcutSource.WEBAPK_UNKNOWN;

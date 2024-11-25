@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 #include <vector>
+
 #include "base/memory/raw_ptr.h"
 #include "base/values.h"
 #include "build/chromeos_buildflags.h"
@@ -253,7 +254,7 @@ class VirtualKeyboardPrivateSetWindowBoundsInScreenFunction
   ResponseAction Run() override;
 };
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 class VirtualKeyboardPrivateGetClipboardHistoryFunction
     : public VirtualKeyboardPrivateFunction {
  public:
@@ -300,7 +301,7 @@ class VirtualKeyboardPrivateDeleteClipboardItemFunction
   // ExtensionFunction:
   ResponseAction Run() override;
 };
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 class VirtualKeyboardDelegate;
 

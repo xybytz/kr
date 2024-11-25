@@ -4,6 +4,7 @@
 
 #import "ios/chrome/browser/search_engines/model/template_url_service_factory.h"
 
+#import "base/check_deref.h"
 #import "base/functional/bind.h"
 #import "base/functional/callback.h"
 #import "base/no_destructor.h"
@@ -16,7 +17,7 @@
 #import "ios/chrome/browser/search_engines/model/template_url_service_client_impl.h"
 #import "ios/chrome/browser/search_engines/model/ui_thread_search_terms_data.h"
 #import "ios/chrome/browser/shared/model/browser_state/browser_state_otr_helper.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/webdata_services/model/web_data_service_factory.h"
 #import "rlz/buildflags/buildflags.h"
 
@@ -39,27 +40,27 @@ base::RepeatingClosure GetDefaultSearchProviderChangedCallback() {
 
 std::unique_ptr<KeyedService> BuildTemplateURLService(
     web::BrowserState* context) {
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(context);
+  ProfileIOS* profile = ProfileIOS::FromBrowserState(context);
   return std::make_unique<TemplateURLService>(
-      browser_state->GetPrefs(),
-      ios::SearchEngineChoiceServiceFactory::GetForBrowserState(browser_state),
+      CHECK_DEREF(profile->GetPrefs()),
+      CHECK_DEREF(
+          ios::SearchEngineChoiceServiceFactory::GetForProfile(profile)),
       std::make_unique<ios::UIThreadSearchTermsData>(),
-      ios::WebDataServiceFactory::GetKeywordWebDataForBrowserState(
-          browser_state, ServiceAccessType::EXPLICIT_ACCESS),
+      ios::WebDataServiceFactory::GetKeywordWebDataForProfile(
+          profile, ServiceAccessType::EXPLICIT_ACCESS),
       std::make_unique<ios::TemplateURLServiceClientImpl>(
-          ios::HistoryServiceFactory::GetForBrowserState(
-              browser_state, ServiceAccessType::EXPLICIT_ACCESS)),
+          ios::HistoryServiceFactory::GetForProfile(
+              profile, ServiceAccessType::EXPLICIT_ACCESS)),
       GetDefaultSearchProviderChangedCallback());
 }
 
 }  // namespace
 
 // static
-TemplateURLService* TemplateURLServiceFactory::GetForBrowserState(
-    ChromeBrowserState* browser_state) {
+TemplateURLService* TemplateURLServiceFactory::GetForProfile(
+    ProfileIOS* profile) {
   return static_cast<TemplateURLService*>(
-      GetInstance()->GetServiceForBrowserState(browser_state, true));
+      GetInstance()->GetServiceForBrowserState(profile, true));
 }
 
 // static

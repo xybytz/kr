@@ -66,7 +66,7 @@ TEST(H264AnnexBToAvcBitstreamConverterTest, Success) {
 
       EXPECT_EQ(config.version, 1);
       EXPECT_EQ(config.profile_indication, 66);
-      EXPECT_EQ(config.profile_compatibility, 3);
+      EXPECT_EQ(config.profile_compatibility, 0xC0);
       EXPECT_EQ(config.avc_level, 30);
       EXPECT_EQ(config.length_size, 4);
       EXPECT_EQ(config.sps_list.size(), 1ul);
@@ -82,7 +82,7 @@ TEST(H264AnnexBToAvcBitstreamConverterTest, Success) {
 
 // Tests that stream can contain multiple picture parameter sets and switch
 // between them without having to reconfigure the decoder.
-TEST(H264AnnexBToAvcBitstreamConverterTest, PPS_SwitchWithoutReconfig) {
+TEST(H264AnnexBToAvcBitstreamConverterTest, PPSSwitchWithoutReconfig) {
   std::vector<uint8_t> sps{0x00, 0x00, 0x00, 0x01, 0x27, 0x42, 0x00, 0x1E,
                            0x89, 0x8A, 0x12, 0x05, 0x01, 0x7F, 0xCA, 0x80};
   std::vector<uint8_t> pps1{0x00, 0x00, 0x00, 0x01, 0x28, 0xce, 0x3c, 0x80};

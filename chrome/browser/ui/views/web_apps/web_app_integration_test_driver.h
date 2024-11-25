@@ -9,13 +9,13 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "base/auto_reset.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/raw_ptr_exclusion.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/ui/browser_dialogs.h"
@@ -56,7 +56,7 @@ namespace web_app::integration_tests {
 // Enumerations used by the integration tests framework actions. These are C++
 // versions of the enumerations in the file chrome/test/webapps/data/enums.md.
 
-enum class Site {
+enum class Site : int {
   kStandalone,
   kStandaloneNestedA,
   kStandaloneNestedB,
@@ -76,6 +76,7 @@ enum class Site {
   kHasSubApps,
   kSubApp1,
   kSubApp2,
+  kChromeUrl,
 };
 
 enum class InstallableSite {
@@ -91,9 +92,7 @@ enum class InstallableSite {
   kNoServiceWorker,
   kNotInstalled,
   kScreenshots,
-  kHasSubApps,
-  kSubApp1,
-  kSubApp2,
+  kChromeUrl,
 };
 
 enum class Title { kStandaloneOriginal, kStandaloneUpdated };
@@ -171,13 +170,9 @@ struct BrowserState {
   BrowserState(const BrowserState&);
   bool operator==(const BrowserState& other) const;
 
-  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
-  // #union
-  RAW_PTR_EXCLUSION Browser* browser;
+  raw_ptr<Browser, DanglingUntriaged> browser;
   base::flat_map<content::WebContents*, TabState> tabs;
-  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
-  // #union
-  RAW_PTR_EXCLUSION content::WebContents* active_tab;
+  raw_ptr<content::WebContents, DanglingUntriaged> active_tab;
   // If this isn't an app browser, `app_id` is empty.
   webapps::AppId app_id;
   bool launch_icon_shown;
@@ -245,6 +240,8 @@ class WebAppIntegrationTestDriver : WebAppInstallManagerObserver {
     virtual bool IsSyncTest() = 0;
     virtual void SyncTurnOff() = 0;
     virtual void SyncTurnOn() = 0;
+    virtual void SyncSignOut(Profile*) = 0;
+    virtual void SyncSignIn(Profile*) = 0;
     virtual void AwaitWebAppQuiescence() = 0;
     virtual Profile* GetProfileClient(ProfileClient client) = 0;
   };
@@ -279,6 +276,8 @@ class WebAppIntegrationTestDriver : WebAppInstallManagerObserver {
   void DisableWindowControlsOverlay(Site site);
   void EnableWindowControlsOverlay(Site site);
   void CreateShortcut(Site site, WindowOptions window_options);
+  // TODO(crbug.com/346323629): Remove InstallableSite and convert callsites to
+  // Site since universal install is available now.
   void InstallMenuOption(InstallableSite site);
   void InstallLocally(Site site);
   void InstallOmniboxIcon(InstallableSite site);
@@ -289,10 +288,11 @@ class WebAppIntegrationTestDriver : WebAppInstallManagerObserver {
   // TODO(b/240449120): Standardize behavior to install preinstalled apps when
   // CUJs for that are added.
   void InstallPreinstalledApp(Site site);
-  void InstallSubApp(Site parentapp,
-                     Site subapp,
+  void InstallIsolatedApp(Site site);
+  void InstallSubApp(Site parent_app,
+                     Site sub_app,
                      SubAppInstallDialogOptions option);
-  void RemoveSubApp(Site parentapp, Site subapp);
+  void RemoveSubApp(Site parent_app, Site sub_app);
   // These functions install apps which are tabbed and creates shortcuts.
   void ApplyRunOnOsLoginPolicyAllowed(Site site);
   void ApplyRunOnOsLoginPolicyBlocked(Site site);
@@ -336,6 +336,8 @@ class WebAppIntegrationTestDriver : WebAppInstallManagerObserver {
   void SwitchActiveProfile(ProfileName profile_name);
   void SyncTurnOff();
   void SyncTurnOn();
+  void SyncSignOut();
+  void SyncSignIn();
   void UninstallFromList(Site site);
   void UninstallFromMenu(Site site);
   void UninstallFromAppSettings(Site site);
@@ -401,6 +403,7 @@ class WebAppIntegrationTestDriver : WebAppInstallManagerObserver {
   void CheckHasSubApp(Site parent_app, Site sub_app);
   void CheckNoSubApps(Site parent_app);
   void CheckAppLoadedInTab(Site site);
+  void CheckSiteLoadedInTab(Site site);
 
  protected:
   // WebAppInstallManagerObserver:
@@ -424,7 +427,7 @@ class WebAppIntegrationTestDriver : WebAppInstallManagerObserver {
   void AwaitManifestSystemIdle();
 
   webapps::AppId GetAppIdBySiteMode(Site site);
-  GURL GetUrlForSite(Site site);
+  GURL GetUrlForSite(Site site, const std::string& suffix = "");
   std::optional<AppState> GetAppBySiteMode(StateSnapshot* state_snapshot,
                                            Profile* profile,
                                            Site site);
@@ -486,7 +489,7 @@ class WebAppIntegrationTestDriver : WebAppInstallManagerObserver {
   std::vector<base::FilePath> GetTestFilePaths(FilesOptions file_options);
 
   void SyncAndInstallPreinstalledAppConfig(const GURL& install_url,
-                                           base::StringPiece app_config_string);
+                                           std::string_view app_config_string);
 
   Browser* browser();
   Profile* profile();
@@ -504,7 +507,7 @@ class WebAppIntegrationTestDriver : WebAppInstallManagerObserver {
       content::TestWebUI* web_ui);
 #endif
 
-  base::test::ScopedFeatureList scoped_feature_list_;
+  base::ScopedTempDir scoped_temp_dir_;
 
   base::flat_set<webapps::AppId> previous_manifest_updates_;
 
@@ -553,6 +556,8 @@ class WebAppIntegrationTestDriver : WebAppInstallManagerObserver {
   base::AutoReset<std::optional<web_app::AppIdentityUpdate>>
       update_dialog_scope_;
 
+  base::ScopedClosureRunner valid_chrome_url_for_webapps_registration_;
+
   base::TimeTicks start_time_ = base::TimeTicks::Now();
 };
 
@@ -583,6 +588,8 @@ class WebAppIntegrationTest : public InProcessBrowserTest,
   bool IsSyncTest() override;
   void SyncTurnOff() override;
   void SyncTurnOn() override;
+  void SyncSignOut(Profile*) override;
+  void SyncSignIn(Profile*) override;
   void AwaitWebAppQuiescence() override;
   Profile* GetProfileClient(ProfileClient client) override;
 

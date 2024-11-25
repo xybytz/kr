@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/renderer/core/html/media/html_media_element.h"
-
 #include <algorithm>
 #include <memory>
 
@@ -18,6 +16,7 @@
 #include "third_party/blink/renderer/core/execution_context/agent.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/fullscreen/fullscreen.h"
+#include "third_party/blink/renderer/core/html/media/html_media_element.h"
 #include "third_party/blink/renderer/core/html/media/html_video_element.h"
 #include "third_party/blink/renderer/core/html/media/media_controls.h"
 #include "third_party/blink/renderer/core/html/media/media_custom_controls_fullscreen_detector.h"
@@ -27,9 +26,9 @@
 #include "third_party/blink/renderer/core/loader/empty_clients.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
+#include "third_party/blink/renderer/platform/media/media_player_client.h"
 #include "third_party/blink/renderer/platform/scheduler/public/event_loop.h"
 #include "third_party/blink/renderer/platform/testing/empty_web_media_player.h"
-#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 
@@ -46,7 +45,9 @@ class FakeWebMediaPlayer final : public EmptyWebMediaPlayer {
   FakeWebMediaPlayer(WebMediaPlayerClient* client,
                      ExecutionContext* context,
                      double duration)
-      : client_(client), context_(context), duration_(duration) {}
+      : client_(static_cast<MediaPlayerClient*>(client)),
+        context_(context),
+        duration_(duration) {}
 
   MOCK_METHOD1(SetIsEffectivelyFullscreen,
                void(blink::WebFullscreenVideoStatus));
@@ -84,7 +85,7 @@ class FakeWebMediaPlayer final : public EmptyWebMediaPlayer {
       ScheduleTimeIncrement();
   }
 
-  void SetAutoIncrementTimeDelta(absl::optional<base::TimeDelta> delta) {
+  void SetAutoIncrementTimeDelta(std::optional<base::TimeDelta> delta) {
     auto_time_increment_delta_ = delta;
     ScheduleTimeIncrement();
   }
@@ -128,11 +129,11 @@ class FakeWebMediaPlayer final : public EmptyWebMediaPlayer {
     context_->GetAgent()->event_loop()->PerformMicrotaskCheckpoint();
   }
 
-  WebMediaPlayerClient* client_;
+  MediaPlayerClient* client_;
   WeakPersistent<ExecutionContext> context_;
   mutable double current_time_ = 0;
   bool playing_ = false;
-  absl::optional<base::TimeDelta> auto_time_increment_delta_ =
+  std::optional<base::TimeDelta> auto_time_increment_delta_ =
       base::Milliseconds(33);
   bool scheduled_time_increment_ = false;
   double last_seek_time_ = -1;
@@ -336,12 +337,6 @@ class HTMLMediaElementWithMockSchedulerTest
 
     s_platform_clock_ = GetTickClock();
 
-    if (!task_environment()) {
-      time_overrides_ =
-          std::make_unique<base::subtle::ScopedTimeClockOverrides>(
-              nullptr, &HTMLMediaElementWithMockSchedulerTest::Now, nullptr);
-    }
-
     // DocumentParserTiming has DCHECKS to make sure time > 0.0.
     AdvanceClock(base::Seconds(1));
     // Tests rely on start time being a multiple of 250ms.
@@ -388,7 +383,7 @@ TEST_F(HTMLMediaElementWithMockSchedulerTest, OneTimeupdatePerSeek) {
 
   // If media playback time is fixed, periodic timeupdate's should not continue
   // to fire.
-  WebMediaPlayer()->SetAutoIncrementTimeDelta(absl::nullopt);
+  WebMediaPlayer()->SetAutoIncrementTimeDelta(std::nullopt);
   EXPECT_CALL(*timeupdate_handler, Invoke(_, _)).Times(0);
   FastForwardBy(base::Seconds(1));
   testing::Mock::VerifyAndClearExpectations(timeupdate_handler);
@@ -619,12 +614,12 @@ class CueEventListener final : public NativeEventListener {
     // The difference between when the cue was scheduled to begin and when the
     // |kEnter| event was fired. The optional will be empty if the |kEnter|
     // event was never fired.
-    absl::optional<base::TimeDelta> enter_time_delta;
+    std::optional<base::TimeDelta> enter_time_delta;
 
     // The difference between when the cue was scheduled to end and when the
     // |kExit| event fired. The optional will be empty if the |kExit| event
     // was never fired.
-    absl::optional<base::TimeDelta> exit_time_delta;
+    std::optional<base::TimeDelta> exit_time_delta;
   };
 
   void OnCueEnter(HTMLMediaElement* media_element, VTTCue* cue) {
@@ -664,8 +659,8 @@ TEST_F(HTMLMediaElementWithMockSchedulerTest, CueEnterExitEventLatency) {
 
   // Create a text track, and fill it with cue data
   auto* text_track =
-      Video()->addTextTrack(AtomicString("subtitles"), g_empty_atom,
-                            g_empty_atom, ASSERT_NO_EXCEPTION);
+      Video()->addTextTrack(V8TextTrackKind(V8TextTrackKind::Enum::kSubtitles),
+                            g_empty_atom, g_empty_atom, ASSERT_NO_EXCEPTION);
 
   auto* listener = MakeGarbageCollected<CueEventListener>();
   for (auto cue_data : kTestCueData) {

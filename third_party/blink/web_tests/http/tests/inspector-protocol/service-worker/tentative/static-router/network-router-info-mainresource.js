@@ -1,4 +1,4 @@
-(async function(testRunner) {
+(async function(/** @type {import('test_runner').TestRunner} */ testRunner) {
   var {page, session, dp} = await testRunner.startURL(
       'resources/simple.html',
       'Verifies that the request head has static routing information on the main resource.');
@@ -20,6 +20,9 @@
 
   const responseReceived = await responseReceivedPromise;
   testRunner.log(responseReceived.params.response.serviceWorkerRouterInfo);
+
+  const router_evaluation_start = responseReceived.params.response.timing.workerRouterEvaluationStart !== undefined;
+  testRunner.log("workerRouterEvaluationStart exists: " + router_evaluation_start);
 
   testRunner.completeTest();
 });

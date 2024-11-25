@@ -50,10 +50,7 @@ class MockConnectClientSocket : public TransportClientSocket {
   MockConnectClientSocket& operator=(const MockConnectClientSocket&) = delete;
 
   // TransportClientSocket implementation.
-  int Bind(const net::IPEndPoint& local_addr) override {
-    NOTREACHED();
-    return ERR_FAILED;
-  }
+  int Bind(const net::IPEndPoint& local_addr) override { NOTREACHED(); }
   // StreamSocket implementation.
   int Connect(CompletionOnceCallback callback) override {
     connected_ = true;
@@ -121,10 +118,7 @@ class MockFailingClientSocket : public TransportClientSocket {
   MockFailingClientSocket& operator=(const MockFailingClientSocket&) = delete;
 
   // TransportClientSocket implementation.
-  int Bind(const net::IPEndPoint& local_addr) override {
-    NOTREACHED();
-    return ERR_FAILED;
-  }
+  int Bind(const net::IPEndPoint& local_addr) override { NOTREACHED(); }
 
   // StreamSocket implementation.
   int Connect(CompletionOnceCallback callback) override {
@@ -230,10 +224,7 @@ class MockTriggerableClientSocket : public TransportClientSocket {
   }
 
   // TransportClientSocket implementation.
-  int Bind(const net::IPEndPoint& local_addr) override {
-    NOTREACHED();
-    return ERR_FAILED;
-  }
+  int Bind(const net::IPEndPoint& local_addr) override { NOTREACHED(); }
 
   // StreamSocket implementation.
   int Connect(CompletionOnceCallback callback) override {
@@ -342,7 +333,7 @@ void SetIPv6Address(IPEndPoint* address) {
 
 MockTransportClientSocketFactory::Rule::Rule(
     Type type,
-    absl::optional<std::vector<IPEndPoint>> expected_addresses,
+    std::optional<std::vector<IPEndPoint>> expected_addresses,
     Error connect_error)
     : type(type),
       expected_addresses(std::move(expected_addresses)),
@@ -369,7 +360,6 @@ MockTransportClientSocketFactory::CreateDatagramClientSocket(
     NetLog* net_log,
     const NetLogSource& source) {
   NOTREACHED();
-  return nullptr;
 }
 
 std::unique_ptr<TransportClientSocket>
@@ -384,7 +374,7 @@ MockTransportClientSocketFactory::CreateTransportClientSocket(
   Rule rule(client_socket_type_);
   if (!rules_.empty()) {
     rule = rules_.front();
-    rules_ = rules_.subspan(1);
+    rules_ = rules_.subspan<1>();
   }
 
   if (rule.expected_addresses) {
@@ -430,7 +420,6 @@ MockTransportClientSocketFactory::CreateTransportClientSocket(
     }
     default:
       NOTREACHED();
-      return std::make_unique<MockConnectClientSocket>(addresses, net_log_);
   }
 }
 

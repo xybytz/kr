@@ -71,11 +71,10 @@ namespace {
 // this shouldn't just recurse infinitely.
 std::vector<UrlAndId> GetURLsToOpen(
     const std::vector<raw_ptr<const BookmarkNode, VectorExperimental>>& nodes,
-    content::BrowserContext* browser_context = nullptr,
     bool incognito_urls_only = false) {
   std::vector<UrlAndId> url_and_ids;
   const auto AddUrlIfLegal = [&](const GURL url, int64_t id) {
-    if (!incognito_urls_only || IsURLAllowedInIncognito(url, browser_context)) {
+    if (!incognito_urls_only || IsURLAllowedInIncognito(url)) {
       UrlAndId url_and_id;
       url_and_id.url = url;
       url_and_id.id = id;
@@ -145,7 +144,8 @@ OpenedWebContentsSet OpenAllHelper(
     Browser* browser,
     std::vector<UrlAndId> bookmark_urls,
     WindowOpenDisposition initial_disposition,
-    BookmarkNavigationHandleUserData::InitiatorLocation navigation_type,
+    page_load_metrics::NavigationHandleUserData::InitiatorLocation
+        navigation_type,
     std::optional<BookmarkLaunchAction> launch_action) {
   OpenedWebContentsSet::container_type opened_tabs;
   WindowOpenDisposition disposition = initial_disposition;
@@ -171,8 +171,8 @@ OpenedWebContentsSet OpenAllHelper(
   for (std::vector<UrlAndId>::const_iterator url_and_id_it =
            bookmark_urls.begin();
        url_and_id_it != bookmark_urls.end(); ++url_and_id_it) {
-    bool url_allowed_in_incognito =
-        IsURLAllowedInIncognito(url_and_id_it->url, nullptr);
+    const bool url_allowed_in_incognito =
+        IsURLAllowedInIncognito(url_and_id_it->url);
 
     // Set the browser from which the URL will be opened. If neither
     // `incognito_browser` nor `regular_browser` is set we use the original
@@ -195,7 +195,7 @@ OpenedWebContentsSet OpenAllHelper(
     base::WeakPtr<content::NavigationHandle> handle =
         nav_wrapper.NavigateTo(&params);
     if (handle) {
-      BookmarkNavigationHandleUserData::CreateForNavigationHandle(
+      page_load_metrics::NavigationHandleUserData::CreateForNavigationHandle(
           *handle, navigation_type);
     }
     content::WebContents* opened_tab =
@@ -262,16 +262,16 @@ void OpenAllIfAllowed(
         raw_ptr<const bookmarks::BookmarkNode, VectorExperimental>>& nodes,
     WindowOpenDisposition initial_disposition,
     bool add_to_group,
-    BookmarkNavigationHandleUserData::InitiatorLocation navigation_type,
+    page_load_metrics::NavigationHandleUserData::InitiatorLocation
+        navigation_type,
     std::optional<BookmarkLaunchAction> launch_action) {
   std::vector<UrlAndId> url_and_ids = GetURLsToOpen(
-      nodes, browser->profile(),
-      initial_disposition == WindowOpenDisposition::OFF_THE_RECORD);
+      nodes, initial_disposition == WindowOpenDisposition::OFF_THE_RECORD);
   auto do_open = [](Browser* browser, std::vector<UrlAndId> url_and_ids_to_open,
                     WindowOpenDisposition initial_disposition,
                     std::optional<std::u16string> folder_title,
-                    BookmarkNavigationHandleUserData::InitiatorLocation
-                        navigation_type,
+                    page_load_metrics::NavigationHandleUserData::
+                        InitiatorLocation navigation_type,
                     std::optional<BookmarkLaunchAction> launch_action,
                     chrome::MessageBoxResult result) {
     if (result != chrome::MESSAGE_BOX_RESULT_YES)
@@ -346,8 +346,7 @@ int OpenCount(gfx::NativeWindow parent,
               const std::vector<raw_ptr<const bookmarks::BookmarkNode,
                                         VectorExperimental>>& nodes,
               content::BrowserContext* incognito_context) {
-  return GetURLsToOpen(nodes, incognito_context, incognito_context != nullptr)
-      .size();
+  return GetURLsToOpen(nodes, incognito_context != nullptr).size();
 }
 
 int OpenCount(gfx::NativeWindow parent,
@@ -401,9 +400,8 @@ bool HasBookmarkURLs(
 
 bool HasBookmarkURLsAllowedInIncognitoMode(
     const std::vector<raw_ptr<const BookmarkNode, VectorExperimental>>&
-        selection,
-    content::BrowserContext* browser_context) {
-  return !GetURLsToOpen(selection, browser_context, true).empty();
+        selection) {
+  return !GetURLsToOpen(selection, true).empty();
 }
 
 void GetURLsAndFoldersForTabEntries(

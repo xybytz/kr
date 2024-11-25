@@ -44,11 +44,13 @@
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "services/network/public/mojom/web_sandbox_flags.mojom-blink.h"
 #include "third_party/blink/public/common/context_menu_data/context_menu_data.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/back_forward_cache_not_restored_reasons.mojom.h"
 #include "third_party/blink/public/mojom/blob/blob_url_store.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/context_menu/context_menu.mojom-blink.h"
 #include "third_party/blink/public/mojom/devtools/devtools_agent.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/devtools/inspector_issue.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/fenced_frame/fenced_frame.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/frame/find_in_page.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/frame/lifecycle.mojom-blink-forward.h"
@@ -57,6 +59,7 @@
 #include "third_party/blink/public/mojom/lcp_critical_path_predictor/lcp_critical_path_predictor.mojom-blink.h"
 #include "third_party/blink/public/mojom/page/widget.mojom-blink.h"
 #include "third_party/blink/public/mojom/script/script_evaluation_params.mojom-blink-forward.h"
+#include "third_party/blink/public/platform/web_content_settings_client.h"
 #include "third_party/blink/public/platform/web_file_system_type.h"
 #include "third_party/blink/public/web/web_history_commit_type.h"
 #include "third_party/blink/public/web/web_local_frame.h"
@@ -112,7 +115,7 @@ class CORE_EXPORT WebLocalFrameImpl final
       public WebNavigationControl {
  public:
   // WebFrame overrides:
-  void Close() override;
+  void Close(DetachReason detach_reason) override;
   WebView* View() const override;
   v8::Local<v8::Object> GlobalProxy(v8::Isolate* isolate) const override;
   bool IsLoading() const override;
@@ -128,6 +131,7 @@ class CORE_EXPORT WebLocalFrameImpl final
   WebAutofillClient* AutofillClient() override;
   void SetContentCaptureClient(WebContentCaptureClient*) override;
   WebContentCaptureClient* ContentCaptureClient() const override;
+  BrowserInterfaceBrokerProxy& GetBrowserInterfaceBroker() override;
   WebDocument GetDocument() const override;
   WebString AssignedName() const override;
   ui::AXTreeID GetAXTreeID() const override;
@@ -138,10 +142,12 @@ class CORE_EXPORT WebLocalFrameImpl final
   WebFrame* FindFrameByName(const WebString& name) override;
   void SetEmbeddingToken(
       const base::UnguessableToken& embedding_token) override;
-  const absl::optional<base::UnguessableToken>& GetEmbeddingToken()
+  const std::optional<base::UnguessableToken>& GetEmbeddingToken()
       const override;
   bool IsInFencedFrameTree() const override;
   void SendPings(const WebURL& destination_url) override;
+  void SendAttributionSrc(const std::optional<Impression>&,
+                          bool did_navigate) override;
   void StartReload(WebFrameLoadType) override;
   void ClearActiveFindMatchForTesting() override;
   void EnableViewSourceMode(bool enable) override;
@@ -150,9 +156,7 @@ class CORE_EXPORT WebLocalFrameImpl final
   void SetReferrerForRequest(WebURLRequest&, const WebURL& referrer) override;
   bool IsNavigationScheduledWithin(base::TimeDelta interval) const override;
   void BlinkFeatureUsageReport(blink::mojom::WebFeature feature) override;
-  PageSizeType GetPageSizeType(uint32_t page_index) override;
-  void GetPageDescription(uint32_t page_index,
-                          WebPrintPageDescription*) override;
+  WebPrintPageDescription GetPageDescription(uint32_t page_index) override;
   void ExecuteScript(const WebScriptSource&) override;
   void ExecuteScriptInIsolatedWorld(
       int32_t world_id,
@@ -197,6 +201,7 @@ class CORE_EXPORT WebLocalFrameImpl final
                             BackForwardCacheAware back_forward_cache_aware,
                             mojom::blink::WantResultOption,
                             mojom::blink::PromiseResultOption) override;
+  bool IsInspectorConnected() override;
   void Alert(const WebString& message) override;
   bool Confirm(const WebString& message) override;
   WebString Prompt(const WebString& message,
@@ -328,16 +333,13 @@ class CORE_EXPORT WebLocalFrameImpl final
   bool IsAdFrame() const override;
   bool IsAdScriptInStack() const override;
   void SetAdEvidence(const FrameAdEvidence& ad_evidence) override;
-  const absl::optional<blink::FrameAdEvidence>& AdEvidence() override;
+  const std::optional<blink::FrameAdEvidence>& AdEvidence() override;
   bool IsFrameCreatedByAdScript() override;
   gfx::Size SpoolSizeInPixelsForTesting(
-      const WebPrintParams&,
       const WebVector<uint32_t>& pages) override;
-  gfx::Size SpoolSizeInPixelsForTesting(const WebPrintParams&,
-                                        uint32_t page_count) override;
+  gfx::Size SpoolSizeInPixelsForTesting(uint32_t page_count) override;
   void PrintPagesForTesting(
       cc::PaintCanvas*,
-      const WebPrintParams&,
       const gfx::Size& spool_size_in_pixels,
       const WebVector<uint32_t>* pages = nullptr) override;
   gfx::Rect GetSelectionBoundsRectForTesting() const override;
@@ -369,6 +371,8 @@ class CORE_EXPORT WebLocalFrameImpl final
   void BlockParserForTesting() override;
   void ResumeParserForTesting() override;
   void FlushInputForTesting(base::OnceClosure done_callback) override;
+  bool AllowStorageAccessSyncAndNotify(
+      WebContentSettingsClient::StorageType storage_type) override;
 
   // WebNavigationControl overrides:
   bool DispatchBeforeUnloadEvent(bool) override;
@@ -383,7 +387,8 @@ class CORE_EXPORT WebLocalFrameImpl final
       bool has_transient_user_activation,
       const WebSecurityOrigin& initiator_origin,
       bool is_browser_initiated,
-      absl::optional<scheduler::TaskAttributionId>
+      bool has_ua_visual_transition,
+      std::optional<scheduler::TaskAttributionId>
           soft_navigation_heuristics_task_id) override;
   void SetIsNotOnInitialEmptyDocument() override;
   bool IsOnInitialEmptyDocument() override;
@@ -396,6 +401,7 @@ class CORE_EXPORT WebLocalFrameImpl final
       network::mojom::blink::RedirectMode cross_origin_redirect_behavior,
       CrossVariantMojoRemote<mojom::blink::BlobURLTokenInterfaceBase>
           blob_url_token) override;
+  WebFrame* GetProvisionalOwnerFrame() override;
 
   void SetNotRestoredReasons(
       const mojom::BackForwardCacheNotRestoredReasonsPtr&) override;
@@ -405,6 +411,9 @@ class CORE_EXPORT WebLocalFrameImpl final
 
   void SetLCPPHint(
       const mojom::LCPCriticalPathPredictorNavigationTimeHintPtr&) override;
+
+  bool IsFeatureEnabled(
+      const mojom::blink::PermissionsPolicyFeature&) const override;
 
   void InitializeCoreFrame(
       Page&,
@@ -416,6 +425,8 @@ class CORE_EXPORT WebLocalFrameImpl final
       WindowAgentFactory*,
       WebFrame* opener,
       const DocumentToken& document_token,
+      mojo::PendingRemote<mojom::blink::BrowserInterfaceBroker>
+          interface_broker,
       std::unique_ptr<blink::WebPolicyContainer> policy_container,
       const StorageKey& storage_key,
       const KURL& creator_base_url,
@@ -431,6 +442,7 @@ class CORE_EXPORT WebLocalFrameImpl final
       WebView*,
       WebLocalFrameClient*,
       InterfaceRegistry*,
+      mojo::PendingRemote<mojom::blink::BrowserInterfaceBroker>,
       const LocalFrameToken& frame_token,
       WebFrame* opener,
       const WebString& name,
@@ -441,6 +453,7 @@ class CORE_EXPORT WebLocalFrameImpl final
   static WebLocalFrameImpl* CreateProvisional(
       WebLocalFrameClient*,
       InterfaceRegistry*,
+      mojo::PendingRemote<mojom::blink::BrowserInterfaceBroker>,
       const LocalFrameToken& frame_token,
       WebFrame* previous_frame,
       const FramePolicy&,
@@ -491,8 +504,7 @@ class CORE_EXPORT WebLocalFrameImpl final
 
   void SendOrientationChangeEvent();
 
-  void SetDevToolsAgentImpl(WebDevToolsAgentImpl*);
-  WebDevToolsAgentImpl* DevToolsAgentImpl();
+  WebDevToolsAgentImpl* DevToolsAgentImpl(bool create_if_necessary);
 
   // Instructs devtools to pause loading of the frame as soon as it's shown
   // until explicit command from the devtools client. May only be called on a
@@ -507,6 +519,8 @@ class CORE_EXPORT WebLocalFrameImpl final
   // allows us to navigate by pressing Enter after closing the Find box.
   void SetFindEndstateFocusAndSelection();
 
+  void DidCommitLoad();
+  void DidDispatchDOMContentLoadedEvent();
   void DidFailLoad(const ResourceError&, WebHistoryCommitType);
   void DidFinish();
   void DidFinishLoadForPrinting();
@@ -537,9 +551,6 @@ class CORE_EXPORT WebLocalFrameImpl final
   // Returns true if the frame is focused.
   bool IsFocused() const;
 
-  // Returns true if our print context suggests using printing layout.
-  bool UsePrintingLayout() const;
-
   // Copy the current selection to the pboard.
   void CopyToFindPboard();
 
@@ -551,7 +562,7 @@ class CORE_EXPORT WebLocalFrameImpl final
   void ShowContextMenu(
       mojo::PendingAssociatedRemote<mojom::blink::ContextMenuClient> client,
       const ContextMenuData& data,
-      const absl::optional<gfx::Point>& host_context_menu_location);
+      const std::optional<gfx::Point>& host_context_menu_location);
 
   virtual void Trace(Visitor*) const;
 
@@ -626,6 +637,8 @@ class CORE_EXPORT WebLocalFrameImpl final
       WindowAgentFactory*,
       WebFrame* opener,
       const DocumentToken& document_token,
+      mojo::PendingRemote<mojom::blink::BrowserInterfaceBroker>
+          interface_broker,
       std::unique_ptr<PolicyContainer> policy_container,
       const StorageKey& storage_key,
       ukm::SourceId document_ukm_source_id,
@@ -637,6 +650,11 @@ class CORE_EXPORT WebLocalFrameImpl final
   // mojom::blink::BackForwardCacheNotRestoredReasonsPtr.
   mojom::blink::BackForwardCacheNotRestoredReasonsPtr ConvertNotRestoredReasons(
       const mojom::BackForwardCacheNotRestoredReasonsPtr& reasons_struct);
+
+  // If true, requests compositor warm-up when the page is under prerendering.
+  // Please see crbug.com/41496019 for more details.
+  bool ShouldWarmUpCompositorOnPrerenderFromThisPoint(
+      features::Prerender2WarmUpCompositorTriggerPoint trigger_point);
 
   WebLocalFrameClient* client_;
 

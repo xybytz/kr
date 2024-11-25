@@ -5,10 +5,11 @@
 #import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_show_more_view_controller.h"
 
 #import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_collection_utils.h"
 #import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_item_view.h"
 #import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_item_view_data.h"
 #import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_show_more_item_view.h"
-#import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_view.h"
+#import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_tap_delegate.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #import "ios/chrome/common/ui/util/ui_util.h"
@@ -29,6 +30,9 @@ const CGFloat kSetUpListStackViewLeadingInset = 31.0f;
 const CGFloat kSetUpListStackViewTrailingInset = 20.0f;
 const CGFloat kSetUpListStackViewDescriptionSpacing = 33.0f;
 
+// A11y ID for the SetUpList title label.
+NSString* const kSetUpListTitleAxId = @"kSetUpListTitleAxId";
+
 }  // namespace
 
 @interface SetUpListShowMoreViewController ()
@@ -36,11 +40,11 @@ const CGFloat kSetUpListStackViewDescriptionSpacing = 33.0f;
 
 @implementation SetUpListShowMoreViewController {
   NSArray<SetUpListItemViewData*>* _items;
-  id<SetUpListViewDelegate> _tapDelegate;
+  id<SetUpListTapDelegate> _tapDelegate;
 }
 
 - (instancetype)initWithItems:(NSArray<SetUpListItemViewData*>*)items
-                  tapDelegate:(id<SetUpListViewDelegate>)tapDelegate {
+                  tapDelegate:(id<SetUpListTapDelegate>)tapDelegate {
   self = [super init];
   if (self) {
     _items = items;
@@ -78,14 +82,14 @@ const CGFloat kSetUpListStackViewDescriptionSpacing = 33.0f;
 
   UILabel* title = [[UILabel alloc] init];
   title.translatesAutoresizingMaskIntoConstraints = NO;
-  title.text = l10n_util::GetNSString(IDS_IOS_SET_UP_LIST_TITLE);
-  title.accessibilityIdentifier =
-      l10n_util::GetNSString(IDS_IOS_SET_UP_LIST_TITLE);
+  title.text = content_suggestions::SetUpListTitleString();
+  title.accessibilityIdentifier = kSetUpListTitleAxId;
   title.font = CreateDynamicFont(UIFontTextStyleTitle1, UIFontWeightBold);
   title.textColor = [UIColor colorNamed:kTextPrimaryColor];
   title.numberOfLines = 0;
   title.lineBreakMode = NSLineBreakByWordWrapping;
   title.textAlignment = NSTextAlignmentCenter;
+  title.accessibilityTraits |= UIAccessibilityTraitHeader;
   [self.view addSubview:title];
 
   UILabel* subtitle = [[UILabel alloc] init];
@@ -120,7 +124,7 @@ const CGFloat kSetUpListStackViewDescriptionSpacing = 33.0f;
 
   UIStackView* setUpListItemStackView = [[UIStackView alloc] init];
   setUpListItemStackView.axis = UILayoutConstraintAxisVertical;
-  setUpListItemStackView.alignment = UIStackViewAlignmentLeading;
+  setUpListItemStackView.alignment = UIStackViewAlignmentFill;
   setUpListItemStackView.distribution = UIStackViewDistributionFill;
   setUpListItemStackView.translatesAutoresizingMaskIntoConstraints = NO;
   setUpListItemStackView.spacing = kSetUpListItemSpacing;
@@ -139,17 +143,48 @@ const CGFloat kSetUpListStackViewDescriptionSpacing = 33.0f;
           constraintEqualToAnchor:setUpListItemStackView.trailingAnchor],
     ]];
   }
-  [self.view addSubview:setUpListItemStackView];
+
+  UIScrollView* scrollView = [[UIScrollView alloc] init];
+  scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+  scrollView.showsVerticalScrollIndicator = NO;
+
+  [scrollView addSubview:setUpListItemStackView];
+  [self.view addSubview:scrollView];
+
+  // Set scroll view constraints.
   [NSLayoutConstraint activateConstraints:@[
-    [setUpListItemStackView.leadingAnchor
+    [scrollView.leadingAnchor
         constraintEqualToAnchor:self.view.leadingAnchor
                        constant:kSetUpListStackViewLeadingInset],
-    [setUpListItemStackView.trailingAnchor
+    [scrollView.trailingAnchor
         constraintEqualToAnchor:self.view.trailingAnchor
                        constant:-kSetUpListStackViewTrailingInset],
-    [setUpListItemStackView.topAnchor
+    [scrollView.topAnchor
         constraintEqualToAnchor:subtitle.bottomAnchor
                        constant:kSetUpListStackViewDescriptionSpacing],
+    [scrollView.bottomAnchor
+        constraintLessThanOrEqualToAnchor:self.view.safeAreaLayoutGuide
+                                              .bottomAnchor],
+  ]];
+
+  AddSameConstraints(setUpListItemStackView, scrollView);
+
+  // Scroll view constraints to the height of its content.
+  NSLayoutConstraint* heightConstraint = [scrollView.heightAnchor
+      constraintEqualToAnchor:scrollView.contentLayoutGuide.heightAnchor];
+  // UILayoutPriorityDefaultHigh is the default priority for content
+  // compression. Setting this lower avoids compressing the content of the
+  // scroll view.
+  heightConstraint.priority = UILayoutPriorityDefaultHigh - 1;
+  heightConstraint.active = YES;
+
+  [NSLayoutConstraint activateConstraints:@[
+    [setUpListItemStackView.centerXAnchor
+        constraintEqualToAnchor:self.view.centerXAnchor],
+    // Disable horizontal scrolling.
+    [setUpListItemStackView.widthAnchor
+        constraintLessThanOrEqualToAnchor:self.view.layoutMarginsGuide
+                                              .widthAnchor],
   ]];
 }
 

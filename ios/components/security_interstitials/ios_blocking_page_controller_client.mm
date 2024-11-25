@@ -67,7 +67,6 @@ bool IOSBlockingPageControllerClient::CanGoBack() {
 
 bool IOSBlockingPageControllerClient::CanGoBackBeforeNavigation() {
   NOTREACHED();
-  return false;
 }
 
 void IOSBlockingPageControllerClient::GoBackAfterNavigationCommitted() {

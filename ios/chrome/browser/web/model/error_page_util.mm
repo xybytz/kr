@@ -6,6 +6,8 @@
 
 #import <Foundation/Foundation.h>
 
+#import <string_view>
+
 #import "base/check_op.h"
 #import "base/ios/ns_error_util.h"
 #import "base/notreached.h"
@@ -49,7 +51,6 @@ NSString* GetErrorPage(const GURL& url,
           /*is_secure_dns_network_error=*/false,
           /*stale_copy_in_cache=*/false,
           /*can_show_network_diagnostics_dialog=*/false, is_off_the_record,
-          /*offline_content_feature_enabled=*/false,
           /*auto_fetch_feature_enabled=*/false,
           /*is_kiosk_mode=*/false,
           GetApplicationContext()->GetApplicationLocale(),
@@ -62,11 +63,13 @@ NSString* GetErrorPage(const GURL& url,
   std::string extracted_string =
       ui::ResourceBundle::GetSharedInstance().LoadDataResourceStringForScale(
           IDR_NET_ERROR_HTML, scale_factor);
-  base::StringPiece template_html(extracted_string.data(),
-                                  extracted_string.size());
+  std::string_view template_html(extracted_string.data(),
+                                 extracted_string.size());
 
-  if (template_html.empty())
+  if (template_html.empty()) {
     NOTREACHED() << "unable to load template. ID: " << IDR_NET_ERROR_HTML;
+  }
+
   return base::SysUTF8ToNSString(
       webui::GetLocalizedHtml(template_html, page_state.strings));
 }

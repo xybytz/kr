@@ -72,7 +72,6 @@ SkColorType CanvasPixelFormatToSkColorType(CanvasPixelFormat pixel_format) {
       return kN32_SkColorType;
   }
   NOTREACHED();
-  return kN32_SkColorType;
 }
 
 CanvasColorParams::CanvasColorParams() = default;

@@ -63,6 +63,14 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) CellularNetworkMetricsLogger
     kMaxValue = kHermesFailed,
   };
 
+  // These values are not persisted to logs and are used as helper values for
+  // identifying the trigger of an SM-DS scan.
+  enum class SmdsScanMethod {
+    kViaPolicy = 0,
+    kViaUser = 1,
+    kMaxValue = kViaUser,
+  };
+
   // These values are persisted to logs. Entries should not be renumbered and
   // numeric values should never be reused.
   enum class ESimUserInstallMethod {
@@ -80,6 +88,15 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) CellularNetworkMetricsLogger
     kViaSmdp = 0,
     kViaSmds = 1,
     kMaxValue = kViaSmds,
+  };
+
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  enum class CreateCustomApnResult {
+    kSuccess = 0,
+    kNetworkNotFound = 1,
+    kShillError = 2,
+    kMaxValue = kShillError,
   };
 
   // These values are persisted to logs. Entries should not be renumbered and
@@ -110,12 +127,24 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) CellularNetworkMetricsLogger
 
   static constexpr char kCreateCustomApnResultHistogram[] =
       "Network.Ash.Cellular.Apn.CreateCustomApn.Result";
+  static constexpr char kCreateCustomApnShillErrorHistogram[] =
+      "Network.Ash.Cellular.Apn.CreateCustomApn.ShillError";
   static constexpr char kCreateCustomApnAuthenticationTypeHistogram[] =
       "Network.Ash.Cellular.Apn.CreateCustomApn.AuthenticationType";
   static constexpr char kCreateCustomApnIpTypeHistogram[] =
       "Network.Ash.Cellular.Apn.CreateCustomApn.IpType";
   static constexpr char kCreateCustomApnApnTypesHistogram[] =
       "Network.Ash.Cellular.Apn.CreateCustomApn.ApnTypes";
+  static constexpr char kCreateExclusivelyEnabledCustomApnResultHistogram[] =
+      "Network.Ash.Cellular.Apn.CreateExclusivelyEnabledCustomApn.Result";
+  static constexpr char
+      kCreateExclusivelyEnabledCustomApnAuthenticationTypeHistogram[] =
+          "Network.Ash.Cellular.Apn.CreateExclusivelyEnabledCustomApn."
+          "AuthenticationType";
+  static constexpr char kCreateExclusivelyEnabledCustomApnIpTypeHistogram[] =
+      "Network.Ash.Cellular.Apn.CreateExclusivelyEnabledCustomApn.IpType";
+  static constexpr char kCreateExclusivelyEnabledCustomApnApnTypesHistogram[] =
+      "Network.Ash.Cellular.Apn.CreateExclusivelyEnabledCustomApn.ApnTypes";
   static constexpr char kRemoveCustomApnResultHistogram[] =
       "Network.Ash.Cellular.Apn.RemoveCustomApn.Result";
   static constexpr char kRemoveCustomApnApnTypesHistogram[] =
@@ -147,24 +176,28 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) CellularNetworkMetricsLogger
   static constexpr char kCustomApnsManagedMigrationTypeHistogram[] =
       "Network.Ash.Cellular.Apn.Managed.MigrationType";
 
-  static constexpr char kSmdsScanProfileCount[] =
-      "Network.Ash.Cellular.ESim.SmdsScan.ProfileCount";
+  static constexpr char kSmdsScanViaPolicyProfileCount[] =
+      "Network.Ash.Cellular.ESim.SmdsScan.ViaPolicy.ProfileCount";
+  static constexpr char kSmdsScanViaUserProfileCount[] =
+      "Network.Ash.Cellular.ESim.SmdsScan.ViaUser.ProfileCount";
   static constexpr char kSmdsScanOtherDurationSuccess[] =
-      "Network.Ash.Cellular.ESim.SmdsScanDuration.Other.OnSuccess";
+      "Network.Ash.Cellular.ESim.SmdsScanDuration2.Other.OnSuccess";
   static constexpr char kSmdsScanOtherDurationFailure[] =
-      "Network.Ash.Cellular.ESim.SmdsScanDuration.Other.OnFailure";
+      "Network.Ash.Cellular.ESim.SmdsScanDuration2.Other.OnFailure";
   static constexpr char kSmdsScanAndroidDurationSuccess[] =
-      "Network.Ash.Cellular.ESim.SmdsScanDuration.Android.OnSuccess";
+      "Network.Ash.Cellular.ESim.SmdsScanDuration2.Android.OnSuccess";
   static constexpr char kSmdsScanAndroidDurationFailure[] =
-      "Network.Ash.Cellular.ESim.SmdsScanDuration.Android.OnFailure";
+      "Network.Ash.Cellular.ESim.SmdsScanDuration2.Android.OnFailure";
   static constexpr char kSmdsScanGsmaDurationSuccess[] =
-      "Network.Ash.Cellular.ESim.SmdsScanDuration.Gsma.OnSuccess";
+      "Network.Ash.Cellular.ESim.SmdsScanDuration2.Gsma.OnSuccess";
   static constexpr char kSmdsScanGsmaDurationFailure[] =
-      "Network.Ash.Cellular.ESim.SmdsScanDuration.Gsma.OnFailure";
+      "Network.Ash.Cellular.ESim.SmdsScanDuration2.Gsma.OnFailure";
   static constexpr char kESimUserInstallMethod[] =
       "Network.Ash.Cellular.ESim.UserInstall.Method";
   static constexpr char kESimPolicyInstallMethod[] =
       "Network.Ash.Cellular.ESim.PolicyInstall.Method";
+  static constexpr char kESimPolicyInstallNoAvailableProfiles[] =
+      "Network.Ash.Cellular.ESim.PolicyInstall.NoAvailableProfiles";
   static constexpr char kESimPolicyInstallUserErrorsFilteredAll[] =
       "Network.Ash.Cellular.ESim.PolicyInstall.UserErrorsFiltered.All";
   static constexpr char kESimPolicyInstallUserErrorsFilteredViaSmdpInitial[] =
@@ -263,6 +296,10 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) CellularNetworkMetricsLogger
 
   // Logs results from attempting operations related to custom APNs.
   static void LogCreateCustomApnResult(
+      CreateCustomApnResult result,
+      chromeos::network_config::mojom::ApnPropertiesPtr apn,
+      const std::optional<std::string>& shill_error);
+  static void LogCreateExclusivelyEnabledCustomApnResult(
       bool success,
       chromeos::network_config::mojom::ApnPropertiesPtr apn);
   static void LogRemoveCustomApnResult(
@@ -278,13 +315,15 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) CellularNetworkMetricsLogger
   static void LogManagedCustomApnMigrationType(ManagedApnMigrationType type);
 
   // Logs results from attempting operations related to eSIM.
-  static void LogSmdsScanProfileCount(size_t count);
+  static void LogSmdsScanProfileCount(size_t count, SmdsScanMethod method);
   static void LogSmdsScanDuration(const base::TimeDelta& duration,
                                   bool success,
                                   const std::string& smds_activation_code);
 
   static void LogESimUserInstallMethod(ESimUserInstallMethod method);
   static void LogESimPolicyInstallMethod(ESimPolicyInstallMethod method);
+  static void LogESimPolicyInstallNoAvailableProfiles(
+      ESimPolicyInstallMethod method);
   // The |is_user_error| parameter is used to indicate that |result| was caused
   // by something outside the control of ChromeOS, e.g. an invalid activation
   // code, and is not actionable. We do not include this category of errors in

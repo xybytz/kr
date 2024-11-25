@@ -3,11 +3,13 @@
 // found in the LICENSE file.
 
 #import "base/functional/bind.h"
+#import "base/memory/raw_ptr.h"
 #import "base/test/ios/wait_util.h"
 #import "base/time/time.h"
 #import "ios/chrome/browser/search_engines/model/search_engine_java_script_feature.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/web/model/chrome_web_client.h"
+#import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/web/public/test/js_test_util.h"
 #import "ios/web/public/test/scoped_testing_web_client.h"
 #import "ios/web/public/test/web_state_test_util.h"
@@ -58,9 +60,9 @@ class SearchEngineJsTest : public PlatformTest,
 
  protected:
   SearchEngineJsTest() : web_client_(std::make_unique<ChromeWebClient>()) {
-    browser_state_ = TestChromeBrowserState::Builder().Build();
+    profile_ = TestProfileIOS::Builder().Build();
 
-    web::WebState::CreateParams params(browser_state_.get());
+    web::WebState::CreateParams params(profile_.get());
     web_state_ = web::WebState::Create(params);
     web_state_->GetView();
     web_state_->SetKeepRenderProcessAlive(true);
@@ -68,13 +70,13 @@ class SearchEngineJsTest : public PlatformTest,
 
   // Stores paramaeters passed to `SetSearchableUrl`.
   struct ReceivedSearchableUrl {
-    web::WebState* web_state;
+    raw_ptr<web::WebState> web_state;
     GURL searchable_url;
   };
 
   // Stores paramaeters passed to `AddTemplateURLByOSDD`.
   struct ReceivedTemplateUrlByOsdd {
-    web::WebState* web_state;
+    raw_ptr<web::WebState> web_state;
     GURL template_page_url;
     GURL osdd_url;
   };
@@ -111,9 +113,10 @@ class SearchEngineJsTest : public PlatformTest,
 
   web::WebState* web_state() { return web_state_.get(); }
 
+  IOSChromeScopedTestingLocalState scoped_testing_local_state_;
   web::ScopedTestingWebClient web_client_;
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<web::WebState> web_state_;
   // Details about the last received `SetSearchableUrl` call.
   ReceivedSearchableUrl last_received_searchable_url_;

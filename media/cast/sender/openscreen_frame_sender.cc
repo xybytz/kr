@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "media/cast/sender/openscreen_frame_sender.h"
 
 #include <algorithm>
@@ -19,7 +24,7 @@
 #include "media/cast/common/openscreen_conversion_helpers.h"
 #include "media/cast/common/sender_encoded_frame.h"
 #include "media/cast/constants.h"
-#include "third_party/openscreen/src/cast/streaming/encoded_frame.h"
+#include "third_party/openscreen/src/cast/streaming/public/encoded_frame.h"
 
 namespace media::cast {
 namespace {
@@ -98,11 +103,6 @@ OpenscreenFrameSender::~OpenscreenFrameSender() {
 
 bool OpenscreenFrameSender::NeedsKeyFrame() const {
   return sender_->NeedsKeyFrame();
-}
-
-void OpenscreenFrameSender::OnMeasuredRoundTripTime(
-    base::TimeDelta round_trip_time) {
-  NOTIMPLEMENTED();
 }
 
 void OpenscreenFrameSender::SetTargetPlayoutDelay(
@@ -224,8 +224,7 @@ CastStreamingFrameDropReason OpenscreenFrameSender::EnqueueFrame(
   last_enqueued_frame_id_ = encoded_frame->frame_id;
   last_send_time_ = cast_environment_->Clock()->NowTicks();
 
-  if (!is_audio_ && encoded_frame->dependency ==
-                        openscreen::cast::EncodedFrame::Dependency::kKeyFrame) {
+  if (!is_audio_ && encoded_frame->is_key_frame) {
     VLOG_WITH_SSRC(1) << "Sending encoded key frame, id="
                       << encoded_frame->frame_id;
     frame_id_map_.clear();
@@ -291,15 +290,6 @@ CastStreamingFrameDropReason OpenscreenFrameSender::EnqueueFrame(
 
   const auto result = sender_->EnqueueFrame(std::move(openscreen_frame));
   return ToFrameDropReason(result);
-}
-
-void OpenscreenFrameSender::OnReceivedCastFeedback(
-    const RtcpCastMessage& cast_feedback) {
-  NOTIMPLEMENTED();
-}
-
-void OpenscreenFrameSender::OnReceivedPli() {
-  OnPictureLost();
 }
 
 CastStreamingFrameDropReason OpenscreenFrameSender::ShouldDropNextFrame(

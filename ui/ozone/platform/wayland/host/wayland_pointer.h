@@ -128,35 +128,30 @@ class WaylandPointer::Delegate {
       const gfx::PointF& location,
       base::TimeTicks timestamp,
       wl::EventDispatchPolicy dispatch_policy) = 0;
-  virtual void OnPointerButtonEvent(
-      EventType evtype,
-      int changed_button,
-      base::TimeTicks timestamp,
-      WaylandWindow* window,
-      wl::EventDispatchPolicy dispatch_policy) = 0;
   virtual void OnPointerButtonEvent(EventType evtype,
                                     int changed_button,
                                     base::TimeTicks timestamp,
                                     WaylandWindow* window,
                                     wl::EventDispatchPolicy dispatch_policy,
-                                    bool allow_release_of_unpressed_button) = 0;
-  virtual void OnPointerMotionEvent(
-      const gfx::PointF& location,
-      base::TimeTicks timestamp,
-      wl::EventDispatchPolicy dispatch_policy) = 0;
+                                    bool allow_release_of_unpressed_button,
+                                    bool is_synthesized) = 0;
+  virtual void OnPointerMotionEvent(const gfx::PointF& location,
+                                    base::TimeTicks timestamp,
+                                    wl::EventDispatchPolicy dispatch_policy,
+                                    bool is_synthesized) = 0;
   virtual void OnPointerAxisEvent(const gfx::Vector2dF& offset,
                                   base::TimeTicks timestamp) = 0;
   virtual void OnPointerFrameEvent() = 0;
   virtual void OnPointerAxisSourceEvent(uint32_t axis_source) = 0;
   virtual void OnPointerAxisStopEvent(uint32_t axis,
                                       base::TimeTicks timestamp) = 0;
-  virtual void OnResetPointerFlags() = 0;
   virtual const gfx::PointF& GetPointerLocation() const = 0;
   virtual bool IsPointerButtonPressed(EventFlags button) const = 0;
+  virtual void ReleasePressedPointerButtons(WaylandWindow* window,
+                                            base::TimeTicks timestamp) = 0;
   virtual void OnPointerStylusToolChanged(EventPointerType pointer_type) = 0;
   virtual void OnPointerStylusForceChanged(float force) = 0;
   virtual void OnPointerStylusTiltChanged(const gfx::Vector2dF& tilt) = 0;
-  virtual const WaylandWindow* GetPointerTarget() const = 0;
 };
 
 }  // namespace ui

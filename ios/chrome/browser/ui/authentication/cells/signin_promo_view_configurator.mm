@@ -7,11 +7,12 @@
 #import "base/notreached.h"
 #import "base/strings/sys_string_conversions.h"
 #import "build/branding_buildflags.h"
+#import "ios/chrome/browser/ntp/ui_bundled/new_tab_page_feature.h"
+#import "ios/chrome/browser/shared/ui/symbols/symbols.h"
 #import "ios/chrome/browser/signin/model/constants.h"
 #import "ios/chrome/browser/signin/model/signin_util.h"
 #import "ios/chrome/browser/ui/authentication/cells/signin_promo_view.h"
 #import "ios/chrome/browser/ui/authentication/cells/signin_promo_view_constants.h"
-#import "ios/chrome/browser/ui/ntp/new_tab_page_feature.h"
 #import "ios/chrome/common/ui/util/image_util.h"
 #import "ios/chrome/grit/ios_branded_strings.h"
 #import "ios/chrome/grit/ios_strings.h"
@@ -77,8 +78,7 @@ using l10n_util::GetNSStringF;
       [self configureStandardSigninPromoView:signinPromoView];
       break;
     }
-    case SigninPromoViewStyleCompactHorizontal:
-    case SigninPromoViewStyleCompactVertical: {
+    case SigninPromoViewStyleCompact: {
       [self configureCompactPromoView:signinPromoView withStyle:promoViewStyle];
       break;
     }
@@ -142,9 +142,8 @@ using l10n_util::GetNSStringF;
     case SigninPromoViewStyleStandard:
     case SigninPromoViewStyleOnlyButton:
       // This function shouldn't be used for the non-compact promos.
-      NOTREACHED_NORETURN();
-    case SigninPromoViewStyleCompactVertical:
-    case SigninPromoViewStyleCompactHorizontal:
+      NOTREACHED();
+    case SigninPromoViewStyleCompact:
       [signinPromoView configurePrimaryButtonWithTitle:
                            GetNSString(IDS_IOS_NTP_FEED_SIGNIN_PROMO_CONTINUE)];
       switch (self.signinPromoViewMode) {
@@ -182,12 +181,11 @@ using l10n_util::GetNSStringF;
 // Sets non-profile image to a given `signinPromoView`.
 - (void)assignNonProfileImageToSigninPromoView:
     (SigninPromoView*)signinPromoView {
-  UIImage* logo = nil;
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  logo = [UIImage imageNamed:@"signin_promo_logo_chrome_color"];
+#if BUILDFLAG(IOS_USE_BRANDED_SYMBOLS)
+  UIImage* logo = [UIImage imageNamed:kChromeSigninPromoLogoImage];
 #else
-  logo = [UIImage imageNamed:@"signin_promo_logo_chromium_color"];
-#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  UIImage* logo = [UIImage imageNamed:kChromiumSigninPromoLogoImage];
+#endif  // BUILDFLAG(IOS_USE_BRANDED_SYMBOLS)
   DCHECK(logo);
   [signinPromoView setNonProfileImage:logo];
 }

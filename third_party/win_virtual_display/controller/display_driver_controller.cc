@@ -4,7 +4,6 @@
 
 #include <windows.h>
 
-#include <conio.h>
 #include <devguid.h>
 #include <setupapi.h>
 #include <swdevice.h>
@@ -118,7 +117,7 @@ bool DisplayDriverController::Initialize(DriverProperties config) {
                               properties.size(), properties.data(),
                               CreationCallback, &hEvent, &hSwDevice);
   if (FAILED(hr)) {
-    LOG(ERROR) << "SwDeviceCreate failed: " << hr;
+    LOG(ERROR) << "SwDeviceCreate failed: " << std::hex << hr;
     return false;
   }
   // Wait for callback to signal that the device has been created

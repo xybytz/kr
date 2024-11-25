@@ -65,10 +65,13 @@ void LenientTestProcessMetricsDecorator::RequestProcessesMemoryMetrics(
 class LenientMockSystemNodeObserver
     : public SystemNodeImpl::ObserverDefaultImpl {
  public:
-  LenientMockSystemNodeObserver() {}
-  ~LenientMockSystemNodeObserver() override {}
+  LenientMockSystemNodeObserver() = default;
+  ~LenientMockSystemNodeObserver() override = default;
 
-  MOCK_METHOD1(OnProcessMemoryMetricsAvailable, void(const SystemNode*));
+  MOCK_METHOD(void,
+              OnProcessMemoryMetricsAvailable,
+              (const SystemNode*),
+              (override));
 };
 using MockSystemNodeObserver =
     ::testing::StrictMock<LenientMockSystemNodeObserver>;

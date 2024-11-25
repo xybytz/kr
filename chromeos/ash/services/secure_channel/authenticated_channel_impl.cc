@@ -75,10 +75,9 @@ void AuthenticatedChannelImpl::PerformSendMessage(
   int sequence_number = secure_channel_->SendMessage(feature, payload);
 
   if (base::Contains(sequence_number_to_callback_map_, sequence_number)) {
-    PA_LOG(ERROR) << "AuthenticatedChannelImpl::SendMessage(): Started sending "
-                  << "a message whose sequence number already exists in the "
-                  << "map.";
-    NOTREACHED();
+    NOTREACHED() << "AuthenticatedChannelImpl::SendMessage(): Started sending "
+                 << "a message whose sequence number already exists in the "
+                 << "map.";
   }
 
   sequence_number_to_callback_map_[sequence_number] =
@@ -125,6 +124,14 @@ void AuthenticatedChannelImpl::OnMessageReceived(SecureChannel* secure_channel,
                                                  const std::string& payload) {
   DCHECK_EQ(secure_channel_.get(), secure_channel);
   NotifyMessageReceived(feature, payload);
+}
+
+void AuthenticatedChannelImpl::OnNearbyConnectionStateChanged(
+    SecureChannel* secure_channel,
+    mojom::NearbyConnectionStep step,
+    mojom::NearbyConnectionStepResult result) {
+  DCHECK_EQ(secure_channel_.get(), secure_channel);
+  NotifyNearbyConnectionStateChanged(step, result);
 }
 
 void AuthenticatedChannelImpl::OnMessageSent(SecureChannel* secure_channel,

@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "android_webview/browser/aw_browser_permission_request_delegate.h"
+#include "android_webview/browser/aw_context_permissions_delegate.h"
 #include "android_webview/browser/permission/permission_callback.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
@@ -58,6 +59,11 @@ class AwBrowserPermissionRequestDelegateForTesting final
   void RequestGeolocationPermission(const GURL& origin,
                                     PermissionCallback callback) override {
     RequestPermission(origin, PermissionType::GEOLOCATION, std::move(callback));
+  }
+
+  void RequestStorageAccess(const url::Origin& origin,
+                            PermissionCallback callback) override {
+    NOTREACHED();
   }
 
   void CancelGeolocationPermissionRequests(const GURL& origin) override {
@@ -125,8 +131,18 @@ class AwBrowserPermissionRequestDelegateForTesting final
   std::list<std::unique_ptr<Request>> request_;
 };
 
+class MockContextPermissionDelegate : public AwContextPermissionsDelegate {
+ public:
+  MockContextPermissionDelegate() = default;
+  PermissionStatus GetGeolocationPermission(
+      const GURL& requesting_origin) const override {
+    return PermissionStatus::ASK;
+  }
+};
+
 class AwPermissionManagerForTesting : public AwPermissionManager {
  public:
+  AwPermissionManagerForTesting() : AwPermissionManager(context_delegate_) {}
   ~AwPermissionManagerForTesting() override {
     // Call CancelPermissionRequests() from here so that it calls virtual
     // methods correctly.
@@ -157,7 +173,7 @@ class AwPermissionManagerForTesting : public AwPermissionManager {
     return kRenderFrameIDForTesting;
   }
 
-  GURL LastCommittedOrigin(
+  GURL LastCommittedMainOrigin(
       content::RenderFrameHost* render_frame_host) override {
     return GURL(kEmbeddingOrigin);
   }
@@ -171,6 +187,7 @@ class AwPermissionManagerForTesting : public AwPermissionManager {
   }
 
   std::unique_ptr<AwBrowserPermissionRequestDelegateForTesting> delegate_;
+  MockContextPermissionDelegate context_delegate_;
 };
 
 class AwPermissionManagerTest : public testing::Test {
@@ -241,30 +258,14 @@ TEST_F(AwPermissionManagerTest, MIDIPermissionIsGrantedSynchronously) {
   EXPECT_EQ(PermissionStatus::GRANTED, resolved_permission_status[0]);
 }
 
-TEST_F(AwPermissionManagerTest, ClipboardPermissionIsGrantedWithUserGesture) {
-  struct {
-    PermissionType type;
-    bool user_gesture;
-    PermissionStatus expected_result;
-  } test_cases[] = {
-      {PermissionType::CLIPBOARD_SANITIZED_WRITE, true,
-       PermissionStatus::GRANTED},
-      {PermissionType::CLIPBOARD_SANITIZED_WRITE, false,
-       PermissionStatus::DENIED},
-      {PermissionType::CLIPBOARD_READ_WRITE, true, PermissionStatus::DENIED},
-      {PermissionType::CLIPBOARD_READ_WRITE, false, PermissionStatus::DENIED}};
-
-  size_t permissions_requested = 0;
-  for (auto& test_case : test_cases) {
-    RequestPermissions(
-        {test_case.type}, render_frame_host, GURL(kRequestingOrigin1),
-        test_case.user_gesture,
-        base::BindOnce(&AwPermissionManagerTest::PermissionRequestResponse,
-                       base::Unretained(this), /*id=*/permissions_requested++));
-    ASSERT_EQ(resolved_permission_status.size(), permissions_requested);
-    EXPECT_EQ(test_case.expected_result,
-              resolved_permission_status[permissions_requested - 1]);
-  }
+TEST_F(AwPermissionManagerTest, ClipboardPermissionIsGrantedSynchronously) {
+  RequestPermissions(
+      {PermissionType::CLIPBOARD_SANITIZED_WRITE}, render_frame_host,
+      GURL(kRequestingOrigin1), true,
+      base::BindOnce(&AwPermissionManagerTest::PermissionRequestResponse,
+                     base::Unretained(this), 0));
+  ASSERT_EQ(1u, resolved_permission_status.size());
+  EXPECT_EQ(PermissionStatus::GRANTED, resolved_permission_status[0]);
 }
 
 // Test the case a delegate is called, and it resolves the permission

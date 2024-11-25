@@ -16,7 +16,6 @@
 
 namespace autofill {
 
-class AutofillField;
 class AutofillScanner;
 
 // Search fields are not filled by autofill, but identifying them will help
@@ -25,7 +24,7 @@ class SearchFieldParser : public FormFieldParser {
  public:
   static std::unique_ptr<FormFieldParser> Parse(ParsingContext& context,
                                                 AutofillScanner* scanner);
-  explicit SearchFieldParser(const AutofillField* field);
+  explicit SearchFieldParser(FieldAndMatchInfo match);
 
   SearchFieldParser(const SearchFieldParser&) = delete;
   SearchFieldParser& operator=(const SearchFieldParser&) = delete;
@@ -34,10 +33,10 @@ class SearchFieldParser : public FormFieldParser {
   void AddClassifications(FieldCandidatesMap& field_candidates) const override;
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(SearchFieldTest, ParseSearchTerm);
-  FRIEND_TEST_ALL_PREFIXES(SearchFieldTest, ParseNonSearchTerm);
+  FRIEND_TEST_ALL_PREFIXES(SearchFieldParserTest, ParseSearchTerm);
+  FRIEND_TEST_ALL_PREFIXES(SearchFieldParserTest, ParseNonSearchTerm);
 
-  raw_ptr<const AutofillField> field_;
+  FieldAndMatchInfo match_;
 };
 
 }  // namespace autofill

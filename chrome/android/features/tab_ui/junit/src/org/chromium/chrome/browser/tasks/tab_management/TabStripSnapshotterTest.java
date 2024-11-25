@@ -14,22 +14,24 @@ import androidx.recyclerview.widget.RecyclerView.OnScrollListener;
 
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.Mockito;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.chrome.browser.tasks.tab_management.TabListFaviconProvider.ResourceTabFavicon;
-import org.chromium.chrome.browser.tasks.tab_management.TabListFaviconProvider.StaticTabFaviconType;
-import org.chromium.chrome.browser.tasks.tab_management.TabListFaviconProvider.TabFavicon;
-import org.chromium.chrome.browser.tasks.tab_management.TabListFaviconProvider.TabFaviconFetcher;
-import org.chromium.chrome.browser.tasks.tab_management.TabListFaviconProvider.UrlTabFavicon;
+import org.chromium.chrome.browser.tab_ui.TabListFaviconProvider.ResourceTabFavicon;
+import org.chromium.chrome.browser.tab_ui.TabListFaviconProvider.StaticTabFaviconType;
+import org.chromium.chrome.browser.tab_ui.TabListFaviconProvider.TabFavicon;
+import org.chromium.chrome.browser.tab_ui.TabListFaviconProvider.TabFaviconFetcher;
+import org.chromium.chrome.browser.tab_ui.TabListFaviconProvider.UrlTabFavicon;
 import org.chromium.ui.modelutil.MVCListAdapter.ListItem;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
 import org.chromium.ui.modelutil.PropertyKey;
@@ -50,10 +52,11 @@ public class TabStripSnapshotterTest {
                 TabProperties.IS_SELECTED
             };
 
+    @Rule public final MockitoRule mMockitoRule = MockitoJUnit.rule();
+
     @Captor private ArgumentCaptor<OnScrollListener> mOnScrollListenerCaptor;
 
     @Mock private RecyclerView mRecyclerView;
-
     @Mock private TabFaviconFetcher mTabFaviconFetcherA;
     @Mock private TabFaviconFetcher mTabFaviconFetcherB;
     @Mock private TabFaviconFetcher mTabFaviconFetcherC;
@@ -67,9 +70,7 @@ public class TabStripSnapshotterTest {
     }
 
     @Before
-    public void setUp() {
-        MockitoAnnotations.initMocks(this);
-    }
+    public void setUp() {}
 
     private void onModelTokenChange(Object token) {
         mTokenList.add(token);

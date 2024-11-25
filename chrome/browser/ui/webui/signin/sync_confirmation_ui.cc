@@ -22,7 +22,6 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/signin/signin_features.h"
 #include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/profiles/profile_colors_util.h"
@@ -91,6 +90,12 @@ bool ShouldShowAppsDisclaimerInLacros(Profile* profile) {
 #endif
 }  // namespace
 
+bool SyncConfirmationUIConfig::IsWebUIEnabled(
+    content::BrowserContext* browser_context) {
+  Profile* profile = Profile::FromBrowserContext(browser_context);
+  return !profile->IsOffTheRecord();
+}
+
 // static
 std::string SyncConfirmationUI::GetSyncBenefitsListJSON(
     const syncer::SyncService* sync_service) {
@@ -150,6 +155,11 @@ SyncConfirmationUI::SyncConfirmationUI(content::WebUI* web_ui)
       profile_, chrome::kChromeUISyncConfirmationHost);
   webui::SetJSModuleDefaults(source);
   webui::EnableTrustedTypesCSP(source);
+  // Per https//issues.chromium.org/issues/40091019 this WebUI issues direct
+  // network requests for images, so allow them from anywhere for this UI only.
+  source->OverrideContentSecurityPolicy(
+      network::mojom::CSPDirectiveName::ImgSrc,
+      "img-src * data: blob: 'self';");
 
   static constexpr webui::ResourcePath kResources[] = {
       {"icons.html.js", IDR_SIGNIN_ICONS_HTML_JS},
@@ -168,10 +178,10 @@ SyncConfirmationUI::SyncConfirmationUI(content::WebUI* web_ui)
 
   AddStringResource(source, "syncLoadingConfirmationTitle",
                     IDS_SYNC_LOADING_CONFIRMATION_TITLE);
-  webui::SetupChromeRefresh2023(source);
 
   if (is_sync_allowed) {
-    InitializeForSyncConfirmation(source, GetSyncConfirmationStyle(url));
+    InitializeForSyncConfirmation(source, GetSyncConfirmationStyle(url),
+                                  IsSyncConfirmationPromo(url));
   } else {
     InitializeForSyncDisabled(source);
   }
@@ -197,7 +207,8 @@ void SyncConfirmationUI::InitializeMessageHandlerWithBrowser(Browser* browser) {
 
 void SyncConfirmationUI::InitializeForSyncConfirmation(
     content::WebUIDataSource* source,
-    SyncConfirmationStyle style) {
+    SyncConfirmationStyle style,
+    bool is_sync_promo) {
   int info_title_id = IDS_SYNC_CONFIRMATION_TANGIBLE_SYNC_INFO_TITLE;
   int info_desc_id = IDS_SYNC_CONFIRMATION_TANGIBLE_SYNC_INFO_DESC;
   int confirm_label_id = IDS_SYNC_CONFIRMATION_CONFIRM_BUTTON_LABEL;
@@ -220,27 +231,26 @@ void SyncConfirmationUI::InitializeForSyncConfirmation(
       "sync_confirmation_app.js",
       IDR_SIGNIN_SYNC_CONFIRMATION_SYNC_CONFIRMATION_APP_JS);
   source->AddResourcePath(
+      "sync_confirmation_app.css.js",
+      IDR_SIGNIN_SYNC_CONFIRMATION_SYNC_CONFIRMATION_APP_CSS_JS);
+  source->AddResourcePath(
       "sync_confirmation_app.html.js",
       IDR_SIGNIN_SYNC_CONFIRMATION_SYNC_CONFIRMATION_APP_HTML_JS);
   source->SetDefaultResource(
       IDR_SIGNIN_SYNC_CONFIRMATION_SYNC_CONFIRMATION_HTML);
 
-  // TODO(crbug.com/1374702): Refactor SyncConfirmationStyle based on the
+  // TODO(crbug.com/40242558): Refactor SyncConfirmationStyle based on the
   // purpose instead of what kind of container the page is displayed in.
   bool is_modal_dialog;
-  bool is_promo;
   switch (style) {
     case SyncConfirmationStyle::kDefaultModal:
       is_modal_dialog = true;
-      is_promo = false;
       break;
     case SyncConfirmationStyle::kSigninInterceptModal:
       is_modal_dialog = true;
-      is_promo = true;
       break;
     case SyncConfirmationStyle::kWindow:
       is_modal_dialog = false;
-      is_promo = true;
       break;
   }
 
@@ -275,7 +285,7 @@ void SyncConfirmationUI::InitializeForSyncConfirmation(
         IDS_SYNC_CONFIRMATION_TANGIBLE_SYNC_INFO_TITLE_SIGNIN_INTERCEPT_V2;
     confirm_label_id = IDS_SYNC_CONFIRMATION_TURN_ON_SYNC_BUTTON_LABEL;
   }
-  if (is_promo) {
+  if (is_sync_promo) {
     undo_label_id = IDS_NO_THANKS;
   }
 
@@ -331,12 +341,15 @@ void SyncConfirmationUI::InitializeForSyncDisabled(
       "sync_disabled_confirmation_app.js",
       IDR_SIGNIN_SYNC_CONFIRMATION_SYNC_DISABLED_CONFIRMATION_APP_JS);
   source->AddResourcePath(
+      "sync_disabled_confirmation_app.css.js",
+      IDR_SIGNIN_SYNC_CONFIRMATION_SYNC_DISABLED_CONFIRMATION_APP_CSS_JS);
+  source->AddResourcePath(
       "sync_disabled_confirmation_app.html.js",
       IDR_SIGNIN_SYNC_CONFIRMATION_SYNC_DISABLED_CONFIRMATION_APP_HTML_JS);
 
   bool managed_account_signout_disallowed =
       base::FeatureList::IsEnabled(kDisallowManagedProfileSignout) &&
-      chrome::enterprise_util::UserAcceptedAccountManagement(profile_);
+      enterprise_util::UserAcceptedAccountManagement(profile_);
 
   source->AddBoolean("signoutDisallowed", managed_account_signout_disallowed);
   AddStringResource(source, "syncDisabledConfirmationTitle",
@@ -372,13 +385,5 @@ void SyncConfirmationUI::AddStringResourceWithPlaceholder(
 void SyncConfirmationUI::AddLocalizedStringToIdsMap(
     const std::string& localized_string,
     int ids) {
-  // When the strings are passed to the HTML, the Unicode NBSP symbol (\u00A0)
-  // will be automatically replaced with "&nbsp;". This change must be mirrored
-  // in the string-to-ids map. Note that "\u00A0" is actually two characters,
-  // so we must use base::ReplaceSubstrings* rather than base::ReplaceChars.
-  // TODO(msramek): Find a more elegant solution.
-  std::string sanitized_string = localized_string;
-  base::ReplaceSubstringsAfterOffset(&sanitized_string, 0, "\u00A0" /* NBSP */,
-                                     "&nbsp;");
-  js_localized_string_to_ids_map_[sanitized_string] = ids;
+  js_localized_string_to_ids_map_[localized_string] = ids;
 }

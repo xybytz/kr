@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {PageCallbackRouter, PageRemote, ProfileData, SwitchToTabInfo, Tab, TabOrganizationSession, TabSearchApiProxy, UserFeedback} from 'chrome://tab-search.top-chrome/tab_search.js';
+import type {Url} from 'chrome://resources/mojo/url/mojom/url.mojom-webui.js';
+import type {PageRemote, ProfileData, SwitchToTabInfo, Tab, TabOrganizationSession, TabSearchApiProxy, UnusedTabInfo, UserFeedback} from 'chrome://tab-search.top-chrome/tab_search.js';
+import {PageCallbackRouter, TabOrganizationFeature, TabOrganizationModelStrategy, TabSearchSection} from 'chrome://tab-search.top-chrome/tab_search.js';
 import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
 
 export class TestTabSearchApiProxy extends TestBrowserProxy implements
@@ -11,29 +13,40 @@ export class TestTabSearchApiProxy extends TestBrowserProxy implements
   callbackRouterRemote: PageRemote;
   private profileData_?: ProfileData;
   private tabOrganizationSession_?: TabOrganizationSession;
+  private unusedTabs_: UnusedTabInfo = {staleTabs: [], duplicateTabs: {}};
 
   constructor() {
     super([
       'closeTab',
+      'declutterTabs',
       'acceptTabOrganization',
       'rejectTabOrganization',
+      'renameTabOrganization',
+      'excludeFromStaleTabs',
+      'excludeFromDuplicateTabs',
       'getProfileData',
+      'getUnusedTabs',
+      'getTabSearchSection',
+      'getTabOrganizationFeature',
       'getTabOrganizationSession',
+      'getTabOrganizationModelStrategy',
       'openRecentlyClosedEntry',
       'requestTabOrganization',
       'removeTabFromOrganization',
+      'rejectSession',
       'restartSession',
       'switchToTab',
       'saveRecentlyClosedExpandedPref',
-      'setTabIndex',
+      'setOrganizationFeature',
       'startTabGroupTutorial',
       'triggerFeedback',
-      'triggerSync',
       'triggerSignIn',
       'openHelpPage',
-      'openSyncSettings',
+      'setTabOrganizationModelStrategy',
+      'setTabOrganizationUserInstruction',
       'setUserFeedback',
-      'showUi',
+      'notifyOrganizationUiReadyToShow',
+      'notifySearchUiReadyToShow',
     ]);
 
     this.callbackRouter = new PageCallbackRouter();
@@ -46,14 +59,32 @@ export class TestTabSearchApiProxy extends TestBrowserProxy implements
     this.methodCalled('closeTab', [tabId]);
   }
 
+  declutterTabs(tabIds: number[]) {
+    this.methodCalled('declutterTabs', [tabIds]);
+  }
+
   acceptTabOrganization(
-      sessionId: number, organizationId: number, name: string, tabs: Tab[]) {
+      sessionId: number, organizationId: number, tabs: Tab[]) {
     this.methodCalled(
-        'acceptTabOrganization', [sessionId, organizationId, name, tabs]);
+        'acceptTabOrganization', [sessionId, organizationId, tabs]);
   }
 
   rejectTabOrganization(sessionId: number, organizationId: number) {
     this.methodCalled('rejectTabOrganization', [sessionId, organizationId]);
+  }
+
+  renameTabOrganization(
+      sessionId: number, organizationId: number, name: string) {
+    this.methodCalled(
+        'renameTabOrganization', [sessionId, organizationId, name]);
+  }
+
+  excludeFromStaleTabs(tabId: number) {
+    this.methodCalled('excludeFromStaleTabs', [tabId]);
+  }
+
+  excludeFromDuplicateTabs(url: Url) {
+    this.methodCalled('excludeFromDuplicateTabs', [url]);
   }
 
   getProfileData() {
@@ -61,9 +92,29 @@ export class TestTabSearchApiProxy extends TestBrowserProxy implements
     return Promise.resolve({profileData: this.profileData_!});
   }
 
+  getUnusedTabs() {
+    this.methodCalled('getUnusedTabs');
+    return Promise.resolve({tabs: this.unusedTabs_});
+  }
+
+  getTabSearchSection() {
+    this.methodCalled('getTabSearchSection');
+    return Promise.resolve({section: TabSearchSection.kSearch});
+  }
+
+  getTabOrganizationFeature() {
+    this.methodCalled('getTabOrganizationFeature');
+    return Promise.resolve({feature: TabOrganizationFeature.kSelector});
+  }
+
   getTabOrganizationSession() {
     this.methodCalled('getTabOrganizationSession');
     return Promise.resolve({session: this.tabOrganizationSession_!});
+  }
+
+  getTabOrganizationModelStrategy() {
+    this.methodCalled('getTabOrganizationModelStrategy');
+    return Promise.resolve({strategy: TabOrganizationModelStrategy.kTopic});
   }
 
   openRecentlyClosedEntry(
@@ -83,6 +134,10 @@ export class TestTabSearchApiProxy extends TestBrowserProxy implements
         'removeTabFromOrganization', sessionId, organizationId, tab);
   }
 
+  rejectSession() {
+    this.methodCalled('rejectSession');
+  }
+
   restartSession() {
     this.methodCalled('restartSession');
   }
@@ -95,8 +150,8 @@ export class TestTabSearchApiProxy extends TestBrowserProxy implements
     this.methodCalled('saveRecentlyClosedExpandedPref', [expanded]);
   }
 
-  setTabIndex(index: number) {
-    this.methodCalled('setTabIndex', [index]);
+  setOrganizationFeature(feature: TabOrganizationFeature) {
+    this.methodCalled('setOrganizationFeature', [feature]);
   }
 
   startTabGroupTutorial() {
@@ -107,10 +162,6 @@ export class TestTabSearchApiProxy extends TestBrowserProxy implements
     this.methodCalled('triggerFeedback', [sessionId]);
   }
 
-  triggerSync() {
-    this.methodCalled('triggerSync');
-  }
-
   triggerSignIn() {
     this.methodCalled('triggerSignIn');
   }
@@ -119,16 +170,24 @@ export class TestTabSearchApiProxy extends TestBrowserProxy implements
     this.methodCalled('openHelpPage');
   }
 
-  openSyncSettings() {
-    this.methodCalled('openSyncSettings');
+  setTabOrganizationModelStrategy(strategy: TabOrganizationModelStrategy) {
+    this.methodCalled('setTabOrganizationModelStrategy', [strategy]);
+  }
+
+  setTabOrganizationUserInstruction(userInstruction: string) {
+    this.methodCalled('setTabOrganizationUserInstruction', [userInstruction]);
   }
 
   setUserFeedback(feedback: UserFeedback) {
     this.methodCalled('setUserFeedback', [feedback]);
   }
 
-  showUi() {
-    this.methodCalled('showUi');
+  notifyOrganizationUiReadyToShow() {
+    this.methodCalled('notifyOrganizationUiReadyToShow');
+  }
+
+  notifySearchUiReadyToShow() {
+    this.methodCalled('notifySearchUiReadyToShow');
   }
 
   getCallbackRouter() {
@@ -145,5 +204,13 @@ export class TestTabSearchApiProxy extends TestBrowserProxy implements
 
   setSession(session: TabOrganizationSession) {
     this.tabOrganizationSession_ = session;
+  }
+
+  setStaleTabs(tabs: Tab[]) {
+    this.unusedTabs_.staleTabs = tabs;
+  }
+
+  setDuplicateTabs(tabs: {[key: string]: Tab[]}) {
+    this.unusedTabs_.duplicateTabs = tabs;
   }
 }

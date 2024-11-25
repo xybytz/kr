@@ -20,7 +20,6 @@
 #include "chrome/browser/ui/views/performance_controls/memory_saver_bubble_view.h"
 #include "chrome/browser/ui/views/performance_controls/memory_saver_chip_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
-#include "chrome/browser/ui/views/user_education/browser_feature_promo_controller.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -79,7 +78,7 @@ class MemorySaverChipViewBrowserTest
 IN_PROC_BROWSER_TEST_F(MemorySaverChipViewBrowserTest,
                        ShowAndHideInkDropOnDialog) {
   PageActionIconView* chip = GetMemorySaverChipView();
-  ui::MouseEvent press(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
+  ui::MouseEvent press(ui::EventType::kMousePressed, gfx::Point(), gfx::Point(),
                        ui::EventTimeForNow(), 0, 0);
   views::test::ButtonTestApi test_api(chip);
 

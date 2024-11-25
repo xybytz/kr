@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/extensions/chrome_component_extension_resource_manager.h"
 
 #include <map>
@@ -20,11 +25,12 @@
 #include "chrome/grit/theme_resources.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/common/constants.h"
+#include "extensions/common/extension_id.h"
 #include "pdf/buildflags.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "ui/base/resource/resource_bundle.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "ash/keyboard/ui/resources/keyboard_resource_util.h"
 #include "ash/webui/file_manager/untrusted_resources/grit/file_manager_untrusted_resources_map.h"
 #include "base/command_line.h"
@@ -37,7 +43,7 @@
 #include "chromeos/grit/chromeos_media_app_bundle_resources.h"
 #endif  // BUILDFLAG(ENABLE_INK)
 
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 #if BUILDFLAG(ENABLE_PDF)
 #include <utility>
@@ -45,12 +51,16 @@
 #include "chrome/grit/pdf_resources_map.h"
 #endif  // BUILDFLAG(ENABLE_PDF)
 
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)
+#include "chrome/grit/tts_engine_resources_map.h"
+#endif  // BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)
+
 namespace extensions {
 
 class ChromeComponentExtensionResourceManager::Data {
  public:
   using TemplateReplacementMap =
-      std::map<std::string, ui::TemplateReplacements>;
+      std::map<ExtensionId, ui::TemplateReplacements>;
 
   Data();
   Data(const Data&) = delete;
@@ -79,7 +89,7 @@ class ChromeComponentExtensionResourceManager::Data {
 
 ChromeComponentExtensionResourceManager::Data::Data() {
   static const webui::ResourcePath kExtraComponentExtensionResources[] = {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
     {"web_store/webstore_icon_128.png", IDR_WEBSTORE_APP_ICON_128},
     {"web_store/webstore_icon_16.png", IDR_WEBSTORE_APP_ICON_16},
 #else
@@ -87,7 +97,7 @@ ChromeComponentExtensionResourceManager::Data::Data() {
     {"web_store/webstore_icon_16.png", IDR_WEBSTORE_ICON_16},
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
     // These icons may be replaced with "IDR_DEBUG_CHROME_APP_ICON_{32,192}"
     // in "chrome/browser/apps/app_service/app_icon/app_icon_reader.cc"
     // or "chrome/browser/ui/views/frame/browser_view.cc"
@@ -101,7 +111,7 @@ ChromeComponentExtensionResourceManager::Data::Data() {
     {"pdf/ink/ink_lib_binary.js", IDR_MEDIA_APP_EXPORT_CANVAS_BIN_JS},
     {"pdf/ink/ink_loader.js", IDR_MEDIA_APP_INK_JS},
 #endif  // BUILDFLAG(ENABLE_INK)
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
   };
 
   AddComponentResourceEntries(kComponentExtensionResources,
@@ -109,7 +119,7 @@ ChromeComponentExtensionResourceManager::Data::Data() {
   AddComponentResourceEntries(kExtraComponentExtensionResources,
                               std::size(kExtraComponentExtensionResources));
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   // Add Files app JS modules resources.
   AddComponentResourceEntries(kFileManagerResources, kFileManagerResourcesSize);
   AddComponentResourceEntries(kFileManagerGenResources,
@@ -159,6 +169,10 @@ ChromeComponentExtensionResourceManager::Data::Data() {
         std::move(pdf_viewer_replacements);
   }
 #endif
+
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)
+  AddComponentResourceEntries(kTtsEngineResources, kTtsEngineResourcesSize);
+#endif  // BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)
 }
 
 void ChromeComponentExtensionResourceManager::Data::AddComponentResourceEntries(
@@ -207,12 +221,12 @@ bool ChromeComponentExtensionResourceManager::IsComponentExtensionResource(
 
 const ui::TemplateReplacements*
 ChromeComponentExtensionResourceManager::GetTemplateReplacementsForExtension(
-    const std::string& extension_id) const {
+    const ExtensionId& extension_id) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   LazyInitData();
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   if (extension_id == extension_misc::kFilesManagerAppId) {
     base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
     // Disable $i18n{} template JS string replacement during JS code coverage.

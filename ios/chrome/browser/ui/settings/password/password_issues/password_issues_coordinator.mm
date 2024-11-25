@@ -5,10 +5,11 @@
 #import "ios/chrome/browser/ui/settings/password/password_issues/password_issues_coordinator.h"
 
 #import "base/apple/foundation_util.h"
+#import "base/debug/dump_without_crashing.h"
 #import "base/memory/raw_ptr.h"
 #import "base/memory/scoped_refptr.h"
-#import "ios/chrome/browser/favicon/favicon_loader.h"
-#import "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
+#import "ios/chrome/browser/favicon/model/favicon_loader.h"
+#import "ios/chrome/browser/favicon/model/ios_chrome_favicon_loader_factory.h"
 #import "ios/chrome/browser/passwords/model/ios_chrome_password_check_manager.h"
 #import "ios/chrome/browser/passwords/model/ios_chrome_password_check_manager_factory.h"
 #import "ios/chrome/browser/passwords/model/metrics/ios_password_manager_metrics.h"
@@ -27,14 +28,12 @@
 #import "ios/chrome/browser/ui/settings/password/password_issues/password_issues_mediator.h"
 #import "ios/chrome/browser/ui/settings/password/password_issues/password_issues_presenter.h"
 #import "ios/chrome/browser/ui/settings/password/password_issues/password_issues_table_view_controller.h"
-#import "ios/chrome/browser/ui/settings/password/password_manager_ui_features.h"
 #import "ios/chrome/browser/ui/settings/password/reauthentication/reauthentication_coordinator.h"
 #import "ios/chrome/browser/ui/settings/utils/password_utils.h"
 #import "ios/chrome/common/ui/reauthentication/reauthentication_protocol.h"
 #import "ui/base/l10n/l10n_util.h"
 
 using password_manager::WarningType;
-using password_manager::features::IsAuthOnEntryV2Enabled;
 
 namespace {
 
@@ -74,7 +73,7 @@ DetailsContext ComputeDetailsContextFromWarningType(WarningType warning_type) {
   PasswordDetailsCoordinator* _passwordDetails;
 
   // Password check manager to power mediator.
-  IOSChromePasswordCheckManager* _manager;
+  raw_ptr<IOSChromePasswordCheckManager> _manager;
 
   // Type of insecure credentials issues to display.
   password_manager::WarningType _warningType;
@@ -121,16 +120,14 @@ DetailsContext ComputeDetailsContextFromWarningType(WarningType warning_type) {
 - (void)start {
   [super start];
 
-  ChromeBrowserState* browserState = self.browser->GetBrowserState();
+  ProfileIOS* profile = self.browser->GetProfile();
   _mediator = [[PasswordIssuesMediator alloc]
         initForWarningType:_warningType
-      passwordCheckManager:IOSChromePasswordCheckManagerFactory::
-                               GetForBrowserState(browserState)
-                                   .get()
-             faviconLoader:IOSChromeFaviconLoaderFactory::GetForBrowserState(
-                               browserState)
-               syncService:SyncServiceFactory::GetForBrowserState(
-                               browserState)];
+      passwordCheckManager:IOSChromePasswordCheckManagerFactory::GetForProfile(
+                               profile)
+                               .get()
+             faviconLoader:IOSChromeFaviconLoaderFactory::GetForProfile(profile)
+               syncService:SyncServiceFactory::GetForProfile(profile)];
 
   PasswordIssuesTableViewController* passwordIssuesTableViewController =
       [[PasswordIssuesTableViewController alloc]
@@ -160,10 +157,8 @@ DetailsContext ComputeDetailsContextFromWarningType(WarningType warning_type) {
 
   // Disable animation when content will be blocked for reauth to prevent
   // flickering in navigation bar.
-  [self.baseNavigationController
-      pushViewController:_viewController
-                animated:_skipAuthenticationOnStart ||
-                         !IsAuthOnEntryV2Enabled()];
+  [self.baseNavigationController pushViewController:_viewController
+                                           animated:_skipAuthenticationOnStart];
 
   [self startReauthCoordinatorWithAuthOnStart:!_skipAuthenticationOnStart];
 }
@@ -190,7 +185,7 @@ DetailsContext ComputeDetailsContextFromWarningType(WarningType warning_type) {
 - (void)dismissAndOpenURL:(CrURL*)URL {
   OpenNewTabCommand* command =
       [OpenNewTabCommand commandWithURLFromChrome:URL.gurl];
-  [self.dispatcher closeSettingsUIAndOpenURL:command];
+  [self.dispatcher closePresentedViewsAndOpenURL:command];
 }
 
 - (void)presentPasswordIssueDetails:(PasswordIssue*)password {
@@ -210,9 +205,10 @@ DetailsContext ComputeDetailsContextFromWarningType(WarningType warning_type) {
 }
 
 - (void)presentDismissedCompromisedCredentials {
-  // TODO(crbug.com/1464966): Switch back to DCHECK if the number of reports is
-  // low.
-  DUMP_WILL_BE_CHECK(!_dismissedPasswordIssuesCoordinator);
+  if (_dismissedPasswordIssuesCoordinator &&
+      self.baseNavigationController.topViewController != _viewController) {
+    base::debug::DumpWithoutCrashing();
+  }
 
   [self stopReauthCoordinatorBeforeStartingChildCoordinator];
 
@@ -323,12 +319,10 @@ DetailsContext ComputeDetailsContextFromWarningType(WarningType warning_type) {
 // Local authentication is required every time the current
 // scene is backgrounded and foregrounded until reauthCoordinator is stopped.
 - (void)startReauthCoordinatorWithAuthOnStart:(BOOL)authOnStart {
-  // No-op if Auth on Entry is not enabled for the password manager.
-  if (!IsAuthOnEntryV2Enabled()) {
-    return;
+  if (_reauthCoordinator &&
+      self.baseNavigationController.topViewController != _viewController) {
+    base::debug::DumpWithoutCrashing();
   }
-
-  DCHECK(!_reauthCoordinator);
 
   _reauthCoordinator = [[ReauthenticationCoordinator alloc]
       initWithBaseNavigationController:_baseNavigationController
@@ -359,9 +353,7 @@ DetailsContext ComputeDetailsContextFromWarningType(WarningType warning_type) {
 - (void)restartReauthCoordinator {
   // Restart reauth coordinator so it monitors scene state changes and requests
   // local authentication after the scene goes to the background.
-  if (IsAuthOnEntryV2Enabled()) {
-    [self startReauthCoordinatorWithAuthOnStart:NO];
-  }
+  [self startReauthCoordinatorWithAuthOnStart:NO];
 }
 
 @end

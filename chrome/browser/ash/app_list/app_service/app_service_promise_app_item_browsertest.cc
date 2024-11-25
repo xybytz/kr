@@ -6,11 +6,13 @@
 
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <vector>
 
 #include "ash/app_list/app_list_model_provider.h"
 #include "ash/app_list/model/app_list_item.h"
+#include "ash/components/arc/arc_features.h"
 #include "ash/components/arc/mojom/app.mojom.h"
 #include "ash/components/arc/session/connection_holder.h"
 #include "ash/components/arc/test/arc_util_test_support.h"
@@ -23,7 +25,9 @@
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "base/memory/raw_ptr.h"
+#include "base/metrics/histogram_base.h"
 #include "base/test/bind.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/test_future.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_ash.h"
@@ -40,12 +44,14 @@
 #include "chrome/browser/ash/app_list/app_list_test_util.h"
 #include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ash/app_list/arc/arc_app_test.h"
+#include "chrome/browser/ash/app_list/arc/arc_package_install_priority_handler.h"
 #include "chrome/browser/ash/app_list/chrome_app_list_item.h"
 #include "chrome/browser/ash/app_list/chrome_app_list_model_updater.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
+#include "chrome/browser/ui/ash/shelf/chrome_shelf_controller_util.h"
 #include "chrome/browser/ui/ash/shelf/shelf_controller_helper.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
@@ -62,7 +68,7 @@
 namespace apps {
 
 const apps::PackageId kTestPackageId =
-    apps::PackageId(apps::AppType::kArc, "com.test.package");
+    apps::PackageId(apps::PackageType::kArc, "com.test.package");
 
 ash::AppListItem* GetAppListItem(const std::string& id) {
   return ash::AppListModelProvider::Get()->model()->FindItem(id);
@@ -74,7 +80,7 @@ bool IsItemPinned(const std::string& item_id) {
       base::ranges::find_if(shelf_items, [&item_id](const auto& shelf_item) {
         return shelf_item.id.app_id == item_id;
       });
-  return pinned_item != base::ranges::end(shelf_items);
+  return pinned_item != std::ranges::end(shelf_items);
 }
 
 class AppServicePromiseAppItemBrowserTest
@@ -82,7 +88,8 @@ class AppServicePromiseAppItemBrowserTest
       public PromiseAppRegistryCache::Observer {
  public:
   AppServicePromiseAppItemBrowserTest() {
-    scoped_feature_list_.InitAndEnableFeature(ash::features::kPromiseIcons);
+    scoped_feature_list_.InitWithFeatures(
+        {ash::features::kPromiseIcons, arc::kSyncInstallPriority}, {});
   }
   ~AppServicePromiseAppItemBrowserTest() override = default;
 
@@ -143,6 +150,7 @@ class AppServicePromiseAppItemBrowserTest
   }
 
   void TearDownOnMainThread() override {
+    app_list_syncable_service()->StopSyncing(syncer::APP_LIST);
     arc_app_list_pref_->app_connection_holder()->CloseInstance(
         app_instance_.get());
     app_instance_.reset();
@@ -171,6 +179,7 @@ class AppServicePromiseAppItemBrowserTest
     return apps::AppServiceProxyFactory::GetForProfile(profile());
   }
 
+  ArcAppListPrefs* arc_app_list_pref() { return arc_app_list_pref_; }
   arc::FakeAppInstance* app_instance() { return app_instance_.get(); }
 
   app_list::AppListSyncableService* app_list_syncable_service() {
@@ -221,6 +230,22 @@ class AppServicePromiseAppItemBrowserTest
   void OnPromiseAppRegistryCacheWillBeDestroyed(
       apps::PromiseAppRegistryCache* cache) override {
     obs_.Reset();
+  }
+
+  void SetUpSyncedArcPromiseApp(const std::string& package_name) {
+    auto* install_priority_handler =
+        arc_app_list_pref()->GetInstallPriorityHandler();
+    DCHECK(install_priority_handler);
+    install_priority_handler->InstallSyncedPacakge(
+        package_name, arc::mojom::InstallPriority::kLow);
+    // Test:
+    // 1) Start the installation.
+    // Expect 2 updates: Promise app registration, then Almanac response update.
+    // Note: As the Almanac response is not mocked, the promise icon will
+    // fallback to using a placeholder image.
+    ExpectNumUpdates(/*num_updates=*/2);
+    app_instance()->SendInstallationStarted(package_name);
+    WaitForPromiseAppUpdates();
   }
 
  private:
@@ -343,7 +368,7 @@ IN_PROC_BROWSER_TEST_F(AppServicePromiseAppItemBrowserTest,
                        CompleteAppInstallationRemovesPromiseAppItem) {
   AppType app_type = AppType::kArc;
   std::string identifier = "test.com.example";
-  PackageId package_id(app_type, identifier);
+  PackageId package_id(PackageType::kArc, identifier);
 
   // Register a promise app in the promise app registry cache.
   apps::PromiseAppPtr promise_app = std::make_unique<PromiseApp>(package_id);
@@ -660,9 +685,8 @@ IN_PROC_BROWSER_TEST_F(AppServicePromiseAppItemBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(AppServicePromiseAppItemBrowserTest,
                        InstalledAppPinnedWhenPinningPromiseApp) {
-  AppType app_type = AppType::kArc;
   std::string identifier = "test.com.example";
-  PackageId package_id(app_type, identifier);
+  PackageId package_id(PackageType::kArc, identifier);
 
   // Register a promise app in the promise app registry cache.
   apps::PromiseAppPtr promise_app = std::make_unique<PromiseApp>(package_id);
@@ -1030,7 +1054,7 @@ IN_PROC_BROWSER_TEST_F(AppServicePromiseAppItemBrowserTest,
   const std::string app_name = "TestApp";
   const std::string activity_name = "TestActivity";
   const apps::PackageId package_id =
-      apps::PackageId(apps::AppType::kArc, package_name);
+      apps::PackageId(apps::PackageType::kArc, package_name);
   const std::string app_id =
       ArcAppListPrefs::GetAppId(package_name, activity_name);
 
@@ -1111,6 +1135,190 @@ IN_PROC_BROWSER_TEST_F(AppServicePromiseAppItemBrowserTest,
   EXPECT_EQ(installed_launcher_item->position(), launcher_ordinal);
   EXPECT_TRUE(IsItemPinned(app_id));
   EXPECT_EQ(app_list_syncable_service()->GetPinPosition(app_id), shelf_ordinal);
+}
+
+IN_PROC_BROWSER_TEST_F(AppServicePromiseAppItemBrowserTest,
+                       ActivatePromiseArcAppWhilePending) {
+  // Test package details.
+  std::string package_name = "com.test.app";
+  const std::string app_name = "TestApp";
+  const std::string activity_name = "TestActivity";
+  const apps::PackageId package_id =
+      apps::PackageId(apps::PackageType::kArc, package_name);
+
+  // Skip check for official API key.
+  app_service_proxy()->PromiseAppService()->SetSkipApiKeyCheckForTesting(true);
+  SetUpSyncedArcPromiseApp(package_name);
+
+  ASSERT_EQ(arc::mojom::InstallPriority::kLow,
+            arc_app_list_pref()
+                ->GetInstallPriorityHandler()
+                ->GetInstallPriorityForTesting(package_name));
+
+  ash::AppListItem* launcher_item = GetAppListItem(package_id.ToString());
+  ASSERT_TRUE(launcher_item);
+  EXPECT_EQ(launcher_item->name(), "Waiting…");
+
+  ChromeAppListItem* item = GetChromeAppListItem(package_id);
+  ASSERT_TRUE(item);
+  item->Activate(ui::EF_NONE);
+
+  ASSERT_EQ(arc::mojom::InstallPriority::kMedium,
+            arc_app_list_pref()
+                ->GetInstallPriorityHandler()
+                ->GetInstallPriorityForTesting(package_name));
+}
+
+IN_PROC_BROWSER_TEST_F(AppServicePromiseAppItemBrowserTest,
+                       ActivatePromiseArcAppWhileInstalling) {
+  // Test package details.
+  std::string package_name = "com.test.app";
+  const std::string app_name = "TestApp";
+  const std::string activity_name = "TestActivity";
+  const apps::PackageId package_id =
+      apps::PackageId(apps::PackageType::kArc, package_name);
+
+  // Skip check for official API key.
+  app_service_proxy()->PromiseAppService()->SetSkipApiKeyCheckForTesting(true);
+  SetUpSyncedArcPromiseApp(package_name);
+
+  ASSERT_EQ(arc::mojom::InstallPriority::kLow,
+            arc_app_list_pref()
+                ->GetInstallPriorityHandler()
+                ->GetInstallPriorityForTesting(package_name));
+
+  ash::AppListItem* launcher_item = GetAppListItem(package_id.ToString());
+  ASSERT_TRUE(launcher_item);
+  EXPECT_EQ(launcher_item->name(), "Waiting…");
+
+  // Send a progress update.
+  app_instance()->SendInstallationProgressChanged(package_name, 0.2);
+
+  // Confirm the promise icon fields.
+  EXPECT_EQ(launcher_item->name(), "Installing…");
+
+  ChromeAppListItem* item = GetChromeAppListItem(package_id);
+  ASSERT_TRUE(item);
+  item->Activate(ui::EF_NONE);
+
+  // Install priority should not change if the installation has already started.
+  ASSERT_EQ(arc::mojom::InstallPriority::kLow,
+            arc_app_list_pref()
+                ->GetInstallPriorityHandler()
+                ->GetInstallPriorityForTesting(package_name));
+}
+
+IN_PROC_BROWSER_TEST_F(AppServicePromiseAppItemBrowserTest,
+                       SelectPromiseArcAppFromShelfWhilePending) {
+  // Test package details.
+  std::string package_name = "com.test.app";
+  const std::string app_name = "TestApp";
+  const std::string activity_name = "TestActivity";
+  const apps::PackageId package_id =
+      apps::PackageId(apps::PackageType::kArc, package_name);
+
+  // Skip check for official API key.
+  app_service_proxy()->PromiseAppService()->SetSkipApiKeyCheckForTesting(true);
+  SetUpSyncedArcPromiseApp(package_name);
+
+  ASSERT_EQ(arc::mojom::InstallPriority::kLow,
+            arc_app_list_pref()
+                ->GetInstallPriorityHandler()
+                ->GetInstallPriorityForTesting(package_name));
+
+  ash::ShelfModel* shelf_model = ash::ShelfModel::Get();
+  PinAppWithIDToShelf(package_id.ToString());
+
+  ash::ShelfItemDelegate* delegate =
+      shelf_model->GetShelfItemDelegate(ash::ShelfID(package_id.ToString()));
+
+  DCHECK(delegate);
+  delegate->ItemSelected(/*event=*/nullptr, display::kInvalidDisplayId,
+                         ash::LAUNCH_FROM_UNKNOWN,
+                         /*callback=*/base::DoNothing(),
+                         /*filter_predicate=*/base::NullCallback());
+
+  ASSERT_EQ(arc::mojom::InstallPriority::kMedium,
+            arc_app_list_pref()
+                ->GetInstallPriorityHandler()
+                ->GetInstallPriorityForTesting(package_name));
+}
+
+IN_PROC_BROWSER_TEST_F(AppServicePromiseAppItemBrowserTest,
+                       SelectPromiseArcAppFromShelfWhileInstalling) {
+  // Test package details.
+  std::string package_name = "com.test.app";
+  const std::string app_name = "TestApp";
+  const std::string activity_name = "TestActivity";
+  const apps::PackageId package_id =
+      apps::PackageId(apps::PackageType::kArc, package_name);
+
+  // Skip check for official API key.
+  app_service_proxy()->PromiseAppService()->SetSkipApiKeyCheckForTesting(true);
+  SetUpSyncedArcPromiseApp(package_name);
+
+  ASSERT_EQ(arc::mojom::InstallPriority::kLow,
+            arc_app_list_pref()
+                ->GetInstallPriorityHandler()
+                ->GetInstallPriorityForTesting(package_name));
+
+  // Send a progress update.
+  app_instance()->SendInstallationProgressChanged(package_name, 0.2);
+
+  ash::ShelfModel* shelf_model = ash::ShelfModel::Get();
+  PinAppWithIDToShelf(package_id.ToString());
+
+  ash::ShelfItemDelegate* delegate =
+      shelf_model->GetShelfItemDelegate(ash::ShelfID(package_id.ToString()));
+
+  DCHECK(delegate);
+  delegate->ItemSelected(/*event=*/nullptr, display::kInvalidDisplayId,
+                         ash::LAUNCH_FROM_UNKNOWN,
+                         /*callback=*/base::DoNothing(),
+                         /*filter_predicate=*/base::NullCallback());
+
+  // Install priority should not be updated if the package installation has
+  // started.
+  ASSERT_EQ(arc::mojom::InstallPriority::kLow,
+            arc_app_list_pref()
+                ->GetInstallPriorityHandler()
+                ->GetInstallPriorityForTesting(package_name));
+}
+
+IN_PROC_BROWSER_TEST_F(AppServicePromiseAppItemBrowserTest,
+                       CheckArcPromiseAppIconWhenArcConnectionClosed) {
+  // Test package details.
+  std::string package_name = "com.test.app";
+  const std::string app_name = "TestApp";
+  const std::string activity_name = "TestActivity";
+  const apps::PackageId package_id =
+      apps::PackageId(apps::PackageType::kArc, package_name);
+  const std::string app_id =
+      ArcAppListPrefs::GetAppId(package_name, activity_name);
+
+  // Skip check for official API key.
+  app_service_proxy()->PromiseAppService()->SetSkipApiKeyCheckForTesting(true);
+
+  // Test:
+  // 1) Start the installation.
+  // Expect 2 updates: Promise app registration, then Almanac response update.
+  // Note: As the Almanac response is not mocked, the promise icon will fallback
+  // to using a placeholder image.
+  ExpectNumUpdates(/*num_updates=*/2);
+  app_instance()->SendInstallationStarted(package_name);
+  WaitForPromiseAppUpdates();
+
+  // Confirm that the promise icon gets generated with the correct label.
+  ash::AppListItem* launcher_item = GetAppListItem(package_id.ToString());
+  ASSERT_TRUE(launcher_item);
+  EXPECT_EQ(launcher_item->name(), "Waiting…");
+  EXPECT_EQ(launcher_item->progress(), 0);
+  // Close ARC connection.
+  arc_app_list_pref()->app_connection_holder()->CloseInstance(app_instance());
+
+  // Confirm that the promise icon is deleted when ARC connection is closed.
+  launcher_item = GetAppListItem(package_id.ToString());
+  ASSERT_FALSE(launcher_item);
 }
 
 }  // namespace apps

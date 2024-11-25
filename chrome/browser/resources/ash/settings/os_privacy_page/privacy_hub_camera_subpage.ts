@@ -10,20 +10,22 @@
 
 import './privacy_hub_app_permission_row.js';
 
+import {PrefsMixin} from '/shared/settings/prefs/prefs_mixin.js';
+import type {CrToggleElement} from 'chrome://resources/ash/common/cr_elements/cr_toggle/cr_toggle.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
+import {WebUiListenerMixin} from 'chrome://resources/ash/common/cr_elements/web_ui_listener_mixin.js';
 import {PermissionType} from 'chrome://resources/cr_components/app_management/app_management.mojom-webui.js';
 import {isPermissionEnabled} from 'chrome://resources/cr_components/app_management/permission_util.js';
-import {PrefsMixin} from 'chrome://resources/cr_components/settings_prefs/prefs_mixin.js';
-import {CrToggleElement} from 'chrome://resources/cr_elements/cr_toggle/cr_toggle.js';
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
-import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {castExists} from '../assert_extras.js';
-import {App, AppPermissionsHandlerInterface, AppPermissionsObserverReceiver} from '../mojom-webui/app_permission_handler.mojom-webui.js';
+import {MediaDevicesProxy} from '../common/media_devices_proxy.js';
+import type {App, AppPermissionsHandlerInterface} from '../mojom-webui/app_permission_handler.mojom-webui.js';
+import {AppPermissionsObserverReceiver} from '../mojom-webui/app_permission_handler.mojom-webui.js';
 
-import {MediaDevicesProxy} from './media_devices_proxy.js';
 import {getAppPermissionProvider} from './mojo_interface_provider.js';
-import {PrivacyHubBrowserProxy, PrivacyHubBrowserProxyImpl} from './privacy_hub_browser_proxy.js';
+import type {PrivacyHubBrowserProxy} from './privacy_hub_browser_proxy.js';
+import {PrivacyHubBrowserProxyImpl} from './privacy_hub_browser_proxy.js';
 import {getTemplate} from './privacy_hub_camera_subpage.html.js';
 import {CAMERA_SUBPAGE_USER_ACTION_HISTOGRAM_NAME, NUMBER_OF_POSSIBLE_USER_ACTIONS, PrivacyHubSensorSubpageUserAction} from './privacy_hub_metrics_util.js';
 
@@ -64,14 +66,14 @@ export class SettingsPrivacyHubCameraSubpage extends
         value: [],
       },
 
-      connectedCameras_: {
+      connectedCameraNames_: {
         type: Array,
         value: [],
       },
 
       isCameraListEmpty_: {
         type: Boolean,
-        computed: 'computeIsCameraListEmpty_(connectedCameras_)',
+        computed: 'computeIsCameraListEmpty_(connectedCameraNames_)',
       },
 
       /**
@@ -88,14 +90,26 @@ export class SettingsPrivacyHubCameraSubpage extends
             'cameraSwitchForceDisabled_)',
       },
 
+      cameraFallbackMechanismEnabled_: {
+        type: Boolean,
+        value: false,
+      },
+
+      cameraAccessStateText_: {
+        type: String,
+        computed: 'computeCameraAccessStateText_(' +
+            'cameraFallbackMechanismEnabled_, prefs.ash.user.camera_allowed.*)',
+      },
     };
   }
 
   private appList_: App[];
   private appPermissionsObserverReceiver_: AppPermissionsObserverReceiver|null;
   private browserProxy_: PrivacyHubBrowserProxy;
+  private cameraAccessStateText_: string;
+  private cameraFallbackMechanismEnabled_: boolean;
   private cameraSwitchForceDisabled_: boolean;
-  private connectedCameras_: string[];
+  private connectedCameraNames_: string[];
   private isCameraListEmpty_: boolean;
   private mojoInterfaceProvider_: AppPermissionsHandlerInterface;
   private shouldDisableCameraToggle_: boolean;
@@ -122,6 +136,9 @@ export class SettingsPrivacyHubCameraSubpage extends
         (disabled) => {
           this.cameraSwitchForceDisabled_ = disabled;
         });
+    this.browserProxy_.getCameraLedFallbackState().then((enabled) => {
+      this.cameraFallbackMechanismEnabled_ = enabled;
+    });
 
     this.updateCameraList_();
     MediaDevicesProxy.getMediaDevices().addEventListener(
@@ -152,10 +169,14 @@ export class SettingsPrivacyHubCameraSubpage extends
         (await this.mojoInterfaceProvider_.getSystemAppsThatUseCamera()).apps;
   }
 
+  private isCameraAllowed_(): boolean {
+    return this.getPref('ash.user.camera_allowed').value;
+  }
+
   private getSystemServicesPermissionText_(): string {
-    const cameraAllowed = this.getPref<string>('ash.user.camera_allowed').value;
-    return cameraAllowed ? this.i18n('privacyHubSystemServicesAllowedText') :
-                           this.i18n('privacyHubSystemServicesBlockedText');
+    return this.isCameraAllowed_() ?
+        this.i18n('privacyHubSystemServicesAllowedText') :
+        this.i18n('privacyHubSystemServicesBlockedText');
   }
 
   /**
@@ -194,32 +215,36 @@ export class SettingsPrivacyHubCameraSubpage extends
   }
 
   private async updateCameraList_(): Promise<void> {
-    const connectedCameras: string[] = [];
+    const connectedCameraNames: string[] = [];
     const devices: MediaDeviceInfo[] =
         await MediaDevicesProxy.getMediaDevices().enumerateDevices();
 
     devices.forEach((device) => {
       if (device.kind === 'videoinput') {
-        connectedCameras.push(device.label);
+        connectedCameraNames.push(device.label);
       }
     });
 
-    this.connectedCameras_ = connectedCameras;
+    this.connectedCameraNames_ = connectedCameraNames;
   }
 
   private computeIsCameraListEmpty_(): boolean {
-    return this.connectedCameras_.length === 0;
+    return this.connectedCameraNames_.length === 0;
   }
 
   private computeOnOffText_(): string {
-    const cameraAllowed = this.getPref<string>('ash.user.camera_allowed').value;
-    return cameraAllowed ? this.i18n('deviceOn') : this.i18n('deviceOff');
+    return this.isCameraAllowed_() ? this.i18n('deviceOn') :
+                                     this.i18n('deviceOff');
   }
 
-  private computeOnOffSubtext_(): string {
-    const cameraAllowed = this.getPref<string>('ash.user.camera_allowed').value;
-    return cameraAllowed ? this.i18n('cameraToggleSubtext') :
-                           this.i18n('blockedForAllText');
+  private computeCameraAccessStateText_(): string {
+    if (this.isCameraAllowed_()) {
+      return this.cameraFallbackMechanismEnabled_ ?
+          this.i18n('privacyHubCameraSubpageCameraToggleFallbackSubtext') :
+          this.i18n('privacyHubCameraSubpageCameraToggleSubtext');
+    } else {
+      return this.i18n('privacyHubCameraAccessBlockedText');
+    }
   }
 
   private computeShouldDisableCameraToggle_(): boolean {
@@ -245,7 +270,8 @@ export class SettingsPrivacyHubCameraSubpage extends
         PrivacyHubSensorSubpageUserAction.WEBSITE_PERMISSION_LINK_CLICKED,
         NUMBER_OF_POSSIBLE_USER_ACTIONS);
 
-    window.open('chrome://settings/content/camera');
+    this.mojoInterfaceProvider_.openBrowserPermissionSettings(
+        PermissionType.kCamera);
   }
 
   private onCameraToggleClick_(): void {

@@ -19,37 +19,35 @@
 #import "ios/chrome/browser/infobars/model/infobar_utils.h"
 #import "ios/chrome/browser/settings/model/sync/utils/sync_presenter.h"
 #import "ios/chrome/browser/settings/model/sync/utils/sync_util.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/sync/model/sync_service_factory.h"
 
 // static
 bool SyncErrorInfoBarDelegate::Create(infobars::InfoBarManager* infobar_manager,
-                                      ChromeBrowserState* browser_state,
+                                      ProfileIOS* profile,
                                       id<SyncPresenter> presenter) {
   DCHECK(infobar_manager);
   std::unique_ptr<SyncErrorInfoBarDelegate> delegate(
-      new SyncErrorInfoBarDelegate(browser_state, presenter));
+      new SyncErrorInfoBarDelegate(profile, presenter));
   std::unique_ptr<InfoBarIOS> infobar = std::make_unique<InfoBarIOS>(
       InfobarType::kInfobarTypeSyncError, std::move(delegate));
   return !!infobar_manager->AddInfoBar(std::move(infobar));
 }
 
-SyncErrorInfoBarDelegate::SyncErrorInfoBarDelegate(
-    ChromeBrowserState* browser_state,
-    id<SyncPresenter> presenter)
-    : browser_state_(browser_state), presenter_(presenter) {
-  DCHECK(!browser_state->IsOffTheRecord());
+SyncErrorInfoBarDelegate::SyncErrorInfoBarDelegate(ProfileIOS* profile,
+                                                   id<SyncPresenter> presenter)
+    : profile_(profile), presenter_(presenter) {
+  DCHECK(!profile->IsOffTheRecord());
   syncer::SyncService* sync_service =
-      SyncServiceFactory::GetForBrowserState(browser_state_);
+      SyncServiceFactory::GetForProfile(profile_);
   DCHECK(sync_service);
   // Set all of the UI based on the sync state at the same time to ensure
   // they all correspond to the same sync error.
   error_state_ = sync_service->GetUserActionableError();
-  title_ = GetSyncErrorInfoBarTitleForBrowserState(browser_state_);
-  message_ = base::SysNSStringToUTF16(
-      GetSyncErrorMessageForBrowserState(browser_state_));
-  button_text_ = base::SysNSStringToUTF16(
-      GetSyncErrorButtonTitleForBrowserState(browser_state_));
+  title_ = GetSyncErrorInfoBarTitleForProfile(profile_);
+  message_ = base::SysNSStringToUTF16(GetSyncErrorMessageForProfile(profile_));
+  button_text_ =
+      base::SysNSStringToUTF16(GetSyncErrorButtonTitleForProfile(profile_));
 
   // Register for sync status changes.
   sync_service->AddObserver(this);
@@ -57,7 +55,7 @@ SyncErrorInfoBarDelegate::SyncErrorInfoBarDelegate(
 
 SyncErrorInfoBarDelegate::~SyncErrorInfoBarDelegate() {
   syncer::SyncService* sync_service =
-      SyncServiceFactory::GetForBrowserState(browser_state_);
+      SyncServiceFactory::GetForProfile(profile_);
   sync_service->RemoveObserver(this);
 }
 
@@ -90,7 +88,6 @@ bool SyncErrorInfoBarDelegate::Accept() {
       [presenter_ showPrimaryAccountReauth];
       break;
 
-    case syncer::SyncService::UserActionableError::kGenericUnrecoverableError:
     case syncer::SyncService::UserActionableError::kNone:
       DCHECK(ShouldShowSyncSettings(error_state_));
       [presenter_ showAccountSettings];
@@ -129,7 +126,7 @@ void SyncErrorInfoBarDelegate::OnStateChanged(syncer::SyncService* sync) {
     return;
   }
   syncer::SyncService* sync_service =
-      SyncServiceFactory::GetForBrowserState(browser_state_);
+      SyncServiceFactory::GetForProfile(profile_);
   syncer::SyncService::UserActionableError new_error_state =
       sync_service->GetUserActionableError();
   if (error_state_ == new_error_state) {
@@ -142,7 +139,7 @@ void SyncErrorInfoBarDelegate::OnStateChanged(syncer::SyncService* sync) {
     infobars::InfoBarManager* infobar_manager = infobar->owner();
     if (infobar_manager) {
       std::unique_ptr<ConfirmInfoBarDelegate> new_infobar_delegate(
-          new SyncErrorInfoBarDelegate(browser_state_, presenter_));
+          new SyncErrorInfoBarDelegate(profile_, presenter_));
       infobar_manager->ReplaceInfoBar(
           infobar, CreateConfirmInfoBar(std::move(new_infobar_delegate)));
     }

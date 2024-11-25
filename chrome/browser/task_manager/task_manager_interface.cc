@@ -18,7 +18,7 @@
 #include "content/public/browser/child_process_host.h"
 
 #if BUILDFLAG(IS_MAC)
-#include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/browser_dialogs.h"  // nogncheck
 #endif  // BUILDFLAG(IS_MAC)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -151,6 +151,12 @@ void TaskManagerInterface::NotifyObserversOnRefreshWithBackgroundCalculations(
 void TaskManagerInterface::NotifyObserversOnTaskUnresponsive(TaskId id) {
   for (TaskManagerObserver& observer : observers_)
     observer.OnTaskUnresponsive(id);
+}
+
+void TaskManagerInterface::NotifyObserversOnActiveTaskFetched(TaskId id) {
+  for (TaskManagerObserver& observer : observers_) {
+    observer.OnActiveTaskFetched(id);
+  }
 }
 
 base::TimeDelta TaskManagerInterface::GetCurrentRefreshTime() const {

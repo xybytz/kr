@@ -18,8 +18,8 @@ namespace views {
 // This class manages a "tree" which consists of a single node. This is intended
 // for use with Views, enabling the UIA ITextProvider and ITextRangeProvider
 // functionalities. This class is TEMPORARY and not a long term solution.
-// TODO(crbug.com/1468416): Remove this temporary class once the ViewsAX project
-// is completed.
+// TODO(crbug.com/40924888): Remove this temporary class once the ViewsAX
+// project is completed.
 class VIEWS_EXPORT AtomicViewAXTreeManager : public ui::AXPlatformTreeManager {
  public:
   static std::unique_ptr<AtomicViewAXTreeManager> Create(
@@ -33,16 +33,16 @@ class VIEWS_EXPORT AtomicViewAXTreeManager : public ui::AXPlatformTreeManager {
 
   // AXTreeManager overrides.
   bool IsView() const override;
-  ui::AXNode* GetNodeFromTree(const ui::AXTreeID& tree_id,
-                              const ui::AXNodeID node_id) const override;
-  ui::AXNode* GetNode(const ui::AXNodeID node_id) const override;
-  ui::AXPlatformNode* GetPlatformNodeFromTree(
-      const ui::AXNodeID node_id) const override;
-  ui::AXPlatformNode* GetPlatformNodeFromTree(const ui::AXNode&) const override;
-  ui::AXPlatformNodeDelegate* RootDelegate() const override;
+  ui::AXNode* GetNode(ui::AXNodeID node_id) const override;
   ui::AXTreeID GetParentTreeID() const override;
   ui::AXNode* GetRoot() const override;
   ui::AXNode* GetParentNodeFromParentTree() const override;
+
+  // AXPlatformTreeManager overrides.
+  ui::AXPlatformNode* GetPlatformNodeFromTree(
+      ui::AXNodeID node_id) const override;
+  ui::AXPlatformNode* GetPlatformNodeFromTree(const ui::AXNode&) const override;
+  ui::AXPlatformNodeDelegate* RootDelegate() const override;
 
   void ClearComputedRootData();
 

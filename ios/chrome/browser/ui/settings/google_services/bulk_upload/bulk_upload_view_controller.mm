@@ -11,7 +11,6 @@
 #import "ios/chrome/browser/ui/settings/google_services/bulk_upload/bulk_upload_table_view_controller.h"
 #import "ios/chrome/browser/ui/settings/google_services/bulk_upload/bulk_upload_view_controller_presentation_delegate.h"
 #import "ios/chrome/browser/ui/settings/settings_controller_protocol.h"
-#import "ios/chrome/common/button_configuration_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/elements/highlight_button.h"
 #import "ios/chrome/common/ui/util/button_util.h"
@@ -37,6 +36,9 @@ const char kBulkUploadCloseUserAction[] = "Signin_BulkUpload_Close";
   BulkUploadTableViewController* _tableViewController;
   // The button to trigger the bulk upload.
   UIButton* _saveInAccountButton;
+  // Stored as a separate field because it can be set before
+  // _saveInAccountButton is instantiated.
+  BOOL _saveInAccountButtonEnabled;
   // List of items to display.
   NSArray<BulkUploadViewItem*>* _viewItems;
 }
@@ -69,8 +71,15 @@ const char kBulkUploadCloseUserAction[] = "Signin_BulkUpload_Close";
   [_saveInAccountButton addTarget:self
                            action:@selector(saveInAccountTapped:)
                  forControlEvents:UIControlEventTouchUpInside];
-  _saveInAccountButton.enabled = NO;
+  // setValidationButtonEnabled might have been called before the button was
+  // created.
+  [self updateSaveInAccountButton];
   [self.view addSubview:_saveInAccountButton];
+  // Create the Cancel button.
+  self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc]
+      initWithBarButtonSystemItem:UIBarButtonSystemItemCancel
+                           target:self
+                           action:@selector(didTapCancelButton:)];
   // Add constraints.
   [NSLayoutConstraint activateConstraints:@[
     [tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
@@ -134,17 +143,38 @@ const char kBulkUploadCloseUserAction[] = "Signin_BulkUpload_Close";
 }
 
 - (void)setValidationButtonEnabled:(BOOL)enabled {
-  _saveInAccountButton.enabled = enabled;
-}
-
-- (BOOL)validationButtonEnabled {
-  return _saveInAccountButton.enabled;
+  _saveInAccountButtonEnabled = enabled;
+  [self updateSaveInAccountButton];
 }
 
 #pragma mark - Private
 
+// Updates the state of `_saveInAccountButton` according to
+// `_saveInAccountButtonEnabled`.
+- (void)updateSaveInAccountButton {
+  UIButtonConfiguration* buttonConfiguration =
+      _saveInAccountButton.configuration;
+  if (_saveInAccountButtonEnabled) {
+    buttonConfiguration.background.backgroundColor =
+        [UIColor colorNamed:kBlueColor];
+    buttonConfiguration.baseForegroundColor =
+        [UIColor colorNamed:kSolidButtonTextColor];
+  } else {
+    buttonConfiguration.background.backgroundColor =
+        [UIColor colorNamed:kUpdatedTertiaryBackgroundColor];
+    buttonConfiguration.baseForegroundColor =
+        [UIColor colorNamed:kDisabledTintColor];
+  }
+  _saveInAccountButton.configuration = buttonConfiguration;
+  _saveInAccountButton.enabled = _saveInAccountButtonEnabled;
+}
+
 - (void)saveInAccountTapped:(UIButton*)button {
   [self.mutator requestSave];
+}
+
+- (void)didTapCancelButton:(UIButton*)button {
+  [self.delegate viewControllerWantsToBeDismissed:self];
 }
 
 @end

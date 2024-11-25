@@ -43,7 +43,10 @@ std::unique_ptr<VideoEncodeAccelerator> CreateAndInitializeFakeVEA(
     const gpu::GpuPreferences& gpu_preferences,
     const gpu::GpuDriverBugWorkarounds& gpu_workarounds,
     const gpu::GPUInfo::GPUDevice& gpu_device,
-    std::unique_ptr<MediaLog> media_log) {
+    std::unique_ptr<MediaLog> media_log,
+    MojoVideoEncodeAcceleratorService::GetCommandBufferHelperCB
+        get_command_buffer_helper_cb,
+    scoped_refptr<base::SingleThreadTaskRunner> gpu_task_runner) {
   // Use FakeVEA as scoped_ptr to guarantee proper destruction via Destroy().
   auto vea = std::make_unique<FakeVideoEncodeAccelerator>(
       base::SingleThreadTaskRunner::GetCurrentDefault());
@@ -104,7 +107,9 @@ class MojoVideoEncodeAcceleratorServiceTest : public ::testing::Test {
         base::BindRepeating(&CreateAndInitializeFakeVEA,
                             will_fake_vea_initialization_succeed),
         gpu::GpuPreferences(), gpu::GpuDriverBugWorkarounds(),
-        gpu::GPUInfo::GPUDevice());
+        gpu::GPUInfo::GPUDevice(),
+        MojoVideoEncodeAcceleratorService::GetCommandBufferHelperCB(),
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   }
 
   void BindAndInitialize() {
@@ -125,7 +130,10 @@ class MojoVideoEncodeAcceleratorServiceTest : public ::testing::Test {
     constexpr media::Bitrate kInitialBitrate =
         media::Bitrate::ConstantBitrate(100000u);
     const media::VideoEncodeAccelerator::Config config(
-        PIXEL_FORMAT_I420, kInputVisibleSize, H264PROFILE_MIN, kInitialBitrate);
+        PIXEL_FORMAT_I420, kInputVisibleSize, H264PROFILE_MIN, kInitialBitrate,
+        media::VideoEncodeAccelerator::kDefaultFramerate,
+        VideoEncodeAccelerator::Config::StorageType::kGpuMemoryBuffer,
+        VideoEncodeAccelerator::Config::ContentType::kCamera);
 
     mojo::PendingReceiver<mojom::MediaLog> media_log_pending_receiver;
     auto media_log_pending_remote =
@@ -207,7 +215,7 @@ TEST_F(MojoVideoEncodeAcceleratorServiceTest, EncodingParametersChange) {
   VideoBitrateAllocation bitrate_allocation;
   bitrate_allocation.SetBitrate(0, 0, kNewBitrate);
   mojo_vea_service()->RequestEncodingParametersChangeWithLayers(
-      bitrate_allocation, kNewFramerate, absl::nullopt);
+      bitrate_allocation, kNewFramerate, std::nullopt);
   base::RunLoop().RunUntilIdle();
 
   ASSERT_TRUE(fake_vea());
@@ -240,7 +248,7 @@ TEST_F(MojoVideoEncodeAcceleratorServiceTest,
     }
 
     mojo_vea_service()->RequestEncodingParametersChangeWithLayers(
-        bitrate_allocation, kNewFramerate, absl::nullopt);
+        bitrate_allocation, kNewFramerate, std::nullopt);
     base::RunLoop().RunUntilIdle();
 
     ASSERT_TRUE(fake_vea());
@@ -305,7 +313,10 @@ TEST_F(MojoVideoEncodeAcceleratorServiceTest,
   constexpr media::Bitrate kInitialBitrate =
       media::Bitrate::ConstantBitrate(100000u);
   const media::VideoEncodeAccelerator::Config config(
-      PIXEL_FORMAT_I420, kInputVisibleSize, H264PROFILE_MIN, kInitialBitrate);
+      PIXEL_FORMAT_I420, kInputVisibleSize, H264PROFILE_MIN, kInitialBitrate,
+      media::VideoEncodeAccelerator::kDefaultFramerate,
+      VideoEncodeAccelerator::Config::StorageType::kGpuMemoryBuffer,
+      VideoEncodeAccelerator::Config::ContentType::kCamera);
   mojo::PendingReceiver<mojom::MediaLog> media_log_pending_receiver;
   auto media_log_pending_remote =
       media_log_pending_receiver.InitWithNewPipeAndPassRemote();
@@ -332,7 +343,10 @@ TEST_F(MojoVideoEncodeAcceleratorServiceTest, InitializeFailure) {
   constexpr media::Bitrate kInitialBitrate =
       media::Bitrate::ConstantBitrate(100000u);
   const media::VideoEncodeAccelerator::Config config(
-      PIXEL_FORMAT_I420, kInputVisibleSize, H264PROFILE_MIN, kInitialBitrate);
+      PIXEL_FORMAT_I420, kInputVisibleSize, H264PROFILE_MIN, kInitialBitrate,
+      media::VideoEncodeAccelerator::kDefaultFramerate,
+      VideoEncodeAccelerator::Config::StorageType::kGpuMemoryBuffer,
+      VideoEncodeAccelerator::Config::ContentType::kCamera);
   mojo::PendingReceiver<mojom::MediaLog> media_log_pending_receiver;
   auto media_log_pending_remote =
       media_log_pending_receiver.InitWithNewPipeAndPassRemote();
@@ -407,7 +421,7 @@ TEST_F(MojoVideoEncodeAcceleratorServiceTest, CallsBeforeInitializeAreIgnored) {
     media::VideoBitrateAllocation bitrate_allocation;
     bitrate_allocation.SetBitrate(0, 0, kNewBitrate);
     mojo_vea_service()->RequestEncodingParametersChangeWithLayers(
-        bitrate_allocation, kNewFramerate, absl::nullopt);
+        bitrate_allocation, kNewFramerate, std::nullopt);
     base::RunLoop().RunUntilIdle();
   }
 }

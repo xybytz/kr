@@ -4,11 +4,13 @@
 
 #include "chrome/browser/nearby_sharing/metrics/nearby_share_metric_logger.h"
 
+#include <utility>
+
 #include "base/time/time.h"
 #include "chrome/browser/nearby_sharing/metrics/metric_common.h"
 #include "chromeos/ash/services/nearby/public/mojom/nearby_connections_types.mojom-shared.h"
 #include "components/metrics/structured/structured_events.h"
-#include "components/metrics/structured/structured_metrics_features.h"
+#include "components/metrics/structured/structured_metrics_client.h"
 
 namespace nearby::share::metrics {
 
@@ -35,7 +37,13 @@ void NearbyShareMetricLogger::OnShareTargetAdded(
   }
 
   share_target_discover_time_[share_target.id] = discover_time;
-  // Bluetooth is currently the default medium.
+  // Bluetooth is currently the default medium. Initial medium is
+  // set in OnInitialMedium, not here. Note that we only expect
+  // OnInitialMedium to be called when sending; luckily this
+  // aligns with the only case where the initial medium can be
+  // Wifi LAN instead of Bluetooth (thanks to mDNS Discovery).
+  share_target_initial_medium_[share_target.id] =
+      nearby::connections::mojom::Medium::kBluetooth;
   share_target_medium_[share_target.id] =
       nearby::connections::mojom::Medium::kBluetooth;
 }
@@ -48,6 +56,7 @@ void NearbyShareMetricLogger::OnShareTargetRemoved(
   share_target_accept_time_.erase(share_target.id);
   share_target_upgrade_time_.erase(share_target.id);
   share_target_medium_.erase(share_target.id);
+  share_target_initial_medium_.erase(share_target.id);
   transfer_size_.erase(share_target.id);
   transfer_progress_.erase(share_target.id);
 }
@@ -94,7 +103,7 @@ void NearbyShareMetricLogger::OnTransferCompleted(
   int64_t bytes_transferred =
       (percentage_complete / 100) * total_transfer_bytes;
   connections::mojom::Medium initial_medium =
-      connections::mojom::Medium::kBluetooth;
+      share_target_initial_medium_[share_target.id];
   connections::mojom::Medium final_medium =
       share_target_medium_[share_target.id];
 
@@ -156,7 +165,14 @@ void NearbyShareMetricLogger::OnTransferCompleted(
   metric.SetTimeToTransferComplete(complete_time.InMilliseconds());
 
   // Emit the metric.
-  metric.Record();
+  ::metrics::structured::StructuredMetricsClient::Record(std::move(metric));
+}
+
+void NearbyShareMetricLogger::OnInitialMedium(
+    const ShareTarget& share_target,
+    nearby::connections::mojom::Medium medium) {
+  share_target_initial_medium_[share_target.id] = medium;
+  share_target_medium_[share_target.id] = medium;
 }
 
 void NearbyShareMetricLogger::OnBandwidthUpgrade(

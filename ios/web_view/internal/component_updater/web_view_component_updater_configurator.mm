@@ -64,7 +64,6 @@ class WebViewConfigurator : public update_client::Configurator {
       override;
   scoped_refptr<update_client::UnzipperFactory> GetUnzipperFactory() override;
   scoped_refptr<update_client::PatcherFactory> GetPatcherFactory() override;
-  bool EnabledDeltas() const override;
   bool EnabledBackgroundDownloader() const override;
   bool EnabledCupSigning() const override;
   PrefService* GetPrefService() const override;
@@ -98,7 +97,10 @@ WebViewConfigurator::WebViewConfigurator(const base::CommandLine* cmdline)
           component_updater::ComponentUpdaterCommandLineConfigPolicy(cmdline),
           /*require_encryption=*/false),
       persisted_data_(update_client::CreatePersistedData(
-          ApplicationContext::GetInstance()->GetLocalState(),
+          base::BindRepeating([]() {
+            ApplicationContext* context = ApplicationContext::GetInstance();
+            return context ? context->GetLocalState() : nullptr;
+          }),
           nullptr)) {}
 
 base::TimeDelta WebViewConfigurator::InitialDelay() const {
@@ -135,7 +137,7 @@ base::Version WebViewConfigurator::GetBrowserVersion() const {
 }
 
 std::string WebViewConfigurator::GetChannel() const {
-  // TODO(crbug.com/1299888): Pass proper channel depending on build type.
+  // TODO(crbug.com/40216038): Pass proper channel depending on build type.
   return "stable";
 }
 
@@ -193,10 +195,6 @@ WebViewConfigurator::GetPatcherFactory() {
         base::BindRepeating(&patch::LaunchInProcessFilePatcher));
   }
   return patch_factory_;
-}
-
-bool WebViewConfigurator::EnabledDeltas() const {
-  return configurator_impl_.EnabledDeltas();
 }
 
 bool WebViewConfigurator::EnabledBackgroundDownloader() const {

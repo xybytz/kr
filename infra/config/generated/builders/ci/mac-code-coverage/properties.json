@@ -22,7 +22,8 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "mac"
               },
               "legacy_gclient_config": {
                 "apply_configs": [
@@ -46,7 +47,8 @@
           "builder": "mac-code-coverage",
           "group": "tryserver.chromium.mac"
         }
-      ]
+      ],
+      "targets_spec_directory": "src/infra/config/generated/builders/ci/mac-code-coverage/targets"
     }
   },
   "$build/code_coverage": {
@@ -59,9 +61,18 @@
   },
   "$build/reclient": {
     "instance": "rbe-chromium-trusted",
-    "jobs": 500,
     "metrics_project": "chromium-reclient-metrics",
     "scandeps_server": true
+  },
+  "$build/siso": {
+    "configs": [
+      "builder"
+    ],
+    "enable_cloud_profiler": true,
+    "enable_cloud_trace": true,
+    "experiments": [],
+    "project": "rbe-chromium-trusted",
+    "remote_jobs": 500
   },
   "$recipe_engine/resultdb/test_presentation": {
     "column_keys": [],

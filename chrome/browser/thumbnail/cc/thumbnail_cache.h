@@ -75,13 +75,14 @@ class ThumbnailCache : ThumbnailDelegate {
   Thumbnail* Get(TabId tab_id, bool force_disk_read);
 
   void InvalidateThumbnailIfChanged(TabId tab_id, const GURL& url);
-  bool CheckAndUpdateThumbnailMetaData(TabId tab_id, const GURL& url);
+  bool CheckAndUpdateThumbnailMetaData(TabId tab_id,
+                                       const GURL& url,
+                                       bool force_update);
   bool IsInVisibleIds(TabId tab_id);
   void UpdateVisibleIds(const std::vector<TabId>& priority,
                         TabId primary_tab_id);
   void DecompressEtc1ThumbnailFromFile(
       TabId tab_id,
-      bool save_jpeg,
       base::OnceCallback<void(bool, const SkBitmap&)> post_decompress_callback);
 
   // Called when resident textures were evicted, which requires paging
@@ -130,11 +131,6 @@ class ThumbnailCache : ThumbnailDelegate {
                   std::unique_ptr<ThumbnailCaptureTracker,
                                   base::OnTaskRunnerDeleter> tracker,
                   const SkBitmap& bitmap);
-  void ForkToSaveAsJpeg(
-      base::OnceCallback<void(bool, const SkBitmap&)> callback,
-      int tab_id,
-      bool result,
-      const SkBitmap& bitmap);
   void PostWriteJpegTask(std::unique_ptr<ThumbnailCaptureTracker,
                                          base::OnTaskRunnerDeleter> tracker,
                          bool success);
@@ -162,8 +158,6 @@ class ThumbnailCache : ThumbnailDelegate {
   void NotifyObserversOfThumbnailAddedToCache(TabId tab_id);
   void NotifyObserversOfThumbnailRead(TabId tab_id);
   void RemoveOnMatchedTimeStamp(TabId tab_id, const base::Time& time_stamp);
-  static std::pair<SkBitmap, float> CreateApproximation(const SkBitmap& bitmap,
-                                                        float scale);
 
   void OnMemoryPressure(
       base::MemoryPressureListener::MemoryPressureLevel level);
@@ -182,7 +176,7 @@ class ThumbnailCache : ThumbnailDelegate {
   const bool save_jpeg_thumbnails_;
   base::TimeDelta capture_min_request_time_ms_;
 
-  // TODO(crbug/1402843): Determine if these limits are still relevant.
+  // TODO(crbug.com/40885026): Determine if these limits are still relevant.
   // Remove or tune accordingly (i.e. split by jpeg and etc1).
   size_t compression_tasks_count_;
   size_t write_tasks_count_;

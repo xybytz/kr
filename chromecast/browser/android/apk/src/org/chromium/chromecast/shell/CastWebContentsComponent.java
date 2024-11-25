@@ -4,19 +4,20 @@
 
 package org.chromium.chromecast.shell;
 
+import android.app.ActivityOptions;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.PatternMatcher;
 
 import androidx.annotation.VisibleForTesting;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Log;
 import org.chromium.chromecast.base.Controller;
 import org.chromium.content_public.browser.WebContents;
@@ -111,7 +112,12 @@ public class CastWebContentsComponent {
         int displayId = DisplayAndroidManager.getDefaultDisplayForContext(context).getDisplayId();
         if (DEBUG) Log.d(TAG, "start activity by intent: " + intent + " on display: " + displayId);
         sResumeIntent.set(intent);
-        Bundle bundle = ApiCompatibilityUtils.createLaunchDisplayIdActivityOptions(displayId);
+        Bundle bundle = null;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ActivityOptions options = ActivityOptions.makeBasic();
+            options.setLaunchDisplayId(displayId);
+            bundle = options.toBundle();
+        }
         context.startActivity(intent, bundle);
     }
 
@@ -168,14 +174,22 @@ public class CastWebContentsComponent {
     private final boolean mTurnOnScreen;
     private final boolean mKeepScreenOn;
 
-    public CastWebContentsComponent(String sessionId,
+    public CastWebContentsComponent(
+            String sessionId,
             OnComponentClosedHandler onComponentClosedHandler,
-            SurfaceEventHandler surfaceEventHandler, boolean enableTouchInput, boolean turnOnScreen,
+            SurfaceEventHandler surfaceEventHandler,
+            boolean enableTouchInput,
+            boolean turnOnScreen,
             boolean keepScreenOn) {
         if (DEBUG) {
-            Log.d(TAG,
-                    "New CastWebContentsComponent. Instance ID: " + sessionId
-                            + "; enableTouchInput:" + enableTouchInput);
+            Log.d(
+                    TAG,
+                    "New CastWebContentsComponent: sid=%s, touchInput=%b, turnOnScreen=%b,"
+                            + " keepScreenOn=%b",
+                    sessionId,
+                    enableTouchInput,
+                    turnOnScreen,
+                    keepScreenOn);
         }
 
         mComponentClosedHandler = onComponentClosedHandler;

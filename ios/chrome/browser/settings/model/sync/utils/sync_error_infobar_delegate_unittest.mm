@@ -6,13 +6,12 @@
 
 #import <memory>
 
-#import "base/test/scoped_feature_list.h"
 #import "components/sync/service/sync_service_utils.h"
 #import "components/sync/test/mock_sync_service.h"
 #import "ios/chrome/browser/infobars/model/infobar_ios.h"
 #import "ios/chrome/browser/infobars/model/infobar_utils.h"
 #import "ios/chrome/browser/settings/model/sync/utils/sync_presenter.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/shared/ui/symbols/symbols.h"
 #import "ios/chrome/browser/sync/model/mock_sync_service_utils.h"
@@ -32,19 +31,19 @@ namespace {
 class SyncErrorInfobarDelegateTest : public PlatformTest {
  protected:
   void SetUp() override {
-    TestChromeBrowserState::Builder builder;
+    TestProfileIOS::Builder builder;
     builder.AddTestingFactory(SyncServiceFactory::GetInstance(),
                               base::BindRepeating(&CreateMockSyncService));
-    chrome_browser_state_ = builder.Build();
+    profile_ = std::move(builder).Build();
   }
 
   syncer::MockSyncService* mock_sync_service() {
     return static_cast<syncer::MockSyncService*>(
-        SyncServiceFactory::GetForBrowserState(chrome_browser_state_.get()));
+        SyncServiceFactory::GetForProfile(profile_.get()));
   }
 
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> chrome_browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
 };
 
 TEST_F(SyncErrorInfobarDelegateTest, SyncServiceSignInNeedsUpdate) {
@@ -55,7 +54,7 @@ TEST_F(SyncErrorInfobarDelegateTest, SyncServiceSignInNeedsUpdate) {
   id presenter = OCMStrictProtocolMock(@protocol(SyncPresenter));
   [[presenter expect] showPrimaryAccountReauth];
   std::unique_ptr<SyncErrorInfoBarDelegate> delegate(
-      new SyncErrorInfoBarDelegate(chrome_browser_state_.get(), presenter));
+      new SyncErrorInfoBarDelegate(profile_.get(), presenter));
 
   EXPECT_FALSE(delegate->Accept());
 }
@@ -64,7 +63,7 @@ TEST_F(SyncErrorInfobarDelegateTest, SyncServiceUnrecoverableError) {
   id presenter = OCMStrictProtocolMock(@protocol(SyncPresenter));
   [[presenter expect] showAccountSettings];
   std::unique_ptr<SyncErrorInfoBarDelegate> delegate(
-      new SyncErrorInfoBarDelegate(chrome_browser_state_.get(), presenter));
+      new SyncErrorInfoBarDelegate(profile_.get(), presenter));
 
   EXPECT_FALSE(delegate->Accept());
 }
@@ -77,7 +76,7 @@ TEST_F(SyncErrorInfobarDelegateTest, SyncServiceNeedsPassphrase) {
   id presenter = OCMStrictProtocolMock(@protocol(SyncPresenter));
   [[presenter expect] showSyncPassphraseSettings];
   std::unique_ptr<SyncErrorInfoBarDelegate> delegate(
-      new SyncErrorInfoBarDelegate(chrome_browser_state_.get(), presenter));
+      new SyncErrorInfoBarDelegate(profile_.get(), presenter));
 
   EXPECT_FALSE(delegate->Accept());
 }
@@ -92,7 +91,7 @@ TEST_F(SyncErrorInfobarDelegateTest, SyncServiceNeedsTrustedVaultKey) {
       showTrustedVaultReauthForFetchKeysWithTrigger:
           syncer::TrustedVaultUserActionTriggerForUMA::kNewTabPageInfobar];
   std::unique_ptr<SyncErrorInfoBarDelegate> delegate(
-      new SyncErrorInfoBarDelegate(chrome_browser_state_.get(), presenter));
+      new SyncErrorInfoBarDelegate(profile_.get(), presenter));
 
   EXPECT_FALSE(delegate->Accept());
 }
@@ -109,7 +108,7 @@ TEST_F(SyncErrorInfobarDelegateTest,
       showTrustedVaultReauthForDegradedRecoverabilityWithTrigger:
           syncer::TrustedVaultUserActionTriggerForUMA::kNewTabPageInfobar];
   std::unique_ptr<SyncErrorInfoBarDelegate> delegate(
-      new SyncErrorInfoBarDelegate(chrome_browser_state_.get(), presenter));
+      new SyncErrorInfoBarDelegate(profile_.get(), presenter));
 
   EXPECT_FALSE(delegate->Accept());
 }

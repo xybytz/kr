@@ -3,10 +3,12 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/picture_in_picture/auto_pip_setting_view.h"
+
 #include "chrome/grit/generated_resources.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/url_formatter.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/mojom/dialog_button.mojom.h"
 #include "ui/gfx/text_elider.h"
 #include "ui/views/layout/flex_layout_view.h"
 
@@ -48,16 +50,19 @@ constexpr gfx::Insets kBubbleTitleMargins = gfx::Insets::TLBR(20, 20, 10, 20);
 // elided.
 constexpr int kBubbleOriginTextMaximumWidth = 230;
 
+// Control view margins. The bubble control view refers to the view containing
+// the permission buttons.
+constexpr gfx::Insets kControlViewMargins = gfx::Insets::TLBR(8, 0, 0, 0);
+
 AutoPipSettingView::AutoPipSettingView(
     ResultCb result_cb,
     HideViewCb hide_view_cb,
     const GURL& origin,
-    const gfx::Rect& browser_view_overridden_bounds,
     views::View* anchor_view,
     views::BubbleBorder::Arrow arrow)
     : views::BubbleDialogDelegate(anchor_view, arrow),
       result_cb_(std::move(result_cb)) {
-  DialogDelegate::SetButtons(ui::DIALOG_BUTTON_NONE);
+  DialogDelegate::SetButtons(static_cast<int>(ui::mojom::DialogButton::kNone));
   CHECK(result_cb_);
   SetAnchorView(anchor_view);
   set_fixed_width(kBubbleFixedWidth);
@@ -124,6 +129,7 @@ void AutoPipSettingView::InitBubble() {
           .SetBetweenChildSpacing(kLayoutBetweenChildSpacing)
           .SetCrossAxisAlignment(views::BoxLayout::CrossAxisAlignment::kCenter)
           .SetMainAxisAlignment(views::BoxLayout::MainAxisAlignment::kStart)
+          .SetInsideBorderInsets(kControlViewMargins)
           .Build());
 
   allow_once_button_ = InitControlViewButton(

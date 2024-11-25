@@ -3,7 +3,9 @@
 // found in the LICENSE file.
 
 #include <cstdint>
+#include <string_view>
 #include <vector>
+
 #include "base/json/json_reader.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/trace_event_analyzer.h"
@@ -16,6 +18,7 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
+#include "content/public/test/browser_test_utils.h"
 #include "content/public/test/hit_test_region_observer.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "third_party/blink/public/common/performance/largest_contentful_paint_type.h"
@@ -30,7 +33,7 @@ class SoftNavigationTest : public MetricIntegrationTest,
     MetricIntegrationTest::SetUpOnMainThread();
   }
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(cc::switches::kEnableGpuBenchmarking);
+    command_line->AppendSwitch(switches::kEnableGpuBenchmarking);
     command_line->AppendSwitch(blink::switches::kAllowPreCommitInput);
     std::vector<base::test::FeatureRef> enabled_feature_list = {
         blink::features::kNavigationId,
@@ -67,7 +70,7 @@ class SoftNavigationTest : public MetricIntegrationTest,
 
   std::map<int64_t, double> GetSoftNavigationMetrics(
       const ukm::TestUkmRecorder& ukm_recorder,
-      base::StringPiece metric_name) {
+      std::string_view metric_name) {
     std::map<int64_t, double> source_id_to_metric_name;
     for (const ukm::mojom::UkmEntry* entry : ukm_recorder.GetEntriesByName(
              ukm::builders::SoftNavigation::kEntryName)) {
@@ -232,7 +235,7 @@ class SoftNavigationTest : public MetricIntegrationTest,
   }
 
   bool ExtractUKMPageLoadMetric(const ukm::TestUkmRecorder& ukm_recorder,
-                                base::StringPiece metric_name,
+                                std::string_view metric_name,
                                 int64_t* extracted_value) {
     std::map<ukm::SourceId, ukm::mojom::UkmEntryPtr> merged_entries =
         ukm_recorder.GetMergedEntriesByName(
@@ -328,7 +331,7 @@ class SoftNavigationTest : public MetricIntegrationTest,
   base::test::ScopedFeatureList feature_list_;
 };
 
-// TODO(crbug.com/1466868): Investigate timeout issue on linux-lacros-rel and
+// TODO(crbug.com/40924160): Investigate timeout issue on linux-lacros-rel and
 // linux-wayland when retrieving web exposed soft nav lcp entries using the
 // EvalJs method.
 #if BUILDFLAG(IS_CHROMEOS_LACROS) || BUILDFLAG(IS_LINUX)
@@ -381,11 +384,11 @@ IN_PROC_BROWSER_TEST_P(SoftNavigationTest, MAYBE_LargestContentfulPaint) {
   // If the SoftNavigationHeuristics flag is enabled, we verify exact values
   // in Ukm against the web exposed values. Otherwise, we only verify that
   // there are 2 soft nav lcp reported to Ukm.
-  base::Value soft_nav_lcp_list_result;
+  base::Value::List soft_nav_lcp_list;
   if (GetParam()) {
-    soft_nav_lcp_list_result = EvalJs(web_contents()->GetPrimaryMainFrame(),
-                                      "GetSoftNavigationLCPEntries()")
-                                   .ExtractList();
+    soft_nav_lcp_list = EvalJs(web_contents()->GetPrimaryMainFrame(),
+                               "GetSoftNavigationLCPEntries()")
+                            .ExtractList();
   }
 
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GURL("about:blank")));
@@ -425,8 +428,6 @@ IN_PROC_BROWSER_TEST_P(SoftNavigationTest, MAYBE_LargestContentfulPaint) {
   // If the SoftNavigationHeuristics flag is enabled, we verify exact values
   // in Ukm against the web exposed values.
   if (GetParam()) {
-    auto& soft_nav_lcp_list = soft_nav_lcp_list_result.GetList();
-
     auto json_soft_nav_lcp1 =
         base::JSONReader::Read(soft_nav_lcp_list[0].GetString());
 
@@ -523,7 +524,13 @@ IN_PROC_BROWSER_TEST_P(SoftNavigationTest, MAYBE_LargestContentfulPaint) {
   EXPECT_EQ(std::next(source_id_to_lcp_request_priority.cbegin())->second, 2u);
 }
 
-IN_PROC_BROWSER_TEST_P(SoftNavigationTest, NoSoftNavigation) {
+// TODO(crbug.com/334416161): Re-enable this test.
+#if BUILDFLAG(IS_WIN)
+#define MAYBE_NoSoftNavigation DISABLED_NoSoftNavigation
+#else
+#define MAYBE_NoSoftNavigation NoSoftNavigation
+#endif
+IN_PROC_BROWSER_TEST_P(SoftNavigationTest, MAYBE_NoSoftNavigation) {
   auto waiter = std::make_unique<page_load_metrics::PageLoadMetricsTestWaiter>(
       web_contents());
 
@@ -544,7 +551,13 @@ INSTANTIATE_TEST_SUITE_P(All,
                          SoftNavigationTest,
                          ::testing::Values(false, true));
 
-IN_PROC_BROWSER_TEST_P(SoftNavigationTest, INP_ClickWithPresentation) {
+// TODO(crbug.com/338061920, crbug.com/333963663): Flaky on Win.
+#if BUILDFLAG(IS_WIN)
+#define MAYBE_INP_ClickWithPresentation DISABLED_INP_ClickWithPresentation
+#else
+#define MAYBE_INP_ClickWithPresentation INP_ClickWithPresentation
+#endif  //  BUILDFLAG(IS_WIN)
+IN_PROC_BROWSER_TEST_P(SoftNavigationTest, MAYBE_INP_ClickWithPresentation) {
   // Add waiter to wait for the interaction is arrived in browser.
   auto waiter = std::make_unique<page_load_metrics::PageLoadMetricsTestWaiter>(
       web_contents());
@@ -587,7 +600,13 @@ IN_PROC_BROWSER_TEST_P(SoftNavigationTest, INP_ClickWithPresentation) {
   ASSERT_TRUE(VerifyInpUkmAndTraceData(*analyzer));
 }
 
-IN_PROC_BROWSER_TEST_P(SoftNavigationTest, LayoutShift) {
+// TODO(crbug.com/338061920): Flaky on win-asan.
+#if BUILDFLAG(IS_WIN) && defined(ADDRESS_SANITIZER)
+#define MAYBE_LayoutShift DISABLED_LayoutShift
+#else
+#define MAYBE_LayoutShift LayoutShift
+#endif  //  BUILDFLAG(IS_WIN) && defined(ADDRESS_SANITIZER)
+IN_PROC_BROWSER_TEST_P(SoftNavigationTest, MAYBE_LayoutShift) {
   auto waiter = std::make_unique<page_load_metrics::PageLoadMetricsTestWaiter>(
       web_contents());
 
@@ -603,9 +622,8 @@ IN_PROC_BROWSER_TEST_P(SoftNavigationTest, LayoutShift) {
 
   // Retrieve web exposed values of the layout shift that happens before any
   // soft navigation happens.
-  base::Value entry_records =
+  base::Value::List entry_records_list =
       EvalJs(web_contents(), "GetLayoutShift()").ExtractList();
-  auto& entry_records_list = entry_records.GetList();
 
   // Verify that the entry_records_list has 1 or 2 records. There could be 2
   // layout shift entries emitted for the initial triggerLayoutShift() call.
@@ -638,9 +656,8 @@ IN_PROC_BROWSER_TEST_P(SoftNavigationTest, LayoutShift) {
   // is on.
   double soft_nav_1_cls;
   if (GetParam()) {
-    auto soft_nav_entry_records =
+    auto soft_nav_1_entry_records_list =
         EvalJs(web_contents(), "GetLayoutShift(1)").ExtractList();
-    auto& soft_nav_1_entry_records_list = soft_nav_entry_records.GetList();
 
     // Verify that there is 1 layout shift entry after soft nav 1.
     EXPECT_EQ(soft_nav_1_entry_records_list.size(), 1u);
@@ -669,9 +686,8 @@ IN_PROC_BROWSER_TEST_P(SoftNavigationTest, LayoutShift) {
   // is on.
   double soft_nav_2_cls;
   if (GetParam()) {
-    auto soft_nav_entry_records =
+    auto soft_nav_2_entry_records_list =
         EvalJs(web_contents(), "GetLayoutShift(2)").ExtractList();
-    auto& soft_nav_2_entry_records_list = soft_nav_entry_records.GetList();
 
     // Verify that there is 1 layout shift entry after soft nav 1.
     EXPECT_EQ(soft_nav_2_entry_records_list.size(), 1u);

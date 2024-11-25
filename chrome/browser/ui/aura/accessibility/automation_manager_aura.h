@@ -19,6 +19,7 @@
 #include "extensions/browser/api/automation_internal/automation_event_router.h"
 #include "ui/accessibility/ax_action_handler.h"
 #include "ui/accessibility/ax_tree_serializer.h"
+#include "ui/accessibility/ax_tree_update.h"
 #include "ui/views/accessibility/ax_aura_obj_cache.h"
 #include "ui/views/accessibility/ax_event_observer.h"
 #include "ui/views/accessibility/ax_tree_source_views.h"
@@ -35,7 +36,10 @@ class View;
 
 using AuraAXTreeSerializer = ui::AXTreeSerializer<
     views::AXAuraObjWrapper*,
-    std::vector<raw_ptr<views::AXAuraObjWrapper, VectorExperimental>>>;
+    std::vector<raw_ptr<views::AXAuraObjWrapper, VectorExperimental>>,
+    ui::AXTreeUpdate*,
+    ui::AXTreeData*,
+    ui::AXNodeData>;
 
 // Manages a tree of automation nodes backed by aura constructs.
 class AutomationManagerAura : public ui::AXActionHandler,
@@ -56,7 +60,7 @@ class AutomationManagerAura : public ui::AXActionHandler,
   void Disable();
 
   // Handle an event fired upon the root view.
-  void HandleEvent(ax::mojom::Event event_type);
+  void HandleEvent(ax::mojom::Event event_type, bool from_user);
 
   // Handles a textual alert.
   void HandleAlert(const std::string& text);
@@ -111,7 +115,8 @@ class AutomationManagerAura : public ui::AXActionHandler,
 
   void PostEvent(int32_t id,
                  ax::mojom::Event event_type,
-                 int action_request_id = -1);
+                 int action_request_id = -1,
+                 bool from_user = false);
 
   void SendPendingEvents();
 
@@ -142,6 +147,7 @@ class AutomationManagerAura : public ui::AXActionHandler,
     ax::mojom::Event event_type;
     int action_request_id;
     ax::mojom::Action currently_performing_action;
+    bool from_user;
   };
 
   std::vector<Event> pending_events_;

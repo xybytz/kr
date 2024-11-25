@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/id_map.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
@@ -32,13 +33,12 @@ class RecentDiskSource : public RecentSource {
   // Does nothing if no volume is registered at `mount_point_name`.
   // If `ignore_dotfiles` is true, recents will ignore directories and files
   // starting with a dot. Set `max_depth` to zero for unlimited depth.
-  // The `max_files` parameter limits the maximum number of files returned on
-  // the callback of `params` of GetRecentFiles method.
-  RecentDiskSource(std::string mount_point_name,
-                   bool ignore_dotfiles,
-                   int max_depth,
-                   size_t max_files,
-                   std::string uma_histogram_name);
+  RecentDiskSource(
+      extensions::api::file_manager_private::VolumeType volume_type,
+      std::string mount_point_name,
+      bool ignore_dotfiles,
+      int max_depth,
+      std::string uma_histogram_name);
 
   RecentDiskSource(const RecentDiskSource&) = delete;
   RecentDiskSource& operator=(const RecentDiskSource&) = delete;
@@ -46,7 +46,12 @@ class RecentDiskSource : public RecentSource {
   ~RecentDiskSource() override;
 
   // RecentSource overrides:
-  void GetRecentFiles(Params params, GetRecentFilesCallback callback) override;
+  void GetRecentFiles(const Params& params,
+                      GetRecentFilesCallback callback) override;
+
+  // Stops the recent files search. Returns any partial results already
+  // collected.
+  std::vector<RecentFile> Stop(const int32_t call_id) override;
 
   // Helper function that determines a match between file type inferred from the
   // path and the desired file_type.
@@ -58,20 +63,20 @@ class RecentDiskSource : public RecentSource {
 
   static const char kLoadHistogramName[];
 
-  void ScanDirectory(const Params& params,
+  void ScanDirectory(const int32_t call_id,
                      const base::FilePath& path,
                      int depth);
-  void OnReadDirectory(const Params& params,
+  void OnReadDirectory(const int32_t call_id,
                        const base::FilePath& path,
                        int depth,
                        base::File::Error result,
                        storage::FileSystemOperation::FileEntryList entries,
                        bool has_more);
-  void OnGetMetadata(const base::Time& cutoff_time,
+  void OnGotMetadata(const int32_t call_id,
                      const storage::FileSystemURL& url,
                      base::File::Error result,
                      const base::File::Info& info);
-  void OnReadOrStatFinished();
+  void OnReadOrStatFinished(int32_t call_id);
 
   storage::FileSystemURL BuildDiskURL(const Params& params,
                                       const base::FilePath& path) const;
@@ -81,16 +86,36 @@ class RecentDiskSource : public RecentSource {
   const int max_depth_;
   const std::string uma_histogram_name_;
 
-  // Time when the build started.
-  base::TimeTicks build_start_time_;
-  // Number of ReadDirectory() calls in flight.
-  int inflight_readdirs_ = 0;
-  // Number of GetMetadata() calls in flight.
-  int inflight_stats_ = 0;
-  // Most recently modified files.
-  FileAccumulator accumulator_;
-  // The callback called when we are ready.
-  GetRecentFilesCallback callback_;
+  // CallContext gather information for a single GetRecentFiles call. As
+  // GetRecentFiles call can take time, and some data is collected on IO thread,
+  // we cannot guarantee that two calls will not overlap. To solve this each
+  // call receives a unique call_id and its context is stored in the map. As the
+  // map is only accessed on the UI thread we do not need to use additional
+  // locks to guarantee its consistency.
+  struct CallContext {
+    CallContext(const Params& params, GetRecentFilesCallback callback);
+    // Move constructor; necessary as callback is a move-only type.
+    CallContext(CallContext&& context);
+
+    ~CallContext();
+
+    // The parameters of the GetRecentFiles call.
+    const Params params;
+
+    // The callback called when the files and their metadata is ready.
+    GetRecentFilesCallback callback;
+    // Time when the build started.
+    base::TimeTicks build_start_time;
+    // Number of ReadDirectory() calls in flight.
+    int inflight_readdirs = 0;
+    // Number of GetMetadata() calls in flight.
+    int inflight_stats = 0;
+    // Most recently modified files.
+    FileAccumulator accumulator;
+  };
+
+  // A map from call_id to the context of the call.
+  base::IDMap<std::unique_ptr<CallContext>> context_map_;
 
   base::WeakPtrFactory<RecentDiskSource> weak_ptr_factory_{this};
 };

@@ -50,12 +50,7 @@ export function createPageAvailability(): OsPageAvailability {
     [Section.kSystemPreferences]: !!routes.SYSTEM_PREFERENCES,
 
     // Only available when OsSettingsRevampWayfinding feature is disabled.
-    [Section.kCrostini]: !!routes.CROSTINI,
-    [Section.kDateAndTime]: !!routes.DATETIME,
     [Section.kFiles]: !!routes.FILES,
     [Section.kLanguagesAndInput]: !!routes.OS_LANGUAGES,
-    [Section.kPrinting]: !!routes.OS_PRINTING,
-    [Section.kReset]: !!routes.OS_RESET,
-    [Section.kSearchAndAssistant]: !!routes.OS_SEARCH,
   };
 }

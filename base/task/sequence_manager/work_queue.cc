@@ -4,14 +4,17 @@
 
 #include "base/task/sequence_manager/work_queue.h"
 
+#include <optional>
+
 #include "base/debug/alias.h"
+#include "base/task/common/task_annotator.h"
 #include "base/task/sequence_manager/fence.h"
 #include "base/task/sequence_manager/sequence_manager_impl.h"
 #include "base/task/sequence_manager/task_order.h"
 #include "base/task/sequence_manager/work_queue_sets.h"
 #include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/cleanup/cleanup.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 namespace sequence_manager {
@@ -56,9 +59,9 @@ bool WorkQueue::BlockedByFence() const {
   return tasks_.empty() || tasks_.front().task_order() >= fence_->task_order();
 }
 
-absl::optional<TaskOrder> WorkQueue::GetFrontTaskOrder() const {
+std::optional<TaskOrder> WorkQueue::GetFrontTaskOrder() const {
   if (tasks_.empty() || BlockedByFence())
-    return absl::nullopt;
+    return std::nullopt;
   // Quick sanity check.
   DCHECK(tasks_.front().task_order() <= tasks_.back().task_order())
       << task_queue_->GetName() << " : " << work_queue_sets_->GetName() << " : "
@@ -231,6 +234,17 @@ bool WorkQueue::RemoveAllCanceledTasksFromFront() {
 
   while (!tasks_.empty()) {
     const auto& pending_task = tasks_.front();
+#if DCHECK_IS_ON()
+    // Checking if a task is cancelled can trip DCHECK/CHECK failures out of the
+    // control of the SequenceManager code, so provide a task trace for easier
+    // diagnosis. See crbug.com/374409662 for context.
+    absl::Cleanup resetter = [original_task =
+                                  TaskAnnotator::CurrentTaskForThread()] {
+      TaskAnnotator::SetCurrentTaskForThread({}, original_task);
+    };
+    TaskAnnotator::SetCurrentTaskForThread(base::PassKey<WorkQueue>(),
+                                           &pending_task);
+#endif
     if (pending_task.task && !pending_task.IsCanceled())
       break;
     tasks_to_delete.push_back(std::move(tasks_.front()));
@@ -297,7 +311,7 @@ bool WorkQueue::InsertFence(Fence fence) {
 
 bool WorkQueue::RemoveFence() {
   bool was_blocked_by_fence = BlockedByFence();
-  fence_ = absl::nullopt;
+  fence_ = std::nullopt;
   if (work_queue_sets_ && !tasks_.empty() && was_blocked_by_fence) {
     work_queue_sets_->OnTaskPushedToEmptyQueue(this);
     return true;

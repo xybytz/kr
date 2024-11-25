@@ -21,11 +21,10 @@
 #include "chrome/browser/web_applications/locks/all_apps_lock.h"
 #include "chrome/browser/web_applications/locks/shared_web_contents_lock.h"
 #include "chrome/browser/web_applications/locks/shared_web_contents_with_app_lock.h"
-#include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
+#include "chrome/browser/web_applications/web_app_install_utils.h"
 #include "chrome/browser/web_applications/web_app_logging.h"
-#include "chrome/browser/web_applications/web_contents/web_app_url_loader.h"
 #include "components/services/app_service/public/cpp/app_launch_util.h"
 #include "components/webapps/browser/installable/installable_logging.h"
 #include "components/webapps/browser/installable/installable_metrics.h"
@@ -38,6 +37,11 @@ class Profile;
 namespace content {
 class WebContents;
 }
+
+namespace webapps {
+class WebAppUrlLoader;
+enum class WebAppUrlLoaderResult;
+}  // namespace webapps
 
 namespace web_app {
 
@@ -86,31 +90,27 @@ class ExternalAppResolutionCommand
   // agent got redirected to a different origin and a placeholder installation
   // is configured as fallback).
   // * offline installation from install info (in all other cases).
-  void OnUrlLoadedAndBranchInstallation(WebAppUrlLoader::Result result);
+  void OnUrlLoadedAndBranchInstallation(webapps::WebAppUrlLoaderResult result);
 
   // Regular installation path:
   void OnGetWebAppInstallInfoInCommand(
       std::unique_ptr<WebAppInstallInfo> web_app_info);
   void OnDidPerformInstallableCheck(blink::mojom::ManifestPtr opt_manifest,
-                                    const GURL& manifest_url,
                                     bool valid_manifest_for_web_app,
                                     webapps::InstallableStatusCode error_code);
-  void OnPreparedForIconRetrieving(base::flat_set<GURL> icon_urls,
+  void OnPreparedForIconRetrieving(IconUrlSizeSet icon_urls,
                                    bool skip_page_favicons,
-                                   WebAppUrlLoaderResult result);
+                                   webapps::WebAppUrlLoaderResult result);
   void OnIconsRetrievedUpgradeLockDescription(
       IconsDownloadedResult result,
       IconsMap icons_map,
       DownloadedIconsHttpResults icons_http_results);
-  void OnLockUpgradedFinalizeInstall(
-      bool icon_download_failed,
-      std::unique_ptr<SharedWebContentsWithAppLock> apps_lock);
+  void OnLockUpgradedFinalizeInstall(bool icon_download_failed);
   void OnInstallFinalized(const webapps::AppId& app_id,
-                          webapps::InstallResultCode code,
-                          OsHooksErrors os_hooks_errors);
+                          webapps::InstallResultCode code);
   void OnUninstallAndReplaceCompletedUninstallPlaceholder(
       bool uninstall_triggered);
-  void OnAllAppsLockGrantedRemovePlaceholder(std::unique_ptr<AllAppsLock> lock);
+  void OnAllAppsLockGrantedRemovePlaceholder();
   void OnPlaceholderUninstalledMaybeRelaunch(
       webapps::UninstallResultCode result);
 
@@ -120,18 +120,15 @@ class ExternalAppResolutionCommand
                 base::Value debug_value);
 
   // Placeholder installation path:
-  void OnPlaceHolderAppLockAcquired(
-      std::unique_ptr<SharedWebContentsWithAppLock> apps_lock);
+  void OnPlaceHolderAppLockAcquired();
   void OnPlaceHolderInstalled(webapps::InstallResultCode code,
                               webapps::AppId app_id);
 
   // Offline installation path:
   void InstallFromInfo();
-  void OnInstallFromInfoAppLockAcquired(
-      std::unique_ptr<SharedWebContentsWithAppLock> apps_lock);
+  void OnInstallFromInfoAppLockAcquired();
   void OnInstallFromInfoCompleted(webapps::AppId app_id,
-                                  webapps::InstallResultCode code,
-                                  OsHooksErrors os_hook_errors);
+                                  webapps::InstallResultCode code);
   void OnUninstallAndReplaceCompleted(bool is_offline_install,
                                       bool uninstall_triggered);
 
@@ -164,7 +161,7 @@ class ExternalAppResolutionCommand
   raw_ref<Profile> profile_;
 
   raw_ptr<content::WebContents> web_contents_ = nullptr;
-  std::unique_ptr<WebAppUrlLoader> url_loader_;
+  std::unique_ptr<webapps::WebAppUrlLoader> url_loader_;
   std::unique_ptr<WebAppDataRetriever> data_retriever_;
   std::unique_ptr<WebAppInstallInfo> web_app_info_;
 

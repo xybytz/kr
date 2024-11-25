@@ -20,7 +20,7 @@ public interface SyncConsentActivityLauncher {
         SigninAccessPoint.BOOKMARK_MANAGER,
         SigninAccessPoint.RECENT_TABS,
         SigninAccessPoint.SIGNIN_PROMO,
-        SigninAccessPoint.NTP_CONTENT_SUGGESTIONS,
+        SigninAccessPoint.NTP_FEED_TOP_PROMO,
         SigninAccessPoint.AUTOFILL_DROPDOWN,
         SigninAccessPoint.NTP_SIGNED_OUT_ICON
     })
@@ -59,19 +59,4 @@ public interface SyncConsentActivityLauncher {
      * @return a boolean indicating if the {@link SyncConsentActivity} is launched.
      */
     boolean launchActivityIfAllowed(Context context, @SigninAccessPoint int accessPoint);
-
-    /**
-     * Launches the {@link SyncConsentActivity} with Tangible Sync flow.
-     * @param accessPoint {@link SigninAccessPoint} for starting sign-in flow.
-     * @param accountName The account to select.
-     */
-    void launchActivityForTangibleSyncFlow(
-            Context context, @SigninAccessPoint int accessPoint, String accountName);
-
-    /**
-     * Launches the {@link SyncConsentActivity} with "New Account" sign-in flow for Tangible Sync.
-     * @param accessPoint {@link SigninAccessPoint} for starting sign-in flow.
-     */
-    void launchActivityForTangibleSyncAddAccountFlow(
-            Context context, @SigninAccessPoint int accessPoint);
 }

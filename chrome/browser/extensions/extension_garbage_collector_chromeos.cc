@@ -55,7 +55,6 @@ bool ExtensionGarbageCollectorChromeOS::CanGarbageCollectSharedExtensions() {
   user_manager::UserManager* user_manager = user_manager::UserManager::Get();
   if (!user_manager) {
     NOTREACHED();
-    return false;
   }
 
   const user_manager::UserList& active_users = user_manager->GetLoggedInUsers();

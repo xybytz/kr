@@ -7,6 +7,7 @@
 #include <cstdarg>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -193,7 +194,7 @@ class MockProxyConfigService : public ProxyConfigService {
       observer.OnProxyConfigChanged(config_, availability_);
   }
 
-  void SetPacUrlConfig(base::StringPiece pac_url) {
+  void SetPacUrlConfig(std::string_view pac_url) {
     SetConfig(ProxyConfigWithAnnotation(
         ProxyConfig::CreateFromCustomPacURL(GURL(pac_url)),
         TRAFFIC_ANNOTATION_FOR_TESTS));
@@ -241,11 +242,16 @@ class TestResolveProxyDelegate : public ProxyDelegate {
     return proxy_retry_info_;
   }
 
+  void OnSuccessfulRequestAfterFailures(
+      const ProxyRetryInfoMap& proxy_retry_info) override {}
+
   void OnFallback(const ProxyChain& bad_chain, int net_error) override {}
 
-  void OnBeforeTunnelRequest(const ProxyChain& proxy_chain,
-                             size_t chain_index,
-                             HttpRequestHeaders* extra_headers) override {}
+  Error OnBeforeTunnelRequest(const ProxyChain& proxy_chain,
+                              size_t chain_index,
+                              HttpRequestHeaders* extra_headers) override {
+    return OK;
+  }
 
   Error OnTunnelHeadersReceived(
       const ProxyChain& proxy_chain,
@@ -276,15 +282,22 @@ class TestProxyFallbackProxyDelegate : public ProxyDelegate {
                       const ProxyRetryInfoMap& proxy_retry_info,
                       ProxyInfo* result) override {}
 
+  void OnSuccessfulRequestAfterFailures(
+      const ProxyRetryInfoMap& proxy_retry_info) override {
+    last_proxy_retry_info_ = proxy_retry_info;
+  }
+
   void OnFallback(const ProxyChain& bad_chain, int net_error) override {
     proxy_chain_ = bad_chain;
     last_proxy_fallback_net_error_ = net_error;
     num_proxy_fallback_called_++;
   }
 
-  void OnBeforeTunnelRequest(const ProxyChain& proxy_chain,
-                             size_t chain_index,
-                             HttpRequestHeaders* extra_headers) override {}
+  Error OnBeforeTunnelRequest(const ProxyChain& proxy_chain,
+                              size_t chain_index,
+                              HttpRequestHeaders* extra_headers) override {
+    return OK;
+  }
 
   Error OnTunnelHeadersReceived(
       const ProxyChain& proxy_chain,
@@ -304,10 +317,15 @@ class TestProxyFallbackProxyDelegate : public ProxyDelegate {
     return last_proxy_fallback_net_error_;
   }
 
+  const ProxyRetryInfoMap& last_proxy_retry_info() const {
+    return last_proxy_retry_info_;
+  }
+
  private:
   int num_proxy_fallback_called_ = 0;
   ProxyChain proxy_chain_;
   int last_proxy_fallback_net_error_ = OK;
+  ProxyRetryInfoMap last_proxy_retry_info_;
 };
 
 using JobMap = std::map<GURL, MockAsyncProxyResolver::Job*>;
@@ -981,7 +999,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC) {
 
 // Test that the proxy resolver does not see the URL's username/password
 // or its reference section.
-TEST_F(ConfiguredProxyResolutionServiceTest, PAC_NoIdentityOrHash) {
+TEST_F(ConfiguredProxyResolutionServiceTest, PACNoIdentityOrHash) {
   auto config_service =
       std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
 
@@ -1016,7 +1034,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_NoIdentityOrHash) {
   // ConfiguredProxyResolutionService will cancel the outstanding request.
 }
 
-TEST_F(ConfiguredProxyResolutionServiceTest, PAC_FailoverWithoutDirect) {
+TEST_F(ConfiguredProxyResolutionServiceTest, PACFailoverWithoutDirect) {
   auto config_service =
       std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
   MockAsyncProxyResolver resolver;
@@ -1065,7 +1083,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_FailoverWithoutDirect) {
 
 // Test that if the execution of the PAC script fails (i.e. javascript runtime
 // error), and the PAC settings are non-mandatory, that we fall-back to direct.
-TEST_F(ConfiguredProxyResolutionServiceTest, PAC_RuntimeError) {
+TEST_F(ConfiguredProxyResolutionServiceTest, PACRuntimeError) {
   auto config_service =
       std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
   MockAsyncProxyResolver resolver;
@@ -1124,7 +1142,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_RuntimeError) {
 //
 // The important check of this test is to make sure that DIRECT is not somehow
 // cached as being a bad proxy.
-TEST_F(ConfiguredProxyResolutionServiceTest, PAC_FailoverAfterDirect) {
+TEST_F(ConfiguredProxyResolutionServiceTest, PACFailoverAfterDirect) {
   auto config_service =
       std::make_unique<MockProxyConfigService>("http://foopy/proxy.pac");
   MockAsyncProxyResolver resolver;
@@ -1179,7 +1197,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, PAC_FailoverAfterDirect) {
   EXPECT_TRUE(info.is_empty());
 }
 
-TEST_F(ConfiguredProxyResolutionServiceTest, PAC_ConfigSourcePropagates) {
+TEST_F(ConfiguredProxyResolutionServiceTest, PACConfigSourcePropagates) {
   // Test whether the ProxyConfigSource set by the ProxyConfigService is applied
   // to ProxyInfo after the proxy is resolved via a PAC script.
   ProxyConfig config =
@@ -1671,6 +1689,10 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback) {
   EXPECT_EQ(ERR_PROXY_CONNECTION_FAILED,
             test_delegate.last_proxy_fallback_net_error());
   service.SetProxyDelegate(nullptr);
+  EXPECT_EQ(1u, info.proxy_retry_info().size());
+  EXPECT_TRUE(
+      info.proxy_retry_info().contains(ProxyChain::FromSchemeHostAndPort(
+          ProxyServer::SCHEME_HTTP, "foopy1", 8080)));
 
   TestCompletionCallback callback3;
   rv =
@@ -1810,7 +1832,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallbackToDirect) {
   EXPECT_FALSE(info.Fallback(ERR_PROXY_CONNECTION_FAILED, NetLogWithSource()));
 }
 
-TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback_BadConfig) {
+TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallbackBadConfig) {
   // Test proxy failover when the configuration is bad.
 
   auto config_service =
@@ -1915,7 +1937,7 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback_BadConfig) {
   EXPECT_EQ(3, delegate.num_resolve_proxy_called());
 }
 
-TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallback_BadConfigMandatory) {
+TEST_F(ConfiguredProxyResolutionServiceTest, ProxyFallbackBadConfigMandatory) {
   // Test proxy failover when the configuration is bad.
 
   ProxyConfig config(
@@ -2050,42 +2072,6 @@ TEST_F(ConfiguredProxyResolutionServiceTest, ProxyBypassList) {
                             NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
   EXPECT_EQ("[foopy1:8080]", info[1].proxy_chain().ToDebugString());
-}
-
-TEST_F(ConfiguredProxyResolutionServiceTest, MarkProxiesAsBadTests) {
-  ProxyConfig config;
-  config.proxy_rules().ParseFromString(
-      "http=foopy1:8080;http=foopy2:8080;http=foopy3:8080;http=foopy4:8080");
-  config.set_auto_detect(false);
-
-  ProxyList proxy_list;
-  std::vector<ProxyChain> additional_bad_proxies;
-  for (const ProxyChain& proxy_chain :
-       config.proxy_rules().proxies_for_http.AllChains()) {
-    proxy_list.AddProxyChain(proxy_chain);
-    if (proxy_chain == config.proxy_rules().proxies_for_http.First()) {
-      continue;
-    }
-
-    additional_bad_proxies.emplace_back(proxy_chain);
-  }
-
-  EXPECT_EQ(3u, additional_bad_proxies.size());
-
-  ConfiguredProxyResolutionService service(
-      std::make_unique<MockProxyConfigService>(config), nullptr, nullptr,
-      /*quick_check_enabled=*/true);
-  ProxyInfo proxy_info;
-  proxy_info.UseProxyList(proxy_list);
-  const ProxyRetryInfoMap& retry_info = service.proxy_retry_info();
-  service.MarkProxiesAsBadUntil(proxy_info, base::Seconds(1),
-                                additional_bad_proxies, NetLogWithSource());
-  ASSERT_EQ(4u, retry_info.size());
-  for (const ProxyChain& proxy_chain :
-       config.proxy_rules().proxies_for_http.AllChains()) {
-    auto i = retry_info.find(proxy_chain);
-    ASSERT_TRUE(i != retry_info.end());
-  }
 }
 
 TEST_F(ConfiguredProxyResolutionServiceTest, PerProtocolProxyTests) {

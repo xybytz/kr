@@ -34,7 +34,7 @@
           {
             "builder_id": {
               "bucket": "ci",
-              "builder": "Mac13 Tests (dbg)",
+              "builder": "mac14-tests-dbg",
               "project": "chromium"
             },
             "builder_spec": {
@@ -73,11 +73,12 @@
       "builder_ids_in_scope_for_testing": [
         {
           "bucket": "ci",
-          "builder": "Mac13 Tests (dbg)",
+          "builder": "mac14-tests-dbg",
           "project": "chromium"
         }
       ],
-      "is_compile_only": true
+      "is_compile_only": true,
+      "targets_spec_directory": "src/infra/config/generated/builders/try/mac_chromium_compile_dbg_ng/targets"
     }
   },
   "$build/flakiness": {
@@ -86,9 +87,18 @@
   },
   "$build/reclient": {
     "instance": "rbe-chromium-untrusted",
-    "jobs": 150,
     "metrics_project": "chromium-reclient-metrics",
     "scandeps_server": true
+  },
+  "$build/siso": {
+    "configs": [
+      "builder"
+    ],
+    "enable_cloud_profiler": true,
+    "enable_cloud_trace": true,
+    "experiments": [],
+    "project": "rbe-chromium-untrusted",
+    "remote_jobs": 150
   },
   "$recipe_engine/resultdb/test_presentation": {
     "column_keys": [],

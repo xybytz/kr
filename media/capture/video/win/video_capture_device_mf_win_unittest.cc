@@ -74,37 +74,53 @@ class MockClient : public VideoCaptureDevice::Client {
                               bool flip_y,
                               base::TimeTicks reference_time,
                               base::TimeDelta timestamp,
+                              std::optional<base::TimeTicks> capture_begin_time,
+                              const std::optional<VideoFrameMetadata>& metadata,
                               int frame_feedback_id) override {}
 
-  void OnIncomingCapturedGfxBuffer(gfx::GpuMemoryBuffer* buffer,
-                                   const VideoCaptureFormat& frame_format,
-                                   int clockwise_rotation,
-                                   base::TimeTicks reference_time,
-                                   base::TimeDelta timestamp,
-                                   int frame_feedback_id) override {}
+  void OnIncomingCapturedGfxBuffer(
+      gfx::GpuMemoryBuffer* buffer,
+      const VideoCaptureFormat& frame_format,
+      int clockwise_rotation,
+      base::TimeTicks reference_time,
+      base::TimeDelta timestamp,
+      std::optional<base::TimeTicks> capture_begin_time,
+      const std::optional<VideoFrameMetadata>& metadata,
+      int frame_feedback_id) override {}
 
   void OnIncomingCapturedExternalBuffer(
       CapturedExternalVideoBuffer buffer,
       base::TimeTicks reference_time,
       base::TimeDelta timestamp,
-      const gfx::Rect& visible_rect) override {}
+      std::optional<base::TimeTicks> capture_begin_time,
+      const gfx::Rect& visible_rect,
+      const std::optional<VideoFrameMetadata>& metadata) override {}
 
-  MOCK_METHOD4(ReserveOutputBuffer,
-               ReserveResult(const gfx::Size&, VideoPixelFormat, int, Buffer*));
+  MOCK_METHOD6(ReserveOutputBuffer,
+               ReserveResult(const gfx::Size&,
+                             VideoPixelFormat,
+                             int,
+                             Buffer*,
+                             int*,
+                             int*));
 
-  void OnIncomingCapturedBuffer(Buffer buffer,
-                                const VideoCaptureFormat& format,
-                                base::TimeTicks reference_,
-                                base::TimeDelta timestamp) override {}
+  void OnIncomingCapturedBuffer(
+      Buffer buffer,
+      const VideoCaptureFormat& format,
+      base::TimeTicks reference_,
+      base::TimeDelta timestamp,
+      std::optional<base::TimeTicks> capture_begin_time,
+      const std::optional<VideoFrameMetadata>& metadata) override {}
 
-  MOCK_METHOD7(OnIncomingCapturedBufferExt,
+  MOCK_METHOD8(OnIncomingCapturedBufferExt,
                void(Buffer,
                     const VideoCaptureFormat&,
                     const gfx::ColorSpace&,
                     base::TimeTicks,
                     base::TimeDelta,
+                    std::optional<base::TimeTicks>,
                     gfx::Rect,
-                    const VideoFrameMetadata&));
+                    const std::optional<VideoFrameMetadata>&));
 
   MOCK_METHOD3(OnError,
                void(VideoCaptureError,
@@ -191,7 +207,7 @@ class MockAMCameraControl final : public MockInterface<IAMCameraControl> {
         *flags = CameraControl_Flags_Auto;
         return S_OK;
       default:
-        NOTREACHED_NORETURN();
+        NOTREACHED();
     }
   }
   IFACEMETHODIMP GetRange(long property,
@@ -215,7 +231,7 @@ class MockAMCameraControl final : public MockInterface<IAMCameraControl> {
         *caps_flags = CameraControl_Flags_Auto | CameraControl_Flags_Manual;
         return S_OK;
       default:
-        NOTREACHED_NORETURN();
+        NOTREACHED();
     }
   }
   IFACEMETHODIMP Set(long property, long value, long flags) override {
@@ -244,7 +260,7 @@ class MockAMVideoProcAmp final : public MockInterface<IAMVideoProcAmp> {
         *flags = VideoProcAmp_Flags_Auto;
         return S_OK;
       default:
-        NOTREACHED_NORETURN();
+        NOTREACHED();
     }
   }
   IFACEMETHODIMP GetRange(long property,
@@ -271,7 +287,7 @@ class MockAMVideoProcAmp final : public MockInterface<IAMVideoProcAmp> {
         *caps_flags = VideoProcAmp_Flags_Auto | VideoProcAmp_Flags_Manual;
         return S_OK;
       default:
-        NOTREACHED_NORETURN();
+        NOTREACHED();
     }
   }
   IFACEMETHODIMP Set(long property, long value, long flags) override {
@@ -282,6 +298,11 @@ class MockAMVideoProcAmp final : public MockInterface<IAMVideoProcAmp> {
   ~MockAMVideoProcAmp() override = default;
 };
 
+std::optional<ULONGLONG>& GetFakeBackgroundBlurState() {
+  static std::optional<ULONGLONG> background_blur_state;
+  return background_blur_state;
+}
+
 class MockMFExtendedCameraControl final
     : public MockInterface<IMFExtendedCameraControl> {
  public:
@@ -290,8 +311,10 @@ class MockMFExtendedCameraControl final
   IFACEMETHODIMP_(ULONGLONG) GetCapabilities() override {
     switch (property_id_) {
       case KSPROPERTY_CAMERACONTROL_EXTENDED_BACKGROUNDSEGMENTATION:
-        return (KSCAMERA_EXTENDEDPROP_BACKGROUNDSEGMENTATION_OFF |
-                KSCAMERA_EXTENDEDPROP_BACKGROUNDSEGMENTATION_BLUR);
+        return GetFakeBackgroundBlurState().has_value()
+                   ? (KSCAMERA_EXTENDEDPROP_BACKGROUNDSEGMENTATION_OFF |
+                      KSCAMERA_EXTENDEDPROP_BACKGROUNDSEGMENTATION_BLUR)
+                   : 0;
       case KSPROPERTY_CAMERACONTROL_EXTENDED_DIGITALWINDOW:
         return (KSCAMERA_EXTENDEDPROP_DIGITALWINDOW_AUTOFACEFRAMING |
                 KSCAMERA_EXTENDEDPROP_DIGITALWINDOW_MANUAL);
@@ -306,7 +329,8 @@ class MockMFExtendedCameraControl final
   IFACEMETHODIMP_(ULONGLONG) GetFlags() override {
     switch (property_id_) {
       case KSPROPERTY_CAMERACONTROL_EXTENDED_BACKGROUNDSEGMENTATION:
-        return KSCAMERA_EXTENDEDPROP_BACKGROUNDSEGMENTATION_OFF;
+        return GetFakeBackgroundBlurState().value_or(
+            KSCAMERA_EXTENDEDPROP_BACKGROUNDSEGMENTATION_OFF);
       case KSPROPERTY_CAMERACONTROL_EXTENDED_DIGITALWINDOW:
         return KSCAMERA_EXTENDEDPROP_DIGITALWINDOW_MANUAL;
       case KSPROPERTY_CAMERACONTROL_EXTENDED_EYEGAZECORRECTION:
@@ -1192,6 +1216,9 @@ class VideoCaptureDeviceMFWinTest : public ::testing::Test {
     engine_->set_expect_mf_dxgi_device_manager_attribute(dxgi_device_manager_ !=
                                                          nullptr);
 
+    GetFakeBackgroundBlurState().emplace(
+        KSCAMERA_EXTENDEDPROP_BACKGROUNDSEGMENTATION_OFF);
+
     EXPECT_CALL(*(engine_.Get()), OnCorrectInitializeQueued());
     task_runner_->PostTask(FROM_HERE, base::BindLambdaForTesting([&] {
                              EXPECT_TRUE(device_->Init());
@@ -2022,6 +2049,41 @@ TEST_F(VideoCaptureDeviceMFWinTest, GetPhotoStateViaPhotoStream) {
   EXPECT_EQ(mojom::MeteringMode::NONE, state->current_face_framing_mode);
 }
 
+TEST_F(VideoCaptureDeviceMFWinTest, GetBackgroundBlurState) {
+  if (ShouldSkipTest()) {
+    return;
+  }
+
+  PrepareMFDeviceWithOneVideoStream(MFVideoFormat_MJPG);
+
+  EXPECT_CALL(*(engine_.Get()), OnStartPreview());
+  EXPECT_CALL(*client_, OnStarted());
+
+  task_runner_->PostTask(FROM_HERE, base::BindLambdaForTesting([&] {
+                           device_->AllocateAndStart(VideoCaptureParams(),
+                                                     std::move(client_));
+                         }));
+  task_environment_.RunUntilIdle();
+
+  capture_preview_sink_->sample_callback->OnSample(nullptr);
+  task_environment_.RunUntilIdle();
+
+  auto actual_blur_state = device_->GetBackgroundBlurState();
+  EXPECT_TRUE(actual_blur_state.has_value());
+  EXPECT_FALSE(actual_blur_state->enabled);
+
+  auto& fake_state = GetFakeBackgroundBlurState();
+  fake_state = KSCAMERA_EXTENDEDPROP_BACKGROUNDSEGMENTATION_BLUR;
+
+  actual_blur_state = device_->GetBackgroundBlurState();
+  EXPECT_TRUE(actual_blur_state.has_value());
+  EXPECT_TRUE(actual_blur_state->enabled);
+
+  fake_state.reset();
+  actual_blur_state = device_->GetBackgroundBlurState();
+  EXPECT_FALSE(actual_blur_state.has_value());
+}
+
 // Given an |IMFCaptureSource| offering a video stream and a photo stream to
 // |VideoCaptureDevice|, when taking photo from |VideoCaptureDevice| then
 // expect IMFCaptureEngine::TakePhoto() to be called
@@ -2195,9 +2257,10 @@ TEST_F(VideoCaptureDeviceMFWinTestWithDXGI, DeliverGMBCaptureBuffers) {
   // Verify that an output capture buffer is reserved from the client
   EXPECT_CALL(*client_, ReserveOutputBuffer)
       .WillOnce(Invoke(
-          [expected_size](const gfx::Size& size, VideoPixelFormat format,
-                          int feedback_id,
-                          VideoCaptureDevice::Client::Buffer* capture_buffer) {
+          [expected_size](
+              const gfx::Size& size, VideoPixelFormat format, int feedback_id,
+              VideoCaptureDevice::Client::Buffer* capture_buffer,
+              int* require_new_buffer_id, int* retire_old_buffer_id) {
             EXPECT_EQ(size.width(), expected_size.width());
             EXPECT_EQ(size.height(), expected_size.height());
             EXPECT_EQ(format, PIXEL_FORMAT_NV12);
@@ -2251,12 +2314,16 @@ TEST_F(VideoCaptureDeviceMFWinTestWithDXGI, DeliverGMBCaptureBuffers) {
   EXPECT_CALL(*client_, OnIncomingCapturedBufferExt)
       .WillOnce(Invoke([](VideoCaptureDevice::Client::Buffer buffer,
                           const VideoCaptureFormat&, const gfx::ColorSpace&,
-                          base::TimeTicks, base::TimeDelta, gfx::Rect,
-                          const VideoFrameMetadata&) {
+                          base::TimeTicks, base::TimeDelta,
+                          std::optional<base::TimeTicks>, gfx::Rect,
+                          const std::optional<VideoFrameMetadata>& metadata) {
         gfx::GpuMemoryBufferHandle gmb_handle =
             buffer.handle_provider->GetGpuMemoryBufferHandle();
         EXPECT_EQ(gmb_handle.type,
                   gfx::GpuMemoryBufferType::DXGI_SHARED_HANDLE);
+        EXPECT_TRUE(metadata.has_value());
+        EXPECT_TRUE(metadata->background_blur.has_value());
+        EXPECT_FALSE(metadata->background_blur->enabled);
       }));
 
   // Init capture

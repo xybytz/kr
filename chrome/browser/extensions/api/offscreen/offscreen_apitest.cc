@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "extensions/browser/api/offscreen/offscreen_api.h"
-
 #include "base/functional/callback_helpers.h"
 #include "base/ranges/algorithm.h"
 #include "base/run_loop.h"
@@ -11,33 +9,39 @@
 #include "build/build_config.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_util.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/extensions/extension_action_test_helper.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/version_info/channel.h"
 #include "content/public/test/browser_test.h"
+#include "content/public/test/browser_test_utils.h"
 #include "extensions/browser/api/offscreen/audio_lifetime_enforcer.h"
+#include "extensions/browser/api/offscreen/offscreen_api.h"
 #include "extensions/browser/api/offscreen/offscreen_document_manager.h"
 #include "extensions/browser/background_script_executor.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/lazy_context_id.h"
 #include "extensions/browser/lazy_context_task_queue.h"
 #include "extensions/browser/offscreen_document_host.h"
+#include "extensions/browser/script_executor.h"
 #include "extensions/browser/test_extension_registry_observer.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/features/feature_channel.h"
 #include "extensions/common/switches.h"
 #include "extensions/test/extension_background_page_waiter.h"
+#include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
 #include "extensions/test/test_extension_dir.h"
 #include "net/dns/mock_host_resolver.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "base/test/gtest_tags.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "content/public/common/content_client.h"
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 namespace extensions {
 
@@ -108,16 +112,6 @@ void WakeUpServiceWorker(const Extension& extension, Profile& profile) {
       }).Then(run_loop.QuitWhenIdleClosure()));
   run_loop.Run();
 }
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-class ContentBrowserClientMock : public ChromeContentBrowserClient {
- public:
-  MOCK_METHOD(bool,
-              IsGetAllScreensMediaAllowed,
-              (content::BrowserContext * context, const url::Origin& origin),
-              (override));
-};
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace
 
@@ -236,9 +230,10 @@ IN_PROC_BROWSER_TEST_F(OffscreenApiTest, MAYBE_BasicDocumentManagement) {
 
 // Tests creating, querying, and closing offscreen documents in an incognito
 // split mode extension.
-// TODO(crbug.com/1484659): Disabled on ASAN due to leak caused by renderer gin
+// TODO(crbug.com/40282331): Disabled on ASAN due to leak caused by renderer gin
 // objects which are intended to be leaked.
-#if defined(ADDRESS_SANITIZER)
+// TODO(crbug.com/345326424): Flaky on Mac builds.
+#if defined(ADDRESS_SANITIZER) || BUILDFLAG(IS_MAC)
 #define MAYBE_IncognitoModeHandling_SplitMode \
   DISABLED_IncognitoModeHandling_SplitMode
 #else
@@ -317,9 +312,10 @@ IN_PROC_BROWSER_TEST_F(OffscreenApiTest,
 
 // Tests creating, querying, and closing offscreen documents in an incognito
 // spanning mode extension.
-// TODO(crbug.com/1484659): Disabled on ASAN due to leak caused by renderer gin
+// TODO(crbug.com/40282331): Disabled on ASAN due to leak caused by renderer gin
 // objects which are intended to be leaked.
-#if defined(ADDRESS_SANITIZER)
+// TODO(crbug.com/345326424): Flaky on Mac builds.
+#if defined(ADDRESS_SANITIZER) || BUILDFLAG(IS_MAC)
 #define MAYBE_IncognitoModeHandling_SpanningMode \
   DISABLED_IncognitoModeHandling_SpanningMode
 #else
@@ -506,152 +502,7 @@ IN_PROC_BROWSER_TEST_F(OffscreenApiTest, OpenAndImmediatelyCloseDocument) {
   ASSERT_TRUE(RunExtensionTest(test_dir.UnpackedPath(), {}, {})) << message_;
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-class GetAllScreensMediaOffscreenApiTest : public OffscreenApiTest {
- public:
-  GetAllScreensMediaOffscreenApiTest() = default;
-  ~GetAllScreensMediaOffscreenApiTest() override = default;
-
-  void SetUpOnMainThread() override {
-    OffscreenApiTest::SetUpOnMainThread();
-    browser_client_ = std::make_unique<ContentBrowserClientMock>();
-    content::SetBrowserClientForTesting(browser_client_.get());
-  }
-
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    OffscreenApiTest::SetUpCommandLine(command_line);
-    scoped_feature_list_.InitFromCommandLine(
-        /*enable_features=*/
-        "GetAllScreensMedia",
-        /*disable_features=*/"");
-  }
-
- protected:
-  ContentBrowserClientMock& content_browser_client() {
-    return *browser_client_;
-  }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-  std::unique_ptr<ContentBrowserClientMock> browser_client_;
-};
-
-// This test checks if the `getAllScreensMedia` API is available and fully
-// functional in offscreen documents on ChromeOS ash.
-IN_PROC_BROWSER_TEST_F(GetAllScreensMediaOffscreenApiTest,
-                       GetAllScreensMediaAllowed) {
-  // This test corresponds to a critical user journey (CUJ)
-  // (go/cros-cuj-tracker) for ChromeOS commercial.
-  // This tag links the test to a CUJ and allows close tracking whether a user
-  // journey is fully functional.
-  base::AddTagToTestResult("feature_id",
-                           "screenplay-f3601ae4-bff7-495a-a51f-3c0997a46445");
-  EXPECT_CALL(content_browser_client(),
-              IsGetAllScreensMediaAllowed(testing::_, testing::_))
-      .WillOnce(testing::Return(true));
-  static constexpr char kManifest[] =
-      R"({
-           "name": "Offscreen Document Test",
-           "manifest_version": 3,
-           "version": "0.1",
-           "background": {"service_worker": "background.js"},
-           "permissions": ["offscreen"]
-         })";
-  // An offscreen document that knows how to capture all screens.
-  static constexpr char kOffscreenJs[] =
-      R"(
-        let streams;
-
-        async function captureAllScreens() {
-          try {
-            streams = await navigator.mediaDevices.getAllScreensMedia();
-            if (streams === null || streams.length == 0) {
-              return false;
-            }
-
-            let allStreamsOk = true;
-            streams.forEach((stream) => {
-              const videoTracks = stream.getVideoTracks();
-              if (videoTracks.length == 0) {
-                allStreamsOk = false;
-                return;
-              }
-
-              const videoTrack = videoTracks[0];
-              if (typeof videoTrack.screenDetailed !== "function") {
-                allStreamsOk = false;
-                return;
-              }
-            });
-
-            chrome.test.sendScriptResult(allStreamsOk);
-            return;
-          } catch(e) {
-            console.error('Unexcpected exception: ' + e);
-            chrome.test.sendScriptResult(false);
-          }
-        }
-
-        function stopCapture() {
-          streams.forEach((stream) => {
-            stream.getVideoTracks()[0].stop();
-          });
-        }
-
-        chrome.runtime.onMessage.addListener(async (msg) => {
-          if (msg == 'capture') {
-            await captureAllScreens();
-          } else if (msg == 'stop') {
-            stopCapture();
-          } else {
-            console.error('Unexpected message: ' + msg);
-          }
-        }))";
-  TestExtensionDir test_dir;
-  test_dir.WriteManifest(kManifest);
-  test_dir.WriteFile(FILE_PATH_LITERAL("background.js"), "// Blank.");
-  test_dir.WriteFile(FILE_PATH_LITERAL("offscreen.html"),
-                     R"(<html><script src="offscreen.js"></script></html>)");
-  test_dir.WriteFile(FILE_PATH_LITERAL("offscreen.js"), kOffscreenJs);
-
-  scoped_refptr<const Extension> extension =
-      LoadExtension(test_dir.UnpackedPath());
-  ASSERT_TRUE(extension);
-
-  // Create a new offscreen document for audio playback and wait for it to load.
-  OffscreenDocumentManager* manager = OffscreenDocumentManager::Get(profile());
-  ProgrammaticallyCreateOffscreenDocument(*extension, *profile(),
-                                          "DISPLAY_MEDIA");
-  OffscreenDocumentHost* document =
-      manager->GetOffscreenDocumentForExtension(*extension);
-  ASSERT_TRUE(document);
-  content::WaitForLoadStop(document->host_contents());
-
-  // Begin the screen capture.
-  {
-    base::Value result = BackgroundScriptExecutor::ExecuteScript(
-        profile(), extension->id(), "chrome.runtime.sendMessage('capture');",
-        BackgroundScriptExecutor::ResultCapture::kSendScriptResult);
-    ASSERT_TRUE(result.is_bool());
-    EXPECT_TRUE(result.GetBool());
-  }
-
-  // The document should be kept alive.
-  base::RunLoop().RunUntilIdle();
-  EXPECT_TRUE(manager->GetOffscreenDocumentForExtension(*extension));
-
-  // Now, stop the capture.
-  {
-    BackgroundScriptExecutor::ExecuteScriptAsync(
-        profile(), extension->id(), "chrome.runtime.sendMessage('stop');");
-  }
-
-  // TODO(crbug.com/1443432): Add check if document gets shut down after the
-  // screen capture with `getAllScreensMedia` is stopped.
-}
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-
-// TODO(https://crbug.com/1453966): Failing on Windows.
+// TODO(crbug.com/40272130): Failing on Windows.
 #if BUILDFLAG(IS_WIN)
 #define MAYBE_TabCaptureStreams DISABLED_TabCaptureStreams
 #else
@@ -733,6 +584,68 @@ IN_PROC_BROWSER_TEST_F(OffscreenApiTest, LongLoadOffscreenDocument) {
   test_dir.WriteFile(FILE_PATH_LITERAL("offscreen.js"), kOffscreenJs);
 
   ASSERT_TRUE(RunExtensionTest(test_dir.UnpackedPath(), {}, {})) << message_;
+}
+
+// Tests user gestures are curried from service workers into offscreen
+// documents.
+IN_PROC_BROWSER_TEST_F(OffscreenApiTest,
+                       UserGesturesAreCurriedFromServiceWorkers) {
+  static constexpr char kManifest[] =
+      R"({
+           "name": "Offscreen Document Test",
+           "manifest_version": 3,
+           "version": "0.1",
+           "permissions": ["offscreen"],
+           "action": {},
+           "background": { "service_worker": "background.js" }
+         })";
+  static constexpr char kOffscreenHtml[] =
+      R"(<html><script src="offscreen.js"></script></html>)";
+  static constexpr char kOffscreenJs[] =
+      R"(chrome.runtime.onMessage.addListener((msg, sender, sendReply) => {
+           try {
+             const activeGesture = chrome.test.isProcessingUserGesture();
+             sendReply('active gesture: ' + activeGesture);
+           } catch (e) {
+             sendReply(`Error: ${e.toString()}`);
+           }
+         });)";
+  // The extension background script will:
+  // - Open a new offscreen document
+  // - Wait for an action click. This includes an active user action.
+  // - In the listener for the action click, dispatch a message to the
+  //   offscreen document. The active user gesture should be curried along.
+  static constexpr char kBackgroundJs[] =
+      R"((async () => {
+             await chrome.offscreen.createDocument(
+                       {
+                           url: 'offscreen.html',
+                           reasons: ['TESTING'],
+                           justification: 'testing'
+                       });
+             chrome.test.sendMessage('opened');
+         })();
+         chrome.action.onClicked.addListener(() => {
+           chrome.test.assertTrue(chrome.test.isProcessingUserGesture());
+           chrome.runtime.sendMessage('test message').then(response => {
+             chrome.test.assertEq('active gesture: true', response);
+             chrome.test.succeed();
+           });
+         });)";
+
+  TestExtensionDir test_dir;
+  test_dir.WriteManifest(kManifest);
+  test_dir.WriteFile(FILE_PATH_LITERAL("background.js"), kBackgroundJs);
+  test_dir.WriteFile(FILE_PATH_LITERAL("offscreen.html"), kOffscreenHtml);
+  test_dir.WriteFile(FILE_PATH_LITERAL("offscreen.js"), kOffscreenJs);
+
+  ExtensionTestMessageListener test_listener("opened");
+  ResultCatcher result_catcher;
+  const Extension* extension = LoadExtension(test_dir.UnpackedPath());
+  ASSERT_TRUE(extension);
+  ASSERT_TRUE(test_listener.WaitUntilSatisfied());
+  ExtensionActionTestHelper::Create(browser())->Press(extension->id());
+  ASSERT_TRUE(result_catcher.GetNextResult()) << result_catcher.message();
 }
 
 // Tests that the `TESTING` reason is disallowed without the appropriate

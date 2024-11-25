@@ -4,10 +4,13 @@
 
 package org.chromium.components.webapps.pwa_restore_ui;
 
+import android.content.Context;
 import android.view.View;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetContent;
 import org.chromium.components.webapps.R;
 
@@ -19,8 +22,19 @@ public class PwaRestoreBottomSheetContent implements BottomSheetContent {
     // This content's priority.
     private @ContentPriority int mPriority = ContentPriority.LOW;
 
-    public PwaRestoreBottomSheetContent(PwaRestoreBottomSheetView view) {
+    // Helps keep track of whether the Back button was pressed.
+    private final ObservableSupplierImpl<Boolean> mBackPressStateChangedSupplier =
+            new ObservableSupplierImpl<>();
+
+    // The handler to notify when the (Android) Back button is pressed.
+    Runnable mOsBackButtonClicked;
+
+    public PwaRestoreBottomSheetContent(
+            PwaRestoreBottomSheetView view, Runnable onOsBackButtonClicked) {
         mView = view;
+
+        mOsBackButtonClicked = onOsBackButtonClicked;
+        mBackPressStateChangedSupplier.set(true);
     }
 
     public void setPriority(@ContentPriority int priority) {
@@ -37,20 +51,32 @@ public class PwaRestoreBottomSheetContent implements BottomSheetContent {
     @Nullable
     @Override
     public View getToolbarView() {
-        return mView.getPreviewView();
+        return null;
     }
 
     @Override
-    public float getFullHeightRatio() {
-        return 1f;
+    public int getPeekHeight() {
+        return BottomSheetContent.HeightMode.DISABLED;
     }
 
     @Override
     public float getHalfHeightRatio() {
-        // By default `expandSheet` will result in the sheet expanding only to half-full height.
-        // This disables that functionality so we can go straight to full screen (minus the top
-        // system toolbar).
         return BottomSheetContent.HeightMode.DISABLED;
+    }
+
+    @Override
+    public float getFullHeightRatio() {
+        return BottomSheetContent.HeightMode.WRAP_CONTENT;
+    }
+
+    @Override
+    public ObservableSupplierImpl<Boolean> getBackPressStateChangedSupplier() {
+        return mBackPressStateChangedSupplier;
+    }
+
+    @Override
+    public void onBackPressed() {
+        mOsBackButtonClicked.run();
     }
 
     @Override
@@ -72,8 +98,8 @@ public class PwaRestoreBottomSheetContent implements BottomSheetContent {
     }
 
     @Override
-    public int getSheetContentDescriptionStringId() {
-        return R.string.pwa_restore_bottom_sheet_accessibility;
+    public @NonNull String getSheetContentDescription(Context context) {
+        return context.getString(R.string.pwa_restore_bottom_sheet_accessibility);
     }
 
     @Override

@@ -2,9 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {CrIconButtonElement, FittingType, ViewerZoomButtonElement, ViewerZoomToolbarElement} from 'chrome://print/pdf/pdf_print_wrapper.js';
+import type {CrIconButtonElement, ViewerZoomButtonElement, ViewerZoomToolbarElement} from 'chrome://print/pdf/pdf_print_wrapper.js';
+import {FittingType} from 'chrome://print/pdf/pdf_print_wrapper.js';
 import {assertEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {eventToPromise} from 'chrome://webui-test/test_util.js';
+import {eventToPromise, microtasksFinished} from 'chrome://webui-test/test_util.js';
 
 suite('PdfZoomToolbarTest', function() {
   let zoomToolbar: ViewerZoomToolbarElement;
@@ -88,6 +89,7 @@ suite('PdfZoomToolbarTest', function() {
 
     // Test forceFit(FIT_TO_PAGE) from initial state.
     zoomToolbar.forceFit(FittingType.FIT_TO_PAGE);
+    await microtasksFinished();
     assertTrue(button.ironIcon!.endsWith(fitWidthIcon));
 
     // Tap 1: Fire fit-to-changed(FIT_TO_WIDTH).
@@ -99,10 +101,12 @@ suite('PdfZoomToolbarTest', function() {
 
     // Test forceFit(FIT_TO_PAGE) from fit-to-width mode.
     zoomToolbar.forceFit(FittingType.FIT_TO_PAGE);
+    await microtasksFinished();
     assertTrue(button.ironIcon!.endsWith(fitWidthIcon));
 
     // Test forceFit(FIT_TO_PAGE) when already in fit-to-page mode.
     zoomToolbar.forceFit(FittingType.FIT_TO_PAGE);
+    await microtasksFinished();
     assertTrue(button.ironIcon!.endsWith(fitWidthIcon));
 
     // Tap 2: Fire fit-to-changed(FIT_TO_WIDTH).

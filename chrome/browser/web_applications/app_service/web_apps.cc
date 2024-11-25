@@ -6,14 +6,15 @@
 
 #include <utility>
 
+#include "ash/constants/web_app_id_constants.h"
 #include "base/feature_list.h"
 #include "base/memory/weak_ptr.h"
 #include "base/trace_event/trace_event.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_icon/app_icon_factory.h"
 #include "chrome/browser/apps/app_service/app_launch_params.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/web_applications/app_service/publisher_helper.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_command_scheduler.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
@@ -21,6 +22,7 @@
 #include "chrome/browser/web_applications/web_app_utils.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "components/services/app_service/public/cpp/icon_effects.h"
+#include "components/services/app_service/public/cpp/intent_util.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/constants/ash_features.h"
@@ -207,7 +209,8 @@ void WebApps::GetMenuModel(const std::string& app_id,
     // should not allow open more windows because user won't be able to close
     // them.
   } else if (can_close) {
-    if (chromeos::features::IsCrosShortstandEnabled()) {
+    // Isolated web apps can only be launched in new window.
+    if (web_app->isolation_data().has_value()) {
       apps::AddCommandItem(ash::LAUNCH_NEW,
                            IDS_APP_LIST_CONTEXT_MENU_NEW_WINDOW, menu_items);
     } else {
@@ -269,11 +272,6 @@ void WebApps::PublishWebApps(std::vector<apps::AppPtr> apps) {
   if (apps.empty()) {
     return;
   }
-  // Make sure none of the shortcuts that are supposed to be published as
-  // apps::Shortcut instead of apps::App get published here.
-  for (auto& app : apps) {
-    CHECK(!IsAppServiceShortcut(app->app_id, *provider_));
-  }
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // This is for prototyping and testing only. It is to provide an easy way to
   // simulate web app promise icon behaviour for the UI/ client development of
@@ -303,9 +301,6 @@ void WebApps::PublishWebApp(apps::AppPtr app) {
   if (!is_ready_) {
     return;
   }
-  // Make sure none of the shortcuts that are supposed to be published as
-  // apps::Shortcut instead of apps::App get published here.
-  CHECK(!IsAppServiceShortcut(app->app_id, *provider_));
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   bool is_projector = app->app_id == ash::kChromeUIUntrustedProjectorSwaAppId;
 
@@ -335,7 +330,6 @@ void WebApps::ModifyWebAppCapabilityAccess(
     const std::string& app_id,
     std::optional<bool> accessing_camera,
     std::optional<bool> accessing_microphone) {
-  CHECK(!IsAppServiceShortcut(app_id, *provider_));
   apps::AppPublisher::ModifyCapabilityAccess(
       app_id, std::move(accessing_camera), std::move(accessing_microphone));
 }
@@ -345,9 +339,6 @@ std::vector<apps::AppPtr> WebApps::CreateWebApps() {
 
   std::vector<apps::AppPtr> apps;
   for (const WebApp& web_app : provider_->registrar_unsafe().GetApps()) {
-    if (IsAppServiceShortcut(web_app.app_id(), *provider_)) {
-      continue;
-    }
     apps.push_back(publisher_helper().CreateWebApp(&web_app));
   }
   return apps;

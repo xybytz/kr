@@ -49,16 +49,17 @@ class ASH_EXPORT AssistantDialogPlate
       public AssistantInteractionModelObserver,
       public AssistantUiModelObserver,
       public AssistantButtonListener {
- public:
-  METADATA_HEADER(AssistantDialogPlate);
+  METADATA_HEADER(AssistantDialogPlate, views::View)
 
+ public:
   explicit AssistantDialogPlate(AssistantViewDelegate* delegate);
   AssistantDialogPlate(const AssistantDialogPlate&) = delete;
   AssistantDialogPlate& operator=(const AssistantDialogPlate&) = delete;
   ~AssistantDialogPlate() override;
 
   // views::View:
-  gfx::Size CalculatePreferredSize() const override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
   void RequestFocus() override;
   void OnThemeChanged() override;
 

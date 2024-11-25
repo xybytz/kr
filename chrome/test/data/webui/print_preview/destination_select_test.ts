@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Destination, DestinationOrigin, getSelectDropdownBackground, IronMeta, PrintPreviewDestinationSelectElement} from 'chrome://print/print_preview.js';
+import type {PrintPreviewDestinationSelectElement} from 'chrome://print/print_preview.js';
+import {Destination, DestinationOrigin, getSelectDropdownBackground, IconsetMap} from 'chrome://print/print_preview.js';
 import {assertEquals} from 'chrome://webui-test/chai_assert.js';
 import {waitAfterNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
@@ -12,8 +13,6 @@ suite('DestinationSelectTest', function() {
   let destinationSelect: PrintPreviewDestinationSelectElement;
 
   let recentDestinationList: Destination[] = [];
-
-  const meta = new IronMeta({type: 'iconset', value: undefined});
 
   setup(function() {
     document.body.innerHTML = window.trustedTypes!.emptyHTML;
@@ -43,7 +42,8 @@ suite('DestinationSelectTest', function() {
     const icon =
         selectEl.style.getPropertyValue('background-image').replace(/ /gi, '');
     const expected = getSelectDropdownBackground(
-        meta.byKey('print-preview'), expectedIcon, destinationSelect);
+        IconsetMap.getInstance().get('print-preview')!, expectedIcon,
+        destinationSelect);
     assertEquals(expected, icon);
   }
 

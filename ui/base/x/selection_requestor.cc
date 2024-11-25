@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "ui/base/x/selection_requestor.h"
 
 #include "base/memory/ref_counted_memory.h"
@@ -98,7 +103,8 @@ SelectionData SelectionRequestor::RequestAndWaitForTypes(
     x11::Atom type = x11::Atom::None;
     if (PerformBlockingConvertSelection(selection, item, &data, &type) &&
         type == item) {
-      return SelectionData(type, base::RefCountedBytes::TakeVector(&data));
+      return SelectionData(
+          type, base::MakeRefCounted<base::RefCountedBytes>(std::move(data)));
     }
   }
 

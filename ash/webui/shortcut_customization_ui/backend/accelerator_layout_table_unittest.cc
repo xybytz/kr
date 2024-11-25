@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "ash/webui/shortcut_customization_ui/backend/accelerator_layout_table.h"
 
 #include <cstddef>
@@ -22,9 +27,9 @@ namespace ash {
 namespace {
 
 // The total number of Ash accelerators.
-constexpr int kAshAcceleratorsTotalNum = 152;
+constexpr int kAshAcceleratorsTotalNum = 160;
 // The hash of Ash accelerators.
-constexpr char kAshAcceleratorsHash[] = "d86efe92af0f98f458b6c7eedd050123";
+constexpr char kAshAcceleratorsHash[] = "ccd847ce7ee2f2fbcf083ca8322ce2f0";
 
 std::string ToActionName(ash::AcceleratorAction action) {
   return base::StrCat(

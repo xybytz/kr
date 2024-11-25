@@ -21,7 +21,6 @@
 #include "components/history/core/browser/history_types.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/autocomplete_provider_debouncer.h"
-#include "components/omnibox/browser/search_provider.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
 
 class AutocompleteProviderListener;
@@ -33,10 +32,6 @@ class Value;
 
 namespace network {
 class SimpleURLLoader;
-}
-
-namespace user_prefs {
-class PrefRegistrySyncable;
 }
 
 // Autocomplete provider for personalized documents owned or readable by the
@@ -53,9 +48,6 @@ class DocumentProvider : public AutocompleteProvider {
   void Stop(bool clear_cached_results, bool due_to_user_inactivity) override;
   void DeleteMatch(const AutocompleteMatch& match) override;
   void AddProviderInfo(ProvidersInfo* provider_info) const override;
-
-  // Registers a client-side preference to enable document suggestions.
-  static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
   // Returns a set of classifications that highlight all the occurrences of
   // |input_text| at word breaks in |text|. E.g., given |input_text|

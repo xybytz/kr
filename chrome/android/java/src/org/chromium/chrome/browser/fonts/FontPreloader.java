@@ -26,7 +26,11 @@ public class FontPreloader {
     private static FontPreloader sInstance;
 
     private static final Integer[] FONTS = {
-        R.font.chrome_google_sans, R.font.chrome_google_sans_medium, R.font.chrome_google_sans_bold
+        R.font.chrome_google_sans,
+        R.font.chrome_google_sans_medium,
+        R.font.chrome_google_sans_bold,
+        R.font.chrome_google_sans_text,
+        R.font.chrome_google_sans_text_medium
     };
 
     private static final String UMA_PREFIX = "Android.Fonts";
@@ -49,7 +53,7 @@ public class FontPreloader {
 
     private final ThreadChecker mThreadChecker = new ThreadChecker();
 
-    private Integer[] mFonts = FONTS;
+    private final Integer[] mFonts;
     private boolean mInitialized;
     // Time of first event between |#onAllFontsRetrieved()| and |#onPostInflationStartup*()|.
     private Long mTimeOfFirstEventForPostInflation;
@@ -64,7 +68,9 @@ public class FontPreloader {
         mFonts = fonts;
     }
 
-    private FontPreloader() {}
+    private FontPreloader() {
+        mFonts = FONTS;
+    }
 
     /**
      * @return The {@link FontPreloader} singleton instance.

@@ -5,11 +5,11 @@
 #ifndef IOS_CHROME_BROWSER_PASSWORDS_MODEL_IOS_PASSWORD_REQUIREMENTS_SERVICE_FACTORY_H_
 #define IOS_CHROME_BROWSER_PASSWORDS_MODEL_IOS_PASSWORD_REQUIREMENTS_SERVICE_FACTORY_H_
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
-#include "ios/chrome/browser/shared/model/browser_state/browser_state_otr_helper.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "ios/chrome/browser/shared/model/browser_state/browser_state_otr_helper.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 enum class ServiceAccessType;
 
 namespace password_manager {
@@ -17,12 +17,12 @@ class PasswordRequirementsService;
 }
 
 // Singleton that owns all PasswordRequirementsService and associates them with
-// ChromeBrowserState.
+// ProfileIOS.
 class IOSPasswordRequirementsServiceFactory
     : public BrowserStateKeyedServiceFactory {
  public:
-  static password_manager::PasswordRequirementsService* GetForBrowserState(
-      ChromeBrowserState* browser_state,
+  static password_manager::PasswordRequirementsService* GetForProfile(
+      ProfileIOS* profile,
       ServiceAccessType access_type);
 
   static IOSPasswordRequirementsServiceFactory* GetInstance();

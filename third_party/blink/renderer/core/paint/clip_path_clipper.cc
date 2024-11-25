@@ -4,7 +4,7 @@
 
 #include "third_party/blink/renderer/core/paint/clip_path_clipper.h"
 
-#include "third_party/blink/renderer/core/animation/element_animations.h"
+#include "base/debug/dump_without_crashing.h"
 #include "third_party/blink/renderer/core/css/clip_path_paint_image_generator.h"
 #include "third_party/blink/renderer/core/display_lock/display_lock_utilities.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -153,11 +153,14 @@ bool UsesZoomedReferenceBox(const LayoutObject& clip_path_owner) {
 
 CompositedPaintStatus CompositeClipPathStatus(Node* node) {
   Element* element = DynamicTo<Element>(node);
-  if (!element)
-    return CompositedPaintStatus::kNotComposited;
+  if (!element) {
+    return CompositedPaintStatus::kNoAnimation;
+  }
 
   ElementAnimations* element_animations = element->GetElementAnimations();
-  DCHECK(element_animations);
+  if (!element_animations) {
+    return CompositedPaintStatus::kNoAnimation;
+  }
   return element_animations->CompositedClipPathStatus();
 }
 
@@ -175,54 +178,30 @@ void SetCompositeClipPathStatus(Node* node, bool is_compositable) {
   }
 }
 
-bool HasCompositeClipPathAnimation(const LayoutObject& layout_object) {
-  if (!RuntimeEnabledFeatures::CompositeClipPathAnimationEnabled() ||
-      !layout_object.StyleRef().HasCurrentClipPathAnimation())
-    return false;
-
-  CompositedPaintStatus status =
-      CompositeClipPathStatus(layout_object.GetNode());
-
-  if (status == CompositedPaintStatus::kComposited) {
-    return true;
-  } else if (status == CompositedPaintStatus::kNotComposited) {
-    return false;
-  }
-
+bool CanCompositeClipPathAnimation(const LayoutObject& layout_object) {
   ClipPathPaintImageGenerator* generator =
       layout_object.GetFrame()->GetClipPathPaintImageGenerator();
-  // TODO(crbug.com/686074): The generator may be null in tests.
-  // Fix and remove this test-only branch.
-  if (!generator) {
-    SetCompositeClipPathStatus(layout_object.GetNode(), false);
-    return false;
-  }
+  CHECK(generator);
 
   const Element* element = To<Element>(layout_object.GetNode());
   const Animation* animation = generator->GetAnimationIfCompositable(element);
 
-  bool has_compositable_clip_path_animation =
-      animation && (animation->CheckCanStartAnimationOnCompositor(nullptr) ==
-                    CompositorAnimations::kNoFailure);
-  SetCompositeClipPathStatus(layout_object.GetNode(),
-                             has_compositable_clip_path_animation);
-  return has_compositable_clip_path_animation;
+  return animation && (animation->CheckCanStartAnimationOnCompositor(nullptr) ==
+                       CompositorAnimations::kNoFailure);
 }
 
 void PaintWorkletBasedClip(GraphicsContext& context,
                            const LayoutObject& clip_path_owner,
                            const gfx::RectF& reference_box,
                            const LayoutObject& reference_box_object) {
-  DCHECK(HasCompositeClipPathAnimation(clip_path_owner));
-  DCHECK_EQ(clip_path_owner.StyleRef().ClipPath()->GetType(),
-            ClipPathOperation::kShape);
+  DCHECK(ClipPathClipper::HasCompositeClipPathAnimation(clip_path_owner));
 
   ClipPathPaintImageGenerator* generator =
       clip_path_owner.GetFrame()->GetClipPathPaintImageGenerator();
 
   // The bounding rect of the clip-path animation, relative to the layout
   // object.
-  absl::optional<gfx::RectF> bounding_box =
+  std::optional<gfx::RectF> bounding_box =
       ClipPathClipper::LocalClipPathBoundingBox(clip_path_owner);
   DCHECK(bounding_box);
 
@@ -256,24 +235,13 @@ void PaintWorkletBasedClip(GraphicsContext& context,
                     kRespectImageOrientation);
 }
 
-}  // namespace
-
-gfx::RectF ClipPathClipper::LocalReferenceBox(const LayoutObject& object) {
-  ClipPathOperation& clip_path = *object.StyleRef().ClipPath();
-  GeometryBox geometry_box = GeometryBox::kBorderBox;
-  if (const auto* shape = DynamicTo<ShapeClipPathOperation>(clip_path)) {
-    geometry_box = shape->GetGeometryBox();
-  } else if (const auto* box =
-                 DynamicTo<GeometryBoxClipPathOperation>(clip_path)) {
-    geometry_box = box->GetGeometryBox();
-  }
-
+gfx::RectF CalcLocalReferenceBox(
+    const LayoutObject& object,
+    const ClipPathOperation::OperationType clip_path_operation,
+    GeometryBox geometry_box) {
   if (object.IsSVGChild()) {
-    if (!RuntimeEnabledFeatures::ClipPathGeometryBoxEnabled()) {
-      // Preserve the pre-geometry-box behavior of using the object bounding
-      // box.
-      geometry_box = GeometryBox::kFillBox;
-    } else if (clip_path.GetType() == ClipPathOperation::kReference) {
+    // Use the object bounding box for url() references.
+    if (clip_path_operation == ClipPathOperation::kReference) {
       geometry_box = GeometryBox::kFillBox;
     }
     gfx::RectF unzoomed_reference_box = SVGResources::ReferenceBoxForEffects(
@@ -291,10 +259,108 @@ gfx::RectF ClipPathClipper::LocalReferenceBox(const LayoutObject& object) {
   return gfx::RectF(reference_box);
 }
 
-absl::optional<gfx::RectF> ClipPathClipper::LocalClipPathBoundingBox(
+}  // namespace
+
+bool ClipPathClipper::HasCompositeClipPathAnimation(
+    const LayoutObject& layout_object) {
+  if (!RuntimeEnabledFeatures::CompositeClipPathAnimationEnabled()) {
+    return false;
+  }
+
+  CompositedPaintStatus status =
+      CompositeClipPathStatus(layout_object.GetNode());
+
+  switch (status) {
+    case CompositedPaintStatus::kComposited:
+      DCHECK(CanCompositeClipPathAnimation(layout_object));
+      return true;
+    case CompositedPaintStatus::kNoAnimation:
+    case CompositedPaintStatus::kNotComposited:
+      return false;
+    case CompositedPaintStatus::kNeedsRepaint:
+      // TODO(crbug.com/374656290): Remove this and replace with NOTREACHED.
+      // The compositing decision must be resolved by the time this check is
+      // called. See FragmentPaintPropertyTreeBuilder::UpdateClipPathClip.
+
+      // For now, dump without crashing as this is likely caused by
+      // crbug.com/374656290. In this case, the status is set to kNeedsRepaint
+      // in an update caused by a transform animation after the status and paint
+      // property has already been configured correctly, and is not re-resolved
+      // only because the animation has not had an update that requires a
+      // repaint (See the early return in PrePaintTreeWalk::Walk). Because
+      // nothing meaningful has changed in this case, we can safely return true.
+
+      // Confirm this is the case be re-resolving status. Doing so here is
+      // improper because it's unaware of fragmentation, so produce a crash dump
+      ClipPathClipper::ResolveClipPathStatus(layout_object, false);
+      CHECK(CompositeClipPathStatus(layout_object.GetNode()) ==
+            CompositedPaintStatus::kComposited);
+
+      base::debug::DumpWithoutCrashing();
+      return true;
+  }
+}
+
+bool ClipPathClipper::ClipPathStatusResolved(
+    const LayoutObject& layout_object) {
+  if (!RuntimeEnabledFeatures::CompositeClipPathAnimationEnabled()) {
+    // Paradoxically, we return true here, as if the feature is disabled we
+    // know for sure that the status is not composited.
+    return true;
+  }
+
+  CompositedPaintStatus status =
+      CompositeClipPathStatus(layout_object.GetNode());
+
+  return status != CompositedPaintStatus::kNeedsRepaint;
+}
+
+void ClipPathClipper::ResolveClipPathStatus(const LayoutObject& layout_object,
+                                            bool is_in_block_fragmentation) {
+  if (!RuntimeEnabledFeatures::CompositeClipPathAnimationEnabled()) {
+    return;
+  }
+
+  // If not all the fragments of this layout object have been populated yet, it
+  // will be impossible to tell if a composited clip path animation is possible
+  // or not based only on the layout object. Exclude the possibility if we're
+  // fragmented.
+  if (is_in_block_fragmentation) {
+    SetCompositeClipPathStatus(layout_object.GetNode(), false);
+    return;
+  }
+
+  if (CompositeClipPathStatus(layout_object.GetNode()) !=
+      CompositedPaintStatus::kNeedsRepaint) {
+    return;
+  }
+
+  SetCompositeClipPathStatus(layout_object.GetNode(),
+                             CanCompositeClipPathAnimation(layout_object));
+}
+
+gfx::RectF ClipPathClipper::LocalReferenceBox(const LayoutObject& object) {
+  ClipPathOperation* clip_path = object.StyleRef().ClipPath();
+  GeometryBox geometry_box = GeometryBox::kBorderBox;
+
+  if (const auto* shape = DynamicTo<ShapeClipPathOperation>(clip_path)) {
+    geometry_box = shape->GetGeometryBox();
+  } else if (const auto* box =
+                 DynamicTo<GeometryBoxClipPathOperation>(clip_path)) {
+    geometry_box = box->GetGeometryBox();
+  }
+
+  return CalcLocalReferenceBox(object, clip_path->GetType(), geometry_box);
+}
+
+std::optional<gfx::RectF> ClipPathClipper::LocalClipPathBoundingBox(
     const LayoutObject& object) {
+  if (ClipPathClipper::HasCompositeClipPathAnimation(object)) {
+    return ClipPathPaintImageGenerator::GetAnimationBoundingRect();
+  }
+
   if (object.IsText() || !object.StyleRef().HasClipPath())
-    return absl::nullopt;
+    return std::nullopt;
 
   gfx::RectF reference_box = LocalReferenceBox(object);
   ClipPathOperation& clip_path = *object.StyleRef().ClipPath();
@@ -306,18 +372,9 @@ absl::optional<gfx::RectF> ClipPathClipper::LocalClipPathBoundingBox(
         uses_zoomed_reference_box ? reference_box
                                   : gfx::ScaleRect(reference_box, zoom);
 
-    gfx::RectF bounding_box;
-    if (HasCompositeClipPathAnimation(object)) {
-      // For composite clip path animations, the bounding rect needs to contain
-      // the *entire* animation, or the animation may be clipped.
-      ClipPathPaintImageGenerator* generator =
-          object.GetFrame()->GetClipPathPaintImageGenerator();
-      bounding_box = generator->ClipAreaRect(*object.GetNode(),
-                                             adjusted_reference_box, zoom);
-    } else {
-      auto& shape = To<ShapeClipPathOperation>(clip_path);
-      bounding_box = shape.GetPath(adjusted_reference_box, zoom).BoundingRect();
-    }
+    auto& shape = To<ShapeClipPathOperation>(clip_path);
+    gfx::RectF bounding_box =
+        shape.GetPath(adjusted_reference_box, zoom).BoundingRect();
 
     if (!uses_zoomed_reference_box)
       bounding_box = gfx::ScaleRect(bounding_box, 1.f / zoom);
@@ -325,16 +382,20 @@ absl::optional<gfx::RectF> ClipPathClipper::LocalClipPathBoundingBox(
     return bounding_box;
   }
 
-  if (const auto* box = DynamicTo<GeometryBoxClipPathOperation>(clip_path)) {
+  if (IsA<GeometryBoxClipPathOperation>(clip_path)) {
     reference_box.Intersect(gfx::RectF(InfiniteIntRect()));
     return reference_box;
   }
 
-  DCHECK_EQ(clip_path.GetType(), ClipPathOperation::kReference);
-  LayoutSVGResourceClipper* clipper = ResolveElementReference(
-      object, To<ReferenceClipPathOperation>(clip_path));
+  const auto& reference_clip = To<ReferenceClipPathOperation>(clip_path);
+  if (reference_clip.IsLoading()) {
+    return gfx::RectF();
+  }
+
+  LayoutSVGResourceClipper* clipper =
+      ResolveElementReference(object, reference_clip);
   if (!clipper)
-    return absl::nullopt;
+    return std::nullopt;
 
   gfx::RectF bounding_box = clipper->ResourceBoundingBox(reference_box);
   if (UsesZoomedReferenceBox(object) &&
@@ -397,17 +458,21 @@ bool ClipPathClipper::HitTest(const LayoutObject& clip_path_owner,
   if (const auto* shape = DynamicTo<ShapeClipPathOperation>(clip_path)) {
     const Path path =
         GetPathWithObjectZoom(*shape, reference_box, reference_box_object);
-    return path.Contains(location.TransformedPoint());
+    return location.Intersects(path);
   }
   if (const auto* box = DynamicTo<GeometryBoxClipPathOperation>(clip_path)) {
     Path path;
     FloatRoundedRect rounded_reference_box =
         RoundedReferenceBox(box->GetGeometryBox(), reference_box_object);
     path.AddRoundedRect(rounded_reference_box);
-    return path.Contains(location.TransformedPoint());
+    return location.Intersects(path);
   }
-  const LayoutSVGResourceClipper* clipper = ResolveElementReference(
-      clip_path_owner, To<ReferenceClipPathOperation>(clip_path));
+  const auto& reference_clip = To<ReferenceClipPathOperation>(clip_path);
+  if (reference_clip.IsLoading()) {
+    return false;
+  }
+  const LayoutSVGResourceClipper* clipper =
+      ResolveElementReference(clip_path_owner, reference_clip);
   if (!clipper) {
     return true;
   }
@@ -446,7 +511,7 @@ static AffineTransform MaskToContentTransform(
   return mask_to_content;
 }
 
-static absl::optional<Path> PathBasedClipInternal(
+static std::optional<Path> PathBasedClipInternal(
     const LayoutObject& clip_path_owner,
     const gfx::RectF& reference_box,
     const LayoutObject& reference_box_object) {
@@ -462,11 +527,14 @@ static absl::optional<Path> PathBasedClipInternal(
 
   if (const auto* reference_clip =
           DynamicTo<ReferenceClipPathOperation>(clip_path)) {
+    if (reference_clip->IsLoading()) {
+      return Path();
+    }
     LayoutSVGResourceClipper* resource_clipper =
         ResolveElementReference(clip_path_owner, *reference_clip);
     if (!resource_clipper)
-      return absl::nullopt;
-    absl::optional<Path> path = resource_clipper->AsPath();
+      return std::nullopt;
+    std::optional<Path> path = resource_clipper->AsPath();
     if (!path)
       return path;
     path->Transform(MaskToContentTransform(*resource_clipper, reference_box,
@@ -507,26 +575,42 @@ void ClipPathClipper::PaintClipPathAsMaskImage(
     context.Translate(paint_offset.left, paint_offset.top);
   }
 
-  gfx::RectF reference_box = LocalReferenceBox(layout_object);
-
-  if (HasCompositeClipPathAnimation(layout_object)) {
-    if (!layout_object.GetFrame())
+  if (ClipPathClipper::HasCompositeClipPathAnimation(layout_object)) {
+    if (!layout_object.GetFrame()) {
       return;
+    }
+
+    // clip_path can potentially be a nullptr instead of being none in certain
+    // cases, like if there is a clip-path animation with a delay on an element
+    // that is absolutely positioned.
+    gfx::RectF reference_box;
+    if (layout_object.StyleRef().ClipPath()) {
+      reference_box = ClipPathClipper::LocalReferenceBox(layout_object);
+    } else {
+      // TODO(crbug.com/379052285): these assumptions are currently valid
+      // because of value filters. Eventually, these should be removed when
+      // proper geometry-box support is added.
+      reference_box = CalcLocalReferenceBox(
+          layout_object, ClipPathOperation::OperationType::kShape,
+          GeometryBox::kBorderBox);
+    }
 
     PaintWorkletBasedClip(context, layout_object, reference_box, layout_object);
   } else {
+    gfx::RectF reference_box = LocalReferenceBox(layout_object);
     bool is_first = true;
     bool rest_of_the_chain_already_appled = false;
     const LayoutObject* current_object = &layout_object;
     while (!rest_of_the_chain_already_appled && current_object) {
-      const ClipPathOperation* clip_path =
-          current_object->StyleRef().ClipPath();
-      if (!clip_path)
+      const auto* reference_clip =
+          To<ReferenceClipPathOperation>(current_object->StyleRef().ClipPath());
+      if (!reference_clip || reference_clip->IsLoading()) {
         break;
+      }
       // We wouldn't have reached here if the current clip-path is a shape,
       // because it would have been applied as a path-based clip already.
-      LayoutSVGResourceClipper* resource_clipper = ResolveElementReference(
-          *current_object, To<ReferenceClipPathOperation>(*clip_path));
+      LayoutSVGResourceClipper* resource_clipper =
+          ResolveElementReference(*current_object, *reference_clip);
       if (!resource_clipper)
         break;
 
@@ -538,7 +622,7 @@ void ClipPathClipper::PaintClipPathAsMaskImage(
 
       if (resource_clipper->StyleRef().HasClipPath()) {
         // Try to apply nested clip-path as path-based clip.
-        if (const absl::optional<Path>& path = PathBasedClipInternal(
+        if (const std::optional<Path>& path = PathBasedClipInternal(
                 *resource_clipper, reference_box, layout_object)) {
           context.ClipPath(path->GetSkPath(), kAntiAliased);
           rest_of_the_chain_already_appled = true;
@@ -560,22 +644,11 @@ void ClipPathClipper::PaintClipPathAsMaskImage(
   context.Restore();
 }
 
-absl::optional<Path> ClipPathClipper::PathBasedClip(
-    const LayoutObject& clip_path_owner,
-    const bool is_in_block_fragmentation) {
-  // TODO(crbug.com/1248622): Currently HasCompositeClipPathAnimation is called
-  // multiple times, which is not efficient. Cache
-  // HasCompositeClipPathAnimation value as part of fragment_data, similarly to
-  // FragmentData::ClipPathPath().
-
-  // If not all the fragments of this layout object have been populated yet, it
-  // will be impossible to tell if a composited clip path animation is possible
-  // or not based only on the layout object. Exclude the possibility if we're
-  // fragmented.
-  if (is_in_block_fragmentation)
-    SetCompositeClipPathStatus(clip_path_owner.GetNode(), false);
-  else if (HasCompositeClipPathAnimation(clip_path_owner))
-    return absl::nullopt;
+std::optional<Path> ClipPathClipper::PathBasedClip(
+    const LayoutObject& clip_path_owner) {
+  if (ClipPathClipper::HasCompositeClipPathAnimation(clip_path_owner)) {
+    return std::nullopt;
+  }
 
   return PathBasedClipInternal(
       clip_path_owner, LocalReferenceBox(clip_path_owner), clip_path_owner);

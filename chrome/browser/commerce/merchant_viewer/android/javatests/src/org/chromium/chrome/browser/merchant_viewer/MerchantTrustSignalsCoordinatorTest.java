@@ -25,9 +25,7 @@ import androidx.test.filters.SmallTest;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -49,7 +47,6 @@ import org.chromium.chrome.browser.merchant_viewer.MerchantTrustSignalsCoordinat
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.commerce.core.ShoppingService.MerchantInfo;
 import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.feature_engagement.Tracker;
@@ -68,7 +65,6 @@ import java.util.concurrent.TimeUnit;
 @Config(manifest = Config.NONE)
 @SuppressWarnings("DoNotMock") // Mocking GURL
 public class MerchantTrustSignalsCoordinatorTest {
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
 
     @Mock private Context mMockContext;
 
@@ -133,7 +129,7 @@ public class MerchantTrustSignalsCoordinatorTest {
     public void setUp() {
         MockitoAnnotations.initMocks(this);
         doReturn(mMockResources).when(mMockContext).getResources();
-        doReturn("").when(mMockResources).getString(anyInt());
+        doReturn("").when(mMockContext).getString(anyInt());
         doReturn("").when(mMockResources).getQuantityString(anyInt(), anyInt(), any());
         doReturn(FAKE_HOST).when(mMockGurl).getHost();
         doReturn(FAKE_HOST).when(mMockGurl).getSpec();

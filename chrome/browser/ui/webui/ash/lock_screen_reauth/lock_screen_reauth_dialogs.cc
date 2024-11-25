@@ -16,12 +16,12 @@
 #include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/ash/login/helper.h"
 #include "chrome/browser/ash/login/profile_auth_data.h"
-#include "chrome/browser/ash/login/ui/oobe_dialog_size_utils.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/ash/login/oobe_dialog_size_utils.h"
 #include "chrome/browser/ui/webui/ash/lock_screen_reauth/base_lock_dialog.h"
 #include "chrome/browser/ui/webui/ash/lock_screen_reauth/lock_screen_captive_portal_dialog.h"
 #include "chrome/browser/ui/webui/ash/lock_screen_reauth/lock_screen_network_dialog.h"
@@ -36,7 +36,6 @@
 #include "components/session_manager/core/session_manager.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "ui/aura/window.h"
@@ -139,7 +138,7 @@ LockScreenStartReauthDialog* LockScreenStartReauthDialog::GetInstance() {
 
 void LockScreenStartReauthDialog::OnProfileInitialized(Profile* profile) {
   if (!profile) {
-    // TODO(mohammedabdon): Create some generic way to show an error on
+    // TODO(b/333278160): Create some generic way to show an error on
     // the lock screen.
     LOG(ERROR) << "Failed to load lockscreen profile";
     return;
@@ -230,6 +229,7 @@ void LockScreenStartReauthDialog::DismissLockScreenCaptivePortalDialog() {
 }
 
 void LockScreenStartReauthDialog::ShowLockScreenNetworkDialog() {
+  TerminateAutoReload();
   if (lock_screen_network_dialog_)
     return;
   DCHECK(profile_);
@@ -242,6 +242,7 @@ void LockScreenStartReauthDialog::ShowLockScreenNetworkDialog() {
 }
 
 void LockScreenStartReauthDialog::ShowLockScreenCaptivePortalDialog() {
+  TerminateAutoReload();
   if (!captive_portal_dialog_) {
     captive_portal_dialog_ = std::make_unique<LockScreenCaptivePortalDialog>();
     OnCaptivePortalDialogReadyForTesting();
@@ -303,6 +304,20 @@ void LockScreenStartReauthDialog::OnWebviewLoadAborted() {
   UpdateState(NetworkError::ERROR_REASON_FRAME_ERROR);
 }
 
+void LockScreenStartReauthDialog::TerminateAutoReload() {
+  LockScreenReauthHandler* reauth_handler =
+      static_cast<LockScreenStartReauthUI*>(webui()->GetController())
+          ->GetMainHandler();
+  reauth_handler->GetAutoReloadManager().Terminate();
+}
+
+void LockScreenStartReauthDialog::ReactivateAutoReload() {
+  LockScreenReauthHandler* reauth_handler =
+      static_cast<LockScreenStartReauthUI*>(webui()->GetController())
+          ->GetMainHandler();
+  reauth_handler->ActivateAutoReload();
+}
+
 void LockScreenStartReauthDialog::UpdateState(
     NetworkError::ErrorReason reason) {
   if (is_proxy_auth_in_progress_)
@@ -327,6 +342,9 @@ void LockScreenStartReauthDialog::UpdateState(
       should_reload_gaia_ = true;
     }
   } else {
+    if (state == NetworkStateInformer::ONLINE) {
+      ReactivateAutoReload();
+    }
     DismissLockScreenCaptivePortalDialog();
     DismissLockScreenNetworkDialog();
   }
@@ -336,7 +354,7 @@ void LockScreenStartReauthDialog::UpdateState(
         static_cast<LockScreenStartReauthUI*>(webui()->GetController())
             ->GetMainHandler();
     if (reauth_handler->IsAuthenticatorLoaded({})) {
-      reauth_handler->ReloadGaia();
+      reauth_handler->ReloadGaiaAuthenticator();
       should_reload_gaia_ = false;
     }
   }
@@ -414,7 +432,7 @@ void LockScreenStartReauthDialog::TransferHttpAuthCaches() {
             &TransferHttpAuthCacheToSystemNetworkContext, base::DoNothing()));
 
     const user_manager::User* user =
-        user_manager::UserManager::Get()->GetActiveUser();
+        user_manager::UserManager::Get()->GetPrimaryUser();
     Profile* profile = ProfileHelper::Get()->GetProfileByUser(user);
     // Transfer auth cache to the active user's profile so that there is no need
     // to enter them again after unlocking the device.
@@ -430,6 +448,8 @@ void LockScreenStartReauthDialog::HttpAuthDialogShown(
     return;
   }
   is_proxy_auth_in_progress_ = true;
+
+  TerminateAutoReload();
 }
 
 void LockScreenStartReauthDialog::HttpAuthDialogCancelled(

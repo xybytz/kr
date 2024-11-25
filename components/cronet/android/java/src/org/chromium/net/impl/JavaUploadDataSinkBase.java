@@ -6,8 +6,10 @@ package org.chromium.net.impl;
 
 import androidx.annotation.IntDef;
 
+import org.chromium.base.metrics.ScopedSysTraceEvent;
 import org.chromium.net.UploadDataProvider;
 import org.chromium.net.UploadDataSink;
+import org.chromium.net.impl.JavaUrlRequestUtils.CheckedRunnable;
 
 import java.io.IOException;
 import java.lang.annotation.Retention;
@@ -51,6 +53,8 @@ public abstract class JavaUploadDataSinkBase extends UploadDataSink {
     /** This holds the bytes written so far */
     private long mWrittenBytes;
 
+    private int mReadCount;
+
     public JavaUploadDataSinkBase(
             final Executor userExecutor, Executor executor, UploadDataProvider provider) {
         mUserUploadExecutor =
@@ -91,15 +95,26 @@ public abstract class JavaUploadDataSinkBase extends UploadDataSink {
                         return;
                     }
 
+                    if (mBuffer.remaining() == 0 && !finalChunk) {
+                        // Sending an empty buffer through the fallback implementation
+                        // leads to successful requests but in order to consolidate the fallback
+                        // implementation with the native implementation, it was decided
+                        // to make uploading an empty buffer an illegal operation that leads
+                        // to a failed request with upload error.
+                        //
+                        // See b/332860415 for more details.
+                        processUploadError(
+                                new IllegalStateException(
+                                        "Bytes read can't be zero except for last chunk!"));
+                        return;
+                    }
+
                     mWrittenBytes += processSuccessfulRead(mBuffer);
 
                     if (mWrittenBytes < mTotalBytes || (mTotalBytes == -1 && !finalChunk)) {
                         mBuffer.clear();
                         mSinkState.set(SinkState.AWAITING_READ_RESULT);
-                        executeOnUploadExecutor(
-                                () -> {
-                                    mUploadProvider.read(JavaUploadDataSinkBase.this, mBuffer);
-                                });
+                        readFromProvider();
                     } else if (mTotalBytes == -1) {
                         finish();
                     } else if (mTotalBytes == mWrittenBytes) {
@@ -114,7 +129,7 @@ public abstract class JavaUploadDataSinkBase extends UploadDataSink {
                         processUploadError(new IllegalArgumentException(msg));
                     }
                 };
-        mExecutor.execute(getErrorSettingRunnable(checkedRunnable));
+        executeOnExecutor(getErrorSettingRunnable(checkedRunnable), "onReadSucceeded");
     }
 
     @Override
@@ -140,16 +155,44 @@ public abstract class JavaUploadDataSinkBase extends UploadDataSink {
     }
 
     private void startRead() {
-        mExecutor.execute(
+        executeOnExecutor(
                 getErrorSettingRunnable(
                         () -> {
                             initializeRead();
                             mSinkState.set(SinkState.AWAITING_READ_RESULT);
-                            executeOnUploadExecutor(
-                                    () -> {
-                                        mUploadProvider.read(JavaUploadDataSinkBase.this, mBuffer);
-                                    });
-                        }));
+                            readFromProvider();
+                        }),
+                "startRead");
+    }
+
+    private void readFromProvider() {
+        executeOnUploadExecutor(
+                () -> {
+                    mUploadProvider.read(JavaUploadDataSinkBase.this, mBuffer);
+                    // Increment the read count on the internal executor, which is serialized, to
+                    // prevent potential races with reader code.
+                    mExecutor.execute(
+                            () -> {
+                                mReadCount++;
+                            });
+                },
+                "readFromProvider");
+    }
+
+    private void executeOnExecutor(Runnable runnable, String name) {
+        try (var traceEvent =
+                ScopedSysTraceEvent.scoped("JavaUploadDataSinkBase#executeOnExecutor " + name)) {
+            mExecutor.execute(
+                    () -> {
+                        try (var callbackTraceEvent =
+                                ScopedSysTraceEvent.scoped(
+                                        "JavaUploadDataSinkBase#executeOnExecutor "
+                                                + name
+                                                + " running callback")) {
+                            runnable.run();
+                        }
+                    });
+        }
     }
 
     /**
@@ -158,9 +201,21 @@ public abstract class JavaUploadDataSinkBase extends UploadDataSink {
      *
      * @param runnable the runnable to attempt to run and check for errors
      */
-    private void executeOnUploadExecutor(JavaUrlRequestUtils.CheckedRunnable runnable) {
-        try {
-            mUserUploadExecutor.execute(getUploadErrorSettingRunnable(runnable));
+    private void executeOnUploadExecutor(
+            JavaUrlRequestUtils.CheckedRunnable runnable, String name) {
+        try (var traceEvent =
+                ScopedSysTraceEvent.scoped(
+                        "Cronet JavaUploadDataSinkBase#executeOnUploadExecutor " + name)) {
+            mUserUploadExecutor.execute(
+                    () -> {
+                        try (var callbackTraceEvent =
+                                ScopedSysTraceEvent.scoped(
+                                        "Cronet JavaUploadDataSinkBase#executeOnUploadExecutor "
+                                                + name
+                                                + " running callback")) {
+                            getUploadErrorSettingRunnable(runnable).run();
+                        }
+                    });
         } catch (RejectedExecutionException e) {
             processUploadError(e);
         }
@@ -199,7 +254,17 @@ public abstract class JavaUploadDataSinkBase extends UploadDataSink {
                             mUploadProvider.rewind(JavaUploadDataSinkBase.this);
                         }
                     }
-                });
+                },
+                "start");
+    }
+
+    /**
+     * Returns the number of times {@link UploadDataProvider#read} returned successfully.
+     *
+     * <p>Thread safety: only safe to call from the internal executor.
+     */
+    int getReadCount() {
+        return mReadCount;
     }
 
     /**
@@ -234,22 +299,15 @@ public abstract class JavaUploadDataSinkBase extends UploadDataSink {
      * process.
      *
      * @return the number of bytes processed in this read
-     * @throws IOException
      */
     protected abstract int processSuccessfulRead(ByteBuffer buffer) throws IOException;
 
-    /**
-     * Finishes this upload. Called when the upload is complete.
-     *
-     * @throws IOException
-     */
+    /** Finishes this upload. Called when the upload is complete. */
     protected abstract void finish() throws IOException;
 
     /**
-     * Initializes the {@link UploadDataSink} before each call to {@code read} in the
-     * {@link UploadDataProvider}.
-     *
-     * @throws IOException
+     * Initializes the {@link UploadDataSink} before each call to {@code read} in the {@link
+     * UploadDataProvider}.
      */
     protected abstract void initializeRead() throws IOException;
 

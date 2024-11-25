@@ -8,12 +8,12 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
-#include "ui/base/ui_base_types.h"
+#include "ui/base/mojom/menu_source_type.mojom-forward.h"
 #include "ui/gfx/geometry/rounded_corners_f.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/controls/menu/menu_types.h"
@@ -155,11 +155,11 @@ class VIEWS_EXPORT MenuRunner {
                  MenuButtonController* button_controller,
                  const gfx::Rect& bounds,
                  MenuAnchorPosition anchor,
-                 ui::MenuSourceType source_type,
+                 ui::mojom::MenuSourceType source_type,
                  gfx::NativeView native_view_for_gestures = gfx::NativeView(),
-                 absl::optional<gfx::RoundedCornersF> corners = absl::nullopt,
-                 absl::optional<std::string> show_menu_host_duration_histogram =
-                     absl::nullopt);
+                 std::optional<gfx::RoundedCornersF> corners = std::nullopt,
+                 std::optional<std::string> show_menu_host_duration_histogram =
+                     std::nullopt);
 
   // Returns true if we're in a nested run loop running the menu.
   bool IsRunning() const;

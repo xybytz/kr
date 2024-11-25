@@ -20,6 +20,7 @@
 #include "components/password_manager/core/browser/leak_detection/bulk_leak_check.h"
 #include "components/password_manager/core/browser/leak_detection/bulk_leak_check_service_interface.h"
 #include "components/password_manager/core/browser/leak_detection/leak_detection_delegate_interface.h"
+#include "components/password_manager/core/browser/leak_detection/leak_detection_request_utils.h"
 #include "components/password_manager/core/browser/ui/bulk_leak_check_service_adapter.h"
 #include "components/password_manager/core/browser/ui/credential_ui_entry.h"
 #include "components/password_manager/core/browser/ui/credential_utils.h"
@@ -33,6 +34,7 @@ namespace extensions {
 extern const char kPasswordCheckDataKey[];
 
 class PasswordCheckProgress;
+class PasswordsPrivateEventRouter;
 
 // This class handles the part of the passwordsPrivate extension API that deals
 // with the bulk password check feature.
@@ -46,7 +48,8 @@ class PasswordCheckDelegate
 
   PasswordCheckDelegate(Profile* profile,
                         password_manager::SavedPasswordsPresenter* presenter,
-                        IdGenerator* id_generator);
+                        IdGenerator* id_generator,
+                        PasswordsPrivateEventRouter* event_router = nullptr);
   PasswordCheckDelegate(const PasswordCheckDelegate&) = delete;
   PasswordCheckDelegate& operator=(const PasswordCheckDelegate&) = delete;
   ~PasswordCheckDelegate() override;
@@ -77,6 +80,7 @@ class PasswordCheckDelegate
   // once a check is running or the request was stopped via
   // `StopPasswordCheck()`.
   void StartPasswordCheck(
+      password_manager::LeakDetectionInitiator initiator,
       StartPasswordCheckCallback callback = base::DoNothing());
 
   // Returns the current status of the password check.
@@ -180,6 +184,12 @@ class PasswordCheckDelegate
   // `api::passwords_private::PasswordUiEntry` instances passed to the UI
   // with the underlying `CredentialUIEntry` they are based on.
   raw_ptr<IdGenerator> id_generator_;
+
+  raw_ptr<PasswordsPrivateEventRouter> event_router_;
+
+  // This indicate what was the reason to start the password check.
+  password_manager::LeakDetectionInitiator password_check_initiator_ =
+      password_manager::LeakDetectionInitiator::kClientUseCaseUnspecified;
 
   base::WeakPtrFactory<PasswordCheckDelegate> weak_ptr_factory_{this};
 };

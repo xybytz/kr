@@ -25,16 +25,17 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.ResettersForTesting;
-import org.chromium.base.StrictModeContext;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.notifications.NotificationUmaTracker;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.ChromeSharedPreferences;
-import org.chromium.chrome.browser.profiles.OTRProfileID;
-import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.OtrProfileId;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.components.background_task_scheduler.BackgroundTask.TaskFinishedCallback;
-import org.chromium.components.browser_ui.notifications.NotificationManagerProxy;
-import org.chromium.components.browser_ui.notifications.NotificationManagerProxyImpl;
+import org.chromium.components.browser_ui.notifications.BaseNotificationManagerProxy;
+import org.chromium.components.browser_ui.notifications.BaseNotificationManagerProxyFactory;
+import org.chromium.components.browser_ui.notifications.NotificationMetadata;
+import org.chromium.components.browser_ui.notifications.NotificationWrapper;
 import org.chromium.components.offline_items_collection.ContentId;
 import org.chromium.components.offline_items_collection.FailState;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
@@ -95,11 +96,9 @@ public class DownloadNotificationService {
     /** Notification Id starting value, to avoid conflicts from IDs used in prior versions. */
     private static final int STARTING_NOTIFICATION_ID = 1000000;
 
-    private static final int MAX_RESUMPTION_ATTEMPT_LEFT = 5;
-
     private static DownloadNotificationService sInstanceForTesting;
 
-    private NotificationManagerProxy mNotificationManager;
+    private BaseNotificationManagerProxy mNotificationManager;
     private Bitmap mDownloadSuccessLargeIcon;
     private DownloadSharedPreferenceHelper mDownloadSharedPreferenceHelper;
     private DownloadForegroundServiceManager mDownloadForegroundServiceManager;
@@ -122,8 +121,7 @@ public class DownloadNotificationService {
 
     @VisibleForTesting
     DownloadNotificationService() {
-        mNotificationManager =
-                new NotificationManagerProxyImpl(ContextUtils.getApplicationContext());
+        mNotificationManager = BaseNotificationManagerProxyFactory.create();
         mDownloadSharedPreferenceHelper = DownloadSharedPreferenceHelper.getInstance();
         mDownloadForegroundServiceManager = new DownloadForegroundServiceManager();
         mDownloadUserInitiatedTaskManager = new DownloadUserInitiatedTaskManager();
@@ -150,20 +148,19 @@ public class DownloadNotificationService {
 
     /**
      * Adds or updates an in-progress download notification.
-     * @param id                      The {@link ContentId} of the download.
-     * @param fileName                File name of the download.
-     * @param progress                The current download progress.
-     * @param bytesReceived           Total number of bytes received.
-     * @param timeRemainingInMillis   Remaining download time in milliseconds.
-     * @param startTime               Time when download started.
-     * @param otrProfileID            The {@link OTRProfileID} of the download. Null if in regular
-     *                                mode.
+     *
+     * @param id The {@link ContentId} of the download.
+     * @param fileName File name of the download.
+     * @param progress The current download progress.
+     * @param bytesReceived Total number of bytes received.
+     * @param timeRemainingInMillis Remaining download time in milliseconds.
+     * @param startTime Time when download started.
+     * @param otrProfileId The {@link OtrProfileId} of the download. Null if in regular mode.
      * @param canDownloadWhileMetered Whether the download can happen in metered network.
-     * @param isTransient             Whether or not clicking on the download should launch
-     *                                downloads home.
-     * @param icon                    A {@link Bitmap} to be used as the large icon for display.
-     * @param originalUrl             The original url of the downloaded file.
-     * @param shouldPromoteOrigin     Whether the origin should be displayed in the notification.
+     * @param isTransient Whether or not clicking on the download should launch downloads home.
+     * @param icon A {@link Bitmap} to be used as the large icon for display.
+     * @param originalUrl The original url of the downloaded file.
+     * @param shouldPromoteOrigin Whether the origin should be displayed in the notification.
      */
     @VisibleForTesting
     public void notifyDownloadProgress(
@@ -173,7 +170,7 @@ public class DownloadNotificationService {
             long bytesReceived,
             long timeRemainingInMillis,
             long startTime,
-            OTRProfileID otrProfileID,
+            OtrProfileId otrProfileId,
             boolean canDownloadWhileMetered,
             boolean isTransient,
             Bitmap icon,
@@ -185,34 +182,32 @@ public class DownloadNotificationService {
                 progress,
                 timeRemainingInMillis,
                 startTime,
-                otrProfileID,
+                otrProfileId,
                 canDownloadWhileMetered,
                 isTransient,
                 icon,
                 originalUrl,
                 shouldPromoteOrigin,
-                false,
                 PendingState.NOT_PENDING);
     }
 
     /**
      * Adds or updates a pending download notification.
-     * @param id                      The {@link ContentId} of the download.
-     * @param fileName                File name of the download.
-     * @param otrProfileID            The {@link OTRProfileID} of the download. Null if in regular
-     *                                mode.
+     *
+     * @param id The {@link ContentId} of the download.
+     * @param fileName File name of the download.
+     * @param otrProfileId The {@link OtrProfileId} of the download. Null if in regular mode.
      * @param canDownloadWhileMetered Whether the download can happen in metered network.
-     * @param isTransient             Whether or not clicking on the download should launch
-     *                                downloads home.
-     * @param icon                    A {@link Bitmap} to be used as the large icon for display.
-     * @param originalUrl             The original url of the downloaded file.
-     * @param shouldPromoteOrigin     Whether the origin should be displayed in the notification.
-     * @param pendingState            Reason download is pending.
+     * @param isTransient Whether or not clicking on the download should launch downloads home.
+     * @param icon A {@link Bitmap} to be used as the large icon for display.
+     * @param originalUrl The original url of the downloaded file.
+     * @param shouldPromoteOrigin Whether the origin should be displayed in the notification.
+     * @param pendingState Reason download is pending.
      */
     void notifyDownloadPending(
             ContentId id,
             String fileName,
-            OTRProfileID otrProfileID,
+            OtrProfileId otrProfileId,
             boolean canDownloadWhileMetered,
             boolean isTransient,
             Bitmap icon,
@@ -226,34 +221,31 @@ public class DownloadNotificationService {
                 Progress.createIndeterminateProgress(),
                 0,
                 0,
-                otrProfileID,
+                otrProfileId,
                 canDownloadWhileMetered,
                 isTransient,
                 icon,
                 originalUrl,
                 shouldPromoteOrigin,
-                hasUserGesture,
                 pendingState);
     }
 
     /**
      * Helper method to update the notification for an active download, the download is either in
      * progress or pending.
-     * @param id                      The {@link ContentId} of the download.
-     * @param fileName                File name of the download.
-     * @param progress                The current download progress.
-     * @param timeRemainingInMillis   Remaining download time in milliseconds or -1 if it is
-     *                                unknown.
-     * @param startTime               Time when download started.
-     * @param otrProfileID            The {@link OTRProfileID} of the download. Null if in regular
-     *                                mode.
+     *
+     * @param id The {@link ContentId} of the download.
+     * @param fileName File name of the download.
+     * @param progress The current download progress.
+     * @param timeRemainingInMillis Remaining download time in milliseconds or -1 if it is unknown.
+     * @param startTime Time when download started.
+     * @param otrProfileId The {@link OtrProfileId} of the download. Null if in regular mode.
      * @param canDownloadWhileMetered Whether the download can happen in metered network.
-     * @param isTransient             Whether or not clicking on the download should launch
-     *                                downloads home.
-     * @param icon                    A {@link Bitmap} to be used as the large icon for display.
-     * @param originalUrl             The original url of the downloaded file.
-     * @param shouldPromoteOrigin     Whether the origin should be displayed in the notification.
-     * @param pendingState            Reason download is pending.
+     * @param isTransient Whether or not clicking on the download should launch downloads home.
+     * @param icon A {@link Bitmap} to be used as the large icon for display.
+     * @param originalUrl The original url of the downloaded file.
+     * @param shouldPromoteOrigin Whether the origin should be displayed in the notification.
+     * @param pendingState Reason download is pending.
      */
     private void updateActiveDownloadNotification(
             ContentId id,
@@ -261,13 +253,12 @@ public class DownloadNotificationService {
             Progress progress,
             long timeRemainingInMillis,
             long startTime,
-            OTRProfileID otrProfileID,
+            OtrProfileId otrProfileId,
             boolean canDownloadWhileMetered,
             boolean isTransient,
             Bitmap icon,
             GURL originalUrl,
             boolean shouldPromoteOrigin,
-            boolean hasUserGesture,
             @PendingState int pendingState) {
         int notificationId = getNotificationId(id);
         Context context = ContextUtils.getApplicationContext();
@@ -279,7 +270,7 @@ public class DownloadNotificationService {
                         .setProgress(progress)
                         .setTimeRemainingInMillis(timeRemainingInMillis)
                         .setStartTime(startTime)
-                        .setOTRProfileID(otrProfileID)
+                        .setOtrProfileId(otrProfileId)
                         .setIsTransient(isTransient)
                         .setIcon(icon)
                         .setOriginalUrl(originalUrl)
@@ -297,7 +288,7 @@ public class DownloadNotificationService {
                 new DownloadSharedPreferenceEntry(
                         id,
                         notificationId,
-                        otrProfileID,
+                        otrProfileId,
                         canDownloadWhileMetered,
                         fileName,
                         true,
@@ -364,18 +355,18 @@ public class DownloadNotificationService {
 
     /**
      * Change a download notification to paused state.
-     * @param id                  The {@link ContentId} of the download.
-     * @param fileName            File name of the download.
-     * @param isResumable         Whether download can be resumed.
-     * @param isAutoResumable     Whether download is can be resumed automatically.
-     * @param otrProfileID        The {@link OTRProfileID} of the download. Null if in regular mode.
-     * @param isTransient         Whether or not clicking on the download should launch downloads
-     * home.
-     * @param icon                A {@link Bitmap} to be used as the large icon for display.
-     * @param originalUrl         The original url of the downloaded file.
+     *
+     * @param id The {@link ContentId} of the download.
+     * @param fileName File name of the download.
+     * @param isResumable Whether download can be resumed.
+     * @param isAutoResumable Whether download is can be resumed automatically.
+     * @param otrProfileId The {@link OtrProfileId} of the download. Null if in regular mode.
+     * @param isTransient Whether or not clicking on the download should launch downloads home.
+     * @param icon A {@link Bitmap} to be used as the large icon for display.
+     * @param originalUrl The original url of the downloaded file.
      * @param shouldPromoteOrigin Whether the origin should be displayed in the notification.
-     * @param forceRebuild        Whether the notification was forcibly relaunched.
-     * @param pendingState        Reason download is pending.
+     * @param forceRebuild Whether the notification was forcibly relaunched.
+     * @param pendingState Reason download is pending.
      */
     @VisibleForTesting
     void notifyDownloadPaused(
@@ -383,7 +374,7 @@ public class DownloadNotificationService {
             String fileName,
             boolean isResumable,
             boolean isAutoResumable,
-            OTRProfileID otrProfileID,
+            OtrProfileId otrProfileId,
             boolean isTransient,
             Bitmap icon,
             GURL originalUrl,
@@ -401,7 +392,7 @@ public class DownloadNotificationService {
                     icon,
                     originalUrl,
                     shouldPromoteOrigin,
-                    otrProfileID,
+                    otrProfileId,
                     FailState.CANNOT_DOWNLOAD);
             return;
         }
@@ -413,7 +404,7 @@ public class DownloadNotificationService {
             notifyDownloadPending(
                     id,
                     fileName,
-                    otrProfileID,
+                    otrProfileId,
                     canDownloadWhileMetered,
                     isTransient,
                     icon,
@@ -430,7 +421,7 @@ public class DownloadNotificationService {
                 new DownloadUpdate.Builder()
                         .setContentId(id)
                         .setFileName(fileName)
-                        .setOTRProfileID(otrProfileID)
+                        .setOtrProfileId(otrProfileId)
                         .setIsTransient(isTransient)
                         .setIcon(icon)
                         .setOriginalUrl(originalUrl)
@@ -448,7 +439,7 @@ public class DownloadNotificationService {
                 new DownloadSharedPreferenceEntry(
                         id,
                         notificationId,
-                        otrProfileID,
+                        otrProfileId,
                         canDownloadWhileMetered,
                         fileName,
                         isAutoResumable,
@@ -462,20 +453,21 @@ public class DownloadNotificationService {
 
     /**
      * Add a download successful notification.
-     * @param id                  The {@link ContentId} of the download.
-     * @param filePath            Full path to the download.
-     * @param fileName            Filename of the download.
-     * @param systemDownloadId    Download ID assigned by system DownloadManager.
-     * @param otrProfileID        The {@link OTRProfileID} of the download. Null if in regular mode.
+     *
+     * @param id The {@link ContentId} of the download.
+     * @param filePath Full path to the download.
+     * @param fileName Filename of the download.
+     * @param systemDownloadId Download ID assigned by system DownloadManager.
+     * @param otrProfileId The {@link OtrProfileId} of the download. Null if in regular mode.
      * @param isSupportedMimeType Whether the MIME type can be viewed inside browser.
-     * @param isOpenable          Whether or not this download can be opened.
-     * @param icon                A {@link Bitmap} to be used as the large icon for display.
-     * @param originalUrl         The original url of the downloaded file.
+     * @param isOpenable Whether or not this download can be opened.
+     * @param icon A {@link Bitmap} to be used as the large icon for display.
+     * @param originalUrl The original url of the downloaded file.
      * @param shouldPromoteOrigin Whether the origin should be displayed in the notification.
-     * @param referrer            Referrer of the downloaded file.
-     * @param totalBytes          The total number of bytes downloaded (size of file).
-     * @return                    ID of the successful download notification. Used for removing the
-     *                            notification when user click on the snackbar.
+     * @param referrer Referrer of the downloaded file.
+     * @param totalBytes The total number of bytes downloaded (size of file).
+     * @return ID of the successful download notification. Used for removing the notification when
+     *     user click on the snackbar.
      */
     @VisibleForTesting
     public int notifyDownloadSuccessful(
@@ -483,7 +475,7 @@ public class DownloadNotificationService {
             String filePath,
             String fileName,
             long systemDownloadId,
-            OTRProfileID otrProfileID,
+            OtrProfileId otrProfileId,
             boolean isSupportedMimeType,
             boolean isOpenable,
             Bitmap icon,
@@ -493,7 +485,7 @@ public class DownloadNotificationService {
             long totalBytes) {
         Context context = ContextUtils.getApplicationContext();
         int notificationId = getNotificationId(id);
-        boolean needsDefaultIcon = icon == null || OTRProfileID.isOffTheRecord(otrProfileID);
+        boolean needsDefaultIcon = icon == null || OtrProfileId.isOffTheRecord(otrProfileId);
         if (mDownloadSuccessLargeIcon == null && needsDefaultIcon) {
             Bitmap bitmap =
                     BitmapFactory.decodeResource(context.getResources(), R.drawable.offline_pin);
@@ -506,7 +498,7 @@ public class DownloadNotificationService {
                         .setFileName(fileName)
                         .setFilePath(filePath)
                         .setSystemDownload(systemDownloadId)
-                        .setOTRProfileID(otrProfileID)
+                        .setOtrProfileId(otrProfileId)
                         .setIsSupportedMimeType(isSupportedMimeType)
                         .setIsOpenable(isOpenable)
                         .setIcon(icon)
@@ -530,13 +522,14 @@ public class DownloadNotificationService {
 
     /**
      * Add a download failed notification.
-     * @param id                  The {@link ContentId} of the download.
-     * @param fileName            Filename of the download.
-     * @param icon                A {@link Bitmap} to be used as the large icon for display.
-     * @param originalUrl         The original url of the downloaded file.
+     *
+     * @param id The {@link ContentId} of the download.
+     * @param fileName Filename of the download.
+     * @param icon A {@link Bitmap} to be used as the large icon for display.
+     * @param originalUrl The original url of the downloaded file.
      * @param shouldPromoteOrigin Whether the origin should be displayed in the notification.
-     * @param otrProfileID        The {@link OTRProfileID} of the download. Null if in regular mode.
-     * @param failState           Reason why download failed.
+     * @param otrProfileId The {@link OtrProfileId} of the download. Null if in regular mode.
+     * @param failState Reason why download failed.
      */
     @VisibleForTesting
     public void notifyDownloadFailed(
@@ -545,7 +538,7 @@ public class DownloadNotificationService {
             Bitmap icon,
             GURL originalUrl,
             boolean shouldPromoteOrigin,
-            OTRProfileID otrProfileID,
+            OtrProfileId otrProfileId,
             @FailState int failState) {
         // If the download is not in history db, fileName could be empty. Get it from
         // SharedPreferences.
@@ -564,7 +557,7 @@ public class DownloadNotificationService {
                         .setContentId(id)
                         .setFileName(fileName)
                         .setIcon(icon)
-                        .setOTRProfileID(otrProfileID)
+                        .setOtrProfileId(otrProfileId)
                         .setOriginalUrl(originalUrl)
                         .setShouldPromoteOrigin(shouldPromoteOrigin)
                         .setFailState(failState)
@@ -610,10 +603,13 @@ public class DownloadNotificationService {
     @VisibleForTesting
     void updateNotification(int id, Notification notification) {
         // TODO(b/65052774): Add back NOTIFICATION_NAMESPACE when able to.
-        // Disabling StrictMode to avoid violations (crbug.com/789134).
-        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
-            mNotificationManager.notify(id, notification);
-        }
+        mNotificationManager.notify(
+                new NotificationWrapper(
+                        notification,
+                        new NotificationMetadata(
+                                NotificationUmaTracker.SystemNotificationType.DOWNLOAD_FILES,
+                                /* tag= */ null,
+                                id)));
     }
 
     private void updateNotification(
@@ -702,7 +698,7 @@ public class DownloadNotificationService {
                         new DownloadSharedPreferenceEntry(
                                 entry.id,
                                 newNotificationId,
-                                entry.otrProfileID,
+                                entry.otrProfileId,
                                 entry.canDownloadWhileMetered,
                                 entry.fileName,
                                 entry.isAutoResumable,
@@ -745,7 +741,7 @@ public class DownloadNotificationService {
                         new DownloadSharedPreferenceEntry(
                                 entry.id,
                                 getNextNotificationId(),
-                                entry.otrProfileID,
+                                entry.otrProfileId,
                                 entry.canDownloadWhileMetered,
                                 entry.fileName,
                                 entry.isAutoResumable,
@@ -759,7 +755,7 @@ public class DownloadNotificationService {
                         updatedEntry.fileName,
                         /* isResumable= */ true,
                         updatedEntry.isAutoResumable,
-                        updatedEntry.otrProfileID,
+                        updatedEntry.otrProfileId,
                         updatedEntry.isTransient,
                         /* icon= */ null,
                         /* originalUrl= */ null,
@@ -776,7 +772,7 @@ public class DownloadNotificationService {
         cancelOffTheRecordDownloads();
         List<DownloadSharedPreferenceEntry> entries = mDownloadSharedPreferenceHelper.getEntries();
         for (DownloadSharedPreferenceEntry entry : entries) {
-            if (OTRProfileID.isOffTheRecord(entry.otrProfileID)) continue;
+            if (OtrProfileId.isOffTheRecord(entry.otrProfileId)) continue;
             // Move all regular downloads to pending.  Don't propagate the pause because
             // if native is still working and it triggers an update, then the service will be
             // restarted.
@@ -799,18 +795,18 @@ public class DownloadNotificationService {
     public void cancelOffTheRecordDownloads() {
         boolean cancelActualDownload =
                 BrowserStartupController.getInstance().isFullBrowserStarted()
-                        && Profile.getLastUsedRegularProfile().hasPrimaryOTRProfile();
+                        && ProfileManager.getLastUsedRegularProfile().hasPrimaryOtrProfile();
 
         List<DownloadSharedPreferenceEntry> entries = mDownloadSharedPreferenceHelper.getEntries();
         List<DownloadSharedPreferenceEntry> copies =
                 new ArrayList<DownloadSharedPreferenceEntry>(entries);
         for (DownloadSharedPreferenceEntry entry : copies) {
-            if (!OTRProfileID.isOffTheRecord(entry.otrProfileID)) continue;
+            if (!OtrProfileId.isOffTheRecord(entry.otrProfileId)) continue;
             ContentId id = entry.id;
             notifyDownloadCanceled(id, false);
             if (cancelActualDownload) {
                 DownloadServiceDelegate delegate = getServiceDelegate(id);
-                delegate.cancelDownload(id, entry.otrProfileID);
+                delegate.cancelDownload(id, entry.otrProfileId);
                 delegate.destroyServiceDelegate();
             }
         }

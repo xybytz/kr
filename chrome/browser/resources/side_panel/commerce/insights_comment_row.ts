@@ -2,10 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import '../strings.m.js';
+import '/strings.m.js';
 import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 
-import {ShoppingServiceApiProxy, ShoppingServiceApiProxyImpl} from '//shopping-insights-side-panel.top-chrome/shared/commerce/shopping_service_api_proxy.js';
+import type {ShoppingServiceBrowserProxy} from '//resources/cr_components/commerce/shopping_service_browser_proxy.js';
+import {ShoppingServiceBrowserProxyImpl} from '//resources/cr_components/commerce/shopping_service_browser_proxy.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
@@ -29,11 +30,11 @@ export class InsightsCommentRow extends PolymerElement {
     };
   }
 
-  private shoppingApi_: ShoppingServiceApiProxy =
-      ShoppingServiceApiProxyImpl.getInstance();
+  private shoppingApi_: ShoppingServiceBrowserProxy =
+      ShoppingServiceBrowserProxyImpl.getInstance();
 
   private showFeedback_() {
-    this.shoppingApi_.showFeedback();
+    this.shoppingApi_.showFeedbackForPriceInsights();
     chrome.metricsPrivate.recordUserAction(
         'Commerce.PriceInsights.InlineFeedbackLinkClicked');
   }

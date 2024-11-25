@@ -7,6 +7,7 @@
 #import "base/check.h"
 #import "base/ios/block_types.h"
 #import "ios/chrome/browser/shared/ui/util/named_guide.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/transitions/animations/centered_zoom_transition_animation.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/transitions/animations/point_zoom_transition_animation.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/transitions/animations/tab_grid_transition_animation.h"
@@ -14,14 +15,13 @@
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/transitions/tab_grid_transition_item.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/transitions/tab_grid_transition_layout.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/transitions/tab_grid_transition_layout_providing.h"
-#import "ios/chrome/common/ui/util/ui_util.h"
 
 @implementation TabGridTransitionHandler {
   TabGridTransitionType _transitionType;
   TabGridTransitionDirection _direction;
 
   UIViewController<TabGridTransitionLayoutProviding>* _tabGridViewController;
-  BVCContainerViewController* _BVCContainerViewController;
+  UIViewController* _BVCContainerViewController;
 
   // Transition item for the selected cell in tab grid.
   TabGridTransitionItem* _tabGridCellItem;
@@ -38,7 +38,7 @@
                      (UIViewController<TabGridTransitionLayoutProviding>*)
                          tabGridViewController
             bvcContainerViewController:
-                (BVCContainerViewController*)bvcContainerViewController {
+                (UIViewController*)bvcContainerViewController {
   self = [super init];
   if (self) {
     CHECK(tabGridViewController.transitionLayout);
@@ -183,7 +183,7 @@
 }
 
 // Returns Browser to TabGrid normal motion animation.
-// TODO(crbug.com/1499268): Finish this animation.
+// TODO(crbug.com/40287759): Finish this animation.
 - (id<TabGridTransitionAnimation>)browserToTabGridNormalAnimation {
   // Main animation.
   PointZoomAnimationParameters animationParam = PointZoomAnimationParameters{
@@ -204,7 +204,7 @@
 }
 
 // Returns TabGrid to Browser normal motion animation.
-// TODO(crbug.com/1499268): Finish this animation.
+// TODO(crbug.com/40287759): Finish this animation.
 - (id<TabGridTransitionAnimation>)tabGridToBrowserNormalAnimation {
   // Set the frame to be the same as the active cell.
   _BVCContainerViewController.view.frame = _tabGridCellItem.originalFrame;

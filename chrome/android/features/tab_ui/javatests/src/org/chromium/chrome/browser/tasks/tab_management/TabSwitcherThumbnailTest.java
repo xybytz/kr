@@ -5,8 +5,8 @@
 package org.chromium.chrome.browser.tasks.tab_management;
 
 import static androidx.test.espresso.contrib.RecyclerViewActions.scrollToPosition;
+import static androidx.test.espresso.matcher.ViewMatchers.isDescendantOfA;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
-import static androidx.test.espresso.matcher.ViewMatchers.withParent;
 
 import static org.hamcrest.Matchers.allOf;
 import static org.junit.Assert.assertEquals;
@@ -29,49 +29,32 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.R;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.embedder_support.util.UrlConstants;
-import org.chromium.ui.test.util.UiRestriction;
+import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.widget.ViewLookupCachingFrameLayout;
 
 /** Tests for the thumbnail view in Grid Tab Switcher. */
 @RunWith(ChromeJUnit4ClassRunner.class)
-@CommandLineFlags.Add({
-    ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
-    "force-fieldtrials=Study/Group"
-})
-@EnableFeatures({ChromeFeatureList.TAB_TO_GTS_ANIMATION + "<Study"})
-@Restriction({
-    UiRestriction.RESTRICTION_TYPE_PHONE,
-    Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE
-})
+@CommandLineFlags.Add(ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE)
+@Restriction({DeviceFormFactor.PHONE, Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE})
 public class TabSwitcherThumbnailTest {
-    private static final String BASE_PARAMS =
-            "force-fieldtrial-params="
-                    + "Study.Group:skip-slow-zooming/false"
-                    + "/zooming-min-memory-mb/512/enable_launch_polish/true";
-
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
 
-    private TabListMediator.ThumbnailFetcher mNullThumbnailProvider =
-            new TabListMediator.ThumbnailFetcher(
-                    (tabId, thumbnailSize, callback, forceUpdate, writeToCache, isSelected) ->
-                            callback.onResult(null),
-                    Tab.INVALID_TAB_ID,
-                    false,
-                    false);
+    private ThumbnailFetcher mNullThumbnailFetcher =
+            new ThumbnailFetcher(
+                    (tabId, thumbnailSize, isSelected, callback) -> callback.onResult(null),
+                    Tab.INVALID_TAB_ID);
 
     @Before
     public void setUp() {
         mActivityTestRule.startMainActivityWithURL(UrlConstants.NTP_URL);
-        TabGridViewBinder.setThumbnailFeatureForTesting(mNullThumbnailProvider);
+        TabGridViewBinder.setThumbnailFetcherForTesting(mNullThumbnailFetcher);
     }
 
     @Test
@@ -92,7 +75,6 @@ public class TabSwitcherThumbnailTest {
 
     @Test
     @MediumTest
-    @CommandLineFlags.Add({BASE_PARAMS})
     public void testThumbnailAspectRatio_point85() {
         int tabCounts = 11;
         TabUiTestHelper.prepareTabsWithThumbnail(mActivityTestRule, tabCounts, 0, "about:blank");
@@ -102,7 +84,6 @@ public class TabSwitcherThumbnailTest {
 
     @Test
     @MediumTest
-    @CommandLineFlags.Add({BASE_PARAMS + "/cleanup-delay/10000"})
     public void testThumbnail_withSoftCleanup() {
         int tabCounts = 11;
         TabUiTestHelper.prepareTabsWithThumbnail(mActivityTestRule, tabCounts, 0, "about:blank");
@@ -125,9 +106,9 @@ public class TabSwitcherThumbnailTest {
         for (int i = tabCounts - 1; i >= 0; i--) {
             onViewWaiting(
                             allOf(
-                                    withParent(
+                                    isDescendantOfA(
                                             withId(
-                                                    TabUiTestHelper.getTabSwitcherParentId(
+                                                    TabUiTestHelper.getTabSwitcherAncestorId(
                                                             mActivityTestRule.getActivity()))),
                                     withId(R.id.tab_list_recycler_view)))
                     .perform(scrollToPosition(i))

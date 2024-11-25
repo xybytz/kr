@@ -173,7 +173,8 @@ ObserverMethodTestParam kObserverMethodTestParams[] = {
          media::mojom::DisplayCaptureSurfaceType::MONITOR,
          /*logical_surface=*/true,
          media::mojom::CursorCaptureType::NEVER,
-         /*capture_handle=*/nullptr),
+         /*capture_handle=*/nullptr,
+         /*initial_zoom_level=*/100),
      &MockObserver::SetOnIsCapturingDisplayChangedExpectation,
      &MediaStreamCaptureIndicator::IsCapturingDisplay},
 };
@@ -190,12 +191,13 @@ blink::mojom::StreamDevices CreateFakeDevice(
   if (param.display_media_info)
     device.display_media_info = param.display_media_info->Clone();
 
-  if (blink::IsAudioInputMediaType(param.stream_type))
+  if (blink::IsAudioInputMediaType(param.stream_type)) {
     fake_devices.audio_device = device;
-  else if (blink::IsVideoInputMediaType(param.stream_type))
+  } else if (blink::IsVideoInputMediaType(param.stream_type)) {
     fake_devices.video_device = device;
-  else
+  } else {
     NOTREACHED();
+  }
 
   return fake_devices;
 }
@@ -262,7 +264,7 @@ TEST_P(MediaStreamCaptureIndicatorObserverMethodTest, AddAndRemoveDevice) {
   ::testing::Mock::VerifyAndClear(observer());
 }
 
-// TODO(crbug.com/1479984): re-enable once the bug is fixed.
+// TODO(crbug.com/40071631): re-enable once the bug is fixed.
 TEST_P(MediaStreamCaptureIndicatorObserverMethodTest,
        DISABLED_StopMediaCapturing) {
   const ObserverMethodTestParam& param = GetParam();
@@ -334,15 +336,17 @@ TEST_P(MediaStreamCaptureIndicatorStreamTypeTest,
           /*url_origin=*/url::Origin(),
           /*user_gesture=*/false,
           blink::MediaStreamRequestType::MEDIA_GENERATE_STREAM,
-          /*requested_audio_device_id=*/"",
-          /*requested_video_device_id=*/"fake_device",
+          /*requested_audio_device_ids=*/{},
+          /*requested_video_device_ids=*/{"fake_device"},
           blink::mojom::MediaStreamType::NO_SERVICE, video_stream_type,
           /*disable_local_echo=*/false,
-          /*request_pan_tilt_zoom_permission=*/false),
+          /*request_pan_tilt_zoom_permission=*/false,
+          /*captured_surface_control_active=*/false),
       source, content::DesktopMediaID(media_type, /*id=*/0),
       /*capture_audio=*/false, /*disable_local_echo=*/false,
       /*suppress_local_audio_playback=*/false,
-      /*display_notification=*/false, /*application_title=*/u"", devices);
+      /*display_notification=*/false, /*application_title=*/u"",
+      /*captured_surface_control_active=*/false, devices);
   ASSERT_EQ(devices.video_device->type, video_stream_type);
 
   (observer()->*(GetParam().observer_method))(source, 2);

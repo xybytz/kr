@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <stddef.h>
 #include <memory>
 
@@ -55,7 +60,7 @@ class MojoVideoEncoderMetricsProviderServiceTest
   base::TestMessageLoop message_loop_;
 };
 
-TEST_F(MojoVideoEncoderMetricsProviderServiceTest, Create_NoUKMReport) {
+TEST_F(MojoVideoEncoderMetricsProviderServiceTest, CreateNoUKMReport) {
   auto [test_recorder, provider] = Create(kTestURL);
   provider.reset();
   base::RunLoop().RunUntilIdle();

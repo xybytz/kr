@@ -46,7 +46,7 @@ class MockPasswordProtectionService : public PasswordProtectionService {
                      PasswordProtectionTrigger(ReusedPasswordAccountType));
   MOCK_CONST_METHOD1(GetAccountInfoForUsername,
                      AccountInfo(const std::string&));
-  MOCK_CONST_METHOD1(IsAccountGmail, bool(const std::string&));
+  MOCK_CONST_METHOD1(IsAccountConsumer, bool(const std::string&));
   MOCK_CONST_METHOD1(IsURLAllowlistedForPasswordEntry, bool(const GURL&));
 
   MOCK_METHOD2(FillUserPopulation,
@@ -69,9 +69,7 @@ class MockPasswordProtectionService : public PasswordProtectionService {
   MOCK_METHOD1(
       RemovePhishedSavedPasswordCredential,
       void(const std::vector<password_manager::MatchingReusedCredential>&));
-  MOCK_METHOD1(
-      GetReferringAppInfo,
-      LoginReputationClientRequest::ReferringAppInfo(content::WebContents*));
+  MOCK_METHOD1(GetReferringAppInfo, ReferringAppInfo(content::WebContents*));
   MOCK_METHOD2(IsPingingEnabled,
                bool(LoginReputationClientRequest::TriggerType,
                     ReusedPasswordAccountType));
@@ -85,11 +83,7 @@ class MockPasswordProtectionService : public PasswordProtectionService {
                     const std::string&,
                     ReusedPasswordAccountType));
   MOCK_METHOD5(MaybeReportPasswordReuseDetected,
-               void(PasswordProtectionRequest*,
-                    const std::string&,
-                    PasswordType,
-                    bool,
-                    bool));
+               void(const GURL&, const std::string&, PasswordType, bool, bool));
   MOCK_METHOD3(UpdateSecurityState,
                void(safe_browsing::SBThreatType,
                     ReusedPasswordAccountType,

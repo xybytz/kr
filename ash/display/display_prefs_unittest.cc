@@ -143,10 +143,21 @@ class DisplayPrefsTest : public AshTestBase {
   void LoggedInAsGuest() { SimulateGuestLogin(); }
 
   void LoggedInAsPublicAccount() {
-    SimulateUserLogin("pa@test.com", user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+    SimulateUserLogin("pa@test.com", user_manager::UserType::kPublicAccount);
   }
 
   void LoadDisplayPreferences() { display_prefs()->LoadDisplayPreferences(); }
+
+  display::ManagedDisplayInfo CreateDisplayInfo(int64_t id,
+                                                const gfx::Rect& bounds) {
+    display::ManagedDisplayInfo info = display::CreateDisplayInfo(id, bounds);
+    // Each display should have at least one native mode.
+    display::ManagedDisplayMode mode(bounds.size(), /*refresh_rate=*/60.f,
+                                     /*is_interlaced=*/true,
+                                     /*native=*/true);
+    info.SetManagedDisplayModes({mode});
+    return info;
+  }
 
   // Do not use the implementation of display_prefs.cc directly to avoid
   // notifying the update to the system.
@@ -296,7 +307,7 @@ class DisplayPrefsTest : public AshTestBase {
   DisplayPrefs* display_prefs() { return Shell::Get()->display_prefs(); }
 
  private:
-  std::unique_ptr<WindowTreeHostManager::Observer> observer_;
+  std::unique_ptr<display::DisplayManagerObserver> observer_;
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
@@ -432,12 +443,15 @@ TEST_F(DisplayPrefsTest, BasicStores) {
                                       gfx::Size(231, 416), 1);
   touchdevice_3.phys = "1357";
 
-  display_manager()->SetTouchCalibrationData(id2, point_pair_quad_1,
-                                             touch_size_1, touchdevice);
-  display_manager()->SetTouchCalibrationData(id2, point_pair_quad_2,
-                                             touch_size_2, touchdevice_2);
-  display_manager()->SetTouchCalibrationData(id2, point_pair_quad_2,
-                                             touch_size_1, touchdevice_3);
+  display_manager()->SetTouchCalibrationData(
+      id2, point_pair_quad_1, touch_size_1, touchdevice,
+      /*apply_spatial_calibration=*/true);
+  display_manager()->SetTouchCalibrationData(
+      id2, point_pair_quad_2, touch_size_2, touchdevice_2,
+      /*apply_spatial_calibration=*/true);
+  display_manager()->SetTouchCalibrationData(
+      id2, point_pair_quad_2, touch_size_1, touchdevice_3,
+      /*apply_spatial_calibration=*/true);
 
   const base::Value::Dict& displays =
       local_state()->GetDict(prefs::kSecondaryDisplays);
@@ -622,7 +636,8 @@ TEST_F(DisplayPrefsTest, BasicStores) {
       /*device_scale_factor=*/1.0f, /*display_zoom_factor=*/1.0f,
       /*display_zoom_factor_map=*/{}, /*refresh_rate=*/60.f,
       /*is_interlaced=*/false,
-      /*variable_refresh_rate_state=*/display::kVrrNotCapable,
+      /*variable_refresh_rate_state=*/
+      display::VariableRefreshRateState::kVrrNotCapable,
       /*vsync_rate_min=*/std::nullopt);
 
   UpdateDisplay("300x200*2, 600x500#600x500|500x400");
@@ -656,7 +671,8 @@ TEST_F(DisplayPrefsTest, BasicStores) {
       /*device_scale_factor=*/1.0f, /*display_zoom_factor=*/1.0f,
       /*display_zoom_factor_map=*/{}, /*refresh_rate=*/60.f,
       /*is_interlaced=*/false,
-      /*variable_refresh_rate_state=*/display::kVrrNotCapable,
+      /*variable_refresh_rate_state=*/
+      display::VariableRefreshRateState::kVrrNotCapable,
       /*vsync_rate_min=*/std::nullopt);
   // Disconnect 2nd display first to generate new id for external display.
   UpdateDisplay("300x200*2");
@@ -1220,9 +1236,9 @@ TEST_F(DisplayPrefsTest, RestoreUnifiedMode) {
   const int64_t first_display_id = 210000001;
   const int64_t second_display_id = 220000002;
   display::ManagedDisplayInfo first_display_info =
-      display::CreateDisplayInfo(first_display_id, gfx::Rect(1, 1, 600, 500));
+      CreateDisplayInfo(first_display_id, gfx::Rect(1, 1, 600, 500));
   display::ManagedDisplayInfo second_display_info =
-      display::CreateDisplayInfo(second_display_id, gfx::Rect(2, 2, 600, 500));
+      CreateDisplayInfo(second_display_id, gfx::Rect(2, 2, 600, 500));
   std::vector<display::ManagedDisplayInfo> display_info_list;
   display_info_list.emplace_back(first_display_info);
   display_manager()->OnNativeDisplaysChanged(display_info_list);
@@ -1377,8 +1393,9 @@ TEST_F(DisplayPrefsTest, LegacyTouchCalibrationDataSupport) {
       std::string("test touch device 4"), gfx::Size(231, 416), 1);
   display::TouchDeviceIdentifier identifier =
       display::TouchDeviceIdentifier::FromDevice(touchdevice_4);
-  display_manager()->SetTouchCalibrationData(id_2, point_pair_quad,
-                                             touch_size_2, touchdevice_4);
+  display_manager()->SetTouchCalibrationData(
+      id_2, point_pair_quad, touch_size_2, touchdevice_4,
+      /*apply_spatial_calibration=*/true);
 
   EXPECT_TRUE(tdm->touch_associations().count(identifier));
   EXPECT_TRUE(tdm->touch_associations().at(identifier).count(id_2));
@@ -1417,14 +1434,14 @@ TEST_F(DisplayPrefsTest, ExternalDisplayMirrorInfo) {
   const int64_t second_display_masked_id =
       display::GetDisplayIdWithoutOutputIndex(second_display_id);
   display::ManagedDisplayInfo first_display_info =
-      display::CreateDisplayInfo(first_display_id, gfx::Rect(1, 1, 600, 500));
+      CreateDisplayInfo(first_display_id, gfx::Rect(1, 1, 600, 500));
   display::ManagedDisplayInfo second_display_info =
-      display::CreateDisplayInfo(second_display_id, gfx::Rect(2, 2, 600, 500));
+      CreateDisplayInfo(second_display_id, gfx::Rect(2, 2, 600, 500));
   std::vector<display::ManagedDisplayInfo> display_info_list;
 
   // There's no external display now.
-  display_info_list.push_back(display::CreateDisplayInfo(
-      internal_display_id, gfx::Rect(0, 0, 200, 100)));
+  display_info_list.push_back(
+      CreateDisplayInfo(internal_display_id, gfx::Rect(0, 0, 200, 100)));
   display_manager()->OnNativeDisplaysChanged(display_info_list);
 
   // Add first display id to the external display mirror info.
@@ -1510,13 +1527,12 @@ TEST_F(DisplayPrefsTest, ExternalDisplayConnectedBeforeLoadingPrefs) {
           .SetFirstDisplayAsInternalDisplay();
   constexpr int64_t external_display_id = 210000001;
   display::ManagedDisplayInfo external_display_info =
-      display::CreateDisplayInfo(external_display_id,
-                                 gfx::Rect(1, 1, 600, 500));
+      CreateDisplayInfo(external_display_id, gfx::Rect(1, 1, 600, 500));
 
   // Both internal and external displays connect before the prefs are loaded.
   std::vector<display::ManagedDisplayInfo> display_info_list;
-  display_info_list.push_back(display::CreateDisplayInfo(
-      internal_display_id, gfx::Rect(0, 0, 200, 100)));
+  display_info_list.push_back(
+      CreateDisplayInfo(internal_display_id, gfx::Rect(0, 0, 200, 100)));
   display_info_list.push_back(external_display_info);
   display_manager()->OnNativeDisplaysChanged(display_info_list);
 
@@ -1553,12 +1569,12 @@ TEST_F(DisplayPrefsTest, DisplayMixedMirrorMode) {
   constexpr int64_t first_display_id = 210000001;
   constexpr int64_t second_display_id = 220000002;
   std::vector<display::ManagedDisplayInfo> display_info_list;
-  display_info_list.push_back(display::CreateDisplayInfo(
-      internal_display_id, gfx::Rect(0, 0, 200, 100)));
   display_info_list.push_back(
-      display::CreateDisplayInfo(first_display_id, gfx::Rect(1, 1, 600, 500)));
+      CreateDisplayInfo(internal_display_id, gfx::Rect(0, 0, 200, 100)));
   display_info_list.push_back(
-      display::CreateDisplayInfo(second_display_id, gfx::Rect(2, 2, 600, 500)));
+      CreateDisplayInfo(first_display_id, gfx::Rect(1, 1, 600, 500)));
+  display_info_list.push_back(
+      CreateDisplayInfo(second_display_id, gfx::Rect(2, 2, 600, 500)));
 
   // Store mixed mirror mode parameters which specify mirroring from the
   // internal display to the first external display.

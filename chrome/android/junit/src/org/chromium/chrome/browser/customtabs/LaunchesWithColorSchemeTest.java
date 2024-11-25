@@ -17,21 +17,18 @@ import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.SmallTest;
 
 import org.junit.After;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Features.DisableFeatures;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeRobolectricTestRunner;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.toolbar.menu_button.MenuButton;
 import org.chromium.chrome.browser.ui.theme.BrandedColorScheme;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 
 /** Tests that {@link CustomTabActivity} launches into the correct color scheme. */
 @RunWith(ChromeRobolectricTestRunner.class)
@@ -43,8 +40,6 @@ import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 })
 public class LaunchesWithColorSchemeTest {
     private ActivityScenario<CustomTabActivity> mActivityScenario;
-
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
 
     @After
     public void tearDown() {

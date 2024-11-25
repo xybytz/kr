@@ -10,11 +10,15 @@
 #include "base/barrier_callback.h"
 #include "base/debug/crash_logging.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/functional/callback.h"
 #include "base/functional/callback_forward.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
+#include "chrome/browser/web_applications/commands/command_result.h"
 #include "chrome/browser/web_applications/commands/web_app_command.h"
+#include "chrome/browser/web_applications/isolated_web_apps/get_isolated_web_app_browsing_data_command.h"
+#include "chrome/browser/web_applications/isolated_web_apps/jobs/get_isolated_web_app_size_job.h"
 #include "chrome/browser/web_applications/locks/app_lock.h"
 #include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
@@ -29,6 +33,7 @@
 #include "content/public/browser/dom_storage_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/storage_partition_config.h"
+#include "content/public/browser/storage_usage_info.h"
 
 namespace web_app {
 
@@ -52,11 +57,25 @@ ComputeAppSizeCommand::~ComputeAppSizeCommand() = default;
 void ComputeAppSizeCommand::StartWithLock(std::unique_ptr<AppLock> lock) {
   lock_ = std::move(lock);
 
-  if (!lock_->registrar().IsInstalled(app_id_)) {
+  const WebAppRegistrar& registrar = lock_->registrar();
+  if (!registrar.IsInstallState(
+          app_id_, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                    proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                    proto::InstallState::INSTALLED_WITH_OS_INTEGRATION})) {
     ReportResultAndDestroy(CommandResult::kFailure);
     return;
   }
 
+  if (registrar.IsIsolated(app_id_)) {
+    get_isolated_web_app_size_job_ = std::make_unique<GetIsolatedWebAppSizeJob>(
+        profile_.get(), app_id_, GetMutableDebugValue(),
+        base::BindOnce(&ComputeAppSizeCommand::OnIsolatedAppSizeComputed,
+                       weak_factory_.GetWeakPtr()));
+    get_isolated_web_app_size_job_->Start(lock_.get());
+    return;
+  }
+
+  // TODO(crbug.com/378625836): Extract PWA path to a separate job.
   lock_->icon_manager().GetIconsSizeForApp(
       app_id_, base::BindOnce(&ComputeAppSizeCommand::OnGetIconSize,
                               weak_factory_.GetWeakPtr()));
@@ -82,14 +101,15 @@ void ComputeAppSizeCommand::OnQuotaModelInfoLoaded(
     const SiteDataSizeCollector::QuotaStorageUsageInfoList&
         quota_storage_info_list) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (!lock_->registrar().IsInstalled(app_id_)) {
+  if (!lock_->registrar().IsInstallState(
+          app_id_, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                    proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                    proto::InstallState::INSTALLED_WITH_OS_INTEGRATION})) {
     // (crbug/1480755): This crash is not expected as the app is checked for
     // validity when the command is evoked in StartWithLock. We are also still
     // holding the lock so a change to the status of the app throughout is not
     // expected.
     NOTREACHED();
-    ReportResultAndDestroy(CommandResult::kFailure);
-    return;
   }
 
   GURL gurl = lock_->registrar().GetAppById(app_id_)->start_url();
@@ -99,12 +119,10 @@ void ComputeAppSizeCommand::OnQuotaModelInfoLoaded(
     // holding the lock so a change to the status of the app throughout is not
     // expected.
     NOTREACHED();
-    ReportResultAndDestroy(CommandResult::kFailure);
-    return;
   }
   origin_ = url::Origin::Create(gurl);
 
-  // TODO(crbug/1295875): Optimise the computation of the following loop.
+  // TODO(crbug.com/40214522): Optimise the computation of the following loop.
   for (const auto& quota_info : quota_storage_info_list) {
     if (origin_ == quota_info.storage_key.origin()) {
       size_.data_size_in_bytes +=
@@ -114,24 +132,15 @@ void ComputeAppSizeCommand::OnQuotaModelInfoLoaded(
   GetMutableDebugValue().Set("data_size_in_bytes",
                              base::ToString(size_.data_size_in_bytes));
 
-  GetSessionUsage();
-}
-
-void ComputeAppSizeCommand::GetSessionUsage() {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  content::StoragePartition* storage_partition =
-      profile_->GetDefaultStoragePartition();
-  local_storage_helper_ =
-      base::MakeRefCounted<browsing_data::LocalStorageHelper>(
-          storage_partition);
-
-  local_storage_helper_->StartFetching(
-      base::BindOnce(&ComputeAppSizeCommand::OnLocalStorageModelInfoLoaded,
-                     weak_factory_.GetWeakPtr()));
+  profile_->GetDefaultStoragePartition()
+      ->GetDOMStorageContext()
+      ->GetLocalStorageUsage(
+          base::BindOnce(&ComputeAppSizeCommand::OnLocalStorageModelInfoLoaded,
+                         weak_factory_.GetWeakPtr()));
 }
 
 void ComputeAppSizeCommand::OnLocalStorageModelInfoLoaded(
-    const std::list<content::StorageUsageInfo>& local_storage_info_list) {
+    const std::vector<content::StorageUsageInfo>& local_storage_info_list) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   for (const auto& local_storage_info : local_storage_info_list) {
     url::Origin local_origin = local_storage_info.storage_key.origin();
@@ -141,6 +150,15 @@ void ComputeAppSizeCommand::OnLocalStorageModelInfoLoaded(
   }
 
   ReportResultAndDestroy(CommandResult::kSuccess);
+}
+
+void ComputeAppSizeCommand::OnIsolatedAppSizeComputed(
+    std::optional<GetIsolatedWebAppSizeJobResult> result) {
+  if (result) {
+    size_ = std::move(result->size);
+  }
+  ReportResultAndDestroy(result ? CommandResult::kSuccess
+                                : CommandResult::kFailure);
 }
 
 void ComputeAppSizeCommand::ReportResultAndDestroy(CommandResult result) {

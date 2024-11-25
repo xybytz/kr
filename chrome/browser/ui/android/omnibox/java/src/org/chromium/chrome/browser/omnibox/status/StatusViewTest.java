@@ -18,9 +18,10 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import static org.chromium.content_public.browser.test.util.TestThreadUtils.runOnUiThreadBlocking;
+import static org.chromium.base.ThreadUtils.runOnUiThreadBlocking;
 
 import android.animation.Animator;
+import android.app.Activity;
 import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.view.ViewGroup;
@@ -30,25 +31,30 @@ import android.widget.LinearLayout;
 
 import androidx.test.filters.MediumTest;
 
+import org.junit.After;
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.MockitoAnnotations;
 
+import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.BaseActivityTestRule;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.Restriction;
+import org.chromium.base.test.util.TestAnimations.EnableAnimations;
 import org.chromium.chrome.browser.omnibox.R;
 import org.chromium.chrome.browser.omnibox.status.StatusProperties.StatusIconResource;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.components.browser_ui.widget.ChromeTransitionDrawable;
 import org.chromium.components.browser_ui.widget.CompositeTouchDelegate;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
-import org.chromium.ui.test.util.BlankUiTestActivityTestCase;
-import org.chromium.ui.test.util.DisableAnimationsTestRule;
-import org.chromium.ui.test.util.UiRestriction;
+import org.chromium.ui.test.util.BlankUiTestActivity;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.ExecutionException;
@@ -56,29 +62,39 @@ import java.util.concurrent.ExecutionException;
 /** Tests for {@link StatusView} and {@link StatusViewBinder}. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @Batch(Batch.PER_CLASS)
-public class StatusViewTest extends BlankUiTestActivityTestCase {
+public class StatusViewTest {
+    @ClassRule
+    public static BaseActivityTestRule<BlankUiTestActivity> sActivityTestRule =
+            new BaseActivityTestRule<>(BlankUiTestActivity.class);
+
+    private static Activity sActivity;
+
     private StatusView mStatusView;
     private PropertyModel mStatusModel;
     private PropertyModelChangeProcessor mStatusMCP;
 
-    @Override
-    public void setUpTest() throws Exception {
-        super.setUpTest();
+    @BeforeClass
+    public static void setupSuite() {
+        sActivity = sActivityTestRule.launchActivity(null);
+    }
+
+    @Before
+    public void setUp() {
         MockitoAnnotations.initMocks(this);
 
         runOnUiThreadBlocking(
                 () -> {
-                    ViewGroup view = new LinearLayout(getActivity());
+                    ViewGroup view = new LinearLayout(sActivity);
 
                     FrameLayout.LayoutParams params =
                             new FrameLayout.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT);
 
-                    getActivity().setContentView(view, params);
+                    sActivity.setContentView(view, params);
 
                     mStatusView =
-                            getActivity()
+                            sActivity
                                     .getLayoutInflater()
                                     .inflate(R.layout.location_status, view, true)
                                     .findViewById(R.id.location_bar_status);
@@ -90,10 +106,9 @@ public class StatusViewTest extends BlankUiTestActivityTestCase {
                 });
     }
 
-    @Override
-    public void tearDownTest() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(mStatusMCP::destroy);
-        super.tearDownTest();
+    @After
+    public void tearDown() throws Exception {
+        ThreadUtils.runOnUiThreadBlocking(mStatusMCP::destroy);
     }
 
     @Test
@@ -169,7 +184,7 @@ public class StatusViewTest extends BlankUiTestActivityTestCase {
 
     @Test
     @MediumTest
-    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    @Restriction(DeviceFormFactor.PHONE)
     @Feature({"Omnibox"})
     public void statusView_goneWhenIncognitoBadgeVisible() {
         // Set location_bar_status_icon is VISIBLE in the beginning.
@@ -209,7 +224,7 @@ public class StatusViewTest extends BlankUiTestActivityTestCase {
 
     @Test
     @MediumTest
-    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    @Restriction(DeviceFormFactor.PHONE)
     @Feature({"Omnibox"})
     public void testSearchEngineLogo_incognito_noMarginEnd() {
         // Set incognito badge visible.
@@ -299,7 +314,7 @@ public class StatusViewTest extends BlankUiTestActivityTestCase {
     @Test
     @MediumTest
     @Feature({"Omnibox"})
-    @DisableAnimationsTestRule.EnsureAnimationsOn
+    @EnableAnimations
     public void testStatusViewAnimation_noConcurrentAnimation()
             throws ExecutionException,
                     InterruptedException,
@@ -343,6 +358,34 @@ public class StatusViewTest extends BlankUiTestActivityTestCase {
                             (ChromeTransitionDrawable)
                                     ((ImageView) mStatusView.getSecurityView()).getDrawable();
                     assertTrue(nextTransitionDrawable.getAnimatorForTesting().isStarted());
+                });
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"Omnibox"})
+    public void testShowStatusViewToggleVisibility()
+            throws ExecutionException, InterruptedException {
+        runOnUiThreadBlocking(
+                () -> {
+                    mStatusModel.set(StatusProperties.SHOW_STATUS_VIEW, true);
+                    assertEquals(View.VISIBLE, mStatusView.getVisibility());
+                    mStatusModel.set(StatusProperties.SHOW_STATUS_VIEW, false);
+                    assertEquals(View.GONE, mStatusView.getVisibility());
+                });
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"Omnibox"})
+    public void testShowStatusViewNotAffectedByShowIconView()
+            throws ExecutionException, InterruptedException {
+        runOnUiThreadBlocking(
+                () -> {
+                    mStatusModel.set(StatusProperties.SHOW_STATUS_VIEW, false);
+                    assertEquals(View.GONE, mStatusView.getVisibility());
+                    mStatusModel.set(StatusProperties.SHOW_STATUS_ICON, true);
+                    assertEquals(View.GONE, mStatusView.getVisibility());
                 });
     }
 }

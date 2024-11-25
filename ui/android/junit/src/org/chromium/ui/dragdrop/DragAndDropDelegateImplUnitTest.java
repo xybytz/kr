@@ -43,14 +43,17 @@ import org.robolectric.shadows.ShadowContentResolver;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.base.metrics.UmaRecorderHolder;
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.base.test.util.Features.DisableFeatures;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.ui.accessibility.AccessibilityState;
+import org.chromium.ui.base.UiAndroidFeatureList;
 import org.chromium.ui.dragdrop.DragAndDropDelegateImpl.DragTargetType;
 import org.chromium.url.JUnitTestGURLs;
 
 /** Unit tests for {@link DragAndDropDelegateImpl}. */
 @RunWith(BaseRobolectricTestRunner.class)
+@EnableFeatures({UiAndroidFeatureList.DRAG_DROP_EMPTY})
 public class DragAndDropDelegateImplUnitTest {
     /** Using a window size of 1000*600 for the ease of dp / pixel calculation. */
     private static final int WINDOW_WIDTH = 1000;
@@ -90,8 +93,7 @@ public class DragAndDropDelegateImplUnitTest {
                             return true;
                         })
                 .when(mContainerView)
-                .startDragAndDrop(
-                        any(ClipData.class), any(DragShadowBuilder.class), any(), anyInt());
+                .startDragAndDrop(any(), any(DragShadowBuilder.class), any(), anyInt());
         View rootView = mContainerView.getRootView();
         rootView.measure(
                 MeasureSpec.makeMeasureSpec(WINDOW_WIDTH, MeasureSpec.EXACTLY),
@@ -102,7 +104,6 @@ public class DragAndDropDelegateImplUnitTest {
     @After
     public void tearDown() {
         mDropDataProviderImpl.onDragEnd(false);
-        UmaRecorderHolder.resetForTesting();
         AccessibilityState.setIsTouchExplorationEnabledForTesting(false);
         AccessibilityState.setIsPerformGesturesEnabledForTesting(false);
     }
@@ -116,6 +117,7 @@ public class DragAndDropDelegateImplUnitTest {
                 mContainerView,
                 shadowImage,
                 dropData,
+                mContainerView.getContext(),
                 /* cursorOffsetX= */ 0,
                 /* cursorOffsetY= */ 0,
                 /* dragObjRectWidth= */ 100,
@@ -157,6 +159,7 @@ public class DragAndDropDelegateImplUnitTest {
                 mContainerView,
                 shadowImage,
                 imageDropData,
+                mContainerView.getContext(),
                 /* cursorOffsetX= */ 0,
                 /* cursorOffsetY= */ 0,
                 /* dragObjRectWidth= */ 100,
@@ -200,6 +203,7 @@ public class DragAndDropDelegateImplUnitTest {
                 mContainerView,
                 shadowImage,
                 imageDropData,
+                mContainerView.getContext(),
                 /* cursorOffsetX= */ 0,
                 /* cursorOffsetY= */ 0,
                 /* dragObjRectWidth= */ 100,
@@ -241,6 +245,7 @@ public class DragAndDropDelegateImplUnitTest {
                 mContainerView,
                 shadowImage,
                 dropData,
+                mContainerView.getContext(),
                 /* cursorOffsetX= */ 0,
                 /* cursorOffsetY= */ 0,
                 /* dragObjRectWidth= */ 100,
@@ -283,6 +288,7 @@ public class DragAndDropDelegateImplUnitTest {
                         mContainerView,
                         shadowImage,
                         dropData,
+                        mContainerView.getContext(),
                         /* cursorOffsetX= */ 0,
                         /* cursorOffsetY= */ 0,
                         /* dragObjRectWidth= */ 100,
@@ -295,6 +301,7 @@ public class DragAndDropDelegateImplUnitTest {
                         mContainerView,
                         shadowImage,
                         dropData,
+                        mContainerView.getContext(),
                         /* cursorOffsetX= */ 0,
                         /* cursorOffsetY= */ 0,
                         /* dragObjRectWidth= */ 100,
@@ -308,6 +315,7 @@ public class DragAndDropDelegateImplUnitTest {
                         mContainerView,
                         shadowImage,
                         dropData,
+                        mContainerView.getContext(),
                         /* cursorOffsetX= */ 0,
                         /* cursorOffsetY= */ 0,
                         /* dragObjRectWidth= */ 100,
@@ -315,6 +323,7 @@ public class DragAndDropDelegateImplUnitTest {
     }
 
     @Test
+    @DisableFeatures({UiAndroidFeatureList.DRAG_DROP_EMPTY})
     public void testStartDragAndDrop_InvalidDropData() {
         final DropDataAndroid dropData = DropDataAndroid.create(null, null, null, null, null);
 
@@ -324,10 +333,29 @@ public class DragAndDropDelegateImplUnitTest {
                         mContainerView,
                         Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888),
                         dropData,
+                        mContainerView.getContext(),
                         /* cursorOffsetX= */ 0,
                         /* cursorOffsetY= */ 0,
                         /* dragObjRectWidth= */ 100,
                         /* dragObjRectHeight= */ 200));
+    }
+
+    @Test
+    public void testStartDragAndDrop_EmptyDropData() {
+        final DropDataAndroid dropData = DropDataAndroid.create(null, null, null, null, null);
+
+        Assert.assertTrue(
+                "Drag and drop should start.",
+                mDragAndDropDelegateImpl.startDragAndDrop(
+                        mContainerView,
+                        Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888),
+                        dropData,
+                        mContainerView.getContext(),
+                        /* cursorOffsetX= */ 0,
+                        /* cursorOffsetY= */ 0,
+                        /* dragObjRectWidth= */ 100,
+                        /* dragObjRectHeight= */ 200));
+        Assert.assertTrue("Drag should be started.", mDragAndDropDelegateImpl.isDragStarted());
     }
 
     @Test
@@ -349,6 +377,7 @@ public class DragAndDropDelegateImplUnitTest {
                 mContainerView,
                 shadowImage,
                 imageDropData,
+                mContainerView.getContext(),
                 /* cursorOffsetX= */ 0,
                 /* cursorOffsetY= */ 0,
                 /* dragObjRectWidth= */ 100,
@@ -372,6 +401,7 @@ public class DragAndDropDelegateImplUnitTest {
                 mContainerView,
                 shadowImage,
                 imageDropData,
+                mContainerView.getContext(),
                 /* cursorOffsetX= */ 0,
                 /* cursorOffsetY= */ 0,
                 /* dragObjRectWidth= */ 100,
@@ -389,6 +419,7 @@ public class DragAndDropDelegateImplUnitTest {
     }
 
     @Test
+    @EnableFeatures({UiAndroidFeatureList.DRAG_DROP_FILES})
     public void testDragImage_ReceivedDropBeforeDragEnds() {
         final Bitmap shadowImage = Bitmap.createBitmap(100, 200, Bitmap.Config.ALPHA_8);
         final DropDataAndroid imageDropData =
@@ -397,6 +428,7 @@ public class DragAndDropDelegateImplUnitTest {
                 mContainerView,
                 shadowImage,
                 imageDropData,
+                mContainerView.getContext(),
                 /* cursorOffsetX= */ 0,
                 /* cursorOffsetY= */ 0,
                 /* dragObjRectWidth= */ 100,
@@ -410,8 +442,8 @@ public class DragAndDropDelegateImplUnitTest {
         // Drop on the same view does not lead to recording of drag duration.
         assertDragTypeNotRecorded("Drag dropped on the same view.");
         assertDropInWebContentHistogramsRecorded();
-        Assert.assertNull(
-                "Cached Image bytes should be cleaned since drop is not handled.",
+        Assert.assertNotNull(
+                "Cached Image bytes should not be cleaned, drag is handled.",
                 mDropDataProviderImpl.getImageBytesForTesting());
     }
 
@@ -440,6 +472,7 @@ public class DragAndDropDelegateImplUnitTest {
                 mContainerView,
                 shadowImage,
                 imageDropData,
+                mContainerView.getContext(),
                 /* cursorOffsetX= */ 0,
                 /* cursorOffsetY= */ 0,
                 /* dragObjRectWidth= */ 100,
@@ -493,11 +526,8 @@ public class DragAndDropDelegateImplUnitTest {
 
         ClipData clipData = mDragAndDropDelegateImpl.buildClipData(dropData);
         Assert.assertEquals(
-                "Image ClipData should include image and URL info.", 2, clipData.getItemCount());
-        Assert.assertEquals(
-                "Image URL info should match.",
-                JUnitTestGURLs.EXAMPLE_URL.getSpec(),
-                clipData.getItemAt(1).getText());
+                "Image ClipData should only include image.", 1, clipData.getItemCount());
+        Assert.assertNotNull("Image Uri should exist.", clipData.getItemAt(0).getUri());
     }
 
     @Test
@@ -713,7 +743,7 @@ public class DragAndDropDelegateImplUnitTest {
                 .thenReturn(supportAnimatedImageDragShadow);
         when(mDragAndDropBrowserDelegate.getDragAndDropPermissions(any(DragEvent.class)))
                 .thenReturn(permissions);
-        when(mDragAndDropBrowserDelegate.createLinkIntent(anyString())).thenReturn(intent);
+        when(mDragAndDropBrowserDelegate.createUrlIntent(anyString(), anyInt())).thenReturn(intent);
         return mDragAndDropBrowserDelegate;
     }
 }

@@ -4,9 +4,8 @@
 
 package org.chromium.chrome.browser.ui.plus_addresses;
 
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
-
-import android.app.Activity;
 
 import androidx.test.filters.SmallTest;
 
@@ -17,30 +16,40 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
-import org.robolectric.Robolectric;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.base.test.util.Batch;
 import org.chromium.chrome.browser.layouts.LayoutStateProvider;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.test.util.browser.tabmodel.MockTabModel;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
-import org.chromium.ui.base.TestActivity;
 import org.chromium.url.GURL;
 
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
+@Batch(Batch.UNIT_TESTS)
 public class PlusAddressCreationCoordinatorTest {
-    private static final String MODAL_TITLE = "lorem ipsum title";
-    private static final String MODAL_PLUS_ADDRESS_DESCRIPTION =
-            "lorem ipsum description <link>test link</link> <b>test bold</b>";
-    private static final String MODAL_PROPOSED_PLUS_ADDRESS_PLACEHOLDER = "placeholder";
-    private static final String MODAL_OK = "ok";
-    private static final String MODAL_CANCEL = "cancel";
+    private static final PlusAddressCreationNormalStateInfo FIRST_TIME_USAGE_INFO =
+            new PlusAddressCreationNormalStateInfo(
+                    /* title= */ "lorem ipsum title",
+                    /* description= */ "lorem ipsum description",
+                    /* notice= */ "lorem ipsum description <link>test link</link>",
+                    /* proposedPlusAddressPlaceholder= */ "placeholder",
+                    /* confirmText= */ "ok",
+                    /* cancelText= */ "cancel",
+                    /* learnMoreUrl= */ new GURL("learn.more.com"));
     private static final String MODAL_PROPOSED_PLUS_ADDRESS = "plus+1@plus.plus";
-    private static final String MODAL_ERROR_MESSAGE = "error!";
-    private static final GURL MANAGE_URL = new GURL("manage.com");
+    private static final boolean REFRESH_SUPPORTED = true;
+    private static final PlusAddressCreationErrorStateInfo ERROR_STATE =
+            new PlusAddressCreationErrorStateInfo(
+                    PlusAddressCreationBottomSheetErrorType.RESERVE_TIMEOUT,
+                    "Title",
+                    "Description",
+                    "Ok",
+                    "Cancel");
 
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
     @Mock private Profile mProfile;
@@ -55,22 +64,17 @@ public class PlusAddressCreationCoordinatorTest {
 
     @Before
     public void setUp() {
-        Activity activity = Robolectric.setupActivity(TestActivity.class);
         mTabModel = new MockTabModel(mProfile, null);
         mCoordinator =
                 new PlusAddressCreationCoordinator(
-                        activity,
+                        RuntimeEnvironment.application,
                         mBottomSheetController,
                         mLayoutStateProvider,
                         mTabModel,
                         mTabModelSelector,
                         mBridge,
-                        MODAL_TITLE,
-                        MODAL_PLUS_ADDRESS_DESCRIPTION,
-                        MODAL_PROPOSED_PLUS_ADDRESS_PLACEHOLDER,
-                        MODAL_OK,
-                        MODAL_CANCEL,
-                        MANAGE_URL);
+                        FIRST_TIME_USAGE_INFO,
+                        REFRESH_SUPPORTED);
         mCoordinator.setMediatorForTesting(mMediator);
     }
 
@@ -98,8 +102,15 @@ public class PlusAddressCreationCoordinatorTest {
     @Test
     @SmallTest
     public void testShowError_callsMediator() {
-        mCoordinator.showError(MODAL_ERROR_MESSAGE);
-        verify(mMediator).showError(MODAL_ERROR_MESSAGE);
+        mCoordinator.showError(ERROR_STATE);
+        verify(mMediator).showError(eq(ERROR_STATE));
+    }
+
+    @Test
+    @SmallTest
+    public void testHideRefreshButton_callsMediator() {
+        mCoordinator.hideRefreshButton();
+        verify(mMediator).hideRefreshButton();
     }
 
     @Test

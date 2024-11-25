@@ -19,7 +19,6 @@ import androidx.core.content.ContextCompat;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
-import org.chromium.base.StrictModeContext;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.task.PostTask;
@@ -59,7 +58,6 @@ public class ScreenshotMonitorImpl extends ScreenshotMonitor {
             if (uri == null) return;
 
             Log.d(TAG, "Detected change to the media database " + uri);
-            String uriPath = uri.toString();
             // Validate the uri before processing it.
             if (uri == null || !uri.toString().startsWith(Media.EXTERNAL_CONTENT_URI.toString())) {
                 Log.w(TAG, "uri: %s is not valid. Returning without processing screenshot", uri);
@@ -107,7 +105,7 @@ public class ScreenshotMonitorImpl extends ScreenshotMonitor {
                 return false;
             }
 
-            try (StrictModeContext ignored = StrictModeContext.allowDiskWrites()) {
+            try {
                 ContentResolver contentResolver = mContentResolverForTesting;
                 if (contentResolver == null) {
                     contentResolver = ContextUtils.getApplicationContext().getContentResolver();

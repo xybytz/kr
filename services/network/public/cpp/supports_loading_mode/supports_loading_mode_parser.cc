@@ -4,11 +4,13 @@
 
 #include "services/network/public/cpp/supports_loading_mode/supports_loading_mode_parser.h"
 
+#include <optional>
+#include <ranges>
+
 #include "base/ranges/algorithm.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/structured_headers.h"
 #include "services/network/public/mojom/supports_loading_mode.mojom.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace network {
 
@@ -55,8 +57,9 @@ mojom::SupportsLoadingModePtr ParseSupportsLoadingMode(
     const auto& token = item.item.GetString();
     const auto* it =
         base::ranges::find(kKnownLoadingModes, token, &KnownLoadingMode::token);
-    if (it == base::ranges::end(kKnownLoadingModes))
+    if (it == std::ranges::end(kKnownLoadingModes)) {
       continue;
+    }
 
     modes.push_back(it->enumerator);
   }
@@ -70,10 +73,12 @@ mojom::SupportsLoadingModePtr ParseSupportsLoadingMode(
 
 mojom::SupportsLoadingModePtr ParseSupportsLoadingMode(
     const net::HttpResponseHeaders& headers) {
-  std::string header_value;
-  if (!headers.GetNormalizedHeader(kSupportsLoadingMode, &header_value))
+  std::optional<std::string> header_value =
+      headers.GetNormalizedHeader(kSupportsLoadingMode);
+  if (!header_value) {
     return nullptr;
-  return ParseSupportsLoadingMode(header_value);
+  }
+  return ParseSupportsLoadingMode(*header_value);
 }
 
 }  // namespace network

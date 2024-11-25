@@ -16,7 +16,7 @@
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/handshake_helpers.h"
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/session_context.h"
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/target_device_connection_broker.h"
-#include "chrome/browser/nearby_sharing/public/cpp/nearby_connection.h"
+#include "chromeos/ash/components/nearby/common/connections_manager/nearby_connection.h"
 #include "chromeos/ash/components/quick_start/logging.h"
 #include "chromeos/ash/components/quick_start/quick_start_message.h"
 #include "chromeos/ash/components/quick_start/quick_start_metrics.h"
@@ -56,7 +56,7 @@ Connection::Factory::~Factory() = default;
 
 std::unique_ptr<Connection> Connection::Factory::Create(
     NearbyConnection* nearby_connection,
-    SessionContext session_context,
+    SessionContext* session_context,
     mojo::SharedRemote<mojom::QuickStartDecoder> quick_start_decoder,
     ConnectionClosedCallback on_connection_closed,
     ConnectionAuthenticatedCallback on_connection_authenticated) {
@@ -67,7 +67,7 @@ std::unique_ptr<Connection> Connection::Factory::Create(
 
 Connection::Connection(
     NearbyConnection* nearby_connection,
-    SessionContext session_context,
+    SessionContext* session_context,
     mojo::SharedRemote<mojom::QuickStartDecoder> quick_start_decoder,
     ConnectionClosedCallback on_connection_closed,
     ConnectionAuthenticatedCallback on_connection_authenticated)
@@ -76,6 +76,7 @@ Connection::Connection(
       on_connection_closed_(std::move(on_connection_closed)),
       on_connection_authenticated_(std::move(on_connection_authenticated)),
       decoder_(std::move(quick_start_decoder)) {
+  quick_start_metrics_ = std::make_unique<QuickStartMetrics>();
   // Since we aren't expecting any disconnections, treat any drops of the
   // connection as an unknown error.
   nearby_connection->SetDisconnectionListener(base::BindOnce(
@@ -85,14 +86,13 @@ Connection::Connection(
 
 Connection::~Connection() = default;
 
-void Connection::MarkConnectionAuthenticated(AuthenticationMethod auth_method) {
+void Connection::MarkConnectionAuthenticated(
+    QuickStartMetrics::AuthenticationMethod auth_method) {
   authenticated_ = true;
   if (on_connection_authenticated_) {
     std::move(on_connection_authenticated_).Run(weak_ptr_factory_.GetWeakPtr());
   }
-  if (auth_method == AuthenticationMethod::kPin) {
-    quick_start_metrics_.RecordHandshakeStarted(/*handshake_started=*/false);
-  }
+  QuickStartMetrics::RecordAuthenticationMethod(auth_method);
 }
 
 Connection::State Connection::GetState() {
@@ -115,11 +115,6 @@ void Connection::Close(
     // NearbyConnection immediately after.
     SendMessageWithoutResponse(requests::BuildBootstrapStateCancelMessage(),
                                QuickStartResponseType::kBootstrapStateCancel);
-  } else if (authenticated_ && reason ==
-                                   TargetDeviceConnectionBroker::
-                                       ConnectionClosedReason::kComplete) {
-    SendMessageWithoutResponse(requests::BuildBootstrapStateCompleteMessage(),
-                               QuickStartResponseType::kBootstrapStateComplete);
   }
 
   connection_state_ = State::kClosing;
@@ -136,7 +131,7 @@ void Connection::Close(
 void Connection::RequestWifiCredentials(
     RequestWifiCredentialsCallback callback) {
   SessionContext::SharedSecret secondary_shared_secret =
-      session_context_.secondary_shared_secret();
+      session_context_->secondary_shared_secret();
   std::string shared_secret_str(secondary_shared_secret.begin(),
                                 secondary_shared_secret.end());
   auto convert_result = base::BindOnce(
@@ -152,15 +147,15 @@ void Connection::RequestWifiCredentials(
       std::move(callback));
   SendMessageAndDecodeResponse(
       requests::BuildRequestWifiCredentialsMessage(
-          session_context_.session_id(), shared_secret_str),
+          session_context_->session_id(), shared_secret_str),
       QuickStartResponseType::kWifiCredentials, std::move(convert_result));
 }
 
 void Connection::NotifySourceOfUpdate(NotifySourceOfUpdateCallback callback) {
   SessionContext::SharedSecret secondary_shared_secret =
-      session_context_.secondary_shared_secret();
+      session_context_->secondary_shared_secret();
   SendMessageAndDecodeResponse(
-      requests::BuildNotifySourceOfUpdateMessage(session_context_.session_id(),
+      requests::BuildNotifySourceOfUpdateMessage(session_context_->session_id(),
                                                  secondary_shared_secret),
       QuickStartResponseType::kNotifySourceOfUpdate,
       base::BindOnce(&Connection::OnNotifySourceOfUpdateResponse,
@@ -235,8 +230,6 @@ void Connection::OnNotifySourceOfUpdateResponse(
 void Connection::OnRequestAccountTransferAssertionResponse(
     RequestAccountTransferAssertionCallback callback,
     mojom::QuickStartMessagePtr quick_start_message) {
-  // TODO (b/279614284): Emit metric for Gaia transfer failure reasons when
-  // unknown message logic is finalized.
   if (!quick_start_message ||
       !quick_start_message->is_fido_assertion_response()) {
     // TODO (b/286877412): Update this logic once we've aligned on an unknown
@@ -264,9 +257,6 @@ void Connection::OnRequestAccountTransferAssertionResponse(
   assertion_info.client_data =
       std::vector<uint8_t>(client_data.begin(), client_data.end());
 
-  quick_start_metrics_.RecordGaiaTransferResult(
-      /*succeeded=*/true, /*failure_reason=*/std::nullopt);
-
   std::move(callback).Run(assertion_info);
 }
 
@@ -293,7 +283,8 @@ void Connection::SendMessageAndDecodeResponse(
     base::TimeDelta timeout) {
   std::string json_serialized_payload;
   CHECK(base::JSONWriter::Write(*message->GenerateEncodedMessage(),
-                                &json_serialized_payload));
+                                &json_serialized_payload))
+      << "Failed to write JSON.";
 
   SendBytesAndReadResponse(
       std::vector<uint8_t>(json_serialized_payload.begin(),
@@ -311,7 +302,8 @@ void Connection::SendMessageAndDiscardResponse(
     base::TimeDelta timeout) {
   std::string json_serialized_payload;
   CHECK(base::JSONWriter::Write(*message->GenerateEncodedMessage(),
-                                &json_serialized_payload));
+                                &json_serialized_payload))
+      << "Failed to write JSON.";
 
   SendBytesAndReadResponse(
       std::vector<uint8_t>(json_serialized_payload.begin(),
@@ -327,8 +319,9 @@ void Connection::SendMessageWithoutResponse(
     QuickStartResponseType message_type) {
   std::string json_serialized_payload;
   CHECK(base::JSONWriter::Write(*message->GenerateEncodedMessage(),
-                                &json_serialized_payload));
-  quick_start_metrics_.RecordMessageSent(
+                                &json_serialized_payload))
+      << "Failed to write JSON.";
+  quick_start_metrics_->RecordMessageSent(
       QuickStartMetrics::MapResponseToMessageType(message_type));
   nearby_connection_->Write(std::vector<uint8_t>(
       json_serialized_payload.begin(), json_serialized_payload.end()));
@@ -338,7 +331,7 @@ void Connection::SendBytesAndReadResponse(std::vector<uint8_t>&& bytes,
                                           QuickStartResponseType response_type,
                                           ConnectionResponseCallback callback,
                                           base::TimeDelta timeout) {
-  quick_start_metrics_.RecordMessageSent(
+  quick_start_metrics_->RecordMessageSent(
       QuickStartMetrics::MapResponseToMessageType(response_type));
   nearby_connection_->Write(std::move(bytes));
   nearby_connection_->Read(base::BindOnce(
@@ -355,12 +348,12 @@ void Connection::InitiateHandshake(const std::string& authentication_token,
                                    HandshakeSuccessCallback callback) {
   SendBytesAndReadResponse(
       handshake::BuildHandshakeMessage(authentication_token,
-                                       session_context_.shared_secret()),
+                                       session_context_->shared_secret()),
       QuickStartResponseType::kHandshake,
       base::BindOnce(&Connection::OnHandshakeResponse,
                      weak_ptr_factory_.GetWeakPtr(), authentication_token,
                      std::move(callback)));
-  quick_start_metrics_.RecordHandshakeStarted(/*handshake_started=*/true);
+  quick_start_metrics_->RecordHandshakeStarted();
 }
 
 void Connection::OnHandshakeResponse(
@@ -369,7 +362,7 @@ void Connection::OnHandshakeResponse(
     std::optional<std::vector<uint8_t>> response_bytes) {
   if (!response_bytes) {
     QS_LOG(ERROR) << "Failed to read handshake response from NearbyConnection";
-    quick_start_metrics_.RecordHandshakeResult(
+    quick_start_metrics_->RecordHandshakeResult(
         /*success=*/false,
         /*error_code=*/
         QuickStartMetrics::HandshakeErrorCode::kFailedToReadResponse);
@@ -378,9 +371,9 @@ void Connection::OnHandshakeResponse(
   }
   handshake::VerifyHandshakeMessageStatus status =
       handshake::VerifyHandshakeMessage(*response_bytes, authentication_token,
-                                        session_context_.shared_secret());
+                                        session_context_->shared_secret());
   bool success = status == handshake::VerifyHandshakeMessageStatus::kSuccess;
-  quick_start_metrics_.RecordHandshakeResult(
+  quick_start_metrics_->RecordHandshakeResult(
       /*success=*/success, handshake::MapHandshakeStatusToErrorCode(status));
   std::move(callback).Run(success);
 }
@@ -455,7 +448,12 @@ void Connection::OnUserVerificationPacketDecoded(
 }
 
 base::Value::Dict Connection::GetPrepareForUpdateInfo() {
-  return session_context_.GetPrepareForUpdateInfo();
+  return session_context_->GetPrepareForUpdateInfo();
+}
+
+void Connection::NotifyPhoneSetupComplete() {
+  SendMessageWithoutResponse(requests::BuildBootstrapStateCompleteMessage(),
+                             QuickStartResponseType::kBootstrapStateComplete);
 }
 
 void Connection::DecodeQuickStartMessage(
@@ -464,6 +462,7 @@ void Connection::DecodeQuickStartMessage(
   if (!data || data->empty()) {
     QS_LOG(INFO) << "Empty response";
     std::move(on_decoding_complete).Run(nullptr);
+    return;
   }
 
   // Setup a callback to handle the decoder's response. If an error was
@@ -503,7 +502,7 @@ void Connection::OnResponseTimeout(QuickStartResponseType response_type) {
   QS_LOG(ERROR) << "Timed out waiting for " << response_type
                 << " response from source device.";
   Close(TargetDeviceConnectionBroker::ConnectionClosedReason::kResponseTimeout);
-  quick_start_metrics_.RecordMessageReceived(
+  quick_start_metrics_->RecordMessageReceived(
       /*desired_message_type=*/QuickStartMetrics::MapResponseToMessageType(
           response_type),
       /*succeeded=*/false,
@@ -521,18 +520,25 @@ void Connection::OnResponseReceived(
                << " response from source device";
 
   if (!response_bytes.has_value()) {
-    quick_start_metrics_.RecordMessageReceived(
+    quick_start_metrics_->RecordMessageReceived(
         /*desired_message_type=*/QuickStartMetrics::MapResponseToMessageType(
             response_type),
         /*succeeded=*/false,
         QuickStartMetrics::MessageReceivedErrorCode::kDeserializationFailure);
   } else {
-    quick_start_metrics_.RecordMessageReceived(
+    quick_start_metrics_->RecordMessageReceived(
         /*desired_message_type=*/QuickStartMetrics::MapResponseToMessageType(
             response_type),
         /*succeeded=*/true, std::nullopt);
   }
-  std::move(callback).Run(std::move(response_bytes));
+
+  // NearbyConnection will invoke its read callback if there is one pending when
+  // it is destroyed. In these instances we didn't actually receive a response
+  // so we need to ensure the connection is still open before invoking
+  // |callback| here.
+  if (connection_state_ == Connection::State::kOpen) {
+    std::move(callback).Run(std::move(response_bytes));
+  }
 }
 
 }  // namespace ash::quick_start

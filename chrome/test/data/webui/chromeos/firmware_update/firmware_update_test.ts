@@ -7,15 +7,16 @@ import 'chrome://accessory-update/firmware_update_app.js';
 import {fakeFirmwareUpdates} from 'chrome://accessory-update/fake_data.js';
 import {FakeUpdateController} from 'chrome://accessory-update/fake_update_controller.js';
 import {FakeUpdateProvider} from 'chrome://accessory-update/fake_update_provider.js';
-import {FirmwareUpdate, UpdateState} from 'chrome://accessory-update/firmware_update.mojom-webui.js';
-import {FirmwareUpdateAppElement} from 'chrome://accessory-update/firmware_update_app.js';
+import {UpdateState} from 'chrome://accessory-update/firmware_update.mojom-webui.js';
+import type {FirmwareUpdate} from 'chrome://accessory-update/firmware_update.mojom-webui.js';
+import type {FirmwareUpdateAppElement} from 'chrome://accessory-update/firmware_update_app.js';
 import {FirmwareUpdateDialogElement} from 'chrome://accessory-update/firmware_update_dialog.js';
 import {getUpdateProvider, setUpdateControllerForTesting, setUpdateProviderForTesting} from 'chrome://accessory-update/mojo_interface_provider.js';
-import {UpdateCardElement} from 'chrome://accessory-update/update_card.js';
+import type {UpdateCardElement} from 'chrome://accessory-update/update_card.js';
+import {CrButtonElement} from 'chrome://resources/ash/common/cr_elements/cr_button/cr_button.js';
+import {CrDialogElement} from 'chrome://resources/ash/common/cr_elements/cr_dialog/cr_dialog.js';
 import {loadTimeData} from 'chrome://resources/ash/common/load_time_data.m.js';
 import {strictQuery} from 'chrome://resources/ash/common/typescript_utils/strict_query.js';
-import {CrButtonElement} from 'chrome://resources/cr_elements/cr_button/cr_button.js';
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {mojoString16ToString} from 'chrome://resources/js/mojo_type_util.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chromeos/chai_assert.js';
@@ -30,8 +31,7 @@ suite('FirmwareUpdateAppTest', () => {
   let controller: FakeUpdateController|null = null;
 
   setup(() => {
-    // @ts-ignore
-    document.body.innerHTML = window.trustedTypes.emptyHTML;
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     controller = new FakeUpdateController();
     controller.setUpdateIntervalInMs(0);
     setUpdateControllerForTesting(controller);
@@ -131,6 +131,38 @@ suite('FirmwareUpdateAppTest', () => {
     return update;
   }
 
+  test('HeaderDependsOnFlexFlag', async () => {
+    loadTimeData.overrideValues({
+      IsFlexFirmwareUpdateEnabled: true,
+    });
+
+    // Setup the app.
+    initializePage();
+    await flushTasks();
+    assert(page);
+
+    let header = strictQuery(`#header`, page.shadowRoot, HTMLElement);
+    assertEquals(header.innerText.trim(), 'Firmware updates');
+
+
+    // Clear app element to reset the test.
+    page.remove();
+    await flushTasks();
+
+    loadTimeData.overrideValues({
+      IsFlexFirmwareUpdateEnabled: false,
+    });
+
+    initializePage();
+    await flushTasks();
+    assert(page);
+
+
+    header = strictQuery(`#header`, page.shadowRoot, HTMLElement);
+    assertEquals(
+        header.innerText.trim(), 'Firmware updates for external devices');
+  });
+
   test('SettingGettingTestProvider', () => {
     initializePage();
     const fake_provider = new FakeUpdateProvider();
@@ -159,9 +191,9 @@ suite('FirmwareUpdateAppTest', () => {
   });
 
   test('ConfirmationDialogShowsDisclaimerWhenFlagEnabled', async () => {
-    // Enable the v2 flag.
+    // Enable the upstream trusted reports flag
     loadTimeData.overrideValues({
-      isFirmwareUpdateUIV2Enabled: true,
+      isUpstreamTrustedReportsFirmwareEnabled: true,
     });
 
     // Setup the app.
@@ -186,9 +218,9 @@ suite('FirmwareUpdateAppTest', () => {
     page?.remove();
     await flushTasks();
 
-    // Disable the v2 flag.
+    // Disable the upstream trusted reports flag
     loadTimeData.overrideValues({
-      isFirmwareUpdateUIV2Enabled: false,
+      isUpstreamTrustedReportsFirmwareEnabled: false,
     });
 
     // Setup the app.
@@ -209,6 +241,77 @@ suite('FirmwareUpdateAppTest', () => {
     // The disclaimer should not be displayed.
     assertFalse(!!fwConfirmDialog.shadowRoot!.querySelector('#disclaimer'));
   });
+
+  test('DisclaimerModifiedIfUpdateNeedsReboot', async () => {
+    // Enable the upstream trusted reports flag
+    loadTimeData.overrideValues({
+      isUpstreamTrustedReportsFirmwareEnabled: true,
+    });
+
+    // Setup the app.
+    initializePage();
+    await flushTasks();
+    assert(page);
+
+    // Open dialog for a firmware update without reboot.
+    let whenFired = eventToPromise('cr-dialog-open', page);
+    let button = strictQuery(
+        `#updateButton`, getUpdateCards()[0]!.shadowRoot, CrButtonElement);
+    button.click();
+    await flushTasks();
+    await whenFired;
+    let fwConfirmDialog = strictQuery(
+        'firmware-confirmation-dialog', page.shadowRoot, HTMLElement);
+    let disclaimerText = strictQuery(
+        '#disclaimer-text', fwConfirmDialog.shadowRoot, HTMLElement);
+    let dialogBody = strictQuery(
+        '#updateDialogBody', fwConfirmDialog.shadowRoot, HTMLElement);
+
+    assertEquals(
+        disclaimerText.innerText.trim(),
+        'This update is provided by the external device manufacturer and ' +
+            'hasn\'t been verified by Google.');
+    assertEquals(
+        dialogBody.innerText.trim(),
+        'While the firmware is updating, do not unplug this external device ' +
+            'or shut down your computer. You can minimize this window. ' +
+            'This update may take a few minutes and your external ' +
+            'device may not work during this time.');
+
+    // Clear app element to reset the test.
+    page.remove();
+    await flushTasks();
+
+    initializePage();
+    await flushTasks();
+    assert(page);
+
+    // Open dialog for a firmware update with reboot.
+    whenFired = eventToPromise('cr-dialog-open', page);
+    button = strictQuery(
+        `#updateButton`, getUpdateCards()[5]!.shadowRoot, CrButtonElement);
+    button.click();
+    await flushTasks();
+    await whenFired;
+    fwConfirmDialog = strictQuery(
+        'firmware-confirmation-dialog', page.shadowRoot, HTMLElement);
+    disclaimerText = strictQuery(
+        '#disclaimer-text', fwConfirmDialog.shadowRoot, HTMLElement);
+    dialogBody = strictQuery(
+        '#updateDialogBody', fwConfirmDialog.shadowRoot, HTMLElement);
+
+    assertEquals(
+        disclaimerText.innerText.trim(),
+        'This update is provided by the device manufacturer and ' +
+            'hasn\'t been verified by Google.');
+    assertEquals(
+        dialogBody.innerText.trim(),
+        'This update requires you to restart your computer to ' +
+            'complete installation. This update may take a few ' +
+            'minutes to complete. While the firmware is updating, ' +
+            'do not unplug or shut down your computer.');
+  });
+
 
   test('OpenUpdateDialog', async () => {
     initializePage();
@@ -257,6 +360,43 @@ suite('FirmwareUpdateAppTest', () => {
           assertEquals(
               loadTimeData.getStringF(
                   'deviceUpToDate',
+                  mojoString16ToString(fakeFirmwareUpdate.deviceName)),
+              getUpdateDialogTitle().innerText.trim());
+        });
+  });
+
+  test('SuccessfulUpdateButNeedsReboot', async () => {
+    initializePage();
+    await flushTasks();
+    // Open dialog for firmware update.
+    const button = strictQuery(
+        `#updateButton`, getUpdateCards()[5]!.shadowRoot, CrButtonElement);
+    button.click();
+    await flushTasks();
+    const whenFired = eventToPromise('cr-dialog-open', page!);
+    await confirmUpdate();
+    // Process |OnProgressChanged| call.
+    await flushTasks();
+    return whenFired
+        .then(() => {
+          assertEquals(UpdateState.kUpdating, getUpdateState());
+          const fakeFirmwareUpdate = getFirmwareUpdateFromDialog()!;
+          assertEquals(
+              loadTimeData.getStringF(
+                  'updating',
+                  mojoString16ToString(fakeFirmwareUpdate.deviceName)),
+              getUpdateDialogTitle().innerText.trim());
+          // Allow firmware update to complete.
+          return controller?.getUpdateCompletedPromiseForTesting();
+        })
+        .then(() => flushTasks())
+        .then(() => {
+          const fakeFirmwareUpdate = getFirmwareUpdateFromDialog()!;
+          assertEquals(UpdateState.kSuccess, getUpdateState());
+          assertTrue(getUpdateDialog().open);
+          assertEquals(
+              loadTimeData.getStringF(
+                  'deviceReadyToInstallUpdate',
                   mojoString16ToString(fakeFirmwareUpdate.deviceName)),
               getUpdateDialogTitle().innerText.trim());
         });
@@ -336,38 +476,5 @@ suite('FirmwareUpdateAppTest', () => {
     const fakeUpdate = getFirmwareUpdateFromDialog()!;
     assertTrue(!!fakeUpdate);
     assertTrue(getUpdateDialog().open);
-  });
-
-  test('UpdatesCSSWhenIsJellyEnabledForFirmwareAppSet', async () => {
-    const linkEl = document.createElement('link');
-    const disabledUrl = 'chrome://resources/chromeos/colors/cros_styles.css';
-    linkEl.href = disabledUrl;
-    document.head.appendChild(linkEl);
-
-    // Setup for jelly disabled.
-    loadTimeData.overrideValues({
-      isJellyEnabledForFirmwareUpdate: false,
-    });
-    initializePage();
-    await flushTasks();
-
-    assertTrue(linkEl.href.includes(disabledUrl), 'Has cros_styles');
-
-    // Clear app element.
-    page?.remove();
-    await flushTasks();
-
-    // Setup for jelly disabled.
-    loadTimeData.overrideValues({
-      isJellyEnabledForFirmwareUpdate: true,
-    });
-    initializePage();
-    await flushTasks();
-
-    const enabledUrl = 'chrome://theme/colors.css';
-    assertTrue(linkEl.href.includes(enabledUrl), 'Has theme/colors');
-
-    // Clean up.
-    document.head.removeChild(linkEl);
   });
 });

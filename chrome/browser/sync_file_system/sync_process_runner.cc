@@ -111,7 +111,6 @@ void SyncProcessRunner::Schedule() {
   }
 
   NOTREACHED();
-  ScheduleInternal(kSyncDelayMaxInMilliseconds);
 }
 
 void SyncProcessRunner::ThrottleSync(int64_t base_delay) {

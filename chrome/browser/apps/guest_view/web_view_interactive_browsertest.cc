@@ -10,11 +10,11 @@
 #include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/raw_ptr_exclusion.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/test/run_until.h"
 #include "base/test/test_timeouts.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -23,6 +23,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_browsertest_util.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/test_launcher_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -420,10 +421,7 @@ class WebViewInteractiveTest : public extensions::PlatformAppBrowserTest {
     }
 
     size_t initial_widget_count_ = 0;
-    // This field is not a raw_ptr<> because it was filtered by the rewriter
-    // for: #constexpr-ctor-field-initializer
-    RAW_PTR_EXCLUSION content::RenderWidgetHost* last_render_widget_host_ =
-        nullptr;
+    raw_ptr<content::RenderWidgetHost> last_render_widget_host_ = nullptr;
     std::unique_ptr<base::RunLoop> run_loop_;
   };
 
@@ -556,7 +554,7 @@ class DISABLED_WebViewPopupInteractiveTest : public WebViewInteractiveTest {};
 
 // Timeouts flakily: crbug.com/1003345
 #if defined(SUPPORTS_SYNC_MOUSE_UTILS) && !BUILDFLAG(IS_CHROMEOS) && \
-    !BUILDFLAG(IS_MAC) && defined(NDEBUG)
+    !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_WIN) && defined(NDEBUG)
 #define MAYBE_PointerLock PointerLock
 #else
 #define MAYBE_PointerLock DISABLED_PointerLock
@@ -655,8 +653,14 @@ IN_PROC_BROWSER_TEST_F(WebViewPointerLockInteractiveTest,
 
 // Tests that if a <webview> is focused before navigation then the guest starts
 // off focused.
+// TODO(crbug.com/346863842): Flaky on linux-rel.
+#if BUILDFLAG(IS_LINUX) && defined(NDEBUG)
+#define MAYBE_Focus_FocusBeforeNavigation DISABLED_Focus_FocusBeforeNavigation
+#else
+#define MAYBE_Focus_FocusBeforeNavigation Focus_FocusBeforeNavigation
+#endif
 IN_PROC_BROWSER_TEST_F(WebViewFocusInteractiveTest,
-                       Focus_FocusBeforeNavigation) {
+                       MAYBE_Focus_FocusBeforeNavigation) {
   TestHelper("testFocusBeforeNavigation", "web_view/focus", NO_TEST_SERVER);
 }
 
@@ -665,7 +669,14 @@ IN_PROC_BROWSER_TEST_F(WebViewFocusInteractiveTest, Focus_FocusEvent) {
   TestHelper("testFocusEvent", "web_view/focus", NO_TEST_SERVER);
 }
 
-IN_PROC_BROWSER_TEST_F(WebViewFocusInteractiveTest, Focus_FocusTakeFocus) {
+// TODO(crbug.com/334045674): Flaky timeouts on Mac.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_Focus_FocusTakeFocus DISABLED_Focus_FocusTakeFocus
+#else
+#define MAYBE_Focus_FocusTakeFocus Focus_FocusTakeFocus
+#endif
+IN_PROC_BROWSER_TEST_F(WebViewFocusInteractiveTest,
+                       MAYBE_Focus_FocusTakeFocus) {
   TestHelper("testFocusTakeFocus", "web_view/focus", NO_TEST_SERVER);
   ASSERT_TRUE(GetGuestRenderFrameHost());
 
@@ -772,8 +783,14 @@ IN_PROC_BROWSER_TEST_F(WebViewFocusInteractiveTest, Focus_BlurEvent) {
 }
 
 // Tests that a <webview> can't steal focus from the embedder.
+// TODO(crbug.com/349299938): Flaky on mac14-arm64-rel
+#if BUILDFLAG(IS_MAC) && defined(NDEBUG)
+#define MAYBE_FrameInGuestWontStealFocus DISABLED_FrameInGuestWontStealFocus
+#else
+#define MAYBE_FrameInGuestWontStealFocus FrameInGuestWontStealFocus
+#endif
 IN_PROC_BROWSER_TEST_F(WebViewFocusInteractiveTest,
-                       FrameInGuestWontStealFocus) {
+                       MAYBE_FrameInGuestWontStealFocus) {
   LoadAndLaunchPlatformApp("web_view/simple", "WebViewTest.LAUNCHED");
 
   content::WebContents* embedder_web_contents = GetFirstAppWindowWebContents();
@@ -918,8 +935,8 @@ IN_PROC_BROWSER_TEST_F(DISABLED_WebViewPopupInteractiveTest,
 }
 
 // Flaky on ChromeOS and Linux: http://crbug.com/526886
-// TODO(crbug.com/807446): Flaky on Mac.
-// TODO(crbug.com/809383): Flaky on Windows.
+// TODO(crbug.com/40560638): Flaky on Mac.
+// TODO(crbug.com/41369000): Flaky on Windows.
 // Tests that moving browser plugin (without resize/UpdateRects) correctly
 // repositions popup.
 IN_PROC_BROWSER_TEST_F(DISABLED_WebViewPopupInteractiveTest,
@@ -1152,7 +1169,7 @@ IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest, MAYBE_Focus_InputMethod) {
 #endif
 
 #if BUILDFLAG(IS_LINUX) || \
-    BUILDFLAG(IS_CHROMEOS)  // TODO(https://crbug.com/801552): Flaky.
+    BUILDFLAG(IS_CHROMEOS)  // TODO(crbug.com/41364503): Flaky.
 #define MAYBE_LongPressSelection DISABLED_LongPressSelection
 #else
 #define MAYBE_LongPressSelection LongPressSelection
@@ -1328,12 +1345,8 @@ IN_PROC_BROWSER_TEST_F(WebViewFocusInteractiveTest, MAYBE_FocusAndVisibility) {
 
 // Flaky timeouts on Linux. https://crbug.com/709202
 // Flaky timeouts on Win. https://crbug.com/846695
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_WIN)
-#define MAYBE_KeyboardFocusSimple DISABLED_KeyboardFocusSimple
-#else
-#define MAYBE_KeyboardFocusSimple KeyboardFocusSimple
-#endif
-IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest, MAYBE_KeyboardFocusSimple) {
+// Flaky timeouts on Mac. https://crbug.com/1520415
+IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest, DISABLED_KeyboardFocusSimple) {
   TestHelper("testKeyboardFocusSimple", "web_view/focus", NO_TEST_SERVER);
 
   EXPECT_EQ(embedder_web_contents()->GetFocusedFrame(),
@@ -1585,14 +1598,11 @@ IN_PROC_BROWSER_TEST_F(WebViewFocusInteractiveTest,
   // Verify that the view is offset inside root view as expected.
   content::RenderWidgetHostView* guest_rwhv =
       GetGuestRenderFrameHost()->GetView();
-  while (guest_rwhv->TransformPointToRootCoordSpace(gfx::Point())
-             .OffsetFromOrigin()
-             .Length() < distance_from_root_view_origin) {
-    base::RunLoop run_loop;
-    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
-        FROM_HERE, run_loop.QuitClosure(), TestTimeouts::tiny_timeout());
-    run_loop.Run();
-  }
+  EXPECT_TRUE(base::test::RunUntil([&]() {
+    return guest_rwhv->TransformPointToRootCoordSpace(gfx::Point())
+               .OffsetFromOrigin()
+               .Length() >= distance_from_root_view_origin;
+  }));
 
   // Now trigger the popup and wait until it is displayed. The popup will get
   // dismissed after being shown.
@@ -1643,6 +1653,7 @@ IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest,
 
   // Wait for guest's document to consider itself focused. This avoids
   // flakiness on some platforms.
+  // TODO(crbug.com/41492111): `base::test::RunUntil` times out on mac.
   while (!content::EvalJs(guest_rfh, "document.hasFocus()").ExtractBool()) {
     base::RunLoop run_loop;
     base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
@@ -1668,4 +1679,8 @@ IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest,
       content::IsRenderWidgetHostFocused(guest_rfh2->GetRenderWidgetHost()));
   EXPECT_EQ(true, content::EvalJs(guest_rfh2, "document.hasFocus()"));
   EXPECT_EQ(guest_rfh2, embedder_web_contents->GetFocusedFrame());
+}
+
+IN_PROC_BROWSER_TEST_F(WebViewInteractiveTest, CannotLockKeyboard) {
+  TestHelper("testCannotLockKeyboard", "web_view/shim", NEEDS_TEST_SERVER);
 }

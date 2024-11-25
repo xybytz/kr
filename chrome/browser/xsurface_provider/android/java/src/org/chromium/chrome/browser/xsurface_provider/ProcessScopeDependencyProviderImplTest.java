@@ -8,23 +8,19 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.base.test.util.Features.DisableFeatures;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManager;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 
 /** Tests for ProcessScopeDependencyProviderImpl. */
 @RunWith(BaseRobolectricTestRunner.class)
 public final class ProcessScopeDependencyProviderImplTest {
-    @Rule public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
 
     ProcessScopeDependencyProviderImpl mProvider;
     boolean mMetricsReportingEnabled;
@@ -38,22 +34,24 @@ public final class ProcessScopeDependencyProviderImplTest {
 
                 // Boilerplate.
                 @Override
-                public void addObserver(Observer observer) {}
-
-                @Override
-                public void removeObserver(Observer observer) {}
-
-                @Override
                 public void setUsageAndCrashReporting(boolean enabled) {}
 
                 @Override
                 public void syncUsageAndCrashReportingPrefs() {}
 
                 @Override
-                public void setClientInMetricsSample(boolean inSample) {}
+                public void setClientInSampleForMetrics(boolean inSample) {}
 
                 @Override
-                public boolean isClientInMetricsSample() {
+                public boolean isClientInSampleForMetrics() {
+                    return true;
+                }
+
+                @Override
+                public void setClientInSampleForCrashes(boolean inSample) {}
+
+                @Override
+                public boolean isClientInSampleForCrashes() {
                     return true;
                 }
 

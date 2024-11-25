@@ -20,14 +20,17 @@ namespace {
 constexpr char kMimeType[] = "video/avc";
 }
 
-class NdkMediaCodecWrapperTest : public ::testing::Test,
-                                 public NdkMediaCodecWrapper::Client {
+class REQUIRES_ANDROID_API(NDK_MEDIA_CODEC_MIN_API) NdkMediaCodecWrapperTest
+    : public ::testing::Test,
+      public NdkMediaCodecWrapper::Client {
  public:
   NdkMediaCodecWrapperTest() = default;
   ~NdkMediaCodecWrapperTest() override = default;
 
   void SetUp() override {
-    if (!NdkMediaCodecWrapper::IsSupported()) {
+    if (__builtin_available(android NDK_MEDIA_CODEC_MIN_API, *)) {
+      // Negation results in compiler warning.
+    } else {
       GTEST_SKIP() << "Not supported Android version";
     }
 
@@ -102,6 +105,8 @@ class NdkMediaCodecWrapperTest : public ::testing::Test,
   std::unique_ptr<NdkMediaCodecWrapper> wrapper_;
 };
 
+#pragma clang attribute push DEFAULT_REQUIRES_ANDROID_API( \
+    NDK_MEDIA_CODEC_MIN_API)
 TEST_F(NdkMediaCodecWrapperTest, Create) {
   auto wrapper = NdkMediaCodecWrapper::CreateByMimeType(
       kMimeType, this, base::SequencedTaskRunner::GetCurrentDefault());
@@ -109,7 +114,7 @@ TEST_F(NdkMediaCodecWrapperTest, Create) {
   EXPECT_TRUE(wrapper);
 }
 
-TEST_F(NdkMediaCodecWrapperTest, Inputs_SingleInput) {
+TEST_F(NdkMediaCodecWrapperTest, InputsSingleInput) {
   CreateMediaCodecWrapper();
   ClearExpectations();
   EXPECT_CALL(*this, OnInputAvailable()).Times(1);
@@ -130,7 +135,7 @@ TEST_F(NdkMediaCodecWrapperTest, Inputs_SingleInput) {
   EXPECT_FALSE(wrapper_->HasInput());
 }
 
-TEST_F(NdkMediaCodecWrapperTest, Inputs_MultipleInputs) {
+TEST_F(NdkMediaCodecWrapperTest, InputsMultipleInputs) {
   CreateMediaCodecWrapper();
   ClearExpectations();
 
@@ -154,7 +159,7 @@ TEST_F(NdkMediaCodecWrapperTest, Inputs_MultipleInputs) {
   EXPECT_FALSE(wrapper_->HasInput());
 }
 
-TEST_F(NdkMediaCodecWrapperTest, Outputs_SingleInput) {
+TEST_F(NdkMediaCodecWrapperTest, OutputsSingleInput) {
   CreateMediaCodecWrapper();
   ClearExpectations();
   EXPECT_CALL(*this, OnOutputAvailable()).Times(1);
@@ -179,7 +184,7 @@ TEST_F(NdkMediaCodecWrapperTest, Outputs_SingleInput) {
   EXPECT_FALSE(wrapper_->HasOutput());
 }
 
-TEST_F(NdkMediaCodecWrapperTest, Outputs_MultipleOutputs) {
+TEST_F(NdkMediaCodecWrapperTest, OutputsMultipleOutputs) {
   CreateMediaCodecWrapper();
   ClearExpectations();
 
@@ -216,5 +221,6 @@ TEST_F(NdkMediaCodecWrapperTest, Errors) {
   SimulateError(kError);
   FlushMainThread();
 }
+#pragma clang attribute pop
 
 }  // namespace media

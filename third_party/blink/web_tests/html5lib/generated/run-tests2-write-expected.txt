@@ -1,24 +1,27 @@
+CONSOLE WARNING: A <select> tag was parsed within another <select> tag and was converted into </select><select>. Please add the missing </select> end tag.
 ../resources/tests2.dat:
-43
+38
 
-Test 43 of 61 in ../resources/tests2.dat failed. Input:
-<isindex test=x name=x>
+Test 38 of 63 in ../resources/tests2.dat failed. Input:
+<!DOCTYPE html><select><optgroup><option></optgroup><option><select><option>
 Got:
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
-|     <isindex>
-|       name="x"
-|       test="x"
+|     <select>
+|       <optgroup>
+|         <option>
+|       <option>
+|     <select>
+|       <option>
 Expected:
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
-|     <form>
-|       <hr>
-|       <label>
-|         "This is a searchable index. Enter search keywords: "
-|         <input>
-|           name="isindex"
-|           test="x"
-|       <hr>
+|     <select>
+|       <optgroup>
+|         <option>
+|       <option>
+|     <option>

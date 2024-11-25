@@ -14,7 +14,6 @@
 #include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ash/login/screens/base_screen.h"
 #include "chrome/browser/ash/login/screens/chromevox_hint/chromevox_hint_detector.h"
 #include "chrome/browser/ash/login/wizard_context.h"
@@ -24,6 +23,7 @@ namespace ash {
 
 class InputEventsBlocker;
 class WelcomeView;
+struct AccessibilityStatusEventDetails;
 
 namespace locale_util {
 struct LanguageSwitchResult;
@@ -177,14 +177,8 @@ class WelcomeScreen : public BaseScreen,
       const AccessibilityStatusEventDetails& details);
   void UpdateA11yState();
 
-  // When Quick Start button is clicked a dialog will pop up if the bluetooth is
-  // disabled asking to turn it on since it's needed in the quickstart flow
+  // Starts the QuickStart flow
   void OnQuickStartClicked();
-
-  // If user chooses to turn on bluetooth to continue using Quick Start flow,
-  // bluetooth will automatically by turned on and user will be taken to Quick
-  // Start screen.
-  void OnTurnOnBluetoothForQuickStart();
 
   // Adds data to the OOBE.WelcomeScreen.UserChangedLocale metric and calls
   // exit_callback with given Result
@@ -200,6 +194,10 @@ class WelcomeScreen : public BaseScreen,
 
   // The exact language code selected by user in the menu.
   std::string selected_language_code_;
+
+  // Whether the QuickStart entry point visibility has already been determined.
+  // This flag prevents duplicate histogram entries.
+  bool has_emitted_quick_start_visible = false;
 
   base::ObserverList<Observer>::Unchecked observers_;
 

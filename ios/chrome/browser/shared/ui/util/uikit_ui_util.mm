@@ -10,6 +10,7 @@
 #import <UIKit/UIKit.h>
 #import <stddef.h>
 #import <stdint.h>
+
 #import <cmath>
 
 #import "base/apple/foundation_util.h"
@@ -24,6 +25,7 @@
 #import "ios/chrome/browser/shared/ui/util/dynamic_type_util.h"
 #import "ios/chrome/browser/shared/ui/util/rtl_geometry.h"
 #import "ios/chrome/common/ui/util/ui_util.h"
+#import "ui/base/device_form_factor.h"
 #import "ui/base/l10n/l10n_util.h"
 #import "ui/base/l10n/l10n_util_mac.h"
 #import "ui/base/resource/resource_bundle.h"
@@ -69,6 +71,15 @@ void MaybeSetUITextFieldScaledFont(BOOL maybe,
 UIFont* CreateDynamicFont(UIFontTextStyle style, UIFontWeight weight) {
   UIFontDescriptor* fontDescriptor =
       [UIFontDescriptor preferredFontDescriptorWithTextStyle:style];
+  return [UIFont systemFontOfSize:fontDescriptor.pointSize weight:weight];
+}
+
+UIFont* CreateDynamicFont(UIFontTextStyle style,
+                          UIFontWeight weight,
+                          id<UITraitEnvironment> environment) {
+  UIFontDescriptor* fontDescriptor = [UIFontDescriptor
+      preferredFontDescriptorWithTextStyle:style
+             compatibleWithTraitCollection:environment.traitCollection];
   return [UIFont systemFontOfSize:fontDescriptor.pointSize weight:weight];
 }
 
@@ -207,15 +218,6 @@ bool IsCompactHeight(id<UITraitEnvironment> environment) {
 
 bool IsCompactHeight(UITraitCollection* traitCollection) {
   return traitCollection.verticalSizeClass == UIUserInterfaceSizeClassCompact;
-}
-
-bool IsRegularXRegularSizeClass(id<UITraitEnvironment> environment) {
-  return IsRegularXRegularSizeClass(environment.traitCollection);
-}
-
-bool IsRegularXRegularSizeClass(UITraitCollection* traitCollection) {
-  return traitCollection.verticalSizeClass == UIUserInterfaceSizeClassRegular &&
-         traitCollection.horizontalSizeClass == UIUserInterfaceSizeClassRegular;
 }
 
 bool ShouldShowCompactToolbar(id<UITraitEnvironment> environment) {
@@ -372,23 +374,6 @@ NSAttributedString* TextForTabGroupCount(int count, CGFloat font_size) {
                                       attributes:@{NSFontAttributeName : font}];
 }
 
-#if !defined(__IPHONE_16_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_16_0
-void RegisterEditMenuItem(UIMenuItem* item) {
-  UIMenuController* menu = [UIMenuController sharedMenuController];
-  NSArray<UIMenuItem*>* items = [menu menuItems];
-
-  for (UIMenuItem* existingItem in items) {
-    if ([existingItem action] == [item action]) {
-      return;
-    }
-  }
-
-  items = items ? [items arrayByAddingObject:item] : @[ item ];
-
-  [menu setMenuItems:items];
-}
-#endif
-
 UIView* ViewHierarchyRootForView(UIView* view) {
   if (view.window) {
     return view.window;
@@ -410,4 +395,64 @@ bool IsScrollViewScrolledToBottom(UIScrollView* scroll_view) {
                               scroll_view.adjustedContentInset.bottom -
                               scroll_view.bounds.size.height;
   return scroll_view.contentOffset.y >= scrollable_height;
+}
+
+CGFloat DeviceCornerRadius() {
+  UIUserInterfaceIdiom idiom = [[UIDevice currentDevice] userInterfaceIdiom];
+
+  UIWindow* window = nil;
+  for (UIScene* scene in UIApplication.sharedApplication.connectedScenes) {
+    UIWindowScene* windowScene =
+        base::apple::ObjCCastStrict<UIWindowScene>(scene);
+    UIWindow* firstWindow = [windowScene.windows firstObject];
+    if (firstWindow) {
+      window = firstWindow;
+      break;
+    }
+  }
+
+  const BOOL isRoundedDevice =
+      (idiom == UIUserInterfaceIdiomPhone && window.safeAreaInsets.bottom);
+  return isRoundedDevice ? 40.0 : 0.0;
+}
+
+bool IsBottomOmniboxAvailable() {
+  return ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_PHONE;
+}
+
+NSArray<UITrait>* TraitCollectionSetForTraits(NSArray<UITrait>* traits) {
+  if (base::FeatureList::IsEnabled(kEnableTraitCollectionRegistration) &&
+      traits) {
+    return traits;
+  }
+
+  static dispatch_once_t once;
+  static NSArray<UITrait>* everyUIMutableTrait = nil;
+  dispatch_once(&once, ^{
+    // This is a list of all the UITraits provided by iOS. This was generated
+    // from Apple's documentation on UIMutableTraits and is subject to change
+    // with subsequent releases of iOS. See
+    // https://developer.apple.com/documentation/uikit/uimutabletraits?language=objc
+    NSMutableArray<UITrait>* mutableTraits = [@[
+      UITraitAccessibilityContrast.class, UITraitActiveAppearance.class,
+      UITraitDisplayGamut.class, UITraitDisplayScale.class,
+      UITraitForceTouchCapability.class, UITraitHorizontalSizeClass.class,
+      UITraitImageDynamicRange.class, UITraitLayoutDirection.class,
+      UITraitLegibilityWeight.class, UITraitPreferredContentSizeCategory.class,
+      UITraitSceneCaptureState.class, UITraitToolbarItemPresentationSize.class,
+      UITraitTypesettingLanguage.class, UITraitUserInterfaceIdiom.class,
+      UITraitUserInterfaceLevel.class, UITraitUserInterfaceStyle.class,
+      UITraitVerticalSizeClass.class
+    ] mutableCopy];
+
+#if defined(__IPHONE_18_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_18_0
+    if (@available(iOS 18, *)) {
+      [mutableTraits addObject:UITraitListEnvironment.class];
+    }
+#endif
+
+    everyUIMutableTrait = [NSArray arrayWithArray:mutableTraits];
+  });
+
+  return everyUIMutableTrait;
 }

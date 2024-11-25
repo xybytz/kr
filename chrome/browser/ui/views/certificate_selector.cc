@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/views/certificate_selector.h"
 
 #include <stddef.h>  // For size_t.
+
 #include <string>
 #include <vector>
 
@@ -25,6 +26,8 @@
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/models/table_model.h"
 #include "ui/base/models/table_model_observer.h"
+#include "ui/base/mojom/dialog_button.mojom.h"
+#include "ui/base/mojom/ui_base_types.mojom-shared.h"
 #include "ui/views/controls/button/md_text_button.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/controls/table/table_view.h"
@@ -37,8 +40,6 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_factory.h"
 #endif
-
-namespace chrome {
 
 const int CertificateSelector::kTableViewWidth = 500;
 const int CertificateSelector::kTableViewHeight = 150;
@@ -105,7 +106,7 @@ std::u16string CertificateSelector::CertificateTableModel::GetText(
     case IDS_CERT_SELECTOR_SERIAL_COLUMN:
       return row.serial;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 
@@ -116,7 +117,7 @@ CertificateSelector::CertificateSelector(net::ClientCertIdentityList identities,
                                          content::WebContents* web_contents)
     : web_contents_(web_contents) {
   SetCanResize(true);
-  SetModalType(ui::MODAL_TYPE_CHILD);
+  SetModalType(ui::mojom::ModalType::kChild);
   CHECK(web_contents_);
 
   view_cert_button_ = SetExtraView(std::make_unique<views::MdTextButton>(
@@ -264,8 +265,9 @@ std::u16string CertificateSelector::GetWindowTitle() const {
   return l10n_util::GetStringUTF16(IDS_CLIENT_CERT_DIALOG_TITLE);
 }
 
-bool CertificateSelector::IsDialogButtonEnabled(ui::DialogButton button) const {
-  return button != ui::DIALOG_BUTTON_OK || GetSelectedCert();
+bool CertificateSelector::IsDialogButtonEnabled(
+    ui::mojom::DialogButton button) const {
+  return button != ui::mojom::DialogButton::kOk || GetSelectedCert();
 }
 
 views::View* CertificateSelector::GetInitiallyFocusedView() {
@@ -293,5 +295,3 @@ void CertificateSelector::OnDoubleClick() {
 
 BEGIN_METADATA(CertificateSelector)
 END_METADATA
-
-}  // namespace chrome

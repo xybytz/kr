@@ -4,10 +4,14 @@
 
 #include "android_webview/browser/aw_browser_context.h"
 
+#include <jni.h>
+
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "android_webview/browser/aw_browser_context_store.h"
 #include "android_webview/browser/aw_browser_process.h"
@@ -20,10 +24,11 @@
 #include "android_webview/browser/aw_quota_manager_bridge.h"
 #include "android_webview/browser/aw_web_ui_controller_factory.h"
 #include "android_webview/browser/cookie_manager.h"
+#include "android_webview/browser/ip_protection/aw_ip_protection_core_host.h"
 #include "android_webview/browser/metrics/aw_metrics_service_client.h"
 #include "android_webview/browser/network_service/net_helpers.h"
+#include "android_webview/browser/prefetch/aw_preloading_utils.h"
 #include "android_webview/browser/safe_browsing/aw_safe_browsing_allowlist_manager.h"
-#include "android_webview/browser_jni_headers/AwBrowserContext_jni.h"
 #include "android_webview/common/aw_features.h"
 #include "android_webview/common/aw_switches.h"
 #include "android_webview/common/crash_reporter/crash_keys.h"
@@ -31,6 +36,7 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
+#include "base/android/scoped_java_ref.h"
 #include "base/base_paths_posix.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
@@ -42,10 +48,8 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_restrictions.h"
-#include "components/autofill/core/browser/autocomplete_history_manager.h"
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/cdm/browser/media_drm_storage_impl.h"
-#include "components/crash/core/common/crash_key.h"
 #include "components/download/public/common/in_progress_download_manager.h"
 #include "components/keyed_service/core/simple_key_map.h"
 #include "components/origin_trials/browser/leveldb_persistence_provider.h"
@@ -70,30 +74,81 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_request_utils.h"
+#include "content/public/browser/prefetch_request_status_listener.h"
 #include "content/public/browser/ssl_host_state_delegate.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/zoom_level_delegate.h"
 #include "media/mojo/buildflags.h"
-#include "net/base/features.h"
+#include "net/http/http_no_vary_search_data.h"
+#include "net/http/http_request_headers.h"
 #include "net/http/http_util.h"
 #include "net/proxy_resolution/proxy_config_service_android.h"
 #include "net/proxy_resolution/proxy_resolution_service.h"
 #include "services/cert_verifier/public/mojom/cert_verifier_service_factory.mojom.h"
 #include "services/network/public/mojom/network_context.mojom.h"
+#include "services/network/public/mojom/url_loader.mojom.h"
 #include "third_party/blink/public/common/origin_trials/trial_token_validator.h"
+
+// Must come after all headers that specialize FromJniType() / ToJniType().
+#include "android_webview/browser_jni_headers/AwBrowserContext_jni.h"
+#include "url/gurl.h"
 
 using base::FilePath;
 using content::BrowserThread;
 
 namespace android_webview {
 
+class AwPrefetchRequestStatusListener
+    : public content::PrefetchRequestStatusListener {
+ public:
+  AwPrefetchRequestStatusListener(
+      const base::android::ScopedJavaGlobalRef<jobject>
+          browser_context_java_object,
+      const base::android::JavaRef<jobject>& callback,
+      const base::android::JavaRef<jobject>& callback_executor)
+      : browser_context_java_object_(browser_context_java_object),
+        prefetch_java_callback_(callback),
+        prefetch_java_callback_executor_(callback_executor) {}
+  ~AwPrefetchRequestStatusListener() override = default;
+
+  void OnPrefetchStartFailed() override {
+    JNIEnv* env = base::android::AttachCurrentThread();
+    Java_AwBrowserContext_onPrefetchStartFailed(
+        env, browser_context_java_object_, prefetch_java_callback_,
+        prefetch_java_callback_executor_);
+  }
+
+  void OnPrefetchResponseCompleted() override {
+    JNIEnv* env = base::android::AttachCurrentThread();
+    Java_AwBrowserContext_onPrefetchResponseCompleted(
+        env, browser_context_java_object_, prefetch_java_callback_,
+        prefetch_java_callback_executor_);
+  }
+
+  void OnPrefetchResponseError() override {
+    JNIEnv* env = base::android::AttachCurrentThread();
+    Java_AwBrowserContext_onPrefetchResponseError(
+        env, browser_context_java_object_, prefetch_java_callback_,
+        prefetch_java_callback_executor_);
+  }
+
+  void OnPrefetchResponseServerError(int response_code) override {
+    JNIEnv* env = base::android::AttachCurrentThread();
+    Java_AwBrowserContext_onPrefetchResponseServerError(
+        env, browser_context_java_object_, prefetch_java_callback_,
+        prefetch_java_callback_executor_, response_code);
+  }
+
+ private:
+  base::android::ScopedJavaGlobalRef<jobject> browser_context_java_object_;
+  base::android::ScopedJavaGlobalRef<jobject> prefetch_java_callback_;
+  base::android::ScopedJavaGlobalRef<jobject> prefetch_java_callback_executor_;
+};
+
 namespace {
 
 const void* const kDownloadManagerDelegateKey = &kDownloadManagerDelegateKey;
-
-crash_reporter::CrashKeyString<1> g_web_view_compat_crash_key(
-    crash_keys::kWeblayerWebViewCompatMode);
 
 // Empty method to skip origin security check as DownloadManager will set its
 // own method.
@@ -191,7 +246,6 @@ AwBrowserContext::AwBrowserContext(std::string name,
       this, profile_metrics::BrowserProfileType::kRegular);
 
   if (IsDefaultBrowserContext()) {
-    g_web_view_compat_crash_key.Set("0");
     MigrateProfileData(GetHttpCachePath(), GetPath());
   } else {
     cookie_manager_ = std::make_unique<CookieManager>(this);
@@ -266,7 +320,7 @@ void AwBrowserContext::RegisterPrefs(PrefRegistrySimple* registry) {
   // We only use the autocomplete feature of Autofill, which is controlled via
   // the manager_delegate. We don't use the rest of Autofill, which is why it is
   // hardcoded as disabled here.
-  // TODO(crbug.com/873740): The following also disables autocomplete.
+  // TODO(crbug.com/40589187): The following also disables autocomplete.
   // Investigate what the intended behavior is.
   registry->RegisterBooleanPref(autofill::prefs::kAutofillProfileEnabled,
                                 false);
@@ -312,7 +366,7 @@ void AwBrowserContext::CreateUserPrefService() {
           browser_policy_connector->GetHandlerList(),
           policy::POLICY_LEVEL_MANDATORY));
   {
-    // TODO(crbug.com/1446913): We can potentially use
+    // TODO(crbug.com/40268809): We can potentially use
     // pref_service_factory.set_async(true) instead of ScopedAllowBlocking in
     // order to avoid blocking here or to at least parallelize work in the
     // background, but it might require additional cross-thread synchronization.
@@ -363,10 +417,6 @@ AwQuotaManagerBridge* AwBrowserContext::GetQuotaManagerBridge() {
     quota_manager_bridge_ = AwQuotaManagerBridge::Create(this);
   }
   return quota_manager_bridge_.get();
-}
-
-void AwBrowserContext::SetWebLayerRunningInSameProcess(JNIEnv* env) {
-  g_web_view_compat_crash_key.Set("1");
 }
 
 AwFormDatabaseService* AwBrowserContext::GetFormDatabaseService() {
@@ -442,7 +492,7 @@ content::SSLHostStateDelegate* AwBrowserContext::GetSSLHostStateDelegate() {
 
 AwPermissionManager* AwBrowserContext::GetPermissionControllerDelegate() {
   if (!permission_manager_.get())
-    permission_manager_ = std::make_unique<AwPermissionManager>();
+    permission_manager_ = std::make_unique<AwPermissionManager>(*this);
   return permission_manager_.get();
 }
 
@@ -468,6 +518,11 @@ AwBrowserContext::GetBackgroundSyncController() {
 content::BrowsingDataRemoverDelegate*
 AwBrowserContext::GetBrowsingDataRemoverDelegate() {
   return nullptr;
+}
+
+content::FileSystemAccessPermissionContext*
+AwBrowserContext::GetFileSystemAccessPermissionContext() {
+  return &fsa_permission_context_;
 }
 
 content::ReduceAcceptLanguageControllerDelegate*
@@ -512,6 +567,13 @@ void AwBrowserContext::RebuildTable(
   // can change in the lifetime of this WebView and may not yet be set here.
   // Therefore this initialization path is not used.
   enumerator->OnComplete(true);
+}
+
+void AwBrowserContext::BuildVisitedLinkTable(
+    const scoped_refptr<VisitedLinkEnumerator>& enumerator) {
+  // Partitioned visited link hashtables are not supported in Android WebView,
+  // so this initialization path is not used.
+  enumerator->OnVisitedLinkComplete(true);
 }
 
 void AwBrowserContext::SetExtendedReportingAllowed(bool allowed) {
@@ -573,13 +635,21 @@ void AwBrowserContext::ConfigureNetworkContextParams(
   // (http://crbug.com/921750).
   context_params->enforce_chrome_ct_policy = false;
 
-  context_params->enable_brotli = base::FeatureList::IsEnabled(
-      android_webview::features::kWebViewBrotliSupport);
-  context_params->enable_zstd =
-      base::FeatureList::IsEnabled(net::features::kZstdContentEncoding);
+  context_params->enable_brotli = true;
+  context_params->enable_zstd = true;
 
   context_params->check_clear_text_permitted =
       AwContentBrowserClient::get_check_cleartext_permitted();
+
+  AwIpProtectionCoreHost* aw_ipp_core_host = AwIpProtectionCoreHost::Get(this);
+  if (aw_ipp_core_host) {
+    aw_ipp_core_host->AddNetworkService(
+        context_params->ip_protection_core_host
+            .InitWithNewPipeAndPassReceiver(),
+        context_params->ip_protection_control.InitWithNewPipeAndPassRemote());
+    context_params->enable_ip_protection =
+        aw_ipp_core_host->IsIpProtectionEnabled();
+  }
 
   // Add proxy settings
   AwProxyConfigMonitor::GetInstance()->AddProxyToNetworkContextParams(
@@ -673,6 +743,30 @@ void AwBrowserContext::SetServiceWorkerIoThreadClient(
       base::android::ScopedJavaGlobalRef<jobject>(io_thread_client);
 }
 
+void AwBrowserContext::StartPrefetchRequest(
+    JNIEnv* env,
+    const std::string& url,
+    const base::android::JavaParamRef<jobject>& prefetch_params,
+    const base::android::JavaParamRef<jobject>& callback,
+    const base::android::JavaParamRef<jobject>& callback_executor) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  GURL pf_url = GURL(url);
+  net::HttpRequestHeaders additional_headers =
+      GetAdditionalHeadersFromPrefetchParameters(env, prefetch_params);
+  std::optional<net::HttpNoVarySearchData> expected_no_vary_search =
+      GetExpectedNoVarySearchFromPrefetchParameters(env, prefetch_params);
+  std::unique_ptr<content::PrefetchRequestStatusListener>
+      request_status_listener =
+          std::make_unique<AwPrefetchRequestStatusListener>(obj_, callback,
+                                                            callback_executor);
+  StartBrowserPrefetchRequest(
+      pf_url,
+      GetIsJavaScriptEnabledFromPrefetchParameters(env, prefetch_params),
+      expected_no_vary_search, additional_headers,
+      std::move(request_status_listener));
+}
+
 std::unique_ptr<AwContentsIoThreadClient>
 AwBrowserContext::GetServiceWorkerIoThreadClientThreadSafe() {
   base::android::ScopedJavaLocalRef<jobject> java_delegate =
@@ -707,7 +801,7 @@ void AwBrowserContext::DeleteContext(const base::FilePath& relative_path) {
   // and (as of writing) should never be deleted.
   CHECK_NE(relative_path.value(), AwBrowserContextStore::kDefaultContextPath);
 
-  // TODO(crbug.com/1446913): This could be partially backgrounded by deleting
+  // TODO(crbug.com/40268809): This could be partially backgrounded by deleting
   // on the thread pool. Ideally, any interrupted profile directory deletion
   // would be resumed in the background on startup. For now, this just deletes
   // synchronously.
@@ -725,6 +819,34 @@ void AwBrowserContext::DeleteContext(const base::FilePath& relative_path) {
   JNIEnv* env = base::android::AttachCurrentThread();
   Java_AwBrowserContext_deleteSharedPreferences(
       env, base::android::ConvertUTF8ToJavaString(env, relative_path.value()));
+}
+blink::mojom::PermissionStatus AwBrowserContext::GetGeolocationPermission(
+    const GURL& origin) const {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  JNIEnv* env = base::android::AttachCurrentThread();
+  if (!obj_) {
+    return blink::mojom::PermissionStatus::ASK;
+  }
+
+  base::android::ScopedJavaLocalRef<jstring> j_origin(
+      base::android::ConvertUTF8ToJavaString(env, origin.spec()));
+  return static_cast<blink::mojom::PermissionStatus>(
+      Java_AwBrowserContext_getGeolocationPermission(env, obj_, j_origin));
+}
+
+mojo::PendingRemote<network::mojom::URLLoaderFactory>
+AwBrowserContext::CreateURLLoaderFactory() {
+  auto url_loader_factory_params =
+      network::mojom::URLLoaderFactoryParams::New();
+  url_loader_factory_params->process_id = network::mojom::kBrowserProcessId;
+  url_loader_factory_params->is_orb_enabled = false;
+  mojo::PendingRemote<network::mojom::URLLoaderFactory> factory;
+
+  GetDefaultStoragePartition()->GetNetworkContext()->CreateURLLoaderFactory(
+      factory.InitWithNewPipeAndPassReceiver(),
+      std::move(url_loader_factory_params));
+
+  return factory;
 }
 
 }  // namespace android_webview

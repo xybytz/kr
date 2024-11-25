@@ -1,6 +1,7 @@
 <?xml version="1.0" ?>
 <!DOCTYPE translationbundle>
 <translationbundle lang="zh-HK">
+<translation id="102916930470544692">密鑰</translation>
 <translation id="1220509181886849806">要使用已儲存的密碼嗎？</translation>
 <translation id="1435940442311036198">在其他裝置上使用密鑰</translation>
 <translation id="1717486229951421299">㩒一下先可以填嘅憑證清單宜家顯示喺畫面下半部。</translation>
@@ -12,7 +13,6 @@
 <translation id="4553044860350038560">更多密鑰</translation>
 <translation id="4598345735110653698">管理密鑰</translation>
 <translation id="4722735765955348426"><ph name="USERNAME" />的密碼</translation>
-<translation id="4907224763885298217">請使用螢幕鎖定</translation>
 <translation id="5012523644916800014">管理密碼和密鑰</translation>
 <translation id="5441504010984421144">㩒一下先可以填嘅憑證清單，宜家顯示喺成個畫面。</translation>
 <translation id="5591247451101092906">要使用已儲存的密碼或密鑰嗎？</translation>

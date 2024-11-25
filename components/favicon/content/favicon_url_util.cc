@@ -26,7 +26,6 @@ favicon_base::IconType IconTypeFromContentIconType(
       return favicon_base::IconType::kInvalid;
   }
   NOTREACHED();
-  return favicon_base::IconType::kInvalid;
 }
 
 }  // namespace

@@ -100,7 +100,7 @@ class AcceleratorConfigurationProvider
                  IsMutableCallback callback) override;
   void IsCustomizationAllowedByPolicy(
       IsCustomizationAllowedByPolicyCallback callback) override;
-  void HasLauncherButton(HasLauncherButtonCallback callback) override;
+  void GetMetaKeyToDisplay(GetMetaKeyToDisplayCallback callback) override;
   void GetConflictAccelerator(mojom::AcceleratorSource source,
                               uint32_t action_id,
                               const ui::Accelerator& accelerator,
@@ -180,6 +180,9 @@ class AcceleratorConfigurationProvider
     return non_configurable_actions_mapping_;
   }
 
+  std::vector<ui::Accelerator> GetDefaultAcceleratorsForId(
+      uint32_t action_id) const;
+
   mojom::AcceleratorInfoPtr CreateTextAcceleratorInfo(
       const NonConfigurableAcceleratorDetails& details) const;
 
@@ -190,7 +193,10 @@ class AcceleratorConfigurationProvider
   FRIEND_TEST_ALL_PREFIXES(AcceleratorConfigurationProviderTest,
                            SetLayoutDetailsMapForTesting);
   friend class AcceleratorConfigurationProviderTest;
-  using NonConfigAcceleratorActionMap = ui::AcceleratorMap<AcceleratorActionId>;
+  using NonConfigAcceleratorActionMap =
+      ui::AcceleratorMap<std::vector<AcceleratorActionId>>;
+  using AccessibilityAcceleratorActionMap =
+      ui::AcceleratorMap<AcceleratorActionId>;
 
   // Represents the different states the current pending accelerator can be
   // in.
@@ -243,7 +249,8 @@ class AcceleratorConfigurationProvider
       bool locked,
       mojom::AcceleratorType type,
       mojom::AcceleratorState state,
-      std::vector<mojom::AcceleratorInfoPtr>& output);
+      std::vector<mojom::AcceleratorInfoPtr>& output,
+      bool is_accelerator_locked = false);
 
   // Returns a non-null value if there was an error with pre-processing the
   // accelerator to be added.
@@ -259,6 +266,9 @@ class AcceleratorConfigurationProvider
       const ui::Accelerator& accelerator,
       mojom::AcceleratorSource source,
       AcceleratorActionId action_id);
+
+  std::vector<uint32_t> FindNonConfigurableIdFromAccelerator(
+      const ui::Accelerator& accelerator);
 
   void SetLayoutDetailsMapForTesting(
       const std::vector<AcceleratorLayoutDetails>& layouts);
@@ -303,6 +313,11 @@ class AcceleratorConfigurationProvider
   // A map from accelerators to AcceleratorActions, used as a reverse lookup for
   // standard non-configurable accelerators.
   NonConfigAcceleratorActionMap non_configurable_accelerator_to_id_;
+
+  // A map from accelerators to accessibility actions, used as a reverse lookup.
+  // This is separate from `non_configurable_accelerator_to_id_` since shortcuts
+  // between browser and accessibility are allowed to overlap.
+  AccessibilityAcceleratorActionMap accessibility_accelerator_to_id_;
 
   std::unique_ptr<PendingAccelerator> pending_accelerator_;
 

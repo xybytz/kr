@@ -18,18 +18,16 @@
 #include "build/build_config.h"
 #include "build/buildflag.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/privacy_sandbox/tracking_protection_onboarding_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tpcd/experiment/tpcd_experiment_features.h"
-#include "chrome/browser/tpcd/experiment/tpcd_pref_names.h"
-#include "chrome/browser/tpcd/experiment/tpcd_utils.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
 #include "components/prefs/pref_service.h"
 #include "components/privacy_sandbox/privacy_sandbox_prefs.h"
-#include "components/privacy_sandbox/tracking_protection_onboarding.h"
+#include "components/privacy_sandbox/tpcd_pref_names.h"
+#include "components/privacy_sandbox/tpcd_utils.h"
 #include "components/variations/active_field_trials.h"
 #include "components/variations/hashing.h"
 #include "components/variations/synthetic_trial_registry.h"
@@ -80,11 +78,10 @@ class ExperimentManagerImplBrowserTest : public InProcessBrowserTest {
   }
 
   uint32_t GetSyntheticTrialGroupNameHash() {
-    std::vector<variations::ActiveGroupId> synthetic_trials;
-    g_browser_process->metrics_service()
-        ->GetSyntheticTrialRegistry()
-        ->GetSyntheticFieldTrialsOlderThan(base::TimeTicks::Now(),
-                                           &synthetic_trials);
+    std::vector<variations::ActiveGroupId> synthetic_trials =
+        g_browser_process->metrics_service()
+            ->GetSyntheticTrialRegistry()
+            ->GetCurrentSyntheticFieldTrialsForTest();
 
     uint32_t group_name_hash = 0u;
     for (const auto& trial : synthetic_trials) {
@@ -276,57 +273,19 @@ class ExperimentManagerImplDisable3PCsSyntheticTrialTest
 };
 
 IN_PROC_BROWSER_TEST_F(ExperimentManagerImplDisable3PCsSyntheticTrialTest,
-                       PRE_RegistersSyntheticTrialWhenNoticeRequested) {
+                       PRE_ExistingProfilesRegistersSyntheticTrial) {
   Wait();
 
   // Set up the previous state in the local state prefs.
   g_browser_process->local_state()->SetInteger(
       prefs::kTPCDExperimentClientState,
-      static_cast<int>(utils::ExperimentState::kEligible));
+      static_cast<int>(utils::ExperimentState::kOnboarded));
 }
 
 IN_PROC_BROWSER_TEST_F(ExperimentManagerImplDisable3PCsSyntheticTrialTest,
-                       RegistersSyntheticTrialWhenNoticeRequested) {
+                       ExistingProfilesRegistersSyntheticTrial) {
   // Verify that the user has not been registered.
   uint32_t group_name_hash = GetSyntheticTrialGroupNameHash();
-  ASSERT_EQ(group_name_hash, 0u);
-
-  auto* onboarding_service =
-      TrackingProtectionOnboardingFactory::GetForProfile(browser()->profile());
-  // Simulate onboarding request a profile.
-  onboarding_service->OnboardingNoticeRequested();
-
-  // Verify that the user has been registered with the correct synthetic
-  // trial group.
-  group_name_hash = GetSyntheticTrialGroupNameHash();
-  ASSERT_NE(group_name_hash, 0u);
-  EXPECT_EQ(group_name_hash, HashName(kEligibleGroupName));
-}
-
-IN_PROC_BROWSER_TEST_F(ExperimentManagerImplDisable3PCsSyntheticTrialTest,
-                       PRE_RegistersSyntheticTrial) {
-  Wait();
-
-  // Set up the previous state in the local state prefs.
-  g_browser_process->local_state()->SetInteger(
-      prefs::kTPCDExperimentClientState,
-      static_cast<int>(utils::ExperimentState::kEligible));
-}
-
-IN_PROC_BROWSER_TEST_F(ExperimentManagerImplDisable3PCsSyntheticTrialTest,
-                       RegistersSyntheticTrial) {
-  // Verify that the user has not been registered.
-  uint32_t group_name_hash = GetSyntheticTrialGroupNameHash();
-  ASSERT_EQ(group_name_hash, 0u);
-
-  auto* onboarding_service =
-      TrackingProtectionOnboardingFactory::GetForProfile(browser()->profile());
-  // Simulate onboarding a profile.
-  onboarding_service->OnboardingNoticeShown();
-
-  // Verify that the user has been registered with the correct synthetic
-  // trial group.
-  group_name_hash = GetSyntheticTrialGroupNameHash();
   ASSERT_NE(group_name_hash, 0u);
   EXPECT_EQ(group_name_hash, HashName(kEligibleGroupName));
 }
@@ -343,29 +302,19 @@ class ExperimentManagerImplSilentOnboardingSyntheticTrialTest
 };
 
 IN_PROC_BROWSER_TEST_F(ExperimentManagerImplSilentOnboardingSyntheticTrialTest,
-                       PRE_RegistersSyntheticTrial) {
+                       PRE_ExistingProfilesRegistersSyntheticTrial) {
   Wait();
 
   // Set up the previous state in the local state prefs.
   g_browser_process->local_state()->SetInteger(
       prefs::kTPCDExperimentClientState,
-      static_cast<int>(utils::ExperimentState::kEligible));
+      static_cast<int>(utils::ExperimentState::kOnboarded));
 }
 
 IN_PROC_BROWSER_TEST_F(ExperimentManagerImplSilentOnboardingSyntheticTrialTest,
-                       RegistersSyntheticTrial) {
+                       ExistingProfilesRegistersSyntheticTrial) {
   // Verify that the user has not been registered.
   uint32_t group_name_hash = GetSyntheticTrialGroupNameHash();
-  ASSERT_EQ(group_name_hash, 0u);
-
-  auto* onboarding_service =
-      TrackingProtectionOnboardingFactory::GetForProfile(browser()->profile());
-  // Simulate onboarding a profile.
-  onboarding_service->SilentOnboardingNoticeShown();
-
-  // Verify that the user has been registered with the correct synthetic
-  // trial group.
-  group_name_hash = GetSyntheticTrialGroupNameHash();
   ASSERT_NE(group_name_hash, 0u);
   EXPECT_EQ(group_name_hash, HashName(kEligibleGroupName));
 }

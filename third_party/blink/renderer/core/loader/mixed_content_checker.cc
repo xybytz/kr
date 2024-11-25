@@ -28,15 +28,15 @@
 
 #include "third_party/blink/renderer/core/loader/mixed_content_checker.h"
 
+#include <optional>
+
 #include "base/containers/contains.h"
 #include "base/feature_list.h"
-#include "base/features.h"
 #include "base/metrics/field_trial_params.h"
 #include "build/build_config.h"
 #include "build/chromecast_buildflags.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/is_potentially_trustworthy.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/security_context/insecure_request_policy.h"
 #include "third_party/blink/public/mojom/devtools/inspector_issue.mojom-blink.h"
@@ -127,6 +127,8 @@ const char* RequestContextName(mojom::blink::RequestContextType context) {
       return "resource";
     case mojom::blink::RequestContextType::LOCATION:
       return "resource";
+    case mojom::blink::RequestContextType::JSON:
+      return "json";
     case mojom::blink::RequestContextType::MANIFEST:
       return "manifest";
     case mojom::blink::RequestContextType::OBJECT:
@@ -165,7 +167,6 @@ const char* RequestContextName(mojom::blink::RequestContextType context) {
       return "XSLT";
   }
   NOTREACHED();
-  return "resource";
 }
 
 // Currently we have two slightly different versions, because
@@ -226,8 +227,7 @@ bool IsUrlPotentiallyTrustworthy(const KURL& url) {
   // This saves a copy of the url, which can be expensive for large data URLs.
   // TODO(crbug.com/1322100): Remove this logic once
   // network::IsUrlPotentiallyTrustworthy() doesn't copy the URL.
-  if (base::FeatureList::IsEnabled(base::features::kOptimizeDataUrls) &&
-      url.ProtocolIsData()) {
+  if (url.ProtocolIsData()) {
     DCHECK(network::IsUrlPotentiallyTrustworthy(GURL(url)));
     return true;
   }
@@ -396,7 +396,6 @@ void MixedContentChecker::Count(
 
     default:
       NOTREACHED();
-      return;
   }
   UseCounter::Count(source->GetDocument(), feature);
 }
@@ -464,7 +463,8 @@ bool MixedContentChecker::ShouldBlockFetch(
   switch (context_type) {
     case mojom::blink::MixedContentContextType::kOptionallyBlockable:
 
-#if BUILDFLAG(IS_FUCHSIA) && BUILDFLAG(ENABLE_CAST_RECEIVER)
+#if (BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX)) && \
+    BUILDFLAG(ENABLE_CAST_RECEIVER)
       // Fuchsia WebEngine can be configured to allow loading Mixed Content from
       // an insecure IP address. This is a workaround to revert Fuchsia Cast
       // Receivers to the behavior before crrev.com/c/4032146.
@@ -473,7 +473,8 @@ bool MixedContentChecker::ShouldBlockFetch(
       allowed = !strict_mode;
 #else
       allowed = !strict_mode && !GURL(url).HostIsIPAddress();
-#endif  // BUILDFLAG(IS_FUCHSIA) && BUILDFLAG(ENABLE_CAST_RECEIVER)
+#endif  // (BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX)) &&
+        // BUILDFLAG(ENABLE_CAST_RECEIVER)
 
       if (allowed) {
         if (content_settings_client)
@@ -534,7 +535,6 @@ bool MixedContentChecker::ShouldBlockFetch(
       break;
     case mojom::blink::MixedContentContextType::kNotMixedContent:
       NOTREACHED();
-      break;
   };
 
   // Skip mixed content check for private and local targets.
@@ -546,9 +546,16 @@ bool MixedContentChecker::ShouldBlockFetch(
           network::features::kPrivateNetworkAccessPermissionPrompt) &&
       RuntimeEnabledFeatures::PrivateNetworkAccessPermissionPromptEnabled(
           frame->DomWindow())) {
-    if (target_address_space ==
-            network::mojom::blink::IPAddressSpace::kPrivate ||
-        target_address_space == network::mojom::blink::IPAddressSpace::kLocal) {
+    // TODO(crbug.com/323583084): Re-enable PNA permission prompt for documents
+    // fetched via service worker.
+    if (!frame->Loader()
+             .GetDocumentLoader()
+             ->GetResponse()
+             .WasFetchedViaServiceWorker() &&
+        (target_address_space ==
+             network::mojom::blink::IPAddressSpace::kPrivate ||
+         target_address_space ==
+             network::mojom::blink::IPAddressSpace::kLocal)) {
       UseCounter::Count(frame->GetDocument(),
                         WebFeature::kPrivateNetworkAccessPermissionPrompt);
       allowed = true;
@@ -998,7 +1005,7 @@ void MixedContentChecker::UpgradeInsecureRequest(
           mojom::blink::RequestContextType::FORM ||
       (!url.Host().IsNull() &&
        fetch_client_settings_object->GetUpgradeInsecureNavigationsSet()
-           .Contains(url.Host().Impl()->GetHash()))) {
+           .Contains(url.Host().ToString().Impl()->GetHash()))) {
     if (!resource_request.IsAutomaticUpgrade()) {
       // These UseCounters are specific for UpgradeInsecureRequests, don't log
       // for autoupgrades.

@@ -10,6 +10,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.ImageView;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.Px;
 import androidx.appcompat.app.AppCompatActivity;
@@ -227,10 +228,6 @@ public class PasswordMigrationWarningView implements BottomSheetContent {
         }
     }
 
-    private @Px int getDesiredSheetHeightPx() {
-        return getDimensionPixelSize(R.dimen.pwd_migration_warning_fragment_height);
-    }
-
     private @Px int getDimensionPixelSize(int id) {
         return mContentView.getContext().getResources().getDimensionPixelSize(id);
     }
@@ -266,8 +263,8 @@ public class PasswordMigrationWarningView implements BottomSheetContent {
     }
 
     @Override
-    public int getSheetContentDescriptionStringId() {
-        return R.string.password_migration_warning_content_description;
+    public @NonNull String getSheetContentDescription(Context context) {
+        return context.getString(R.string.password_migration_warning_content_description);
     }
 
     @Override
@@ -289,8 +286,7 @@ public class PasswordMigrationWarningView implements BottomSheetContent {
 
     @Override
     public float getFullHeightRatio() {
-        return Math.min(getDesiredSheetHeightPx(), mBottomSheetController.getContainerHeight())
-                / (float) mBottomSheetController.getContainerHeight();
+        return 1.f;
     }
 
     @Override

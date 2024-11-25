@@ -22,7 +22,7 @@ public interface PasswordCheckupClientHelper {
         }
     }
 
-    // TODO(crbug.com/1504551): Delete the variant of getPasswordCheckupIntent taking
+    // TODO(crbug.com/40945093): Delete the variant of getPasswordCheckupIntent taking
     // Optional<String> as accountName and switch the one using String.
     /**
      * Retrieves a pending intent that can be used to launch the Password Checkup UI in the
@@ -56,7 +56,7 @@ public interface PasswordCheckupClientHelper {
             Callback<PendingIntent> successCallback,
             Callback<Exception> failureCallback) {}
 
-    // TODO(crbug.com/1504551): Delete the variant of runPasswordCheckupInBackground taking
+    // TODO(crbug.com/40945093): Delete the variant of runPasswordCheckupInBackground taking
     // Optional<String> as accountName and switch the one using String.
     /**
      * Asynchronously runs Password Checkup and stores the result in PasswordSpecifics then saves it
@@ -90,7 +90,7 @@ public interface PasswordCheckupClientHelper {
             Callback<Void> successCallback,
             Callback<Exception> failureCallback) {}
 
-    // TODO(crbug.com/1504551): Delete the variant of getBreachedCredentialsCount taking
+    // TODO(crbug.com/40945093): Delete the variant of getBreachedCredentialsCount taking
     // Optional<String> as accountName and switch the one using String.
     /**
      * Asynchronously returns the number of breached credentials for the provided account.
@@ -117,6 +117,36 @@ public interface PasswordCheckupClientHelper {
      * @param failureCallback callback called if encountered an error.
      */
     default void getBreachedCredentialsCount(
+            @PasswordCheckReferrer int referrer,
+            String accountName,
+            Callback<Integer> successCallback,
+            Callback<Exception> failureCallback) {}
+
+    /**
+     * Asynchronously returns the number of weak credentials for the provided account.
+     *
+     * @param referrer the place that requested number of weak credentials.
+     * @param accountName the account name that is syncing passwords. If no value was provided local
+     *     account will be used.
+     * @param successCallback callback called with the number of weak passwords.
+     * @param failureCallback callback called if encountered an error.
+     */
+    default void getWeakCredentialsCount(
+            @PasswordCheckReferrer int referrer,
+            String accountName,
+            Callback<Integer> successCallback,
+            Callback<Exception> failureCallback) {}
+
+    /**
+     * Asynchronously returns the number of reused credentials for the provided account.
+     *
+     * @param referrer the place that requested number of reused credentials.
+     * @param accountName the account name that is syncing passwords. If no value was provided local
+     *     account will be used.
+     * @param successCallback callback called with the number of reused passwords.
+     * @param failureCallback callback called if encountered an error.
+     */
+    default void getReusedCredentialsCount(
             @PasswordCheckReferrer int referrer,
             String accountName,
             Callback<Integer> successCallback,

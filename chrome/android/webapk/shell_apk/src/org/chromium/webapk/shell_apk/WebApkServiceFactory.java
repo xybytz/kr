@@ -11,6 +11,8 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Log;
 
+import org.chromium.webapk.shell_apk.HostBrowserUtils.PackageNameAndComponentName;
+
 import java.lang.reflect.Constructor;
 
 /**
@@ -32,9 +34,14 @@ public class WebApkServiceFactory extends Service {
 
     @Override
     public IBinder onBind(Intent intent) {
-        final String hostBrowserPackage = HostBrowserUtils.getCachedHostBrowserPackage(this);
-        if (!HostBrowserUtils.doesBrowserSupportWebApks(hostBrowserPackage)) {
-            Log.w(TAG, "Host browser does not support WebAPKs.");
+        final PackageNameAndComponentName hostBrowserPackageAndComponent =
+                HostBrowserUtils.computeHostBrowserPackageNameAndComponentName(this);
+        final String hostBrowserPackage =
+                hostBrowserPackageAndComponent != null
+                        ? hostBrowserPackageAndComponent.getPackageName()
+                        : null;
+        if (!HostBrowserUtils.doesBrowserSupportNotificationDelegation(hostBrowserPackage)) {
+            Log.w(TAG, "Host browser does not support WebAPK notification delegation.");
             return null;
         }
         ClassLoader webApkClassLoader =

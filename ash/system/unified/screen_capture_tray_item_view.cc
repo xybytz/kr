@@ -28,6 +28,9 @@ constexpr base::TimeDelta kMinimumTimedelta = base::Seconds(6);
 namespace ash {
 
 ScreenCaptureTrayItemView::ScreenCaptureTrayItemMetadata::
+    ScreenCaptureTrayItemMetadata()
+    : ScreenCaptureTrayItemMetadata(base::TimeTicks::Now()) {}
+ScreenCaptureTrayItemView::ScreenCaptureTrayItemMetadata::
     ScreenCaptureTrayItemMetadata(base::TimeTicks time_created)
     : time_created(std::move(time_created)) {}
 ScreenCaptureTrayItemView::ScreenCaptureTrayItemMetadata::
@@ -43,14 +46,9 @@ ScreenCaptureTrayItemView::ScreenCaptureTrayItemMetadata::
 ScreenCaptureTrayItemView::ScreenCaptureTrayItemView(Shelf* shelf)
     : TrayItemView(shelf) {
   CreateImageView();
-  const gfx::VectorIcon* icon = &kPrivacyIndicatorsScreenShareIcon;
-  if (!chromeos::features::IsJellyEnabled()) {
-    image_view()->SetImage(gfx::CreateVectorIcon(gfx::IconDescription(
-        *icon, kUnifiedTrayIconSize,
-        AshColorProvider::Get()->GetContentLayerColor(
-            AshColorProvider::ContentLayerType::kIconColorPrimary))));
-  }
   UpdateLabelOrImageViewColor(/*active=*/false);
+
+  SetCachedTooltipText(l10n_util::GetStringUTF16(IDS_ASH_ADMIN_SCREEN_CAPTURE));
 
   multi_capture_service_client_observation_.Observe(
       Shell::Get()->multi_capture_service_client());
@@ -59,10 +57,6 @@ ScreenCaptureTrayItemView::ScreenCaptureTrayItemView(Shelf* shelf)
 
 ScreenCaptureTrayItemView::~ScreenCaptureTrayItemView() = default;
 
-const char* ScreenCaptureTrayItemView::GetClassName() const {
-  return "ScreenCaptureTrayItemView";
-}
-
 views::View* ScreenCaptureTrayItemView::GetTooltipHandlerForPoint(
     const gfx::Point& point) {
   return HitTestPoint(point) ? this : nullptr;
@@ -70,13 +64,10 @@ views::View* ScreenCaptureTrayItemView::GetTooltipHandlerForPoint(
 
 std::u16string ScreenCaptureTrayItemView::GetTooltipText(
     const gfx::Point& point) const {
-  return l10n_util::GetStringUTF16(IDS_ASH_ADMIN_SCREEN_CAPTURE);
+  return GetCachedTooltipText();
 }
 
 void ScreenCaptureTrayItemView::UpdateLabelOrImageViewColor(bool active) {
-  if (!chromeos::features::IsJellyEnabled()) {
-    return;
-  }
   TrayItemView::UpdateLabelOrImageViewColor(active);
 
   image_view()->SetImage(ui::ImageModel::FromVectorIcon(
@@ -92,9 +83,15 @@ void ScreenCaptureTrayItemView::Refresh() {
 
 void ScreenCaptureTrayItemView::MultiCaptureStarted(const std::string& label,
                                                     const url::Origin& origin) {
-  requests_.emplace(label,
-                    ScreenCaptureTrayItemMetadata(base::TimeTicks::Now()));
+  requests_.emplace(label, ScreenCaptureTrayItemMetadata());
   Refresh();
+}
+
+void ScreenCaptureTrayItemView::MultiCaptureStartedFromApp(
+    const std::string& label,
+    const std::string& app_id,
+    const std::string& app_short_name) {
+  MultiCaptureStarted(label, /*origin=*/{});
 }
 
 void ScreenCaptureTrayItemView::MultiCaptureStopped(const std::string& label) {

@@ -8,23 +8,23 @@
 #include "base/component_export.h"
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
+#include "base/time/time.h"
 
-namespace plus_addresses {
+namespace plus_addresses::features {
 
 COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
-BASE_DECLARE_FEATURE(kFeature);
+BASE_DECLARE_FEATURE(kPlusAddressAcceptedFirstTimeCreateSurvey);
 
-// Used to control the enterprise plus address feature's autofill suggestion
-// label. Defaults to generic Lorem Ipsum as strings are not yet determined.
+#if BUILDFLAG(IS_ANDROID)
 COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
-extern const base::FeatureParam<std::string>
-    kEnterprisePlusAddressSuggestionLabelOverride;
+BASE_DECLARE_FEATURE(kPlusAddressAndroidOpenGmsCoreManagementPage);
+#endif  // BUILDFLAG(IS_ANDROID)
 
-// Used to control the enterprise plus address feature's label in settings.
-// Defaults to generic Lorem Ipsum as strings are not yet determined.
 COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
-extern const base::FeatureParam<std::string>
-    kEnterprisePlusAddressSettingsLabelOverride;
+BASE_DECLARE_FEATURE(kPlusAddressDeclinedFirstTimeCreateSurvey);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressesEnabled);
 
 // Used to control the enterprise plus address feature's OAuth scope.
 COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
@@ -35,25 +35,71 @@ extern const base::FeatureParam<std::string> kEnterprisePlusAddressOAuthScope;
 COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
 extern const base::FeatureParam<std::string> kEnterprisePlusAddressServerUrl;
 
-// Used to control whether the PlusAddressService periodically retrieves all
-// plus addresses from an enterprise's remote server.
-COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
-extern const base::FeatureParam<bool> kSyncWithEnterprisePlusAddressServer;
-
-// Used to control the cadence at which the PlusAddressService retrieves all
-// plus addresses from an enterprise's remote server.
-COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
-extern const base::FeatureParam<base::TimeDelta>
-    kEnterprisePlusAddressTimerDelay;
-
 COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
 extern const base::FeatureParam<std::string> kPlusAddressManagementUrl;
 
-// Used to exclude certain sites from PlusAddressService. Must be a
-// comma-separated list of site names (eTLD+1).
+// Url used to redirect the user to the feature description page.
 COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
-extern const base::FeatureParam<std::string> kPlusAddressExcludedSites;
+extern const base::FeatureParam<std::string> kPlusAddressLearnMoreUrl;
 
-}  // namespace plus_addresses
+// The amount of time before the client aborts a request to the plus address
+// server.
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+extern const base::FeatureParam<base::TimeDelta> kPlusAddressRequestTimeout;
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressFallbackFromContextMenu);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressFilledPlusAddressViaManualFallbackSurvey);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressFullFormFill);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressGlobalToggle);
+
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressInlineCreation);
+#endif
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressOfferCreationIfPasswordFieldIsNotVisible);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressOfferCreationOnAllNonUsernameFields);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressOfferCreationOnSingleUsernameForms);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressParseExistingProfilesFromCreateResponse);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressPreallocation);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+extern const base::FeatureParam<int> kPlusAddressPreallocationMinimumSize;
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressRefinedPasswordFormClassification);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressUserCreatedMultiplePlusAddressesSurvey);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressUserCreatedPlusAddressViaManualFallbackSurvey);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressUserDidChooseEmailOverPlusAddress);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressUserDidChoosePlusAddressOverEmail);
+
+COMPONENT_EXPORT(PLUS_ADDRESSES_FEATURES)
+BASE_DECLARE_FEATURE(kPlusAddressUserOnboardingEnabled);
+
+}  // namespace plus_addresses::features
 
 #endif  // COMPONENTS_PLUS_ADDRESSES_FEATURES_H_

@@ -5,42 +5,30 @@
 #ifndef IOS_CHROME_BROWSER_UI_CONTENT_SUGGESTIONS_CONTENT_SUGGESTIONS_VIEW_CONTROLLER_AUDIENCE_H_
 #define IOS_CHROME_BROWSER_UI_CONTENT_SUGGESTIONS_CONTENT_SUGGESTIONS_VIEW_CONTROLLER_AUDIENCE_H_
 
+#import "ios/chrome/browser/ui/content_suggestions/magic_stack/magic_stack_module_container_delegate.h"
+
 enum class ContentSuggestionsModuleType;
 enum class SafetyCheckItemType;
-@class SetUpListItemViewData;
+@class SetUpListItemView;
+namespace segmentation_platform {
+enum class TipIdentifier;
+}  // namespace segmentation_platform
 
 // Audience for the ContentSuggestions, getting information from it.
-@protocol ContentSuggestionsViewControllerAudience
+@protocol
+    ContentSuggestionsViewControllerAudience <MagicStackModuleContainerDelegate>
 
 // Notifies the audience of the UIKit viewWillDisappear: callback.
 - (void)viewWillDisappear;
 
-// Notifies the audience that the Return to Recent Tab tile has been added.
-- (void)returnToRecentTabWasAdded;
-
-// Notifies the audience that a module was removed.
-- (void)moduleWasRemoved;
-
-// Returns current safe area insets for the window owning this discover feed.
-// TODO:(crbug.com/1285378) Remove this after Content Suggestions header is
-// moved out the Content Suggestions CollectionView.
-- (UIEdgeInsets)safeAreaInsetsForDiscoverFeed;
-
-// Notifies the audience to present the Set Up List Show More Menu.
-- (void)showSetUpListShowMoreMenu;
-
-// Notifies the audience that the module of `type` should be never shown
-// anymore.
-- (void)neverShowModuleType:(ContentSuggestionsModuleType)type;
-
-// Notifies the audience that the Magic Stack edit button was tapped.
-- (void)didTapMagicStackEditButton;
-
-// Notifies the audience to show the list of parcels.
-- (void)showMagicStackParcelList;
-
 // Called when a Safety Check item is selected by the user.
 - (void)didSelectSafetyCheckItem:(SafetyCheckItemType)type;
+
+// Indicates that the user has tapped the given `view`.
+- (void)didTapSetUpListItemView:(SetUpListItemView*)view;
+
+// Indicates that the user has tapped the given `tip`.
+- (void)didSelectTip:(segmentation_platform::TipIdentifier)tip;
 
 @end
 

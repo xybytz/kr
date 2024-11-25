@@ -12,7 +12,8 @@
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/connection.h"
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/session_context.h"
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/target_device_connection_broker.h"
-#include "chrome/browser/nearby_sharing/public/cpp/nearby_connections_manager.h"
+#include "chromeos/ash/components/nearby/common/connections_manager/nearby_connections_manager.h"
+#include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "mojo/public/cpp/bindings/shared_remote.h"
 
@@ -23,7 +24,8 @@ class QuickStartConnectivityService;
 
 class TargetDeviceConnectionBrokerImpl
     : public TargetDeviceConnectionBroker,
-      public NearbyConnectionsManager::IncomingConnectionListener {
+      public NearbyConnectionsManager::IncomingConnectionListener,
+      public device::BluetoothAdapter::Observer {
  public:
   using FeatureSupportStatus =
       TargetDeviceConnectionBroker::FeatureSupportStatus;
@@ -50,7 +52,7 @@ class TargetDeviceConnectionBrokerImpl
   };
 
   TargetDeviceConnectionBrokerImpl(
-      SessionContext session_context,
+      SessionContext* session_context,
       QuickStartConnectivityService* quick_start_connectivity_service,
       std::unique_ptr<Connection::Factory> connection_factory);
   TargetDeviceConnectionBrokerImpl(TargetDeviceConnectionBrokerImpl&) = delete;
@@ -107,6 +109,12 @@ class TargetDeviceConnectionBrokerImpl
 
   void OnHandshakeCompleted(bool success);
 
+  // device::BluetoothAdapter::Observer:
+  void AdapterPresentChanged(device::BluetoothAdapter* adapter,
+                             bool present) override;
+  void AdapterPoweredChanged(device::BluetoothAdapter* adapter,
+                             bool powered) override;
+
   // A 4-digit decimal pin code derived from the connection's authentication
   // token for the pin authentication flow.
   std::string pin_;
@@ -114,14 +122,13 @@ class TargetDeviceConnectionBrokerImpl
   scoped_refptr<device::BluetoothAdapter> bluetooth_adapter_;
   base::OnceClosure deferred_start_advertising_callback_;
 
-  SessionContext session_context_;
+  raw_ptr<SessionContext> session_context_;
   std::unique_ptr<FastPairAdvertiser> fast_pair_advertiser_;
 
   raw_ptr<QuickStartConnectivityService> quick_start_connectivity_service_;
   std::unique_ptr<Connection::Factory> connection_factory_;
   std::unique_ptr<Connection> connection_;
-
-  bool is_resume_after_update_;
+  std::unique_ptr<QuickStartMetrics> quick_start_metrics_;
 
   base::OneShotTimer
       nearby_connections_advertisement_after_update_timeout_timer_;

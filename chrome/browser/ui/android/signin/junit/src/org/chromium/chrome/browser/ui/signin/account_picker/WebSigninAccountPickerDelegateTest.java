@@ -30,11 +30,12 @@ import org.mockito.junit.MockitoRule;
 import org.mockito.quality.Strictness;
 import org.robolectric.annotation.LooperMode;
 
-import org.chromium.base.Callback;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.signin.services.SigninManager;
+import org.chromium.chrome.browser.signin.services.SigninMetricsUtils;
+import org.chromium.chrome.browser.signin.services.SigninMetricsUtilsJni;
 import org.chromium.chrome.browser.signin.services.WebSigninBridge;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
@@ -42,6 +43,7 @@ import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.base.GoogleServiceAuthError;
 import org.chromium.components.signin.base.GoogleServiceAuthError.State;
 import org.chromium.components.signin.identitymanager.IdentityManager;
+import org.chromium.components.signin.metrics.AccountConsistencyPromoAction;
 import org.chromium.components.signin.metrics.SigninAccessPoint;
 import org.chromium.components.signin.test.util.FakeAccountManagerFacade;
 import org.chromium.content_public.browser.LoadUrlParams;
@@ -75,6 +77,10 @@ public class WebSigninAccountPickerDelegateTest {
 
     @Mock private Tab mTabMock;
 
+    @Mock private AccountPickerBottomSheetMediator mAccountPickerBottomSheetMediatorMock;
+
+    @Mock private SigninMetricsUtils.Natives mSigninMetricsUtilsJniMock;
+
     @Captor private ArgumentCaptor<LoadUrlParams> mLoadUrlParamsCaptor;
 
     @Captor private ArgumentCaptor<WebSigninBridge.Listener> mWebSigninBridgeListenerCaptor;
@@ -85,7 +91,8 @@ public class WebSigninAccountPickerDelegateTest {
 
     @Before
     public void setUp() {
-        Profile.setLastUsedProfileForTesting(mProfileMock);
+        when(mTabMock.getProfile()).thenReturn(mProfileMock);
+        SigninMetricsUtilsJni.setInstanceForTesting(mSigninMetricsUtilsJniMock);
         IdentityServicesProvider.setInstanceForTests(mock(IdentityServicesProvider.class));
         when(IdentityServicesProvider.get().getIdentityManager(any()))
                 .thenReturn(mIdentityManagerMock);
@@ -102,12 +109,12 @@ public class WebSigninAccountPickerDelegateTest {
 
     @After
     public void tearDown() {
-        mDelegate.destroy();
+        mDelegate.onAccountPickerDestroy();
     }
 
     @Test
     public void testSignInSucceeded() {
-        mDelegate.signIn(mCoreAccountInfo, error -> {});
+        mDelegate.signIn(mCoreAccountInfo, mAccountPickerBottomSheetMediatorMock);
         InOrder calledInOrder = inOrder(mWebSigninBridgeFactoryMock, mSigninManagerMock);
         calledInOrder
                 .verify(mWebSigninBridgeFactoryMock)
@@ -134,8 +141,9 @@ public class WebSigninAccountPickerDelegateTest {
                         })
                 .when(mSigninManagerMock)
                 .signin(eq(mCoreAccountInfo), eq(SigninAccessPoint.WEB_SIGNIN), any());
-        mDelegate.signIn(mCoreAccountInfo, error -> {});
-        verify(mWebSigninBridgeMock).destroy();
+        mDelegate.signIn(mCoreAccountInfo, mAccountPickerBottomSheetMediatorMock);
+
+        verify(mAccountPickerBottomSheetMediatorMock).switchToTryAgainView();
     }
 
     @Test
@@ -143,10 +151,10 @@ public class WebSigninAccountPickerDelegateTest {
         // In case an error is fired because cookies are taking longer to generate than usual,
         // if user retries the sign-in from the error screen, we need to sign out the user
         // first before signing in again.
-        mDelegate.signIn(mCoreAccountInfo, error -> {});
+        mDelegate.signIn(mCoreAccountInfo, mAccountPickerBottomSheetMediatorMock);
         when(mIdentityManagerMock.hasPrimaryAccount(anyInt())).thenReturn(true);
 
-        mDelegate.signIn(mCoreAccountInfo, error -> {});
+        mDelegate.signIn(mCoreAccountInfo, mAccountPickerBottomSheetMediatorMock);
         InOrder calledInOrder =
                 inOrder(
                         mWebSigninBridgeMock,
@@ -165,16 +173,41 @@ public class WebSigninAccountPickerDelegateTest {
 
     @Test
     public void testSignInFailedWithConnectionError() {
-        Callback<GoogleServiceAuthError> mockCallback = mock(Callback.class);
         GoogleServiceAuthError error = new GoogleServiceAuthError(State.CONNECTION_FAILED);
-        mDelegate.signIn(mCoreAccountInfo, mockCallback);
+        mDelegate.signIn(mCoreAccountInfo, mAccountPickerBottomSheetMediatorMock);
         verify(mWebSigninBridgeFactoryMock)
                 .create(
                         eq(mProfileMock),
                         eq(mCoreAccountInfo),
                         mWebSigninBridgeListenerCaptor.capture());
         mWebSigninBridgeListenerCaptor.getValue().onSigninFailed(error);
-        verify(mockCallback).onResult(error);
+        verify(mAccountPickerBottomSheetMediatorMock).switchToTryAgainView();
+        verify(mSigninMetricsUtilsJniMock)
+                .logAccountConsistencyPromoAction(
+                        AccountConsistencyPromoAction.GENERIC_ERROR_SHOWN,
+                        SigninAccessPoint.WEB_SIGNIN);
+
+        // WebSigninBridge should be kept alive in case cookies are taking longer to
+        // generate than usual
+        verify(mWebSigninBridgeMock, never()).destroy();
+    }
+
+    @Test
+    public void testSignInFailedWithGaiaError() {
+        GoogleServiceAuthError error = new GoogleServiceAuthError(State.INVALID_GAIA_CREDENTIALS);
+        mDelegate.signIn(mCoreAccountInfo, mAccountPickerBottomSheetMediatorMock);
+        verify(mWebSigninBridgeFactoryMock)
+                .create(
+                        eq(mProfileMock),
+                        eq(mCoreAccountInfo),
+                        mWebSigninBridgeListenerCaptor.capture());
+        mWebSigninBridgeListenerCaptor.getValue().onSigninFailed(error);
+        verify(mAccountPickerBottomSheetMediatorMock).switchToAuthErrorView();
+        verify(mSigninMetricsUtilsJniMock)
+                .logAccountConsistencyPromoAction(
+                        AccountConsistencyPromoAction.AUTH_ERROR_SHOWN,
+                        SigninAccessPoint.WEB_SIGNIN);
+
         // WebSigninBridge should be kept alive in case cookies are taking longer to
         // generate than usual
         verify(mWebSigninBridgeMock, never()).destroy();

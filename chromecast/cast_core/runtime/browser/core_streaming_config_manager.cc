@@ -4,10 +4,12 @@
 
 #include "chromecast/cast_core/runtime/browser/core_streaming_config_manager.h"
 
+#include <string_view>
 #include <utility>
 
 #include "base/containers/contains.h"
 #include "base/logging.h"
+#include "base/not_fatal_until.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
 #include "base/task/sequenced_task_runner.h"
@@ -133,7 +135,7 @@ cast_streaming::ReceiverConfig CreateConfig(
       auto it = base::ranges::find(
           audio_limits, converted_codec,
           &cast_streaming::ReceiverConfig::AudioLimits::codec);
-      DCHECK(it != audio_limits.end());
+      CHECK(it != audio_limits.end(), base::NotFatalUntil::M130);
       if (it->max_sample_rate) {
         it->max_sample_rate =
             std::max(it->max_sample_rate.value(), info.max_samples_per_second);
@@ -203,7 +205,7 @@ CoreStreamingConfigManager::CoreStreamingConfigManager(
 CoreStreamingConfigManager::~CoreStreamingConfigManager() = default;
 
 bool CoreStreamingConfigManager::OnMessage(
-    base::StringPiece message,
+    std::string_view message,
     std::vector<std::unique_ptr<cast_api_bindings::MessagePort>> ports) {
   DLOG(INFO) << "AV Settings Response Received: " << message;
 

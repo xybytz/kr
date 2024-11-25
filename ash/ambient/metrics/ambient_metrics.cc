@@ -6,6 +6,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "ash/ambient/ambient_ui_settings.h"
@@ -21,7 +22,6 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/strcat.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "base/values.h"
@@ -48,16 +48,16 @@ constexpr int kAmbientModeElapsedTimeHistogramBuckets = 144;
 // communicate playback metrics.
 //
 // Whether or not playback started successfully.
-constexpr base::StringPiece kVideoFieldPlaybackStarted = "playback_started";
+constexpr std::string_view kVideoFieldPlaybackStarted = "playback_started";
 //
 // These reflect the VideoPlaybackQuality JS API:
 // https://developer.mozilla.org/en-US/docs/Web/API/VideoPlaybackQuality
 //
 // Total number of video frames dropped since playback started.
-constexpr base::StringPiece kVideoFieldDroppedFrames = "dropped_frames";
+constexpr std::string_view kVideoFieldDroppedFrames = "dropped_frames";
 // Total number of video frames expected since playback started (frames
 // created + frames dropped).
-constexpr base::StringPiece kVideoFieldTotalFrames = "total_frames";
+constexpr std::string_view kVideoFieldTotalFrames = "total_frames";
 
 std::string GetHistogramName(const char* prefix, bool tablet_mode) {
   std::string histogram = prefix;
@@ -247,6 +247,11 @@ void RecordAmbientModeTimeElapsed(base::TimeDelta time_delta,
       time_delta);
 }
 
+void RecordAmbientModeTopicSource(
+    const ash::personalization_app::mojom::TopicSource topic_source) {
+  base::UmaHistogramEnumeration("Ash.AmbientMode.TopicSource", topic_source);
+}
+
 void RecordAmbientModeTotalNumberOfAlbums(int num_albums) {
   base::UmaHistogramCounts100("Ash.AmbientMode.TotalNumberOfAlbums",
                               num_albums);
@@ -264,15 +269,6 @@ void RecordAmbientModeAnimationSmoothness(
       base::StrCat({"Ash.AmbientMode.LottieAnimationSmoothness.",
                     ui_settings.ToString()}),
       smoothness);
-}
-
-void RecordAmbientModePhotoOrientationMatch(
-    int percentage_match,
-    const AmbientUiSettings& ui_settings) {
-  base::UmaHistogramPercentage(
-      base::StrCat(
-          {"Ash.AmbientMode.PhotoOrientationMatch.", ui_settings.ToString()}),
-      percentage_match);
 }
 
 void RecordAmbientModeStartupTime(base::TimeDelta startup_time,

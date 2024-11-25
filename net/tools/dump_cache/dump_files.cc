@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40284755): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
+
 // Performs basic inspection of the disk cache files with minimal disruption
 // to the actual files (they still may change if an error is detected on the
 // files).
@@ -500,12 +505,11 @@ int DumpLists(const base::FilePath& input_path) {
     int32_t size = header.lru.sizes[i];
     if (size < 0 || size > kMaxLength) {
       printf("Wrong size %d\n", size);
-      size = kMaxLength;
     }
 
     disk_cache::CacheAddr addr = header.lru.tails[i];
     int count = 0;
-    for (; size && addr; size--) {
+    while (addr) {
       count++;
       disk_cache::RankingsNode rankings;
       if (!dumper.LoadRankings(addr, &rankings)) {

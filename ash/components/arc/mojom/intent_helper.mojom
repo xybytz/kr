@@ -160,8 +160,9 @@ enum ChromePage {
   PERDEVICETOUCHPAD = 87,
   PERDEVICEPOINTINGSTICK = 88,
   GRAPHICSTABLET = 89,
+  NETWORKS = 90,
 
-  // Next value to be used is 90.
+  // Next value to be used is 91.
 };
 
 // Describes an unique chrome app.
@@ -263,6 +264,8 @@ enum AndroidSetting {
   kGeoLocation,           // Deprecated, replaced with specific scenarios.
   kGeoLocationAtBoot,
   kGeoLocationUserTriggered,
+  // We don't need atBoot for accuracy as the value is in sync with GeoLocation
+  kGeoLocationAccuracyUserTriggered,
 };
 
 // The type of shadow used for Chrome captions.

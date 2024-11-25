@@ -6,6 +6,7 @@
 #define SERVICES_NETWORK_SHARED_STORAGE_SHARED_STORAGE_TEST_URL_LOADER_NETWORK_OBSERVER_H_
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -14,8 +15,8 @@
 #include "base/functional/callback_forward.h"
 #include "base/run_loop.h"
 #include "services/network/public/mojom/url_loader_network_service_observer.mojom.h"
+#include "services/network/shared_storage/shared_storage_test_utils.h"
 #include "services/network/test/test_url_loader_network_observer.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/origin.h"
 
 namespace network {
@@ -27,11 +28,7 @@ class SharedStorageTestURLLoaderNetworkObserver
   ~SharedStorageTestURLLoaderNetworkObserver() override;
 
   const std::vector<
-      std::pair<url::Origin,
-                std::vector<std::tuple<mojom::SharedStorageOperationType,
-                                       absl::optional<std::string>,
-                                       absl::optional<std::string>,
-                                       absl::optional<bool>>>>>&
+      std::pair<url::Origin, std::vector<SharedStorageMethodWrapper>>>&
   headers_received() const {
     return headers_received_;
   }
@@ -39,7 +36,7 @@ class SharedStorageTestURLLoaderNetworkObserver
   // TestURLLoaderNetworkObserver:
   void OnSharedStorageHeaderReceived(
       const url::Origin& request_origin,
-      std::vector<mojom::SharedStorageOperationPtr> operations,
+      std::vector<mojom::SharedStorageModifierMethodPtr> methods,
       OnSharedStorageHeaderReceivedCallback callback) override;
 
   void WaitForHeadersReceived(size_t expected_total);
@@ -47,12 +44,7 @@ class SharedStorageTestURLLoaderNetworkObserver
  private:
   std::unique_ptr<base::RunLoop> loop_;
   size_t expected_total_ = 0;
-  std::vector<
-      std::pair<url::Origin,
-                std::vector<std::tuple<mojom::SharedStorageOperationType,
-                                       absl::optional<std::string>,
-                                       absl::optional<std::string>,
-                                       absl::optional<bool>>>>>
+  std::vector<std::pair<url::Origin, std::vector<SharedStorageMethodWrapper>>>
       headers_received_;
 };
 

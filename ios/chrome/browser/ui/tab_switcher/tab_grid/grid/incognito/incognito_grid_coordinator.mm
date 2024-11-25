@@ -4,12 +4,15 @@
 
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/incognito/incognito_grid_coordinator.h"
 
+#import "ios/chrome/browser/incognito_reauth/ui_bundled/incognito_reauth_mediator.h"
+#import "ios/chrome/browser/incognito_reauth/ui_bundled/incognito_reauth_scene_agent.h"
 #import "ios/chrome/browser/policy/model/policy_util.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
-#import "ios/chrome/browser/ui/incognito_reauth/incognito_reauth_mediator.h"
-#import "ios/chrome/browser/ui/incognito_reauth/incognito_reauth_scene_agent.h"
+#import "ios/chrome/browser/shared/public/commands/tab_grid_commands.h"
+#import "ios/chrome/browser/shared/public/commands/tab_grid_toolbar_commands.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/disabled_grid_view_controller.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/grid_container_view_controller.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/grid_coordinator_audience.h"
@@ -17,20 +20,22 @@
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/grid_theme.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/incognito/incognito_grid_mediator.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/incognito/incognito_grid_view_controller.h"
+#import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/tab_group_grid_view_controller.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_context_menu/tab_context_menu_helper.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_constants.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_view_controller.h"
+#import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_groups/tab_group_coordinator.h"
+#import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_groups/tab_group_view_controller.h"
 
 @interface IncognitoGridCoordinator ()
 
 // Redefined as readwrite.
 @property(nonatomic, readwrite, strong)
     IncognitoGridViewController* gridViewController;
+
 @end
 
 @implementation IncognitoGridCoordinator {
-  // Mediator of incognito grid.
-  IncognitoGridMediator* _mediator;
   // Reauth scene agent.
   IncognitoReauthSceneAgent* _reauthAgent;
   // Mediator for incognito reauth.
@@ -43,6 +48,8 @@
   // Pointer to the browser. Even if this coordinator super class has a readonly
   // browser property, it is also kept locally as it must be readwrite here.
   base::WeakPtr<Browser> _browser;
+  // Mediator of incognito grid.
+  IncognitoGridMediator* _mediator;
 }
 
 - (instancetype)initWithBaseViewController:(UIViewController*)baseViewController
@@ -54,20 +61,24 @@
   CHECK(browser);
   CHECK(toolbarsMutator);
   CHECK(delegate);
-  if (self = [super initWithBaseViewController:baseViewController
-                                       browser:browser
-                               toolbarsMutator:toolbarsMutator
-                          gridMediatorDelegate:delegate]) {
+  if ((self = [super initWithBaseViewController:baseViewController
+                                        browser:browser
+                                toolbarsMutator:toolbarsMutator
+                           gridMediatorDelegate:delegate])) {
     _browser = browser->AsWeakPtr();
-    _incognitoEnabled =
-        !IsIncognitoModeDisabled(self.browser->GetBrowserState()
-                                     ->GetOriginalChromeBrowserState()
-                                     ->GetPrefs());
+    _incognitoEnabled = !IsIncognitoModeDisabled(
+        self.browser->GetProfile()->GetOriginalProfile()->GetPrefs());
   }
   return self;
 }
 
 #pragma mark - Property Implementation.
+
+- (IncognitoGridMediator*)mediator {
+  CHECK(_mediator)
+      << "IncognitoGridCoordinator's -start should be called before.";
+  return _mediator;
+}
 
 - (IncognitoGridMediator*)incognitoGridMediator {
   CHECK(_mediator)
@@ -79,21 +90,43 @@
   return _browser.get();
 }
 
+- (id)gridHandler {
+  CHECK(_mediator)
+      << "IncognitoGridCoordinator's -start should be called before.";
+  return _mediator;
+}
+
+#pragma mark - Superclass overrides
+
+- (LegacyGridTransitionLayout*)transitionLayout {
+  if (IsTabGroupInGridEnabled()) {
+    if (self.tabGroupCoordinator) {
+      return [self.tabGroupCoordinator.viewController
+                  .gridViewController transitionLayout];
+    }
+  }
+  return [self.gridViewController transitionLayout];
+}
+
 #pragma mark - ChromeCoordinator
 
 - (void)start {
-  // TODO(crbug.com/1246931): refactor to call setIncognitoBrowser from this
+  // TODO(crbug.com/40789579): refactor to call setIncognitoBrowser from this
   // function.
   _reauthAgent =
       [IncognitoReauthSceneAgent agentFromScene:self.browser->GetSceneState()];
 
+  _mediator =
+      [[IncognitoGridMediator alloc] initWithModeHolder:self.modeHolder];
+  _mediator.incognitoDelegate = self;
+  _mediator.reauthSceneAgent = _reauthAgent;
+
   GridContainerViewController* container =
       [[GridContainerViewController alloc] init];
   self.gridContainerViewController = container;
-  _mediator = [[IncognitoGridMediator alloc] init];
 
   _tabContextMenuHelper = [[TabContextMenuHelper alloc]
-        initWithBrowserState:self.browser->GetBrowserState()
+             initWithProfile:self.browser->GetProfile()
       tabContextMenuDelegate:self.tabContextMenuDelegate];
 
   if (_incognitoEnabled) {
@@ -104,14 +137,6 @@
     container.containedViewController = self.disabledViewController;
   }
 
-  _mediator.browser = self.browser;
-  _mediator.delegate = self.gridMediatorDelegate;
-  _mediator.toolbarsMutator = self.toolbarsMutator;
-  _mediator.toolbarTabGridDelegate = self.tabGridViewController;
-  _mediator.incognitoDelegate = self;
-  _mediator.reauthSceneAgent = _reauthAgent;
-  _mediator.dispatcher = self;
-
   _incognitoAuthMediator =
       [[IncognitoReauthMediator alloc] initWithReauthAgent:_reauthAgent];
   _incognitoAuthMediator.consumer = self.gridViewController;
@@ -120,9 +145,6 @@
 }
 
 - (void)stop {
-  [_mediator disconnect];
-  _mediator = nil;
-
   _tabContextMenuHelper = nil;
   _incognitoAuthMediator = nil;
   _reauthAgent = nil;
@@ -133,18 +155,23 @@
 #pragma mark - Public
 
 - (void)setIncognitoBrowser:(Browser*)incognitoBrowser {
+  if (_browser) {
+    [_browser->GetCommandDispatcher() stopDispatchingToTarget:self];
+  }
   _mediator.browser = incognitoBrowser;
   _browser.reset();
   if (incognitoBrowser) {
     _browser = incognitoBrowser->AsWeakPtr();
-    _tabContextMenuHelper.browserState = incognitoBrowser->GetBrowserState();
+    _tabContextMenuHelper.profile = incognitoBrowser->GetProfile();
+    [incognitoBrowser->GetCommandDispatcher()
+        startDispatchingToTarget:self
+                     forProtocol:@protocol(TabGroupsCommands)];
+    _mediator.tabGroupsHandler = self;
+    _mediator.tabGridHandler = HandlerForProtocol(
+        incognitoBrowser->GetCommandDispatcher(), TabGridCommands);
   } else {
-    _tabContextMenuHelper.browserState = nullptr;
+    _tabContextMenuHelper.profile = nullptr;
   }
-}
-
-- (void)stopChildCoordinators {
-  [self.gridViewController dismissModals];
 }
 
 #pragma mark - IncognitoGridMediatorDelegate
@@ -187,7 +214,8 @@
   gridViewController.dragDropHandler = _mediator;
   gridViewController.mutator = _mediator;
   gridViewController.gridProvider = _mediator;
-  // TODO(crbug.com/1457146): Move the following lines to the grid itself when
+  gridViewController.gridHandler = _mediator;
+  // TODO(crbug.com/40273478): Move the following lines to the grid itself when
   // specific grid file will be created.
   gridViewController.view.accessibilityIdentifier = kIncognitoTabGridIdentifier;
   gridViewController.emptyStateView =

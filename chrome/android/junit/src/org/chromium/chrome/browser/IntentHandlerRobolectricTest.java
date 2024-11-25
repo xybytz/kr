@@ -8,6 +8,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import android.app.Activity;
+import android.app.ActivityOptions;
 import android.app.KeyguardManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -15,6 +17,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.PowerManager;
 import android.provider.Browser;
+import android.view.Display;
 
 import androidx.browser.customtabs.CustomTabsSessionToken;
 import androidx.test.core.app.ApplicationProvider;
@@ -30,18 +33,21 @@ import org.mockito.Captor;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.mockito.quality.Strictness;
+import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
+import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowDisplayManager;
 import org.robolectric.shadows.ShadowKeyguardManager;
 import org.robolectric.shadows.ShadowPowerManager;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.IntentUtils;
 import org.chromium.base.library_loader.LibraryLoader;
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Features.EnableFeatures;
+import org.chromium.base.test.util.HistogramWatcher;
 import org.chromium.chrome.browser.app.tabmodel.AsyncTabParamsManagerSingleton;
 import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
 import org.chromium.chrome.browser.customtabs.CustomTabsIntentTestUtils;
@@ -49,8 +55,6 @@ import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.AsyncTabCreationParams;
 import org.chromium.chrome.browser.webapps.WebappLauncherActivity;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.chrome.test.util.browser.webapps.WebappTestHelper;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.components.external_intents.ExternalNavigationHandler;
@@ -182,8 +186,6 @@ public class IntentHandlerRobolectricTest {
 
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule().strictness(Strictness.STRICT_STUBS);
 
-    @Rule public Features.JUnitProcessor mFeaturesProcessor = new Features.JUnitProcessor();
-
     @Captor ArgumentCaptor<LoadUrlParams> mLoadUrlParamsCaptor;
 
     private ShadowPowerManager mShadowPowerManager;
@@ -311,7 +313,6 @@ public class IntentHandlerRobolectricTest {
 
     @Test
     @SmallTest
-    @UiThreadTest
     @Feature({"Android-Appbase"})
     public void testUrlFromIntent_WebappUrl() {
         Intent webappLauncherActivityIntent =
@@ -339,7 +340,6 @@ public class IntentHandlerRobolectricTest {
 
     @Test
     @SmallTest
-    @UiThreadTest
     @Feature({"Android-AppBase"})
     public void testReferrerUrl_customTabIntentWithSession() {
         Context context = ApplicationProvider.getApplicationContext();
@@ -454,7 +454,7 @@ public class IntentHandlerRobolectricTest {
                 WebappLauncherActivity.createIntentToLaunchForWebapp(
                         webappLauncherActivityIntent, launchData);
 
-        assertFalse(IntentHandler.shouldIgnoreIntent(intent));
+        assertFalse(IntentHandler.shouldIgnoreIntent(intent, null));
     }
 
     /**
@@ -467,7 +467,7 @@ public class IntentHandlerRobolectricTest {
     public void testShouldIgnoreIncognitoIntent() {
         Intent intent = new Intent(GOOGLE_URL);
         intent.putExtra(IntentHandler.EXTRA_OPEN_NEW_INCOGNITO_TAB, true);
-        assertTrue(IntentHandler.shouldIgnoreIntent(intent));
+        assertTrue(IntentHandler.shouldIgnoreIntent(intent, null));
     }
 
     /**
@@ -480,7 +480,7 @@ public class IntentHandlerRobolectricTest {
     public void testShouldIgnoreIncognitoIntent_trusted() {
         Context context = ApplicationProvider.getApplicationContext();
         Intent intent = IntentHandler.createTrustedOpenNewTabIntent(context, true);
-        assertFalse(IntentHandler.shouldIgnoreIntent(intent));
+        assertFalse(IntentHandler.shouldIgnoreIntent(intent, null));
     }
 
     /** Test that IntentHandler#shouldIgnoreIntent() returns false for Incognito Custom Tab Intents. */
@@ -538,15 +538,11 @@ public class IntentHandlerRobolectricTest {
         Assert.assertNull(IntentHandler.getUrlFromShareIntent(intent));
         for (Object[] shareCase : SHARE_INTENT_CASES) {
             intent.putExtra(Intent.EXTRA_TEXT, (String) shareCase[0]);
-            int before =
-                    RecordHistogram.getHistogramValueCountForTesting(
+            var histogramWatcher =
+                    HistogramWatcher.newSingleRecordWatcher(
                             IntentHandler.SHARE_INTENT_HISTOGRAM, (int) shareCase[2]);
             Assert.assertEquals((String) shareCase[1], IntentHandler.getUrlFromShareIntent(intent));
-            Assert.assertEquals(
-                    "Test case: " + (String) shareCase[0],
-                    before + 1,
-                    RecordHistogram.getHistogramValueCountForTesting(
-                            IntentHandler.SHARE_INTENT_HISTOGRAM, (int) shareCase[2]));
+            histogramWatcher.assertExpected((String) shareCase[0]);
         }
     }
 
@@ -574,18 +570,72 @@ public class IntentHandlerRobolectricTest {
 
     @Test
     @SmallTest
-    public void testScreenOff() {
+    public void testScreenOffNoContext() {
         Intent intent = new Intent(Intent.ACTION_VIEW);
         intent.setData(Uri.parse(GOOGLE_URL));
         mShadowPowerManager.setIsInteractive(false);
-        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(intent));
+        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(intent, null));
         mShadowPowerManager.setIsInteractive(true);
-        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(intent));
+        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(intent, null));
         mShadowPowerManager.setIsInteractive(false);
         intent = new Intent(Intent.ACTION_MAIN);
-        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(intent));
+        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(intent, null));
         intent.setData(Uri.parse(GOOGLE_URL));
-        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(intent));
+        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(intent, null));
+    }
+
+    @Test
+    @SmallTest
+    public void testScreenOffOneDisplay() {
+        ActivityController<Activity> controller =
+                Robolectric.buildActivity(
+                        Activity.class,
+                        null,
+                        ActivityOptions.makeBasic()
+                                .setLaunchDisplayId(Display.DEFAULT_DISPLAY)
+                                .toBundle());
+        Activity activity = controller.setup().get();
+
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setData(Uri.parse(GOOGLE_URL));
+        mShadowPowerManager.setIsInteractive(false);
+        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(intent, activity));
+        mShadowPowerManager.setIsInteractive(true);
+        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(intent, activity));
+        mShadowPowerManager.setIsInteractive(false);
+        intent = new Intent(Intent.ACTION_MAIN);
+        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(intent, activity));
+        intent.setData(Uri.parse(GOOGLE_URL));
+        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(intent, activity));
+    }
+
+    @Test
+    @SmallTest
+    public void testScreenOffTwoDisplays() {
+        int extDisplayId = ShadowDisplayManager.addDisplay("");
+        ActivityController<Activity> controller =
+                Robolectric.buildActivity(
+                        Activity.class,
+                        null,
+                        ActivityOptions.makeBasic().setLaunchDisplayId(extDisplayId).toBundle());
+        Activity activity = controller.setup().get();
+        ShadowPowerManager mShadowPowerManagerAct =
+                Shadows.shadowOf((PowerManager) activity.getSystemService(Context.POWER_SERVICE));
+
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setData(Uri.parse(GOOGLE_URL));
+        // Test with main screen on
+        mShadowPowerManager.setIsInteractive(true);
+        mShadowPowerManagerAct.setIsInteractive(false);
+        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(intent, activity));
+        mShadowPowerManagerAct.setIsInteractive(true);
+        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(intent, activity));
+        // Test with main screen off
+        mShadowPowerManager.setIsInteractive(false);
+        mShadowPowerManagerAct.setIsInteractive(false);
+        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(intent, activity));
+        mShadowPowerManagerAct.setIsInteractive(true);
+        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(intent, activity));
     }
 
     @Test
@@ -595,14 +645,14 @@ public class IntentHandlerRobolectricTest {
         Intent intent = new Intent(Intent.ACTION_VIEW);
         intent.setData(Uri.parse(GOOGLE_URL));
         mShadowKeyguardManager.setKeyguardLocked(true);
-        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(intent));
+        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(intent, null));
         mShadowKeyguardManager.setKeyguardLocked(false);
-        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(intent));
+        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(intent, null));
         mShadowKeyguardManager.setKeyguardLocked(true);
         intent = new Intent(Intent.ACTION_MAIN);
-        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(intent));
+        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(intent, null));
         intent.setData(Uri.parse(GOOGLE_URL));
-        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(intent));
+        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(intent, null));
     }
 
     @Test
@@ -618,10 +668,10 @@ public class IntentHandlerRobolectricTest {
         Assert.assertTrue(IntentHandler.wasIntentSenderChrome(trustedIntent));
 
         trustedIntent.setData(Uri.parse("chrome://credits"));
-        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(trustedIntent));
+        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(trustedIntent, null));
 
         trustedIntent.setData(Uri.parse("chrome-native://newtab"));
-        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(trustedIntent));
+        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(trustedIntent, null));
     }
 
     @Test
@@ -632,10 +682,10 @@ public class IntentHandlerRobolectricTest {
         Assert.assertFalse(IntentHandler.wasIntentSenderChrome(untrustedIntent));
 
         untrustedIntent.setData(Uri.parse("chrome://credits"));
-        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(untrustedIntent));
+        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(untrustedIntent, null));
 
         untrustedIntent.setData(Uri.parse("chrome-native://newtab"));
-        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(untrustedIntent));
+        Assert.assertTrue(IntentHandler.shouldIgnoreIntent(untrustedIntent, null));
     }
 
     @Test
@@ -646,10 +696,10 @@ public class IntentHandlerRobolectricTest {
         Assert.assertFalse(IntentHandler.wasIntentSenderChrome(untrustedIntent));
 
         untrustedIntent.setData(Uri.parse("about:blank"));
-        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(untrustedIntent));
+        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(untrustedIntent, null));
 
         untrustedIntent.setData(Uri.parse("about://blank"));
-        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(untrustedIntent));
+        Assert.assertFalse(IntentHandler.shouldIgnoreIntent(untrustedIntent, null));
     }
 
     @Test

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {ServiceInterface} from 'chrome://extensions/extensions.js';
+import type {ServiceInterface} from 'chrome://extensions/extensions.js';
 import {FakeChromeEvent} from 'chrome://webui-test/fake_chrome_event.js';
 import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
 
@@ -34,6 +34,8 @@ export class TestService extends TestBrowserProxy implements ServiceInterface {
       'deleteItem',
       'deleteItems',
       'dismissSafetyHubExtensionsMenuNotification',
+      'dismissMv2DeprecationNotice',
+      'dismissMv2DeprecationNoticeForExtension',
       'uninstallItem',
       'downloadActivities',
       'getExtensionActivityLog',
@@ -115,6 +117,7 @@ export class TestService extends TestBrowserProxy implements ServiceInterface {
       isDeveloperModeControlledByPolicy: false,
       isIncognitoAvailable: false,
       isChildAccount: false,
+      isMv2DeprecationNoticeDismissed: false,
     });
   }
 
@@ -157,7 +160,6 @@ export class TestService extends TestBrowserProxy implements ServiceInterface {
     this.methodCalled('setItemAllowedOnFileUrls', [id, isAllowedOnFileUrls]);
   }
 
-
   setItemSafetyCheckWarningAcknowledged(id: string) {
     this.methodCalled('setItemSafetyCheckWarningAcknowledged', id);
   }
@@ -185,6 +187,7 @@ export class TestService extends TestBrowserProxy implements ServiceInterface {
   shouldIgnoreUpdate(
       extensionId: string, eventType: chrome.developerPrivate.EventType) {
     this.methodCalled('shouldIgnoreUpdate', [extensionId, eventType]);
+    return false;
   }
 
   updateExtensionCommandKeybinding(
@@ -394,5 +397,13 @@ export class TestService extends TestBrowserProxy implements ServiceInterface {
 
   dismissSafetyHubExtensionsMenuNotification() {
     this.methodCalled('dismissSafetyHubExtensionsMenuNotification');
+  }
+
+  dismissMv2DeprecationNoticeForExtension(id: string) {
+    this.methodCalled('dismissMv2DeprecationNoticeForExtension', id);
+  }
+
+  dismissMv2DeprecationNotice() {
+    this.methodCalled('dismissMv2DeprecationNotice');
   }
 }

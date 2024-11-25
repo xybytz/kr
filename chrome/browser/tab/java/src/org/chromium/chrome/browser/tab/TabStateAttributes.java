@@ -5,14 +5,18 @@
 package org.chromium.chrome.browser.tab;
 
 import androidx.annotation.IntDef;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ObserverList;
 import org.chromium.base.ResettersForTesting;
+import org.chromium.base.Token;
 import org.chromium.base.UserDataHost;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
+import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.content_public.browser.NavigationHandle;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
@@ -21,16 +25,20 @@ import org.chromium.url.GURL;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.function.Predicate;
 
 /** Attributes related to {@link TabState} */
 public class TabStateAttributes extends TabWebContentsUserData {
     private static final Class<TabStateAttributes> USER_DATA_KEY = TabStateAttributes.class;
     @VisibleForTesting static final long DEFAULT_LOW_PRIORITY_SAVE_DELAY_MS = 30 * 1000L;
 
-    /** Defines the dirtiness states of the tab attributes. */
+    /**
+     * Defines the dirtiness states of the tab attributes. Numerical values should be setup such
+     * that higher values are more dirty.
+     */
     @IntDef({DirtinessState.CLEAN, DirtinessState.UNTIDY, DirtinessState.DIRTY})
     @Retention(RetentionPolicy.SOURCE)
-    public static @interface DirtinessState {
+    public @interface DirtinessState {
         /** The state of the tab has no meaningful changes. */
         int CLEAN = 0;
 
@@ -50,10 +58,20 @@ public class TabStateAttributes extends TabWebContentsUserData {
     private WebContentsObserver mWebContentsObserver;
     private boolean mPendingLowPrioritySave;
 
+    /**
+     * When this number is greater than zero, all dirty observations are currently being suppressed.
+     * Using an int instead of boolean to support reentrancy.
+     */
+    private int mNumberOpenBatchEdits;
+
+    /** The most dirty end state transition that's been had during the current changes, or null. */
+    private @Nullable Integer mPendingDirty;
+
     /** Allows observing changes for Tab state dirtiness updates. */
     public interface Observer {
         /**
          * Triggered when the tab state dirtiness has changed.
+         *
          * @param tab The tab whose state has changed.
          * @param dirtiness Tne state of dirtiness for the tab state.
          */
@@ -89,7 +107,7 @@ public class TabStateAttributes extends TabWebContentsUserData {
         } else {
             assert creationState == TabCreationState.FROZEN_ON_RESTORE;
         }
-        // TODO(crbug/1374456): Should this also handle mTab.getPendingLoadParams(), and ignore
+        // TODO(crbug.com/40242471): Should this also handle mTab.getPendingLoadParams(), and ignore
         //                      URL updates when the URL matches the pending load?
         mTab.addObserver(
                 new EmptyTabObserver() {
@@ -108,12 +126,26 @@ public class TabStateAttributes extends TabWebContentsUserData {
                     }
 
                     @Override
+                    public void onNavigationEntriesAppended(Tab tab) {
+                        updateIsDirty(DirtinessState.DIRTY);
+                    }
+
+                    @Override
                     public void onNavigationEntriesDeleted(Tab tab) {
                         updateIsDirty(DirtinessState.DIRTY);
                     }
 
                     @Override
                     public void onLoadStopped(Tab tab, boolean toDifferentDocument) {
+                        // If the tab is a NTP without a navigation state, it may not be marked as
+                        // "UNTIDY" here.
+                        // We need to save the tab if it belongs to a tab group so set it directly
+                        // to "DIRTY".
+                        if (isNtpWithoutNavigationState(tab) && tab.getTabGroupId() != null) {
+                            updateIsDirtyNotCheckingNtp(DirtinessState.DIRTY);
+                            return;
+                        }
+
                         if (mDirtinessState != DirtinessState.UNTIDY) return;
 
                         if (toDifferentDocument) {
@@ -136,7 +168,7 @@ public class TabStateAttributes extends TabWebContentsUserData {
 
                     @Override
                     public void onPageLoadFinished(Tab tab, GURL url) {
-                        // TODO(crbug/1374456): Reconcile the overlapping calls of
+                        // TODO(crbug.com/40242471): Reconcile the overlapping calls of
                         //                      didFinishNavigationInPrimaryMainFrame,
                         // onPageLoadFinished,
                         //                      and onLoadStopped.
@@ -145,7 +177,7 @@ public class TabStateAttributes extends TabWebContentsUserData {
 
                     @Override
                     public void onTitleUpdated(Tab tab) {
-                        // TODO(crbug/1374456): Is the title of a page normally received before
+                        // TODO(crbug.com/40242471): Is the title of a page normally received before
                         //                      onLoadStopped? If not, this will get marked as
                         // untidy
                         //                      soon after the initial page load.
@@ -161,7 +193,26 @@ public class TabStateAttributes extends TabWebContentsUserData {
                     @Override
                     public void onRootIdChanged(Tab tab, int newRootId) {
                         if (!tab.isInitialized()) return;
-                        updateIsDirty(DirtinessState.DIRTY);
+                        updateIsDirtyNotCheckingNtp(DirtinessState.DIRTY);
+                    }
+
+                    @Override
+                    public void onTabGroupIdChanged(Tab tab, @Nullable Token tabGroupId) {
+                        if (!tab.isInitialized()) return;
+                        updateIsDirtyNotCheckingNtp(DirtinessState.DIRTY);
+                    }
+
+                    @Override
+                    public void onTabContentSensitivityChanged(
+                            Tab tab, boolean contentIsSensitive) {
+                        if (!tab.isInitialized()) return;
+                        updateIsDirty(DirtinessState.UNTIDY);
+                    }
+
+                    @Override
+                    public void onTabUnarchived(Tab tab) {
+                        if (!tab.isInitialized()) return;
+                        updateIsDirtyNotCheckingNtp(DirtinessState.DIRTY);
                     }
                 });
     }
@@ -204,6 +255,27 @@ public class TabStateAttributes extends TabWebContentsUserData {
 
     @VisibleForTesting
     void updateIsDirty(@DirtinessState int dirtiness) {
+        updateIsDirtyInternal(
+                dirtiness, tab -> isTabUrlContentScheme(tab) || isNtpWithoutNavigationState(tab));
+    }
+
+    /**
+     * Same as {@link updateIsDirty} but does not check whether the tab is an NTP with navigation
+     * state.
+     */
+    @VisibleForTesting
+    void updateIsDirtyNotCheckingNtp(@DirtinessState int dirtiness) {
+        updateIsDirtyInternal(dirtiness, TabStateAttributes::isTabUrlContentScheme);
+    }
+
+    /**
+     * Tries to update {@link DirtinessState} if applicable and notifies observers of any changes.
+     *
+     * @param dirtiness The new {@link DirtinessState} to set.
+     * @param shouldSetToClean A predicate determining whether to set the dirtiness to clean.
+     */
+    private void updateIsDirtyInternal(
+            @DirtinessState int dirtiness, @NonNull Predicate<Tab> shouldSetToClean) {
         if (mTab.isDestroyed()) return;
         if (dirtiness == mDirtinessState) return;
         if (mTab.isBeingRestored()) return;
@@ -212,10 +284,31 @@ public class TabStateAttributes extends TabWebContentsUserData {
         if (dirtiness == DirtinessState.UNTIDY && mDirtinessState == DirtinessState.DIRTY) {
             return;
         }
-        mDirtinessState = dirtiness;
-        for (Observer observer : mObservers) {
-            observer.onTabStateDirtinessChanged(mTab, mDirtinessState);
+
+        if (shouldSetToClean.test(mTab)) {
+            if (mDirtinessState == DirtinessState.CLEAN) return;
+
+            mDirtinessState = DirtinessState.CLEAN;
+        } else {
+            mDirtinessState = dirtiness;
         }
+
+        if (mNumberOpenBatchEdits > 0) {
+            updatePendingDirty(mDirtinessState);
+        } else {
+            for (Observer observer : mObservers) {
+                observer.onTabStateDirtinessChanged(mTab, mDirtinessState);
+            }
+        }
+    }
+
+    private static boolean isTabUrlContentScheme(@NonNull Tab tab) {
+        GURL url = tab.getUrl();
+        return url != null && url.getScheme().equals(UrlConstants.CONTENT_SCHEME);
+    }
+
+    private static boolean isNtpWithoutNavigationState(@NonNull Tab tab) {
+        return UrlUtilities.isNtpUrl(tab.getUrl()) && !tab.canGoBack() && !tab.canGoForward();
     }
 
     /**
@@ -234,6 +327,34 @@ public class TabStateAttributes extends TabWebContentsUserData {
      */
     public void removeObserver(Observer obs) {
         mObservers.removeObserver(obs);
+    }
+
+    /**
+     * Temporarily suppress dirty observations while multiple changes are made to this tab. This can
+     * be helpful to coalesce multiple changes into a single write to persistent storage. If you
+     * call this method you must call {@link #endBatchEdit()} as soon as changes are done being
+     * made, otherwise this tab will be left in a broken state.
+     */
+    public void beginBatchEdit() {
+        mNumberOpenBatchEdits++;
+    }
+
+    public void endBatchEdit() {
+        mNumberOpenBatchEdits--;
+        assert mNumberOpenBatchEdits >= 0;
+        if (mNumberOpenBatchEdits == 0 && mPendingDirty != null) {
+            // Reset mPendingDirty just in case we need to support reentrancy from observers.
+            int pendingDirtyCopy = mPendingDirty;
+            mPendingDirty = null;
+            for (Observer observer : mObservers) {
+                observer.onTabStateDirtinessChanged(mTab, pendingDirtyCopy);
+            }
+        }
+    }
+
+    private void updatePendingDirty(@DirtinessState int newDirty) {
+        mPendingDirty =
+                mPendingDirty == null ? newDirty : Math.max(mPendingDirty.intValue(), newDirty);
     }
 
     /** Allows overriding the current value for tests. */

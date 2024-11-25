@@ -87,7 +87,7 @@ void KeyItemView::OnThemeChanged() {
   SchedulePaint();
 }
 
-void KeyItemView::Layout() {
+void KeyItemView::Layout(PassKey) {
   const auto bounds = GetContentsBounds();
   if (icon_) {
     icon_->SetBoundsRect(bounds);
@@ -98,7 +98,8 @@ void KeyItemView::Layout() {
   }
 }
 
-gfx::Size KeyItemView::CalculatePreferredSize() const {
+gfx::Size KeyItemView::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
   // Return the fixed size if the key item contains icon or label with a single
   // character.
   if (icon_ || (label_ && label_->GetText().length() == 1)) {
@@ -149,7 +150,7 @@ void KeyItemView::SetText(const std::u16string& text) {
   label_->SetText(text);
 }
 
-BEGIN_METADATA(KeyItemView, views::View)
+BEGIN_METADATA(KeyItemView)
 END_METADATA
 
 }  // namespace ash

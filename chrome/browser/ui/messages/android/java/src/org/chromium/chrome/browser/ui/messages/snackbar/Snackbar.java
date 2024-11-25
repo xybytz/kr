@@ -114,13 +114,25 @@ public class Snackbar {
     public static final int UMA_CREATOR_UNFOLLOW_FAILURE = 59;
     public static final int UMA_QUICK_DELETE = 60;
     public static final int UMA_AUTO_TRANSLATE = 61;
+    public static final int UMA_BOOKMARK_MOVED = 62;
+    public static final int UMA_CLEAR_BROWSING_DATA = 63;
+    public static final int UMA_SIGN_OUT = 64;
+    public static final int UMA_TAB_GROUP_DELETE_UNDO = 65;
+    public static final int UMA_SINGLE_TAB_GROUP_DELETE_UNDO = 66;
+    public static final int UMA_SAFETY_HUB_REGRANT_SINGLE_PERMISSION = 67;
+    public static final int UMA_SAFETY_HUB_REGRANT_MULTIPLE_PERMISSIONS = 68;
+    public static final int UMA_SAFETY_HUB_SINGLE_SITE_NOTIFICATIONS = 69;
+    public static final int UMA_SAFETY_HUB_MULTIPLE_SITE_NOTIFICATIONS = 70;
+    public static final int UMA_SETTINGS_BATCH_UPLOAD = 71;
+    public static final int UMA_REVOKE_FILE_EDIT_GRANT = 72;
+    public static final int UMA_SEARCH_ENGINE_CHANGED_NOTIFICATION = 73;
+    public static final int UMA_BOOKMARK_BATCH_UPLOAD = 74;
 
     private @Nullable SnackbarController mController;
     private CharSequence mText;
     private String mTemplateText;
     private String mActionText;
     private Object mActionData;
-    private String mAccessibilityActionAnnouncement;
     private int mBackgroundColor;
     private int mTextApperanceResId;
     private boolean mSingleLine = true;
@@ -160,8 +172,7 @@ public class Snackbar {
         if (type == TYPE_PERSISTENT) {
             // For persistent snackbars we set a default action text to ensure the snackbar can be
             // closed.
-            s.mActionText =
-                    ContextUtils.getApplicationContext().getResources().getString(R.string.ok);
+            s.mActionText = ContextUtils.getApplicationContext().getString(R.string.ok);
         }
         return s;
     }
@@ -189,19 +200,9 @@ public class Snackbar {
     }
 
     /**
-     * Sets the text to accessibility announce when the action button is pressed.
-     * @param accessibilityActionAnnouncement An optional string to be announced when the action
-     *        button is pressed.
-     */
-    public Snackbar setActionAccessibilityAnnouncement(String accessibilityActionAnnouncement) {
-        mAccessibilityActionAnnouncement = accessibilityActionAnnouncement;
-        return this;
-    }
-
-    /**
-     * Sets the identity profile image that will be displayed at the beginning of the snackbar.
-     * If null, there won't be a profile image. The ability to have an icon is exclusive to
-     * identity snackbars.
+     * Sets the identity profile image that will be displayed at the beginning of the snackbar. If
+     * null, there won't be a profile image. The ability to have an icon is exclusive to identity
+     * snackbars.
      */
     public Snackbar setProfileImage(Drawable profileImage) {
         mProfileImage = profileImage;
@@ -274,10 +275,6 @@ public class Snackbar {
 
     Object getActionData() {
         return mActionData;
-    }
-
-    String getActionAccessibilityAnnouncement() {
-        return mAccessibilityActionAnnouncement;
     }
 
     boolean getSingleLine() {

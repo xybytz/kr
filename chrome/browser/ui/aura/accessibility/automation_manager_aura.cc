@@ -10,7 +10,6 @@
 #include "base/no_destructor.h"
 #include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "components/crash/core/common/crash_key.h"
 #include "extensions/browser/api/automation_internal/automation_event_router_interface.h"
 #include "ui/accessibility/aura/aura_window_properties.h"
@@ -35,12 +34,6 @@
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/coordinate_conversion.h"
 #include "ui/wm/public/activation_client.h"
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/ash/crosapi/automation_ash.h"
-#include "chrome/browser/ash/crosapi/crosapi_ash.h"
-#include "chrome/browser/ash/crosapi/crosapi_manager.h"
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // static
 AutomationManagerAura* AutomationManagerAura::GetInstance() {
@@ -113,13 +106,6 @@ void AutomationManagerAura::Disable() {
 
   if (automation_event_router_observer_.IsObserving())
     automation_event_router_observer_.Reset();
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  // CrosapiManager may not be initialized on unit testing.
-  // Propagate the Disable signal to crosapi clients.
-  if (crosapi::CrosapiManager::IsInitialized())
-    crosapi::CrosapiManager::Get()->crosapi_ash()->automation_ash()->Disable();
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 void AutomationManagerAura::OnViewEvent(views::View* view,
@@ -160,10 +146,15 @@ void AutomationManagerAura::AllAutomationExtensionsGone() {
 }
 
 void AutomationManagerAura::ExtensionListenerAdded() {
+  if (!enabled_) {
+    return;
+  }
+
   Reset(true /* reset serializer */);
 }
 
-void AutomationManagerAura::HandleEvent(ax::mojom::Event event_type) {
+void AutomationManagerAura::HandleEvent(ax::mojom::Event event_type,
+                                        bool from_user) {
   if (!enabled_)
     return;
 
@@ -172,7 +163,8 @@ void AutomationManagerAura::HandleEvent(ax::mojom::Event event_type) {
   if (!obj)
     return;
 
-  PostEvent(obj->GetUniqueId(), event_type);
+  PostEvent(obj->GetUniqueId(), event_type, /*action_request_id=*/-1,
+            /*from_user=*/from_user);
 }
 
 void AutomationManagerAura::HandleAlert(const std::string& text) {
@@ -228,6 +220,10 @@ void AutomationManagerAura::OnChildWindowRemoved(
 
 void AutomationManagerAura::OnEvent(views::AXAuraObjWrapper* aura_obj,
                                     ax::mojom::Event event_type) {
+  if (!enabled_) {
+    return;
+  }
+
   PostEvent(aura_obj->GetUniqueId(), event_type);
 }
 
@@ -262,9 +258,10 @@ void AutomationManagerAura::Reset(bool reset_serializer) {
 
 void AutomationManagerAura::PostEvent(int id,
                                       ax::mojom::Event event_type,
-                                      int action_request_id) {
-  pending_events_.push_back(
-      {id, event_type, action_request_id, currently_performing_action_});
+                                      int action_request_id,
+                                      bool from_user) {
+  pending_events_.push_back({id, event_type, action_request_id,
+                             currently_performing_action_, from_user});
 
   if (processing_posted_)
     return;
@@ -319,6 +316,8 @@ void AutomationManagerAura::SendPendingEvents() {
       if (event_copy.currently_performing_action != ax::mojom::Action::kNone) {
         event.event_from = ax::mojom::EventFrom::kAction;
         event.event_from_action = event_copy.currently_performing_action;
+      } else if (event_copy.from_user) {
+        event.event_from = ax::mojom::EventFrom::kUser;
       }
       event.action_request_id = event_copy.action_request_id;
       events.push_back(std::move(event));

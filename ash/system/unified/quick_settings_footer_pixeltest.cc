@@ -69,16 +69,16 @@ TEST_F(QuickSettingsFooterPixelTest, FooterShouldBeRenderedCorrectly) {
   InitPowerStatusAndOpenBubble();
   EXPECT_TRUE(GetPixelDiffer()->CompareUiComponentsOnPrimaryScreen(
       "with_no_extra_button",
-      /*revision_number=*/6, GetFooter()));
+      /*revision_number=*/7, GetFooter()));
   CloseBubble();
 
   // Regression test for b/293484037: The settings button is missing when
   // there's no enough space for the battery label.
-  SimulateUserLogin("test@gmail.com", user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+  SimulateUserLogin("test@gmail.com", user_manager::UserType::kPublicAccount);
   InitPowerStatusAndOpenBubble();
   EXPECT_TRUE(GetPixelDiffer()->CompareUiComponentsOnPrimaryScreen(
       "with_exit_button",
-      /*revision_number=*/6, GetFooter()));
+      /*revision_number=*/7, GetFooter()));
   CloseBubble();
 }
 

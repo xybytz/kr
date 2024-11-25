@@ -7,11 +7,11 @@ package org.chromium.chrome.browser;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.eq;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.app.Activity;
+import android.app.PictureInPictureUiState;
 import android.util.Pair;
 import android.view.ViewGroup;
 
@@ -24,6 +24,7 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.Robolectric;
+import org.robolectric.annotation.Config;
 
 import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.supplier.OneshotSupplier;
@@ -33,6 +34,7 @@ import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.app.metrics.LaunchCauseMetrics;
 import org.chromium.chrome.browser.app.tabmodel.TabModelOrchestrator;
 import org.chromium.chrome.browser.flags.ActivityType;
+import org.chromium.chrome.browser.media.FullscreenVideoPictureInPictureController;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.profiles.ProfileProvider;
 import org.chromium.chrome.browser.readaloud.ReadAloudController;
@@ -55,6 +57,8 @@ public class ChromeActivityUnitTest {
     @Mock Profile mProfile;
     @Mock Tab mActivityTab;
     @Mock ReadAloudController mReadAloudController;
+    @Mock FullscreenVideoPictureInPictureController mFullscreenVideoPictureInPictureController;
+    @Mock PictureInPictureUiState mPictureInPictureUiState;
 
     ObservableSupplierImpl<ReadAloudController> mReadAloudControllerSupplier =
             new ObservableSupplierImpl<>();
@@ -91,13 +95,19 @@ public class ChromeActivityUnitTest {
         }
 
         @Override
-        protected boolean handleBackPressed() {
-            return true;
+        protected OneshotSupplier<ProfileProvider> createProfileProvider() {
+            return null;
         }
 
         @Override
-        protected OneshotSupplier<ProfileProvider> createProfileProvider() {
+        protected RootUiCoordinator createRootUiCoordinator() {
             return null;
+        }
+
+        @Override
+        protected FullscreenVideoPictureInPictureController
+                ensureFullscreenVideoPictureInPictureController() {
+            return mFullscreenVideoPictureInPictureController;
         }
     }
 
@@ -144,6 +154,24 @@ public class ChromeActivityUnitTest {
         assertTrue(
                 chromeActivity.onMenuOrKeyboardAction(
                         R.id.readaloud_menu_id, /* fromMenu= */ true));
-        verify(mReadAloudController, times(1)).playTab(eq(mActivityTab));
+        verify(mReadAloudController)
+                .playTab(eq(mActivityTab), eq(ReadAloudController.Entrypoint.OVERFLOW_MENU));
+    }
+
+    @Test
+    @Config(sdk = 31)
+    public void testPictureInPictureStashing() {
+        // Verify that ChromeActivity reports `isStashed` correctly to the controller.
+        TestChromeActivity chromeActivity = Mockito.spy(new TestChromeActivity());
+
+        // Test "not stashed".
+        when(mPictureInPictureUiState.isStashed()).thenReturn(false);
+        chromeActivity.onPictureInPictureUiStateChanged(mPictureInPictureUiState);
+        Mockito.verify(mFullscreenVideoPictureInPictureController).onStashReported(false);
+
+        // Test "is stashed".
+        when(mPictureInPictureUiState.isStashed()).thenReturn(true);
+        chromeActivity.onPictureInPictureUiStateChanged(mPictureInPictureUiState);
+        Mockito.verify(mFullscreenVideoPictureInPictureController).onStashReported(true);
     }
 }

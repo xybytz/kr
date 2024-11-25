@@ -91,17 +91,6 @@ base::TimeDelta GetIntensiveWakeUpThrottlingGracePeriod(bool loading) {
   return base::Seconds(seconds);
 }
 
-base::TimeDelta GetForegroundTimersThrottledWakeUpInterval() {
-  constexpr int kForegroundTimersThrottling_WakeUpIntervalMillis_Default = 32;
-  static const base::FeatureParam<int>
-      kForegroundTimersThrottledWakeUpIntervalMills{
-          &features::kThrottleForegroundTimers,
-          "ForegroundTimersThrottledWakeUpIntervalMills",
-          kForegroundTimersThrottling_WakeUpIntervalMillis_Default};
-  return base::Milliseconds(
-      kForegroundTimersThrottledWakeUpIntervalMills.Get());
-}
-
 // TODO(crbug.com/1475915): convert this param value to TimeDelta instead of int
 // after the experiment.
 MIRACLE_PARAMETER_FOR_INT(
@@ -115,29 +104,23 @@ base::TimeDelta GetLoadingPhaseBufferTimeAfterFirstMeaningfulPaint() {
       GetLoadingPhaseBufferTimeAfterFirstMeaningfulPaintMillis());
 }
 
-BASE_FEATURE(kThreadedScrollPreventRenderingStarvation,
-             "ThreadedScrollPreventRenderingStarvation",
-             base::FEATURE_DISABLED_BY_DEFAULT);
+base::TimeDelta GetThreadedScrollRenderingStarvationThreshold() {
+  static const base::FeatureParam<int>
+      kThreadedScrollRenderingStarvationThreshold{
+          &features::kThreadedScrollPreventRenderingStarvation, "threshold_ms",
+          100};
+  if (base::FeatureList::IsEnabled(
+          features::kThreadedScrollPreventRenderingStarvation)) {
+    return base::Milliseconds(
+        kThreadedScrollRenderingStarvationThreshold.Get());
+  }
+  return base::TimeDelta::Max();
+}
 
 BASE_FEATURE(kPrioritizeCompositingAfterDelayTrials,
              "PrioritizeCompositingAfterDelayTrials",
              base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::FeatureParam<CompositorTQPolicyDuringThreadedScroll>::Option
-    kCompositorTQPolicyDuringThreadedScrollOptions[] = {
-        {CompositorTQPolicyDuringThreadedScroll::kLowPriorityWithAntiStarvation,
-         "low-priority-with-anti-starvation"},
-        {CompositorTQPolicyDuringThreadedScroll::
-             kNormalPriorityWithAntiStarvation,
-         "normal-priority-with-anti-starvation"},
-        {CompositorTQPolicyDuringThreadedScroll::kVeryHighPriorityAlways,
-         "very-high-priority-always"}};
-
-const base::FeatureParam<CompositorTQPolicyDuringThreadedScroll>
-    kCompositorTQPolicyDuringThreadedScroll{
-        &kThreadedScrollPreventRenderingStarvation, "policy",
-        CompositorTQPolicyDuringThreadedScroll::kLowPriorityWithAntiStarvation,
-        &kCompositorTQPolicyDuringThreadedScrollOptions};
 
 }  // namespace scheduler
 }  // namespace blink

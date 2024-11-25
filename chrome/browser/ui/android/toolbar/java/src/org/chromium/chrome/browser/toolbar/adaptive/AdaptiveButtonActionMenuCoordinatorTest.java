@@ -17,7 +17,6 @@ import androidx.test.filters.SmallTest;
 
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
@@ -29,10 +28,9 @@ import org.robolectric.annotation.Implements;
 
 import org.chromium.base.Callback;
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.toolbar.R;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.ui.listmenu.ListMenuButton;
 import org.chromium.ui.widget.AnchoredPopupWindow;
 
@@ -47,7 +45,6 @@ public class AdaptiveButtonActionMenuCoordinatorTest {
         protected void showPopupWindow() {}
     }
 
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
     @Rule public final MockitoRule mMockitoRule = MockitoJUnit.rule();
 
     @Mock private Callback<Integer> mCallback;

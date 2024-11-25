@@ -15,9 +15,7 @@ import android.os.Looper;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -27,14 +25,12 @@ import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.browser.browserservices.ui.controller.CurrentPageVerifier.VerificationStatus;
-import org.chromium.chrome.browser.browserservices.ui.controller.trustedwebactivity.ClientPackageNameProvider;
 import org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityTabProvider;
 import org.chromium.chrome.browser.customtabs.content.TabObserverRegistrar;
 import org.chromium.chrome.browser.customtabs.content.TabObserverRegistrar.CustomTabTabObserver;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.embedder_support.util.Origin;
 import org.chromium.content_public.browser.NavigationHandle;
 import org.chromium.url.GURL;
@@ -53,14 +49,11 @@ public class CurrentPageVerifierTest {
 
     public static final String PACKAGE_NAME = "package.name";
 
-    @Rule public TestRule mFeaturesProcessor = new Features.JUnitProcessor();
-
     @Mock TabObserverRegistrar mTabObserverRegistrar;
     @Mock ActivityLifecycleDispatcher mLifecycleDispatcher;
     @Mock CustomTabActivityTabProvider mTabProvider;
     @Mock CustomTabIntentDataProvider mIntentDataProvider;
     @Mock Tab mTab;
-    @Mock ClientPackageNameProvider mClientPackageNameProvider;
     @Captor ArgumentCaptor<CustomTabTabObserver> mTabObserverCaptor;
 
     TestVerifier mVerifierDelegate = new TestVerifier();
@@ -71,7 +64,6 @@ public class CurrentPageVerifierTest {
     public void setUp() {
         MockitoAnnotations.initMocks(this);
         when(mTabProvider.getTab()).thenReturn(mTab);
-        when(mClientPackageNameProvider.get()).thenReturn(PACKAGE_NAME);
         doNothing()
                 .when(mTabObserverRegistrar)
                 .registerActivityTabObserver(mTabObserverCaptor.capture());
@@ -79,11 +71,11 @@ public class CurrentPageVerifierTest {
                 .thenReturn(Collections.singletonList("https://www.origin2.com/"));
         mCurrentPageVerifier =
                 new CurrentPageVerifier(
-                        mLifecycleDispatcher,
-                        mTabObserverRegistrar,
                         mTabProvider,
                         mIntentDataProvider,
-                        mVerifierDelegate);
+                        mVerifierDelegate,
+                        mTabObserverRegistrar,
+                        mLifecycleDispatcher);
         // TODO(peconn): Add check on permission updated being updated.
     }
 
@@ -172,7 +164,7 @@ public class CurrentPageVerifierTest {
 
     private void setInitialUrl(String url) {
         when(mIntentDataProvider.getUrlToLoad()).thenReturn(url);
-        // TODO(crbug/783819): Pass in GURL.
+        // TODO(crbug.com/40549331): Pass in GURL.
         GURL gurl = createMockGurl(url);
         when(mTab.getUrl()).thenReturn(gurl);
     }
@@ -200,7 +192,10 @@ public class CurrentPageVerifierTest {
                 /* pageTransition= */ 0,
                 /* errorCode= */ 0,
                 /* httpStatusCode= */ 200,
-                /* isExternalProtocol= */ false);
+                /* isExternalProtocol= */ false,
+                /* isPdf= */ false,
+                /* mimeType= */ "",
+                /* isSaveableNavigation= */ false);
         for (CustomTabTabObserver tabObserver : mTabObserverCaptor.getAllValues()) {
             tabObserver.onDidFinishNavigationInPrimaryMainFrame(mTab, navigation);
         }

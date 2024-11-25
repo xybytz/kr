@@ -46,7 +46,7 @@ class AudioProcessorHandler final : public ReferenceOutput::Listener,
   using DeliverProcessedAudioCallback = base::RepeatingCallback<void(
       const media::AudioBus& audio_bus,
       base::TimeTicks audio_capture_time,
-      absl::optional<double> new_volume,
+      std::optional<double> new_volume,
       const media::AudioGlitchInfo& audio_glitch_info)>;
 
   using LogCallback = base::RepeatingCallback<void(std::string_view)>;
@@ -83,7 +83,6 @@ class AudioProcessorHandler final : public ReferenceOutput::Listener,
   void ProcessCapturedAudio(const media::AudioBus& audio_source,
                             base::TimeTicks audio_capture_time,
                             double volume,
-                            bool key_pressed,
                             const media::AudioGlitchInfo& audio_glitch_info);
 
   // The format of audio input to the processor; constant throughout its
@@ -119,7 +118,7 @@ class AudioProcessorHandler final : public ReferenceOutput::Listener,
 
   void DeliverProcessedAudio(const media::AudioBus& audio_bus,
                              base::TimeTicks audio_capture_time,
-                             absl::optional<double> new_volume);
+                             std::optional<double> new_volume);
 
   SEQUENCE_CHECKER(owning_sequence_);
 

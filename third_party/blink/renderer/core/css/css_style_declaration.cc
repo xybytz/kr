@@ -54,36 +54,12 @@ namespace blink {
 
 namespace {
 
-// Check for a CSS prefix.
-// Passed prefix is all lowercase.
-// First character of the prefix within the property name may be upper or
-// lowercase.
-// Other characters in the prefix within the property name must be lowercase.
-// The prefix within the property name must be followed by a capital letter.
-bool HasCSSPropertyNamePrefix(const AtomicString& property_name,
-                              const char* prefix) {
-#if DCHECK_IS_ON()
-  DCHECK(*prefix);
-  for (const char* p = prefix; *p; ++p) {
-    DCHECK(IsASCIILower(*p));
-  }
-  DCHECK(property_name.length());
-#endif
-
-  if (ToASCIILower(property_name[0]) != prefix[0]) {
-    return false;
-  }
-
-  unsigned length = property_name.length();
-  for (unsigned i = 1; i < length; ++i) {
-    if (!prefix[i]) {
-      return IsASCIIUpper(property_name[i]);
-    }
-    if (property_name[i] != prefix[i]) {
-      return false;
-    }
-  }
-  return false;
+// Returns true if the camel cased property name for CSSOM access has the
+// 'webkit' or 'Webkit' prefix - both valid as idl names for -webkit- prefixed
+// properties.
+bool HasWebkitPrefix(const AtomicString& property_name) {
+  return property_name.StartsWith("webkit") ||
+         property_name.StartsWith("Webkit");
 }
 
 CSSPropertyID ParseCSSPropertyID(const ExecutionContext* execution_context,
@@ -99,7 +75,7 @@ CSSPropertyID ParseCSSPropertyID(const ExecutionContext* execution_context,
   unsigned i = 0;
   bool has_seen_dash = false;
 
-  if (HasCSSPropertyNamePrefix(property_name, "webkit")) {
+  if (HasWebkitPrefix(property_name)) {
     builder.Append('-');
   } else if (IsASCIIUpper(property_name[0])) {
     return CSSPropertyID::kInvalid;
@@ -221,7 +197,7 @@ NamedPropertySetterResult CSSStyleDeclaration::AnonymousNamedSetter(
   // create a std::string to set the ExceptionState's |property_name| argument,
   // while we can use CSSProperty::GetPropertyName() here (see bug 829408).
   ExceptionState exception_state(
-      script_state->GetIsolate(), ExceptionContextType::kAttributeSet,
+      script_state->GetIsolate(), v8::ExceptionContext::kAttributeSet,
       "CSSStyleDeclaration",
       CSSProperty::Get(ResolveCSSPropertyID(unresolved_property))
           .GetPropertyName());
@@ -231,7 +207,7 @@ NamedPropertySetterResult CSSStyleDeclaration::AnonymousNamedSetter(
   if (value->IsNumber()) {
     double double_value = NativeValueTraits<IDLUnrestrictedDouble>::NativeValue(
         script_state->GetIsolate(), value, exception_state);
-    if (UNLIKELY(exception_state.HadException())) {
+    if (exception_state.HadException()) [[unlikely]] {
       return NamedPropertySetterResult::kIntercepted;
     }
     if (FastPathSetProperty(unresolved_property, double_value)) {
@@ -248,13 +224,12 @@ NamedPropertySetterResult CSSStyleDeclaration::AnonymousNamedSetter(
     // it or parse it in some other way. So if it's short enough, we try to
     // construct a simple StringView on our own.
     const v8::Local<v8::String> string = value.As<v8::String>();
-    if (string->Length() <= 128 && string->IsOneByte()) {
+    uint32_t length = string->Length();
+    if (length <= 128 && string->IsOneByte()) {
       LChar buffer[128];
-      int len =
-          string->WriteOneByte(script_state->GetIsolate(), buffer, /*start=*/0,
-                               /*length=*/-1, v8::String::NO_NULL_TERMINATION);
+      string->WriteOneByteV2(script_state->GetIsolate(), 0, length, buffer);
       SetPropertyInternal(
-          unresolved_property, String(), StringView(buffer, len), false,
+          unresolved_property, String(), StringView(buffer, length), false,
           execution_context->GetSecureContextMode(), exception_state);
       if (exception_state.HadException()) {
         return NamedPropertySetterResult::kIntercepted;
@@ -269,7 +244,7 @@ NamedPropertySetterResult CSSStyleDeclaration::AnonymousNamedSetter(
   auto&& string_value =
       NativeValueTraits<IDLStringLegacyNullToEmptyString>::NativeValue(
           script_state->GetIsolate(), value, exception_state);
-  if (UNLIKELY(exception_state.HadException())) {
+  if (exception_state.HadException()) [[unlikely]] {
     return NamedPropertySetterResult::kIntercepted;
   }
   SetPropertyInternal(unresolved_property, String(), string_value, false,

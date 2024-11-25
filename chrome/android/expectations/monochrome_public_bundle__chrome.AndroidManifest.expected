@@ -70,7 +70,7 @@
       </intent-filter>  # DIFF-ANCHOR: dea53031
     </activity>  # DIFF-ANCHOR: 610e8ccf
     <activity  # DIFF-ANCHOR: b5c66095
-        android:name="org.chromium.chrome.browser.DragAndDropLauncherActivity"
+        android:name="org.chromium.chrome.browser.dragdrop.DragAndDropLauncherActivity"
         android:excludeFromRecents="true"
         android:exported="false"
         android:launchMode="singleInstancePerTask"
@@ -97,11 +97,6 @@
         android:theme="@style/Theme.Chromium.Activity.Fullscreen"
         android:windowSoftInputMode="stateAlwaysHidden|adjustResize">
     </activity>  # DIFF-ANCHOR: dc170161
-    <activity  # DIFF-ANCHOR: d8508de6
-        android:name="org.chromium.chrome.browser.app.bookmarks.BookmarkAddEditFolderActivity"
-        android:configChanges="orientation|keyboardHidden|keyboard|screenSize|mcc|mnc|screenLayout|smallestScreenSize"
-        android:exported="false"
-        android:theme="@style/Theme.Chromium.DialogWhenLarge">
     </activity>  # DIFF-ANCHOR: d8508de6
     <activity  # DIFF-ANCHOR: 766e66bd
         android:name="org.chromium.chrome.browser.app.bookmarks.BookmarkEditActivity"
@@ -119,14 +114,6 @@
         android:theme="@style/Theme.Chromium.DialogWhenLarge"
         android:windowSoftInputMode="stateAlwaysHidden">
     </activity>  # DIFF-ANCHOR: 002f9e99
-    <activity  # DIFF-ANCHOR: 8f8d0c81
-        android:name="org.chromium.chrome.browser.app.bookmarks.BookmarkFolderSelectActivity"
-        android:configChanges="orientation|keyboardHidden|keyboard|screenSize|mcc|mnc|screenLayout|smallestScreenSize"
-        android:exported="false"
-        android:label="@string/bookmark_choose_folder"
-        android:theme="@style/Theme.Chromium.DialogWhenLarge"
-        android:windowSoftInputMode="stateAlwaysHidden">
-    </activity>  # DIFF-ANCHOR: 8f8d0c81
     <activity  # DIFF-ANCHOR: 9bfe10ab
         android:name="org.chromium.chrome.browser.app.creator.CreatorActivity"
         android:configChanges="orientation|keyboardHidden|keyboard|screenSize|mcc|mnc|screenLayout|smallestScreenSize"
@@ -466,29 +453,6 @@
         <category android:name="android.intent.category.DEFAULT"/>
       </intent-filter>  # DIFF-ANCHOR: 9c5197e9
     </activity>  # DIFF-ANCHOR: aea75380
-    <activity  # DIFF-ANCHOR: a1fac31f
-        android:name="org.chromium.chrome.browser.webauth.authenticator.CableAuthenticatorActivity"
-        android:configChanges="density|fontScale|keyboard|keyboardHidden|layoutDirection|locale|mcc|mnc|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
-        android:excludeFromRecents="true"
-        android:exported="true"
-        android:label="@string/cablev2_activity_title"
-        android:launchMode="singleTop"
-        android:permission="com.google.android.gms.auth.cryptauth.permission.CABLEV2_SERVER_LINK"
-        android:theme="@style/Theme.Chromium.Activity.Fullscreen">
-    </activity>  # DIFF-ANCHOR: a1fac31f
-    <activity  # DIFF-ANCHOR: b21cfcff
-        android:name="org.chromium.chrome.browser.webauth.authenticator.CableAuthenticatorUSBActivity"
-        android:configChanges="density|fontScale|keyboard|keyboardHidden|layoutDirection|locale|mcc|mnc|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
-        android:excludeFromRecents="true"
-        android:exported="false"
-        android:label="@string/cablev2_activity_title"
-        android:launchMode="singleTop"
-        android:theme="@style/Theme.Chromium.Activity.Fullscreen">
-      <intent-filter>  # DIFF-ANCHOR: 5873407a
-        <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"/>
-      </intent-filter>  # DIFF-ANCHOR: 5873407a
-      <meta-data android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" android:resource="@xml/phone_as_a_security_key_accessory_filter"/>
-    </activity>  # DIFF-ANCHOR: b21cfcff
     <activity  # DIFF-ANCHOR: 1d9b4077
         android:name="org.chromium.components.media_router.caf.remoting.CafExpandedControllerActivity"
         android:configChanges="orientation|keyboardHidden|keyboard|screenSize|mcc|mnc|screenLayout|smallestScreenSize"
@@ -842,14 +806,6 @@
         android:name="org.chromium.chrome.browser.sharing.click_to_call.ClickToCallMessageHandler$TapReceiver"
         android:exported="false">
     </receiver>  # DIFF-ANCHOR: 124ac9a1
-    <receiver  # DIFF-ANCHOR: 84094425
-        android:name="org.chromium.chrome.browser.sharing.shared_clipboard.SharedClipboardMessageHandler$TapReceiver"
-        android:exported="false">
-    </receiver>  # DIFF-ANCHOR: 84094425
-    <receiver  # DIFF-ANCHOR: 352611a4
-        android:name="org.chromium.chrome.browser.sharing.shared_clipboard.SharedClipboardMessageHandler$TryAgainReceiver"
-        android:exported="false">
-    </receiver>  # DIFF-ANCHOR: 352611a4
     <receiver  # DIFF-ANCHOR: 420d0678
         android:name="org.chromium.chrome.browser.sharing.sms_fetcher.SmsFetcherMessageHandler$NotificationReceiver"
         android:exported="false">

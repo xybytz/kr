@@ -17,7 +17,6 @@
 #include "chrome/browser/ui/web_applications/web_app_dialogs.h"
 #include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
 #include "chrome/browser/web_applications/os_integration/web_app_file_handler_manager.h"
-#include "chrome/browser/web_applications/os_integration/web_app_shortcut_mac.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_command_scheduler.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
@@ -168,7 +167,7 @@ void WebAppShimManagerDelegate::CloseAppWindows(Profile* profile,
     return;
   }
   // This is only used by legacy apps.
-  // TODO(https://crbug.com/1431891): This seems to happen in the wild although
+  // TODO(crbug.com/40902596): This seems to happen in the wild although
   // though shouldn't be possible. Once legacy apps are no longer supported all
   // this legacy app specific code should get deleted entirely.
   // NOTREACHED();
@@ -180,8 +179,12 @@ bool WebAppShimManagerDelegate::AppIsInstalled(Profile* profile,
     return fallback_delegate_->AppIsInstalled(profile, app_id);
   }
   return profile &&
-         WebAppProvider::GetForWebApps(profile)->registrar_unsafe().IsInstalled(
-             app_id);
+         WebAppProvider::GetForWebApps(profile)
+             ->registrar_unsafe()
+             .IsInstallState(
+                 app_id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                          proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                          proto::InstallState::INSTALLED_WITH_OS_INTEGRATION});
 }
 
 bool WebAppShimManagerDelegate::AppCanCreateHost(Profile* profile,
@@ -202,7 +205,10 @@ bool WebAppShimManagerDelegate::AppUsesRemoteCocoa(
   if (!profile)
     return false;
   auto& registrar = WebAppProvider::GetForWebApps(profile)->registrar_unsafe();
-  return registrar.IsInstalled(app_id) &&
+  return registrar.IsInstallState(
+             app_id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                      proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                      proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}) &&
          registrar.GetAppEffectiveDisplayMode(app_id) !=
              web_app::DisplayMode::kBrowser;
 }
@@ -378,7 +384,7 @@ void WebAppShimManagerDelegate::LaunchShim(
   }
   WebAppProvider::GetForWebApps(profile)
       ->os_integration_manager()
-      .GetShortcutInfoForApp(
+      .GetShortcutInfoForAppFromRegistrar(
           app_id, base::BindOnce(&web_app::LaunchShim, update_behavior,
                                  launch_mode, std::move(launched_callback),
                                  std::move(terminated_callback)));
@@ -400,8 +406,12 @@ bool WebAppShimManagerDelegate::UseFallback(
   // If |app_id| is installed via WebAppProvider, then use |this| as the
   // delegate.
   auto* provider = WebAppProvider::GetForWebApps(profile);
-  if (provider->registrar_unsafe().IsInstalled(app_id))
+  if (provider->registrar_unsafe().IsInstallState(
+          app_id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                   proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                   proto::InstallState::INSTALLED_WITH_OS_INTEGRATION})) {
     return false;
+  }
 
   // Use |fallback_delegate_| only if |app_id| is installed for |profile|
   // as an extension.

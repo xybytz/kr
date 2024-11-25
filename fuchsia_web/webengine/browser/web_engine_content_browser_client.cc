@@ -10,6 +10,7 @@
 #include "base/command_line.h"
 #include "base/functional/callback.h"
 #include "base/i18n/rtl.h"
+#include "base/memory/raw_ptr.h"
 #include "base/strings/string_split.h"
 #include "build/chromecast_buildflags.h"
 #include "components/embedder_support/user_agent_utils.h"
@@ -104,7 +105,7 @@ class DevToolsManagerDelegate final : public content::DevToolsManagerDelegate {
   }
 
  private:
-  WebEngineBrowserMainParts* const main_parts_;
+  const raw_ptr<WebEngineBrowserMainParts> main_parts_;
 };
 
 std::vector<std::string> GetCorsExemptHeaders() {
@@ -122,7 +123,7 @@ static constexpr char const* kRendererSwitchesToCopy[] = {
     switches::kForceProtectedVideoOutputBuffers,
     switches::kMinVideoDecoderOutputBufferSize,
 
-// TODO(crbug/1013412): Delete these two switches when fixed.
+// TODO(crbug.com/42050020): Delete these two switches when fixed.
 #if BUILDFLAG(ENABLE_WIDEVINE)
     switches::kEnableWidevine,
 #if BUILDFLAG(ENABLE_CAST_RECEIVER)
@@ -196,7 +197,7 @@ void WebEngineContentBrowserClient::OverrideWebkitPrefs(
   // and does not work. See crbug.com/1317431.
   web_prefs->databases_enabled = false;
 
-  // TODO(crbug.com/1382970): Remove once supported in WebEngine.
+  // TODO(crbug.com/40245916): Remove once supported in WebEngine.
   web_prefs->disable_webauthn = true;
 
 #if BUILDFLAG(ENABLE_CAST_RECEIVER)
@@ -222,15 +223,17 @@ void WebEngineContentBrowserClient::RegisterBrowserInterfaceBindersForFrame(
   PopulateFuchsiaFrameBinders(map);
 }
 
-void WebEngineContentBrowserClient::
-    RegisterNonNetworkNavigationURLLoaderFactories(
-        int frame_tree_node_id,
-        NonNetworkURLLoaderFactoryMap* factories) {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableContentDirectories)) {
-    factories->emplace(kFuchsiaDirScheme,
-                       ContentDirectoryLoaderFactory::Create());
+mojo::PendingRemote<network::mojom::URLLoaderFactory>
+WebEngineContentBrowserClient::CreateNonNetworkNavigationURLLoaderFactory(
+    const std::string& scheme,
+    content::FrameTreeNodeId frame_tree_node_id) {
+  if (scheme == kFuchsiaDirScheme) {
+    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+            switches::kEnableContentDirectories)) {
+      return ContentDirectoryLoaderFactory::Create();
+    }
   }
+  return {};
 }
 
 void WebEngineContentBrowserClient::
@@ -295,6 +298,7 @@ std::string WebEngineContentBrowserClient::GetAcceptLangs(
 
 base::OnceClosure WebEngineContentBrowserClient::SelectClientCertificate(
     content::BrowserContext* browser_context,
+    int process_id,
     content::WebContents* web_contents,
     net::SSLCertRequestInfo* cert_request_info,
     net::ClientCertIdentityList client_certs,
@@ -338,16 +342,19 @@ WebEngineContentBrowserClient::CreateURLLoaderThrottles(
     content::BrowserContext* browser_context,
     const base::RepeatingCallback<content::WebContents*()>& wc_getter,
     content::NavigationUIData* navigation_ui_data,
-    int frame_tree_node_id,
-    absl::optional<int64_t> navigation_id) {
-  if (frame_tree_node_id == content::RenderFrameHost::kNoFrameTreeNodeId) {
-    // TODO(crbug.com/1378791): Add support for workers.
+    content::FrameTreeNodeId frame_tree_node_id,
+    std::optional<int64_t> navigation_id) {
+  if (frame_tree_node_id.is_null()) {
+    // TODO(crbug.com/40244093): Add support for Shared and Service Workers.
     return {};
   }
 
   std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles;
   auto* frame_impl = FrameImpl::FromWebContents(wc_getter.Run());
-  DCHECK(frame_impl);
+  if (!frame_impl) {
+    // `wc_getter` may access stale data, and may return nullptr.
+    return {};
+  }
   auto rules =
       frame_impl->url_request_rewrite_rules_manager()->GetCachedRules();
   if (rules) {

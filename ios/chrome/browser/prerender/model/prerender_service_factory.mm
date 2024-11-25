@@ -7,22 +7,20 @@
 #import "base/no_destructor.h"
 #import "components/keyed_service/ios/browser_state_dependency_manager.h"
 #import "ios/chrome/browser/prerender/model/prerender_service_impl.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/signin/model/account_consistency_service_factory.h"
 #import "ios/web/public/browser_state.h"
 
 std::unique_ptr<KeyedService> BuildPrerenderService(
     web::BrowserState* context) {
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(context);
-  return std::make_unique<PrerenderServiceImpl>(browser_state);
+  ProfileIOS* profile = ProfileIOS::FromBrowserState(context);
+  return std::make_unique<PrerenderServiceImpl>(profile);
 }
 
 // static
-PrerenderService* PrerenderServiceFactory::GetForBrowserState(
-    ChromeBrowserState* browser_state) {
+PrerenderService* PrerenderServiceFactory::GetForProfile(ProfileIOS* profile) {
   return static_cast<PrerenderService*>(
-      GetInstance()->GetServiceForBrowserState(browser_state, true));
+      GetInstance()->GetServiceForBrowserState(profile, true));
 }
 
 // static

@@ -45,7 +45,10 @@ extern std::unique_ptr<VideoEncodeAccelerator> CreateAndInitializeFakeVEA(
     const gpu::GpuPreferences& gpu_preferences,
     const gpu::GpuDriverBugWorkarounds& gpu_workarounds,
     const gpu::GPUInfo::GPUDevice& gpu_device,
-    std::unique_ptr<MediaLog> media_log) {
+    std::unique_ptr<MediaLog> media_log,
+    MojoVideoEncodeAcceleratorService::GetCommandBufferHelperCB
+        get_command_buffer_helper_cb,
+    scoped_refptr<base::SingleThreadTaskRunner> gpu_task_runner) {
   // Use FakeVEA as scoped_ptr to guarantee proper destruction via Destroy().
   auto vea = std::make_unique<FakeVideoEncodeAccelerator>(
       base::SingleThreadTaskRunner::GetCurrentDefault());
@@ -90,7 +93,9 @@ class MojoVideoEncodeAcceleratorIntegrationTest : public ::testing::Test {
         std::make_unique<MojoVideoEncodeAcceleratorService>(
             base::BindRepeating(&CreateAndInitializeFakeVEA),
             gpu::GpuPreferences(), gpu::GpuDriverBugWorkarounds(),
-            gpu::GPUInfo::GPUDevice()),
+            gpu::GPUInfo::GPUDevice(),
+            MojoVideoEncodeAcceleratorService::GetCommandBufferHelperCB(),
+            base::SingleThreadTaskRunner::GetCurrentDefault()),
         mojo_vea.InitWithNewPipeAndPassReceiver());
 
     mojo_vea_.reset(new MojoVideoEncodeAccelerator(std::move(mojo_vea)));
@@ -124,7 +129,9 @@ class MojoVideoEncodeAcceleratorIntegrationTest : public ::testing::Test {
 
     const VideoEncodeAccelerator::Config config(
         PIXEL_FORMAT_I420, kInputVisibleSize, kValidOutputProfile,
-        kInitialBitrate);
+        kInitialBitrate, VideoEncodeAccelerator::kDefaultFramerate,
+        VideoEncodeAccelerator::Config::StorageType::kGpuMemoryBuffer,
+        VideoEncodeAccelerator::Config::ContentType::kCamera);
     EXPECT_TRUE(mojo_vea()->Initialize(
         config, mock_vea_client, std::make_unique<media::NullMediaLog>()));
     base::RunLoop().RunUntilIdle();
@@ -158,7 +165,9 @@ TEST_F(MojoVideoEncodeAcceleratorIntegrationTest,
 
   const VideoEncodeAccelerator::Config config(
       PIXEL_FORMAT_I420, kInputVisibleSize, kValidOutputProfile,
-      kInitialBitrate);
+      kInitialBitrate, VideoEncodeAccelerator::kDefaultFramerate,
+      VideoEncodeAccelerator::Config::StorageType::kGpuMemoryBuffer,
+      VideoEncodeAccelerator::Config::ContentType::kCamera);
   EXPECT_FALSE(mojo_vea()->Initialize(config, invalid_client,
                                       std::make_unique<media::NullMediaLog>()));
   base::RunLoop().RunUntilIdle();
@@ -174,7 +183,9 @@ TEST_F(MojoVideoEncodeAcceleratorIntegrationTest,
 
   const VideoEncodeAccelerator::Config config(
       PIXEL_FORMAT_I420, kInvalidInputVisibleSize, kValidOutputProfile,
-      kInitialBitrate);
+      kInitialBitrate, VideoEncodeAccelerator::kDefaultFramerate,
+      VideoEncodeAccelerator::Config::StorageType::kGpuMemoryBuffer,
+      VideoEncodeAccelerator::Config::ContentType::kCamera);
   EXPECT_FALSE(mojo_vea()->Initialize(config, mock_vea_client.get(),
                                       std::make_unique<media::NullMediaLog>()));
   base::RunLoop().RunUntilIdle();
@@ -190,7 +201,9 @@ TEST_F(MojoVideoEncodeAcceleratorIntegrationTest,
 
   const VideoEncodeAccelerator::Config config(
       PIXEL_FORMAT_I420, kInputVisibleSize, kInvalidOutputProfile,
-      kInitialBitrate);
+      kInitialBitrate, VideoEncodeAccelerator::kDefaultFramerate,
+      VideoEncodeAccelerator::Config::StorageType::kGpuMemoryBuffer,
+      VideoEncodeAccelerator::Config::ContentType::kCamera);
   EXPECT_FALSE(mojo_vea()->Initialize(config, mock_vea_client.get(),
                                       std::make_unique<media::NullMediaLog>()));
   base::RunLoop().RunUntilIdle();
@@ -332,7 +345,7 @@ TEST_F(MojoVideoEncodeAcceleratorIntegrationTest, EncodingParametersChange) {
   const uint32_t kNewFramerate = 321321u;
 
   mojo_vea()->RequestEncodingParametersChange(kNewBitrate, kNewFramerate,
-                                              absl::nullopt);
+                                              std::nullopt);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(kNewBitrate, fake_vea()->stored_bitrates().back());
   EXPECT_TRUE(fake_vea()->stored_frame_sizes().empty());
@@ -360,7 +373,7 @@ TEST_F(MojoVideoEncodeAcceleratorIntegrationTest,
     }
 
     mojo_vea()->RequestEncodingParametersChange(bitrate_allocation,
-                                                kNewFramerate, absl::nullopt);
+                                                kNewFramerate, std::nullopt);
     base::RunLoop().RunUntilIdle();
     EXPECT_EQ(bitrate_allocation,
               fake_vea()->stored_bitrate_allocations().back());
@@ -425,7 +438,7 @@ TEST_F(MojoVideoEncodeAcceleratorIntegrationTest,
     // remote end has been torn down and needs to be re Initialize()d.
     mojo_vea()->RequestEncodingParametersChange(
         Bitrate::ConstantBitrate(1234u) /* bitrate */, 3321 /* framerate */,
-        absl::nullopt);
+        std::nullopt);
     base::RunLoop().RunUntilIdle();
   }
 }

@@ -29,7 +29,7 @@
 @synthesize delegate = _delegate;
 
 - (instancetype)initWithDelegate:
-        (id<CRWWebControllerContainerViewDelegate>)delegate {
+    (id<CRWWebControllerContainerViewDelegate>)delegate {
   self = [super initWithFrame:CGRectZero];
   if (self) {
     DCHECK(delegate);
@@ -37,18 +37,28 @@
     self.backgroundColor = [UIColor whiteColor];
     self.autoresizingMask =
         UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    if (@available(iOS 17, *)) {
+      __weak __typeof(self) weakSelf = self;
+      UITraitChangeHandler handler = ^(id<UITraitEnvironment> traitEnvironment,
+                                       UITraitCollection* previousCollection) {
+        [weakSelf updateUIOnTraitChange:previousCollection];
+      };
+      NSArray<UITrait>* traits = @[
+        UITraitVerticalSizeClass.class, UITraitHorizontalSizeClass.class,
+        UITraitPreferredContentSizeCategory.class
+      ];
+      [self registerForTraitChanges:traits withHandler:handler];
+    }
   }
   return self;
 }
 
 - (instancetype)initWithCoder:(NSCoder*)decoder {
   NOTREACHED();
-  return nil;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
   NOTREACHED();
-  return nil;
 }
 
 - (void)dealloc {
@@ -69,7 +79,7 @@
   if (![_webViewContentView isEqual:webViewContentView]) {
     [_webViewContentView removeFromSuperview];
     _webViewContentView = webViewContentView;
-    [_webViewContentView setFrame:self.bounds];
+    [self updateWebViewContentViewFrame];
     [self addSubview:_webViewContentView];
   }
 }
@@ -80,35 +90,23 @@
 
 #pragma mark Layout
 
+#if !defined(__IPHONE_17_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_17_0
 - (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
   [super traitCollectionDidChange:previousTraitCollection];
-  if ((self.traitCollection.verticalSizeClass !=
-       previousTraitCollection.verticalSizeClass) ||
-      (self.traitCollection.horizontalSizeClass !=
-       previousTraitCollection.horizontalSizeClass) ||
-      self.traitCollection.preferredContentSizeCategory !=
-          previousTraitCollection.preferredContentSizeCategory) {
-    // Reset zoom scale when the window is resized (portrait to landscape,
-    // landscape to portrait or multi-window resizing), or if text size is
-    // modified as websites can adjust to the preferred content size (using
-    // font: -apple-system-body;). It avoids being in a different zoomed
-    // position from where the user initially zoomed.
-    UIScrollView* scrollView = self.contentViewProxy.contentView.scrollView;
-    scrollView.zoomScale = scrollView.minimumZoomScale;
+  if (@available(iOS 17, *)) {
+    return;
   }
-  if (previousTraitCollection.preferredContentSizeCategory !=
-      self.traitCollection.preferredContentSizeCategory) {
-    // In case the preferred content size changes, the layout is dirty.
-    [self setNeedsLayout];
-  }
+
+  [self updateUIOnTraitChange:previousTraitCollection];
 }
+#endif
 
 - (void)layoutSubviews {
   [super layoutSubviews];
 
   // webViewContentView layout.  `-setNeedsLayout` is called in case any webview
   // layout updates need to occur despite the bounds size staying constant.
-  self.webViewContentView.frame = self.bounds;
+  [self updateWebViewContentViewFrame];
   [self.webViewContentView setNeedsLayout];
 }
 
@@ -133,7 +131,7 @@
   if (containerWindow ||
       ![_delegate shouldKeepRenderProcessAliveForContainerView:self]) {
     if (self.webViewContentView.superview != self) {
-      [_webViewContentView setFrame:self.bounds];
+      [self updateWebViewContentViewFrame];
       // Insert the content view on the back of the container view so any view
       // that was presented on top of the content view can still appear.
       [self insertSubview:_webViewContentView atIndex:0];
@@ -176,6 +174,53 @@
 - (void)drawRect:(CGRect)rect
     forViewPrintFormatter:(UIViewPrintFormatter*)formatter {
   [self.webViewContentView.webView drawRect:rect];
+}
+
+#pragma mark - UIView overrides
+
+- (void)safeAreaInsetsDidChange {
+  // Update the frame to take into account the safe area inset as they are set
+  // fractionally later than the rest of the view loading.
+  [self updateWebViewContentViewFrame];
+}
+
+#pragma mark - Private helpers
+
+// Update the content view frame.
+- (void)updateWebViewContentViewFrame {
+  if (base::FeatureList::IsEnabled(web::features::kSmoothScrollingDefault)) {
+    [self.webViewContentView setFrame:self.bounds];
+  } else {
+    if (self.cover) {
+      [self.webViewContentView setFrame:self.bounds];
+    } else {
+      [self.webViewContentView
+          setFrame:UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets)];
+    }
+  }
+}
+
+//
+- (void)updateUIOnTraitChange:(UITraitCollection*)previousTraitCollection {
+  if ((self.traitCollection.verticalSizeClass !=
+       previousTraitCollection.verticalSizeClass) ||
+      (self.traitCollection.horizontalSizeClass !=
+       previousTraitCollection.horizontalSizeClass) ||
+      self.traitCollection.preferredContentSizeCategory !=
+          previousTraitCollection.preferredContentSizeCategory) {
+    // Reset zoom scale when the window is resized (portrait to landscape,
+    // landscape to portrait or multi-window resizing), or if text size is
+    // modified as websites can adjust to the preferred content size (using
+    // font: -apple-system-body;). It avoids being in a different zoomed
+    // position from where the user initially zoomed.
+    UIScrollView* scrollView = self.contentViewProxy.contentView.scrollView;
+    scrollView.zoomScale = scrollView.minimumZoomScale;
+  }
+  if (previousTraitCollection.preferredContentSizeCategory !=
+      self.traitCollection.preferredContentSizeCategory) {
+    // In case the preferred content size changes, the layout is dirty.
+    [self setNeedsLayout];
+  }
 }
 
 @end

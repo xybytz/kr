@@ -75,20 +75,20 @@ constexpr int kSuggestionAnimationRepeatTimes = 4;
 std::unique_ptr<views::Widget> CreateWidget() {
   auto widget = std::make_unique<views::Widget>();
   views::Widget::InitParams params(
+      views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET,
       views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
   params.z_order = ui::ZOrderLevel::kFloatingWindow;
   params.accept_events = false;
   params.activatable = views::Widget::InitParams::Activatable::kNo;
-  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.name = "BackGestureContextualNudge";
   params.layer_type = ui::LAYER_NOT_DRAWN;
   params.parent = Shell::GetPrimaryRootWindow()->GetChildById(
       kShellWindowId_OverlayContainer);
   widget->Init(std::move(params));
 
-  // TODO(crbug.com/1009005): Get the bounds of the display that should show the
-  // nudge, which may based on the conditions to show the nudge.
+  // TODO(crbug.com/40100889): Get the bounds of the display that should show
+  // the nudge, which may based on the conditions to show the nudge.
   const gfx::Rect display_bounds =
       display::Screen::GetScreen()->GetPrimaryDisplay().bounds();
   gfx::Rect widget_bounds;
@@ -138,7 +138,7 @@ class BackGestureContextualNudge::ContextualNudgeView
       // Cancel the animation if it's waiting to be shown.
       animation_stage_ = AnimationStage::kWaitingCancelled;
       DCHECK(show_timer_.IsRunning());
-      show_timer_.AbandonAndStop();
+      show_timer_.Stop();
       std::move(callback_).Run(/*animation_completed=*/false);
     } else if (animation_stage_ == AnimationStage::kSlidingIn ||
                animation_stage_ == AnimationStage::kBouncing ||
@@ -229,10 +229,11 @@ class BackGestureContextualNudge::ContextualNudgeView
 
    private:
     // views::View:
-    void Layout() override {
+    void Layout(PassKey) override {
       const gfx::Rect bounds = GetLocalBounds();
       gfx::Rect label_rect(bounds);
-      label_rect.ClampToCenteredSize(label_->GetPreferredSize());
+      label_rect.ClampToCenteredSize(
+          label_->GetPreferredSize(views::SizeBounds(label_->width(), {})));
       label_rect.set_x(bounds.x() + 2 * kCircleRadius +
                        kPaddingBetweenCircleAndLabel + kLabelCornerRadius);
       label_->SetBoundsRect(label_rect);
@@ -335,7 +336,9 @@ class BackGestureContextualNudge::ContextualNudgeView
   }
 
   // views::View:
-  void Layout() override { suggestion_view_->SetBoundsRect(GetLocalBounds()); }
+  void Layout(PassKey) override {
+    suggestion_view_->SetBoundsRect(GetLocalBounds());
+  }
 
   // ui::ImplicitAnimationObserver:
   void OnImplicitAnimationsCompleted() override {
@@ -377,12 +380,10 @@ class BackGestureContextualNudge::ContextualNudgeView
   base::OnceCallback<void(bool)> callback_;
 };
 
-BEGIN_METADATA(BackGestureContextualNudge, ContextualNudgeView, views::View)
+BEGIN_METADATA(BackGestureContextualNudge, ContextualNudgeView)
 END_METADATA
 
-BEGIN_METADATA(BackGestureContextualNudge::ContextualNudgeView,
-               SuggestionView,
-               views::View)
+BEGIN_METADATA(BackGestureContextualNudge::ContextualNudgeView, SuggestionView)
 END_METADATA
 
 BackGestureContextualNudge::BackGestureContextualNudge(

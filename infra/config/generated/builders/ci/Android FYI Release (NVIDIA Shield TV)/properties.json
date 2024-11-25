@@ -71,7 +71,8 @@
           "builder": "gpu-fyi-try-android-nvidia-shield-tv",
           "group": "tryserver.chromium.android"
         }
-      ]
+      ],
+      "targets_spec_directory": "src/infra/config/generated/builders/ci/Android FYI Release (NVIDIA Shield TV)/targets"
     }
   },
   "$recipe_engine/resultdb/test_presentation": {
@@ -82,6 +83,9 @@
     ]
   },
   "builder_group": "chromium.gpu.fyi",
+  "gardener_rotations": [
+    "chromium.gpu"
+  ],
   "perf_dashboard_machine_group": "ChromiumGPUFYI",
   "recipe": "chromium",
   "sheriff_rotations": [

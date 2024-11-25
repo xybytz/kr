@@ -73,18 +73,18 @@ AXTree* TestSingleAXTreeManager::Init(AXTreeUpdate tree_update) {
 }
 
 AXTree* TestSingleAXTreeManager::Init(
-    const ui::AXNodeData& node1,
-    const ui::AXNodeData& node2 /* = ui::AXNodeData() */,
-    const ui::AXNodeData& node3 /* = ui::AXNodeData() */,
-    const ui::AXNodeData& node4 /* = ui::AXNodeData() */,
-    const ui::AXNodeData& node5 /* = ui::AXNodeData() */,
-    const ui::AXNodeData& node6 /* = ui::AXNodeData() */,
-    const ui::AXNodeData& node7 /* = ui::AXNodeData() */,
-    const ui::AXNodeData& node8 /* = ui::AXNodeData() */,
-    const ui::AXNodeData& node9 /* = AXNodeData() */,
-    const ui::AXNodeData& node10 /* = AXNodeData() */,
-    const ui::AXNodeData& node11 /* = AXNodeData() */,
-    const ui::AXNodeData& node12 /* = AXNodeData() */) {
+    const AXNodeData& node1,
+    const AXNodeData& node2 /* = AXNodeData() */,
+    const AXNodeData& node3 /* = AXNodeData() */,
+    const AXNodeData& node4 /* = AXNodeData() */,
+    const AXNodeData& node5 /* = AXNodeData() */,
+    const AXNodeData& node6 /* = AXNodeData() */,
+    const AXNodeData& node7 /* = AXNodeData() */,
+    const AXNodeData& node8 /* = AXNodeData() */,
+    const AXNodeData& node9 /* = AXNodeData() */,
+    const AXNodeData& node10 /* = AXNodeData() */,
+    const AXNodeData& node11 /* = AXNodeData() */,
+    const AXNodeData& node12 /* = AXNodeData() */) {
   AXTreeUpdate update;
   update.root_id = node1.id;
   update.tree_data.title = "Dialog title";
@@ -189,8 +189,7 @@ AXNode* TestSingleAXTreeManager::GetParentNodeFromParentTree() const {
       parent_manager->GetTree()->GetNodeIdsForChildTreeId(GetTreeID());
 
   for (AXNodeID host_node_id : host_node_ids) {
-    AXNode* parent_node =
-        parent_manager->GetNodeFromTree(parent_tree_id, host_node_id);
+    AXNode* parent_node = parent_manager->GetNode(host_node_id);
     if (parent_node) {
       return parent_node;
     }

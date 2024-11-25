@@ -11,7 +11,7 @@
 #import "ios/chrome/browser/commerce/model/shopping_service_factory.h"
 #import "ios/chrome/browser/shared/coordinator/alert/alert_coordinator.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/shared/ui/table_view/table_view_utils.h"
 #import "ios/chrome/browser/signin/model/authentication_service.h"
 #import "ios/chrome/browser/signin/model/authentication_service_factory.h"
@@ -53,15 +53,14 @@
       initWithStyle:ChromeTableViewStyle()];
   self.viewController.presentationDelegate = self;
   commerce::ShoppingService* shoppingService =
-      commerce::ShoppingServiceFactory::GetForBrowserState(
-          self.browser->GetBrowserState());
+      commerce::ShoppingServiceFactory::GetForProfile(
+          self.browser->GetProfile());
   AuthenticationService* authService =
-      AuthenticationServiceFactory::GetForBrowserState(
-          self.browser->GetBrowserState());
+      AuthenticationServiceFactory::GetForProfile(self.browser->GetProfile());
   self.mediator = [[TrackingPriceMediator alloc]
       initWithShoppingService:shoppingService
         authenticationService:authService
-                  prefService:self.browser->GetBrowserState()->GetPrefs()];
+                  prefService:self.browser->GetProfile()->GetPrefs()];
   self.mediator.consumer = self.viewController;
   self.mediator.presenter = self;
   self.viewController.modelDelegate = self.mediator;
@@ -71,6 +70,7 @@
 
 - (void)stop {
   [self dimissAlertCoordinator];
+  [self.mediator disconnect];
 }
 
 #pragma mark - TrackingPriceViewControllerPresentationDelegate

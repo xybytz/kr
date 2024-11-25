@@ -7,6 +7,10 @@
 
 #import <Foundation/Foundation.h>
 
+#import "base/time/time.h"
+
+@protocol SystemIdentity;
+
 // Sign-in result returned Sign-in result.
 typedef NS_ENUM(NSUInteger, SigninCoordinatorResult) {
   // Sign-in has been canceled by the user or by another reason.
@@ -20,11 +24,21 @@ typedef NS_ENUM(NSUInteger, SigninCoordinatorResult) {
   // Sign-in did not complete because it is disabled. This can happen if
   // enterprise policies are updated after sign-in is started.
   SigninCoordinatorResultDisabled,
+  // Sign-in cannot start as the UI is not available. In this case, no
+  // SigninCoordinator object is created.
+  // Only triggered by `SceneController` when processing a ShowSigninCommand
+  // and when the UI is not ready to present any signin coordinator.
+  SigninCoordinatorUINotAvailable,
 };
 
+// Called when the sign-in dialog is closed.
+// `result` is the sign-in result state.
+// `signinCompletionIdentity` the identity that was used if any.
+using SigninCoordinatorCompletionCallback =
+    void (^)(SigninCoordinatorResult result, id<SystemIdentity> identity);
+
 // User's signed-in state as defined by AuthenticationService.
-// TODO(crbug.com/1462552): After phase 3 migration of syncing users, remove
-// `Sync` from enum name and refactor.
+// TODO(crbug.com/40066949): Revisit after phase 3 migration of syncing users.
 typedef NS_ENUM(NSUInteger, IdentitySigninState) {
   IdentitySigninStateSignedOut,
   IdentitySigninStateSignedInWithSyncDisabled,
@@ -71,15 +85,6 @@ extern NSString* const kTangibleSyncViewAccessibilityIdentifier;
 // consistency account chooser.
 extern NSString* const kConsistencyAccountChooserAddAccountIdentifier;
 
-// Action that is required to do to complete the sign-in, or instead of sign-in.
-// This action is in charge of the SigninCoordinator's owner.
-typedef NS_ENUM(NSUInteger, SigninCompletionAction) {
-  // No action needed.
-  SigninCompletionActionNone,
-  // The user tapped the manager, learn more, link and sign-in was cancelled.
-  SigninCompletionActionShowManagedLearnMore,
-};
-
 // Intent for TrustedVaultReauthenticationCoordinator to display either
 // the reauthentication or degraded recoverability dialog.
 typedef NS_ENUM(NSUInteger, SigninTrustedVaultDialogIntent) {
@@ -98,7 +103,7 @@ extern const int kDefaultWebSignInDismissalCount;
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused. When you add a new entry or when you
 // deprecate an existing one, also update SSOPromoUserAction in enums.xml and
-// SyncModelType suffix in histograms.xml.
+// SyncDataType suffix in histograms.xml.
 typedef NS_ENUM(NSUInteger, UserSigninPromoAction) {
   PromoActionDismissed = 0,
   PromoActionEnabledSSOAccount = 1,
@@ -117,12 +122,12 @@ extern NSString* const kDisplayedSSORecallForMajorVersionKey;
 extern NSString* const kLastShownAccountGaiaIdVersionKey;
 // Key in the UserDefaults to record the number of times the sign-in promo has
 // been shown.
-// TODO(crbug.com/1312345): Need to merge with kDisplayedSSORecallPromoCountKey.
-// Exposed for testing.
+// TODO(crbug.com/40831586): Need to merge with
+// kDisplayedSSORecallPromoCountKey. Exposed for testing.
 extern NSString* const kSigninPromoViewDisplayCountKey;
 // Key in the UserDefaults to track how many times the SSO Recall promo has been
 // displayed.
-// TODO(crbug.com/1312345): Need to merge with kSigninPromoViewDisplayCountKey.
+// TODO(crbug.com/40831586): Need to merge with kSigninPromoViewDisplayCountKey.
 // Exposed for testing.
 extern NSString* const kDisplayedSSORecallPromoCountKey;
 // Name of the UMA SSO Recall histogram.
@@ -132,5 +137,10 @@ extern const char* const kUMASSORecallPromoAction;
 extern const char* const kUMASSORecallAccountsAvailable;
 // Name of the histogram recording how many times the promo has been shown.
 extern const char* const kUMASSORecallPromoSeenCount;
+
+// Default timeout to wait for fetching account capabilities, which determine
+// minor mode restrictions status.
+inline constexpr base::TimeDelta kMinorModeRestrictionsFetchDeadline =
+    base::Milliseconds(500);
 
 #endif  // IOS_CHROME_BROWSER_UI_AUTHENTICATION_SIGNIN_SIGNIN_CONSTANTS_H_

@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
+import 'chrome://resources/ash/common/cr_elements/cr_link_row/cr_link_row.js';
 
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
@@ -59,11 +59,14 @@ export class SettingsOneDriveSubpageElement extends
   private connectionState_: OneDriveConnectionState;
   private userEmailAddress_: string|null;
   private oneDriveProxy_: OneDriveBrowserProxy;
+  private allowUserToRemoveOdfs_: boolean = true;
 
   override connectedCallback(): void {
     super.connectedCallback();
     this.oneDriveProxy_.observer.onODFSMountOrUnmount.addListener(
         this.updateUserEmailAddress_.bind(this));
+    this.oneDriveProxy_.observer.onAllowUserToRemoveODFSChanged.addListener(
+        this.updateAllowUserToRemoveOdfs_.bind(this));
   }
 
   updateConnectionStateForTesting(connectionState: OneDriveConnectionState):
@@ -80,12 +83,20 @@ export class SettingsOneDriveSubpageElement extends
         OneDriveConnectionState.CONNECTED;
   }
 
+  private updateAllowUserToRemoveOdfs_(isAllowed: boolean): void {
+    this.allowUserToRemoveOdfs_ = isAllowed;
+  }
+
   private isConnected_(): boolean {
     return this.connectionState_ === OneDriveConnectionState.CONNECTED;
   }
 
   private isLoading_(): boolean {
     return this.connectionState_ === OneDriveConnectionState.LOADING;
+  }
+
+  private isRemoveAccessDisabled_(): boolean {
+    return this.isLoading_() || !this.allowUserToRemoveOdfs_;
   }
 
   private signedInAsLabel_(): TrustedHTML {

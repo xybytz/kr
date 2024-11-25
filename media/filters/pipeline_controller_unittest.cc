@@ -156,15 +156,22 @@ class PipelineControllerTest : public ::testing::Test, public Pipeline::Client {
   void OnAudioConfigChange(const AudioDecoderConfig& config) override {}
   void OnVideoConfigChange(const VideoDecoderConfig& config) override {}
   void OnVideoOpacityChange(bool opaque) override {}
-  void OnVideoFrameRateChange(absl::optional<int>) override {}
+  void OnVideoFrameRateChange(std::optional<int>) override {}
   void OnVideoAverageKeyframeDistanceUpdate() override {}
   void OnAudioPipelineInfoChange(const AudioPipelineInfo& info) override {}
   void OnVideoPipelineInfoChange(const VideoPipelineInfo& info) override {}
 
+  // testing::Test overrides
+  void TearDown() override {
+    pipeline_ = nullptr;
+    testing::Test::TearDown();
+  }
+
   base::test::SingleThreadTaskEnvironment task_environment_;
 
   NiceMock<MockDemuxer> demuxer_;
-  raw_ptr<StrictMock<MockPipeline>, DanglingUntriaged> pipeline_;
+  // Owned by PipelineController.
+  raw_ptr<StrictMock<MockPipeline>> pipeline_;
   PipelineController pipeline_controller_;
 
   bool was_started_ = false;
@@ -328,7 +335,7 @@ TEST_F(PipelineControllerTest, DecoderStateLost) {
 }
 
 // Makes sure OnDecoderStateLost() does not trigger a seek during pending seek.
-TEST_F(PipelineControllerTest, DecoderStateLost_DuringPendingSeek) {
+TEST_F(PipelineControllerTest, DecoderStateLostDuringPendingSeek) {
   Complete(StartPipeline());
 
   // Create a pending seek.
@@ -358,7 +365,7 @@ TEST_F(PipelineControllerTest, SuspendResumeTime) {
   EXPECT_EQ(seek_time, last_resume_time_);
 }
 
-TEST_F(PipelineControllerTest, SuspendResumeTime_WithStreamingData) {
+TEST_F(PipelineControllerTest, SuspendResumeTimeWithStreamingData) {
   Complete(StartPipeline_WithStreamingData());
   Complete(SuspendPipeline());
 

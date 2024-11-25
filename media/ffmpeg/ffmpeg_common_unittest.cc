@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "media/ffmpeg/ffmpeg_common.h"
 
 #include <stddef.h>
@@ -151,7 +156,7 @@ TEST_F(FFmpegCommonTest, AVStreamToDecoderConfig) {
   ASSERT_TRUE(found_video);
 }
 
-TEST_F(FFmpegCommonTest, AVStreamToAudioDecoderConfig_OpusAmbisonics_4ch) {
+TEST_F(FFmpegCommonTest, AVStreamToAudioDecoderConfigOpusAmbisonics4ch) {
   base::MemoryMappedFile file;
   ASSERT_TRUE(file.Initialize(
       GetTestDataFilePath("bear-opus-end-trimming-4ch-channelmapping2.webm")));
@@ -174,7 +179,7 @@ TEST_F(FFmpegCommonTest, AVStreamToAudioDecoderConfig_OpusAmbisonics_4ch) {
   EXPECT_EQ(4, audio_config.channels());
 }
 
-TEST_F(FFmpegCommonTest, AVStreamToAudioDecoderConfig_OpusAmbisonics_11ch) {
+TEST_F(FFmpegCommonTest, AVStreamToAudioDecoderConfigOpusAmbisonics11ch) {
   base::MemoryMappedFile file;
   ASSERT_TRUE(file.Initialize(
       GetTestDataFilePath("bear-opus-end-trimming-11ch-channelmapping2.webm")));
@@ -197,7 +202,7 @@ TEST_F(FFmpegCommonTest, AVStreamToAudioDecoderConfig_OpusAmbisonics_11ch) {
   EXPECT_EQ(11, audio_config.channels());
 }
 
-TEST_F(FFmpegCommonTest, AVStreamToAudioDecoderConfig_9ch_wav) {
+TEST_F(FFmpegCommonTest, AVStreamToAudioDecoderConfig9chWav) {
   base::MemoryMappedFile file;
   ASSERT_TRUE(file.Initialize(GetTestDataFilePath("9ch.wav")));
   InMemoryUrlProtocol protocol(file.data(), file.length(), false);

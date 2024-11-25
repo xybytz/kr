@@ -28,6 +28,11 @@ bool StructTraits<blink::mojom::RendererPreferencesDataView,
     return false;
   out->use_subpixel_positioning = data.use_subpixel_positioning();
 
+#if BUILDFLAG(IS_WIN)
+  out->text_contrast = data.text_contrast();
+  out->text_gamma = data.text_gamma();
+#endif  // BUILDFLAG(IS_WIN)
+
   out->focus_ring_color = data.focus_ring_color();
   out->active_selection_bg_color = data.active_selection_bg_color();
   out->active_selection_fg_color = data.active_selection_fg_color();
@@ -41,6 +46,11 @@ bool StructTraits<blink::mojom::RendererPreferencesDataView,
     return false;
 
   out->use_custom_colors = data.use_custom_colors();
+
+#if BUILDFLAG(IS_CHROMEOS)
+  out->use_overlay_scrollbar = data.use_overlay_scrollbar();
+#endif
+
   out->enable_referrers = data.enable_referrers();
   out->allow_cross_origin_auth_prompt = data.allow_cross_origin_auth_prompt();
   out->enable_do_not_track = data.enable_do_not_track();

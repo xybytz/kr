@@ -3,7 +3,9 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/browsing_data/chrome_browsing_data_model_delegate.h"
-#include "base/containers/cxx20_erase_vector.h"
+
+#include <vector>
+
 #include "base/files/scoped_temp_dir.h"
 #include "base/functional/callback_helpers.h"
 #include "base/test/bind.h"
@@ -25,10 +27,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "url/gurl.h"
-
-#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
-#include "components/supervised_user/core/common/features.h"
-#endif
 
 #if !BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/web_applications/web_app_command_manager.h"
@@ -74,9 +72,6 @@ class ChromeBrowsingDataModelDelegateTest : public testing::Test {
     feature_list_.InitWithFeatures(
         /*enabled_features=*/
         {
-#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
-          supervised_user::kClearingCookiesKeepsSupervisedUsersSignedIn,
-#endif
               media_device_salt::kMediaDeviceIdPartitioning
         },
         /*disabled_features=*/{});
@@ -218,7 +213,7 @@ TEST_F(ChromeBrowsingDataModelDelegateTest, GetAllDataKeysAndGetDataOwner) {
         absl::get_if<blink::StorageKey>(&entry.data_key);
     ASSERT_TRUE(storage_key);
     EXPECT_THAT(expected_keys, Contains(*storage_key));
-    base::Erase(expected_keys, *storage_key);
+    std::erase(expected_keys, *storage_key);
 
     EXPECT_GT(entry.storage_size, 0u);
 
@@ -267,8 +262,6 @@ TEST_F(ChromeBrowsingDataModelDelegateTest, RemoveIsolatedWebAppData) {
 }
 #endif  // !BUILDFLAG(IS_ANDROID)
 
-// TODO(crbug.com/1493504): Re-enable on macOS once flakiness is resolved.
-#if !BUILDFLAG(IS_MAC) && BUILDFLAG(ENABLE_SUPERVISED_USERS)
 TEST_F(ChromeBrowsingDataModelDelegateTest, CookieDeletionFilterChildUser) {
   profile_->SetIsSupervisedProfile(true);
 
@@ -308,7 +301,6 @@ TEST_F(ChromeBrowsingDataModelDelegateTest, CookieDeletionFilterIncognitoUser) {
   EXPECT_FALSE(
       delegate()->IsCookieDeletionDisabled(GURL("https://youtube.com")));
 }
-#endif  // !BUILDFLAG(IS_MAC) && BUILDFLAG(ENABLE_SUPERVISED_USERS)
 
 TEST_F(ChromeBrowsingDataModelDelegateTest, RemoveFederatedIdentityData) {
   const url::Origin kRequester =
@@ -323,7 +315,7 @@ TEST_F(ChromeBrowsingDataModelDelegateTest, RemoveFederatedIdentityData) {
       federated_identity_permission_context();
   context->GrantSharingPermission(kRequester, kEmbedder, kIdentityProvider,
                                   kAccountId);
-  EXPECT_TRUE(context->HasSharingPermission(kRequester, kEmbedder,
+  EXPECT_TRUE(context->GetLastUsedTimestamp(kRequester, kEmbedder,
                                             kIdentityProvider, kAccountId));
   EXPECT_TRUE(context->HasSharingPermission(kRequester));
   EXPECT_FALSE(context->HasSharingPermission(kEmbedder));
@@ -337,7 +329,7 @@ TEST_F(ChromeBrowsingDataModelDelegateTest, RemoveFederatedIdentityData) {
       run_loop.QuitClosure());
   run_loop.Run();
 
-  EXPECT_FALSE(context->HasSharingPermission(kRequester, kEmbedder,
+  EXPECT_FALSE(context->GetLastUsedTimestamp(kRequester, kEmbedder,
                                              kIdentityProvider, kAccountId));
   EXPECT_FALSE(context->HasSharingPermission(kRequester));
 }

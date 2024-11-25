@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/upload_office_to_cloud/upload_office_to_cloud.h"
 
+#include <string_view>
+
 #include "base/containers/contains.h"
 #include "chrome/browser/chromeos/enterprise/cloud_storage/policy_utils.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
@@ -20,18 +22,13 @@ namespace chromeos {
 
 namespace {
 
-bool IsPrefValueSetToAllowed(base::StringPiece pref_value) {
+bool IsPrefValueSetToAllowed(std::string_view pref_value) {
   return pref_value == cloud_upload::kCloudUploadPolicyAllowed ||
          pref_value == cloud_upload::kCloudUploadPolicyAutomated;
 }
 
-bool IsPrefValueSetToAutomated(base::StringPiece pref_value) {
+bool IsPrefValueSetToAutomated(std::string_view pref_value) {
   return pref_value == cloud_upload::kCloudUploadPolicyAutomated;
-}
-
-bool IsMicrosoftOfficeOneDriveIntegrationAutomated(const Profile* profile) {
-  return chromeos::cloud_storage::GetMicrosoftOneDriveMount(profile) ==
-         Mount::kAutomated;
 }
 
 }  // namespace
@@ -41,6 +38,10 @@ bool IsEligibleAndEnabledUploadOfficeToCloud(const Profile* profile) {
     return false;
   }
   if (!profile) {
+    return false;
+  }
+  // Drive and OneDrive are disabled in Guest mode.
+  if (profile->IsGuestSession()) {
     return false;
   }
   // If `kUploadOfficeToCloudForEnterprise` flag is enabled, we loosen the
@@ -65,6 +66,10 @@ void RegisterProfilePrefs(PrefRegistrySimple* registry) {
 }
 
 bool IsMicrosoftOfficeOneDriveIntegrationAllowed(const Profile* profile) {
+  if (!IsEligibleAndEnabledUploadOfficeToCloud(profile)) {
+    return false;
+  }
+
   if (profile->GetProfilePolicyConnector()->IsManaged()) {
     return chromeos::features::
                IsMicrosoftOneDriveIntegrationForEnterpriseEnabled() &&
@@ -72,7 +77,21 @@ bool IsMicrosoftOfficeOneDriveIntegrationAllowed(const Profile* profile) {
                std::vector<Mount>{Mount::kAllowed, Mount::kAutomated},
                chromeos::cloud_storage::GetMicrosoftOneDriveMount(profile));
   }
-  return IsEligibleAndEnabledUploadOfficeToCloud(profile);
+  return true;
+}
+
+bool IsMicrosoftOfficeOneDriveIntegrationAutomated(const Profile* profile) {
+  if (!IsEligibleAndEnabledUploadOfficeToCloud(profile)) {
+    return false;
+  }
+
+  if (profile->GetProfilePolicyConnector()->IsManaged()) {
+    return chromeos::features::
+               IsMicrosoftOneDriveIntegrationForEnterpriseEnabled() &&
+           chromeos::cloud_storage::GetMicrosoftOneDriveMount(profile) ==
+               Mount::kAutomated;
+  }
+  return true;
 }
 
 bool IsMicrosoftOfficeCloudUploadAllowed(Profile* profile) {
@@ -90,7 +109,7 @@ bool IsMicrosoftOfficeCloudUploadAutomated(Profile* profile) {
     return false;
   }
   return IsEligibleAndEnabledUploadOfficeToCloud(profile) &&
-         IsMicrosoftOfficeOneDriveIntegrationAutomated(profile) &&
+         IsMicrosoftOfficeOneDriveIntegrationAllowed(profile) &&
          IsPrefValueSetToAutomated(profile->GetPrefs()->GetString(
              prefs::kMicrosoftOfficeCloudUpload));
 }

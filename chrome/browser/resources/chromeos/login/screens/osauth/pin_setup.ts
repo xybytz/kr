@@ -2,9 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import '//resources/ash/common/quick_unlock/setup_pin_keyboard.js';
-import '//resources/cr_elements/cr_input/cr_input.js';
-import '//resources/cr_elements/cr_shared_style.css.js';
+import '//resources/ash/common/cr_elements/cr_input/cr_input.js';
+import '//resources/ash/common/cr_elements/cr_shared_style.css.js';
 import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
 import '../../components/oobe_icons.html.js';
 import '../../components/common_styles/oobe_common_styles.css.js';
@@ -14,13 +13,15 @@ import '../../components/buttons/oobe_back_button.js';
 import '../../components/buttons/oobe_next_button.js';
 import '../../components/buttons/oobe_text_button.js';
 
+import {SetupPinKeyboardElement} from '//resources/ash/common/quick_unlock/setup_pin_keyboard.js';
+import {assert} from '//resources/js/assert.js';
 import {PolymerElementProperties} from '//resources/polymer/v3_0/polymer/interfaces.js';
-import {mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.js';
-import {MultiStepBehavior, MultiStepBehaviorInterface} from '../../components/behaviors/multi_step_behavior.js';
-import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
-import {OOBE_UI_STATE} from '../../components/display_manager_types.js';
+import {OobeUiState} from '../../components/display_manager_types.js';
+import {LoginScreenMixin} from '../../components/mixins/login_screen_mixin.js';
+import {MultiStepMixin} from '../../components/mixins/multi_step_mixin.js';
+import {OobeI18nMixin} from '../../components/mixins/oobe_i18n_mixin.js';
 import {OobeTypes} from '../../components/oobe_types.js';
 
 import {getTemplate} from './pin_setup.html.js';
@@ -32,12 +33,7 @@ enum PinSetupState {
 }
 
 const PinSetupBase =
-    mixinBehaviors(
-        [OobeI18nBehavior, LoginScreenBehavior, MultiStepBehavior],
-        PolymerElement) as {
-      new (): PolymerElement & OobeI18nBehaviorInterface &
-          LoginScreenBehaviorInterface & MultiStepBehaviorInterface,
-    };
+    LoginScreenMixin(MultiStepMixin(OobeI18nMixin(PolymerElement)));
 
 class PinSetup extends PinSetupBase {
   static get is() {
@@ -90,9 +86,23 @@ class PinSetup extends PinSetupBase {
       },
 
       /**
+       * True when PIN is being offered as the main sign-in factor.
+       */
+      usingPinAsMainSignInFactor: {
+        type: Boolean,
+        value: false,
+      },
+
+      /**
        * Indicates whether user is a child account.
        */
       isChildAccount: {
+        type: Boolean,
+        value: false,
+      },
+
+      // Whether the screen is being used for resetting the PIN during recovery.
+      isRecoveryMode: {
         type: Boolean,
         value: false,
       },
@@ -104,11 +114,9 @@ class PinSetup extends PinSetupBase {
   authToken: string;
   private quickUnlockPrivate: typeof chrome.quickUnlockPrivate;
   private hasLoginSupport: boolean;
+  private usingPinAsMainSignInFactor: boolean;
   isChildAccount: boolean;
-
-  override get EXTERNAL_API(): string[] {
-    return ['setHasLoginSupport'];
-  }
+  private isRecoveryMode: boolean;
 
   override get UI_STEPS() {
     return PinSetupState;
@@ -116,8 +124,8 @@ class PinSetup extends PinSetupBase {
 
   /** Initial UI State for screen */
   // eslint-disable-next-line @typescript-eslint/naming-convention
-  override getOobeUIInitialState(): OOBE_UI_STATE {
-    return OOBE_UI_STATE.ONBOARDING;
+  override getOobeUIInitialState(): OobeUiState {
+    return OobeUiState.ONBOARDING;
   }
 
   override ready(): void {
@@ -130,22 +138,20 @@ class PinSetup extends PinSetupBase {
     return PinSetupState.START;
   }
 
-  onBeforeShow(data: OobeTypes.PinSetupScreenParameters): void {
+  private getPinKeyboard(): SetupPinKeyboardElement {
     const pinKeyboard = this.shadowRoot?.querySelector('#pinKeyboard');
-    if (pinKeyboard) {
-      // TODO(b/320242398): Fix type once SetupPinKeyboardElement can be added.
-      (pinKeyboard as any).resetState();
-    }
-    this.authToken = data.auth_token;
-    this.isChildAccount = data.is_child_account;
+    assert(pinKeyboard instanceof SetupPinKeyboardElement);
+    return pinKeyboard;
   }
 
-  /**
-   * Configures message on the final page depending on whether the PIN can
-   *  be used to log in.
-   */
-  setHasLoginSupport(hasLoginSupport: boolean): void {
-    this.hasLoginSupport = hasLoginSupport;
+  override onBeforeShow(data: OobeTypes.PinSetupScreenParameters): void {
+    super.onBeforeShow(data);
+    this.getPinKeyboard().resetState();
+    this.authToken = data.authToken;
+    this.isChildAccount = data.isChildAccount;
+    this.hasLoginSupport = data.hasLoginSupport;
+    this.usingPinAsMainSignInFactor = data.usingPinAsMainSignInFactor;
+    this.isRecoveryMode = data.isRecoveryMode;
   }
 
   private onIsConfirmStepChanged(): void {
@@ -155,24 +161,21 @@ class PinSetup extends PinSetupBase {
   }
 
   private onPinSubmit(): void {
-    const pinKeyboard = this.shadowRoot?.querySelector('#pinKeyboard');
-    if (pinKeyboard) {
-      // TODO(b/320242398): Fix type once SetupPinKeyboardElement can be added.
-      (pinKeyboard as any).doSubmit();
-    }
+    this.getPinKeyboard().doSubmit();
   }
 
   private onSetPinDone(): void {
     this.setUIStep(PinSetupState.DONE);
   }
 
+  private getSkipButtonLabel(usingPinAsMainSignInFactor: boolean): string {
+    return usingPinAsMainSignInFactor ? 'discoverPinSetupPinAsMainFactorSkip' :
+                                        'discoverPinSetupSkip';
+  }
+
   private onSkipButton(): void {
     this.authToken = '';
-    const pinKeyboard = this.shadowRoot?.querySelector('#pinKeyboard');
-    if (pinKeyboard) {
-      // TODO(b/320242398): Fix type once SetupPinKeyboardElement can be added.
-      (pinKeyboard as any).resetState();
-    }
+    this.getPinKeyboard().resetState();
     if (this.uiStep === PinSetupState.CONFIRM) {
       this.userActed('skip-button-in-flow');
     } else {
@@ -181,11 +184,7 @@ class PinSetup extends PinSetupBase {
   }
 
   private onBackButton(): void {
-    const pinKeyboard = this.shadowRoot?.querySelector('#pinKeyboard');
-    if (pinKeyboard) {
-      // TODO(b/320242398): Fix type once SetupPinKeyboardElement can be added.
-      (pinKeyboard as any).resetState();
-    }
+    this.getPinKeyboard().resetState();
     this.setUIStep(PinSetupState.START);
   }
 
@@ -195,11 +194,7 @@ class PinSetup extends PinSetupBase {
 
   private onDoneButton(): void {
     this.authToken = '';
-    const pinKeyboard = this.shadowRoot?.querySelector('#pinKeyboard');
-    if (pinKeyboard) {
-      // TODO(b/320242398): Fix type once SetupPinKeyboardElement can be added.
-      (pinKeyboard as any).resetState();
-    }
+    this.getPinKeyboard().resetState();
     this.userActed('done-button');
   }
 }

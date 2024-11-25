@@ -33,7 +33,8 @@ gfx::Size ShelfContainerView::CalculateIdealSize(int button_size) const {
              : gfx::Size(button_size, button_strip_size);
 }
 
-gfx::Size ShelfContainerView::CalculatePreferredSize() const {
+gfx::Size ShelfContainerView::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
   return CalculateIdealSize(shelf_view_->GetButtonSize());
 }
 
@@ -41,10 +42,11 @@ void ShelfContainerView::ChildPreferredSizeChanged(views::View* child) {
   // The CL (https://crrev.com/c/1876128) modifies View::PreferredSizeChanged
   // by moving InvalidateLayout() after ChildPreferredSizeChanged(). Meanwhile,
   // the parent view of ShelfContainerView overrides ChildPreferredSizeChanged
-  // with calling Layout(). Due to the CL above, ShelfContainerView is not
-  // labeled as |needs_layout_| when the parent view updates the layout. As a
-  // result, Calling Layout() in the parent view may not trigger the update in
-  // child view. So we have to invalidate the layout here explicitly.
+  // with calling DeprecatedLayoutImmediately(). Due to the CL above,
+  // ShelfContainerView is not labeled as |needs_layout_| when the parent view
+  // updates the layout. As a result, Calling DeprecatedLayoutImmediately() in
+  // the parent view may not trigger the update in child view. So we have to
+  // invalidate the layout here explicitly.
   InvalidateLayout();
 
   PreferredSizeChanged();

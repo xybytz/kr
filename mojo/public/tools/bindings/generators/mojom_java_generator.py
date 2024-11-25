@@ -137,9 +137,8 @@ def GetNameForElement(element):
     if name in _java_reserved_types:
       return name + '_'
     return name
-  if (mojom.IsInterfaceRequestKind(element) or
-      mojom.IsAssociatedKind(element) or mojom.IsPendingRemoteKind(element) or
-      mojom.IsPendingReceiverKind(element)):
+  if (mojom.IsAssociatedKind(element) or mojom.IsPendingRemoteKind(element)
+      or mojom.IsPendingReceiverKind(element)):
     return GetNameForElement(element.kind)
   if isinstance(element, (mojom.Method,
                           mojom.Parameter,
@@ -217,18 +216,18 @@ def AppendEncodeDecodeParams(initial_params, context, kind, bit):
 def DecodeMethod(context, kind, offset, bit):
   def _DecodeMethodName(kind):
     if mojom.IsArrayKind(kind):
-      return _DecodeMethodName(kind.kind) + 's'
+      suffix = 'Nullables' if kind.kind.is_nullable and mojom.IsValueKind(
+          kind.kind) else 's'
+      return _DecodeMethodName(mojom.EnsureUnnullable(kind.kind)) + suffix
     if mojom.IsEnumKind(kind):
       return _DecodeMethodName(mojom.INT32)
-    if mojom.IsInterfaceRequestKind(kind) or mojom.IsPendingReceiverKind(kind):
+    if mojom.IsPendingReceiverKind(kind):
       return 'readInterfaceRequest'
     if mojom.IsInterfaceKind(kind) or mojom.IsPendingRemoteKind(kind):
       return 'readServiceInterface'
-    if (mojom.IsAssociatedInterfaceRequestKind(kind) or
-        mojom.IsPendingAssociatedReceiverKind(kind)):
+    if mojom.IsPendingAssociatedReceiverKind(kind):
       return 'readAssociatedInterfaceRequestNotSupported'
-    if (mojom.IsAssociatedInterfaceKind(kind) or
-        mojom.IsPendingAssociatedRemoteKind(kind)):
+    if mojom.IsPendingAssociatedRemoteKind(kind):
       return 'readAssociatedServiceInterfaceNotSupported'
     return _spec_to_decode_method[kind.spec]
   methodName = _DecodeMethodName(kind)
@@ -287,14 +286,12 @@ def GetJavaType(context, kind, boxed=False, with_generics=True):
     return GetNameForKind(context, kind)
   if mojom.IsPendingRemoteKind(kind):
     return GetNameForKind(context, kind.kind)
-  if mojom.IsInterfaceRequestKind(kind) or mojom.IsPendingReceiverKind(kind):
+  if mojom.IsPendingReceiverKind(kind):
     return ('org.chromium.mojo.bindings.InterfaceRequest<%s>' %
             GetNameForKind(context, kind.kind))
-  if (mojom.IsAssociatedInterfaceKind(kind) or
-      mojom.IsPendingAssociatedRemoteKind(kind)):
+  if mojom.IsPendingAssociatedRemoteKind(kind):
     return 'org.chromium.mojo.bindings.AssociatedInterfaceNotSupported'
-  if (mojom.IsAssociatedInterfaceRequestKind(kind) or
-      mojom.IsPendingAssociatedReceiverKind(kind)):
+  if mojom.IsPendingAssociatedReceiverKind(kind):
     return 'org.chromium.mojo.bindings.AssociatedInterfaceRequestNotSupported'
   if mojom.IsMapKind(kind):
     if with_generics:
@@ -474,7 +471,6 @@ class Generator(generator.Generator):
         'is_bool_kind': mojom.IsBoolKind,
         'is_any_handle_kind': mojom.IsAnyHandleKind,
         "is_enum_kind": mojom.IsEnumKind,
-        'is_interface_request_kind': mojom.IsInterfaceRequestKind,
         'is_map_kind': mojom.IsMapKind,
         'is_nullable_kind': mojom.IsNullableKind,
         "is_nullable_value_kind_packed_field":

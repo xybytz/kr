@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A utility class for querying information about the default browser setting.
- * TODO(crbug.com/1112519): Remove DefaultBrowserInfo and replace with this.
+ * TODO(crbug.com/40709747): Remove DefaultBrowserInfo and replace with this.
  */
 public final class DefaultBrowserInfo2 {
     /** Contains all status related to the default browser state on the device. */
@@ -148,7 +148,6 @@ public final class DefaultBrowserInfo2 {
             boolean isChromeDefault = false;
             boolean isDefaultSystem = false;
             boolean hasDefault = false;
-            int browserCount = 0;
             int systemCount = 0;
 
             // Query the default handler first.
@@ -174,7 +173,7 @@ public final class DefaultBrowserInfo2 {
                 }
             }
 
-            browserCount = uniquePackages.size();
+            int browserCount = uniquePackages.size();
 
             return new DefaultInfo(
                     isChromeSystem,

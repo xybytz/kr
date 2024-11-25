@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "components/supervised_user/core/browser/supervised_user_url_filter.h"
+
 #include <utility>
 
 #include "base/functional/bind.h"
@@ -16,6 +18,7 @@
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_key.h"
+#include "chrome/browser/ssl/https_upgrades_util.h"
 #include "chrome/browser/supervised_user/supervised_user_navigation_observer.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
 #include "chrome/browser/supervised_user/supervised_user_settings_service_factory.h"
@@ -37,16 +40,17 @@
 #include "components/supervised_user/core/browser/supervised_user_interstitial.h"
 #include "components/supervised_user/core/browser/supervised_user_service.h"
 #include "components/supervised_user/core/browser/supervised_user_settings_service.h"
-#include "components/supervised_user/core/browser/supervised_user_url_filter.h"
+#include "components/supervised_user/core/browser/supervised_user_utils.h"
 #include "components/supervised_user/core/common/features.h"
 #include "components/supervised_user/core/common/supervised_user_constants.h"
-#include "components/supervised_user/core/common/supervised_user_utils.h"
+#include "components/ukm/test_ukm_recorder.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/isolated_world_ids.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/prerender_test_util.h"
@@ -55,6 +59,10 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/network/public/cpp/network_switches.h"
 #include "testing/gmock/include/gmock/gmock.h"
+
+constexpr char kBlockedContentUkmName[] = "FamilyLinkUser.BlockedContent";
+constexpr char kBlockedContentUkmMainFrameMetricName[] = "MainFrameBlocked";
+constexpr char kBlockedContentUkmIFrameMetricName[] = "NumBlockedIframes";
 
 using content::NavigationController;
 using content::NavigationEntry;
@@ -72,12 +80,11 @@ class SupervisedUserURLFilterTestBase : public MixinBasedInProcessBrowserTest {
   };
 
   SupervisedUserURLFilterTestBase() {
-    // TODO(crbug.com/1394910): Use HTTPS URLs in tests to avoid having to
+    // TODO(crbug.com/40248833): Use HTTPS URLs in tests to avoid having to
     // disable this feature.
     feature_list_.InitWithFeatures(
-        {supervised_user::kFilterWebsitesForSupervisedUsersOnDesktopAndIOS,
-         supervised_user::kSupervisedPrefsControlledBySupervisedStore},
-        {features::kHttpsUpgrades});
+        {}, {features::kHttpsUpgrades,
+             features::kHttpsFirstBalancedModeAutoEnable});
   }
   ~SupervisedUserURLFilterTestBase() override { feature_list_.Reset(); }
 
@@ -94,13 +101,14 @@ class SupervisedUserURLFilterTestBase : public MixinBasedInProcessBrowserTest {
   void SendAccessRequest(WebContents* tab) {
     tab->GetPrimaryMainFrame()->ExecuteJavaScriptForTests(
         u"supervisedUserErrorPageController.requestPermission()",
-        base::NullCallback());
+        base::NullCallback(), content::ISOLATED_WORLD_ID_GLOBAL);
     return;
   }
 
   void GoBack(WebContents* tab) {
     tab->GetPrimaryMainFrame()->ExecuteJavaScriptForTests(
-        u"supervisedUserErrorPageController.goBack()", base::NullCallback());
+        u"supervisedUserErrorPageController.goBack()", base::NullCallback(),
+        content::ISOLATED_WORLD_ID_GLOBAL);
     return;
   }
 
@@ -205,6 +213,7 @@ using SupervisedUserURLFilterTest = SupervisedUserURLFilterTestBase;
 IN_PROC_BROWSER_TEST_F(SupervisedUserURLFilterTest, BlockNewTabAfterLoading) {
   TabStripModel* tab_strip = browser()->tab_strip_model();
   WebContents* prev_tab = tab_strip->GetActiveWebContents();
+  ukm::TestAutoSetUkmRecorder ukm_recorder;
 
   // Open URL in a new tab.
   GURL test_url("http://www.example.com/simple.html");
@@ -216,6 +225,13 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserURLFilterTest, BlockNewTabAfterLoading) {
   // Check that there is no interstitial.
   WebContents* tab = tab_strip->GetActiveWebContents();
   ASSERT_FALSE(ShownPageIsInterstitial(browser()));
+
+  // Check that no UKM is recorded.
+  EXPECT_TRUE(ukm_recorder
+                  .GetEntries(kBlockedContentUkmName,
+                              {kBlockedContentUkmMainFrameMetricName,
+                               kBlockedContentUkmIFrameMetricName})
+                  .empty());
 
   {
     // Block the current URL.
@@ -238,6 +254,14 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserURLFilterTest, BlockNewTabAfterLoading) {
 
     // Check that we got the interstitial.
     ASSERT_TRUE(ShownPageIsInterstitial(browser()));
+
+    // Check that no UKM is recorded (because the mainframe was blocked due to
+    // a manual block rather than due to safesites).
+    EXPECT_TRUE(ukm_recorder
+                    .GetEntries(kBlockedContentUkmName,
+                                {kBlockedContentUkmMainFrameMetricName,
+                                 kBlockedContentUkmIFrameMetricName})
+                    .empty());
   }
 
   {
@@ -287,9 +311,12 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserURLFilterTest, DontShowInterstitialTwice) {
   // Check that we got the interstitial.
   ASSERT_TRUE(ShownPageIsInterstitial(browser()));
 
-  // Trigger a no-op change to the site lists, which will notify observers of
-  // the URL filter.
-  GetSupervisedUserService()->OnSiteListUpdated();
+  // Set the host as blocked through manual blocklisting, should not change the
+  // interstitial state.
+  base::Value::Dict dict;
+  dict.Set(test_url.host(), false);
+  supervised_user_settings_service->SetLocalSetting(
+      supervised_user::kContentPackManualBehaviorHosts, std::move(dict));
 
   EXPECT_EQ(tab, tab_strip->GetActiveWebContents());
 }
@@ -433,10 +460,35 @@ class SupervisedUserBlockModeTest : public SupervisedUserURLFilterTestBase {
   }
 };
 
+IN_PROC_BROWSER_TEST_F(SupervisedUserURLFilterTest, RecordBlockedContentUkm) {
+  ukm::TestAutoSetUkmRecorder ukm_recorder;
+
+  // Open URL in a new tab, which is blocked by ClassifyUrl async checks.
+  GURL test_url("http://www.example.com/simple.html");
+  kids_management_api_mock().RestrictSubsequentClassifyUrl();
+  ui_test_utils::NavigateToURLWithDisposition(
+      browser(), test_url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
+
+  // Check that the interstitial is displayed.
+  ASSERT_TRUE(ShownPageIsInterstitial(browser()));
+
+  // Check that a UKM is recorded for the main frame only.
+  const auto ukm_entries =
+      ukm_recorder.GetEntriesByName(kBlockedContentUkmName);
+  CHECK_EQ(ukm_entries.size(), 1u);
+  ukm::TestUkmRecorder::ExpectEntryMetric(
+      ukm_entries[0], kBlockedContentUkmMainFrameMetricName, true);
+  ukm::TestUkmRecorder::ExpectEntryMetric(
+      ukm_entries[0], kBlockedContentUkmIFrameMetricName, 0);
+}
+
 // Tests that it's possible to navigate from a blocked page to another blocked
 // page.
 IN_PROC_BROWSER_TEST_F(SupervisedUserBlockModeTest,
                        NavigateFromBlockedPageToBlockedPage) {
+  ScopedAllowHttpForHostnamesForTesting allow_http(
+      {"www.example.com", "www.a.com"}, browser()->profile()->GetPrefs());
   GURL test_url("http://www.example.com/simple.html");
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), test_url));
 
@@ -453,6 +505,10 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserBlockModeTest,
 
 // Tests whether a visit attempt adds a special history entry.
 IN_PROC_BROWSER_TEST_F(SupervisedUserBlockModeTest, HistoryVisitRecorded) {
+  ScopedAllowHttpForHostnamesForTesting allow_http(
+      {"www.example.com", "www.new-example.com"},
+      browser()->profile()->GetPrefs());
+
   history::HistoryService* history_service =
       HistoryServiceFactory::GetForProfile(browser()->profile(),
                                            ServiceAccessType::EXPLICIT_ACCESS);
@@ -562,6 +618,9 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserBlockModeTest, OpenBlockedURLInNewTab) {
 }
 
 IN_PROC_BROWSER_TEST_F(SupervisedUserBlockModeTest, Unblock) {
+  ScopedAllowHttpForHostnamesForTesting allow_http(
+      {"www.example.com"}, browser()->profile()->GetPrefs());
+
   GURL test_url("http://www.example.com/simple.html");
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), test_url));
 
@@ -607,13 +666,11 @@ class MockSupervisedUserURLFilterObserver
       const MockSupervisedUserURLFilterObserver&) = delete;
 
   // SupervisedUserURLFilter::Observer:
-  void OnSiteListUpdated() override {}
   MOCK_METHOD(void,
               OnURLChecked,
               (const GURL& url,
                supervised_user::FilteringBehavior behavior,
-               supervised_user::FilteringBehaviorReason reason,
-               bool uncertain),
+               supervised_user::FilteringBehaviorDetails details),
               (override));
 
  private:
@@ -643,6 +700,9 @@ class SupervisedUserURLFilterPrerenderingTest
 
 // Tests that prerendering doesn't check SupervisedUserURLFilter.
 IN_PROC_BROWSER_TEST_F(SupervisedUserURLFilterPrerenderingTest, OnURLChecked) {
+  ScopedAllowHttpForHostnamesForTesting allow_http(
+      {"www.example.com"}, browser()->profile()->GetPrefs());
+
   MockSupervisedUserURLFilterObserver observer(
       GetSupervisedUserService()->GetURLFilter());
 
@@ -666,7 +726,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserURLFilterPrerenderingTest, OnURLChecked) {
   // Ensure that prerendering has started.
   registry_observer.WaitForTrigger(prerender_url);
   auto prerender_id = prerender_helper().GetHostForUrl(prerender_url);
-  EXPECT_NE(content::RenderFrameHost::kNoFrameTreeNodeId, prerender_id);
+  EXPECT_TRUE(prerender_id);
   content::test::PrerenderHostObserver host_observer(*GetWebContents(),
                                                      prerender_id);
   // Prerendering is canceled.

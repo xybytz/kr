@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "ash/constants/ash_features.h"
-#include "ash/focus_cycler.h"
+#include "ash/focus/focus_cycler.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/shelf_model.h"
@@ -24,14 +24,14 @@
 #include "ash/system/status_area_widget.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/overview/overview_observer.h"
-#include "base/functional/bind.h"
-#include "base/functional/callback_helpers.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "chromeos/constants/chromeos_features.h"
+#include "third_party/abseil-cpp/absl/cleanup/cleanup.h"
 #include "ui/aura/scoped_window_targeter.h"
 #include "ui/aura/window_targeter.h"
+#include "ui/chromeos/styles/cros_tokens_color_mappings.h"
 #include "ui/compositor/animation_throughput_reporter.h"
 #include "ui/compositor/layer_animation_sequence.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
@@ -440,6 +440,9 @@ class HotseatWidget::DelegateView : public HotseatTransitionAnimator::Observer,
   // the visibility of shadow.
   void UpdateHighlightBorder(bool update_corner_radius);
 
+  // Returns the target background color for the hotseat.
+  SkColor GetBackgroundColor();
+
   void SetTranslucentBackground(const gfx::Rect& translucent_background_bounds);
 
   // Sets whether the background should be blurred as requested by the argument,
@@ -494,6 +497,12 @@ class HotseatWidget::DelegateView : public HotseatTransitionAnimator::Observer,
 
   // The type of highlight border.
   views::HighlightBorder::Type border_type_;
+
+  // Tracks whether the forest flag was enabled when entering overview.
+  // TODO(sammiequon): This is temporary while the secret key exists. After the
+  // secret key is removed, entering/exiting overview should never need to
+  // remove/readd blur.
+  std::optional<bool> was_forest_on_overview_enter_;
 };
 
 HotseatWidget::DelegateView::~DelegateView() {
@@ -511,8 +520,10 @@ void HotseatWidget::DelegateView::Init(
   OverviewController* overview_controller = Shell::Get()->overview_controller();
   if (overview_controller) {
     overview_controller->AddObserver(this);
-    if (overview_controller->InOverviewSession())
+    if (overview_controller->InOverviewSession() &&
+        !features::IsForestFeatureEnabled()) {
       ++blur_lock_;
+    }
   }
   DCHECK(scrollable_shelf_view);
   scrollable_shelf_view_ = scrollable_shelf_view;
@@ -542,9 +553,10 @@ void HotseatWidget::DelegateView::Init(
 
 void HotseatWidget::DelegateView::UpdateTranslucentBackground() {
   // Update highlight border after updating the visibility of shadow.
-  base::ScopedClosureRunner update_highlight_border(
-      base::BindOnce(&DelegateView::UpdateHighlightBorder,
-                     base::Unretained(this), /*update_corner_radius=*/false));
+  absl::Cleanup update_highlight_border = [this] {
+    UpdateHighlightBorder(
+        /*update_corner_radius=*/false);
+  };
 
   if (!HotseatWidget::ShouldShowHotseatBackground()) {
     translucent_background_->SetVisible(false);
@@ -592,6 +604,20 @@ void HotseatWidget::DelegateView::UpdateHighlightBorder(
   translucent_background_->SetBorder(std::move(border));
 }
 
+SkColor HotseatWidget::DelegateView::GetBackgroundColor() {
+  auto* widget = GetWidget();
+  CHECK(widget);
+  aura::Window* window = widget->GetNativeWindow();
+  // A forest session uses system-on-base.
+  if (features::IsForestFeatureEnabled() &&
+      OverviewController::Get()->InOverviewSession() &&
+      !SplitViewController::Get(window)->InSplitViewMode()) {
+    return widget->GetColorProvider()->GetColor(
+        cros_tokens::kCrosSysSystemOnBase);
+  }
+  return ShelfConfig::Get()->GetDefaultShelfColor(widget);
+}
+
 void HotseatWidget::DelegateView::SetTranslucentBackground(
     const gfx::Rect& background_bounds) {
   DCHECK(HotseatWidget::ShouldShowHotseatBackground());
@@ -607,12 +633,11 @@ void HotseatWidget::DelegateView::SetTranslucentBackground(
                      hotseat_widget_->GetTranslucentBackgroundReportCallback());
   }
 
-  const auto* widget = GetWidget();
-  DCHECK(widget);
-  if (ShelfConfig::Get()->GetDefaultShelfColor(widget) != target_color_) {
+  SkColor background_color = GetBackgroundColor();
+  if (background_color != target_color_) {
     ui::ScopedLayerAnimationSettings color_animation_setter(animator);
     DoScopedAnimationSetting(&color_animation_setter);
-    target_color_ = ShelfConfig::Get()->GetDefaultShelfColor(widget);
+    target_color_ = background_color;
     translucent_background_->SetBackground(
         views::CreateSolidBackground(target_color_));
   }
@@ -644,8 +669,10 @@ void HotseatWidget::DelegateView::SetTranslucentBackground(
 }
 
 void HotseatWidget::DelegateView::SetBackgroundBlur(bool enable_blur) {
-  if (!features::IsBackgroundBlurEnabled() || blur_lock_ > 0)
+  if (!features::IsBackgroundBlurEnabled() ||
+      !chromeos::features::IsSystemBlurEnabled() || blur_lock_ > 0) {
     return;
+  }
 
   const int blur_radius =
       enable_blur ? ShelfConfig::Get()->shelf_blur_radius() : 0;
@@ -696,6 +723,11 @@ bool HotseatWidget::DelegateView::CanActivate() const {
 }
 
 void HotseatWidget::DelegateView::OnOverviewModeWillStart() {
+  // Forest uses background blur in overview.
+  was_forest_on_overview_enter_ = features::IsForestFeatureEnabled();
+  if (*was_forest_on_overview_enter_) {
+    return;
+  }
   DCHECK_LE(blur_lock_, 2);
 
   SetBackgroundBlur(false);
@@ -704,6 +736,11 @@ void HotseatWidget::DelegateView::OnOverviewModeWillStart() {
 
 void HotseatWidget::DelegateView::OnOverviewModeEndingAnimationComplete(
     bool canceled) {
+  // Forest uses background blur in overview.
+  if (was_forest_on_overview_enter_.value_or(true)) {
+    was_forest_on_overview_enter_.reset();
+    return;
+  }
   DCHECK_GT(blur_lock_, 0);
 
   --blur_lock_;
@@ -758,11 +795,11 @@ void HotseatWidget::Initialize(aura::Window* container, Shelf* shelf) {
   DCHECK(shelf);
   shelf_ = shelf;
   views::Widget::InitParams params(
+      views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET,
       views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   params.name = "HotseatWidget";
   params.delegate = delegate_view_.get();
   params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
-  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.parent = container;
   params.layer_type = ui::LAYER_NOT_DRAWN;
   Init(std::move(params));
@@ -788,14 +825,16 @@ void HotseatWidget::OnHotseatTransitionAnimatorCreated(
 }
 
 void HotseatWidget::OnMouseEvent(ui::MouseEvent* event) {
-  if (event->type() == ui::ET_MOUSE_PRESSED)
+  if (event->type() == ui::EventType::kMousePressed) {
     keyboard::KeyboardUIController::Get()->HideKeyboardImplicitlyByUser();
+  }
   views::Widget::OnMouseEvent(event);
 }
 
 void HotseatWidget::OnGestureEvent(ui::GestureEvent* event) {
-  if (event->type() == ui::ET_GESTURE_TAP_DOWN)
+  if (event->type() == ui::EventType::kGestureTapDown) {
     keyboard::KeyboardUIController::Get()->HideKeyboardImplicitlyByUser();
+  }
 
   // Context menus for shelf app button forward gesture events to hotseat
   // widget, so the shelf app button can continue handling drag even after the
@@ -814,8 +853,9 @@ void HotseatWidget::OnGestureEvent(ui::GestureEvent* event) {
 
   // Ensure that the app button's drag state gets cleared on gesture end even if
   // the event doesn't get delivered to the app button.
-  if (item_with_context_menu && event->type() == ui::ET_GESTURE_END)
+  if (item_with_context_menu && event->type() == ui::EventType::kGestureEnd) {
     item_with_context_menu->ClearDragStateOnGestureEnd();
+  }
 }
 
 bool HotseatWidget::OnNativeWidgetActivationChanged(bool active) {
@@ -859,6 +899,10 @@ float HotseatWidget::CalculateShelfViewOpacity() const {
 
 void HotseatWidget::UpdateTranslucentBackground() {
   delegate_view_->UpdateTranslucentBackground();
+}
+
+void HotseatWidget::InitializeAccessibilityProperties() {
+  scrollable_shelf_view()->UpdateAccessiblePreviousAndNextFocus();
 }
 
 int HotseatWidget::CalculateHotseatYInScreen(
@@ -1188,6 +1232,11 @@ void HotseatWidget::SetState(HotseatState state) {
 
 ui::Layer* HotseatWidget::GetLayerForNudgeAnimation() {
   return delegate_view_->layer();
+}
+
+bool HotseatWidget::CalculateShelfOverflow(bool use_target_bounds) const {
+  return scrollable_shelf_view_->CalculateMirroredEdgePadding(use_target_bounds)
+      .IsEmpty();
 }
 
 HotseatWidget::LayoutInputs HotseatWidget::GetLayoutInputs() const {

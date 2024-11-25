@@ -26,6 +26,7 @@
 #include "chrome/browser/ui/views/download/bubble/download_dialog_view.h"
 #include "chrome/browser/ui/views/download/bubble/download_toolbar_button_view.h"
 #include "components/offline_items_collection/core/offline_item.h"
+#include "components/safe_browsing/core/common/proto/csd.pb.h"
 #include "content/public/browser/download_item_utils.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/views/layout/flex_layout.h"
@@ -34,6 +35,22 @@
 #include "ui/views/view_class_properties.h"
 
 using offline_items_collection::ContentId;
+
+namespace {
+
+void MaybeSendDownloadReport(content::BrowserContext* browser_context,
+                             download::DownloadItem* download) {
+  if (safe_browsing::SafeBrowsingService* service =
+          g_browser_process->safe_browsing_service()) {
+    service->SendDownloadReport(download,
+                                safe_browsing::ClientSafeBrowsingReportRequest::
+                                    DANGEROUS_DOWNLOAD_RECOVERY,
+                                /*did_proceed=*/true,
+                                /*show_download_in_folder=*/std::nullopt);
+  }
+}
+
+}  // namespace
 
 DownloadBubbleContentsView::DownloadBubbleContentsView(
     base::WeakPtr<Browser> browser,
@@ -44,6 +61,7 @@ DownloadBubbleContentsView::DownloadBubbleContentsView(
     views::BubbleDialogDelegate* bubble_delegate)
     : info_(std::move(info)),
       bubble_controller_(bubble_controller),
+      navigation_handler_(navigation_handler),
       bubble_delegate_(bubble_delegate) {
   SetProperty(views::kElementIdentifierKey, kToolbarDownloadBubbleElementId);
   CHECK(!info_->row_list_view_info().rows().empty());
@@ -65,7 +83,8 @@ DownloadBubbleContentsView::DownloadBubbleContentsView(
 
   primary_view_ = AddChildView(std::move(primary_view));
   security_view_ = AddChildView(std::make_unique<DownloadBubbleSecurityView>(
-      /*delegate=*/this, navigation_handler, bubble_delegate));
+      /*delegate=*/this, info_->security_view_info(), navigation_handler,
+      bubble_delegate));
 
   // Starts on the primary page.
   ShowPrimaryPage();
@@ -96,6 +115,7 @@ DownloadBubbleRowView* DownloadBubbleContentsView::ShowPrimaryPage(
   CHECK(!id || *id != ContentId());
   security_view_->SetVisible(false);
   security_view_->Reset();
+  info_->ResetSecurityView();
   // Reset fixed width, which could be previously set by the security
   // view.
   bubble_delegate_->set_fixed_width(0);
@@ -116,7 +136,6 @@ void DownloadBubbleContentsView::ShowSecurityPage(const ContentId& id) {
   primary_view_->SetVisible(false);
   page_ = Page::kSecurity;
   InitializeSecurityView(id);
-  security_view_->UpdateAccessibilityTextAndFocus();
   security_view_->SetVisible(true);
 }
 
@@ -126,15 +145,7 @@ DownloadBubbleContentsView::Page DownloadBubbleContentsView::VisiblePage()
 }
 
 void DownloadBubbleContentsView::InitializeSecurityView(const ContentId& id) {
-  CHECK(id != ContentId());
-  if (security_view_->content_id() == id) {
-    return;
-  }
-  if (DownloadUIModel* model = GetDownloadModel(id); model) {
-    security_view_->InitializeForDownload(*model);
-    return;
-  }
-  NOTREACHED();
+  info_->InitializeSecurityView(id);
 }
 
 void DownloadBubbleContentsView::ProcessSecuritySubpageButtonPress(
@@ -146,6 +157,11 @@ void DownloadBubbleContentsView::ProcessSecuritySubpageButtonPress(
     return;
   }
   if (DownloadUIModel* model = GetDownloadModel(id); model) {
+    // Calling this before because ProcessDownloadButtonPress may cause
+    // the model item to be deleted during its call.
+    if (navigation_handler_) {
+      navigation_handler_->OnSecurityDialogButtonPress(*model, command);
+    }
     bubble_controller_->ProcessDownloadButtonPress(model->GetWeakPtr(), command,
                                                    /*is_main_view=*/false);
   }
@@ -164,12 +180,17 @@ void DownloadBubbleContentsView::AddSecuritySubpageWarningActionEvent(
 
 void DownloadBubbleContentsView::ProcessDeepScanPress(
     const ContentId& id,
+    DownloadItemWarningData::DeepScanTrigger trigger,
     base::optional_ref<const std::string> password) {
   if (DownloadUIModel* model = GetDownloadModel(id); model) {
     LogDeepScanEvent(model->GetDownloadItem(),
                      safe_browsing::DeepScanEvent::kPromptAccepted);
+    DownloadItemWarningData::AddWarningActionEvent(
+        model->GetDownloadItem(),
+        DownloadItemWarningData::WarningSurface::BUBBLE_SUBPAGE,
+        DownloadItemWarningData::WarningAction::ACCEPT_DEEP_SCAN);
     safe_browsing::DownloadProtectionService::UploadForConsumerDeepScanning(
-        model->GetDownloadItem(), password);
+        model->GetDownloadItem(), trigger, password);
   }
 }
 
@@ -177,6 +198,7 @@ void DownloadBubbleContentsView::ProcessLocalDecryptionPress(
     const offline_items_collection::ContentId& id,
     base::optional_ref<const std::string> password) {
   if (DownloadUIModel* model = GetDownloadModel(id); model) {
+    LogLocalDecryptionEvent(safe_browsing::DeepScanEvent::kPromptAccepted);
     safe_browsing::DownloadProtectionService::CheckDownloadWithLocalDecryption(
         model->GetDownloadItem(), password);
   }
@@ -204,19 +226,24 @@ void DownloadBubbleContentsView::ProcessLocalPasswordInProgressClick(
 
   protection_service->CancelChecksForDownload(item);
 
+  content::BrowserContext* browser_context =
+      content::DownloadItemUtils::GetBrowserContext(item);
   DownloadCoreService* download_core_service =
-      DownloadCoreServiceFactory::GetForBrowserContext(
-          content::DownloadItemUtils::GetBrowserContext(item));
+      DownloadCoreServiceFactory::GetForBrowserContext(browser_context);
+
   DCHECK(download_core_service);
   ChromeDownloadManagerDelegate* delegate =
       download_core_service->GetDownloadManagerDelegate();
   DCHECK(delegate);
 
   if (command == DownloadCommands::CANCEL) {
+    LogLocalDecryptionEvent(safe_browsing::DeepScanEvent::kScanCanceled);
     delegate->CheckClientDownloadDone(
         item->GetId(),
         safe_browsing::DownloadCheckResult::PROMPT_FOR_LOCAL_PASSWORD_SCANNING);
   } else if (command == DownloadCommands::BYPASS_DEEP_SCANNING) {
+    LogLocalDecryptionEvent(safe_browsing::DeepScanEvent::kPromptBypassed);
+    MaybeSendDownloadReport(browser_context, item);
     delegate->CheckClientDownloadDone(
         item->GetId(), safe_browsing::DownloadCheckResult::UNKNOWN);
   } else {
@@ -226,7 +253,7 @@ void DownloadBubbleContentsView::ProcessLocalPasswordInProgressClick(
 
 bool DownloadBubbleContentsView::IsEncryptedArchive(const ContentId& id) {
   if (DownloadUIModel* model = GetDownloadModel(id); model) {
-    return DownloadItemWarningData::IsEncryptedArchive(
+    return DownloadItemWarningData::IsTopLevelEncryptedArchive(
         model->GetDownloadItem());
   }
 
@@ -245,10 +272,7 @@ bool DownloadBubbleContentsView::HasPreviousIncorrectPassword(
 
 DownloadUIModel* DownloadBubbleContentsView::GetDownloadModel(
     const ContentId& id) {
-  if (DownloadBubbleRowView* row = primary_view_->GetRow(id); row) {
-    return row->model();
-  }
-  return nullptr;
+  return info_->GetDownloadModel(id);
 }
 
 BEGIN_METADATA(DownloadBubbleContentsView)

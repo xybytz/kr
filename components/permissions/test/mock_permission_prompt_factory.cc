@@ -98,7 +98,6 @@ std::unique_ptr<PermissionPrompt> MockPermissionPromptFactory::DoNotCreate(
     content::WebContents* web_contents,
     PermissionPrompt::Delegate* delegate) {
   NOTREACHED();
-  return base::WrapUnique(new MockPermissionPrompt(nullptr, nullptr));
 }
 
 void MockPermissionPromptFactory::HideView(MockPermissionPrompt* prompt) {

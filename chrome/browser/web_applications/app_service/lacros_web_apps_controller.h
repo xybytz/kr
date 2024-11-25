@@ -13,7 +13,6 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
-#include "base/strings/string_piece.h"
 #include "base/time/time.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/web_applications/app_service/web_app_publisher_helper.h"
@@ -95,12 +94,12 @@ class LacrosWebAppsController : public crosapi::mojom::AppController,
   void ExecuteContextMenuCommandInternal(
       const std::string& app_id,
       const std::string& id,
-      base::OnceCallback<void(const std::vector<content::WebContents*>&)>
+      base::OnceCallback<void(std::vector<content::WebContents*>)>
           launch_finished_callback);
   void LaunchInternal(
       const std::string& app_id,
       apps::AppLaunchParams params,
-      base::OnceCallback<void(const std::vector<content::WebContents*>&)>
+      base::OnceCallback<void(std::vector<content::WebContents*>)>
           launch_finished_callback);
 
   // WebAppPublisherHelper::Delegate:
@@ -113,7 +112,7 @@ class LacrosWebAppsController : public crosapi::mojom::AppController,
 
   void ReturnLaunchResults(
       base::OnceCallback<void(crosapi::mojom::LaunchResultPtr)> callback,
-      const std::vector<content::WebContents*>& web_contents);
+      std::vector<content::WebContents*> web_contents);
 
   const WebApp* GetWebApp(const webapps::AppId& app_id) const;
 

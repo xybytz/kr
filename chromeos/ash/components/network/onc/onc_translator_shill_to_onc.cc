@@ -2,8 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "ash/constants/ash_features.h"
@@ -50,7 +56,7 @@ base::Value ConvertVpnStringToValue(const std::string& str,
 // Returns the string value of |key| from |dict| if found, or the empty string
 // otherwise.
 std::string FindStringKeyOrEmpty(const base::Value::Dict& dict,
-                                 base::StringPiece key) {
+                                 std::string_view key) {
   const std::string* value = dict.FindString(key);
   return value ? *value : std::string();
 }
@@ -482,13 +488,6 @@ void ShillToONCTranslator::TranslateWiFiWithState() {
   if (!unknown_encoding && !ssid.empty())
     onc_object_.Set(::onc::wifi::kSSID, ssid);
 
-  std::optional<bool> link_monitor_disable =
-      shill_dictionary_->FindBool(shill::kLinkMonitorDisableProperty);
-  if (link_monitor_disable) {
-    onc_object_.Set(::onc::wifi::kAllowGatewayARPPolling,
-                    !*link_monitor_disable);
-  }
-
   CopyPropertiesAccordingToSignature();
   TranslateAndAddNestedObject(::onc::wifi::kEAP);
 }
@@ -615,6 +614,10 @@ void ShillToONCTranslator::TranslateApnProperties() {
                            kApnIpTypeTranslationTable,
                            ::onc::cellular_apn::kIpType);
 
+  TranslateWithTableAndSet(shill::kApnSourceProperty,
+                           kApnSourceTranslationTable,
+                           ::onc::cellular_apn::kSource);
+
   const std::string shill_apn_types =
       FindStringKeyOrEmpty(*shill_dictionary_, shill::kApnTypesProperty);
 
@@ -691,7 +694,7 @@ void ShillToONCTranslator::TranslateNetworkWithState() {
 
   if (network_state_) {
     // Only visible networks set RestrictedConnectivity, and only if true.
-    auto portal_state = network_state_->GetPortalState();
+    auto portal_state = network_state_->portal_state();
     if (network_state_->IsConnectedState() &&
         portal_state != NetworkState::PortalState::kUnknown &&
         portal_state != NetworkState::PortalState::kOnline) {

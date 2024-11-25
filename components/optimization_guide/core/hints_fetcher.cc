@@ -15,6 +15,7 @@
 #include "base/time/default_clock.h"
 #include "components/optimization_guide/core/hints_processing_util.h"
 #include "components/optimization_guide/core/optimization_guide_common.mojom.h"
+#include "components/optimization_guide/core/optimization_guide_constants.h"
 #include "components/optimization_guide/core/optimization_guide_features.h"
 #include "components/optimization_guide/core/optimization_guide_logger.h"
 #include "components/optimization_guide/core/optimization_guide_prefs.h"
@@ -49,7 +50,6 @@ std::string GetStringNameForRequestContext(
     case proto::RequestContext::CONTEXT_UNSPECIFIED:
     case proto::RequestContext::CONTEXT_BATCH_UPDATE_MODELS:
       NOTREACHED();
-      return "Unknown";
     case proto::RequestContext::CONTEXT_PAGE_NAVIGATION:
       return "PageNavigation";
     case proto::RequestContext::CONTEXT_BATCH_UPDATE_GOOGLE_SRP:
@@ -66,9 +66,10 @@ std::string GetStringNameForRequestContext(
       return "PageInsightsHub";
     case proto::RequestContext::CONTEXT_NON_PERSONALIZED_PAGE_INSIGHTS_HUB:
       return "NonPersonalizedPageInsightsHub";
+    case proto::RequestContext::CONTEXT_SHOPPING:
+      return "Shopping";
   }
   NOTREACHED();
-  return std::string();
 }
 
 void RecordRequestStatusHistogram(proto::RequestContext request_context,
@@ -78,6 +79,18 @@ void RecordRequestStatusHistogram(proto::RequestContext request_context,
       "OptimizationGuide.HintsFetcher.GetHintsRequest.RequestStatus." +
           GetStringNameForRequestContext(request_context),
       status);
+}
+
+// Appends override headers as specified by the command line arguments.
+void AppendOverrideHeadersIfNeeded(network::ResourceRequest& request) {
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kOptimizationGuideLanguageOverride)) {
+    return;
+  }
+  request.headers.SetHeaderIfMissing(
+      kOptimizationGuideLanguageOverrideHeaderKey,
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kOptimizationGuideLanguageOverride));
 }
 
 }  // namespace
@@ -90,7 +103,7 @@ HintsFetcher::HintsFetcher(
     : optimization_guide_service_url_(
           net::AppendOrReplaceQueryParameter(optimization_guide_service_url,
                                              "key",
-                                             absl::nullopt)),
+                                             std::nullopt)),
       optimization_guide_service_api_key_(
           features::GetOptimizationGuideServiceAPIKey()),
       pref_service_(pref_service),
@@ -110,7 +123,7 @@ HintsFetcher::HintsFetcher(
 HintsFetcher::~HintsFetcher() {
   if (active_url_loader_) {
     if (hints_fetched_callback_)
-      std::move(hints_fetched_callback_).Run(absl::nullopt);
+      std::move(hints_fetched_callback_).Run(std::nullopt);
     RecordRequestStatusHistogram(request_context_,
                                  FetcherRequestStatus::kRequestCanceled);
   }
@@ -144,7 +157,7 @@ bool HintsFetcher::WasHostCoveredByFetch(PrefService* pref_service,
 
   ScopedDictPrefUpdate hosts_fetched(
       pref_service, prefs::kHintsFetcherHostsSuccessfullyFetched);
-  absl::optional<double> value =
+  std::optional<double> value =
       hosts_fetched->FindDouble(HashHostForDictionary(host));
   if (!value)
     return false;
@@ -181,7 +194,8 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
     const std::string& locale,
     const std::string& access_token,
     bool skip_cache,
-    HintsFetchedCallback hints_fetched_callback) {
+    HintsFetchedCallback hints_fetched_callback,
+    std::optional<proto::RequestContextMetadata> request_context_metadata) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_GT(optimization_types.size(), 0u);
   request_context_ = request_context;
@@ -193,7 +207,7 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
         "No hints fetched: HintsFetcher busy in another fetch");
     RecordRequestStatusHistogram(request_context_,
                                  FetcherRequestStatus::kFetcherBusy);
-    std::move(hints_fetched_callback).Run(absl::nullopt);
+    std::move(hints_fetched_callback).Run(std::nullopt);
     return false;
   }
 
@@ -206,7 +220,7 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
                            "No hints fetched: No hosts/URLs");
     RecordRequestStatusHistogram(
         request_context_, FetcherRequestStatus::kNoHostsOrURLsToFetchHints);
-    std::move(hints_fetched_callback).Run(absl::nullopt);
+    std::move(hints_fetched_callback).Run(std::nullopt);
     return false;
   }
 
@@ -222,7 +236,7 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
     RecordRequestStatusHistogram(
         request_context_,
         FetcherRequestStatus::kNoSupportedOptimizationTypesToFetchHints);
-    std::move(hints_fetched_callback).Run(absl::nullopt);
+    std::move(hints_fetched_callback).Run(std::nullopt);
     return false;
   }
 
@@ -237,6 +251,10 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
   get_hints_request.set_context(request_context_);
 
   get_hints_request.set_locale(locale);
+
+  if (request_context_metadata) {
+    *get_hints_request.mutable_context_metadata() = *request_context_metadata;
+  }
 
   *get_hints_request.mutable_origin_info() =
       optimization_guide::GetClientOriginInfo();
@@ -295,6 +313,7 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
     PopulateAuthorizationRequestHeader(resource_request.get(), access_token);
   }
 
+  AppendOverrideHeadersIfNeeded(*resource_request);
   active_url_loader_ = variations::CreateSimpleURLLoaderWithVariationsHeader(
       std::move(resource_request),
       // This is always InIncognito::kNo as the OptimizationGuideKeyedService
@@ -311,6 +330,18 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
       filtered_hosts.size());
   UMA_HISTOGRAM_COUNTS_100(
       "OptimizationGuide.HintsFetcher.GetHintsRequest.UrlCount",
+      valid_urls.size());
+
+  // Record histogram variants based on request context.
+  // Histogram macro doesn't allow dynamic string. Use function.
+  base::UmaHistogramCounts100(
+      "OptimizationGuide.HintsFetcher.GetHintsRequest.HostCount." +
+          GetStringNameForRequestContext(request_context_),
+      filtered_hosts.size());
+
+  base::UmaHistogramCounts100(
+      "OptimizationGuide.HintsFetcher.GetHintsRequest.UrlCount." +
+          GetStringNameForRequestContext(request_context_),
       valid_urls.size());
 
   // It's safe to use |base::Unretained(this)| here because |this| owns
@@ -335,10 +366,10 @@ void HintsFetcher::HandleResponse(const std::string& get_hints_response_data,
   std::unique_ptr<proto::GetHintsResponse> get_hints_response =
       std::make_unique<proto::GetHintsResponse>();
 
-  UMA_HISTOGRAM_ENUMERATION(
-      "OptimizationGuide.HintsFetcher.GetHintsRequest.Status",
-      static_cast<net::HttpStatusCode>(response_code),
-      net::HTTP_VERSION_NOT_SUPPORTED);
+  if (response_code >= 0) {
+    base::UmaHistogramSparse(
+        "OptimizationGuide.HintsFetcher.GetHintsRequest.Status", response_code);
+  }
   // Net error codes are negative but histogram enums must be positive.
   base::UmaHistogramSparse(
       "OptimizationGuide.HintsFetcher.GetHintsRequest.NetErrorCode",
@@ -351,7 +382,7 @@ void HintsFetcher::HandleResponse(const std::string& get_hints_response_data,
         get_hints_response->hints_size());
     base::TimeDelta fetch_latency =
         base::TimeTicks::Now() - hints_fetch_start_time_;
-    UMA_HISTOGRAM_MEDIUM_TIMES(
+    DEPRECATED_UMA_HISTOGRAM_MEDIUM_TIMES(
         "OptimizationGuide.HintsFetcher.GetHintsRequest.FetchLatency",
         fetch_latency);
     base::UmaHistogramMediumTimes(
@@ -381,7 +412,7 @@ void HintsFetcher::HandleResponse(const std::string& get_hints_response_data,
     hosts_fetched_.clear();
     RecordRequestStatusHistogram(request_context_,
                                  FetcherRequestStatus::kResponseError);
-    std::move(hints_fetched_callback_).Run(absl::nullopt);
+    std::move(hints_fetched_callback_).Run(std::nullopt);
   }
 }
 
@@ -398,8 +429,9 @@ void HintsFetcher::UpdateHostsSuccessfullyFetched(
   // Remove any expired hosts.
   std::vector<std::string> entries_to_remove;
   for (auto it : *hosts_fetched_list) {
-    if (base::Time::FromDeltaSinceWindowsEpoch(
-            base::Seconds(it.second.GetDouble())) < time_clock_->Now()) {
+    auto seconds = it.second.GetIfDouble();
+    if (!seconds || base::Time::FromDeltaSinceWindowsEpoch(
+                        base::Seconds(*seconds)) < time_clock_->Now()) {
       entries_to_remove.emplace_back(it.first);
     }
   }
@@ -537,7 +569,7 @@ std::vector<std::string> HintsFetcher::GetSizeLimitedHostsDueForHintsRefresh(
 
     bool host_hints_due_for_refresh = true;
 
-    absl::optional<double> value =
+    std::optional<double> value =
         hosts_fetched.FindDouble(HashHostForDictionary(host));
     if (value && optimization_guide::features::ShouldPersistHintsToDisk()) {
       base::Time host_valid_time =

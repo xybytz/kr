@@ -4,7 +4,6 @@
 
 package org.chromium.chrome.browser.autofill.settings;
 
-import android.os.Build;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
@@ -21,8 +20,10 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.autofill.AutofillEditorBase;
 import org.chromium.chrome.browser.autofill.PersonalDataManager;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
-import org.chromium.chrome.browser.feedback.FragmentHelpAndFeedbackLauncher;
-import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncher;
+import org.chromium.chrome.browser.autofill.PersonalDataManagerFactory;
+import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherFactory;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.settings.ProfileDependentSetting;
 import org.chromium.components.autofill.AutofillProfile;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
@@ -31,8 +32,8 @@ import java.util.List;
 
 /** The base class for credit card settings. */
 public abstract class AutofillCreditCardEditor extends AutofillEditorBase
-        implements FragmentHelpAndFeedbackLauncher {
-    private HelpAndFeedbackLauncher mHelpAndFeedbackLauncher;
+        implements ProfileDependentSetting {
+    private Profile mProfile;
     private Supplier<ModalDialogManager> mModalDialogManagerSupplier;
 
     protected CreditCard mCard;
@@ -44,14 +45,6 @@ public abstract class AutofillCreditCardEditor extends AutofillEditorBase
             LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         View v = super.onCreateView(inflater, container, savedInstanceState);
 
-        // Do not use autofill for the fields.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            getActivity()
-                    .getWindow()
-                    .getDecorView()
-                    .setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
-        }
-
         // Populate the billing address dropdown.
         ArrayAdapter<AutofillProfile> profilesAdapter =
                 new ArrayAdapter<AutofillProfile>(
@@ -62,7 +55,9 @@ public abstract class AutofillCreditCardEditor extends AutofillEditorBase
         noSelection.setLabel(getActivity().getString(R.string.select));
         profilesAdapter.add(noSelection);
 
-        List<AutofillProfile> profiles = PersonalDataManager.getInstance().getProfilesForSettings();
+        PersonalDataManager personalDataManager =
+                PersonalDataManagerFactory.getForProfile(mProfile);
+        List<AutofillProfile> profiles = personalDataManager.getProfilesForSettings();
         for (int i = 0; i < profiles.size(); i++) {
             AutofillProfile profile = profiles.get(i);
             if (!TextUtils.isEmpty(profile.getStreetAddress())) {
@@ -70,15 +65,14 @@ public abstract class AutofillCreditCardEditor extends AutofillEditorBase
             }
         }
 
-        mBillingAddress =
-                (Spinner) v.findViewById(R.id.autofill_credit_card_editor_billing_address_spinner);
+        mBillingAddress = v.findViewById(R.id.autofill_credit_card_editor_billing_address_spinner);
         mBillingAddress.setAdapter(profilesAdapter);
 
         // TODO(rouslan): Use an [+ ADD ADDRESS] button instead of disabling the dropdown.
         // http://crbug.com/623629
         if (profilesAdapter.getCount() == 1) mBillingAddress.setEnabled(false);
 
-        mCard = PersonalDataManager.getInstance().getCreditCard(mGUID);
+        mCard = personalDataManager.getCreditCard(mGUID);
         if (mCard != null) {
             if (!TextUtils.isEmpty(mCard.getBillingAddressId())) {
                 for (int i = 0; i < mBillingAddress.getAdapter().getCount(); i++) {
@@ -110,12 +104,15 @@ public abstract class AutofillCreditCardEditor extends AutofillEditorBase
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         if (item.getItemId() == R.id.delete_menu_id) {
-            showDeleteCreditCardConfirmationDialog();
+            showDeletePaymentMethodConfirmationDialog();
             return true;
         }
         if (item.getItemId() == R.id.help_menu_id) {
-            mHelpAndFeedbackLauncher.show(
-                    getActivity(), getActivity().getString(R.string.help_context_autofill), null);
+            HelpAndFeedbackLauncherFactory.getForProfile(mProfile)
+                    .show(
+                            getActivity(),
+                            getActivity().getString(R.string.help_context_autofill),
+                            null);
             return true;
         }
 
@@ -123,35 +120,41 @@ public abstract class AutofillCreditCardEditor extends AutofillEditorBase
     }
 
     @Override
-    public void setHelpAndFeedbackLauncher(HelpAndFeedbackLauncher helpAndFeedbackLauncher) {
-        mHelpAndFeedbackLauncher = helpAndFeedbackLauncher;
+    public void setProfile(Profile profile) {
+        mProfile = profile;
+    }
+
+    /** Return the {@link Profile} associated with the card being edited. */
+    public Profile getProfile() {
+        return mProfile;
     }
 
     /**
      * Sets Supplier for {@lnk ModalDialogManager} used to display {@link
-     * AutofillDeleteCreditCardConfirmationDialog}.
+     * AutofillDeletePaymentMethodConfirmationDialog}.
      */
     public void setModalDialogManagerSupplier(
             @NonNull Supplier<ModalDialogManager> modalDialogManagerSupplier) {
         mModalDialogManagerSupplier = modalDialogManagerSupplier;
     }
 
-    private void showDeleteCreditCardConfirmationDialog() {
+    private void showDeletePaymentMethodConfirmationDialog() {
         assert mModalDialogManagerSupplier != null;
 
         ModalDialogManager modalDialogManager = mModalDialogManagerSupplier.get();
         assert modalDialogManager != null;
 
-        AutofillDeleteCreditCardConfirmationDialog dialog =
-                new AutofillDeleteCreditCardConfirmationDialog(
+        AutofillDeletePaymentMethodConfirmationDialog dialog =
+                new AutofillDeletePaymentMethodConfirmationDialog(
                         modalDialogManager,
                         getContext(),
                         dismissalCause -> {
                             if (dismissalCause == DialogDismissalCause.POSITIVE_BUTTON_CLICKED) {
                                 deleteEntry();
-                                getActivity().finish();
+                                finishPage();
                             }
-                        });
+                        },
+                        /* titleResId= */ R.string.autofill_credit_card_delete_confirmation_title);
         dialog.show();
     }
 }

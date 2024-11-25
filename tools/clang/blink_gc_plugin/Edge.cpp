@@ -15,6 +15,9 @@ bool Collection::NeedsFinalization() { return info_->NeedsFinalization(); }
 bool Collection::IsSTDCollection() {
   return Config::IsSTDCollection(info_->name());
 }
+std::string Collection::GetCollectionName() const {
+  return info_->name();
+}
 
 TracingStatus Collection::NeedsTracing(NeedsTracingOption) {
   if (on_heap_) {
@@ -23,7 +26,7 @@ TracingStatus Collection::NeedsTracing(NeedsTracingOption) {
 
   // This will be handled by matchers.
   if (IsSTDCollection()) {
-    if ((info_->name() == "array") && !members_.empty()) {
+    if ((GetCollectionName() == "array") && !members_.empty()) {
       Edge* type = members_.at(0);
       if (type->IsMember() || type->IsWeakMember() ||
           type->IsTraceWrapperV8Reference()) {

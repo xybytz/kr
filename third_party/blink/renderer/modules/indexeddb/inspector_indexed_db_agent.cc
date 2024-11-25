@@ -65,7 +65,6 @@
 #include "third_party/blink/renderer/modules/indexeddb/idb_open_db_request.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_request.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_transaction.h"
-#include "third_party/blink/renderer/modules/indexeddb/web_idb_cursor.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
@@ -109,18 +108,16 @@ base::expected<LocalFrame*, protocol::Response> ResolveFrame(
     const protocol::Maybe<String>& security_origin,
     const protocol::Maybe<String>& storage_key,
     protocol::Maybe<protocol::Storage::StorageBucket>& storage_bucket) {
-  if (security_origin.has_value() + storage_key.has_value() +
-          storage_bucket.has_value() !=
-      1) {
+  if (!!security_origin + !!storage_key + !!storage_bucket != 1) {
     return base::unexpected(protocol::Response::InvalidParams(
         "At least and at most one of security_origin, "
         "storage_key, and storage_bucket must be specified."));
   }
   LocalFrame* frame;
-  if (storage_bucket.has_value()) {
+  if (storage_bucket) {
     frame =
         inspected_frames->FrameWithStorageKey(storage_bucket->getStorageKey());
-  } else if (storage_key.has_value()) {
+  } else if (storage_key) {
     frame = inspected_frames->FrameWithStorageKey(storage_key.value());
   } else {
     frame = inspected_frames->FrameWithSecurityOrigin(security_origin.value());
@@ -158,7 +155,7 @@ class ExecutableWithIdbFactory
  private:
   void SetUp(LocalFrame* frame,
              protocol::Maybe<protocol::Storage::StorageBucket> storage_bucket) {
-    if (storage_bucket.has_value() && storage_bucket->hasName()) {
+    if (storage_bucket && storage_bucket->hasName()) {
       GetBucketIDBFactory(frame, storage_bucket->getName(""));
     } else {
       GetDefaultIDBFactory(frame);
@@ -211,7 +208,7 @@ void OnGotDatabaseNames(
     std::unique_ptr<RequestDatabaseNamesCallback> request_callback,
     Vector<mojom::blink::IDBNameAndVersionPtr> names_and_versions,
     mojom::blink::IDBErrorPtr error) {
-  if (error) {
+  if (error->error_code != mojom::blink::IDBException::kNoError) {
     request_callback->sendFailure(
         protocol::Response::ServerError("Could not obtain database names."));
     return;
@@ -415,10 +412,15 @@ IDBTransaction* TransactionForDatabase(
   DummyExceptionStateForTesting exception_state;
   V8UnionStringOrStringSequence* scope =
       MakeGarbageCollected<V8UnionStringOrStringSequence>(object_store_name);
-  IDBTransactionOptions options;
-  options.setDurability("relaxed");
+  IDBTransactionOptions* options =
+      MakeGarbageCollected<IDBTransactionOptions>();
+  options->setDurability("relaxed");
+  auto v8_mode = V8IDBTransactionMode::Create(mode);
+  if (!v8_mode) {
+    return nullptr;
+  }
   IDBTransaction* idb_transaction = idb_database->transaction(
-      script_state, scope, mode, &options, exception_state);
+      script_state, scope, v8_mode.value(), options, exception_state);
   if (exception_state.HadException()) {
     return nullptr;
   }
@@ -716,7 +718,7 @@ class OpenCursorCallback final : public NativeEventListener {
   }
 
  private:
-  raw_ptr<v8_inspector::V8InspectorSession, ExperimentalRenderer> v8_session_;
+  raw_ptr<v8_inspector::V8InspectorSession> v8_session_;
   Member<ScriptState> script_state_;
   std::unique_ptr<RequestDataCallback> request_callback_;
   int skip_count_;
@@ -797,7 +799,7 @@ class DataLoader final : public ExecutableWithDatabase<RequestDataCallback> {
         skip_count_(skip_count),
         page_size_(page_size) {}
 
-  raw_ptr<v8_inspector::V8InspectorSession, ExperimentalRenderer> v8_session_;
+  raw_ptr<v8_inspector::V8InspectorSession> v8_session_;
   std::unique_ptr<RequestDataCallback> request_callback_;
   String object_store_name_;
   String index_name_;
@@ -908,10 +910,9 @@ void InspectorIndexedDBAgent::requestData(
     int page_size,
     Maybe<protocol::IndexedDB::KeyRange> key_range,
     std::unique_ptr<RequestDataCallback> request_callback) {
-  IDBKeyRange* idb_key_range = key_range.has_value()
-                                   ? IdbKeyRangeFromKeyRange(&key_range.value())
-                                   : nullptr;
-  if (key_range.has_value() && !idb_key_range) {
+  IDBKeyRange* idb_key_range =
+      key_range ? IdbKeyRangeFromKeyRange(&*key_range) : nullptr;
+  if (key_range && !idb_key_range) {
     request_callback->sendFailure(
         protocol::Response::ServerError("Can not parse key range."));
     return;
@@ -959,7 +960,7 @@ class GetMetadataListener final : public NativeEventListener {
   void NotifySubtaskDone(scoped_refptr<GetMetadata> owner,
                          const String& error) const;
   scoped_refptr<GetMetadata> owner_;
-  raw_ptr<int64_t, ExperimentalRenderer> result_;
+  raw_ptr<int64_t> result_;
 };
 
 class GetMetadata final : public ExecutableWithDatabase<GetMetadataCallback> {

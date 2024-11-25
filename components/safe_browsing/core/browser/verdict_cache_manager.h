@@ -5,6 +5,12 @@
 #ifndef COMPONENTS_SAFE_BROWSING_CORE_BROWSER_VERDICT_CACHE_MANAGER_H_
 #define COMPONENTS_SAFE_BROWSING_CORE_BROWSER_VERDICT_CACHE_MANAGER_H_
 
+#include <memory>
+#include <set>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 #include "base/gtest_prod_util.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
@@ -115,8 +121,8 @@ class VerdictCacheManager : public history::HistoryServiceObserver,
       const std::set<std::string>& hash_prefixes);
 
   // Overridden from history::HistoryServiceObserver.
-  void OnURLsDeleted(history::HistoryService* history_service,
-                     const history::DeletionInfo& deletion_info) override;
+  void OnHistoryDeletions(history::HistoryService* history_service,
+                          const history::DeletionInfo& deletion_info) override;
 
   void HistoryServiceBeingDeleted(
       history::HistoryService* history_service) override;
@@ -134,6 +140,7 @@ class VerdictCacheManager : public history::HistoryServiceObserver,
 
  private:
   friend class ::SafeBrowsingServiceTest;
+  friend class SafeBrowsingBlockingPageAsyncChecksTestBase;
   friend class SafeBrowsingBlockingPageRealTimeUrlCheckTest;
   friend class SafeBrowsingBlockingPageHashRealTimeCheckTest;
   friend class VerdictCacheManagerTest;
@@ -199,6 +206,12 @@ class VerdictCacheManager : public history::HistoryServiceObserver,
   void CacheArtificialUnsafeRealTimeUrlVerdictFromSwitch();
 
   // This adds a cached verdict for a URL that has artificially been marked as
+  // safe or unsafe (depending on |is_unsafe|). This applies to URL real-time
+  // lookups.
+  void CacheArtificialRealTimeUrlVerdict(const std::string& url_string,
+                                         bool is_unsafe);
+
+  // This adds a cached verdict for a URL that has artificially been marked as
   // unsafe using the command line flag "mark_as_phish_guard_phishing". This
   // applies to Phishguard pings.
   void CacheArtificialUnsafePhishGuardVerdictFromSwitch();
@@ -222,14 +235,14 @@ class VerdictCacheManager : public history::HistoryServiceObserver,
   static void ResetHasArtificialCachedUrlForTesting();
 
   // Number of verdict stored for this profile for password on focus pings.
-  absl::optional<size_t> stored_verdict_count_password_on_focus_;
+  std::optional<size_t> stored_verdict_count_password_on_focus_;
 
   // Number of verdict stored for this profile for protected password entry
   // pings.
-  absl::optional<size_t> stored_verdict_count_password_entry_;
+  std::optional<size_t> stored_verdict_count_password_entry_;
 
   // Number of verdict stored for this profile for real time url check pings.
-  absl::optional<size_t> stored_verdict_count_real_time_url_check_;
+  std::optional<size_t> stored_verdict_count_real_time_url_check_;
 
   // A map of page load tokens, keyed by the hostname.
   base::flat_map<std::string, ChromeUserPopulation::PageLoadToken>

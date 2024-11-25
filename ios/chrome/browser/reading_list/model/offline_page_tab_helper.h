@@ -8,8 +8,9 @@
 #include <memory>
 #include <string>
 
-#include "components/reading_list/core/reading_list_model_observer.h"
-#include "ios/web/public/web_state_observer.h"
+#import "base/memory/raw_ptr.h"
+#import "components/reading_list/core/reading_list_model_observer.h"
+#import "ios/web/public/web_state_observer.h"
 #import "ios/web/public/web_state_user_data.h"
 
 namespace base {
@@ -86,7 +87,7 @@ class OfflinePageTabHelper : public web::WebStateUserData<OfflinePageTabHelper>,
   // pending navigation was not yet committed, it returns immediately and is
   // noop. In these conditions, the offline page will be presented on navigation
   // commit.
-  // TODO(crbug.com/936773): handle uncommitted navigations.
+  // TODO(crbug.com/40615979): handle uncommitted navigations.
   void PresentOfflinePageForOnlineUrl(const GURL& url);
 
   // Starts repeating `timer_` which will fire `CheckLoadingProgress` method.
@@ -113,8 +114,8 @@ class OfflinePageTabHelper : public web::WebStateUserData<OfflinePageTabHelper>,
   // Injects some JS to replace the current page with `url` and reload the page.
   void ReplaceLocationUrlAndReload(const GURL& url);
 
-  web::WebState* web_state_ = nullptr;
-  ReadingListModel* reading_list_model_ = nullptr;
+  raw_ptr<web::WebState> web_state_ = nullptr;
+  raw_ptr<ReadingListModel> reading_list_model_ = nullptr;
 
   // The initial URL of the navigation. This URL will not follow the
   // redirections so it may be different from GetLastCommittedURL.

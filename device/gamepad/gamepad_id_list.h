@@ -115,6 +115,7 @@ enum class GamepadId : uint32_t {
   kSonyProduct0ba0 = 0x054c0ba0,
   kSonyProduct0ce6 = 0x054c0ce6,
   kSonyProduct0df2 = 0x054c0df2,
+  kSonyProduct0e5f = 0x054c0e5f,
   kSteelSeriesBtProduct1419 = 0x01111419,
   kSteelSeriesBtProduct1431 = 0x01111431,
   kSteelSeriesBtProduct1434 = 0x01111434,
@@ -148,13 +149,17 @@ class DEVICE_GAMEPAD_EXPORT GamepadIdList {
   // device is not XInput or the XInput flavor is unknown.
   XInputType GetXInputType(uint16_t vendor_id, uint16_t product_id) const;
 
+  // Returns true if the gamepad device identified by |gamepad_id| has haptic
+  // actuators on its triggers. Returns false otherwise.
+  bool HasTriggerRumbleSupport(GamepadId gamepad_id) const;
+
   // Returns the internal list of gamepad info for testing purposes.
   std::vector<std::tuple<uint16_t, uint16_t, XInputType>>
   GetGamepadListForTesting() const;
 
  private:
   friend base::LazyInstanceTraitsBase<GamepadIdList>;
-  GamepadIdList();
+  GamepadIdList() = default;
 };
 
 }  // namespace device

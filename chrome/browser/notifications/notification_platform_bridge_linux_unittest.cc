@@ -37,6 +37,7 @@ using message_center::Notification;
 using message_center::SettingsButtonHandler;
 using testing::_;
 using testing::ByMove;
+using testing::Invoke;
 using testing::Return;
 using testing::StrictMock;
 
@@ -64,7 +65,7 @@ class NotificationBuilder {
   Notification GetResult() { return notification_; }
 
   NotificationBuilder& SetImage(const gfx::Image& image) {
-    notification_.set_image(image);
+    notification_.SetImage(image);
     return *this;
   }
 
@@ -362,12 +363,17 @@ class NotificationPlatformBridgeLinuxTest : public BrowserWithTestWindowTest {
                                dbus::ObjectPath(kFreedesktopNotificationsPath)))
         .WillOnce(Return(mock_notification_proxy_.get()));
 
-    auto name_has_owner_response = dbus::Response::CreateEmpty();
-    dbus::MessageWriter name_has_owner_writer(name_has_owner_response.get());
-    name_has_owner_writer.AppendBool(test_params.name_has_owner);
     EXPECT_CALL(*mock_dbus_proxy_.get(),
-                CallMethodAndBlock(Calls("NameHasOwner"), _))
-        .WillOnce(Return(ByMove(std::move(name_has_owner_response))));
+                DoCallMethod(Calls("NameHasOwner"), _, _))
+        .WillOnce(Invoke([name_has_owner = test_params.name_has_owner](
+                             dbus::MethodCall* method_call, int timeout_ms,
+                             dbus::ObjectProxy::ResponseCallback* callback) {
+          auto name_has_owner_response = dbus::Response::CreateEmpty();
+          dbus::MessageWriter name_has_owner_writer(
+              name_has_owner_response.get());
+          name_has_owner_writer.AppendBool(name_has_owner);
+          std::move(*callback).Run(name_has_owner_response.get());
+        }));
 
     auto capabilities_response = dbus::Response::CreateEmpty();
     dbus::MessageWriter capabilities_writer(capabilities_response.get());
@@ -594,8 +600,7 @@ TEST_F(NotificationPlatformBridgeLinuxTest, NotificationImages) {
             EXPECT_TRUE(base::ReadFileToString(base::FilePath(file_name),
                                                &file_contents));
             gfx::Image image = gfx::Image::CreateFrom1xPNGBytes(
-                reinterpret_cast<const unsigned char*>(file_contents.c_str()),
-                file_contents.size());
+                base::as_byte_span(file_contents));
             EXPECT_EQ(expected_width, image.Width());
             EXPECT_EQ(expected_height, image.Height());
           },

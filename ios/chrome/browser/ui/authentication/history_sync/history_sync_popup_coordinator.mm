@@ -6,10 +6,11 @@
 
 #import <UIKit/UIKit.h>
 
+#import "base/memory/raw_ptr.h"
 #import "base/metrics/user_metrics.h"
 #import "components/signin/public/base/signin_metrics.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/signin/model/authentication_service.h"
 #import "ios/chrome/browser/signin/model/authentication_service_factory.h"
 #import "ios/chrome/browser/sync/model/sync_service_factory.h"
@@ -23,7 +24,7 @@
 
 @implementation HistorySyncPopupCoordinator {
   // Authentication service.
-  AuthenticationService* _authenticationService;
+  raw_ptr<AuthenticationService> _authenticationService;
   // Coordinator to display the tangible sync view.
   HistorySyncCoordinator* _historySyncCoordinator;
   // Navigation controller created for the popup.
@@ -62,17 +63,15 @@
 
 - (void)start {
   [super start];
-  ChromeBrowserState* browserState = self.browser->GetBrowserState();
-  CHECK_EQ(browserState, browserState->GetOriginalChromeBrowserState());
-  _authenticationService =
-      AuthenticationServiceFactory::GetForBrowserState(browserState);
-  syncer::SyncService* syncService =
-      SyncServiceFactory::GetForBrowserState(browserState);
+  ProfileIOS* profile = self.browser->GetProfile();
+  CHECK_EQ(profile, profile->GetOriginalProfile());
+  _authenticationService = AuthenticationServiceFactory::GetForProfile(profile);
+  syncer::SyncService* syncService = SyncServiceFactory::GetForProfile(profile);
   // Check if History Sync Opt-In should be skipped.
   HistorySyncSkipReason skipReason = [HistorySyncCoordinator
       getHistorySyncOptInSkipReason:syncService
               authenticationService:_authenticationService
-                        prefService:browserState->GetPrefs()
+                        prefService:profile->GetPrefs()
               isHistorySyncOptional:_isOptional];
   if (skipReason != HistorySyncSkipReason::kNone) {
     [HistorySyncCoordinator recordHistorySyncSkipMetric:skipReason
@@ -103,7 +102,7 @@
 }
 
 - (void)dealloc {
-  // TODO(crbug.com/1454777)
+  // TODO(crbug.com/40272467)
   DUMP_WILL_BE_CHECK(!_historySyncCoordinator);
 }
 
@@ -205,7 +204,7 @@
       stringWithFormat:
           @"<%@: %p, authenticationService: %p, historySyncCoordinator: %@, "
           @"presented: %@, accessPoint: %d>",
-          self.class.description, self, _authenticationService,
+          self.class.description, self, _authenticationService.get(),
           _historySyncCoordinator,
           ViewControllerPresentationStatusDescription(_navigationController),
           static_cast<int>(_accessPoint)];

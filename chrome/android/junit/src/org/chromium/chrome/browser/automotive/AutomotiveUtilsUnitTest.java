@@ -10,6 +10,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
 
 import android.app.Activity;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 
 import androidx.test.ext.junit.rules.ActivityScenarioRule;
@@ -22,10 +23,8 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.chrome.R;
 import org.chromium.chrome.test.AutomotiveContextWrapperTestRule;
 import org.chromium.components.browser_ui.util.AutomotiveUtils;
-import org.chromium.components.browser_ui.util.BrowserUiUtilsCachedFlags;
 import org.chromium.ui.base.TestActivity;
 
 /** Tests logic in the {@link AutomotiveUtils} class. */
@@ -42,6 +41,8 @@ public class AutomotiveUtilsUnitTest {
 
     @Mock private Resources mResources;
 
+    @Mock private Configuration mConfiguration;
+
     @Before
     public void setup() {
         MockitoAnnotations.initMocks(this);
@@ -50,15 +51,15 @@ public class AutomotiveUtilsUnitTest {
     @Test
     public void testGetHorizontalAutomotiveToolbarHeightDp() {
         mAutomotiveContextWrapperTestRule.setIsAutomotive(true);
+        AutomotiveUtils.forceHorizontalAutomotiveToolbarForTesting(true);
         mActivityScenarioRule
                 .getScenario()
                 .onActivity(
                         activity -> {
                             Activity spyActivity = spy(activity);
                             doReturn(mResources).when(spyActivity).getResources();
-                            doReturn(false)
-                                    .when(mResources)
-                                    .getBoolean(R.bool.use_vertical_automotive_back_button_toolbar);
+                            doReturn(mConfiguration).when(mResources).getConfiguration();
+                            mConfiguration.orientation = Configuration.ORIENTATION_PORTRAIT;
                             int horizontalAutomotiveToolbarHeightDp =
                                     AutomotiveUtils.getHorizontalAutomotiveToolbarHeightDp(
                                             spyActivity);
@@ -75,9 +76,8 @@ public class AutomotiveUtilsUnitTest {
                         activity -> {
                             Activity spyActivity = spy(activity);
                             doReturn(mResources).when(spyActivity).getResources();
-                            doReturn(false)
-                                    .when(mResources)
-                                    .getBoolean(R.bool.use_vertical_automotive_back_button_toolbar);
+                            doReturn(mConfiguration).when(mResources).getConfiguration();
+                            mConfiguration.orientation = Configuration.ORIENTATION_PORTRAIT;
                             int horizontalAutomotiveToolbarHeightDp =
                                     AutomotiveUtils.getHorizontalAutomotiveToolbarHeightDp(
                                             spyActivity);
@@ -92,16 +92,14 @@ public class AutomotiveUtilsUnitTest {
     @Test
     public void testGetVerticalAutomotiveToolbarWidthDp() {
         mAutomotiveContextWrapperTestRule.setIsAutomotive(true);
-        BrowserUiUtilsCachedFlags.getInstance().setVerticalAutomotiveBackButtonToolbarFlag(true);
         mActivityScenarioRule
                 .getScenario()
                 .onActivity(
                         activity -> {
                             Activity spyActivity = spy(activity);
                             doReturn(mResources).when(spyActivity).getResources();
-                            doReturn(true)
-                                    .when(mResources)
-                                    .getBoolean(R.bool.use_vertical_automotive_back_button_toolbar);
+                            doReturn(mConfiguration).when(mResources).getConfiguration();
+                            mConfiguration.orientation = Configuration.ORIENTATION_LANDSCAPE;
                             int verticalAutomotiveToolbarWidthDp =
                                     AutomotiveUtils.getVerticalAutomotiveToolbarWidthDp(
                                             spyActivity);
@@ -117,9 +115,8 @@ public class AutomotiveUtilsUnitTest {
                         activity -> {
                             Activity spyActivity = spy(activity);
                             doReturn(mResources).when(spyActivity).getResources();
-                            doReturn(true)
-                                    .when(mResources)
-                                    .getBoolean(R.bool.use_vertical_automotive_back_button_toolbar);
+                            doReturn(mConfiguration).when(mResources).getConfiguration();
+                            mConfiguration.orientation = Configuration.ORIENTATION_LANDSCAPE;
                             int verticalAutomotiveToolbarWidthDp =
                                     AutomotiveUtils.getVerticalAutomotiveToolbarWidthDp(
                                             spyActivity);

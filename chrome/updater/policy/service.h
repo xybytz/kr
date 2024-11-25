@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/flat_map.h"
 #include "base/functional/callback_forward.h"
 #include "base/functional/callback_helpers.h"
 #include "base/memory/ref_counted.h"
@@ -18,6 +19,7 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/updater/external_constants.h"
+#include "chrome/updater/persisted_data.h"
 #include "chrome/updater/policy/manager.h"
 
 namespace updater {
@@ -82,32 +84,38 @@ class PolicyStatus {
 // This class is sequence affine and its instance is bound to the main sequence.
 class PolicyService : public base::RefCountedThreadSafe<PolicyService> {
  public:
-  using PolicyManagerVector =
-      std::vector<scoped_refptr<PolicyManagerInterface>>;
-  using PolicyManagerNameMap =
-      base::flat_map<std::string, scoped_refptr<PolicyManagerInterface>>;
   struct PolicyManagers {
-    PolicyManagers(PolicyManagerVector manager_vector,
-                   PolicyManagerNameMap manager_name_map);
+    PolicyManagers(
+        std::vector<scoped_refptr<PolicyManagerInterface>> managers,
+        base::flat_map<std::string, scoped_refptr<PolicyManagerInterface>>
+            manager_names);
     ~PolicyManagers();
 
-    PolicyManagerVector vector;
-    PolicyManagerNameMap name_map;
+    std::vector<scoped_refptr<PolicyManagerInterface>> managers;
+    base::flat_map<std::string, scoped_refptr<PolicyManagerInterface>>
+        manager_names;
   };
 
-  explicit PolicyService(PolicyManagerVector managers);
-  explicit PolicyService(scoped_refptr<ExternalConstants> external_constants);
+  PolicyService(std::vector<scoped_refptr<PolicyManagerInterface>> managers,
+                scoped_refptr<PersistedData> persisted_data);
+  PolicyService(scoped_refptr<ExternalConstants> external_constants,
+                scoped_refptr<PersistedData> persisted_data,
+                bool is_ceca_experiment_enabled);
   PolicyService(const PolicyService&) = delete;
   PolicyService& operator=(const PolicyService&) = delete;
 
   // Fetches policies from device management and updates the PolicyService
   // instance. `callback` is passed a result that is `kErrorOk` on success,
   // `kErrorDMRegistrationFailed` if DM registration fails, or any other error.
+  // While a call to FetchPolicies is outstanding (i.e. has not invoked the
+  // callback), concurrent calls to FetchPolicies will reuse the results of the
+  // outstanding request.
   void FetchPolicies(base::OnceCallback<void(int)> callback);
 
   std::string source() const;
 
   // These methods call and aggregate the results from the policy managers.
+  PolicyStatus<bool> CloudPolicyOverridesPlatformPolicy() const;
   PolicyStatus<base::TimeDelta> GetLastCheckPeriod() const;
   PolicyStatus<UpdatesSuppressedTimes> GetUpdatesSuppressedTimes() const;
   PolicyStatus<std::string> GetDownloadPreference() const;
@@ -132,7 +140,14 @@ class PolicyService : public base::RefCountedThreadSafe<PolicyService> {
   // Helper methods.
   base::Value GetAllPolicies() const;
   std::string GetAllPoliciesAsString() const;
-  bool AreUpdatesSuppressedNow(const base::Time& now = base::Time::Now()) const;
+  bool AreUpdatesSuppressedNow(base::Time now = base::Time::Now()) const;
+
+  // Returns whether the Chrome Enterprise Companion App experiment is enabled.
+  bool IsCecaExperimentEnabled() const { return is_ceca_experiment_enabled_; }
+
+  // Queries whether the machine appears to be cloud managed by Chrome
+  // Enterprise Core (formerly Chrome Enterprise Cloud Management).
+  void IsCloudManaged(base::OnceCallback<void(bool)> callback) const;
 
  protected:
   virtual ~PolicyService();
@@ -149,15 +164,22 @@ class PolicyService : public base::RefCountedThreadSafe<PolicyService> {
 
   SEQUENCE_CHECKER(sequence_checker_);
 
+  void DoFetchPolicies(base::OnceCallback<void(int)> callback,
+                       bool has_enrollment_token);
+
   // Called when `FetchPolicies` has completed. If `dm_policy_manager` is valid,
   // the policy managers within the policy service are reloaded/reset with the
   // provided DM policy manager. The DM policy manager is preloaded separately
-  // in a blocking sequence since it needs to do I/O to load policies.
+  // in a blocking sequence since it needs to do I/O to load policies, and then
+  // PolicyManagerLoaded is called.
   void FetchPoliciesDone(
       scoped_refptr<PolicyFetcher> fetcher,
-      base::OnceCallback<void(int)> callback,
       int result,
       scoped_refptr<PolicyManagerInterface> dm_policy_manager);
+
+  void PolicyManagerLoaded(
+      int result,
+      std::vector<scoped_refptr<PolicyManagerInterface>> managers);
 
   // List of policy providers in descending order of priority. All managed
   // providers should be ahead of non-managed providers.
@@ -185,6 +207,10 @@ class PolicyService : public base::RefCountedThreadSafe<PolicyService> {
       const std::string& app_id) const;
 
   std::set<std::string> GetAppsWithPolicy() const;
+
+  base::OnceCallback<void(int)> fetch_policies_callback_;
+  scoped_refptr<PersistedData> persisted_data_;
+  const bool is_ceca_experiment_enabled_;
 };
 
 // Decouples the proxy configuration from `PolicyService`.
@@ -192,18 +218,22 @@ struct PolicyServiceProxyConfiguration {
   PolicyServiceProxyConfiguration();
   ~PolicyServiceProxyConfiguration();
   PolicyServiceProxyConfiguration(const PolicyServiceProxyConfiguration&);
+  PolicyServiceProxyConfiguration(PolicyServiceProxyConfiguration&&);
   PolicyServiceProxyConfiguration& operator=(
       const PolicyServiceProxyConfiguration&);
-
+  PolicyServiceProxyConfiguration& operator=(PolicyServiceProxyConfiguration&&);
   static std::optional<PolicyServiceProxyConfiguration> Get(
       scoped_refptr<PolicyService> policy_service);
 
-  std::optional<bool> proxy_auto_detect;
+  // Note `Get()` returns a nullopt when there's no proxy policies. Otherwise
+  // `proxy_auto_detect` must have a value, and is only set to true when the
+  // policy chooses "auto-detect".
+  bool proxy_auto_detect = false;
   std::optional<std::string> proxy_pac_url;
   std::optional<std::string> proxy_url;
 };
 
-PolicyService::PolicyManagerVector CreatePolicyManagerVector(
+std::vector<scoped_refptr<PolicyManagerInterface>> CreateManagers(
     bool should_take_policy_critical_section,
     scoped_refptr<ExternalConstants> external_constants,
     scoped_refptr<PolicyManagerInterface> dm_policy_manager);

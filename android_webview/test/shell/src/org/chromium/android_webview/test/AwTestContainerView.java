@@ -77,7 +77,7 @@ public class AwTestContainerView extends FrameLayout {
         AwDrawFnImpl.setDrawFnFunctionTable(ContextManager.getDrawFnFunctionTable(useVulkan));
     }
 
-    private class HardwareView extends SurfaceView implements SurfaceHolder.Callback {
+    private static class HardwareView extends SurfaceView implements SurfaceHolder.Callback {
         // Only accessed on UI thread.
         private int mWidth;
         private int mHeight;
@@ -316,11 +316,7 @@ public class AwTestContainerView extends FrameLayout {
     @Override
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
-        if (mHardwareView == null || mHardwareView.isReadyToRender()) {
-            attachedContentsInternal();
-        } else {
-            mHardwareView.setReadyToRenderCallback(() -> attachedContentsInternal());
-        }
+        attachedContentsInternal();
     }
 
     @Override

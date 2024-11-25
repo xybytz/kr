@@ -114,7 +114,6 @@ void StartupPagesHandler::HandleAddStartupPage(const base::Value::List& args) {
 
   if (!args[1].is_string()) {
     NOTREACHED();
-    return;
   }
 
   std::string url_string = args[1].GetString();
@@ -140,7 +139,6 @@ void StartupPagesHandler::HandleEditStartupPage(const base::Value::List& args) {
                        startup_custom_pages_table_model_.RowCount()) {
     RejectJavascriptCallback(callback_id, base::Value());
     NOTREACHED();
-    return;
   }
 
   std::string url_string = args[2].GetString();
@@ -167,14 +165,12 @@ void StartupPagesHandler::HandleRemoveStartupPage(
   CHECK_EQ(args.size(), 1u);
   if (!args[0].is_int()) {
     NOTREACHED();
-    return;
   }
   int selected_index = args[0].GetInt();
 
   if (selected_index < 0 || static_cast<size_t>(selected_index) >=
                                 startup_custom_pages_table_model_.RowCount()) {
     NOTREACHED();
-    return;
   }
 
   startup_custom_pages_table_model_.Remove(selected_index);

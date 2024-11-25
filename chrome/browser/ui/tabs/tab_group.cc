@@ -33,19 +33,27 @@ TabGroup::TabGroup(TabGroupController* controller,
 
 TabGroup::~TabGroup() = default;
 
-void TabGroup::SetVisualData(const tab_groups::TabGroupVisualData& visual_data,
+void TabGroup::SetVisualData(tab_groups::TabGroupVisualData visual_data,
                              bool is_customized) {
+  // Move current visuals to old_visuals before updating
   std::unique_ptr<tab_groups::TabGroupVisualData> old_visuals =
       std::move(visual_data_);
   TabGroupChange::VisualsChange visuals;
   visuals.old_visuals = old_visuals.get();
   visuals.new_visuals = &visual_data;
+
   visual_data_ = std::make_unique<tab_groups::TabGroupVisualData>(visual_data);
 
   // Once the visual data is customized, it should stay customized.
   is_customized_ |= is_customized;
 
+  // Notify the controller of the visual change
   controller_->ChangeTabGroupVisuals(id_, visuals);
+  RunTabGroupVisualsChangedCallback();
+}
+
+void TabGroup::SetGroupIsClosing(bool is_closing) {
+  is_closing_ = is_closing;
 }
 
 std::u16string TabGroup::GetContentString() const {
@@ -69,6 +77,8 @@ void TabGroup::AddTab() {
   }
   controller_->ChangeTabGroupContents(id_);
   ++tab_count_;
+
+  RunTabGroupVisualsChangedCallback();
 }
 
 void TabGroup::RemoveTab() {
@@ -78,6 +88,8 @@ void TabGroup::RemoveTab() {
     controller_->CloseTabGroup(id_);
   else
     controller_->ChangeTabGroupContents(id_);
+
+  RunTabGroupVisualsChangedCallback();
 }
 
 bool TabGroup::IsEmpty() const {
@@ -118,9 +130,21 @@ gfx::Range TabGroup::ListTabs() const {
   // If DCHECKs are enabled, check for group contiguity. The result
   // doesn't really make sense if the group is discontiguous.
   if (DCHECK_IS_ON()) {
-    for (int i = first_tab; i <= last_tab; ++i)
+    for (int i = first_tab; i <= last_tab; ++i) {
       DCHECK(controller_->GetTabGroupForTab(i) == id_);
+    }
   }
 
   return gfx::Range(first_tab, last_tab + 1);
+}
+
+void TabGroup::SetTabGroupVisualsChangedCallback(
+    TabGroupVisualsChangedCallback callback) {
+  tab_group_visuals_changed_ = std::move(callback);
+}
+
+void TabGroup::RunTabGroupVisualsChangedCallback() {
+  if (tab_group_visuals_changed_) {
+    tab_group_visuals_changed_.Run();
+  }
 }

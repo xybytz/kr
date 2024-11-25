@@ -29,6 +29,7 @@
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/vector_icon_types.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/label.h"
 
 namespace ash {
@@ -108,8 +109,9 @@ const std::u16string GetDeviceBatteryA11yText(
           if (!battery_properties) {
             return;
           }
-          if (!battery_text.empty())
+          if (!battery_text.empty()) {
             battery_text = base::StrCat({battery_text, u" "});
+          }
           battery_text = base::StrCat(
               {battery_text,
                l10n_util::GetStringFUTF16(
@@ -254,10 +256,11 @@ void BluetoothDeviceListItemView::UpdateAccessibleName(
   const std::u16string battery_text = GetDeviceBatteryA11yText(
       device_properties_->device_properties->battery_info);
 
-  if (!battery_text.empty())
+  if (!battery_text.empty()) {
     a11y_text = base::StrCat({a11y_text, u" ", battery_text});
+  }
 
-  SetAccessibleName(a11y_text);
+  GetViewAccessibility().SetName(a11y_text);
 }
 
 void BluetoothDeviceListItemView::UpdateBatteryInfo(
@@ -333,7 +336,7 @@ void BluetoothDeviceListItemView::UpdateSingleBatteryView(
       IDS_ASH_STATUS_TRAY_BLUETOOTH_DEVICE_BATTERY_PERCENTAGE_ONLY_LABEL);
 }
 
-BEGIN_METADATA(BluetoothDeviceListItemView, HoverHighlightView)
+BEGIN_METADATA(BluetoothDeviceListItemView)
 END_METADATA
 
 }  // namespace ash

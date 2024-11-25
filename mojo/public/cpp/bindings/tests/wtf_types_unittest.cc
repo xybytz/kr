@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
@@ -106,7 +111,7 @@ void ExpectStringMap(
 
 }  // namespace
 
-TEST_F(WTFTypesTest, Serialization_WTFVectorToWTFVector) {
+TEST_F(WTFTypesTest, SerializationWTFVectorToWTFVector) {
   using MojomType = ArrayDataView<StringDataView>;
 
   WTF::Vector<WTF::String> strs = ConstructStringArray();
@@ -127,7 +132,7 @@ TEST_F(WTFTypesTest, Serialization_WTFVectorToWTFVector) {
   EXPECT_EQ(strs, strs2);
 }
 
-TEST_F(WTFTypesTest, Serialization_WTFVectorInlineCapacity) {
+TEST_F(WTFTypesTest, SerializationWTFVectorInlineCapacity) {
   using MojomType = ArrayDataView<StringDataView>;
 
   WTF::Vector<WTF::String, 1> strs(4);
@@ -153,7 +158,7 @@ TEST_F(WTFTypesTest, Serialization_WTFVectorInlineCapacity) {
   EXPECT_EQ(strs, strs2);
 }
 
-TEST_F(WTFTypesTest, Serialization_WTFVectorToStlVector) {
+TEST_F(WTFTypesTest, SerializationWTFVectorToStlVector) {
   using MojomType = ArrayDataView<StringDataView>;
 
   WTF::Vector<WTF::String> strs = ConstructStringArray();
@@ -178,7 +183,7 @@ TEST_F(WTFTypesTest, Serialization_WTFVectorToStlVector) {
   EXPECT_EQ(kUTF8HelloWorld, *strs2[3]);
 }
 
-TEST_F(WTFTypesTest, Serialization_PublicAPI) {
+TEST_F(WTFTypesTest, SerializationPublicAPI) {
   blink::TestWTFStructPtr input(blink::TestWTFStruct::New(kHelloWorld, 42));
 
   blink::TestWTFStructPtr cloned_input = input.Clone();
@@ -265,7 +270,7 @@ TEST_F(WTFTypesTest, SendStringMap) {
   }
 }
 
-TEST_F(WTFTypesTest, NestedStruct_CloneAndEquals) {
+TEST_F(WTFTypesTest, NestedStructCloneAndEquals) {
   auto a = blink::TestWTFStructWrapper::New();
   a->nested_struct = blink::TestWTFStruct::New("foo", 1);
   a->array_struct.push_back(blink::TestWTFStruct::New("bar", 2));

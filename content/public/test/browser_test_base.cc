@@ -23,6 +23,7 @@
 #include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/path_service.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
@@ -129,7 +130,7 @@
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "base/files/scoped_file.h"
 #include "chromeos/crosapi/cpp/crosapi_constants.h"  // nogncheck
-#include "chromeos/lacros/lacros_test_helper.h"
+#include "chromeos/startup/browser_params_proxy.h"
 #include "chromeos/startup/startup_switches.h"  // nogncheck
 #include "mojo/public/cpp/platform/socket_utils_posix.h"
 #endif
@@ -140,6 +141,8 @@
 #endif  // BUILDFLAG(IS_FUCHSIA)
 
 #if BUILDFLAG(IS_WIN)
+#include <shlobj.h>
+
 #include "base/files/file_util.h"
 #include "base/test/test_reg_util_win.h"
 #endif  // BUILDFLAG(IS_WIN)
@@ -292,7 +295,11 @@ BrowserTestBase::BrowserTestBase() {
   // Even if running as admin, browser tests should not write temp files to
   // secure temp, otherwise any left-over files cannot be cleaned up by the test
   // runner.
-  base::SetDisableSecureSystemTempForTesting(/*disabled=*/true);
+  if (::IsUserAnAdmin()) {
+    system_temp_override_.emplace(base::DIR_SYSTEM_TEMP,
+                                  base::PathService::CheckedGet(base::DIR_TEMP),
+                                  /*is_absolute=*/true, /*create=*/false);
+  }
 #endif  // BUILDFLAG(IS_WIN)
 
 #if defined(USE_AURA)
@@ -306,6 +313,11 @@ BrowserTestBase::BrowserTestBase() {
 }
 
 BrowserTestBase::~BrowserTestBase() {
+#if BUILDFLAG(IS_ANDROID)
+  // DiscardableSharedMemoryManager destruction can block the current thread.
+  base::ScopedAllowBaseSyncPrimitivesForTesting allow_wait;
+  discardable_shared_memory_manager_.reset();
+#endif
   CHECK(set_up_called_ || IsSkipped() || HasFatalFailure())
       << "SetUp was not called. This probably means that the "
          "developer has overridden the method and not called "
@@ -435,7 +447,7 @@ void BrowserTestBase::SetUp() {
 
 #if BUILDFLAG(IS_FUCHSIA)
   // GPU support is not available to tests.
-  // TODO(crbug.com/1259462): Enable GPU support.
+  // TODO(crbug.com/40797662): Enable GPU support.
   command_line->AppendSwitch(switches::kDisableGpu);
 
   ui::fuchsia::IgnorePresentCallsForTest();
@@ -455,16 +467,15 @@ void BrowserTestBase::SetUp() {
   // For more details, please see:
   // //chrome/browser/ash/crosapi/test_mojo_connection_manager.h.
   {
-    // TODO(crbug.com/1127581): Switch to use |kLacrosMojoSocketForTesting| in
-    // //ash/constants/ash_switches.h.
-    // Please refer to the CL comments for why it can't be done now:
-    // http://crrev.com/c/2402580/2/content/public/test/browser_test_base.cc
-    std::string socket_path =
-        command_line->GetSwitchValueASCII("lacros-mojo-socket-for-testing");
-    if (socket_path.empty()) {
-      disable_crosapi_ =
-          std::make_unique<chromeos::ScopedDisableCrosapiForTesting>();
-    } else {
+    if (!chromeos::BrowserParamsProxy::Get()->IsCrosapiDisabledForTesting()) {
+      // TODO(crbug.com/40719121): Switch to use |kLacrosMojoSocketForTesting|
+      // in
+      // //ash/constants/ash_switches.h.
+      // Please refer to the CL comments for why it can't be done now:
+      // http://crrev.com/c/2402580/2/content/public/test/browser_test_base.cc
+      CHECK(command_line->HasSwitch("lacros-mojo-socket-for-testing"));
+      std::string socket_path =
+          command_line->GetSwitchValueASCII("lacros-mojo-socket-for-testing");
       auto channel = mojo::NamedPlatformChannel::ConnectToServer(socket_path);
       base::ScopedFD socket_fd = channel.TakePlatformHandle().TakeFD();
 
@@ -584,7 +595,7 @@ void BrowserTestBase::SetUp() {
     logging::SetLogMessageHandler([](int severity, const char* file, int line,
                                      size_t message_start,
                                      const std::string& str) {
-      // TODO(crbug.com/1157954): Print the message to the console before
+      // TODO(crbug.com/40161080): Print the message to the console before
       // calling this to ensure that the message is still printed if something
       // goes wrong.
       if (severity == logging::LOGGING_FATAL)
@@ -624,6 +635,8 @@ void BrowserTestBase::SetUp() {
   ASSERT_TRUE(delegate);
   ASSERT_TRUE(GetContentClientForTesting());
 
+  delegate->CreateThreadPool("Browser");
+
   std::optional<int> startup_error = delegate->BasicStartupComplete();
   ASSERT_FALSE(startup_error.has_value());
 
@@ -650,9 +663,6 @@ void BrowserTestBase::SetUp() {
     if (delegate->ShouldInitializeMojo(invoked_in_browser))
       InitializeMojoCore();
 
-    const bool has_thread_pool =
-        GetContentClientForTesting()->browser()->CreateThreadPool("Browser");
-
     std::optional<int> pre_browser_main_exit_code = delegate->PreBrowserMain();
     ASSERT_FALSE(pre_browser_main_exit_code.has_value());
 
@@ -668,8 +678,7 @@ void BrowserTestBase::SetUp() {
         delegate->PostEarlyInitialization(invoked_in_browser);
     ASSERT_FALSE(post_early_initialization_exit_code.has_value());
 
-    if (has_thread_pool)
-      StartBrowserThreadPool();
+    StartBrowserThreadPool();
 
     BrowserTaskExecutor::PostFeatureListSetup();
     tracing::InitTracingPostThreadPoolStartAndFeatureList(
@@ -689,7 +698,7 @@ void BrowserTestBase::SetUp() {
       "FeatureList overrides must happen in the test constructor, before "
       "BrowserTestBase::SetUp() has run.");
 
-  auto discardable_shared_memory_manager =
+  discardable_shared_memory_manager_ =
       std::make_unique<discardable_memory::DiscardableSharedMemoryManager>();
   auto ipc_support =
       std::make_unique<MojoIpcSupport>(BrowserTaskExecutor::CreateIOThread());
@@ -740,7 +749,6 @@ void BrowserTestBase::SetUp() {
     // Shutting these down will block the thread.
     ShutDownNetworkService();
     ipc_support.reset();
-    discardable_shared_memory_manager.reset();
   }
 
   // Like in BrowserMainLoop::ShutdownThreadsAndCleanUp(), allow IO during main
@@ -830,7 +838,7 @@ void BrowserTestBase::ProxyRunTestOnMainThreadLoop() {
   // Re-allow such tasks while for init / tear down
   // (ScopedDisallowBlocking objects below ensure the test body is tested under
   // the same blocking-ban as the regular main message loop).
-  // TODO(crbug.com/1253634): Remove this wide allowance in favor of localized
+  // TODO(crbug.com/40793886): Remove this wide allowance in favor of localized
   // allowances for init/teardown phases.
   base::ScopedAllowUnresponsiveTasksForTesting allow_for_init;
 
@@ -848,7 +856,7 @@ void BrowserTestBase::ProxyRunTestOnMainThreadLoop() {
   // ProxyRunTestOnMainThreadLoop() happens later as part of SetUp()).
   std::optional<base::test::ScopedRunLoopTimeout> scoped_run_timeout;
   if (!base::test::ScopedRunLoopTimeout::ExistsForCurrentThread()) {
-    // TODO(https://crbug.com/918724): determine whether the timeout can be
+    // TODO(crbug.com/40608077): determine whether the timeout can be
     // reduced from action_max_timeout() to action_timeout().
     scoped_run_timeout.emplace(FROM_HERE, TestTimeouts::action_max_timeout());
   }
@@ -936,9 +944,12 @@ void BrowserTestBase::ProxyRunTestOnMainThreadLoop() {
 
       {
         auto* test = ::testing::UnitTest::GetInstance()->current_test_info();
-        TRACE_EVENT("test", "RunTestOnMainThread", "test_name",
-                    test->test_suite_name() + std::string(".") + test->name(),
-                    "file", test->file(), "line", test->line());
+        // This might be nullptr in a fuzz test or something else without gtest.
+        if (test) {
+          TRACE_EVENT("test", "RunTestOnMainThread", "test_name",
+                      test->test_suite_name() + std::string(".") + test->name(),
+                      "file", test->file(), "line", test->line());
+        }
         base::ScopedDisallowBlocking disallow_blocking;
         RunTestOnMainThread();
       }
@@ -1086,7 +1097,7 @@ void BrowserTestBase::InitializeNetworkProcess() {
   // pick up the host resolver rules, but it will not automatically see
   // `replace_system_dns_config_` and `test_doh_config_`.
   //
-  // TODO(https://crbug.com/1295732): Can the Mojo interface also be used in
+  // TODO(crbug.com/40821298): Can the Mojo interface also be used in
   // this case?
   if (IsInProcessNetworkService()) {
     if (replace_system_dns_config_ || test_doh_config_) {
@@ -1210,6 +1221,7 @@ void BrowserTestBase::InitializeNetworkProcess() {
 void BrowserTestBase::CreatedBrowserMainPartsImpl(
     BrowserMainParts* browser_main_parts) {
   browser_main_parts_ = browser_main_parts;
+  GetCurrentTestLauncherDelegate()->CreatedBrowserMainParts(browser_main_parts);
   CreatedBrowserMainParts(browser_main_parts);
 }
 

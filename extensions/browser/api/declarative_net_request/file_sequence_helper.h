@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+
 #include "base/functional/callback_forward.h"
 #include "base/memory/weak_ptr.h"
 #include "base/version.h"
@@ -19,11 +20,9 @@
 
 namespace extensions {
 
-namespace api {
-namespace declarative_net_request {
+namespace api::declarative_net_request {
 struct Rule;
-}  // namespace declarative_net_request
-}  // namespace api
+}  // namespace api::declarative_net_request
 
 namespace declarative_net_request {
 enum class DynamicRuleUpdateAction;
@@ -95,7 +94,9 @@ class RulesetInfo {
 
 // Helper to pass information related to the ruleset being loaded.
 struct LoadRequestData {
-  LoadRequestData(ExtensionId extension_id, base::Version extension_version);
+  LoadRequestData(ExtensionId extension_id,
+                  base::Version extension_version,
+                  LoadRulesetRequestSource request_source);
   LoadRequestData(const LoadRequestData&) = delete;
   LoadRequestData(LoadRequestData&&);
 
@@ -109,6 +110,9 @@ struct LoadRequestData {
 
   // The version of the extension that is trying to load `rulesets`.
   base::Version extension_version;
+
+  // The source which requested this ruleset load.
+  LoadRulesetRequestSource request_source;
 
   // The rulesets that are being loaded.
   std::vector<RulesetInfo> rulesets;

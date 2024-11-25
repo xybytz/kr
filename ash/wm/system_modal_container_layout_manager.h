@@ -57,6 +57,7 @@ class ASH_EXPORT SystemModalContainerLayoutManager
   void OnWindowPropertyChanged(aura::Window* window,
                                const void* key,
                                intptr_t old) override;
+  void OnWindowDestroying(aura::Window* window) override;
 
   // Overridden from KeyboardControllerObserver:
   void OnKeyboardOccludedBoundsChanged(const gfx::Rect& new_bounds) override;
@@ -107,6 +108,12 @@ class ASH_EXPORT SystemModalContainerLayoutManager
   // Returns true if |bounds| is considered centered.
   bool IsBoundsCentered(const gfx::Rect& window_bounds) const;
 
+  // Called to stop observing `window`. It can be called when `window` is
+  // removed from the layout or `window` is about to be destroyed. `window` will
+  // also be removed from `windows_to_center_` and `modal_windows_` if it's in
+  // these lists.
+  void StopObservingWindow(aura::Window* window);
+
   aura::Window* modal_window() {
     return !modal_windows_.empty() ? modal_windows_.back() : nullptr;
   }
@@ -123,7 +130,7 @@ class ASH_EXPORT SystemModalContainerLayoutManager
 
   // Windows contained in this set are centered. Windows are automatically
   // added to this based on IsBoundsCentered().
-  std::set<const aura::Window*> windows_to_center_;
+  std::set<raw_ptr<const aura::Window, SetExperimental>> windows_to_center_;
 
   // An observer to update position of modals when display work area changes.
   display::ScopedDisplayObserver display_observer_{this};

@@ -35,6 +35,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/html/html_embed_element.h"
 #include "third_party/blink/renderer/core/html/html_image_loader.h"
 #include "third_party/blink/renderer/core/html/html_meta_element.h"
 #include "third_party/blink/renderer/core/html/html_param_element.h"
@@ -175,7 +176,6 @@ void HTMLObjectElement::ReloadPluginOnAttributeChange(
     needs_invalidation = true;
   } else {
     NOTREACHED();
-    needs_invalidation = false;
   }
   SetNeedsPluginUpdate(true);
   if (needs_invalidation)
@@ -322,18 +322,15 @@ void HTMLObjectElement::RenderFallbackContent(
     }
   }
 
-  // TODO(dcheng): Detach the content frame here.
+  // To discard the nested browsing context, detach the content frame.
+  if (RuntimeEnabledFeatures::
+          HTMLObjectElementFallbackDetachContentFrameEnabled()) {
+    DisconnectContentFrame();
+  }
+
   UseCounter::Count(GetDocument(), WebFeature::kHTMLObjectElementFallback);
   use_fallback_content_ = true;
   ReattachFallbackContent();
-}
-
-// static
-bool HTMLObjectElement::IsClassOf(const FrameOwner& owner) {
-  auto* owner_element = DynamicTo<HTMLFrameOwnerElement>(owner);
-  if (!owner_element)
-    return false;
-  return IsA<HTMLObjectElement>(owner_element);
 }
 
 bool HTMLObjectElement::IsExposed() const {
@@ -410,23 +407,6 @@ bool HTMLObjectElement::DidFinishLoading() const {
 
 int HTMLObjectElement::DefaultTabIndex() const {
   return 0;
-}
-
-const HTMLObjectElement* ToHTMLObjectElementFromListedElement(
-    const ListedElement* element) {
-  SECURITY_DCHECK(!element || !element->IsFormControlElement());
-  const HTMLObjectElement* object_element =
-      static_cast<const HTMLObjectElement*>(element);
-  // We need to assert after the cast because ListedElement doesn't
-  // have hasTagName.
-  SECURITY_DCHECK(!object_element ||
-                  object_element->HasTagName(html_names::kObjectTag));
-  return object_element;
-}
-
-const HTMLObjectElement& ToHTMLObjectElementFromListedElement(
-    const ListedElement& element) {
-  return *ToHTMLObjectElementFromListedElement(&element);
 }
 
 }  // namespace blink

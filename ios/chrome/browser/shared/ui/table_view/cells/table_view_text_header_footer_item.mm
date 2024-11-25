@@ -13,7 +13,7 @@
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/table_view/table_view_cells_constants.h"
 #import "ios/chrome/common/ui/util/text_view_util.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 
 namespace {
 
@@ -160,11 +160,6 @@ const CGFloat kHorizontalSpacingToAlignWithItems = 16.0;
       trailingAnchorConstraint_,
       [containerView.centerYAnchor
           constraintEqualToAnchor:self.contentView.centerYAnchor],
-      // Match container view to contentView width.
-      [containerView.leadingAnchor
-          constraintEqualToAnchor:self.contentView.leadingAnchor],
-      [containerView.trailingAnchor
-          constraintEqualToAnchor:self.contentView.trailingAnchor],
       // Vertical StackView Constraints.
       [verticalStack.leadingAnchor
           constraintEqualToAnchor:containerView.leadingAnchor],

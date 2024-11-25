@@ -7,11 +7,10 @@ package org.chromium.chrome.browser.app.usb;
 import android.content.Intent;
 import android.os.IBinder;
 
-import org.chromium.base.ContextUtils;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.usb.UsbNotificationManager;
 import org.chromium.chrome.browser.usb.UsbNotificationManagerDelegate;
-import org.chromium.components.browser_ui.notifications.NotificationManagerProxyImpl;
+import org.chromium.components.browser_ui.notifications.BaseNotificationManagerProxyFactory;
 
 /**
  * Service that manages the WebUSB notification when a website is connected
@@ -43,8 +42,7 @@ public class UsbNotificationServiceImpl extends UsbNotificationService.Impl {
     public void onCreate() {
         mManager =
                 new UsbNotificationManager(
-                        new NotificationManagerProxyImpl(ContextUtils.getApplicationContext()),
-                        mManagerDelegate);
+                        BaseNotificationManagerProxyFactory.create(), mManagerDelegate);
         super.onCreate();
     }
 

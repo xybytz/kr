@@ -27,11 +27,13 @@ void MojoVideoEncodeAcceleratorService::Create(
     CreateAndInitializeVideoEncodeAcceleratorCallback create_vea_callback,
     const gpu::GpuPreferences& gpu_preferences,
     const gpu::GpuDriverBugWorkarounds& gpu_workarounds,
-    const gpu::GPUInfo::GPUDevice& gpu_device) {
+    const gpu::GPUInfo::GPUDevice& gpu_device,
+    GetCommandBufferHelperCB get_command_buffer_helper_cb,
+    scoped_refptr<base::SingleThreadTaskRunner> gpu_task_runner) {
   mojo::MakeSelfOwnedReceiver(
       std::make_unique<MojoVideoEncodeAcceleratorService>(
           std::move(create_vea_callback), gpu_preferences, gpu_workarounds,
-          gpu_device),
+          gpu_device, get_command_buffer_helper_cb, gpu_task_runner),
       std::move(receiver));
 }
 
@@ -39,11 +41,15 @@ MojoVideoEncodeAcceleratorService::MojoVideoEncodeAcceleratorService(
     CreateAndInitializeVideoEncodeAcceleratorCallback create_vea_callback,
     const gpu::GpuPreferences& gpu_preferences,
     const gpu::GpuDriverBugWorkarounds& gpu_workarounds,
-    const gpu::GPUInfo::GPUDevice& gpu_device)
+    const gpu::GPUInfo::GPUDevice& gpu_device,
+    GetCommandBufferHelperCB get_command_buffer_helper_cb,
+    scoped_refptr<base::SingleThreadTaskRunner> gpu_task_runner)
     : create_vea_callback_(std::move(create_vea_callback)),
       gpu_preferences_(gpu_preferences),
       gpu_workarounds_(gpu_workarounds),
       gpu_device_(gpu_device),
+      get_command_buffer_helper_cb_(get_command_buffer_helper_cb),
+      gpu_task_runner_(gpu_task_runner),
       output_buffer_size_(0),
       supports_frame_size_change(false),
       timestamps_(128) {
@@ -125,7 +131,8 @@ void MojoVideoEncodeAcceleratorService::Initialize(
 
   encoder_ = std::move(create_vea_callback_)
                  .Run(config, this, gpu_preferences_, gpu_workarounds_,
-                      gpu_device_, media_log_->Clone());
+                      gpu_device_, media_log_->Clone(),
+                      get_command_buffer_helper_cb_, gpu_task_runner_);
   if (!encoder_) {
     MEDIA_LOG(ERROR, media_log_.get())
         << __func__ << " Error creating or initializing VEA";
@@ -153,7 +160,8 @@ void MojoVideoEncodeAcceleratorService::Encode(
   }
 
   if (frame->coded_size() != input_coded_size_ &&
-      frame->storage_type() != media::VideoFrame::STORAGE_GPU_MEMORY_BUFFER) {
+      frame->storage_type() != media::VideoFrame::STORAGE_GPU_MEMORY_BUFFER &&
+      !frame->HasSharedImage()) {
     NotifyErrorStatus({EncoderStatus::Codes::kInvalidInputFrame,
                        "wrong input coded size, expected " +
                            input_coded_size_.ToString() + ", got " +
@@ -214,7 +222,7 @@ void MojoVideoEncodeAcceleratorService::
     RequestEncodingParametersChangeWithLayers(
         const media::VideoBitrateAllocation& bitrate_allocation,
         uint32_t framerate,
-        const absl::optional<gfx::Size>& size) {
+        const std::optional<gfx::Size>& size) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   std::string parameters_description = base::StringPrintf(
       "bitrate_allocation=%s, framerate=%d, size=%s",
@@ -244,7 +252,7 @@ void MojoVideoEncodeAcceleratorService::
     RequestEncodingParametersChangeWithBitrate(
         const media::Bitrate& bitrate,
         uint32_t framerate,
-        const absl::optional<gfx::Size>& size) {
+        const std::optional<gfx::Size>& size) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   std::string parameters_description = base::StringPrintf(
       "bitrate=%s, framerate=%d, size=%s", bitrate.ToString().c_str(),
@@ -332,7 +340,7 @@ void MojoVideoEncodeAcceleratorService::BitstreamBufferReady(
                "MojoVideoEncodeAcceleratorService::BitstreamBufferReady",
                "timestamp", metadata.timestamp.InMicroseconds(),
                "bitstream_buffer_id", bitstream_buffer_id);
-  if (MediaTraceIsEnabled() && metadata.end_of_picture) {
+  if (MediaTraceIsEnabled() && metadata.end_of_picture()) {
     int64_t timestamp = metadata.timestamp.InMicroseconds();
     const auto timestamp_it = timestamps_.Peek(timestamp);
     if (timestamp_it != timestamps_.end()) {

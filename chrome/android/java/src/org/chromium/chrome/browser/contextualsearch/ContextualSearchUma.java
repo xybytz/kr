@@ -16,7 +16,7 @@ import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanel.PanelState;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanel.StateChangeReason;
 import org.chromium.chrome.browser.contextualsearch.ResolvedSearchTerm.CardTag;
-import org.chromium.components.sync.SyncService;
+import org.chromium.chrome.browser.profiles.Profile;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -155,10 +155,10 @@ public class ContextualSearchUma {
      * Contextual Search feature is active, and will track the different preference settings
      * (disabled, enabled or uninitialized). Calling more than once is fine.
      */
-    public static void logPreferenceState() {
+    public static void logPreferenceState(Profile profile) {
         RecordHistogram.recordEnumeratedHistogram(
                 "Search.ContextualSearchPreferenceState",
-                getPreferenceValue(),
+                getPreferenceValue(profile),
                 ContextualSearchPreference.NUM_ENTRIES);
     }
 
@@ -232,23 +232,8 @@ public class ContextualSearchUma {
     }
 
     /**
-     * Logs whether search results were seen for a Tap gesture, for all users and sync-enabled
-     * users. For sync-enabled users we log to a separate histogram for that sub-population in order
-     * to help validate the Ranker Tap Suppression model results (since they are trained on UKM data
-     * which approximately reflects this sync-enabled population).
-     * @param wasPanelSeen Whether the panel was seen.
-     */
-    public static void logTapResultsSeen(boolean wasPanelSeen, @Nullable SyncService syncService) {
-        RecordHistogram.recordBooleanHistogram(
-                "Search.ContextualSearch.Tap.ResultsSeen", wasPanelSeen);
-        if (syncService != null && syncService.isSyncFeatureEnabled()) {
-            RecordHistogram.recordBooleanHistogram(
-                    "Search.ContextualSearch.Tap.SyncEnabled.ResultsSeen", wasPanelSeen);
-        }
-    }
-
-    /**
-     * Logs whether search results were seen for all gestures.  Recorded for all users.
+     * Logs whether search results were seen for all gestures. Recorded for all users.
+     *
      * @param wasPanelSeen Whether the panel was seen.
      */
     public static void logAllResultsSeen(boolean wasPanelSeen) {
@@ -584,10 +569,10 @@ public class ContextualSearchUma {
     /**
      * @return The code for the Contextual Search preference.
      */
-    private static int getPreferenceValue() {
-        if (ContextualSearchPolicy.isContextualSearchUninitialized()) {
+    private static int getPreferenceValue(Profile profile) {
+        if (ContextualSearchPolicy.isContextualSearchUninitialized(profile)) {
             return ContextualSearchPreference.UNINITIALIZED;
-        } else if (ContextualSearchPolicy.isContextualSearchDisabled()) {
+        } else if (ContextualSearchPolicy.isContextualSearchDisabled(profile)) {
             return ContextualSearchPreference.DISABLED;
         }
         return ContextualSearchPreference.ENABLED;

@@ -644,7 +644,7 @@ TEST(PacFileDeciderTest, AutodetectFailCustomFails2) {
 // This is a copy-paste of CustomPacFails1, with the exception that we give it
 // a 1 millisecond delay. This means it will now complete asynchronously.
 // Moreover, we test the NetLog to make sure it logged the pause.
-TEST(PacFileDeciderTest, CustomPacFails1_WithPositiveDelay) {
+TEST(PacFileDeciderTest, CustomPacFails1WithPositiveDelay) {
   base::test::TaskEnvironment task_environment;
 
   Rules rules;
@@ -689,7 +689,7 @@ TEST(PacFileDeciderTest, CustomPacFails1_WithPositiveDelay) {
 // This is a copy-paste of CustomPacFails1, with the exception that we give it
 // a -5 second delay instead of a 0 ms delay. This change should have no effect
 // so the rest of the test is unchanged.
-TEST(PacFileDeciderTest, CustomPacFails1_WithNegativeDelay) {
+TEST(PacFileDeciderTest, CustomPacFails1WithNegativeDelay) {
   Rules rules;
   RuleBasedPacFileFetcher fetcher(&rules);
   DoNothingDhcpPacFileFetcher dhcp_fetcher;
@@ -806,9 +806,7 @@ TEST(PacFileDeciderTest, AutodetectDhcpFailParse) {
   EXPECT_FALSE(decider.effective_config().value().has_pac_url());
 }
 
-class AsyncFailDhcpFetcher
-    : public DhcpPacFileFetcher,
-      public base::SupportsWeakPtr<AsyncFailDhcpFetcher> {
+class AsyncFailDhcpFetcher final : public DhcpPacFileFetcher {
  public:
   AsyncFailDhcpFetcher() = default;
   ~AsyncFailDhcpFetcher() override = default;
@@ -820,7 +818,7 @@ class AsyncFailDhcpFetcher
     callback_ = std::move(callback);
     base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&AsyncFailDhcpFetcher::CallbackWithFailure,
-                                  AsWeakPtr()));
+                                  weak_ptr_factory_.GetWeakPtr()));
     return ERR_IO_PENDING;
   }
 
@@ -838,6 +836,7 @@ class AsyncFailDhcpFetcher
  private:
   GURL dummy_gurl_;
   CompletionOnceCallback callback_;
+  base::WeakPtrFactory<AsyncFailDhcpFetcher> weak_ptr_factory_{this};
 };
 
 TEST(PacFileDeciderTest, DhcpCancelledByDestructor) {

@@ -10,6 +10,8 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/wm/overview/overview_controller.h"
+#include "ash/wm/snap_group/snap_group.h"
+#include "ash/wm/snap_group/snap_group_controller.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/splitview/split_view_types.h"
 #include "ash/wm/splitview/split_view_utils.h"
@@ -122,7 +124,7 @@ void BaseState::CycleSnap(WindowState* window_state, WMEventType event) {
     const bool is_desired_primary_snapped =
         desired_snap_state == WindowStateType::kPrimarySnapped;
     if (shell->overview_controller()->InOverviewSession() &&
-        !window_util::IsFasterSplitScreenOrSnapGroupEnabledInClamshell()) {
+        !window_util::IsInFasterSplitScreenSetupSession(window)) {
       // |window| must already be in split view, and so we do not need to check
       // |SplitViewController::CanSnapWindow|, although in general it is more
       // restrictive than |WindowState::CanSnap|.
@@ -189,6 +191,16 @@ gfx::Rect BaseState::GetSnappedWindowBoundsInParent(
     const WindowStateType state_type,
     float snap_ratio) {
   CHECK(chromeos::IsSnappedWindowStateType(state_type));
+  if (auto* snap_group_controller = SnapGroupController::Get()) {
+    if (auto* snap_group =
+            snap_group_controller->GetSnapGroupForGivenWindow(window)) {
+      // If `window` belongs to a snap group, the snap group should manage its
+      // bounds. Bounds in root are the same as in parent for snapped windows.
+      return snap_group->GetSnappedWindowBoundsInRoot(window, state_type,
+                                                      snap_ratio);
+    }
+  }
+
   if (auto* split_view_controller = SplitViewController::Get(window);
       split_view_controller->IsWindowInSplitView(window) ||
       Shell::Get()->IsInTabletMode()) {
@@ -200,6 +212,7 @@ gfx::Rect BaseState::GetSnappedWindowBoundsInParent(
             : SnapPosition::kSecondary,
         window, snap_ratio);
   }
+
   return ash::GetSnappedWindowBoundsInParent(
       window,
       state_type == WindowStateType::kPrimarySnapped ? SnapViewType::kPrimary

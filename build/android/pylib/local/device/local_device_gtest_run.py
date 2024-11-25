@@ -15,6 +15,7 @@ import subprocess
 import shutil
 import time
 
+from devil import base_error
 from devil.android import crash_handler
 from devil.android import device_errors
 from devil.android import device_temp_file
@@ -23,14 +24,17 @@ from devil.android import ports
 from devil.android.sdk import version_codes
 from devil.utils import reraiser_thread
 from incremental_install import installer
+from lib.proto import exception_recorder
 from pylib import constants
 from pylib.base import base_test_result
+from pylib.base import test_exception
 from pylib.gtest import gtest_test_instance
 from pylib.local import local_test_server_spawner
 from pylib.local.device import local_device_environment
 from pylib.local.device import local_device_test_run
 from pylib.symbols import stack_symbolizer
 from pylib.utils import code_coverage_utils
+from pylib.utils import device_dependencies
 from pylib.utils import google_storage_helper
 from pylib.utils import logdog_helper
 from py_trace_event import trace_event
@@ -146,14 +150,45 @@ def _GetLLVMProfilePath(device_coverage_dir, suite, coverage_index):
   Returns:
     The path pattern for environment variable 'LLVM_PROFILE_FILE'.
   """
+  # "%2m" is used to expand to 2 raw profiles at runtime.
+  # "%c" enables continuous mode. See crbug.com/1468343, crbug.com/1518474
+  # For more details, refer to:
+  #   https://clang.llvm.org/docs/SourceBasedCodeCoverage.html
   return posixpath.join(device_coverage_dir,
                         '_'.join([suite,
-                                  str(coverage_index), '%2m.profraw']))
+                                  str(coverage_index), '%2m%c.profraw']))
+
+
+def _GroupPreTests(tests):
+  pre_tests = dict()
+  other_tests = []
+  for test in tests:
+    test_name_start = max(test.find('.') + 1, 0)
+    test_name = test[test_name_start:]
+    if test_name_start > 0 and test_name.startswith(_GTEST_PRETEST_PREFIX):
+      test_suite = test[:test_name_start - 1]
+      trim_test = test
+      trim_tests = [test]
+
+      while test_name.startswith(_GTEST_PRETEST_PREFIX):
+        test_name = test_name[len(_GTEST_PRETEST_PREFIX):]
+        trim_test = '%s.%s' % (test_suite, test_name)
+        trim_tests.append(trim_test)
+
+      # The trim test should exist at first place. For example, if a test has
+      # been disabled, there is no need to run PRE_ test with this test.
+      if trim_test in tests and (not trim_test in pre_tests or len(
+          pre_tests[trim_test]) < len(trim_tests)):
+        pre_tests[trim_test] = trim_tests
+    else:
+      other_tests.append(test)
+  return pre_tests, other_tests
 
 
 class _ApkDelegate:
   def __init__(self, test_instance, env):
     self._activity = test_instance.activity
+    self._additional_apks = test_instance.additional_apks
     self._apk_helper = test_instance.apk_helper
     self._test_apk_incremental_install_json = (
         test_instance.test_apk_incremental_install_json)
@@ -177,6 +212,10 @@ class _ApkDelegate:
   def Install(self, device):
     if self._use_existing_test_data:
       return
+
+    for additional_apk in self._additional_apks:
+      device.Install(additional_apk, allow_downgrade=True, reinstall=True)
+
     if self._test_apk_incremental_install_json:
       installer.Install(device, self._test_apk_incremental_install_json,
                         apk=self._apk_helper, permissions=self._permissions)
@@ -251,13 +290,20 @@ class _ApkDelegate:
       try:
         device.StartInstrumentation(
             self._component, extras=extras, raw=False, **kwargs)
-      except device_errors.CommandFailedError:
+      except device_errors.CommandFailedError as e:
         logging.exception('gtest shard failed.')
-      except device_errors.CommandTimeoutError:
+        exception_recorder.register(
+            test_exception.StartInstrumentationFailedError(e))
+      except device_errors.CommandTimeoutError as e:
         logging.exception('gtest shard timed out.')
-      except device_errors.DeviceUnreachableError:
+        exception_recorder.register(
+            test_exception.StartInstrumentationTimeoutError(e))
+      except device_errors.DeviceUnreachableError as e:
+        exception_recorder.register(e)
         logging.exception('gtest shard device unreachable.')
       except Exception:
+        exception_recorder.register(
+            test_exception.StartInstrumentationError(e))
         device.ForceStop(self._package)
         raise
       finally:
@@ -271,8 +317,14 @@ class _ApkDelegate:
       stdout_file_path = stdout_file.name
       if self._env.force_main_user:
         stdout_file_path = device.ResolveSpecialPath(stdout_file_path)
-      stdout_file_content = device.ReadFile(stdout_file_path,
-                                            as_root=self._env.force_main_user)
+      try:
+        stdout_file_content = device.ReadFile(stdout_file_path,
+                                              as_root=self._env.force_main_user)
+      except device_errors.AdbCommandFailedError as e:
+        exception_recorder.register(
+            test_exception.StartInstrumentationStdoutError(e))
+        raise
+
       return stdout_file_content.splitlines()
 
   def PullAppFiles(self, device, files, directory):
@@ -323,12 +375,7 @@ class _ExeDelegate:
     return constants.TEST_EXECUTABLE_DIR
 
   def Run(self, test, device, flags=None, **kwargs):
-    tool = self._test_run.GetTool(device).GetTestWrapper()
-    if tool:
-      cmd = [tool]
-    else:
-      cmd = []
-    cmd.append(posixpath.join(self._device_dist_dir, self._exe_file_name))
+    cmd = [posixpath.join(self._device_dist_dir, self._exe_file_name)]
 
     if test:
       cmd.append('--gtest_filter=%s' % ':'.join(test))
@@ -338,7 +385,8 @@ class _ExeDelegate:
     cwd = constants.TEST_EXECUTABLE_DIR
 
     env = {
-      'LD_LIBRARY_PATH': self._device_dist_dir
+        'LD_LIBRARY_PATH': self._device_dist_dir,
+        'UBSAN_OPTIONS': constants.UBSAN_OPTIONS,
     }
 
     if self._coverage_dir:
@@ -348,8 +396,6 @@ class _ExeDelegate:
           device_coverage_dir, self._suite, self._coverage_index)
       self._coverage_index += 1
 
-    if self._env.tool != 'asan':
-      env['UBSAN_OPTIONS'] = constants.UBSAN_OPTIONS
 
     try:
       gcov_strip_depth = os.environ['NATIVE_COVERAGE_DEPTH_STRIP']
@@ -418,7 +464,14 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
     def individual_device_set_up(device, host_device_tuples):
       def install_apk(dev):
         # Install test APK.
-        self._delegate.Install(dev)
+        try:
+          self._delegate.Install(dev)
+        except device_errors.CommandFailedError as e:
+          raise test_exception.InstallationFailedError(e) from e
+        except device_errors.CommandTimeoutError as e:
+          raise test_exception.InstallationTimeoutError(e) from e
+        except base_error.BaseError as e:
+          raise test_exception.InstallationError(e) from e
 
       def push_test_data(dev):
         if self._test_instance.use_existing_test_data:
@@ -427,19 +480,18 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
         device_root = self._delegate.GetTestDataRoot(dev)
         if self._env.force_main_user:
           device_root = dev.ResolveSpecialPath(device_root)
-        host_device_tuples_substituted = [
-            (h, local_device_test_run.SubstituteDeviceRoot(d, device_root))
-            for h, d in host_device_tuples]
+        resolved_host_device_tuples = device_dependencies.SubstituteDeviceRoot(
+            host_device_tuples, device_root)
         dev.PlaceNomediaFile(device_root)
         dev.PushChangedFiles(
-            host_device_tuples_substituted,
+            resolved_host_device_tuples,
             delete_device_stale=True,
             as_root=self._env.force_main_user,
             # Some gtest suites, e.g. unit_tests, have data dependencies that
             # can take longer than the default timeout to push. See
             # crbug.com/791632 for context.
             timeout=600 * math.ceil(_GetDeviceTimeoutMultiplier() / 10))
-        if not host_device_tuples:
+        if not resolved_host_device_tuples:
           dev.RemovePath(device_root,
                          force=True,
                          recursive=True,
@@ -449,11 +501,7 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
                               check_return=True,
                               as_root=self._env.force_main_user)
 
-      def init_tool_and_start_servers(dev):
-        tool = self.GetTool(dev)
-        tool.CopyFiles(dev)
-        tool.SetupEnvironment()
-
+      def start_servers(dev):
         if self._env.disable_test_server:
           logging.warning('Not starting test server. Some tests may fail.')
           return
@@ -477,7 +525,7 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
         if self.TestPackage() in _SUITE_REQUIRES_TEST_SERVER_SPAWNER:
           self._servers[str(dev)].append(
               local_test_server_spawner.LocalTestServerSpawner(
-                  ports.AllocateTestServerPort(), dev, tool))
+                  ports.AllocateTestServerPort(), dev))
 
         for s in self._servers[str(dev)]:
           s.SetUp()
@@ -487,7 +535,8 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
 
       steps = [
           bind_crash_handler(s, device)
-          for s in (install_apk, push_test_data, init_tool_and_start_servers)]
+          for s in (install_apk, push_test_data, start_servers)
+      ]
       if self._env.concurrent_adb:
         reraiser_thread.RunAsync(steps)
       else:
@@ -531,10 +580,6 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
     # Delete suspect testcase from tests.
     tests = [test for test in tests if not test in self._crashes]
 
-    # Sort tests by hash.
-    # TODO(crbug.com/1257820): Add sorting logic back to _PartitionTests.
-    tests = self._SortTests(tests)
-
     max_shard_size = self._test_instance.test_launcher_batch_limit
 
     shards.extend(self._PartitionTests(tests, device_count, max_shard_size))
@@ -569,8 +614,8 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
       ]
       flags.append('--gtest_list_tests')
 
-      # TODO(crbug.com/726880): Remove retries when no longer necessary.
-      for i in range(0, retries+1):
+      # TODO(crbug.com/40522854): Remove retries when no longer necessary.
+      for i in range(0, retries + 1):
         logging.info('flags:')
         for f in flags:
           logging.info('  %s', f)
@@ -608,40 +653,52 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
     return tests
 
   #override
-  def _GroupTests(self, tests):
-    pre_tests = dict()
-    other_tests = []
-    for test in tests:
-      test_name_start = max(test.find('.') + 1, 0)
-      test_name = test[test_name_start:]
-      if test_name_start == 0 or not test_name.startswith(
+  def _AppendPreTestsForRetry(self, failed_tests, tests):
+    if not self._test_instance.run_pre_tests:
+      return failed_tests
+
+    pre_tests, _ = _GroupPreTests(tests)
+    trim_failed_tests = set()
+    for failed_test in failed_tests:
+      failed_test_name_start = max(failed_test.find('.') + 1, 0)
+      failed_test_name = failed_test[failed_test_name_start:]
+
+      if failed_test_name_start > 0 and failed_test_name.startswith(
           _GTEST_PRETEST_PREFIX):
-        other_tests.append(test)
-      else:
-        test_suite = test[:test_name_start - 1]
-        trim_test = test
-        trim_tests = [test]
+        failed_test_suite = failed_test[:failed_test_name_start - 1]
+        while failed_test_name.startswith(_GTEST_PRETEST_PREFIX):
+          failed_test_name = failed_test_name[len(_GTEST_PRETEST_PREFIX):]
+        failed_test = '%s.%s' % (failed_test_suite, failed_test_name)
+      trim_failed_tests.add(failed_test)
 
-        while test_name.startswith(_GTEST_PRETEST_PREFIX):
-          test_name = test_name[len(_GTEST_PRETEST_PREFIX):]
-          trim_test = '%s.%s' % (test_suite, test_name)
-          trim_tests.append(trim_test)
+    all_tests = []
+    for trim_failed_test in trim_failed_tests:
+      if trim_failed_test in tests:
+        if trim_failed_test in pre_tests:
+          all_tests.extend(pre_tests[trim_failed_test])
+        else:
+          all_tests.append(trim_failed_test)
+    return all_tests
 
-        if not trim_test in pre_tests or len(
-            pre_tests[trim_test]) < len(trim_tests):
-          pre_tests[trim_test] = trim_tests
+  #override
+  def _GroupTests(self, tests):
+    pre_tests, other_tests = _GroupPreTests(tests)
 
     all_tests = []
     for other_test in other_tests:
       if not other_test in pre_tests:
         all_tests.append(other_test)
 
-    # TODO(crbug.com/1257820): Add logic to support grouping tests.
+    # TODO(crbug.com/40200835): Add logic to support grouping tests.
     # Once grouping logic is added, switch to 'append' from 'extend'.
     for _, test_list in pre_tests.items():
       all_tests.extend(test_list)
 
     return all_tests
+
+  #override
+  def _GroupTestsAfterSharding(self, tests):
+    return self._GroupTests(tests)
 
   def _UploadTestArtifacts(self, device, test_artifacts_device_dir):
     # TODO(jbudorick): Reconcile this with the output manager once
@@ -725,11 +782,13 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
         logging.critical('Logcat saved to %s', logcat_file.Link())
 
   #override
+  def _GetUniqueTestName(self, test):
+    return gtest_test_instance.TestNameWithoutDisabledPrefix(test)
+
+  #override
   def _RunTest(self, device, test):
     # Run the test.
-    timeout = (self._test_instance.shard_timeout *
-               self.GetTool(device).GetTimeoutScale() *
-               _GetDeviceTimeoutMultiplier())
+    timeout = self._test_instance.shard_timeout * _GetDeviceTimeoutMultiplier()
     if self._test_instance.wait_for_java_debugger:
       timeout = None
     if self._test_instance.store_tombstones:
@@ -853,7 +912,8 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
       logging.info(l)
 
     # Parse the output.
-    # TODO(jbudorick): Transition test scripts away from parsing stdout.
+    # TODO(crbug.com/366267015): Transition test scripts away from parsing
+    # stdout.
     if self._test_instance.enable_xml_result_parsing:
       results = gtest_test_instance.ParseGTestXML(gtest_xml)
     elif self._test_instance.isolated_script_test_output:
@@ -922,8 +982,5 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
     def individual_device_tear_down(dev):
       for s in self._servers.get(str(dev), []):
         s.TearDown()
-
-      tool = self.GetTool(dev)
-      tool.CleanUpEnvironment()
 
     self._env.parallel_devices.pMap(individual_device_tear_down)

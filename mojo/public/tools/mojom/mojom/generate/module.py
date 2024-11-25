@@ -136,7 +136,7 @@ class Kind:
             == (rhs.spec, rhs.parent_kind, rhs.is_nullable))
 
   def __hash__(self):
-    # TODO(crbug.com/1060471): Remove this and other __hash__ methods on Kind
+    # TODO(crbug.com/40122051): Remove this and other __hash__ methods on Kind
     # and its subclasses. This is to support existing generator code which uses
     # some primitive Kinds as dict keys. The default hash (object identity)
     # breaks these dicts when a pickled Module instance is unpickled and used
@@ -389,6 +389,8 @@ PRIMITIVES = (
 
 ATTRIBUTE_MIN_VERSION = 'MinVersion'
 ATTRIBUTE_DEFAULT = 'Default'
+ATTRIBUTE_DISPATCH_DEBUG_ALIAS = 'DispatchDebugAlias'
+ATTRIBUTE_ESTIMATE_SIZE = 'EstimateSize'
 ATTRIBUTE_EXTENSIBLE = 'Extensible'
 ATTRIBUTE_NO_INTERRUPT = 'NoInterrupt'
 ATTRIBUTE_STABLE = 'Stable'
@@ -917,48 +919,6 @@ class PendingAssociatedReceiver(ReferenceKind):
     return id(self)
 
 
-class InterfaceRequest(ReferenceKind):
-  Kind.AddSharedProperty('kind')
-
-  def __init__(self, kind=None):
-    if kind is not None:
-      if not isinstance(kind, Interface):
-        raise Exception(
-            "Interface request requires %r to be an interface." % kind.spec)
-      ReferenceKind.__init__(self, 'r:' + kind.spec)
-    else:
-      ReferenceKind.__init__(self)
-    self.kind = kind
-
-  def __eq__(self, rhs):
-    return isinstance(rhs, InterfaceRequest) and self.kind == rhs.kind
-
-  def __hash__(self):
-    return id(self)
-
-
-class AssociatedInterfaceRequest(ReferenceKind):
-  Kind.AddSharedProperty('kind')
-
-  def __init__(self, kind=None):
-    if kind is not None:
-      if not isinstance(kind, InterfaceRequest):
-        raise Exception(
-            "Associated interface request requires %r to be an interface "
-            "request." % kind.spec)
-      assert not kind.is_nullable
-      ReferenceKind.__init__(self, 'asso:' + kind.spec)
-    else:
-      ReferenceKind.__init__(self)
-    self.kind = kind.kind if kind is not None else None
-
-  def __eq__(self, rhs):
-    return isinstance(rhs, AssociatedInterfaceRequest) and self.kind == rhs.kind
-
-  def __hash__(self):
-    return id(self)
-
-
 class Parameter:
   def __init__(self,
                mojom_name=None,
@@ -1064,6 +1024,11 @@ class Method:
   def allow_interrupt(self):
     return not self.attributes.get(ATTRIBUTE_NO_INTERRUPT) \
         if self.attributes else True
+
+  @property
+  def estimate_message_size(self):
+    return self.attributes.get(ATTRIBUTE_ESTIMATE_SIZE) \
+        if self.attributes else False
 
   @property
   def unlimited_message_size(self):
@@ -1223,26 +1188,10 @@ class Interface(ReferenceKind):
                        'a UUID.'.format(self.mojom_name))
     return (int(u.hex[:16], 16), int(u.hex[16:], 16))
 
-  def __hash__(self):
-    return id(self)
-
-
-class AssociatedInterface(ReferenceKind):
-  Kind.AddSharedProperty('kind')
-
-  def __init__(self, kind=None):
-    if kind is not None:
-      if not isinstance(kind, Interface):
-        raise Exception(
-            "Associated interface requires %r to be an interface." % kind.spec)
-      assert not kind.is_nullable
-      ReferenceKind.__init__(self, 'asso:' + kind.spec)
-    else:
-      ReferenceKind.__init__(self)
-    self.kind = kind
-
-  def __eq__(self, rhs):
-    return isinstance(rhs, AssociatedInterface) and self.kind == rhs.kind
+  @property
+  def dispatch_debug_alias(self):
+    return self.attributes.get(ATTRIBUTE_DISPATCH_DEBUG_ALIAS) \
+           if self.attributes else None
 
   def __hash__(self):
     return id(self)
@@ -1295,7 +1244,7 @@ class Enum(ValueKind):
       spec = 'x:' + mojom_name
     else:
       spec = None
-    ValueKind.__init__(self, spec, False, module)
+    super().__init__(spec, False, module)
     self.mojom_name = mojom_name
     self.name = None
     self.native_only = False
@@ -1526,18 +1475,6 @@ def IsInterfaceKind(kind):
   return isinstance(kind, Interface)
 
 
-def IsAssociatedInterfaceKind(kind):
-  return isinstance(kind, AssociatedInterface)
-
-
-def IsInterfaceRequestKind(kind):
-  return isinstance(kind, InterfaceRequest)
-
-
-def IsAssociatedInterfaceRequestKind(kind):
-  return isinstance(kind, AssociatedInterfaceRequest)
-
-
 def IsPendingRemoteKind(kind):
   return isinstance(kind, PendingRemote)
 
@@ -1591,9 +1528,8 @@ def IsAnyHandleKind(kind):
 
 
 def IsAnyInterfaceKind(kind):
-  return (IsInterfaceKind(kind) or IsInterfaceRequestKind(kind)
-          or IsAssociatedKind(kind) or IsPendingRemoteKind(kind)
-          or IsPendingReceiverKind(kind))
+  return (IsInterfaceKind(kind) or IsAssociatedKind(kind)
+          or IsPendingRemoteKind(kind) or IsPendingReceiverKind(kind))
 
 
 def IsAnyHandleOrInterfaceKind(kind):
@@ -1601,9 +1537,7 @@ def IsAnyHandleOrInterfaceKind(kind):
 
 
 def IsAssociatedKind(kind):
-  return (IsAssociatedInterfaceKind(kind)
-          or IsAssociatedInterfaceRequestKind(kind)
-          or IsPendingAssociatedRemoteKind(kind)
+  return (IsPendingAssociatedRemoteKind(kind)
           or IsPendingAssociatedReceiverKind(kind))
 
 
@@ -1755,3 +1689,9 @@ def ContainsNativeTypes(kind):
     return False
 
   return Check(kind)
+
+
+def EnsureUnnullable(kind):
+  if IsNullableKind(kind):
+    return kind.MakeUnnullableKind()
+  return kind

@@ -25,7 +25,8 @@
 #include "extensions/browser/view_type_utils.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/extension_messages.h"
+#include "extensions/common/extension_features.h"
+#include "extensions/common/extension_id.h"
 #include "extensions/common/mojom/view_type.mojom.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/mojom/autoplay/autoplay.mojom.h"
@@ -83,18 +84,18 @@ void ExtensionWebContentsObserver::Initialize() {
 
   extension_frame_host_ = CreateExtensionFrameHost(web_contents());
 
+  content::RenderFrameHost* main_frame = web_contents()->GetPrimaryMainFrame();
+  // We only initialize the frame if the renderer counterpart is live;
+  // otherwise we wait for the RenderFrameCreated notification.
+  if (main_frame->IsRenderFrameLive()) {
+    InitializeRenderFrame(main_frame);
+  }
+
+  // At the point of initialization, the *only* frame that can exist is the
+  // main frame.
   web_contents()->ForEachRenderFrameHost(
-      [this](content::RenderFrameHost* render_frame_host) {
-        // ForEachRenderFrameHost descends into inner WebContents, so make sure
-        // the RenderFrameHost is actually one bound to this object.
-        if (content::WebContents::FromRenderFrameHost(render_frame_host) !=
-            web_contents()) {
-          return;
-        }
-        // We only initialize the frame if the renderer counterpart is live;
-        // otherwise we wait for the RenderFrameCreated notification.
-        if (render_frame_host->IsRenderFrameLive())
-          InitializeRenderFrame(render_frame_host);
+      [main_frame](content::RenderFrameHost* render_frame_host) {
+        CHECK_EQ(render_frame_host, main_frame);
       });
 
   // It would be ideal if SessionTabHelper was created before this object,
@@ -115,6 +116,12 @@ ExtensionWebContentsObserver::ExtensionWebContentsObserver(
 }
 
 ExtensionWebContentsObserver::~ExtensionWebContentsObserver() {
+}
+
+content::WebContents* ExtensionWebContentsObserver::GetAssociatedWebContents()
+    const {
+  DCHECK(initialized_);
+  return web_contents();
 }
 
 void ExtensionWebContentsObserver::InitializeRenderFrame(
@@ -149,13 +156,7 @@ void ExtensionWebContentsObserver::InitializeRenderFrame(
                                 frame_extension);
 }
 
-content::WebContents* ExtensionWebContentsObserver::GetAssociatedWebContents()
-    const {
-  DCHECK(initialized_);
-  return web_contents();
-}
-
-void ExtensionWebContentsObserver::RenderFrameCreated(
+void ExtensionWebContentsObserver::SetUpRenderFrameHost(
     content::RenderFrameHost* render_frame_host) {
   DCHECK(initialized_);
   InitializeRenderFrame(render_frame_host);
@@ -195,6 +196,14 @@ void ExtensionWebContentsObserver::RenderFrameCreated(
       ->ActivateExtensionInProcess(*extension, render_frame_host->GetProcess());
 }
 
+void ExtensionWebContentsObserver::RenderFrameCreated(
+    content::RenderFrameHost* render_frame_host) {
+  if (base::FeatureList::IsEnabled(
+          extensions_features::kUseReadyToCommitForExtensionFrameSetup)) {
+    return;
+  }
+  SetUpRenderFrameHost(render_frame_host);
+}
 void ExtensionWebContentsObserver::RenderFrameDeleted(
     content::RenderFrameHost* render_frame_host) {
   DCHECK(initialized_);
@@ -206,6 +215,11 @@ void ExtensionWebContentsObserver::RenderFrameDeleted(
 
 void ExtensionWebContentsObserver::ReadyToCommitNavigation(
     content::NavigationHandle* navigation_handle) {
+  if (base::FeatureList::IsEnabled(
+          extensions_features::kUseReadyToCommitForExtensionFrameSetup)) {
+    SetUpRenderFrameHost(navigation_handle->GetRenderFrameHost());
+  }
+
   ScriptInjectionTracker::ReadyToCommitNavigation(PassKey(), navigation_handle);
 
   // We don't force autoplay to allow while prerendering.
@@ -327,7 +341,7 @@ const Extension* ExtensionWebContentsObserver::GetExtensionFromFrame(
     content::RenderFrameHost* render_frame_host,
     bool verify_url) const {
   DCHECK(initialized_);
-  std::string extension_id = util::GetExtensionIdFromFrame(render_frame_host);
+  ExtensionId extension_id = util::GetExtensionIdFromFrame(render_frame_host);
   if (extension_id.empty())
     return nullptr;
 
@@ -344,7 +358,8 @@ const Extension* ExtensionWebContentsObserver::GetExtensionFromFrame(
     // This check is needed to eliminate origins that are not within a
     // hosted-app's web extent, and sandboxed extension frames with an opaque
     // origin.
-    // TODO(1139108) See if extension check is still needed after bug is fixed.
+    // TODO(crbug.com/40725839) See if extension check is still needed after bug
+    // is fixed.
     auto* extension_for_origin = ExtensionRegistry::Get(browser_context)
                                      ->enabled_extensions()
                                      .GetExtensionOrAppByURL(origin.GetURL());

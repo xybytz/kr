@@ -29,8 +29,8 @@
 #include "third_party/blink/public/platform/web_media_key_system_configuration.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_vector.h"
-#include "third_party/blink/public/web/modules/media/web_media_player_util.h"
 #include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/renderer/platform/media/media_player_util.h"
 
 namespace blink {
 namespace {
@@ -48,7 +48,6 @@ EmeConfig::Rule GetDistinctiveIdentifierConfigRule(
     EmeFeatureRequirement requirement) {
   if (support == EmeFeatureSupport::INVALID) {
     NOTREACHED();
-    return EmeConfig::UnsupportedRule();
   }
 
   // For kNotAllowed and kRequired, the result is as expected. For kRecommended,
@@ -89,7 +88,6 @@ EmeConfig::Rule GetPersistentStateConfigRule(
     EmeFeatureRequirement requirement) {
   if (support == EmeFeatureSupport::INVALID) {
     NOTREACHED();
-    return EmeConfig::UnsupportedRule();
   }
 
   // For kNotAllowed and kRequired, the result is as expected. For kRecommended,
@@ -139,7 +137,6 @@ bool IsPersistentSessionType(WebEncryptedMediaSessionType sessionType) {
   }
 
   NOTREACHED();
-  return false;
 }
 
 bool IsSupportedMediaType(const std::string& container_mime_type,
@@ -166,7 +163,7 @@ bool IsSupportedMediaType(const std::string& container_mime_type,
       !codec_vector.empty()) {
     std::vector<std::string> filtered_codec_vector;
     for (const auto& codec : codec_vector) {
-      if (media::ParseDolbyVisionCodecId(codec)) {
+      if (!media::ParseDolbyVisionCodecId(codec)) {
         filtered_codec_vector.push_back(codec);
       }
     }
@@ -201,10 +198,7 @@ bool KeySystemConfigSelector::WebLocalFrameDelegate::
 bool KeySystemConfigSelector::WebLocalFrameDelegate::AllowStorageAccessSync(
     WebContentSettingsClient::StorageType storage_type) {
   DCHECK(web_frame_);
-  WebContentSettingsClient* content_settings_client =
-      web_frame_->GetContentSettingsClient();
-  return !content_settings_client ||
-         content_settings_client->AllowStorageAccessSync(storage_type);
+  return web_frame_->AllowStorageAccessSyncAndNotify(storage_type);
 }
 
 struct KeySystemConfigSelector::SelectionRequest {
@@ -334,7 +328,6 @@ class KeySystemConfigSelector::ConfigState {
     // No rule specified, this should not happen
     if (!rule.has_value()) {
       NOTREACHED();
-      return;
     }
 
     // Rule does not require or prohibit anything, so can be skipped.
@@ -489,7 +482,6 @@ EmeConfig::Rule KeySystemConfigSelector::GetEncryptionSchemeConfigRule(
   }
 
   NOTREACHED();
-  return EmeConfig::UnsupportedRule();
 }
 
 bool KeySystemConfigSelector::GetSupportedCapabilities(
@@ -802,7 +794,6 @@ KeySystemConfigSelector::GetSupportedConfiguration(
     switch (session_type) {
       case WebEncryptedMediaSessionType::kUnknown:
         NOTREACHED();
-        return CONFIGURATION_NOT_SUPPORTED;
       case WebEncryptedMediaSessionType::kTemporary:
         session_type_rule = EmeConfig::SupportedRule();
         break;
@@ -933,7 +924,6 @@ KeySystemConfigSelector::GetSupportedConfiguration(
     } else {
       // We should not have passed step 6.
       NOTREACHED();
-      return CONFIGURATION_NOT_SUPPORTED;
     }
   }
 
@@ -972,7 +962,6 @@ KeySystemConfigSelector::GetSupportedConfiguration(
     } else {
       // We should not have passed step 5.
       NOTREACHED();
-      return CONFIGURATION_NOT_SUPPORTED;
     }
   }
 
@@ -1115,8 +1104,9 @@ void KeySystemConfigSelector::SelectConfigInternal(
         return;
       case CONFIGURATION_SUPPORTED:
         std::string key_system = request->key_system;
-        if (key_systems_->ShouldUseBaseKeySystemName(key_system))
+        if (key_systems_->ShouldUseBaseKeySystemName(key_system)) {
           key_system = key_systems_->GetBaseKeySystemName(key_system);
+        }
         cdm_config.key_system = key_system;
 
         cdm_config.allow_distinctive_identifier =

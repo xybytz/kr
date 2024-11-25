@@ -33,11 +33,16 @@ class QuickDeleteBridge {
   void Destroy(JNIEnv* env, const JavaParamRef<jobject>& obj);
 
   // Gets the most recently visited synced domain and count of unique domains
-  // visited on all devices in the last 15 minutes.
+  // visited on all devices within the time period.
   void GetLastVisitedDomainAndUniqueDomainCount(
       JNIEnv* env,
       const jint time_period,
       const JavaParamRef<jobject>& j_callback);
+
+  // Attempt to trigger the HaTS survey if appropriate.
+  void ShowSurvey(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& jweb_contents_android);
 
  private:
   raw_ptr<Profile> profile_;

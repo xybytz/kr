@@ -5,16 +5,20 @@
 package org.chromium.chrome.browser.readaloud.player.expanded;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.text.format.DateUtils;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
@@ -23,6 +27,7 @@ import org.chromium.chrome.browser.readaloud.player.Colors;
 import org.chromium.chrome.browser.readaloud.player.InteractionHandler;
 import org.chromium.chrome.browser.readaloud.player.PlayerProperties;
 import org.chromium.chrome.browser.readaloud.player.R;
+import org.chromium.chrome.browser.readaloud.player.TouchDelegateUtil;
 import org.chromium.chrome.modules.readaloud.PlaybackListener;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetContent;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
@@ -39,13 +44,13 @@ public class ExpandedPlayerSheetContent implements BottomSheetContent {
     private final BottomSheetController mBottomSheetController;
     private final PropertyModel mModel;
     private final SeekBar mSeekBar;
+    private final ScrollView mScrollView;
+    private final LinearLayout mPlayerControls;
     private View mContentView;
     // Effectively final and non null, can be null only in tests
     private OptionsMenuSheetContent mOptionsMenu;
     private SpeedMenuSheetContent mSpeedMenu;
     private TextView mSpeedButton;
-    private boolean mHighlightingEnabled;
-    private boolean mHighlightingSupported;
 
     private LinearLayout mNormalLayout;
     private LinearLayout mErrorLayout;
@@ -87,6 +92,25 @@ public class ExpandedPlayerSheetContent implements BottomSheetContent {
         mNormalLayout = (LinearLayout) mContentView.findViewById(R.id.normal_layout);
         mErrorLayout = (LinearLayout) mContentView.findViewById(R.id.error_layout);
         mSeekBar = (SeekBar) mContentView.findViewById(R.id.readaloud_expanded_player_seek_bar);
+        mScrollView = (ScrollView) mContentView.findViewById(R.id.scroll_view);
+
+        View publisherButton = mContentView.findViewById(R.id.readaloud_player_publisher_button);
+        publisherButton.addOnLayoutChangeListener(
+                new View.OnLayoutChangeListener() {
+                    @Override
+                    public void onLayoutChange(
+                            View v,
+                            int left,
+                            int top,
+                            int right,
+                            int bottom,
+                            int oldLeft,
+                            int oldTop,
+                            int oldRight,
+                            int oldBottom) {
+                        TouchDelegateUtil.setBiggerTouchTarget(publisherButton);
+                    }
+                });
 
         mSeekBar.setAccessibilityDelegate(
                 new View.AccessibilityDelegate() {
@@ -101,10 +125,13 @@ public class ExpandedPlayerSheetContent implements BottomSheetContent {
                         super.onInitializeAccessibilityEvent(host, event);
                     }
                 });
-
+        mPlayerControls =
+                (LinearLayout) mContentView.findViewById(R.id.readaloud_playback_controls);
         // Apply dynamic colors.
         Colors.setBottomSheetContentBackground(mContentView);
         Colors.setProgressBarColor(mSeekBar);
+
+        onOrientationChange(res.getConfiguration().orientation);
     }
 
     public void onPlaybackStateChanged(@PlaybackListener.State int state) {
@@ -128,6 +155,8 @@ public class ExpandedPlayerSheetContent implements BottomSheetContent {
 
     public void show() {
         mBottomSheetController.requestShowContent(this, /* animate= */ true);
+        // Reset scrolling if needed.
+        mScrollView.scrollTo(0, 0);
     }
 
     public void hide() {
@@ -180,11 +209,9 @@ public class ExpandedPlayerSheetContent implements BottomSheetContent {
     public void setSpeed(float speed) {
         mModel.set(PlayerProperties.SPEED, speed);
         String speedString = SpeedMenuSheetContent.speedFormatter(speed);
-        mSpeedButton.setText(
-                mContext.getResources().getString(R.string.readaloud_speed, speedString));
+        mSpeedButton.setText(mContext.getString(R.string.readaloud_speed, speedString));
         mSpeedButton.setContentDescription(
-                mContext.getResources()
-                        .getString(R.string.readaloud_speed_menu_button, speedString));
+                mContext.getString(R.string.readaloud_speed_menu_button, speedString));
     }
 
     void setHighlightingSupported(boolean supported) {
@@ -201,17 +228,15 @@ public class ExpandedPlayerSheetContent implements BottomSheetContent {
         // If playing, update to show the pause button.
         if (playing) {
             playButton.setImageResource(R.drawable.pause_button);
-            playButton.setContentDescription(
-                    mContext.getResources().getString(R.string.readaloud_pause));
+            playButton.setContentDescription(mContext.getString(R.string.readaloud_pause));
         } else {
             playButton.setImageResource(R.drawable.play_button);
-            playButton.setContentDescription(
-                    mContext.getResources().getString(R.string.readaloud_play));
+            playButton.setContentDescription(mContext.getString(R.string.readaloud_play));
         }
     }
 
     /**
-     * @param percentProgress out of 1.0
+     * @param percent out of 1.0
      */
     public void setProgress(float percent) {
         mSeekBar.setProgress((int) (percent * mSeekBar.getMax()), true);
@@ -226,11 +251,11 @@ public class ExpandedPlayerSheetContent implements BottomSheetContent {
         // set bit saying we're waiting for another sheet
         mModel.set(PlayerProperties.SHOW_MINI_PLAYER_ON_DISMISS, false);
         mBottomSheetController.hideContent(this, /* animate= */ false);
-        mBottomSheetController.requestShowContent(mOptionsMenu, /* animate= */ true);
+        mBottomSheetController.requestShowContent(mOptionsMenu, /* animate= */ false);
     }
 
     @Nullable
-    VoiceMenuSheetContent getVoiceMenu() {
+    VoiceMenu getVoiceMenu() {
         if (mOptionsMenu == null) {
             return null;
         }
@@ -246,7 +271,7 @@ public class ExpandedPlayerSheetContent implements BottomSheetContent {
         // set bit saying we're waiting for another sheet
         mModel.set(PlayerProperties.SHOW_MINI_PLAYER_ON_DISMISS, false);
         mBottomSheetController.hideContent(this, /* animate= */ false);
-        mBottomSheetController.requestShowContent(mSpeedMenu, /* animate= */ true);
+        mBottomSheetController.requestShowContent(mSpeedMenu, /* animate= */ false);
     }
 
     // BottomSheetContent implementation
@@ -264,7 +289,7 @@ public class ExpandedPlayerSheetContent implements BottomSheetContent {
 
     @Override
     public int getVerticalScrollOffset() {
-        return 0;
+        return mScrollView.getScrollY();
     }
 
     @Override
@@ -314,10 +339,10 @@ public class ExpandedPlayerSheetContent implements BottomSheetContent {
     }
 
     @Override
-    public int getSheetContentDescriptionStringId() {
+    public @NonNull String getSheetContentDescription(Context context) {
         // "'Listen to this page' player."
         // Automatically appended: "Swipe down to close."
-        return R.string.readaloud_player_name;
+        return context.getString(R.string.readaloud_player_name);
     }
 
     @Override
@@ -354,6 +379,47 @@ public class ExpandedPlayerSheetContent implements BottomSheetContent {
                         (view) -> {
                             onClick.run();
                         });
+    }
+
+    /** Customize portraint and landscape mode sheets. Landscape mode layout is more compressed. */
+    public void onOrientationChange(int orientation) {
+        if (mOptionsMenu != null) {
+            mOptionsMenu.onOrientationChange(orientation);
+        }
+        if (mSpeedMenu != null) {
+            mSpeedMenu.onOrientationChange(orientation);
+        }
+        TextView chromeNowPlaying = mContentView.findViewById(R.id.chrome_now_playing_text);
+        ViewGroup.MarginLayoutParams chromeNowPlayingParams =
+                (ViewGroup.MarginLayoutParams) chromeNowPlaying.getLayoutParams();
+
+        ViewGroup.LayoutParams errorParams = mErrorLayout.getLayoutParams();
+        int bottomPadding = 0;
+        int topMargin = 0;
+        if (orientation == Configuration.ORIENTATION_PORTRAIT) {
+            errorParams.height =
+                    mContext.getResources()
+                            .getDimensionPixelSize(R.dimen.error_layour_portrait_height);
+            bottomPadding =
+                    mContext.getResources()
+                            .getDimensionPixelSize(R.dimen.readaloud_controls_portrait_padding);
+            topMargin =
+                    mContext.getResources()
+                            .getDimensionPixelSize(R.dimen.readaloud_now_playing_spacing_portrait);
+
+        } else if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+
+            errorParams.height =
+                    mContext.getResources()
+                            .getDimensionPixelSize(R.dimen.error_layour_landscape_height);
+            topMargin =
+                    mContext.getResources()
+                            .getDimensionPixelSize(R.dimen.readaloud_now_playing_spacing_landscape);
+        }
+        chromeNowPlayingParams.setMargins(0, topMargin, 0, 0);
+        chromeNowPlaying.setLayoutParams(chromeNowPlayingParams);
+        mErrorLayout.setLayoutParams(errorParams);
+        mPlayerControls.setPadding(0, 0, 0, bottomPadding);
     }
 
     @VisibleForTesting

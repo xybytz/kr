@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <stddef.h>
 
 #include <string>
@@ -9,7 +14,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/containers/cxx20_erase_vector.h"
 #include "base/containers/flat_map.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
@@ -53,6 +57,7 @@
 #include "gpu/config/gpu_finch_features.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/gfx/geometry/linear_gradient.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -90,8 +95,8 @@ const gfx::Rect kOverlayBottomRightRect(128, 128, 128, 128);
 const gfx::Rect kOverlayClipRect(0, 0, 128, 128);
 const gfx::PointF kUVTopLeft(0.1f, 0.2f);
 const gfx::PointF kUVBottomRight(1.0f, 1.0f);
-const gfx::BufferFormat kDefaultBufferFormat = gfx::BufferFormat::RGBA_8888;
-constexpr OverlayCandidateFactory::OverlayContext kTestOverlayContext = {};
+const SharedImageFormat kDefaultSIFormat = SinglePlaneFormat::kRGBA_8888;
+const OverlayCandidateFactory::OverlayContext kTestOverlayContext;
 
 class TimeTicksOverride {
  public:
@@ -433,7 +438,7 @@ class AllowCandidateWithMasksSortedMultiOverlayProcessor
       std::vector<OverlayProposedCandidate>* proposed_candidates) override {
     // After sort we should only be left with candidates with rounded-display
     // masks.
-    base::EraseIf(*proposed_candidates, [](OverlayProposedCandidate& cand) {
+    std::erase_if(*proposed_candidates, [](OverlayProposedCandidate& cand) {
       return !cand.candidate.has_rounded_display_masks;
     });
 
@@ -538,8 +543,8 @@ static ResourceId CreateResourceInLayerTree(
     bool is_overlay_candidate,
     SharedImageFormat format) {
   auto resource = TransferableResource::MakeGpu(
-      gpu::Mailbox::GenerateForSharedImage(), GL_TEXTURE_2D, gpu::SyncToken(),
-      size, format, is_overlay_candidate);
+      gpu::Mailbox::Generate(), GL_TEXTURE_2D, gpu::SyncToken(), size, format,
+      is_overlay_candidate);
 
   ResourceId resource_id =
       child_resource_provider->ImportResource(resource, base::DoNothing());
@@ -549,7 +554,7 @@ static ResourceId CreateResourceInLayerTree(
 
 ResourceId CreateResource(DisplayResourceProvider* parent_resource_provider,
                           ClientResourceProvider* child_resource_provider,
-                          ContextProvider* child_context_provider,
+                          RasterContextProvider* child_context_provider,
                           const gfx::Size& size,
                           bool is_overlay_candidate,
                           SharedImageFormat format,
@@ -580,7 +585,7 @@ ResourceId CreateResource(DisplayResourceProvider* parent_resource_provider,
 
 ResourceId CreateResource(DisplayResourceProvider* parent_resource_provider,
                           ClientResourceProvider* child_resource_provider,
-                          ContextProvider* child_context_provider,
+                          RasterContextProvider* child_context_provider,
                           const gfx::Size& size,
                           bool is_overlay_candidate) {
   return CreateResource(parent_resource_provider, child_resource_provider,
@@ -602,7 +607,7 @@ SolidColorDrawQuad* CreateSolidColorQuadAt(
 TextureDrawQuad* CreateCandidateQuadAt(
     DisplayResourceProvider* parent_resource_provider,
     ClientResourceProvider* child_resource_provider,
-    ContextProvider* child_context_provider,
+    RasterContextProvider* child_context_provider,
     const SharedQuadState* shared_quad_state,
     AggregatedRenderPass* render_pass,
     const gfx::Rect& rect,
@@ -612,7 +617,6 @@ TextureDrawQuad* CreateCandidateQuadAt(
     SurfaceId test_surface_id = SurfaceId()) {
   bool needs_blending = false;
   bool premultiplied_alpha = false;
-  bool flipped = false;
   bool nearest_neighbor = false;
   bool is_overlay_candidate = true;
   ResourceId resource_id = CreateResource(
@@ -622,9 +626,8 @@ TextureDrawQuad* CreateCandidateQuadAt(
   auto* overlay_quad = render_pass->CreateAndAppendDrawQuad<TextureDrawQuad>();
   overlay_quad->SetNew(shared_quad_state, rect, rect, needs_blending,
                        resource_id, premultiplied_alpha, kUVTopLeft,
-                       kUVBottomRight, SkColors::kTransparent, flipped,
-                       nearest_neighbor, /*secure_output_only=*/false,
-                       protected_video_type);
+                       kUVBottomRight, SkColors::kTransparent, nearest_neighbor,
+                       /*secure_output_only=*/false, protected_video_type);
   overlay_quad->set_resource_size_in_pixels(resource_size_in_pixels);
 
   return overlay_quad;
@@ -633,7 +636,7 @@ TextureDrawQuad* CreateCandidateQuadAt(
 TextureDrawQuad* CreateCandidateQuadAt(
     DisplayResourceProvider* parent_resource_provider,
     ClientResourceProvider* child_resource_provider,
-    ContextProvider* child_context_provider,
+    RasterContextProvider* child_context_provider,
     const SharedQuadState* shared_quad_state,
     AggregatedRenderPass* render_pass,
     const gfx::Rect& rect,
@@ -649,7 +652,7 @@ TextureDrawQuad* CreateCandidateQuadAt(
 TextureDrawQuad* CreateCandidateQuadAt(
     DisplayResourceProvider* parent_resource_provider,
     ClientResourceProvider* child_resource_provider,
-    ContextProvider* child_context_provider,
+    RasterContextProvider* child_context_provider,
     const SharedQuadState* shared_quad_state,
     AggregatedRenderPass* render_pass,
     const gfx::Rect& rect,
@@ -692,13 +695,12 @@ VideoHoleDrawQuad* CreateVideoHoleDrawQuadAt(
 TextureDrawQuad* CreateTransparentCandidateQuadAt(
     DisplayResourceProvider* parent_resource_provider,
     ClientResourceProvider* child_resource_provider,
-    ContextProvider* child_context_provider,
+    RasterContextProvider* child_context_provider,
     const SharedQuadState* shared_quad_state,
     AggregatedRenderPass* render_pass,
     const gfx::Rect& rect) {
   bool needs_blending = true;
   bool premultiplied_alpha = false;
-  bool flipped = false;
   bool nearest_neighbor = false;
   gfx::Size resource_size_in_pixels = rect.size();
   bool is_overlay_candidate = true;
@@ -709,8 +711,8 @@ TextureDrawQuad* CreateTransparentCandidateQuadAt(
   auto* overlay_quad = render_pass->CreateAndAppendDrawQuad<TextureDrawQuad>();
   overlay_quad->SetNew(shared_quad_state, rect, rect, needs_blending,
                        resource_id, premultiplied_alpha, kUVTopLeft,
-                       kUVBottomRight, SkColors::kTransparent, flipped,
-                       nearest_neighbor, /*secure_output_only=*/false,
+                       kUVBottomRight, SkColors::kTransparent, nearest_neighbor,
+                       /*secure_output_only=*/false,
                        gfx::ProtectedVideoType::kClear);
   overlay_quad->set_resource_size_in_pixels(resource_size_in_pixels);
 
@@ -720,7 +722,7 @@ TextureDrawQuad* CreateTransparentCandidateQuadAt(
 TextureDrawQuad* CreateFullscreenCandidateQuad(
     DisplayResourceProvider* parent_resource_provider,
     ClientResourceProvider* child_resource_provider,
-    ContextProvider* child_context_provider,
+    RasterContextProvider* child_context_provider,
     const SharedQuadState* shared_quad_state,
     AggregatedRenderPass* render_pass) {
   return CreateCandidateQuadAt(
@@ -731,7 +733,7 @@ TextureDrawQuad* CreateFullscreenCandidateQuad(
 TextureDrawQuad* CreateQuadWithRoundedDisplayMasksAt(
     DisplayResourceProvider* parent_resource_provider,
     ClientResourceProvider* child_resource_provider,
-    ContextProvider* child_context_provider,
+    RasterContextProvider* child_context_provider,
     const SharedQuadState* shared_quad_state,
     AggregatedRenderPass* render_pass,
     bool is_overlay_candidate,
@@ -739,7 +741,6 @@ TextureDrawQuad* CreateQuadWithRoundedDisplayMasksAt(
     const RoundedDisplayMasksInfo& rounded_display_masks_info) {
   bool needs_blending = true;
   bool premultiplied_alpha = true;
-  bool flipped = false;
   bool nearest_neighbor = false;
   gfx::Size resource_size_in_pixels = rect.size();
   ResourceId resource_id = CreateResource(
@@ -747,11 +748,11 @@ TextureDrawQuad* CreateQuadWithRoundedDisplayMasksAt(
       resource_size_in_pixels, is_overlay_candidate);
 
   auto* overlay_quad = render_pass->CreateAndAppendDrawQuad<TextureDrawQuad>();
-  overlay_quad->SetNew(
-      shared_quad_state, rect, rect, needs_blending, resource_id,
-      premultiplied_alpha, kUVTopLeft, kUVBottomRight, SkColors::kTransparent,
-      flipped, nearest_neighbor,
-      /*secure_output=*/false, gfx::ProtectedVideoType::kClear);
+  overlay_quad->SetNew(shared_quad_state, rect, rect, needs_blending,
+                       resource_id, premultiplied_alpha, kUVTopLeft,
+                       kUVBottomRight, SkColors::kTransparent, nearest_neighbor,
+                       /*secure_output=*/false,
+                       gfx::ProtectedVideoType::kClear);
   overlay_quad->rounded_display_masks_info = rounded_display_masks_info;
 
   return overlay_quad;
@@ -760,7 +761,7 @@ TextureDrawQuad* CreateQuadWithRoundedDisplayMasksAt(
 TextureDrawQuad* CreateFullscreenQuadWithRoundedDisplayMasks(
     DisplayResourceProvider* parent_resource_provider,
     ClientResourceProvider* child_resource_provider,
-    ContextProvider* child_context_provider,
+    RasterContextProvider* child_context_provider,
     const SharedQuadState* shared_quad_state,
     AggregatedRenderPass* render_pass,
     bool is_overlay_candidate,
@@ -878,7 +879,7 @@ class OverlayTest : public testing::Test {
   std::unique_ptr<SkiaOutputSurface> output_surface_;
   cc::FakeOutputSurfaceClient output_surface_client_;
   std::unique_ptr<DisplayResourceProviderSkia> resource_provider_;
-  absl::optional<DisplayResourceProviderSkia::LockSetForExternalUse>
+  std::optional<DisplayResourceProviderSkia::LockSetForExternalUse>
       lock_set_for_external_use_;
   scoped_refptr<TestContextProvider> child_provider_;
   std::unique_ptr<ClientResourceProvider> child_resource_provider_;
@@ -978,13 +979,76 @@ TEST_F(FullscreenOverlayTest, DRMDefaultBlackOptimization) {
   }
 }
 
+TEST_F(FullscreenOverlayTest,
+       DRMDefaultBlackOptimizationWithRoundedDisplayMaskTextures) {
+  auto pass = CreateRenderPass();
+  auto sub_fullscreen = pass->output_rect;
+  sub_fullscreen.Inset(32);
+
+  const int display_width = kDisplaySize.width();
+  const int display_height = kDisplaySize.height();
+  const int radius = 16;
+
+  CreateQuadWithRoundedDisplayMasksAt(
+      resource_provider_.get(), child_resource_provider_.get(),
+      child_provider_.get(), pass->shared_quad_state_list.back(), pass.get(),
+      /*is_overlay_candidate=*/true, gfx::Rect(0, 0, radius, display_height),
+      RoundedDisplayMasksInfo::CreateRoundedDisplayMasksInfo(
+          radius, radius, /*is_horizontally_positioned=*/false));
+
+  CreateQuadWithRoundedDisplayMasksAt(
+      resource_provider_.get(), child_resource_provider_.get(),
+      child_provider_.get(), pass->shared_quad_state_list.back(), pass.get(),
+      /*is_overlay_candidate=*/true,
+      gfx::Rect(display_width - radius, 0, radius, display_height),
+      RoundedDisplayMasksInfo::CreateRoundedDisplayMasksInfo(
+          radius, radius, /*is_horizontally_positioned=*/false));
+
+  CreateCandidateQuadAt(resource_provider_.get(),
+                        child_resource_provider_.get(), child_provider_.get(),
+                        pass->shared_quad_state_list.back(), pass.get(),
+                        sub_fullscreen);
+
+  // Add a black solid color behind it.
+  CreateSolidColorQuadAt(pass->shared_quad_state_list.back(), SkColors::kBlack,
+                         pass.get(), pass->output_rect);
+
+  // Check for potential candidates.
+  OverlayCandidateList candidate_list;
+  OverlayProcessorInterface::FilterOperationsMap render_pass_filters;
+  OverlayProcessorInterface::FilterOperationsMap render_pass_backdrop_filters;
+  AggregatedRenderPassList pass_list;
+  AggregatedRenderPass* main_pass = pass.get();
+  pass_list.push_back(std::move(pass));
+  SurfaceDamageRectList surface_damage_rect_list;
+
+  overlay_processor_->ProcessForOverlays(
+      resource_provider_.get(), &pass_list, GetIdentityColorMatrix(),
+      render_pass_filters, render_pass_backdrop_filters,
+      std::move(surface_damage_rect_list), nullptr, &candidate_list,
+      &damage_rect_, &content_bounds_);
+
+  if (base::FeatureList::IsEnabled(
+          features::kUseDrmBlackFullscreenOptimization)) {
+    // Check that all the quads are gone.
+    EXPECT_EQ(0U, main_pass->quad_list.size());
+    // Check that we have only one overlay.
+    EXPECT_EQ(1U, candidate_list.size());
+    // Check that the candidate has replaced the primary plane.
+    EXPECT_EQ(candidate_list[0].plane_z_order, 0);
+  } else {
+    // No fullscreen promotion is possible.
+    EXPECT_EQ(0U, candidate_list.size());
+  }
+}
+
 TEST_F(FullscreenOverlayTest, SuccessfulOverlay) {
   auto pass = CreateRenderPass();
   gfx::Rect output_rect = pass->output_rect;
   TextureDrawQuad* original_quad = CreateFullscreenCandidateQuad(
       resource_provider_.get(), child_resource_provider_.get(),
       child_provider_.get(), pass->shared_quad_state_list.back(), pass.get());
-  ResourceId original_resource_id = original_quad->resource_id();
+  ResourceId original_resource_id = original_quad->resource_id;
 
   // Add something behind it.
   CreateFullscreenOpaqueQuad(resource_provider_.get(),
@@ -1250,7 +1314,7 @@ TEST_F(SingleOverlayOnTopTest, SuccessfulOverlay) {
   TextureDrawQuad* original_quad = CreateFullscreenCandidateQuad(
       resource_provider_.get(), child_resource_provider_.get(),
       child_provider_.get(), pass->shared_quad_state_list.back(), pass.get());
-  ResourceId original_resource_id = original_quad->resource_id();
+  ResourceId original_resource_id = original_quad->resource_id;
 
   // Add something behind it.
   CreateFullscreenOpaqueQuad(resource_provider_.get(),
@@ -1631,7 +1695,7 @@ TEST_F(MultiSingleOnTopOverlayTest,
   EXPECT_EQ(1U, main_pass->quad_list.size());
 
   for (const auto& candidate : candidate_list) {
-    EXPECT_NE(candidate.resource_id, not_promoted_candidate->resource_id());
+    EXPECT_NE(candidate.resource_id, not_promoted_candidate->resource_id);
   }
 }
 
@@ -1653,7 +1717,7 @@ TEST_F(SingleOverlayOnTopTest, PrioritizeBiggerOne) {
       kBigCandidateRect);
   AddExpectedRectToOverlayProcessor(gfx::RectF(kBigCandidateRect));
 
-  ResourceId resource_big = quad_big->resource_id();
+  ResourceId resource_big = quad_big->resource_id;
 
   // Add something behind it.
   CreateFullscreenOpaqueQuad(resource_provider_.get(),
@@ -1697,7 +1761,7 @@ TEST_F(SingleOverlayOnTopTest, CandidateIdCollision) {
       child_provider_.get(), pass->shared_quad_state_list.back(), pass.get(),
       kCandidateRect);
   AddExpectedRectToOverlayProcessor(gfx::RectF(kCandidateRect));
-  ResourceId resource_a = quad_a->resource_id();
+  ResourceId resource_a = quad_a->resource_id;
 
   TextureDrawQuad* quad_b = CreateCandidateQuadAt(
       resource_provider_.get(), child_resource_provider_.get(),
@@ -1815,12 +1879,12 @@ TEST_F(SingleOverlayOnTopTest, StablePrioritizeIntervalFrame) {
     shared_quad_state_a->overlay_damage_index = 0;
     TextureDrawQuad* quad_small =
         pass->CreateAndAppendDrawQuad<TextureDrawQuad>();
-    quad_small->SetNew(
-        shared_quad_state_a, kCandidateRectA, kCandidateRectA,
-        false /*needs_blending*/, resource_id_a, false /*premultiplied_alpha*/,
-        kUVTopLeft, kUVBottomRight, SkColors::kTransparent, false /*flipped*/,
-        false /*nearest_neighbor*/, false /*secure_output_only*/,
-        gfx::ProtectedVideoType::kClear);
+    quad_small->SetNew(shared_quad_state_a, kCandidateRectA, kCandidateRectA,
+                       false /*needs_blending*/, resource_id_a,
+                       false /*premultiplied_alpha*/, kUVTopLeft,
+                       kUVBottomRight, SkColors::kTransparent,
+                       false /*nearest_neighbor*/, false /*secure_output_only*/,
+                       gfx::ProtectedVideoType::kClear);
     quad_small->set_resource_size_in_pixels(kCandidateRectA.size());
     AddExpectedRectToOverlayProcessor(gfx::RectF(kCandidateRectA));
 
@@ -1833,8 +1897,8 @@ TEST_F(SingleOverlayOnTopTest, StablePrioritizeIntervalFrame) {
     quad_big->SetNew(shared_quad_state_b, kCandidateRectB, kCandidateRectB,
                      false /*needs_blending*/, resource_id_b,
                      false /*premultiplied_alpha*/, kUVTopLeft, kUVBottomRight,
-                     SkColors::kTransparent, false /*flipped*/,
-                     false /*nearest_neighbor*/, false /*secure_output_only*/,
+                     SkColors::kTransparent, false /*nearest_neighbor*/,
+                     false /*secure_output_only*/,
                      gfx::ProtectedVideoType::kClear);
     quad_big->set_resource_size_in_pixels(kCandidateRectB.size());
 
@@ -2293,6 +2357,66 @@ TEST_F(SingleOverlayOnTopTest, AcceptBlackBackgroundColor) {
       std::move(surface_damage_rect_list), nullptr, &candidate_list,
       &damage_rect_, &content_bounds_);
   EXPECT_EQ(1U, candidate_list.size());
+}
+
+// MaskFilters are only supported by underlay strategy.
+TEST_F(UnderlayTest, AcceptBlackBackgroundColorWithRoundedCorners) {
+  auto pass = CreateRenderPass();
+
+  auto* sqs = pass->shared_quad_state_list.back();
+  sqs->mask_filter_info =
+      gfx::MaskFilterInfo(gfx::RectF(kOverlayRect), gfx::RoundedCornersF(5.0f),
+                          gfx::LinearGradient::GetEmpty());
+
+  TextureDrawQuad* quad = CreateFullscreenCandidateQuad(
+      resource_provider_.get(), child_resource_provider_.get(),
+      child_provider_.get(), sqs, pass.get());
+  quad->background_color = SkColors::kBlack;
+
+  OverlayCandidateList candidate_list;
+  OverlayProcessorInterface::FilterOperationsMap render_pass_filters;
+  OverlayProcessorInterface::FilterOperationsMap render_pass_backdrop_filters;
+  AggregatedRenderPassList pass_list;
+  pass_list.push_back(std::move(pass));
+  SurfaceDamageRectList surface_damage_rect_list;
+
+  overlay_processor_->ProcessForOverlays(
+      resource_provider_.get(), &pass_list, GetIdentityColorMatrix(),
+      render_pass_filters, render_pass_backdrop_filters,
+      std::move(surface_damage_rect_list), nullptr, &candidate_list,
+      &damage_rect_, &content_bounds_);
+  EXPECT_EQ(1U, candidate_list.size());
+}
+
+// MaskFilters are only supported by underlay strategy.
+TEST_F(UnderlayTest, RejectBlackBackgroundColorWithGradient) {
+  auto pass = CreateRenderPass();
+
+  gfx::LinearGradient gradient;
+  gradient.AddStep(0.5, 9);
+
+  auto* sqs = pass->shared_quad_state_list.back();
+  sqs->mask_filter_info = gfx::MaskFilterInfo(gfx::RectF(kOverlayRect),
+                                              gfx::RoundedCornersF(), gradient);
+
+  TextureDrawQuad* quad = CreateFullscreenCandidateQuad(
+      resource_provider_.get(), child_resource_provider_.get(),
+      child_provider_.get(), sqs, pass.get());
+  quad->background_color = SkColors::kBlack;
+
+  OverlayCandidateList candidate_list;
+  OverlayProcessorInterface::FilterOperationsMap render_pass_filters;
+  OverlayProcessorInterface::FilterOperationsMap render_pass_backdrop_filters;
+  AggregatedRenderPassList pass_list;
+  pass_list.push_back(std::move(pass));
+  SurfaceDamageRectList surface_damage_rect_list;
+
+  overlay_processor_->ProcessForOverlays(
+      resource_provider_.get(), &pass_list, GetIdentityColorMatrix(),
+      render_pass_filters, render_pass_backdrop_filters,
+      std::move(surface_damage_rect_list), nullptr, &candidate_list,
+      &damage_rect_, &content_bounds_);
+  EXPECT_EQ(0U, candidate_list.size());
 }
 
 TEST_F(SingleOverlayOnTopTest, RejectBlackBackgroundColorWithBlending) {
@@ -3088,7 +3212,7 @@ TEST_F(ChangeSingleOnTopTest, DoNotPromoteIfContentsDontChange) {
         pass->shared_quad_state_list.back(), pass->output_rect,
         pass->output_rect, false /*needs_blending*/, resource_id,
         false /*premultiplied_alpha*/, kUVTopLeft, kUVBottomRight,
-        SkColors::kTransparent, false /*flipped*/, false /*nearest_neighbor*/,
+        SkColors::kTransparent, false /*nearest_neighbor*/,
         false /*secure_output_only*/, gfx::ProtectedVideoType::kClear);
     original_quad->set_resource_size_in_pixels(pass->output_rect.size());
 
@@ -3844,7 +3968,7 @@ TEST_F(UnderlayTest, PrimaryPlaneOverlayIsTransparentWithUnderlay) {
   SurfaceDamageRectList surface_damage_rect_list;
 
   auto output_surface_plane = overlay_processor_->ProcessOutputSurfaceAsOverlay(
-      kDisplaySize, kDisplaySize, kDefaultBufferFormat, gfx::ColorSpace(),
+      kDisplaySize, kDisplaySize, kDefaultSIFormat, gfx::ColorSpace(),
       false /* has_alpha */, 1.0f /* opacity */, gpu::Mailbox());
   OverlayProcessorInterface::OutputSurfaceOverlayPlane* primary_plane =
       &output_surface_plane;
@@ -4527,7 +4651,7 @@ TEST_F(UnderlayCastTest, PrimaryPlaneOverlayIsAlwaysTransparent) {
   AggregatedRenderPassList pass_list;
   pass_list.push_back(std::move(pass));
   auto output_surface_plane = overlay_processor_->ProcessOutputSurfaceAsOverlay(
-      kDisplaySize, kDisplaySize, kDefaultBufferFormat, gfx::ColorSpace(),
+      kDisplaySize, kDisplaySize, kDefaultSIFormat, gfx::ColorSpace(),
       false /* has_alpha */, 1.0f /* opacity */, gpu::Mailbox());
 
   SurfaceDamageRectList surface_damage_rect_list;
@@ -4696,7 +4820,7 @@ void AddQuad(gfx::Rect quad_rect,
       /*quad_to_target_transform=*/quad_to_target_transform, quad_rect,
       /*visible_layer_rect=*/quad_rect,
       /*mask_filter_info=*/gfx::MaskFilterInfo(),
-      /*clip_rect=*/absl::nullopt,
+      /*clip_rect=*/std::nullopt,
       /*are contents opaque=*/true,
       /*opacity=*/1.f,
       /*blend_mode=*/SkBlendMode::kSrcOver, /*sorting_context=*/0,
@@ -5013,12 +5137,79 @@ TEST_F(UnderlayTest, ProtectedVideoOverlayScaling) {
   }
 }
 
+TEST_F(UnderlayTest, DisableOverlayWithRootCopies) {
+  auto root_pass = CreateRenderPass();
+
+  OverlayProcessorInterface::FilterOperationsMap render_pass_filters;
+  OverlayProcessorInterface::FilterOperationsMap render_pass_backdrop_filters;
+  AggregatedRenderPassList render_pass_list;
+  SurfaceDamageRectList surface_damage_rect_list;
+
+  render_pass_list.push_back(std::move(root_pass));
+  auto output_surface_plane = overlay_processor_->ProcessOutputSurfaceAsOverlay(
+      kDisplaySize, kDisplaySize, kDefaultSIFormat, gfx::ColorSpace(),
+      false /* has_alpha */, 1.0f /* opacity */, gpu::Mailbox());
+  OverlayProcessorInterface::OutputSurfaceOverlayPlane* primary_plane =
+      &output_surface_plane;
+
+  // Choose 5 here for testing purpose, this value will not change
+  constexpr int kDisableOverlayTestVectorSize =
+      OverlayProcessorUsingStrategy::kCopyRequestSkipOverlayFrames + 5;
+
+  std::vector<bool> copy_frames = {true, false, true};
+  copy_frames.resize(kDisableOverlayTestVectorSize, false);
+
+  // The last 3 elements in |expected_overlays| should always be true
+  // for testing purpose
+  std::vector<bool> expected_overlays(kDisableOverlayTestVectorSize, false);
+  for (int i = kDisableOverlayTestVectorSize - 3;
+       i < kDisableOverlayTestVectorSize; i++) {
+    expected_overlays[i] = true;
+  }
+
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(
+      features::kTemporalSkipOverlaysWithRootCopyOutputRequests);
+
+  for (size_t i = 0; i < copy_frames.size(); ++i) {
+    SCOPED_TRACE(i);
+
+    render_pass_list[0]->copy_requests.clear();
+    render_pass_list[0]->quad_list.clear();
+
+    CreateOpaqueQuadAt(resource_provider_.get(),
+                       render_pass_list[0]->shared_quad_state_list.back(),
+                       render_pass_list[0].get(),
+                       render_pass_list[0]->output_rect, SkColors::kWhite);
+
+    CreateCandidateQuadAt(resource_provider_.get(),
+                          child_resource_provider_.get(), child_provider_.get(),
+                          render_pass_list[0]->shared_quad_state_list.back(),
+                          render_pass_list[0].get(), kOverlayRect);
+
+    // Add copy output request to root render pass on certain frames.
+    if (copy_frames[i]) {
+      render_pass_list[0]->copy_requests.push_back(
+          CopyOutputRequest::CreateStubForTesting());
+    }
+
+    OverlayCandidateList candidate_list;
+    overlay_processor_->ProcessForOverlays(
+        resource_provider_.get(), &render_pass_list, GetIdentityColorMatrix(),
+        render_pass_filters, render_pass_backdrop_filters,
+        surface_damage_rect_list, primary_plane, &candidate_list, &damage_rect_,
+        &content_bounds_);
+
+    EXPECT_EQ(expected_overlays[i], candidate_list.size() > 0);
+  }
+}
+
 #if BUILDFLAG(IS_OZONE)
 
 TileDrawQuad* CreateTileCandidateQuadAt(
     DisplayResourceProvider* parent_resource_provider,
     ClientResourceProvider* child_resource_provider,
-    ContextProvider* child_context_provider,
+    RasterContextProvider* child_context_provider,
     const SharedQuadState* shared_quad_state,
     AggregatedRenderPass* render_pass,
     const gfx::Rect& rect) {
@@ -5051,7 +5242,7 @@ class TestDelegatedOverlayProcessor : public OverlayProcessorDelegated {
   OverlayProcessorInterface::OutputSurfaceOverlayPlane*
   GetDefaultPrimaryPlane() {
     primary_plane_ = ProcessOutputSurfaceAsOverlay(
-        kDisplaySize, kDisplaySize, kDefaultBufferFormat, gfx::ColorSpace(),
+        kDisplaySize, kDisplaySize, kDefaultSIFormat, gfx::ColorSpace(),
         false /* has_alpha */, 1.0f /* opacity */, gpu::Mailbox());
     return &primary_plane_;
   }
@@ -5525,10 +5716,11 @@ TEST_F(DelegatedTest, NonAxisAlignedCandidateStatus) {
   auto color_mat = GetIdentityColorMatrix();
   OverlayProcessorInterface::FilterOperationsMap render_pass_filters;
 
+  OverlayCandidateFactory::OverlayContext context;
+  context.is_delegated_context = true;
   auto candidate_factory = OverlayCandidateFactory(
       pass.get(), resource_provider_.get(), &surface_damage_rect_list,
-      &color_mat, gfx::RectF(pass->output_rect), &render_pass_filters,
-      OverlayCandidateFactory::OverlayContext{.is_delegated_context = true});
+      &color_mat, gfx::RectF(pass->output_rect), &render_pass_filters, context);
 
   pass->shared_quad_state_list.back()->quad_to_target_transform =
       MakePerspectiveTransform();
@@ -6749,7 +6941,7 @@ TEST_P(MultiUnderlayPromotedTest, UnderlaysBlendPrimaryPlane) {
   AggregatedRenderPassList pass_list;
   pass_list.push_back(std::move(pass));
   auto output_surface_plane = overlay_processor_->ProcessOutputSurfaceAsOverlay(
-      kDisplaySize, kDisplaySize, kDefaultBufferFormat, gfx::ColorSpace(),
+      kDisplaySize, kDisplaySize, kDefaultSIFormat, gfx::ColorSpace(),
       false /* has_alpha */, 1.0f /* opacity */, gpu::Mailbox());
   OverlayProcessorInterface::OutputSurfaceOverlayPlane* primary_plane =
       &output_surface_plane;

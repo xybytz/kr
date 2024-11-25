@@ -19,6 +19,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_util.h"
+#include "base/system/sys_info.h"
 #include "base/task/current_thread.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/events/devices/device_data_manager.h"
@@ -29,6 +30,7 @@
 #include "ui/gfx/geometry/point.h"
 #include "ui/ozone/common/features.h"
 #include "ui/ozone/platform/wayland/common/wayland_object.h"
+#include "ui/ozone/platform/wayland/common/wayland_util.h"
 #include "ui/ozone/platform/wayland/host/fractional_scale_manager.h"
 #include "ui/ozone/platform/wayland/host/gtk_primary_selection_device_manager.h"
 #include "ui/ozone/platform/wayland/host/gtk_shell1.h"
@@ -36,11 +38,12 @@
 #include "ui/ozone/platform/wayland/host/overlay_prioritizer.h"
 #include "ui/ozone/platform/wayland/host/proxy/wayland_proxy_impl.h"
 #include "ui/ozone/platform/wayland/host/single_pixel_buffer.h"
-#include "ui/ozone/platform/wayland/host/surface_augmenter.h"
+#include "ui/ozone/platform/wayland/host/toplevel_icon_manager.h"
 #include "ui/ozone/platform/wayland/host/wayland_buffer_factory.h"
 #include "ui/ozone/platform/wayland/host/wayland_buffer_manager_host.h"
 #include "ui/ozone/platform/wayland/host/wayland_cursor.h"
 #include "ui/ozone/platform/wayland/host/wayland_cursor_position.h"
+#include "ui/ozone/platform/wayland/host/wayland_cursor_shape.h"
 #include "ui/ozone/platform/wayland/host/wayland_data_device_manager.h"
 #include "ui/ozone/platform/wayland/host/wayland_drm.h"
 #include "ui/ozone/platform/wayland/host/wayland_event_source.h"
@@ -52,8 +55,6 @@
 #include "ui/ozone/platform/wayland/host/wayland_shm.h"
 #include "ui/ozone/platform/wayland/host/wayland_window.h"
 #include "ui/ozone/platform/wayland/host/wayland_window_drag_controller.h"
-#include "ui/ozone/platform/wayland/host/wayland_zaura_output_manager.h"
-#include "ui/ozone/platform/wayland/host/wayland_zaura_shell.h"
 #include "ui/ozone/platform/wayland/host/wayland_zcr_color_management_output.h"
 #include "ui/ozone/platform/wayland/host/wayland_zcr_color_manager.h"
 #include "ui/ozone/platform/wayland/host/wayland_zcr_cursor_shapes.h"
@@ -66,6 +67,7 @@
 #include "ui/ozone/platform/wayland/host/xdg_foreign_wrapper.h"
 #include "ui/ozone/platform/wayland/host/zwp_idle_inhibit_manager.h"
 #include "ui/ozone/platform/wayland/host/zwp_primary_selection_device_manager.h"
+#include "ui/ozone/public/ozone_switches.h"
 #include "ui/platform_window/common/platform_window_defaults.h"
 
 namespace ui {
@@ -77,15 +79,18 @@ namespace {
 // advertised by the server.
 constexpr uint32_t kMaxCompositorVersion = 4;
 constexpr uint32_t kMaxKeyboardExtensionVersion = 2;
-constexpr uint32_t kMaxXdgShellVersion = 5;
+constexpr uint32_t kMaxXdgShellVersion = 6;
 constexpr uint32_t kMaxWpPresentationVersion = 1;
 constexpr uint32_t kMaxWpViewporterVersion = 1;
-constexpr uint32_t kMaxTextInputManagerVersion = 1;
-constexpr uint32_t kMaxTextInputExtensionVersion = 13;
+constexpr uint32_t kMaxTextInputManagerV1Version = 1;
+constexpr uint32_t kMaxTextInputManagerV3Version = 1;
+constexpr uint32_t kMaxTextInputExtensionVersion = 14;
 constexpr uint32_t kMaxExplicitSyncVersion = 2;
+constexpr uint32_t kMaxLinuxDrmSyncobjVersion = 1;
 constexpr uint32_t kMaxAlphaCompositingVersion = 1;
 constexpr uint32_t kMaxXdgDecorationVersion = 1;
 constexpr uint32_t kMaxExtendedDragVersion = 1;
+constexpr uint32_t kMaxXdgToplevelDragVersion = 1;
 constexpr uint32_t kMaxXdgOutputManagerVersion = 3;
 constexpr uint32_t kMaxKeyboardShortcutsInhibitManagerVersion = 1;
 constexpr uint32_t kMaxStylusVersion = 2;
@@ -109,11 +114,24 @@ int64_t ConvertTimespecToMicros(const struct timespec& ts) {
 int64_t ConvertTimespecResultToMicros(uint32_t tv_sec_hi,
                                       uint32_t tv_sec_lo,
                                       uint32_t tv_nsec) {
-  base::CheckedNumeric<int64_t> result =
-      (static_cast<int64_t>(tv_sec_hi) << 32) + tv_sec_lo;
+  base::CheckedNumeric<int64_t> result(tv_sec_hi);
+  result <<= 32;
+  result += tv_sec_lo;
   result *= base::Time::kMicrosecondsPerSecond;
   result += (tv_nsec / base::Time::kNanosecondsPerMicrosecond);
   return result.ValueOrDie();
+}
+
+bool MinSupportedKernelForLinuxDrmSyncobj() {
+  int major, minor, build;
+  base::SysInfo::OperatingSystemVersionNumbers(&major, &minor, &build);
+  // We use drm_syncobj_eventfd_ioctl and DRM_SYNCOBJ_WAIT_FLAGS_WAIT_AVAILABLE
+  // flag to wait for the release fence when using linux-drm-syncobj. The ioctl
+  // was introduced in kernel version 6.6 but important fixes for the ioctl as
+  // well as the flag were made in newer kernel versions. Set minimum supported
+  // kernel version to 6.11 to avoid using buggy implementation that may cause
+  // stability issues.
+  return major > 6 || (major == 6 && minor >= 11);
 }
 
 }  // namespace
@@ -145,10 +163,8 @@ bool WaylandConnection::Initialize(bool use_threaded_polling) {
                               &OverlayPrioritizer::Instantiate);
   RegisterGlobalObjectFactory(SinglePixelBuffer::kInterfaceName,
                               &SinglePixelBuffer::Instantiate);
-  RegisterGlobalObjectFactory(SurfaceAugmenter::kInterfaceName,
-                              &SurfaceAugmenter::Instantiate);
-  RegisterGlobalObjectFactory(WaylandZAuraOutputManager::kInterfaceName,
-                              &WaylandZAuraOutputManager::Instantiate);
+  RegisterGlobalObjectFactory(ToplevelIconManager::kInterfaceName,
+                              &ToplevelIconManager::Instantiate);
   RegisterGlobalObjectFactory(WaylandDataDeviceManager::kInterfaceName,
                               &WaylandDataDeviceManager::Instantiate);
   RegisterGlobalObjectFactory(WaylandDrm::kInterfaceName,
@@ -159,12 +175,8 @@ bool WaylandConnection::Initialize(bool use_threaded_polling) {
                               &WaylandSeat::Instantiate);
   RegisterGlobalObjectFactory(WaylandShm::kInterfaceName,
                               &WaylandShm::Instantiate);
-  RegisterGlobalObjectFactory(WaylandZAuraShell::kInterfaceName,
-                              &WaylandZAuraShell::Instantiate);
-  if (features::IsLacrosColorManagementEnabled()) {
-    RegisterGlobalObjectFactory(WaylandZcrColorManager::kInterfaceName,
-                                &WaylandZcrColorManager::Instantiate);
-  }
+  RegisterGlobalObjectFactory(WaylandCursorShape::kInterfaceName,
+                              &WaylandCursorShape::Instantiate);
   RegisterGlobalObjectFactory(WaylandZcrCursorShapes::kInterfaceName,
                               &WaylandZcrCursorShapes::Instantiate);
   RegisterGlobalObjectFactory(WaylandZcrTouchpadHaptics::kInterfaceName,
@@ -201,7 +213,7 @@ bool WaylandConnection::Initialize(bool use_threaded_polling) {
   event_queue_.reset(wl_display_create_queue(display()));
   wl_proxy_set_queue(wrapped_display_.get(), event_queue_.get());
 
-  registry_.reset(wl_display_get_registry(display_wrapper()));
+  registry_.reset(GetRegistry());
   if (!registry_) {
     LOG(ERROR) << "Failed to get Wayland registry";
     return false;
@@ -223,6 +235,8 @@ bool WaylandConnection::Initialize(bool use_threaded_polling) {
   // zwp_linux_dmabuf objects are able to be stored.
   buffer_factory_ = std::make_unique<WaylandBufferFactory>();
 
+  wl::RecordConnectionMetrics(display());
+
   static constexpr wl_registry_listener kRegistryListener = {
       .global = &OnGlobal,
       .global_remove = &OnGlobalRemove,
@@ -238,13 +252,6 @@ bool WaylandConnection::Initialize(bool use_threaded_polling) {
   // blocks until wl_display.sync is done. Use it to ensure the required globals
   // are emitted.
   while (!WlGlobalsReady()) {
-    RoundTripQueue();
-  }
-
-  // Some wl_globals emits important information when bound.
-  // E.g. server version.
-  // Synchronously wait for it as well.
-  while (!WlObjectsReady()) {
     RoundTripQueue();
   }
 
@@ -283,12 +290,6 @@ void WaylandConnection::SetShutdownCb(base::OnceCallback<void()> shutdown_cb) {
   event_source()->SetShutdownCb(std::move(shutdown_cb));
 }
 
-base::Version WaylandConnection::GetServerVersion() const {
-  return zaura_shell()
-             ? zaura_shell()->server_version().value_or(base::Version{})
-             : base::Version{};
-}
-
 void WaylandConnection::SetPlatformCursor(wl_cursor* cursor_data,
                                           int buffer_scale) {
   if (!cursor_)
@@ -313,13 +314,9 @@ void WaylandConnection::SetCursorBitmap(const std::vector<SkBitmap>& bitmaps,
 }
 
 bool WaylandConnection::IsDragInProgress() const {
-  // |data_drag_controller_| can be null when running on headless weston.
-  return (data_drag_controller_ &&
-          data_drag_controller_->state() !=
-              WaylandDataDragController::State::kIdle) ||
-         (window_drag_controller_ &&
-          window_drag_controller_->state() !=
-              WaylandWindowDragController::State::kIdle);
+  // An active drag requires a seat exist.
+  return seat_ && data_device_manager_ &&
+         data_device_manager_->GetDevice()->IsDragInProgress();
 }
 
 bool WaylandConnection::SupportsSetWindowGeometry() const {
@@ -351,22 +348,8 @@ bool WaylandConnection::WlGlobalsReady() const {
   return ready;
 }
 
-bool WaylandConnection::WlObjectsReady() const {
-  DCHECK(WlGlobalsReady());
-
-  bool ready = true;
-
-  // Lacros requires server version synchronously for gpu init.
-  if (zaura_shell_ && zaura_shell_get_version(zaura_shell_->wl_object()) >=
-                          ZAURA_SHELL_COMPOSITOR_VERSION_SINCE_VERSION) {
-    ready &= zaura_shell_->server_version().has_value();
-  }
-
-  return ready;
-}
-
 void WaylandConnection::Flush() {
-  wl_display_flush(display_.get());
+  wl_display_flush(display());
 }
 
 void WaylandConnection::UpdateInputDevices() {
@@ -434,7 +417,8 @@ void WaylandConnection::CreateDataObjectsIfReady() {
 
     DCHECK(!window_drag_controller_);
     window_drag_controller_ = std::make_unique<WaylandWindowDragController>(
-        this, data_device_manager_.get(), event_source(), event_source());
+        this, data_device_manager_.get(), event_source(), event_source(),
+        event_source());
 
     DCHECK(!clipboard_);
     clipboard_ =
@@ -460,9 +444,8 @@ base::TimeTicks WaylandConnection::ConvertPresentationTime(uint32_t tv_sec_hi,
   if (ret < 0) {
     presentation_now.tv_sec = 0;
     presentation_now.tv_nsec = 0;
-    LOG(ERROR) << "Error: failure to read the wp_presentation clock "
-               << presentation_clk_id_ << ": '" << strerror(errno) << "' "
-               << errno;
+    PLOG(ERROR) << "Error: failure to read the wp_presentation clock "
+                << presentation_clk_id_;
     return base::TimeTicks::Now();
   }
 
@@ -471,16 +454,6 @@ base::TimeTicks WaylandConnection::ConvertPresentationTime(uint32_t tv_sec_hi,
       ConvertTimespecToMicros(presentation_now);
 
   return now + base::Microseconds(delta_us);
-}
-
-const gfx::PointF WaylandConnection::MaybeConvertLocation(
-    const gfx::PointF& location,
-    const WaylandWindow* window) const {
-  if (!surface_submission_in_pixel_coordinates_ || !window)
-    return location;
-  gfx::PointF converted(location);
-  converted.InvScale(window->applied_state().window_scale);
-  return converted;
 }
 
 void WaylandConnection::DumpState(std::ostream& out) const {
@@ -516,15 +489,27 @@ void WaylandConnection::DumpState(std::ostream& out) const {
     output_manager_->DumpState(out);
     out << std::endl;
   }
-
-  if (zaura_output_manager_) {
-    zaura_output_manager_->DumpState(out);
-    out << std::endl;
-  }
 }
 
 bool WaylandConnection::ShouldUseOverlayDelegation() const {
-  return IsWaylandOverlayDelegationEnabled() && !overlay_delegation_disabled_;
+  // Since using fractional_scale_v1 requires using viewport to rescale the
+  // window to Wayland logical coordinates, using overlays in conjunction with
+  // fractional_scale_v1 would require support for subpixel viewport
+  // destination sizes and subpixel subsurface positions, which currently
+  // isn't present on any non-exo Wayland compositors.
+  bool should_use_overlay_delegation =
+      IsWaylandOverlayDelegationEnabled() && !fractional_scale_manager_v1();
+#if BUILDFLAG(IS_LINUX)
+  // Overlay delegation also requires a single-pixel-buffer protocol, which
+  // allows creation of non-backed solid color buffers. Even though only video
+  // overlays can be supported on Linux, these color buffers are still needed
+  // due to a peculiarity of the design of the Ozone/Wayland with the
+  // WaylandOverlayDelegation feature enabled, which implies usage of a
+  // transparent background buffer for a root surface while the content itself
+  // is attached to a subsurface.
+  should_use_overlay_delegation &= !!single_pixel_buffer();
+#endif
+  return should_use_overlay_delegation;
 }
 
 // static
@@ -624,6 +609,18 @@ void WaylandConnection::HandleGlobal(wl_registry* registry,
       LOG(ERROR) << "Failed to bind zwp_linux_explicit_synchronization_v1";
       return;
     }
+  } else if (!linux_drm_syncobj_manager_ &&
+             (strcmp(interface, "wp_linux_drm_syncobj_manager_v1") == 0)) {
+    if (enable_linux_drm_syncobj_for_testing_ ||
+        (base::FeatureList::IsEnabled(features::kWaylandLinuxDrmSyncobj) &&
+         MinSupportedKernelForLinuxDrmSyncobj())) {
+      linux_drm_syncobj_manager_ = wl::Bind<wp_linux_drm_syncobj_manager_v1>(
+          registry, name, std::min(version, kMaxLinuxDrmSyncobjVersion));
+      if (!linux_drm_syncobj_manager_) {
+        LOG(ERROR) << "Failed to bind wp_linux_drm_syncobj_manager_v1";
+        return;
+      }
+    }
   } else if (!content_type_manager_v1_ &&
              (strcmp(interface, "wp_content_type_manager_v1") == 0)) {
     content_type_manager_v1_ = wl::Bind<wp_content_type_manager_v1>(
@@ -678,7 +675,7 @@ void WaylandConnection::HandleGlobal(wl_registry* registry,
   } else if (!text_input_manager_v1_ &&
              strcmp(interface, "zwp_text_input_manager_v1") == 0) {
     text_input_manager_v1_ = wl::Bind<zwp_text_input_manager_v1>(
-        registry, name, std::min(version, kMaxTextInputManagerVersion));
+        registry, name, std::min(version, kMaxTextInputManagerV1Version));
     if (!text_input_manager_v1_) {
       LOG(ERROR) << "Failed to bind to zwp_text_input_manager_v1 global";
       return;
@@ -687,6 +684,14 @@ void WaylandConnection::HandleGlobal(wl_registry* registry,
              strcmp(interface, "zcr_text_input_extension_v1") == 0) {
     text_input_extension_v1_ = wl::Bind<zcr_text_input_extension_v1>(
         registry, name, std::min(version, kMaxTextInputExtensionVersion));
+  } else if (!text_input_manager_v3_ &&
+             strcmp(interface, "zwp_text_input_manager_v3") == 0) {
+    text_input_manager_v3_ = wl::Bind<zwp_text_input_manager_v3>(
+        registry, name, std::min(version, kMaxTextInputManagerV3Version));
+    if (!text_input_manager_v3_) {
+      LOG(ERROR) << "Failed to bind to zwp_text_input_manager_v3 global";
+      return;
+    }
   } else if (!xdg_decoration_manager_ &&
              strcmp(interface, "zxdg_decoration_manager_v1") == 0) {
     xdg_decoration_manager_ = wl::Bind<zxdg_decoration_manager_v1>(
@@ -703,15 +708,17 @@ void WaylandConnection::HandleGlobal(wl_registry* registry,
       LOG(ERROR) << "Failed to bind to zcr_extended_drag_v1 global";
       return;
     }
-  } else if (!xdg_output_manager_ &&
-             strcmp(interface, "zxdg_output_manager_v1") == 0) {
-    // Responsibilities of zxdg_output_manager_v1 have been subsumed into the
-    // zaura_output_manager. If using the zaura_output_manager avoid binding
-    // unnecessarily.
-    if (zaura_output_manager_) {
-      LOG(WARNING) << "Skipping bind to zxdg_output_manager_v1";
+  } else if (!xdg_toplevel_drag_manager_v1_ &&
+             strcmp(interface, "xdg_toplevel_drag_manager_v1") == 0 &&
+             IsWaylandXdgToplevelDragEnabled()) {
+    xdg_toplevel_drag_manager_v1_ = wl::Bind<::xdg_toplevel_drag_manager_v1>(
+        registry, name, std::min(version, kMaxXdgToplevelDragVersion));
+    if (!xdg_toplevel_drag_manager_v1_) {
+      LOG(ERROR) << "Failed to bind to xdg_toplevel_drag_manager_v1 global";
       return;
     }
+  } else if (!xdg_output_manager_ &&
+             strcmp(interface, "zxdg_output_manager_v1") == 0) {
     xdg_output_manager_ = wl::Bind<zxdg_output_manager_v1>(
         registry, name, std::min(version, kMaxXdgOutputManagerVersion));
     if (!xdg_output_manager_) {
@@ -740,6 +747,21 @@ void WaylandConnection::HandleGlobal(wl_registry* registry,
 
   available_globals_.emplace_back(interface, version);
   Flush();
+}
+
+struct wl_callback* WaylandConnection::GetSyncCallback() {
+  // We use display_wrapped here since we create all the objects against this
+  // display, and the default one is responsible for a different event queue.
+  return wl_display_sync(display_wrapper());
+}
+
+gl::EGLDisplayPlatform WaylandConnection::GetNativeDisplay() {
+  return gl::EGLDisplayPlatform(
+      reinterpret_cast<EGLNativeDisplayType>(display()));
+}
+
+struct wl_registry* WaylandConnection::GetRegistry() {
+  return wl_display_get_registry(display_wrapper());
 }
 
 }  // namespace ui

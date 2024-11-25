@@ -23,7 +23,7 @@ import org.chromium.chrome.browser.payments.PaymentRequestTestRule.FactorySpeed;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.R;
 import org.chromium.components.autofill.AutofillProfile;
-import org.chromium.components.payments.Event;
+import org.chromium.components.payments.Event2;
 
 import java.util.concurrent.TimeoutException;
 
@@ -121,7 +121,7 @@ public class PaymentRequestEmailAndPhoneTest {
     @MediumTest
     @Feature({"Payments"})
     public void testPay() throws TimeoutException {
-        mPaymentRequestTestRule.runJavaScriptAndWaitForUIEvent(
+        mPaymentRequestTestRule.runJavaScriptAndWaitForUiEvent(
                 "buy();", mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.clickAndWait(
                 R.id.button_primary, mPaymentRequestTestRule.getDismissed());
@@ -134,7 +134,7 @@ public class PaymentRequestEmailAndPhoneTest {
     @MediumTest
     @Feature({"Payments"})
     public void testAddInvalidEmailAndCancel() throws TimeoutException {
-        mPaymentRequestTestRule.runJavaScriptAndWaitForUIEvent(
+        mPaymentRequestTestRule.runJavaScriptAndWaitForUiEvent(
                 "buy();", mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.clickInContactInfoAndWait(
                 R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
@@ -157,7 +157,7 @@ public class PaymentRequestEmailAndPhoneTest {
     @MediumTest
     @Feature({"Payments"})
     public void testAddEmailAndPhoneAndPay() throws TimeoutException {
-        mPaymentRequestTestRule.runJavaScriptAndWaitForUIEvent(
+        mPaymentRequestTestRule.runJavaScriptAndWaitForUiEvent(
                 "buy();", mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.clickInContactInfoAndWait(
                 R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
@@ -182,7 +182,7 @@ public class PaymentRequestEmailAndPhoneTest {
     @MediumTest
     @Feature({"Payments"})
     public void testSuggestionsDeduped() throws TimeoutException {
-        mPaymentRequestTestRule.runJavaScriptAndWaitForUIEvent(
+        mPaymentRequestTestRule.runJavaScriptAndWaitForUiEvent(
                 "buy();", mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.clickInContactInfoAndWait(
                 R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
@@ -198,21 +198,18 @@ public class PaymentRequestEmailAndPhoneTest {
     @Feature({"Payments"})
     public void testPaymentRequestEventsMetric() throws TimeoutException {
         int expectedSample =
-                Event.SHOWN
-                        | Event.USER_ABORTED
-                        | Event.HAD_INITIAL_FORM_OF_PAYMENT
-                        | Event.HAD_NECESSARY_COMPLETE_SUGGESTIONS
-                        | Event.REQUEST_PAYER_EMAIL
-                        | Event.REQUEST_PAYER_PHONE
-                        | Event.REQUEST_METHOD_OTHER
-                        | Event.AVAILABLE_METHOD_OTHER;
+                Event2.SHOWN
+                        | Event2.USER_ABORTED
+                        | Event2.HAD_INITIAL_FORM_OF_PAYMENT
+                        | Event2.REQUEST_PAYER_DATA
+                        | Event2.REQUEST_METHOD_OTHER;
         var histogramWatcher =
                 HistogramWatcher.newBuilder()
-                        .expectIntRecord("PaymentRequest.Events", expectedSample)
+                        .expectIntRecord("PaymentRequest.Events2", expectedSample)
                         .build();
 
         // Start and cancel the Payment Request.
-        mPaymentRequestTestRule.runJavaScriptAndWaitForUIEvent(
+        mPaymentRequestTestRule.runJavaScriptAndWaitForUiEvent(
                 "buy();", mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.clickAndWait(
                 R.id.close_button, mPaymentRequestTestRule.getDismissed());

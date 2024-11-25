@@ -4,12 +4,12 @@
 
 #include "third_party/blink/renderer/core/paint/paint_layer_painter.h"
 
-#include "base/debug/crash_logging.h"
-#include "base/debug/dump_without_crashing.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 #include "third_party/blink/renderer/core/layout/fragmentation_utils.h"
 #include "third_party/blink/renderer/core/layout/layout_video.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
@@ -18,6 +18,7 @@
 #include "third_party/blink/renderer/core/paint/fragment_data_iterator.h"
 #include "third_party/blink/renderer/core/paint/inline_box_fragment_painter.h"
 #include "third_party/blink/renderer/core/paint/object_paint_properties.h"
+#include "third_party/blink/renderer/core/paint/paint_flags.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_paint_order_iterator.h"
@@ -32,6 +33,7 @@
 #include "third_party/blink/renderer/platform/graphics/paint/scoped_paint_chunk_properties.h"
 #include "third_party/blink/renderer/platform/graphics/paint/subsequence_recorder.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "ui/gfx/geometry/point3_f.h"
 
 namespace blink {
@@ -112,17 +114,10 @@ static gfx::Rect FirstFragmentVisualRect(const LayoutBoxModelObject& object) {
 PaintResult PaintLayerPainter::Paint(GraphicsContext& context,
                                      PaintFlags paint_flags) {
   const auto& object = paint_layer_.GetLayoutObject();
-  if (UNLIKELY(object.NeedsLayout() &&
-               !object.ChildLayoutBlockedByDisplayLock())) {
-    // Skip if we need layout. This should never happen. See crbug.com/1423308.
-
-    // Record whether the LayoutView exists and if it needs layout.
-    LayoutView* view = object.GetFrameView()->GetLayoutView();
-    SCOPED_CRASH_KEY_BOOL("Crbug1423308", "ViewExists", !!view);
-    SCOPED_CRASH_KEY_BOOL("Crbug1423308", "ViewNeedsLayout",
-                          view && view->NeedsLayout());
-    base::debug::DumpWithoutCrashing();
-
+  if (object.NeedsLayout() && !object.ChildLayoutBlockedByDisplayLock())
+      [[unlikely]] {
+    // Skip if we need layout. This should never happen. See crbug.com/1423308
+    // and crbug.com/330051489.
     return kFullyPainted;
   }
 
@@ -138,6 +133,24 @@ PaintResult PaintLayerPainter::Paint(GraphicsContext& context,
   if (!paint_layer_.IsSelfPaintingLayer() &&
       !paint_layer_.HasSelfPaintingLayerDescendant())
     return kFullyPainted;
+
+  if (((paint_flags & PaintFlag::kPlacedElement) == 0) &&
+      !IsA<HTMLCanvasElement>(object.GetNode()) &&
+      IsA<Element>(object.GetNode()) &&
+      To<Element>(object.GetNode())->IsInCanvasSubtree()) {
+    // This prevents canvas fallback content from being rendered.
+    return kFullyPainted;
+  }
+
+  std::optional<CheckAncestorPositionVisibilityScope>
+      check_position_visibility_scope;
+  if (paint_layer_.InvisibleForPositionVisibility() ||
+      paint_layer_.HasAncestorInvisibleForPositionVisibility()) {
+    return kFullyPainted;
+  }
+  if (paint_layer_.GetLayoutObject().IsStackingContext()) {
+    check_position_visibility_scope.emplace(paint_layer_);
+  }
 
   // A paint layer should always have LocalBorderBoxProperties when it's ready
   // for paint.
@@ -220,7 +233,7 @@ PaintResult PaintLayerPainter::Paint(GraphicsContext& context,
   bool should_create_subsequence =
       should_paint_content &&
       ShouldCreateSubsequence(paint_layer_, context, paint_flags);
-  absl::optional<SubsequenceRecorder> subsequence_recorder;
+  std::optional<SubsequenceRecorder> subsequence_recorder;
   if (should_create_subsequence) {
     if (!paint_layer_.SelfOrDescendantNeedsRepaint() &&
         SubsequenceRecorder::UseCachedSubsequenceIfPossible(context,
@@ -231,11 +244,11 @@ PaintResult PaintLayerPainter::Paint(GraphicsContext& context,
     subsequence_recorder.emplace(context, paint_layer_);
   }
 
-  absl::optional<ScopedEffectivelyInvisible> effectively_invisible;
+  std::optional<ScopedEffectivelyInvisible> effectively_invisible;
   if (PaintedOutputInvisible(object.StyleRef()))
     effectively_invisible.emplace(context.GetPaintController());
 
-  absl::optional<ScopedPaintChunkProperties> layer_chunk_properties;
+  std::optional<ScopedPaintChunkProperties> layer_chunk_properties;
   if (should_paint_content) {
     // If we will create a new paint chunk for this layer, this gives the chunk
     // a stable id.
@@ -302,8 +315,7 @@ PaintResult PaintLayerPainter::Paint(GraphicsContext& context,
   if (should_paint_content && !selection_drag_image_only) {
     if (const auto* properties = object.FirstFragment().PaintProperties()) {
       if (properties->Mask()) {
-        if (RuntimeEnabledFeatures::CSSMaskingInteropEnabled() &&
-            object.IsSVGForeignObject()) {
+        if (object.IsSVGForeignObject()) {
           SVGMaskPainter::Paint(context, object, object);
         } else {
           PaintWithPhase(PaintPhase::kMask, context, paint_flags);
@@ -392,9 +404,10 @@ void PaintLayerPainter::PaintFragmentWithPhase(
       context.GetPaintController(), chunk_properties, paint_layer_,
       DisplayItem::PaintPhaseToDrawingType(phase));
 
-  PaintInfo paint_info(context, cull_rect, phase, paint_flags);
-  if (paint_layer_.GetLayoutObject().ChildPaintBlockedByDisplayLock())
-    paint_info.SetDescendantPaintingBlocked(true);
+  PaintInfo paint_info(
+      context, cull_rect, phase,
+      paint_layer_.GetLayoutObject().ChildPaintBlockedByDisplayLock(),
+      paint_flags);
 
   if (physical_fragment) {
     BoxFragmentPainter(*physical_fragment).Paint(paint_info);
@@ -433,7 +446,7 @@ void PaintLayerPainter::PaintWithPhase(PaintPhase phase,
       DCHECK(physical_fragment);
     }
 
-    absl::optional<ScopedDisplayItemFragment> scoped_display_item_fragment;
+    std::optional<ScopedDisplayItemFragment> scoped_display_item_fragment;
     if (fragment_idx)
       scoped_display_item_fragment.emplace(context, fragment_idx);
 

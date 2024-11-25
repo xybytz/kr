@@ -5,11 +5,11 @@
 #include "content/browser/process_internals/process_internals_handler_impl.h"
 
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "base/strings/strcat.h"
-#include "base/strings/string_piece.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/process_internals/process_internals.mojom.h"
 #include "content/browser/process_lock.h"
@@ -172,7 +172,6 @@ std::string IsolatedOriginSourceToString(IsolatedOriginSource source) {
       return "Web-triggered";
     default:
       NOTREACHED();
-      return "";
   }
 }
 
@@ -199,7 +198,7 @@ void ProcessInternalsHandlerImpl::GetProcessCountInfo(
 
 void ProcessInternalsHandlerImpl::GetIsolationMode(
     GetIsolationModeCallback callback) {
-  std::vector<base::StringPiece> modes;
+  std::vector<std::string_view> modes;
   if (SiteIsolationPolicy::UseDedicatedProcessesForAllSites())
     modes.push_back("Site Per Process");
   if (SiteIsolationPolicy::AreIsolatedOriginsEnabled())
@@ -217,6 +216,23 @@ void ProcessInternalsHandlerImpl::GetIsolationMode(
 
   std::move(callback).Run(modes.empty() ? "Disabled"
                                         : base::JoinString(modes, ", "));
+}
+
+void ProcessInternalsHandlerImpl::GetProcessPerSiteMode(
+    GetProcessPerSiteModeCallback callback) {
+  if (!GetContentClient()
+           ->browser()
+           ->ShouldAllowProcessPerSiteForMultipleMainFrames(browser_context_)) {
+    std::move(callback).Run("off (ContentClient policy)");
+    return;
+  }
+  if (!base::FeatureList::IsEnabled(
+          features::kProcessPerSiteUpToMainFrameThreshold)) {
+    std::move(callback).Run("off (feature setting)");
+    return;
+  }
+  std::move(callback).Run(base::StringPrintf(
+      "on (limit %d)", features::kProcessPerSiteMainFrameThreshold.Get()));
 }
 
 void ProcessInternalsHandlerImpl::GetUserTriggeredIsolatedOrigins(

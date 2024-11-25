@@ -21,7 +21,8 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "config": "chromium"
@@ -43,7 +44,8 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "config": "chromium"
@@ -71,7 +73,8 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "config": "chromium"
@@ -99,7 +102,8 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "config": "chromium"
@@ -127,7 +131,37 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
+              },
+              "legacy_gclient_config": {
+                "config": "chromium"
+              },
+              "parent": {
+                "bucket": "ci",
+                "builder": "GPU FYI Linux Builder",
+                "project": "chromium"
+              },
+              "run_tests_serially": true
+            }
+          },
+          {
+            "builder_id": {
+              "bucket": "ci",
+              "builder": "Linux FYI Release (Intel UHD 770)",
+              "project": "chromium"
+            },
+            "builder_spec": {
+              "builder_group": "chromium.gpu.fyi",
+              "execution_mode": "TEST",
+              "legacy_chromium_config": {
+                "apply_configs": [
+                  "mb"
+                ],
+                "build_config": "Release",
+                "config": "chromium",
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "config": "chromium"
@@ -155,7 +189,8 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "config": "chromium"
@@ -200,6 +235,11 @@
         },
         {
           "bucket": "ci",
+          "builder": "Linux FYI Release (Intel UHD 770)",
+          "project": "chromium"
+        },
+        {
+          "bucket": "ci",
           "builder": "Linux FYI Release (NVIDIA)",
           "project": "chromium"
         }
@@ -218,6 +258,10 @@
           "group": "tryserver.chromium.linux"
         },
         {
+          "builder": "gpu-fyi-try-linux-intel-uhd770-rel",
+          "group": "tryserver.chromium.linux"
+        },
+        {
           "builder": "gpu-fyi-try-linux-nvidia-exp",
           "group": "tryserver.chromium.linux"
         },
@@ -225,14 +269,24 @@
           "builder": "gpu-fyi-try-linux-nvidia-rel",
           "group": "tryserver.chromium.linux"
         }
-      ]
+      ],
+      "targets_spec_directory": "src/infra/config/generated/builders/ci/GPU FYI Linux Builder/targets"
     }
   },
   "$build/reclient": {
     "instance": "rbe-chromium-trusted",
-    "jobs": 500,
     "metrics_project": "chromium-reclient-metrics",
     "scandeps_server": true
+  },
+  "$build/siso": {
+    "configs": [
+      "builder"
+    ],
+    "enable_cloud_profiler": true,
+    "enable_cloud_trace": true,
+    "experiments": [],
+    "project": "rbe-chromium-trusted",
+    "remote_jobs": 500
   },
   "$recipe_engine/resultdb/test_presentation": {
     "column_keys": [],
@@ -242,6 +296,9 @@
     ]
   },
   "builder_group": "chromium.gpu.fyi",
+  "gardener_rotations": [
+    "chromium.gpu"
+  ],
   "perf_dashboard_machine_group": "ChromiumGPUFYI",
   "recipe": "chromium",
   "sheriff_rotations": [

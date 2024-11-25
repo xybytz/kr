@@ -28,12 +28,18 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/platform/json/json_values.h"
 
 #include <algorithm>
 #include <cmath>
 
 #include "base/notreached.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/decimal.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
@@ -96,10 +102,8 @@ void EscapeStringForJSON(const String& str, StringBuilder* dst) {
   for (unsigned i = 0; i < str.length(); ++i) {
     UChar c = str[i];
     if (!EscapeChar(c, dst)) {
-      if (c < 32 || c > 126 || c == '<' || c == '>') {
+      if (c < 32 || c == '<' || c == '>') {
         // 1. Escaping <, > to prevent script execution.
-        // 2. Technically, we could also pass through c > 126 as UTF8, but this
-        //    is also optional. It would also be a pain to implement here.
         AppendUnsignedAsHex(c, dst);
       } else {
         dst->Append(c);
@@ -152,7 +156,7 @@ String JSONValue::ToPrettyJSONString() const {
 
 void JSONValue::WriteJSON(StringBuilder* output) const {
   DCHECK(type_ == kTypeNull);
-  output->Append(kJSONNullString, 4);
+  output->Append(base::byte_span_from_cstring(kJSONNullString));
 }
 
 void JSONValue::PrettyWriteJSON(StringBuilder* output) const {
@@ -200,12 +204,12 @@ void JSONBasicValue::WriteJSON(StringBuilder* output) const {
          GetType() == kTypeDouble);
   if (GetType() == kTypeBoolean) {
     if (bool_value_)
-      output->Append(kJSONTrueString, 4);
+      output->Append(base::byte_span_from_cstring(kJSONTrueString));
     else
-      output->Append(kJSONFalseString, 5);
+      output->Append(base::byte_span_from_cstring(kJSONFalseString));
   } else if (GetType() == kTypeDouble) {
     if (!std::isfinite(double_value_)) {
-      output->Append(kJSONNullString, 4);
+      output->Append(base::byte_span_from_cstring(kJSONNullString));
       return;
     }
     output->Append(Decimal::FromDouble(double_value_).ToString());
@@ -225,7 +229,6 @@ std::unique_ptr<JSONValue> JSONBasicValue::Clone() const {
     default:
       NOTREACHED();
   }
-  return nullptr;
 }
 
 bool JSONString::AsString(String* output) const {
@@ -244,35 +247,35 @@ std::unique_ptr<JSONValue> JSONString::Clone() const {
 
 JSONObject::~JSONObject() = default;
 
-void JSONObject::SetBoolean(const String& name, bool value) {
-  SetValue(name, std::make_unique<JSONBasicValue>(value));
+bool JSONObject::SetBoolean(const String& name, bool value) {
+  return SetValue(name, std::make_unique<JSONBasicValue>(value));
 }
 
-void JSONObject::SetInteger(const String& name, int value) {
-  SetValue(name, std::make_unique<JSONBasicValue>(value));
+bool JSONObject::SetInteger(const String& name, int value) {
+  return SetValue(name, std::make_unique<JSONBasicValue>(value));
 }
 
-void JSONObject::SetDouble(const String& name, double value) {
-  SetValue(name, std::make_unique<JSONBasicValue>(value));
+bool JSONObject::SetDouble(const String& name, double value) {
+  return SetValue(name, std::make_unique<JSONBasicValue>(value));
 }
 
-void JSONObject::SetString(const String& name, const String& value) {
-  SetValue(name, std::make_unique<JSONString>(value));
+bool JSONObject::SetString(const String& name, const String& value) {
+  return SetValue(name, std::make_unique<JSONString>(value));
 }
 
-void JSONObject::SetValue(const String& name,
+bool JSONObject::SetValue(const String& name,
                           std::unique_ptr<JSONValue> value) {
-  Set(name, value);
+  return Set(name, value);
 }
 
-void JSONObject::SetObject(const String& name,
+bool JSONObject::SetObject(const String& name,
                            std::unique_ptr<JSONObject> value) {
-  Set(name, value);
+  return Set(name, value);
 }
 
-void JSONObject::SetArray(const String& name,
+bool JSONObject::SetArray(const String& name,
                           std::unique_ptr<JSONArray> value) {
-  Set(name, value);
+  return Set(name, value);
 }
 
 bool JSONObject::GetBoolean(const String& name, bool* output) const {

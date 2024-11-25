@@ -140,18 +140,22 @@ ExtensionTelemetryFileProcessor::RetrieveFilePaths(
       break;
     }
 
-    int64_t file_size;
-    // Skip invalid, empty, and non-applicable type files
-    if (!base::GetFileSize(full_path, &file_size) || file_size <= 0 ||
-        !IsApplicableType(full_path)) {
+    // Skip non-applicable type files.
+    if (!IsApplicableType(full_path)) {
+      continue;
+    }
+
+    // Skip invalid and empty files.
+    std::optional<int64_t> file_size = base::GetFileSize(full_path);
+    if (!file_size.has_value() || file_size.value() <= 0) {
       continue;
     }
 
     // Record largest file size observed.
-    largest_file_size = std::max(largest_file_size, file_size);
+    largest_file_size = std::max(largest_file_size, file_size.value());
 
     // Add file for processing if within size limit, otherwise, skip and record.
-    if (file_size <= max_file_size_) {
+    if (file_size.value() <= max_file_size_) {
       sorted_file_paths.insert(std::move(full_path));
     } else {
       exceeded_file_size_counter++;
@@ -181,7 +185,7 @@ base::Value::Dict ExtensionTelemetryFileProcessor::ComputeHashes(
     root_dir.AppendRelativePath(full_path, &relative_path);
 
     std::string hash = crypto::SHA256HashString(file_contents);
-    std::string hex_encode = base::HexEncode(hash.c_str(), hash.size());
+    std::string hex_encode = base::HexEncode(hash);
 
     extension_data.Set(
         relative_path.NormalizePathSeparatorsTo('/').AsUTF8Unsafe(),

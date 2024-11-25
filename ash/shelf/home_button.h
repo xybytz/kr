@@ -20,6 +20,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 #include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/events/devices/input_device_event_observer.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/transform.h"
 #include "ui/views/view_targeter_delegate.h"
@@ -55,7 +56,8 @@ class ASH_EXPORT HomeButton : public ShelfControlButton,
                               public ShellObserver,
                               public ShelfConfig::Observer,
                               public AppListModelProvider::Observer,
-                              public QuickAppAccessModel::Observer {
+                              public QuickAppAccessModel::Observer,
+                              public ui::InputDeviceEventObserver {
   METADATA_HEADER(HomeButton, ShelfControlButton)
 
  public:
@@ -96,8 +98,9 @@ class ASH_EXPORT HomeButton : public ShelfControlButton,
   ~HomeButton() override;
 
   // views::View:
-  gfx::Size CalculatePreferredSize() const override;
-  void Layout() override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
+  void Layout(PassKey) override;
 
   // views::Button:
   void OnGestureEvent(ui::GestureEvent* event) override;
@@ -112,6 +115,10 @@ class ASH_EXPORT HomeButton : public ShelfControlButton,
 
   // ShelfConfig::Observer:
   void OnShelfConfigUpdated() override;
+
+  // ui::InputDeviceEventObserver:
+  void OnInputDeviceConfigurationChanged(uint8_t input_device_types) override;
+  void OnDeviceListsComplete() override;
 
   // Called when the availability of a long-press gesture may have changed, e.g.
   // when Assistant becomes enabled.
@@ -229,8 +236,6 @@ class ASH_EXPORT HomeButton : public ShelfControlButton,
   // bounds of the home button.
   gfx::Rect GetExpandableContainerClipRectToHomeButton();
 
-  const bool jelly_enabled_;
-
   base::ScopedObservation<QuickAppAccessModel, QuickAppAccessModel::Observer>
       quick_app_model_observation_{this};
 
@@ -248,28 +253,28 @@ class ASH_EXPORT HomeButton : public ShelfControlButton,
   // The container of `nudge_label_` or `quick_app_button_`. This is also
   // responsible for painting the background of the contents. This container can
   // expand visually by animation.
-  raw_ptr<views::View, DanglingUntriaged> expandable_container_ = nullptr;
+  raw_ptr<views::View> expandable_container_ = nullptr;
 
   // The app button which is shown next to the home button. Only shown when
   // set by SetQuickApp().
-  raw_ptr<views::ImageButton, DanglingUntriaged> quick_app_button_ = nullptr;
+  raw_ptr<views::ImageButton> quick_app_button_ = nullptr;
 
   // The controller used to determine the button's behavior.
   HomeButtonController controller_;
+
+  // The delegate used by |nudge_ripple_layer_|. Only exists during the
+  // nudge animation.
+  std::unique_ptr<views::CircleLayerDelegate> ripple_layer_delegate_;
 
   // The ripple layer in the launcher nudge animation. Only exists during the
   // nudge animation.
   ui::LayerOwner nudge_ripple_layer_;
 
   // The label view and for launcher nudge animation.
-  raw_ptr<views::Label, DanglingUntriaged> nudge_label_ = nullptr;
+  raw_ptr<views::Label> nudge_label_ = nullptr;
 
   // The timer that counts down to hide the nudge_label_ from showing state.
   base::OneShotTimer label_nudge_timer_;
-
-  // The delegate used by |nudge_ripple_layer_|. Only exists during the
-  // nudge animation.
-  std::unique_ptr<views::CircleLayerDelegate> ripple_layer_delegate_;
 
   std::unique_ptr<ScopedNoClipRect> scoped_no_clip_rect_;
 

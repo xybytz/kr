@@ -7,7 +7,6 @@
 #include "base/at_exit.h"
 #include "base/check_op.h"
 #include "base/containers/contains.h"
-#include "base/containers/cxx20_erase_vector.h"
 #include "base/functional/bind.h"
 #include "base/observer_list.h"
 #include "base/ranges/algorithm.h"
@@ -83,8 +82,7 @@ void DeviceDataManager::ConfigureTouchDevices(
   for (const TouchDeviceTransform& transform : transforms)
     UpdateTouchInfoFromTransform(transform);
   are_touchscreen_target_displays_valid_ = true;
-  for (InputDeviceEventObserver& observer : observers_)
-    observer.OnTouchDeviceAssociationChanged();
+  observers_.Notify(&InputDeviceEventObserver::OnTouchDeviceAssociationChanged);
 }
 
 void DeviceDataManager::ClearTouchDeviceAssociations() {

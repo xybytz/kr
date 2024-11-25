@@ -25,8 +25,8 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chromeos/dbus/dlp/dlp_client.h"
-#include "components/enterprise/data_controls/component.h"
-#include "components/enterprise/data_controls/dlp_histogram_helper.h"
+#include "components/enterprise/data_controls/core/browser/component.h"
+#include "components/enterprise/data_controls/core/browser/dlp_histogram_helper.h"
 #include "components/policy/core/common/policy_pref_names.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/test/browser_task_environment.h"
@@ -530,46 +530,6 @@ TEST_F(DlpRulesManagerImplTest, IsRestricted_MultipleURLs) {
       DlpRulesManager::Restriction::kClipboard, DlpRulesManager::Level::kBlock,
       kDrivePattern, kWildCardMatching,
       DlpRulesManager::RuleMetadata(kRuleName2, kRuleId2));
-}
-
-TEST_F(DlpRulesManagerImplTest, DisabledByFeature) {
-  dlp_test_util::DlpRule rule1(kRuleName1, "Block", kRuleId1);
-  rule1.AddSrcUrl(kExampleUrl)
-      .AddDstUrl(kWildCardMatching)
-      .AddRestriction(data_controls::kRestrictionClipboard,
-                      data_controls::kLevelBlock)
-      .AddRestriction(data_controls::kRestrictionScreenshot,
-                      data_controls::kLevelBlock);
-
-  UpdatePolicyPref({rule1});
-
-  CheckIsRestrictedDestination(
-      kExampleUrl, kWildCardMatching, DlpRulesManager::Restriction::kClipboard,
-      DlpRulesManager::Level::kBlock, kExampleUrl, kWildCardMatching,
-      DlpRulesManager::RuleMetadata(kRuleName1, kRuleId1));
-
-  EXPECT_EQ(DlpRulesManager::Level::kBlock,
-            dlp_rules_manager_->IsRestricted(
-                GURL(kExampleUrl), DlpRulesManager::Restriction::kScreenshot));
-
-  // Disable feature
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(
-      features::kDataLeakPreventionPolicy);
-
-  dlp_test_util::DlpRule rule2(kRuleName2, "Block", kRuleId2);
-  rule2.AddSrcUrl(kExampleUrl)
-      .AddDstUrl(kWildCardMatching)
-      .AddRestriction(data_controls::kRestrictionClipboard,
-                      data_controls::kLevelBlock);
-
-  UpdatePolicyPref({rule2});
-
-  CheckIsRestrictedDestination(
-      kExampleUrl, kWildCardMatching, DlpRulesManager::Restriction::kClipboard,
-      DlpRulesManager::Level::kAllow,
-      /*expected_src_pattern=*/"", /*expected_dst_pattern=*/"",
-      DlpRulesManager::RuleMetadata(/*name=*/"", /*obfuscated_id=*/""));
 }
 
 TEST_F(DlpRulesManagerImplTest, WarnPriority) {

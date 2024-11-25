@@ -38,7 +38,6 @@ v8::Local<v8::Template> WrapperTypeInfo::GetV8ClassTemplate(
       break;
     case kIdlBufferSourceType:
       NOTREACHED();
-      break;
     case kIdlObservableArray:
       v8_template = v8::FunctionTemplate::New(isolate);
       break;
@@ -55,6 +54,13 @@ v8::Local<v8::Template> WrapperTypeInfo::GetV8ClassTemplate(
 
   per_isolate_data->AddV8Template(world, this, v8_template);
   return v8_template;
+}
+
+const WrapperTypeInfo* ToWrapperTypeInfo(v8::Local<v8::Object> wrapper) {
+  const auto* wrappable = ToAnyScriptWrappable(wrapper->GetIsolate(), wrapper);
+  // It's either us or legacy embedders
+  DCHECK(!wrappable || !WrapperTypeInfo::HasLegacyInternalFieldsSet(wrapper));
+  return wrappable ? wrappable->GetWrapperTypeInfo() : nullptr;
 }
 
 }  // namespace blink

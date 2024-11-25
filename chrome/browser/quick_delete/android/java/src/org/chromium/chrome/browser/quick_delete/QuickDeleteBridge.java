@@ -7,10 +7,12 @@ package org.chromium.chrome.browser.quick_delete;
 import androidx.annotation.NonNull;
 
 import org.jni_zero.CalledByNative;
+import org.jni_zero.JniType;
 import org.jni_zero.NativeMethods;
 
 import org.chromium.chrome.browser.browsing_data.TimePeriod;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.content_public.browser.WebContents;
 
 /** The JNI bridge for Quick Delete on Android to fetch browsing history data. */
 class QuickDeleteBridge {
@@ -20,10 +22,11 @@ class QuickDeleteBridge {
     public interface DomainVisitsCallback {
         /**
          * Called when the domain count and last visited domain are fetched from local history.
-         * @param lastVisitedDomain The synced last visited domain on all devices in the last 15
-         *                          minutes.
-         * @param domainCount The number of synced unique domains visited on all devices in the
-         *                    last 15 minutes.
+         *
+         * @param lastVisitedDomain The synced last visited domain on all devices within the
+         *     selected time period.
+         * @param domainCount The number of synced unique domains visited on all devices within the
+         *     selected time period.
          */
         void onLastVisitedDomainAndUniqueDomainCountReady(
                 String lastVisitedDomain, int domainCount);
@@ -48,8 +51,10 @@ class QuickDeleteBridge {
     }
 
     /**
-     * Gets the synced last visited domain and unique domain count on all devices in the last 15
-     * minutes.
+     * Gets the synced last visited domain and unique domain count on all devices within the time
+     * period.
+     *
+     * @param timePeriod The time period to fetch the results for.
      * @param callback The callback to call with the last visited domain and domain count.
      */
     public void getLastVisitedDomainAndUniqueDomainCount(
@@ -57,6 +62,15 @@ class QuickDeleteBridge {
         QuickDeleteBridgeJni.get()
                 .getLastVisitedDomainAndUniqueDomainCount(
                         mNativeQuickDeleteBridge, timePeriod, callback);
+    }
+
+    /**
+     * Attempt to trigger the HaTS survey if appropriate.
+     *
+     * @param webContents web contents of the tab to trigger the survey on.
+     */
+    public void showSurvey(WebContents webContents) {
+        QuickDeleteBridgeJni.get().showSurvey(mNativeQuickDeleteBridge, webContents);
     }
 
     @CalledByNative
@@ -67,11 +81,13 @@ class QuickDeleteBridge {
 
     @NativeMethods
     interface Natives {
-        long init(QuickDeleteBridge caller, Profile profile);
+        long init(QuickDeleteBridge caller, @JniType("Profile*") Profile profile);
 
         void destroy(long nativeQuickDeleteBridge, QuickDeleteBridge caller);
 
         void getLastVisitedDomainAndUniqueDomainCount(
                 long nativeQuickDeleteBridge, int timePeriod, DomainVisitsCallback callback);
+
+        void showSurvey(long nativeQuickDeleteBridge, WebContents webContents);
     }
 }

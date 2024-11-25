@@ -12,6 +12,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/values.h"
+#include "chrome/browser/task_manager/providers/task.h"
 #include "chrome/browser/task_manager/task_manager_observer.h"
 #include "ui/base/models/table_model.h"
 
@@ -20,6 +21,17 @@ class WebContents;
 }
 
 namespace task_manager {
+
+// Determines what OTHER processes to filter out from the Task List.
+// For example, if the selected DisplayCategory is kTabs, Tab processes will be
+// kept, and Extension and System processes will be filtered out.
+enum class DisplayCategory : uint8_t {
+  kAll = 0,
+  kTabs = 1,
+  kExtensions = 2,
+  kSystem = 3,
+  kMax = kSystem
+};
 
 class TaskManagerValuesStringifier;
 
@@ -56,12 +68,20 @@ class TableViewDelegate {
 
   virtual void SetSortDescriptor(
       const TableSortDescriptor& sort_descriptor) = 0;
+
+  // Highlight task if no task is currently highlighted and `active_task_id_`
+  // has value and is present in Task Manager, otherwise do nothing. Highlight
+  // task will happen most likely right after task manager is open. We do not
+  // want to override user selection if user has selected any tasks.
+  virtual void MaybeHighlightActiveTask() = 0;
 };
 
 class TaskManagerTableModel : public TaskManagerObserver,
                               public ui::TableModel {
  public:
-  explicit TaskManagerTableModel(TableViewDelegate* delegate);
+  explicit TaskManagerTableModel(
+      TableViewDelegate* delegate,
+      DisplayCategory initial_display_category = DisplayCategory::kAll);
   TaskManagerTableModel(const TaskManagerTableModel&) = delete;
   TaskManagerTableModel& operator=(const TaskManagerTableModel&) = delete;
   ~TaskManagerTableModel() override;
@@ -73,10 +93,13 @@ class TaskManagerTableModel : public TaskManagerObserver,
   void SetObserver(ui::TableModelObserver* observer) override;
   int CompareValues(size_t row1, size_t row2, int column_id) override;
 
+  void FilterTaskList(TaskIdList& tasks);
+
   // task_manager::TaskManagerObserver:
   void OnTaskAdded(TaskId id) override;
   void OnTaskToBeRemoved(TaskId id) override;
   void OnTasksRefreshed(const TaskIdList& task_ids) override;
+  void OnActiveTaskFetched(TaskId id) override;
 
   // Gets the start index and length of the group to which the task at
   // |row_index| belongs.
@@ -114,6 +137,8 @@ class TaskManagerTableModel : public TaskManagerObserver,
   std::optional<size_t> GetRowForWebContents(
       content::WebContents* web_contents);
 
+  std::optional<size_t> GetRowForActiveTask();
+
  private:
   friend class TaskManagerTester;
 
@@ -126,6 +151,9 @@ class TaskManagerTableModel : public TaskManagerObserver,
   // Checks whether the task at |row_index| is the first task in its process
   // group of tasks.
   bool IsTaskFirstInGroup(size_t row_index) const;
+
+  // Determines whether a TaskId should be kept based on the DisplayCategory.
+  bool ShouldKeepTask(TaskId task_id) const;
 
   // The delegate that will be used to communicate with the platform-specific
   // TableView.
@@ -150,6 +178,17 @@ class TaskManagerTableModel : public TaskManagerObserver,
 
   // The status of the flag #enable-nacl-debug.
   bool is_nacl_debugging_flag_enabled_;
+
+  // Determines which rows should be kept from GetTaskIdsList().
+  DisplayCategory display_category_;
+
+  // Active task id when task manager is open. This variable will only set once
+  // after task manager is open. In desktop platforms other than Lacros, active
+  // tab is automatically highlighted when task manager is open. But in ash and
+  // Lacros it needs to wait for CROS API to passed back active task id to
+  // support that. This is currently only used in tracking Lacros active tab
+  // from ash through crosapi.
+  std::optional<TaskId> active_task_id_;
 };
 
 }  // namespace task_manager

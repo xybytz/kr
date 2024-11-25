@@ -29,7 +29,6 @@ import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.supplier.UnownedUserDataSupplier;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.creator.CreatorCoordinator.ContentChangedListener;
 import org.chromium.chrome.browser.creator.test.R;
 import org.chromium.chrome.browser.feed.FeedActionDelegate;
@@ -37,6 +36,7 @@ import org.chromium.chrome.browser.feed.FeedListContentManager.ExternalViewConte
 import org.chromium.chrome.browser.feed.FeedListContentManager.FeedContent;
 import org.chromium.chrome.browser.feed.FeedListContentManager.NativeViewContent;
 import org.chromium.chrome.browser.feed.FeedReliabilityLoggingBridge;
+import org.chromium.chrome.browser.feed.FeedReliabilityLoggingBridgeJni;
 import org.chromium.chrome.browser.feed.FeedServiceBridge;
 import org.chromium.chrome.browser.feed.FeedServiceBridgeJni;
 import org.chromium.chrome.browser.feed.FeedStream;
@@ -44,7 +44,7 @@ import org.chromium.chrome.browser.feed.FeedSurfaceRendererBridge;
 import org.chromium.chrome.browser.feed.FeedSurfaceRendererBridgeJni;
 import org.chromium.chrome.browser.feed.SingleWebFeedEntryPoint;
 import org.chromium.chrome.browser.feed.webfeed.WebFeedBridge;
-import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncher;
+import org.chromium.chrome.browser.feed.webfeed.WebFeedBridgeJni;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.share.ShareDelegate;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
@@ -75,13 +75,10 @@ public class CreatorCoordinatorTest {
     @Mock private FeedStream mStreamMock;
     @Mock private SignInInterstitialInitiator mSignInInterstitialInitiator;
     @Mock private FeedActionDelegate mFeedActionDelegate;
-    @Mock private HelpAndFeedbackLauncher mHelpAndFeedbackLauncher;
 
     @Rule
     public ActivityScenarioRule<TestActivity> mActivityScenarioRule =
             new ActivityScenarioRule<>(TestActivity.class);
-
-    @Rule public JniMocker mJniMocker = new JniMocker();
 
     private static final GURL DEFAULT_URL = JUnitTestGURLs.EXAMPLE_URL;
     private static final GURL TEST_URL = JUnitTestGURLs.URL_1;
@@ -94,12 +91,10 @@ public class CreatorCoordinatorTest {
     @Before
     public void setUpTest() {
         MockitoAnnotations.initMocks(this);
-        mJniMocker.mock(FeedServiceBridgeJni.TEST_HOOKS, mFeedServiceBridgeJniMock);
-        mJniMocker.mock(FeedSurfaceRendererBridgeJni.TEST_HOOKS, mFeedSurfaceRendererBridgeJniMock);
-        mJniMocker.mock(WebFeedBridge.getTestHooksForTesting(), mWebFeedBridgeJniMock);
-        mJniMocker.mock(
-                FeedReliabilityLoggingBridge.getTestHooksForTesting(),
-                mFeedReliabilityLoggingBridgeJniMock);
+        FeedServiceBridgeJni.setInstanceForTesting(mFeedServiceBridgeJniMock);
+        FeedSurfaceRendererBridgeJni.setInstanceForTesting(mFeedSurfaceRendererBridgeJniMock);
+        WebFeedBridgeJni.setInstanceForTesting(mWebFeedBridgeJniMock);
+        FeedReliabilityLoggingBridgeJni.setInstanceForTesting(mFeedReliabilityLoggingBridgeJniMock);
 
         mActivityScenarioRule.getScenario().onActivity(activity -> mActivity = activity);
     }
@@ -330,8 +325,7 @@ public class CreatorCoordinatorTest {
                 newCreatorCoordinator(
                         null, mWebFeedIdDefault, mEntryPointDefault, mFollowingDefault);
         PropertyModel creatorModel = creatorCoordinator.getCreatorModel();
-        creatorCoordinator.queryFeedStream(
-                mFeedActionDelegate, mHelpAndFeedbackLauncher, mShareDelegateSupplier);
+        creatorCoordinator.queryFeedStream(mFeedActionDelegate, mShareDelegateSupplier);
         verify(mWebFeedBridgeJniMock).queryWebFeedId(anyString(), any());
     }
 
@@ -340,8 +334,7 @@ public class CreatorCoordinatorTest {
         CreatorCoordinator creatorCoordinator =
                 newCreatorCoordinator(DEFAULT_URL, null, mEntryPointDefault, mFollowingDefault);
         PropertyModel creatorModel = creatorCoordinator.getCreatorModel();
-        creatorCoordinator.queryFeedStream(
-                mFeedActionDelegate, mHelpAndFeedbackLauncher, mShareDelegateSupplier);
+        creatorCoordinator.queryFeedStream(mFeedActionDelegate, mShareDelegateSupplier);
         verify(mWebFeedBridgeJniMock).queryWebFeed(anyString(), any());
     }
 

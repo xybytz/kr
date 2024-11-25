@@ -42,11 +42,11 @@ void CollectScrollActionReason(ScrollActionReason reason) {
 
 namespace ash {
 
-BEGIN_METADATA(MessageCenterScrollBar, RoundedScrollBar)
+BEGIN_METADATA(MessageCenterScrollBar)
 END_METADATA
 
 MessageCenterScrollBar::MessageCenterScrollBar()
-    : RoundedScrollBar(/*horizontal=*/false) {
+    : RoundedScrollBar(views::ScrollBar::Orientation::kVertical) {
   GetThumb()->layer()->SetVisible(features::IsNotificationScrollBarEnabled());
   GetThumb()->layer()->CompleteAllAnimations();
 }
@@ -74,7 +74,7 @@ bool MessageCenterScrollBar::OnMouseWheel(const ui::MouseWheelEvent& event) {
 }
 
 void MessageCenterScrollBar::OnGestureEvent(ui::GestureEvent* event) {
-  if (event->type() == ui::ET_GESTURE_SCROLL_BEGIN) {
+  if (event->type() == ui::EventType::kGestureScrollBegin) {
     if (!presentation_time_recorder_ && GetWidget()) {
       presentation_time_recorder_ = CreatePresentationTimeHistogramRecorder(
           GetWidget()->GetCompositor(), kMessageCenterScrollHistogram,
@@ -86,13 +86,14 @@ void MessageCenterScrollBar::OnGestureEvent(ui::GestureEvent* event) {
     }
   }
 
-  if (event->type() == ui::ET_GESTURE_SCROLL_UPDATE) {
+  if (event->type() == ui::EventType::kGestureScrollUpdate) {
     if (presentation_time_recorder_)
       presentation_time_recorder_->RequestNext();
   }
 
-  if (event->type() == ui::ET_GESTURE_END)
+  if (event->type() == ui::EventType::kGestureEnd) {
     presentation_time_recorder_.reset();
+  }
 
   RoundedScrollBar::OnGestureEvent(event);
 }

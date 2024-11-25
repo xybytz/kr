@@ -8,6 +8,7 @@
 #include "chrome/browser/page_load_metrics/observers/from_gws_page_load_metrics_observer.h"
 #include "components/page_load_metrics/browser/page_load_metrics_observer_delegate.h"
 #include "components/page_load_metrics/browser/page_load_metrics_util.h"
+#include "components/page_load_metrics/google/browser/google_url_util.h"
 #include "content/public/browser/navigation_handle.h"
 #include "net/http/http_response_headers.h"
 #include "services/metrics/public/cpp/metrics_utils.h"
@@ -113,6 +114,16 @@ const char kHistogramServiceWorkerFirstContentfulPaintDocs[] =
 const char kHistogramNoServiceWorkerFirstContentfulPaintDocs[] =
     "PageLoad.Clients.NoServiceWorker2.PaintTiming."
     "NavigationToFirstContentfulPaint.docs";
+
+// The naming of the following histogram does not follow typical convention of
+// other histograms. This is because this metrics is ServiceWorker static
+// routing API related, and is intended to be consistent with
+// `ServiceWorker.RouterEvaluator.*` metrics, which are recorded in
+// //chrome/browser/page_load_metrics/observers/
+// service_worker_page_load_metrics_observer.cc. Since we need to record this
+// metrics on complete, we are recording them here.
+const char kHistogramServiceWorkerSubresourceTotalRouterEvaluationTime[] =
+    "ServiceWorker.RouterEvaluator.SubresourceTotalEvaluationTime";
 
 }  // namespace internal
 
@@ -534,7 +545,33 @@ void ServiceWorkerPageLoadMetricsObserver::RecordSubresourceLoad() {
         .SetSpeculationRulesHandled(sw_metrics.speculation_rules_handled)
         .SetSpeculationRulesFallback(sw_metrics.speculation_rules_fallback)
         .SetDictionaryHandled(sw_metrics.dictionary_handled)
-        .SetDictionaryFallback(sw_metrics.dictionary_fallback);
+        .SetDictionaryFallback(sw_metrics.dictionary_fallback)
+        .SetMatchedCacheRouterSourceCount(
+            ukm::GetExponentialBucketMinForCounts1000(
+                sw_metrics.matched_cache_router_source_count))
+        .SetMatchedFetchEventRouterSourceCount(
+            ukm::GetExponentialBucketMinForCounts1000(
+                sw_metrics.matched_fetch_event_router_source_count))
+        .SetMatchedNetworkRouterSourceCount(
+            ukm::GetExponentialBucketMinForCounts1000(
+                sw_metrics.matched_network_router_source_count))
+        .SetMatchedRaceNetworkAndFetchRouterSourceCount(
+            ukm::GetExponentialBucketMinForCounts1000(
+                sw_metrics.matched_race_network_and_fetch_router_source_count));
+
+    if (!sw_metrics.total_router_evaluation_time_for_subresources.is_zero()) {
+      builder.SetTotalRouterEvaluationTime(
+          sw_metrics.total_router_evaluation_time_for_subresources
+              .InMicroseconds());
+      PAGE_LOAD_SHORT_HISTOGRAM(
+          internal::kHistogramServiceWorkerSubresourceTotalRouterEvaluationTime,
+          sw_metrics.total_router_evaluation_time_for_subresources);
+    }
+
+    if (!sw_metrics.total_cache_lookup_time_for_subresources.is_zero()) {
+      builder.SetTotalCacheLookupTime(
+          sw_metrics.total_cache_lookup_time_for_subresources.InMilliseconds());
+    }
   }
   builder.Record(ukm::UkmRecorder::Get());
 }

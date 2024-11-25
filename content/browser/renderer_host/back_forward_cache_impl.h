@@ -13,7 +13,6 @@
 #include "base/feature_list.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/raw_ptr_exclusion.h"
 #include "base/memory/raw_ref.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/single_thread_task_runner.h"
@@ -118,7 +117,7 @@ struct CONTENT_EXPORT BackForwardCacheCanStoreDocumentResultWithTree {
 //
 // 1. `EnforceCacheSizeLimit()` is called to prune the cache size down on
 //    storing a new cache entry, or when the renderer process's
-//    `IsProcessBackgrounded()` state changes.
+//    `GetPriority()` state changes.
 //    A. [Android-only] The number of entries where `HasForegroundedProcess()`
 //       is true is pruned to `GetForegroundedEntriesCacheSize()`.
 //    B. Prunes to `GetCacheSize()` entries no matter what kinds of tabs
@@ -210,9 +209,6 @@ class CONTENT_EXPORT BackForwardCacheImpl
 
   // Returns whether MediaSession's service is allowed for the BackForwardCache.
   static bool IsMediaSessionServiceAllowed();
-
-  // Returns whether back/forward cache is enabled for screen reader users.
-  static bool IsScreenReaderAllowed();
 
   // Returns where back/forward cache is allowed for pages with unload handlers.
   static bool IsUnloadAllowed();
@@ -395,6 +391,7 @@ class CONTENT_EXPORT BackForwardCacheImpl
 
   // BackForwardCache overrides:
   void Flush() override;
+  void Flush(NotRestoredReason reason) override;
   void Prune(size_t limit) override;
   void DisableForTesting(DisableForTestingReason reason) override;
 
@@ -408,20 +405,24 @@ class CONTENT_EXPORT BackForwardCacheImpl
       const StoragePartition::StorageKeyMatcherFunction& storage_key_filter);
 
   // RenderProcessHostInternalObserver methods
-  void RenderProcessBackgroundedChanged(RenderProcessHostImpl* host) override;
+  void RenderProcessPriorityChanged(RenderProcessHostImpl* host) override;
 
   // Returns true if we are managing the cache size using foreground and
   // background limits (if finch parameter "foreground_cache_size" > 0).
   static bool UsingForegroundBackgroundCacheSizeLimit();
 
   // Returns true if one of the BFCache entries has a matching
-  // BrowsingInstanceId/SiteInstanceId/RenderFrameProxyHost.
-  // TODO(https://crbug.com/1243541): Remove these once the bug is fixed.
-  bool IsBrowsingInstanceInBackForwardCacheForDebugging(
-      BrowsingInstanceId browsing_instance_id);
-  bool IsSiteInstanceInBackForwardCacheForDebugging(
-      SiteInstanceId site_instance_id);
-  bool IsProxyInBackForwardCacheForDebugging(RenderFrameProxyHost* proxy);
+  // RFH/RFPH/RVH with the same SIG ID/RVH ID.
+  // TODO(crbug.com/354382462): Remove these once the bug is fixed.
+  bool IsRenderFrameHostWithSIGInBackForwardCacheForDebugging(
+      SiteInstanceGroupId site_instance_group_id);
+  bool IsRenderFrameProxyHostWithSIGInBackForwardCacheForDebugging(
+      SiteInstanceGroupId site_instance_group_id);
+  bool IsRenderViewHostWithMapIdInBackForwardCacheForDebugging(
+      const RenderViewHostImpl& rvh);
+
+  bool IsRelatedSiteInstanceInBackForwardCacheForDebugging(
+      SiteInstance& site_instance);
 
   // StoredPage::Delegate overrides:
   void RenderViewHostNoLongerStored(RenderViewHostImpl* rvh) override;
@@ -441,6 +442,18 @@ class CONTENT_EXPORT BackForwardCacheImpl
   bool should_allow_storing_pages_with_cache_control_no_store() {
     return should_allow_storing_pages_with_cache_control_no_store_;
   }
+
+  // Returns true if there is a BFCached entry that sufficiently matches the
+  // navigation that just committed in `committing_rfh` with initiator origin
+  // `initiator_origin`, such that the entry could have been used (the URL,
+  // origin, initiator origin, and security properties are the same, and if
+  // `require_no_subframes` is used, has no subframes). This is
+  // called in response to new non-reload/session-restore cross-document
+  // navigation commits.
+  bool HasPotentiallyMatchingEntry(
+      const RenderFrameHostImpl& committing_rfh,
+      const std::optional<url::Origin>& initiator_origin,
+      bool require_no_subframes) const;
 
  private:
   // Destroys all evicted frames in the BackForwardCache.
@@ -579,12 +592,8 @@ class CONTENT_EXPORT BackForwardCacheImpl
       EvictionInfo(RenderFrameHostImpl& rfh,
                    BackForwardCacheCanStoreDocumentResult* reasons)
           : rfh_to_be_evicted(&rfh), reasons(reasons) {}
-      // This field is not a raw_ptr<> because it was filtered by the rewriter
-      // for: #union
-      RAW_PTR_EXCLUSION RenderFrameHostImpl* const rfh_to_be_evicted;
-      // This field is not a raw_ptr<> because it was filtered by the rewriter
-      // for: #union
-      RAW_PTR_EXCLUSION const BackForwardCacheCanStoreDocumentResult* reasons;
+      const raw_ptr<RenderFrameHostImpl> rfh_to_be_evicted;
+      raw_ptr<const BackForwardCacheCanStoreDocumentResult> reasons;
     };
 
     NotRestoredReasonBuilder(RenderFrameHostImpl* root_rfh,
@@ -766,8 +775,17 @@ class CONTENT_EXPORT BackForwardCacheCanStoreTreeResult {
   // from all the reachable cross-origin iframes. We decrement this count
   // every time we call this function, and report only when |index| is 0 so
   // that reporting happens only for randomly picked one of such iframes.
+  // TODO(crbug.com/41491384): Add "masked" when UA internal reasons such as
+  // memory pressure and browsing instance not swapped are blocking as well.
   blink::mojom::BackForwardCacheNotRestoredReasonsPtr
   GetWebExposedNotRestoredReasonsInternal(int& index);
+
+  // Returns if any cross-origin iframe in the tree is blocking and is not
+  // a randomly selected iframe (i.e. does not have "masked" as its reason).
+  // If this is true, we need to add "masked" to main frame's reasons.
+  // |index| is the random index of the cross-origin iframe that we decided to
+  // report from all the reachable cross-origin iframes.
+  bool HasUnexposedCrossOriginBlockingIframe(int& index);
 
   // Count the number of cross-origin frames that are direct children of
   // same-origin frames, including the main frame, in the tree.

@@ -26,9 +26,6 @@
                 "target_platform": "win"
               },
               "legacy_gclient_config": {
-                "apply_configs": [
-                  "angle_internal"
-                ],
                 "config": "chromium"
               }
             }
@@ -42,7 +39,8 @@
           "project": "chromium"
         }
       ],
-      "retry_failed_shards": false
+      "retry_failed_shards": false,
+      "targets_spec_directory": "src/infra/config/generated/builders/try/win_optional_gpu_tests_rel/targets"
     }
   },
   "$build/flakiness": {
@@ -51,9 +49,18 @@
   },
   "$build/reclient": {
     "instance": "rbe-chromium-untrusted",
-    "jobs": 150,
     "metrics_project": "chromium-reclient-metrics",
     "scandeps_server": true
+  },
+  "$build/siso": {
+    "configs": [
+      "builder"
+    ],
+    "enable_cloud_profiler": true,
+    "enable_cloud_trace": true,
+    "experiments": [],
+    "project": "rbe-chromium-untrusted",
+    "remote_jobs": -1
   },
   "$recipe_engine/resultdb/test_presentation": {
     "column_keys": [],

@@ -8,8 +8,10 @@
 #include <windows.h>
 
 #include <stddef.h>
+
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -21,11 +23,11 @@
 #include "base/scoped_observation.h"
 #include "base/win/scoped_gdi_object.h"
 #include "base/win/win_util.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/platform/ax_fragment_root_delegate_win.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/ime/input_method_observer.h"
-#include "ui/base/ui_base_types.h"
+#include "ui/base/mojom/ui_base_types.mojom-shared.h"
+#include "ui/base/mojom/window_show_state.mojom-forward.h"
 #include "ui/base/win/window_event_target.h"
 #include "ui/events/event.h"
 #include "ui/gfx/geometry/point.h"
@@ -100,7 +102,7 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
   ~HWNDMessageHandler() override;
 
   virtual void Init(HWND parent, const gfx::Rect& bounds);
-  virtual void InitModalType(ui::ModalType modal_type);
+  virtual void InitModalType(ui::mojom::ModalType modal_type);
 
   virtual void Close();
   virtual void CloseNow();
@@ -112,7 +114,7 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
   virtual gfx::Rect GetClientAreaBounds() const;
 
   virtual void GetWindowPlacement(gfx::Rect* bounds,
-                                  ui::WindowShowState* show_state) const;
+                                  ui::mojom::WindowShowState* show_state) const;
 
   // Sets the bounds of the HWND to |bounds_in_pixels|. If the HWND size is not
   // changed, |force_size_changed| determines if we should pretend it is.
@@ -133,7 +135,7 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
 
   // Shows the window. If |show_state| is maximized, |pixel_restore_bounds| is
   // the bounds to restore the window to when going back to normal.
-  virtual void Show(ui::WindowShowState show_state,
+  virtual void Show(ui::mojom::WindowShowState show_state,
                     const gfx::Rect& pixel_restore_bounds);
   virtual void Hide();
 
@@ -184,8 +186,6 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
 
   virtual void SetWindowIcons(const gfx::ImageSkia& window_icon,
                               const gfx::ImageSkia& app_icon);
-
-  virtual void set_use_system_default_icon(bool use_system_default_icon);
 
   // Set the fullscreen state. `target_display_id` indicates the display where
   // the window should be shown fullscreen; display::kInvalidDisplayId indicates
@@ -646,8 +646,6 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
   // Set to true in Close() and false is CloseNow().
   bool waiting_for_close_now_;
 
-  bool use_system_default_icon_;
-
   // Whether all ancestors have been enabled. This is only used if is_modal_ is
   // true.
   bool restored_enabled_;
@@ -663,7 +661,7 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
 
   // The aspect ratio for the window. This is only used for sizing operations
   // for the non-client area.
-  absl::optional<float> aspect_ratio_;
+  std::optional<float> aspect_ratio_;
 
   // Size to exclude from aspect ratio calculation.
   gfx::Size excluded_margin_;
@@ -863,7 +861,7 @@ class VIEWS_EXPORT HWNDMessageHandler : public gfx::WindowImpl,
   gfx::Size exposed_pixels_;
 
   // Populated if the cursor position is being mocked for testing purposes.
-  absl::optional<gfx::Point> mock_cursor_position_;
+  std::optional<gfx::Point> mock_cursor_position_;
 
   base::ScopedObservation<ui::InputMethod, ui::InputMethodObserver>
       observation_{this};

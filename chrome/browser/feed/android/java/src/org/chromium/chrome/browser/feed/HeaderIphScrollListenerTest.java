@@ -173,7 +173,7 @@ public final class HeaderIphScrollListenerTest {
             int scrollState,
             int triggerState,
             int verticalScrollOffset,
-            boolean isFeedHeaderPositionInRecyclerViewSuitableForIPH,
+            boolean isFeedHeaderPositionInRecyclerViewSuitableForIph,
             boolean isFeedExpanded,
             boolean isSignedIn) {
         // Set Tracker mock.
@@ -198,9 +198,9 @@ public final class HeaderIphScrollListenerTest {
                     }
 
                     @Override
-                    public boolean isFeedHeaderPositionInContainerSuitableForIPH(
+                    public boolean isFeedHeaderPositionInContainerSuitableForIph(
                             float headerMaxPosFraction) {
-                        return isFeedHeaderPositionInRecyclerViewSuitableForIPH;
+                        return isFeedHeaderPositionInRecyclerViewSuitableForIph;
                     }
 
                     @Override
@@ -216,26 +216,6 @@ public final class HeaderIphScrollListenerTest {
                     @Override
                     public boolean canScrollUp() {
                         return false;
-                    }
-
-                    @Override
-                    public int getHeaderCount() {
-                        return 0;
-                    }
-
-                    @Override
-                    public int getItemCount() {
-                        return 0;
-                    }
-
-                    @Override
-                    public int getFirstVisiblePosition() {
-                        return 0;
-                    }
-
-                    @Override
-                    public int getLastVisiblePosition() {
-                        return 0;
                     }
                 };
 
@@ -288,7 +268,7 @@ public final class HeaderIphScrollListenerTest {
             int scrollState,
             int triggerState,
             int verticalScrollOffset,
-            boolean isFeedHeaderPositionInRecyclerViewSuitableForIPH,
+            boolean isFeedHeaderPositionInRecyclerViewSuitableForIph,
             boolean isFeedExpanded,
             boolean isSignedIn) {
         // Set Tracker mock.
@@ -313,9 +293,9 @@ public final class HeaderIphScrollListenerTest {
                     }
 
                     @Override
-                    public boolean isFeedHeaderPositionInContainerSuitableForIPH(
+                    public boolean isFeedHeaderPositionInContainerSuitableForIph(
                             float headerMaxPosFraction) {
-                        return isFeedHeaderPositionInRecyclerViewSuitableForIPH;
+                        return isFeedHeaderPositionInRecyclerViewSuitableForIph;
                     }
 
                     @Override
@@ -331,26 +311,6 @@ public final class HeaderIphScrollListenerTest {
                     @Override
                     public boolean canScrollUp() {
                         return false;
-                    }
-
-                    @Override
-                    public int getHeaderCount() {
-                        return 0;
-                    }
-
-                    @Override
-                    public int getItemCount() {
-                        return 0;
-                    }
-
-                    @Override
-                    public int getFirstVisiblePosition() {
-                        return 0;
-                    }
-
-                    @Override
-                    public int getLastVisiblePosition() {
-                        return 0;
                     }
                 };
 

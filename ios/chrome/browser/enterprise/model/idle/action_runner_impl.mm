@@ -9,14 +9,14 @@
 #import "base/functional/bind.h"
 #import "base/ranges/algorithm.h"
 #import "components/enterprise/idle/idle_pref_names.h"
+#import "components/enterprise/idle/metrics.h"
 #import "components/prefs/pref_service.h"
 #import "ios/chrome/browser/browsing_data/model/browsing_data_remover_factory.h"
 
 namespace enterprise_idle {
 
-ActionRunnerImpl::ActionRunnerImpl(ChromeBrowserState* browser_state)
-    : browser_state_(browser_state),
-      action_factory_(std::make_unique<ActionFactory>()) {}
+ActionRunnerImpl::ActionRunnerImpl(ProfileIOS* profile)
+    : profile_(profile), action_factory_(std::make_unique<ActionFactory>()) {}
 
 ActionRunnerImpl::~ActionRunnerImpl() = default;
 
@@ -27,6 +27,7 @@ void ActionRunnerImpl::Run(
   if (actions.empty()) {
     return;
   }
+  actions_start_time_ = base::TimeTicks::Now();
   RunNextAction(std::move(actions));
 }
 
@@ -38,24 +39,23 @@ void ActionRunnerImpl::SetActionFactoryForTesting(
 ActionRunnerImpl::ActionQueue ActionRunnerImpl::GetActions() {
   std::vector<ActionType> actions;
   base::ranges::transform(
-      browser_state_->GetPrefs()->GetList(prefs::kIdleTimeoutActions),
+      profile_->GetPrefs()->GetList(prefs::kIdleTimeoutActions),
       std::back_inserter(actions), [](const base::Value& action) {
         return static_cast<ActionType>(action.GetInt());
       });
   return action_factory_->Build(
-      actions, BrowsingDataRemoverFactory::GetForBrowserState(browser_state_),
-      BrowsingDataRemoverFactory::GetForBrowserState(
-          browser_state_->GetOffTheRecordChromeBrowserState()));
+      actions, BrowsingDataRemoverFactory::GetForProfile(profile_),
+      BrowsingDataRemoverFactory::GetForProfile(
+          profile_->GetOffTheRecordProfile()));
 }
 
 void ActionRunnerImpl::RunNextAction(ActionQueue actions) {
   DUMP_WILL_BE_CHECK(!actions.empty());
   const std::unique_ptr<Action>& action = actions.top();
 
-  action->Run(
-      browser_state_,
-      base::BindOnce(&ActionRunnerImpl::OnActionFinished,
-                     weak_ptr_factory_.GetWeakPtr(), std::move(actions)));
+  action->Run(profile_, base::BindOnce(&ActionRunnerImpl::OnActionFinished,
+                                       weak_ptr_factory_.GetWeakPtr(),
+                                       std::move(actions)));
 }
 
 void ActionRunnerImpl::OnActionFinished(ActionQueue remaining_actions,
@@ -63,14 +63,22 @@ void ActionRunnerImpl::OnActionFinished(ActionQueue remaining_actions,
   remaining_actions.pop();
 
   if (!succeeded) {
-    // Previous action failed. Abort.
+    // Previous action failed. Log failure and abort.
+    metrics::RecordActionsSuccess(metrics::IdleTimeoutActionType::kAllActions,
+                                  false);
     return;
   }
 
   if (remaining_actions.empty()) {
-    // All done. Run callback to show bubble.
+    // All done. Run callback to show snackbar.
     // Callback can be empty in tests.
     if (actions_completed_callback_) {
+      metrics::RecordActionsSuccess(metrics::IdleTimeoutActionType::kAllActions,
+                                    true);
+      metrics::RecordIdleTimeoutActionTimeTaken(
+          metrics::IdleTimeoutActionType::kAllActions,
+          base::TimeTicks::Now() - actions_start_time_);
+
       std::move(actions_completed_callback_).Run();
     }
     return;

@@ -5,6 +5,7 @@
 #include "chrome/browser/ash/policy/enrollment/auto_enrollment_controller.h"
 
 #include <memory>
+#include <string_view>
 #include <utility>
 
 #include "ash/constants/ash_switches.h"
@@ -15,12 +16,13 @@
 #include "base/test/scoped_command_line.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_future.h"
+#include "chrome/browser/ash/login/oobe_configuration.h"
 #include "chrome/browser/ash/policy/enrollment/auto_enrollment_client.h"
 #include "chrome/browser/ash/policy/enrollment/auto_enrollment_state.h"
 #include "chrome/browser/ash/policy/server_backed_state/server_backed_state_keys_broker.h"
+#include "chromeos/ash/components/dbus/device_management/fake_install_attributes_client.h"
 #include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
 #include "chromeos/ash/components/dbus/system_clock/fake_system_clock_client.h"
-#include "chromeos/ash/components/dbus/userdataauth/fake_install_attributes_client.h"
 #include "chromeos/ash/components/install_attributes/stub_install_attributes.h"
 #include "chromeos/ash/components/network/network_state.h"
 #include "chromeos/ash/components/network/network_state_handler.h"
@@ -39,7 +41,7 @@ namespace policy {
 namespace {
 
 constexpr auto kPortalStateToStateString =
-    base::MakeFixedFlatMap<ash::NetworkState::PortalState, base::StringPiece>(
+    base::MakeFixedFlatMap<ash::NetworkState::PortalState, std::string_view>(
         {{ash::NetworkState::PortalState::kNoInternet,
           shill::kStateNoConnectivity},
          {ash::NetworkState::PortalState::kOnline, shill::kStateOnline}});
@@ -126,8 +128,8 @@ class ProxyAutoEnrollmentClientFactory : public AutoEnrollmentClient::Factory {
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const std::string& device_serial_number,
       const std::string& device_brand_code,
-      std::unique_ptr<psm::RlweDmserverClient> psm_rlwe_dmserver_client)
-      override {
+      std::unique_ptr<psm::RlweDmserverClient> psm_rlwe_dmserver_client,
+      ash::OobeConfiguration* oobe_config) override {
     mock_->SetProgressCallback(progress_callback);
     return std::make_unique<ProxyAutoEnrollmentClient>(mock_);
   }
@@ -173,21 +175,21 @@ void SetDevBootFlag(ash::FakeInstallAttributesClient* client,
                     bool is_disabled) {
   const int fwmp_flags =
       is_disabled ? cryptohome::DEVELOPER_DISABLE_BOOT : cryptohome::NONE;
-  ::user_data_auth::SetFirmwareManagementParametersRequest request;
+  ::device_management::SetFirmwareManagementParametersRequest request;
   request.mutable_fwmp()->set_flags(fwmp_flags);
   base::test::TestFuture<
-      std::optional<::user_data_auth::SetFirmwareManagementParametersReply>>
+      std::optional<::device_management::SetFirmwareManagementParametersReply>>
       future_fwmp;
   client->SetFirmwareManagementParameters(request, future_fwmp.GetCallback());
   ASSERT_TRUE(future_fwmp.Get());
 }
 
 void ClearDevBootFlag(ash::FakeInstallAttributesClient* client) {
-  base::test::TestFuture<
-      std::optional<::user_data_auth::RemoveFirmwareManagementParametersReply>>
+  base::test::TestFuture<std::optional<
+      ::device_management::RemoveFirmwareManagementParametersReply>>
       future_removed_fwmp;
   client->RemoveFirmwareManagementParameters(
-      ::user_data_auth::RemoveFirmwareManagementParametersRequest(),
+      ::device_management::RemoveFirmwareManagementParametersRequest(),
       future_removed_fwmp.GetCallback());
 
   ASSERT_TRUE(future_removed_fwmp.Get());
@@ -253,11 +255,6 @@ TEST_F(EnrollmentFwmpHelperTest, DevDisableBoot) {
 
 class AutoEnrollmentControllerBaseTest : public testing::Test {
  protected:
-  ~AutoEnrollmentControllerBaseTest() override {
-    AutoEnrollmentTypeChecker::
-        ClearUnifiedStateDeterminationKillSwitchForTesting();
-  }
-
   AutoEnrollmentControllerForTesting CreateController() {
     return AutoEnrollmentControllerForTesting(
         &mock_device_settings_service_, &fake_dm_service_,
@@ -297,16 +294,12 @@ class AutoEnrollmentControllerBaseTest : public testing::Test {
   }
 
   void SetupUnifiedStateDetermination(bool enabled) {
-    const base::StringPiece switch_value =
+    const std::string_view switch_value =
         enabled ? AutoEnrollmentTypeChecker::kUnifiedStateDeterminationAlways
                 : AutoEnrollmentTypeChecker::kUnifiedStateDeterminationNever;
     command_line_.GetProcessCommandLine()->AppendSwitchASCII(
         ash::switches::kEnterpriseEnableUnifiedStateDetermination,
         switch_value);
-
-    const bool is_killed = !enabled;
-    AutoEnrollmentTypeChecker::SetUnifiedStateDeterminationKillSwitchForTesting(
-        is_killed);
   }
 
   void SetupForcedReenrollmentCheckType() {

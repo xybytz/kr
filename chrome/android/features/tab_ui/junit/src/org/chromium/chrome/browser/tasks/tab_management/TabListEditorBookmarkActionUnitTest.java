@@ -18,12 +18,14 @@ import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 import org.robolectric.Robolectric;
 import org.robolectric.annotation.Config;
 
@@ -32,7 +34,7 @@ import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.chrome.browser.bookmarks.BookmarkModel;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tasks.tab_groups.TabGroupModelFilter;
+import org.chromium.chrome.browser.tabmodel.TabGroupModelFilter;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorAction.ActionDelegate;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorAction.ActionObserver;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorAction.ButtonType;
@@ -53,7 +55,9 @@ import java.util.Set;
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class TabListEditorBookmarkActionUnitTest {
-    @Mock private TabGroupModelFilter mTabModelFilter;
+    @Rule public final MockitoRule mMockitoRule = MockitoJUnit.rule();
+
+    @Mock private TabGroupModelFilter mTabGroupModelFilter;
     @Mock private SelectionDelegate<Integer> mSelectionDelegate;
     @Mock private ActionDelegate mDelegate;
     @Mock private SnackbarManager mSnackbarManager;
@@ -73,15 +77,14 @@ public class TabListEditorBookmarkActionUnitTest {
 
     @Before
     public void setUp() {
-        MockitoAnnotations.initMocks(this);
         mActivity = Robolectric.buildActivity(Activity.class).get();
         mAction =
                 (TabListEditorBookmarkAction)
                         TabListEditorBookmarkAction.createAction(
                                 mActivity, ShowMode.MENU_ONLY, ButtonType.TEXT, IconPosition.START);
         mTabModel = spy(new MockTabModel(mProfile, null));
-        when(mTabModelFilter.getTabModel()).thenReturn(mTabModel);
-        mAction.configure(() -> mTabModelFilter, mSelectionDelegate, mDelegate, false);
+        when(mTabGroupModelFilter.getTabModel()).thenReturn(mTabModel);
+        mAction.configure(() -> mTabGroupModelFilter, mSelectionDelegate, mDelegate, false);
     }
 
     @Test
@@ -168,7 +171,7 @@ public class TabListEditorBookmarkActionUnitTest {
         Assert.assertEquals(tabs, tabsCaptorValue);
         Assert.assertEquals(mSnackbarManager, snackbarManagerCaptorValue);
 
-        helper.waitForFirst();
+        helper.waitForOnly();
         mAction.removeActionObserver(observer);
 
         Assert.assertTrue(mAction.perform());
@@ -242,7 +245,7 @@ public class TabListEditorBookmarkActionUnitTest {
         Assert.assertEquals(tabs, tabsCaptorValue);
         Assert.assertEquals(mSnackbarManager, snackbarManagerCaptorValue);
 
-        helper.waitForFirst();
+        helper.waitForOnly();
         mAction.removeActionObserver(observer);
 
         Assert.assertTrue(mAction.perform());

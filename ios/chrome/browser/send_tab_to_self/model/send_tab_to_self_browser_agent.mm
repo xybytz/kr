@@ -24,7 +24,6 @@
 #import "ios/chrome/browser/infobars/model/infobar_utils.h"
 #import "ios/chrome/browser/send_tab_to_self/model/ios_send_tab_to_self_infobar_delegate.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/sync/model/send_tab_to_self_sync_service_factory.h"
 #import "ios/web/public/web_state.h"
@@ -33,17 +32,17 @@ BROWSER_USER_DATA_KEY_IMPL(SendTabToSelfBrowserAgent)
 
 SendTabToSelfBrowserAgent::SendTabToSelfBrowserAgent(Browser* browser)
     : browser_(browser),
-      model_(SendTabToSelfSyncServiceFactory::GetForBrowserState(
-                 browser_->GetBrowserState())
-                 ->GetSendTabToSelfModel()) {
-  model_observation_.Observe(model_);
-  browser_observation_.Observe(browser_);
+      model_(
+          SendTabToSelfSyncServiceFactory::GetForProfile(browser_->GetProfile())
+              ->GetSendTabToSelfModel()) {
+  model_observation_.Observe(model_.get());
+  browser_observation_.Observe(browser_.get());
 }
 
 SendTabToSelfBrowserAgent::~SendTabToSelfBrowserAgent() = default;
 
 void SendTabToSelfBrowserAgent::SendTabToSelfModelLoaded() {
-  // TODO(crbug.com/949756): Push changes that happened before the model was
+  // TODO(crbug.com/40621767): Push changes that happened before the model was
   // loaded.
 }
 
@@ -63,7 +62,7 @@ void SendTabToSelfBrowserAgent::EntriesAddedRemotely(
     if (web_state) {
       pending_web_state_ = web_state;
       web_state_observation_.Reset();
-      web_state_observation_.Observe(pending_web_state_);
+      web_state_observation_.Observe(pending_web_state_.get());
     }
 
     if (!web_state_list_observation_.IsObserving()) {
@@ -71,15 +70,15 @@ void SendTabToSelfBrowserAgent::EntriesAddedRemotely(
     }
 
     // Pick the most recent entry since only one Infobar can be shown at a time.
-    // TODO(crbug.com/944602): Create a function that returns the most recently
-    // shared entry.
+    // TODO(crbug.com/40619532): Create a function that returns the most
+    // recently shared entry.
     pending_entry_ = new_entries.back();
 
     return;
   }
 
   // Since we can only show one infobar at the time, pick the most recent entry.
-  // TODO(crbug.com/944602): Create a function that returns the most recently
+  // TODO(crbug.com/40619532): Create a function that returns the most recently
   // shared entry.
   DisplayInfoBar(web_state, new_entries.back());
 }

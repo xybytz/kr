@@ -25,6 +25,7 @@ import org.chromium.base.CommandLine;
 import org.chromium.base.ResettersForTesting;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.app.tab_activity_glue.ReparentingTask;
 import org.chromium.chrome.browser.app.tabmodel.TabModelOrchestrator;
@@ -40,6 +41,7 @@ import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabModelObserver;
 import org.chromium.chrome.browser.util.AndroidTaskUtils;
+import org.chromium.components.browser_ui.desktop_windowing.DesktopWindowStateManager;
 import org.chromium.components.browser_ui.widget.MenuOrKeyboardActionController;
 import org.chromium.ui.display.DisplayAndroidManager;
 import org.chromium.ui.modaldialog.ModalDialogManager;
@@ -48,9 +50,9 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Manages multi-instance mode for an associated activity. After construction, call
- * {@link #isStartedUpCorrectly(int)} to validate that the owning Activity should be allowed to
- * finish starting up.
+ * Manages multi-instance mode for an associated activity. After construction, call {@link
+ * #isStartedUpCorrectly(int)} to validate that the owning Activity should be allowed to finish
+ * starting up.
  */
 public class MultiInstanceManager
         implements PauseResumeWithNativeObserver,
@@ -99,16 +101,19 @@ public class MultiInstanceManager
 
     /**
      * Create a new {@link MultiInstanceManager}.
+     *
      * @param activity The activity.
      * @param tabModelOrchestratorSupplier A supplier for the {@link TabModelOrchestrator} for the
-     *         associated activity.
+     *     associated activity.
      * @param multiWindowModeStateDispatcher The {@link MultiWindowModeStateDispatcher} for the
-     *         associated activity.
-     * @param activityLifecycleDispatcher The {@link ActivityLifecycleDispatcher} for the
-     *         associated activity.
+     *     associated activity.
+     * @param activityLifecycleDispatcher The {@link ActivityLifecycleDispatcher} for the associated
+     *     activity.
      * @param modalDialogManagerSupplier A supplier for the {@link ModalDialogManager}.
      * @param menuOrKeyboardActionController The {@link MenuOrKeyboardActionController} for the
-     *         associated activity.
+     *     associated activity.
+     * @param desktopWindowStateManagerSupplier A supplier for the {@link DesktopWindowStateManager}
+     *     instance.
      * @return {@link MultiInstanceManager} object or {@code null} on the platform it is not needed.
      */
     public @Nullable static MultiInstanceManager create(
@@ -117,7 +122,8 @@ public class MultiInstanceManager
             MultiWindowModeStateDispatcher multiWindowModeStateDispatcher,
             ActivityLifecycleDispatcher activityLifecycleDispatcher,
             ObservableSupplier<ModalDialogManager> modalDialogManagerSupplier,
-            MenuOrKeyboardActionController menuOrKeyboardActionController) {
+            MenuOrKeyboardActionController menuOrKeyboardActionController,
+            Supplier<DesktopWindowStateManager> desktopWindowStateManagerSupplier) {
         if (MultiWindowUtils.isMultiInstanceApi31Enabled()) {
             return new MultiInstanceManagerApi31(
                     activity,
@@ -125,7 +131,8 @@ public class MultiInstanceManager
                     multiWindowModeStateDispatcher,
                     activityLifecycleDispatcher,
                     modalDialogManagerSupplier,
-                    menuOrKeyboardActionController);
+                    menuOrKeyboardActionController,
+                    desktopWindowStateManagerSupplier);
         } else {
             return new MultiInstanceManager(
                     activity,
@@ -596,5 +603,15 @@ public class MultiInstanceManager
      */
     public int getCurrentInstanceId() {
         return MultiWindowUtils.INVALID_INSTANCE_ID;
+    }
+
+    /**
+     * Close a Chrome window instance only if it contains no open tabs including incognito ones.
+     *
+     * @param instanceId Instance id of the Chrome window that needs to be closed.
+     * @return {@code true} if the window was closed, {@code false} otherwise.
+     */
+    public boolean closeChromeWindowIfEmpty(int instanceId) {
+        return false;
     }
 }

@@ -4,8 +4,6 @@
 
 package org.chromium.chrome.browser.autofill.settings;
 
-import static org.chromium.chrome.browser.autofill.AutofillUiUtils.getCardIcon;
-
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -23,14 +21,13 @@ import org.chromium.base.Callback;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.build.annotations.UsedByReflection;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeStringConstants;
 import org.chromium.chrome.browser.autofill.AutofillUiUtils;
-import org.chromium.chrome.browser.autofill.PersonalDataManager;
+import org.chromium.chrome.browser.autofill.PersonalDataManagerFactory;
 import org.chromium.chrome.browser.customtabs.CustomTabActivity;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
-import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.settings.ProfileDependentSetting;
+import org.chromium.chrome.browser.settings.SettingsNavigationFactory;
 import org.chromium.components.autofill.AutofillProfile;
+import org.chromium.components.autofill.ImageSize;
 import org.chromium.components.autofill.VirtualCardEnrollmentLinkType;
 import org.chromium.components.autofill.VirtualCardEnrollmentState;
 import org.chromium.components.browser_ui.modaldialog.AppModalPresenter;
@@ -42,20 +39,18 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
 /** Server credit card settings. */
-public class AutofillServerCardEditor extends AutofillCreditCardEditor
-        implements ProfileDependentSetting {
+public class AutofillServerCardEditor extends AutofillCreditCardEditor {
     private static final String SETTINGS_PAGE_ENROLLMENT_HISTOGRAM_TEXT =
             "Autofill.VirtualCard.SettingsPageEnrollment";
 
-    private Profile mProfile;
-    private View mLocalCopyLabel;
-    private View mClearLocalCopy;
     private TextView mVirtualCardEnrollmentButton;
     private boolean mVirtualCardEnrollmentButtonShowsUnenroll;
     private AutofillPaymentMethodsDelegate mDelegate;
     private boolean mAwaitingUpdateVirtualCardEnrollmentResponse;
     private boolean mServerCardEditorClosed;
     private Callback<Boolean> mVirtualCardEnrollmentUpdateResponseCallback;
+    private Callback<String> mServerCardEditLinkOpenerCallback =
+            url -> CustomTabActivity.showInfoPage(getActivity(), url);
 
     // Enum to represent the types of cards that show info in a server card editor page.
     @IntDef({CardType.SERVER_CARD, CardType.VIRTUAL_CARD})
@@ -122,30 +117,27 @@ public class AutofillServerCardEditor extends AutofillCreditCardEditor
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (ChromeFeatureList.isEnabled(
-                ChromeFeatureList.AUTOFILL_ENABLE_UPDATE_VIRTUAL_CARD_ENROLLMENT)) {
-            mDelegate = new AutofillPaymentMethodsDelegate(mProfile);
-            mVirtualCardEnrollmentUpdateResponseCallback =
-                    isUpdateSuccessful -> {
-                        // If the server card editor page was closed when the server call was in
-                        // progress, cleanup the delegate. Else, update the enrollment button.
-                        if (mServerCardEditorClosed) {
-                            mDelegate.cleanup();
+        mDelegate = new AutofillPaymentMethodsDelegate(getProfile());
+        mVirtualCardEnrollmentUpdateResponseCallback =
+                isUpdateSuccessful -> {
+                    // If the server card editor page was closed when the server call was in
+                    // progress, cleanup the delegate. Else, update the enrollment button.
+                    if (mServerCardEditorClosed) {
+                        mDelegate.cleanup();
+                    } else {
+                        // Mark completion of the server call.
+                        mAwaitingUpdateVirtualCardEnrollmentResponse = false;
+                        if (isUpdateSuccessful) {
+                            // Update the button label.
+                            setVirtualCardEnrollmentButtonLabel(
+                                    !mVirtualCardEnrollmentButtonShowsUnenroll);
                         } else {
-                            // Mark completion of the server call.
-                            mAwaitingUpdateVirtualCardEnrollmentResponse = false;
-                            if (isUpdateSuccessful) {
-                                // Update the button label.
-                                setVirtualCardEnrollmentButtonLabel(
-                                        !mVirtualCardEnrollmentButtonShowsUnenroll);
-                            } else {
-                                // If update was not successful, enable the button so users can try
-                                // again.
-                                mVirtualCardEnrollmentButton.setEnabled(true);
-                            }
+                            // If update was not successful, enable the button so users can try
+                            // again.
+                            mVirtualCardEnrollmentButton.setEnabled(true);
                         }
-                    };
-        }
+                    }
+                };
     }
 
     @Override
@@ -153,18 +145,19 @@ public class AutofillServerCardEditor extends AutofillCreditCardEditor
             LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         final View v = super.onCreateView(inflater, container, savedInstanceState);
         if (mCard == null) {
-            getActivity().finish();
+            SettingsNavigationFactory.createSettingsNavigation().finishCurrentSettings(this);
             return v;
         }
 
         // Set card icon. It can be either a custom card art or the network icon.
         ImageView cardIconContainer = v.findViewById(R.id.settings_page_card_icon);
         cardIconContainer.setImageDrawable(
-                getCardIcon(
+                AutofillUiUtils.getCardIcon(
                         getContext(),
+                        PersonalDataManagerFactory.getForProfile(getProfile()),
                         mCard.getCardArtUrl(),
                         mCard.getIssuerIconDrawableId(),
-                        AutofillUiUtils.CardIconSize.LARGE,
+                        ImageSize.LARGE,
                         ChromeFeatureList.isEnabled(
                                 ChromeFeatureList.AUTOFILL_ENABLE_CARD_ART_IMAGE)));
 
@@ -182,13 +175,12 @@ public class AutofillServerCardEditor extends AutofillCreditCardEditor
                                             ? CardType.VIRTUAL_CARD
                                             : CardType.SERVER_CARD,
                                     ButtonType.EDIT_CARD);
-                            CustomTabActivity.showInfoPage(
-                                    getActivity(),
-                                    ChromeStringConstants.AUTOFILL_MANAGE_WALLET_CARD_URL);
+                            mServerCardEditLinkOpenerCallback.onResult(
+                                    AutofillUiUtils.getManagePaymentMethodUrlForInstrumentId(
+                                            mCard.getInstrumentId()));
                         });
 
-        final LinearLayout virtualCardContainerLayout =
-                (LinearLayout) v.findViewById(R.id.virtual_card_ui);
+        final LinearLayout virtualCardContainerLayout = v.findViewById(R.id.virtual_card_ui);
         mVirtualCardEnrollmentButton = v.findViewById(R.id.virtual_card_enrollment_button);
         if (showVirtualCardEnrollmentButton()) {
             virtualCardContainerLayout.setVisibility(View.VISIBLE);
@@ -197,7 +189,8 @@ public class AutofillServerCardEditor extends AutofillCreditCardEditor
             mVirtualCardEnrollmentButton.setOnClickListener(
                     view -> {
                         assert mDelegate != null
-                                : "mDelegate must be initialized before making (un)enrolment calls.";
+                                : "mDelegate must be initialized before making (un)enrolment"
+                                        + " calls.";
                         final ModalDialogManager modalDialogManager =
                                 new ModalDialogManager(
                                         new AppModalPresenter(getActivity()), ModalDialogType.APP);
@@ -224,22 +217,6 @@ public class AutofillServerCardEditor extends AutofillCreditCardEditor
             virtualCardContainerLayout.setVisibility(View.GONE);
         }
 
-        mLocalCopyLabel = v.findViewById(R.id.local_copy_label);
-        mClearLocalCopy = v.findViewById(R.id.clear_local_copy);
-
-        if (mCard.getIsCached()) {
-            mClearLocalCopy.setOnClickListener(
-                    new View.OnClickListener() {
-                        @Override
-                        public void onClick(View v) {
-                            PersonalDataManager.getInstance().clearUnmaskedCache(mGUID);
-                            removeLocalCopyViews();
-                        }
-                    });
-        } else {
-            removeLocalCopyViews();
-        }
-
         initializeButtons(v);
         return v;
     }
@@ -248,17 +225,14 @@ public class AutofillServerCardEditor extends AutofillCreditCardEditor
     public void onDestroy() {
         super.onDestroy();
         // Ensure that the native AutofillPaymentMethodsDelegateMobile instance is cleaned up.
-        if (ChromeFeatureList.isEnabled(
-                ChromeFeatureList.AUTOFILL_ENABLE_UPDATE_VIRTUAL_CARD_ENROLLMENT)) {
-            // If a server call is in progress, do not cleanup the delegate yet.
-            if (mAwaitingUpdateVirtualCardEnrollmentResponse) {
-                // Mark that the server card editor page was closed, so when the server call is
-                // completed, the delegate can be cleaned up.
-                mServerCardEditorClosed = true;
-                return;
-            }
-            mDelegate.cleanup();
+        // If a server call is in progress, do not cleanup the delegate yet.
+        if (mAwaitingUpdateVirtualCardEnrollmentResponse) {
+            // Mark that the server card editor page was closed, so when the server call is
+            // completed, the delegate can be cleaned up.
+            mServerCardEditorClosed = true;
+            return;
         }
+        mDelegate.cleanup();
     }
 
     private void showVirtualCardEnrollmentDialog(
@@ -292,6 +266,7 @@ public class AutofillServerCardEditor extends AutofillCreditCardEditor
                 new AutofillVirtualCardEnrollmentDialog(
                         getActivity(),
                         modalDialogManager,
+                        PersonalDataManagerFactory.getForProfile(getProfile()),
                         virtualCardEnrollmentFields,
                         getActivity()
                                 .getString(
@@ -323,20 +298,10 @@ public class AutofillServerCardEditor extends AutofillCreditCardEditor
         dialog.show();
     }
 
-    private void removeLocalCopyViews() {
-        ViewGroup parent = (ViewGroup) mClearLocalCopy.getParent();
-        if (parent == null) return;
-
-        parent.removeView(mLocalCopyLabel);
-        parent.removeView(mClearLocalCopy);
-    }
-
     private boolean showVirtualCardEnrollmentButton() {
-        return (ChromeFeatureList.isEnabled(
-                        ChromeFeatureList.AUTOFILL_ENABLE_UPDATE_VIRTUAL_CARD_ENROLLMENT)
-                && (mCard.getVirtualCardEnrollmentState() == VirtualCardEnrollmentState.ENROLLED
-                        || mCard.getVirtualCardEnrollmentState()
-                                == VirtualCardEnrollmentState.UNENROLLED_AND_ELIGIBLE));
+        return (mCard.getVirtualCardEnrollmentState() == VirtualCardEnrollmentState.ENROLLED
+                || mCard.getVirtualCardEnrollmentState()
+                        == VirtualCardEnrollmentState.UNENROLLED_AND_ELIGIBLE);
     }
 
     /** Updates the Virtual Card Enrollment button label. */
@@ -372,7 +337,8 @@ public class AutofillServerCardEditor extends AutofillCreditCardEditor
                 && mBillingAddress.getSelectedItem() instanceof AutofillProfile) {
             mCard.setBillingAddressId(
                     ((AutofillProfile) mBillingAddress.getSelectedItem()).getGUID());
-            PersonalDataManager.getInstance().updateServerCardBillingAddress(mCard);
+            PersonalDataManagerFactory.getForProfile(getProfile())
+                    .updateServerCardBillingAddress(mCard);
         }
         return true;
     }
@@ -382,8 +348,7 @@ public class AutofillServerCardEditor extends AutofillCreditCardEditor
         return false;
     }
 
-    @Override
-    public void setProfile(Profile profile) {
-        mProfile = profile;
+    public void setServerCardEditLinkOpenerCallbackForTesting(Callback<String> callback) {
+        mServerCardEditLinkOpenerCallback = callback;
     }
 }

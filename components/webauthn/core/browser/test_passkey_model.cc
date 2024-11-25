@@ -5,14 +5,15 @@
 #include "components/webauthn/core/browser/test_passkey_model.h"
 
 #include <iterator>
+#include <optional>
 
 #include "base/notreached.h"
 #include "base/rand_util.h"
 #include "base/ranges/algorithm.h"
+#include "base/time/time.h"
 #include "components/sync/protocol/webauthn_credential_specifics.pb.h"
 #include "components/webauthn/core/browser/passkey_model_change.h"
 #include "components/webauthn/core/browser/passkey_model_utils.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace webauthn {
 
@@ -32,10 +33,18 @@ void TestPasskeyModel::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
 }
 
-base::WeakPtr<syncer::ModelTypeControllerDelegate>
-TestPasskeyModel::GetModelTypeControllerDelegate() {
+base::WeakPtr<syncer::DataTypeControllerDelegate>
+TestPasskeyModel::GetDataTypeControllerDelegate() {
   NOTIMPLEMENTED();
   return nullptr;
+}
+
+bool TestPasskeyModel::IsReady() const {
+  return true;
+}
+
+bool TestPasskeyModel::IsEmpty() const {
+  return credentials_.empty();
 }
 
 base::flat_set<std::string> TestPasskeyModel::GetAllSyncIds() const {
@@ -51,7 +60,7 @@ TestPasskeyModel::GetAllPasskeys() const {
   return credentials_;
 }
 
-absl::optional<sync_pb::WebauthnCredentialSpecifics>
+std::optional<sync_pb::WebauthnCredentialSpecifics>
 TestPasskeyModel::GetPasskeyByCredentialId(
     const std::string& rp_id,
     const std::string& credential_id) const {
@@ -66,7 +75,7 @@ TestPasskeyModel::GetPasskeyByCredentialId(
                           return passkey.credential_id() == credential_id;
                         });
   if (result.empty()) {
-    return absl::nullopt;
+    return std::nullopt;
   }
   CHECK_EQ(result.size(), 1u);
   return result.front();
@@ -119,7 +128,8 @@ std::string TestPasskeyModel::AddNewPasskeyForTesting(
   return credentials_.back().credential_id();
 }
 
-bool TestPasskeyModel::DeletePasskey(const std::string& credential_id) {
+bool TestPasskeyModel::DeletePasskey(const std::string& credential_id,
+                                     const base::Location& location) {
   // Don't implement the shadow chain deletion logic. Instead, remove the
   // credential with the matching id.
   const auto credential_it =
@@ -135,16 +145,41 @@ bool TestPasskeyModel::DeletePasskey(const std::string& credential_id) {
   return true;
 }
 
+void TestPasskeyModel::DeleteAllPasskeys() {
+  credentials_.clear();
+}
+
 bool TestPasskeyModel::UpdatePasskey(const std::string& credential_id,
-                                     PasskeyUpdate change) {
+                                     PasskeyUpdate change,
+                                     bool updated_by_user) {
   const auto credential_it =
       base::ranges::find(credentials_, credential_id,
                          &sync_pb::WebauthnCredentialSpecifics::credential_id);
   if (credential_it == credentials_.end()) {
     return false;
   }
+  if (credential_it->edited_by_user() && !updated_by_user) {
+    return false;
+  }
   credential_it->set_user_name(std::move(change.user_name));
   credential_it->set_user_display_name(std::move(change.user_display_name));
+  credential_it->set_edited_by_user(updated_by_user);
+  NotifyPasskeysChanged({PasskeyModelChange(
+      PasskeyModelChange::ChangeType::UPDATE, *credential_it)});
+  return true;
+}
+
+bool TestPasskeyModel::UpdatePasskeyTimestamp(const std::string& credential_id,
+                                              base::Time last_used_time) {
+  const auto credential_it =
+      base::ranges::find(credentials_, credential_id,
+                         &sync_pb::WebauthnCredentialSpecifics::credential_id);
+  if (credential_it == credentials_.end()) {
+    return false;
+  }
+
+  credential_it->set_last_used_time_windows_epoch_micros(
+      last_used_time.ToDeltaSinceWindowsEpoch().InMicroseconds());
   NotifyPasskeysChanged({PasskeyModelChange(
       PasskeyModelChange::ChangeType::UPDATE, *credential_it)});
   return true;

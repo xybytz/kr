@@ -31,8 +31,10 @@ class TestContentSettingBubbleModel : public ContentSettingBubbleModel {
 };
 
 class TestContentSettingBubbleContents : public ContentSettingBubbleContents {
+  METADATA_HEADER(TestContentSettingBubbleContents,
+                  ContentSettingBubbleContents)
+
  public:
-  METADATA_HEADER(TestContentSettingBubbleContents);
   TestContentSettingBubbleContents(content::WebContents* web_contents,
                                    gfx::NativeView parent_window)
       : ContentSettingBubbleContents(
@@ -46,11 +48,11 @@ class TestContentSettingBubbleContents : public ContentSettingBubbleContents {
   // ContentSettingBubbleContents:
   void OnBeforeBubbleWidgetInit(views::Widget::InitParams* params,
                                 views::Widget* widget) const override {
-    params->ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+    params->ownership = views::Widget::InitParams::CLIENT_OWNS_WIDGET;
   }
 };
 
-BEGIN_METADATA(TestContentSettingBubbleContents, ContentSettingBubbleContents)
+BEGIN_METADATA(TestContentSettingBubbleContents)
 END_METADATA
 
 // Regression test for http://crbug.com/1050801 .
@@ -58,7 +60,8 @@ TEST_F(ContentSettingBubbleContentsTest, NullDeref) {
   // This enables uses of TestWebContents.
   content::RenderViewHostTestEnabler test_render_host_factories;
 
-  std::unique_ptr<views::Widget> parent_widget = CreateTestWidget();
+  std::unique_ptr<views::Widget> parent_widget =
+      CreateTestWidget(views::Widget::InitParams::CLIENT_OWNS_WIDGET);
   parent_widget->Show();
 
   std::unique_ptr<content::WebContents> web_contents =

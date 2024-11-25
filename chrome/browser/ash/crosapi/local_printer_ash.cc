@@ -44,7 +44,6 @@
 #include "chrome/browser/printing/prefs_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/crosapi/mojom/local_printer.mojom.h"
 #include "chromeos/printing/ppd_provider.h"
@@ -133,8 +132,7 @@ void OnPrinterAuthenticated(
   // previously installed, be autoconf compatible, or have a valid PPD
   // reference. If necessary, the printer is queried to determine its autoconf
   // compatibility.
-  if (ash::features::IsPrintPreviewDiscoveredPrintersEnabled() &&
-      !printers_manager->IsPrinterInstalled(printer)) {
+  if (!printers_manager->IsPrinterInstalled(printer)) {
     if (!printer.HasUri()) {
       std::move(callback).Run(nullptr);
       return;
@@ -209,13 +207,7 @@ std::vector<chromeos::Printer> GetLocalPrinters(Profile* profile) {
   CHECK(profile);
   std::vector<chromeos::PrinterClass> printer_classes_to_fetch = {
       chromeos::PrinterClass::kSaved, chromeos::PrinterClass::kEnterprise,
-      chromeos::PrinterClass::kAutomatic};
-  // TODO(b/278621575): Add chromeos::PrinterClass::kDiscovered to
-  // `printer_classes_to_fetch` once the feature flag is removed.
-  if (ash::features::IsPrintPreviewDiscoveredPrintersEnabled()) {
-    printer_classes_to_fetch.push_back(chromeos::PrinterClass::kDiscovered);
-  }
-
+      chromeos::PrinterClass::kAutomatic, chromeos::PrinterClass::kDiscovered};
   // Printing is not allowed during OOBE.
   DCHECK(!ash::ProfileHelper::IsSigninProfile(profile));
   ash::CupsPrintersManager* printers_manager =
@@ -346,18 +338,21 @@ void LocalPrinterAsh::NotifyPrintJobUpdate(base::WeakPtr<ash::CupsPrintJob> job,
   }
   const auto& printer_id = job->printer().id();
   const auto& job_id = job->job_id();
+  auto update = mojom::PrintJobUpdate::New();
+  update->status = status;
+  update->pages_printed = job->printed_page_number();
   for (auto& remote : print_job_remotes_) {
-    remote->OnPrintJobUpdate(printer_id, job_id, status);
+    remote->OnPrintJobUpdate(printer_id, job_id, update.Clone());
   }
   switch (job->source()) {
     case mojom::PrintJob::Source::kExtension:
       for (auto& remote : extension_print_job_remotes_) {
-        remote->OnPrintJobUpdate(printer_id, job_id, status);
+        remote->OnPrintJobUpdate(printer_id, job_id, update.Clone());
       }
       break;
     case mojom::PrintJob::Source::kIsolatedWebApp:
       for (auto& remote : iwa_print_job_remotes_) {
-        remote->OnPrintJobUpdate(printer_id, job_id, status);
+        remote->OnPrintJobUpdate(printer_id, job_id, update.Clone());
       }
       break;
     default:
@@ -380,8 +375,6 @@ void LocalPrinterAsh::OnServerPrintersChanged(
 }
 
 void LocalPrinterAsh::OnLocalPrintersUpdated() {
-  CHECK(base::FeatureList::IsEnabled(::features::kLocalPrinterObserving));
-
   Profile* profile = GetProfile();
   DCHECK(profile);
   const std::vector<mojom::LocalDestinationInfoPtr> printers =
@@ -683,8 +676,6 @@ void LocalPrinterAsh::AddPrintJobObserver(
 void LocalPrinterAsh::AddLocalPrintersObserver(
     mojo::PendingRemote<mojom::LocalPrintersObserver> remote,
     AddLocalPrintersObserverCallback callback) {
-  CHECK(base::FeatureList::IsEnabled(::features::kLocalPrinterObserving));
-
   Profile* profile = GetProfile();
   DCHECK(profile);
   ash::CupsPrintersManager* printers_manager =

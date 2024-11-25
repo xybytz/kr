@@ -7,6 +7,7 @@
 #include "ash/public/cpp/holding_space/holding_space_constants.h"
 #include "ash/public/cpp/holding_space/holding_space_image.h"
 #include "ash/public/cpp/holding_space/holding_space_item.h"
+#include "ash/public/cpp/holding_space/holding_space_item_updated_fields.h"
 #include "ash/public/cpp/rounded_image_view.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/style/ash_color_id.h"
@@ -47,11 +48,6 @@ std::optional<const gfx::VectorIcon*> GetOverlayIcon(
     case HoldingSpaceItem::Type::kScreenRecordingGif:
       return &kGifIcon;
     case HoldingSpaceItem::Type::kArcDownload:
-    case HoldingSpaceItem::Type::kCameraAppPhoto:
-    case HoldingSpaceItem::Type::kCameraAppScanJpg:
-    case HoldingSpaceItem::Type::kCameraAppScanPdf:
-    case HoldingSpaceItem::Type::kCameraAppVideoGif:
-    case HoldingSpaceItem::Type::kCameraAppVideoMp4:
     case HoldingSpaceItem::Type::kDiagnosticsLog:
     case HoldingSpaceItem::Type::kDriveSuggestion:
     case HoldingSpaceItem::Type::kDownload:
@@ -64,7 +60,6 @@ std::optional<const gfx::VectorIcon*> GetOverlayIcon(
     case HoldingSpaceItem::Type::kPrintedPdf:
     case HoldingSpaceItem::Type::kScan:
       NOTREACHED();
-      [[fallthrough]];
     case HoldingSpaceItem::Type::kScreenshot:
       return std::nullopt;
   }
@@ -124,8 +119,7 @@ HoldingSpaceItemScreenCaptureView::HoldingSpaceItemScreenCaptureView(
                       views::MaximumFlexSizeRule::kUnbounded)))
               .AddChild(
                   CreatePrimaryActionBuilder(
-                      /*apply_accent_colors=*/chromeos::features::
-                          IsJellyEnabled(),
+                      /*apply_accent_colors=*/true,
                       /*min_size=*/kPrimaryActionSize)
                       .SetBackground(holding_space_util::CreateCircleBackground(
                           kColorAshShieldAndBase80))))
@@ -141,7 +135,12 @@ HoldingSpaceItemScreenCaptureView::HoldingSpaceItemScreenCaptureView(
       base::BindRepeating(&HoldingSpaceItemScreenCaptureView::UpdateImage,
                           base::Unretained(this)));
 
+  item_deletion_subscription_ = item->AddDeletionCallback(
+      base::BindRepeating(&HoldingSpaceItemScreenCaptureView::UpdateTooltipText,
+                          base::Unretained(this)));
+
   UpdateImage();
+  UpdateTooltipText();
 }
 
 HoldingSpaceItemScreenCaptureView::~HoldingSpaceItemScreenCaptureView() =
@@ -153,17 +152,21 @@ views::View* HoldingSpaceItemScreenCaptureView::GetTooltipHandlerForPoint(
   return HitTestPoint(point) ? this : nullptr;
 }
 
-std::u16string HoldingSpaceItemScreenCaptureView::GetTooltipText(
-    const gfx::Point& point) const {
-  return item() ? item()->GetText() : base::EmptyString16();
+void HoldingSpaceItemScreenCaptureView::UpdateTooltipText() {
+  if (item()) {
+    SetCachedTooltipText(item()->GetText());
+  } else {
+    SetCachedTooltipText(std::u16string());
+  }
 }
 
 void HoldingSpaceItemScreenCaptureView::OnHoldingSpaceItemUpdated(
     const HoldingSpaceItem* item,
-    uint32_t updated_fields) {
+    const HoldingSpaceItemUpdatedFields& updated_fields) {
   HoldingSpaceItemView::OnHoldingSpaceItemUpdated(item, updated_fields);
-  if (this->item() == item)
-    TooltipTextChanged();
+  if (this->item() == item && updated_fields.previous_text.has_value()) {
+    UpdateTooltipText();
+  }
 }
 
 void HoldingSpaceItemScreenCaptureView::OnThemeChanged() {
@@ -185,7 +188,7 @@ void HoldingSpaceItemScreenCaptureView::UpdateImage() {
   SchedulePaint();
 }
 
-BEGIN_METADATA(HoldingSpaceItemScreenCaptureView, HoldingSpaceItemView)
+BEGIN_METADATA(HoldingSpaceItemScreenCaptureView)
 END_METADATA
 
 }  // namespace ash

@@ -9,13 +9,16 @@
 #include <lib/fidl/cpp/binding.h>
 
 #include <optional>
+
 #include "base/containers/queue.h"
 #include "base/fuchsia/fuchsia_logging.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/time/time.h"
+#include "base/types/fixed_array.h"
 #include "media/base/buffering_state.h"
 #include "media/base/cdm_context.h"
 #include "media/base/decoder_buffer.h"
@@ -72,10 +75,7 @@ class TestDemuxerStream : public media::DemuxerStream {
     SatisfyRead();
   }
   media::AudioDecoderConfig audio_decoder_config() override { return config_; }
-  media::VideoDecoderConfig video_decoder_config() override {
-    NOTREACHED();
-    return media::VideoDecoderConfig();
-  }
+  media::VideoDecoderConfig video_decoder_config() override { NOTREACHED(); }
   Type type() const override { return AUDIO; }
   media::StreamLiveness liveness() const override {
     return media::StreamLiveness::kRecorded;
@@ -312,8 +312,8 @@ class TestAudioConsumer
   fidl::Binding<fuchsia::media::audio::VolumeControl> volume_control_binding_;
   std::unique_ptr<TestStreamSink> stream_sink_;
 
-  base::RunLoop* wait_stream_sink_created_loop_ = nullptr;
-  base::RunLoop* wait_started_loop_ = nullptr;
+  raw_ptr<base::RunLoop> wait_stream_sink_created_loop_ = nullptr;
+  raw_ptr<base::RunLoop> wait_started_loop_ = nullptr;
 
   bool create_stream_sink_called_ = false;
 
@@ -530,7 +530,7 @@ class WebEngineAudioRendererTestBase : public testing::Test {
   TestRendererClient client_;
 
   std::unique_ptr<media::AudioRenderer> audio_renderer_;
-  media::TimeSource* time_source_;
+  raw_ptr<media::TimeSource> time_source_;
   base::TimeDelta demuxer_stream_pos_;
 };
 
@@ -726,9 +726,9 @@ void WebEngineAudioRendererTestBase::TestPcmStream(
   // Read and verify packet content
   size_t output_size = kNumSamples * kChannels * bytes_per_sample_output;
   EXPECT_EQ(packet.payload_size, output_size);
-  uint8_t data[output_size];
+  base::FixedArray<uint8_t> data(output_size);
   zx_status_t result = stream_sink_->buffers()[packet.payload_buffer_id].read(
-      data, 0, output_size);
+      data.data(), 0, output_size);
   ZX_CHECK(result == ZX_OK, result);
 
   for (size_t i = 0; i < output_size; ++i) {
@@ -815,14 +815,14 @@ TEST_P(WebEngineAudioRendererTest, StartTicking) {
       /*playback_rate=*/1.0));
 }
 
-TEST_P(WebEngineAudioRendererTest, StartTickingRate1_5) {
+TEST_P(WebEngineAudioRendererTest, StartTickingRate150Percent) {
   ASSERT_NO_FATAL_FAILURE(CreateAndInitializeRenderer());
   ASSERT_NO_FATAL_FAILURE(StartPlaybackAndVerifyClock(
       /*start_pos=*/base::Milliseconds(123),
       /*playback_rate=*/1.5));
 }
 
-TEST_P(WebEngineAudioRendererTest, StartTickingRate0_5) {
+TEST_P(WebEngineAudioRendererTest, StartTickingRate50Percent) {
   ASSERT_NO_FATAL_FAILURE(CreateAndInitializeRenderer());
   ASSERT_NO_FATAL_FAILURE(StartPlaybackAndVerifyClock(
       /*start_pos=*/base::Milliseconds(123),

@@ -4,10 +4,15 @@
 
 package org.chromium.chrome.browser.app.tabmodel;
 
+import android.app.Activity;
+
+import androidx.annotation.Nullable;
+
 import org.chromium.base.Callback;
 import org.chromium.base.supplier.ObservableSupplierImpl;
-import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.compositor.overlays.strip.StripLayoutHelperManager.TabModelStartupInfo;
+import org.chromium.chrome.browser.tab_ui.TabContentManager;
+import org.chromium.chrome.browser.tabmodel.MismatchedIndicesHandler;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorBase;
@@ -22,13 +27,15 @@ import org.chromium.chrome.browser.tabmodel.TabPersistentStore.TabPersistentStor
  */
 public abstract class TabModelOrchestrator {
     protected TabPersistentStore mTabPersistentStore;
-    protected TabModelSelectorBase mTabModelSelector;
+    @Nullable protected TabModelSelectorBase mTabModelSelector;
     protected TabPersistencePolicy mTabPersistencePolicy;
     private boolean mTabModelsInitialized;
     private Callback<String> mOnStandardActiveIndexRead;
+    private boolean mTabPersistentStoreDestroyedEarly;
 
     // TabModelStartupInfo variables
     private ObservableSupplierImpl<TabModelStartupInfo> mTabModelStartupInfoSupplier;
+    private boolean mIgnoreIncognitoFiles;
     private int mStandardCount;
     private int mIncognitoCount;
     private int mStandardActiveIndex = TabModel.INVALID_TAB_INDEX;
@@ -69,7 +76,7 @@ public abstract class TabModelOrchestrator {
             return;
         }
 
-        // TODO(crbug.com/1169408): Set the members to null and mTabModelsInitialized to false.
+        // TODO(crbug.com/40743848): Set the members to null and mTabModelsInitialized to false.
         // Right now, it breaks destruction of VrShell, which relies on using TabModel after
         // its destruction.
 
@@ -82,10 +89,22 @@ public abstract class TabModelOrchestrator {
         }
     }
 
+    /**
+     * Destroy the {@link TabPersistentStore} earlier than activity destruction. See the
+     * implementation of {@link MismatchedIndicesHandler#handleMismatchedIndices(Activity)} for more
+     * details.
+     */
+    public void destroyTabPersistentStore() {
+        if (mTabPersistentStore != null) {
+            mTabPersistentStore.destroy();
+            mTabPersistentStoreDestroyedEarly = true;
+        }
+    }
+
     public void onNativeLibraryReady(TabContentManager tabContentManager) {
         mTabModelSelector.onNativeLibraryReady(tabContentManager);
         mTabPersistencePolicy.setTabContentManager(tabContentManager);
-        mTabPersistentStore.onNativeLibraryReady();
+        if (!mTabPersistentStoreDestroyedEarly) mTabPersistentStore.onNativeLibraryReady();
     }
 
     /**
@@ -94,7 +113,7 @@ public abstract class TabModelOrchestrator {
      */
     public void saveState() {
         mTabModelSelector.commitAllTabClosures();
-        mTabPersistentStore.saveState();
+        if (!mTabPersistentStoreDestroyedEarly) mTabPersistentStore.saveState();
     }
 
     /**
@@ -106,8 +125,9 @@ public abstract class TabModelOrchestrator {
      */
     public void loadState(
             boolean ignoreIncognitoFiles, Callback<String> onStandardActiveIndexRead) {
+        mIgnoreIncognitoFiles = ignoreIncognitoFiles;
         mOnStandardActiveIndexRead = onStandardActiveIndexRead;
-        mTabPersistentStore.loadState(ignoreIncognitoFiles);
+        if (!mTabPersistentStoreDestroyedEarly) mTabPersistentStore.loadState(ignoreIncognitoFiles);
     }
 
     /**
@@ -123,10 +143,20 @@ public abstract class TabModelOrchestrator {
             boolean createdIncognitoTabOnStartup =
                     getTabModelSelector().getModel(true).getCount() > 0;
 
+            // Incognito tabs are read first, so we have to adjust to find the real active index in
+            // the standard model.
             int standardActiveIndex =
                     mStandardActiveIndex != TabModel.INVALID_TAB_INDEX
                             ? mStandardActiveIndex - mIncognitoCount
                             : TabModel.INVALID_TAB_INDEX;
+
+            // If we're going to cull the Incognito tabs, reset the startup state.
+            if (mIgnoreIncognitoFiles) {
+                mIncognitoCount = 0;
+                mIncognitoActiveIndex = TabModel.INVALID_TAB_INDEX;
+            }
+
+            // Account for tabs created on startup (e.g. through intents).
             if (createdStandardTabOnStartup) mStandardCount++;
             if (createdIncognitoTabOnStartup) mIncognitoCount++;
 
@@ -139,15 +169,15 @@ public abstract class TabModelOrchestrator {
                             createdStandardTabOnStartup,
                             createdIncognitoTabOnStartup));
         }
-        mTabPersistentStore.restoreTabs(setActiveTab);
+        if (!mTabPersistentStoreDestroyedEarly) mTabPersistentStore.restoreTabs(setActiveTab);
     }
 
     public void mergeState() {
-        mTabPersistentStore.mergeState();
+        if (!mTabPersistentStoreDestroyedEarly) mTabPersistentStore.mergeState();
     }
 
     public void clearState() {
-        mTabPersistentStore.clearState();
+        if (!mTabPersistentStoreDestroyedEarly) mTabPersistentStore.clearState();
     }
 
     /**
@@ -162,7 +192,7 @@ public abstract class TabModelOrchestrator {
      * there isn't a tab being restored with this url, or the tab has already been restored.
      */
     public void tryToRestoreTabStateForUrl(String url) {
-        if (mTabModelSelector.isSessionRestoreInProgress()) {
+        if (mTabModelSelector.isSessionRestoreInProgress() && !mTabPersistentStoreDestroyedEarly) {
             mTabPersistentStore.restoreTabStateForUrl(url);
         }
     }
@@ -173,7 +203,7 @@ public abstract class TabModelOrchestrator {
      * there isn't a tab being restored with this id, or the tab has already been restored.
      */
     public void tryToRestoreTabStateForId(int id) {
-        if (mTabModelSelector.isSessionRestoreInProgress()) {
+        if (mTabModelSelector.isSessionRestoreInProgress() && !mTabPersistentStoreDestroyedEarly) {
             mTabPersistentStore.restoreTabStateForId(id);
         }
     }
@@ -182,20 +212,13 @@ public abstract class TabModelOrchestrator {
      * @return Number of restored tabs on cold startup.
      */
     public int getRestoredTabCount() {
-        if (mTabPersistentStore == null) return 0;
+        if (mTabPersistentStore == null || mTabPersistentStoreDestroyedEarly) return 0;
         return mTabPersistentStore.getRestoredTabCount();
     }
 
     /**
-     * Sets whether to skip saving all of the non-active Ntps when serializing the Tab model meta
-     * data.
-     */
-    public void setSkipSavingNonActiveNtps(boolean skipSavingNonActiveNtps) {
-        mTabPersistentStore.setSkipSavingNonActiveNtps(skipSavingNonActiveNtps);
-    }
-
-    /**
      * Sets the supplier for {@link TabModelStartupInfo} on startup.
+     *
      * @param observableSupplier The {@link TabModelStartupInfo} supplier.
      */
     public void setStartupInfoObservableSupplier(
@@ -203,7 +226,12 @@ public abstract class TabModelOrchestrator {
         mTabModelStartupInfoSupplier = observableSupplier;
     }
 
+    public boolean getTabPersistentStoreDestroyedEarlyForTesting() {
+        return mTabPersistentStoreDestroyedEarly;
+    }
+
     protected void wireSelectorAndStore() {
+        if (mTabPersistentStoreDestroyedEarly) return;
         // Notify TabModelSelector when TabPersistentStore initializes tab state
         final TabPersistentStoreObserver persistentStoreObserver =
                 new TabPersistentStoreObserver() {

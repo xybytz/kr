@@ -100,7 +100,8 @@ void NearbyEndpointFinderImpl::PerformFindEndpoint() {
                             MediumSelection::New(/*bluetooth=*/true,
                                                  /*ble=*/false,
                                                  /*webrtc=*/false,
-                                                 /*wifi_lan=*/false),
+                                                 /*wifi_lan=*/false,
+                                                 /*wifi_direct=*/false),
                             /*fast_advertisement_service_uuid=*/std::nullopt,
                             /*is_out_of_band_connection=*/true),
       endpoint_discovery_listener_receiver_.BindNewPipeAndPassRemote(),
@@ -129,7 +130,7 @@ void NearbyEndpointFinderImpl::OnStartDiscoveryResult(Status status) {
   if (status != Status::kSuccess) {
     PA_LOG(WARNING) << "Failed to start Nearby discovery: " << status;
     is_discovery_active_ = false;
-    NotifyEndpointDiscoveryFailure();
+    NotifyEndpointDiscoveryFailure(status);
     return;
   }
 
@@ -147,7 +148,7 @@ void NearbyEndpointFinderImpl::OnInjectBluetoothEndpointResult(Status status) {
 
   if (status != Status::kSuccess) {
     PA_LOG(WARNING) << "Failed to inject Bluetooth endpoint: " << status;
-    NotifyEndpointDiscoveryFailure();
+    NotifyEndpointDiscoveryFailure(status);
     return;
   }
 
@@ -163,7 +164,7 @@ void NearbyEndpointFinderImpl::OnStopDiscoveryResult(
 
   if (status != Status::kSuccess) {
     PA_LOG(WARNING) << "Failed to stop Nearby discovery: " << status;
-    NotifyEndpointDiscoveryFailure();
+    NotifyEndpointDiscoveryFailure(status);
     return;
   }
 

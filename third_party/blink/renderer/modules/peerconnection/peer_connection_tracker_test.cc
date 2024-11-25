@@ -66,14 +66,12 @@ class MockPeerConnectionTrackerHost
   MOCK_METHOD3(GetDisplayMediaFailure, void(int, const String&, const String&));
   MOCK_METHOD2(WebRtcEventLogWrite, void(int, const Vector<uint8_t>&));
   MOCK_METHOD2(AddStandardStats, void(int, base::Value::List));
-  MOCK_METHOD2(AddLegacyStats, void(int, base::Value::List));
 
-  mojo::Remote<blink::mojom::blink::PeerConnectionTrackerHost>
+  mojo::PendingRemote<blink::mojom::blink::PeerConnectionTrackerHost>
   CreatePendingRemoteAndBind() {
     receiver_.reset();
-    return mojo::Remote<blink::mojom::blink::PeerConnectionTrackerHost>(
-        receiver_.BindNewPipeAndPassRemote(
-            blink::scheduler::GetSingleThreadTaskRunnerForTesting()));
+    return receiver_.BindNewPipeAndPassRemote(
+        blink::scheduler::GetSingleThreadTaskRunnerForTesting());
   }
 
   mojo::Receiver<blink::mojom::blink::PeerConnectionTrackerHost> receiver_{
@@ -96,7 +94,7 @@ std::unique_ptr<RTCRtpTransceiverPlatform> CreateDefaultTransceiver() {
   transceiver = std::make_unique<blink::FakeRTCRtpTransceiverImpl>(
       String(), std::move(sender), std::move(receiver),
       webrtc::RtpTransceiverDirection::kSendOnly /* direction */,
-      absl::nullopt /* current_direction */);
+      std::nullopt /* current_direction */);
   return transceiver;
 }
 
@@ -316,13 +314,13 @@ TEST_F(PeerConnectionTrackerTest, AddTransceiverWithOptionalValuesNull) {
   blink::FakeRTCRtpTransceiverImpl transceiver(
       String(),
       blink::FakeRTCRtpSenderImpl(
-          absl::nullopt, {},
+          std::nullopt, {},
           blink::scheduler::GetSingleThreadTaskRunnerForTesting()),
       blink::FakeRTCRtpReceiverImpl(
           "receiverTrackId", {},
           blink::scheduler::GetSingleThreadTaskRunnerForTesting()),
       webrtc::RtpTransceiverDirection::kInactive /* direction */,
-      absl::nullopt /* current_direction */);
+      std::nullopt /* current_direction */);
   String update_value;
   EXPECT_CALL(*mock_host_,
               UpdatePeerConnection(_, String("transceiverAdded"), _))

@@ -29,6 +29,8 @@ class CORE_EXPORT V8ObjectBuilder final {
   V8ObjectBuilder& AddNull(const StringView& name);
   V8ObjectBuilder& AddBoolean(const StringView& name, bool value);
   V8ObjectBuilder& AddNumber(const StringView& name, double value);
+  V8ObjectBuilder& AddNumberOrNull(const StringView& name,
+                                   std::optional<double> value);
   V8ObjectBuilder& AddInteger(const StringView& name, uint64_t value);
   V8ObjectBuilder& AddString(const StringView& name, const StringView& value);
   V8ObjectBuilder& AddStringOrNull(const StringView& name,
@@ -39,15 +41,13 @@ class CORE_EXPORT V8ObjectBuilder final {
     requires std::derived_from<T, bindings::DictionaryBase> ||
              std::derived_from<T, ScriptWrappable>
   V8ObjectBuilder& Add(const StringView& name, T* value) {
-    AddInternal(name,
-                ToV8Traits<T>::ToV8(script_state_, value).ToLocalChecked());
+    AddInternal(name, ToV8Traits<T>::ToV8(script_state_, value));
     return *this;
   }
 
   template <typename T, typename Container>
   V8ObjectBuilder& AddVector(const StringView& name, const Container& value) {
-    AddInternal(name, ToV8Traits<IDLSequence<T>>::ToV8(script_state_, value)
-                          .ToLocalChecked());
+    AddInternal(name, ToV8Traits<IDLSequence<T>>::ToV8(script_state_, value));
     return *this;
   }
 

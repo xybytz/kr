@@ -19,12 +19,12 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.supplier.OneshotSupplier;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.app.tabmodel.AsyncTabParamsManagerSingleton;
-import org.chromium.chrome.browser.app.tabmodel.ChromeTabModelFilterFactory;
 import org.chromium.chrome.browser.app.tabmodel.TabWindowManagerSingleton;
 import org.chromium.chrome.browser.firstrun.FirstRunStatus;
 import org.chromium.chrome.browser.flags.ActivityType;
@@ -39,7 +39,7 @@ import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
 import org.chromium.chrome.test.util.browser.contextmenu.ContextMenuUtils;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.ui.modaldialog.ModalDialogManager;
 
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
@@ -78,13 +78,15 @@ public class ContextMenuLoadUrlParamsTest {
         }
 
         public RecordingTabModelSelector(
+                Context context,
+                ModalDialogManager modalDialogManager,
                 OneshotSupplier<ProfileProvider> profileProviderSupplier,
-                TabCreatorManager tabCreatorManager,
-                TabModelFilterFactory tabModelFilterFactory) {
+                TabCreatorManager tabCreatorManager) {
             super(
+                    context,
+                    modalDialogManager,
                     profileProviderSupplier,
                     tabCreatorManager,
-                    tabModelFilterFactory,
                     () -> NextTabPolicy.HIERARCHICAL,
                     AsyncTabParamsManagerSingleton.getInstance(),
                     false,
@@ -103,13 +105,15 @@ public class ContextMenuLoadUrlParamsTest {
                     @Override
                     public TabModelSelector buildSelector(
                             Context context,
+                            ModalDialogManager modalDialogManager,
                             OneshotSupplier<ProfileProvider> profileProviderSupplier,
                             TabCreatorManager tabCreatorManager,
                             NextTabPolicySupplier nextTabPolicySupplier) {
                         return new RecordingTabModelSelector(
+                                context,
+                                modalDialogManager,
                                 profileProviderSupplier,
-                                tabCreatorManager,
-                                new ChromeTabModelFilterFactory(context));
+                                tabCreatorManager);
                     }
                 });
     }
@@ -121,7 +125,7 @@ public class ContextMenuLoadUrlParamsTest {
 
     @Before
     public void setUp() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     FirstRunStatus.setFirstRunFlowComplete(true);
                 });
@@ -129,7 +133,7 @@ public class ContextMenuLoadUrlParamsTest {
 
     @After
     public void tearDown() {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     FirstRunStatus.setFirstRunFlowComplete(false);
                 });

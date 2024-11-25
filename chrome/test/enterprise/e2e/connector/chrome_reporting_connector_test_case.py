@@ -30,7 +30,7 @@ class ChromeReportingConnectorTestCase(ChromeEnterpriseTestCase):
     """Get file from GCS bucket"""
     path = "gs://%s/%s" % (self.gsbucket, path)
     cmd = r'gsutil cat ' + path
-    return self.RunCommand(self.win_config['dc'], cmd).rstrip().decode()
+    return self.RunCommand(self.win_config['client'], cmd).rstrip().decode()
 
   def InstallBrowserAndEnableUITest(self):
     """Install chrome on machine and enable ui test.
@@ -38,17 +38,20 @@ class ChromeReportingConnectorTestCase(ChromeEnterpriseTestCase):
     self.EnableUITest(self.win_config['client'])
     self.InstallChrome(self.win_config['client'])
 
-  def GetEncryptedReportingAPIKey(self, use_production_database):
+  def GetEncryptedReportingAPIKey(self):
     """Returns the API key required to get events from the
     ChromeOS Insights and Intelligence team's encrypted reporting server."""
-    if use_production_database:
-      return self.GetFileFromGCSBucket('secrets/EncryptedReportingAPIProdKey')
-    return self.GetFileFromGCSBucket('secrets/EncryptedReportingAPIKey')
+    return self.GetFileFromGCSBucket(
+        'secrets/EncryptedReportingProductionAPIKey')
 
   def GetManagedChromeDomainEnrollmentToken(self):
     """Get the enrollment token for the managedchrome.com domain"""
     return self.GetFileFromGCSBucket(
         'secrets/ManagedChromeDomain-enrollmentToken')
+
+  def GetManagedChromeCustomerId(self):
+    """Get the customer id for the managedchrome.com domain"""
+    return self.GetFileFromGCSBucket('secrets/ManagedChromeCustomerId')
 
   def GetCELabDefaultToken(self):
     """Get default celab org enrollment token from GCS bucket"""

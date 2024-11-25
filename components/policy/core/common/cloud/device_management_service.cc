@@ -233,6 +233,8 @@ std::string DeviceManagementService::JobConfiguration::GetJobTypeAsString(
       return "InitialEnrollmentStateRetrieval";
     case DeviceManagementService::JobConfiguration::TYPE_INVALID:
       return "Invalid";
+    case DeviceManagementService::JobConfiguration::TYPE_OIDC_REGISTRATION:
+      return "OidcRegistration";
     case DeviceManagementService::JobConfiguration::TYPE_POLICY_FETCH:
       return "PolicyFetch";
     case DeviceManagementService::JobConfiguration::
@@ -244,7 +246,11 @@ std::string DeviceManagementService::JobConfiguration::GetJobTypeAsString(
       return "Registration";
     case DeviceManagementService::JobConfiguration::TYPE_REMOTE_COMMANDS:
       return "RemoteCommands";
-    case DeviceManagementService::JobConfiguration::TYPE_TOKEN_ENROLLMENT:
+    // Type TOKEN_ENROLLMENT was renamed to BROWSER_REGISTRATION when device
+    // token-based enrollment was added, but unfortunately we have to keep the
+    // stringified job type as "TokenEnrollment" because this string defines
+    // an UMA metric.
+    case DeviceManagementService::JobConfiguration::TYPE_BROWSER_REGISTRATION:
       return "TokenEnrollment";
     case DeviceManagementService::JobConfiguration::TYPE_UNREGISTRATION:
       return "Unregistration";
@@ -263,6 +269,15 @@ std::string DeviceManagementService::JobConfiguration::GetJobTypeAsString(
       return "UploadrealtimeReport";
     case DeviceManagementService::JobConfiguration::TYPE_UPLOAD_STATUS:
       return "UploadStatus";
+    case DeviceManagementService::JobConfiguration::
+        TYPE_TOKEN_BASED_DEVICE_REGISTRATION:
+      return "TokenBasedDeviceRegistration";
+    case DeviceManagementService::JobConfiguration::
+        TYPE_UPLOAD_FM_REGISTRATION_TOKEN:
+      return "UploadFmRegistrationToken";
+    case DeviceManagementService::JobConfiguration::
+        TYPE_POLICY_AGENT_REGISTRATION:
+      return "PolicyAgentRegistration";
     // TODO(b/263367348): Remove the Active Directory types below, after they're
     // removed from the corresponding enum.
     case DeviceManagementService::JobConfiguration::
@@ -270,14 +285,13 @@ std::string DeviceManagementService::JobConfiguration::GetJobTypeAsString(
     case DeviceManagementService::JobConfiguration::
         TYPE_ACTIVE_DIRECTORY_PLAY_ACTIVITY:
       NOTREACHED() << "Invalid job type: " << type;
-      return "";
   }
 }
 
 JobConfigurationBase::JobConfigurationBase(
     JobType type,
     DMAuth auth_data,
-    absl::optional<std::string> oauth_token,
+    std::optional<std::string> oauth_token,
     scoped_refptr<network::SharedURLLoaderFactory> factory)
     : type_(type),
       factory_(factory),
@@ -286,7 +300,7 @@ JobConfigurationBase::JobConfigurationBase(
   CHECK(!auth_data_.has_oauth_token()) << "Use |oauth_token| instead";
 
 #if !BUILDFLAG(IS_IOS)
-  if (oauth_token_) {
+  if (oauth_token_ && auth_data.token_type() != DMAuthTokenType::kOidc) {
     // Put the oauth token in the query parameters for platforms that are not
     // iOS. On iOS we are trying the oauth token in the request headers
     // (crbug.com/1312158). We might want to use the iOS approach on all
@@ -368,7 +382,7 @@ JobConfigurationBase::GetResourceRequest(bool bypass_proxy, int last_error) {
     url = net::AppendQueryParameter(url, entry->first, entry->second);
   }
 
-  rr->url = url;
+  rr->url = std::move(url);
   rr->method = "POST";
   rr->load_flags =
       net::LOAD_DISABLE_CACHE | (bypass_proxy ? net::LOAD_BYPASS_PROXY : 0);
@@ -410,6 +424,16 @@ JobConfigurationBase::GetResourceRequest(bool bypass_proxy, int last_error) {
     case DMAuthTokenType::kOauth:
       // OAuth token is transferred as a HTTP query parameter.
       break;
+    case DMAuthTokenType::kOidc:
+      // Send OIDC Auth token and ID token in auth header, send profile ID in
+      // URL parameter
+      rr->headers.SetHeader(
+          dm_protocol::kAuthHeader,
+          base::StrCat({dm_protocol::kOidcAuthHeaderPrefix,
+                        dm_protocol::kOidcAuthTokenHeaderPrefix, *oauth_token_,
+                        ",", dm_protocol::kOidcIdTokenHeaderPrefix,
+                        auth_data_.oidc_id_token()}));
+      break;
   }
 
   return rr;
@@ -426,7 +450,7 @@ DeviceManagementService::Job::RetryMethod JobConfigurationBase::ShouldRetry(
   return DeviceManagementService::Job::NO_RETRY;
 }
 
-absl::optional<base::TimeDelta> JobConfigurationBase::GetTimeoutDuration() {
+std::optional<base::TimeDelta> JobConfigurationBase::GetTimeoutDuration() {
   return timeout_;
 }
 
@@ -655,7 +679,6 @@ int DeviceManagementService::JobImpl::GetRetryDelay(RetryMethod method) {
       return 0;
     default:
       NOTREACHED();
-      return 0;
   }
 }
 

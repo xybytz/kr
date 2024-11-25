@@ -8,8 +8,8 @@
 #import "base/no_destructor.h"
 #import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
 class KeyedService;
+class ProfileIOS;
 
 namespace safe_browsing {
 class TailoredSecurityService;
@@ -20,14 +20,11 @@ class BrowserState;
 }
 
 // Singleton that owns TailoredSecurityService objects, one for each active
-// ChromeBrowserState. It returns nullptr for Incognito browser states.
+// profile. It returns nullptr for Incognito profiles.
 class TailoredSecurityServiceFactory : public BrowserStateKeyedServiceFactory {
  public:
-  // Returns the instance of TailoredSecurityService associated with this
-  // browser state, creating one if none exists and the given browser state is
-  // not in Incognito mode.
-  static safe_browsing::TailoredSecurityService* GetForBrowserState(
-      ChromeBrowserState* browser_state);
+  static safe_browsing::TailoredSecurityService* GetForProfile(
+      ProfileIOS* profile);
 
   // Returns the singleton instance of TailoredSecurityServiceFactory.
   static TailoredSecurityServiceFactory* GetInstance();

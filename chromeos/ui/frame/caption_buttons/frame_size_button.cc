@@ -87,7 +87,6 @@ SnapDirection GetSnapDirection(const views::FrameCaptionButton* to_hover) {
     case views::CAPTION_BUTTON_ICON_CUSTOM:
     case views::CAPTION_BUTTON_ICON_COUNT:
       NOTREACHED();
-      return SnapDirection::kNone;
   }
 }
 
@@ -190,7 +189,7 @@ class FrameSizeButton::PieAnimationView : public views::View,
   const raw_ptr<FrameSizeButton> button_;
 };
 
-BEGIN_METADATA(FrameSizeButton, PieAnimationView, views::View)
+BEGIN_METADATA(FrameSizeButton, PieAnimationView)
 END_METADATA
 
 // The class to observe the to-be-snapped window during the waiting-for-snap
@@ -342,7 +341,7 @@ void FrameSizeButton::OnGestureEvent(ui::GestureEvent* event) {
     SetButtonsToNormalMode(FrameSizeButtonDelegate::Animate::kYes);
     return;
   }
-  if (event->type() == ui::ET_GESTURE_TAP_DOWN && delegate_->CanSnap() &&
+  if (event->type() == ui::EventType::kGestureTapDown && delegate_->CanSnap() &&
       !display::Screen::GetScreen()->InTabletMode()) {
     StartLongTapDelayTimer(*event);
 
@@ -351,8 +350,8 @@ void FrameSizeButton::OnGestureEvent(ui::GestureEvent* event) {
     return;
   }
 
-  if (event->type() == ui::ET_GESTURE_SCROLL_BEGIN ||
-      event->type() == ui::ET_GESTURE_SCROLL_UPDATE) {
+  if (event->type() == ui::EventType::kGestureScrollBegin ||
+      event->type() == ui::EventType::kGestureScrollUpdate) {
     UpdateSnapPreview(*event);
 
     if (multitask_menu_) {
@@ -364,10 +363,10 @@ void FrameSizeButton::OnGestureEvent(ui::GestureEvent* event) {
     return;
   }
 
-  if (event->type() == ui::ET_GESTURE_TAP ||
-      event->type() == ui::ET_GESTURE_SCROLL_END ||
-      event->type() == ui::ET_SCROLL_FLING_START ||
-      event->type() == ui::ET_GESTURE_END) {
+  if (event->type() == ui::EventType::kGestureTap ||
+      event->type() == ui::EventType::kGestureScrollEnd ||
+      event->type() == ui::EventType::kScrollFlingStart ||
+      event->type() == ui::EventType::kGestureEnd) {
     if (multitask_menu_ && !multitask_menu_->GetWidget()->IsClosed() &&
         multitask_menu_->multitask_menu_view()->OnSizeButtonRelease(
             views::View::ConvertPointToScreen(this, event->location()))) {
@@ -411,13 +410,13 @@ void FrameSizeButton::StateChanged(views::Button::ButtonState old_state) {
   }
 }
 
-void FrameSizeButton::Layout() {
+void FrameSizeButton::Layout(PassKey) {
   // Use the bounds of the inkdrop for the pie animation.
   gfx::Rect bounds = GetLocalBounds();
   bounds.Inset(GetInkdropInsets(bounds.size()));
   pie_animation_view_->SetBoundsRect(bounds);
 
-  views::FrameCaptionButton::Layout();
+  LayoutSuperclass<views::FrameCaptionButton>(this);
 }
 
 void FrameSizeButton::OnDisplayTabletStateChanged(display::TabletState state) {
@@ -577,7 +576,7 @@ void FrameSizeButton::OnLongTapDelayTimerEnded(bool is_mouse,
   }
 }
 
-BEGIN_METADATA(FrameSizeButton, views::FrameCaptionButton)
+BEGIN_METADATA(FrameSizeButton)
 END_METADATA
 
 }  // namespace chromeos

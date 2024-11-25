@@ -22,7 +22,6 @@
 #include "chrome/browser/ash/arc/fileapi/arc_file_system_operation_runner.h"
 #include "chrome/browser/ash/drive/drive_integration_service.h"
 #include "chrome/browser/ash/drive/file_system_util.h"
-#include "chrome/browser/ash/file_manager/app_id.h"
 #include "chrome/browser/ash/file_manager/fileapi_util.h"
 #include "chrome/browser/ash/file_system_provider/mount_path_util.h"
 #include "chrome/browser/ash/file_system_provider/provided_file_system_interface.h"
@@ -304,18 +303,17 @@ void GetNonNativeLocalPathMimeType(
       }
 
       std::string authority;
-      std::string root_document_id;
-      if (!arc::ParseDocumentsProviderPath(path, &authority,
-                                           &root_document_id)) {
+      std::string root_id;
+      if (!arc::ParseDocumentsProviderPath(path, &authority, &root_id)) {
         LOG(ERROR) << "Failed to parse documents provider path: " << path;
         content::GetUIThreadTaskRunner({})->PostTask(
             FROM_HERE, base::BindOnce(std::move(callback), std::nullopt));
         return;
       }
-      auto* root = root_map->Lookup(authority, root_document_id);
+      auto* root = root_map->Lookup(authority, root_id);
       if (!root) {
         LOG(ERROR) << "No root found for authority: " << authority
-                   << " document_id: " << root_document_id;
+                   << " document_id: " << root_id;
         content::GetUIThreadTaskRunner({})->PostTask(
             FROM_HERE, base::BindOnce(std::move(callback), std::nullopt));
         return;

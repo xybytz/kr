@@ -5,13 +5,16 @@
 #ifndef ASH_WEBUI_MEDIA_APP_UI_MEDIA_APP_GUEST_UI_H_
 #define ASH_WEBUI_MEDIA_APP_UI_MEDIA_APP_GUEST_UI_H_
 
+#include <optional>
 #include <string>
 
 #include "ash/webui/media_app_ui/media_app_ui_untrusted.mojom.h"
 #include "base/files/file_path.h"
 #include "base/task/sequenced_task_runner.h"
+#include "chromeos/ash/components/mantis/media_app/mantis_untrusted_service_manager.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_ui_data_source.h"
+#include "ui/gfx/native_widget_types.h"
 #include "ui/webui/color_change_listener/color_change_handler.h"
 #include "ui/webui/resources/cr_components/color_change_listener/color_change_listener.mojom.h"
 #include "ui/webui/untrusted_web_ui_controller.h"
@@ -30,19 +33,25 @@ class MediaAppGuestUIDelegate {
   // Takes a WebUI and WebUIDataSource, and populates its load-time data.
   virtual void PopulateLoadTimeData(content::WebUI* web_ui,
                                     content::WebUIDataSource* source) = 0;
-  virtual std::unique_ptr<ash::media_app_ui::mojom::OcrUntrustedPageHandler>
-  CreateAndBindOcrHandler(
+  virtual void CreateAndBindOcrUntrustedService(
       content::BrowserContext& context,
-      mojo::PendingReceiver<ash::media_app_ui::mojom::OcrUntrustedPageHandler>
+      gfx::NativeWindow native_window,
+      mojo::PendingReceiver<ash::media_app_ui::mojom::OcrUntrustedService>
           receiver,
       mojo::PendingRemote<ash::media_app_ui::mojom::OcrUntrustedPage> page) = 0;
+
+  virtual void CreateAndBindMahiUntrustedService(
+      mojo::PendingReceiver<ash::media_app_ui::mojom::MahiUntrustedService>
+          receiver,
+      mojo::PendingRemote<ash::media_app_ui::mojom::MahiUntrustedPage> page,
+      const std::string& file_name,
+      gfx::NativeWindow window) = 0;
 };
 
 // The webui for chrome-untrusted://media-app.
-class MediaAppGuestUI
-    : public ui::UntrustedWebUIController,
-      public content::WebContentsObserver,
-      public media_app_ui::mojom::UntrustedPageHandlerFactory {
+class MediaAppGuestUI : public ui::UntrustedWebUIController,
+                        public content::WebContentsObserver,
+                        public media_app_ui::mojom::UntrustedServiceFactory {
  public:
   MediaAppGuestUI(content::WebUI* web_ui,
                   std::unique_ptr<MediaAppGuestUIDelegate> delegate);
@@ -60,20 +69,25 @@ class MediaAppGuestUI
       mojo::PendingReceiver<color_change_listener::mojom::PageHandler>
           receiver);
 
-  // Binds UntrustedPageHandlerFactory which is used to bind other interfaces
+  // Binds UntrustedServiceFactory which is used to bind other interfaces
   // used to communicate between the untrusted MediaApp frame and the browser.
   void BindInterface(
-      mojo::PendingReceiver<media_app_ui::mojom::UntrustedPageHandlerFactory>
+      mojo::PendingReceiver<media_app_ui::mojom::UntrustedServiceFactory>
           receiver);
 
  private:
   WEB_UI_CONTROLLER_TYPE_DECL();
 
-  // media_app_ui::mojom::UntrustedPageHandlerFactory:
-  void CreateOcrUntrustedPageHandler(
-      mojo::PendingReceiver<media_app_ui::mojom::OcrUntrustedPageHandler>
-          receiver,
+  // media_app_ui::mojom::UntrustedServiceFactory:
+  void CreateOcrUntrustedService(
+      mojo::PendingReceiver<media_app_ui::mojom::OcrUntrustedService> receiver,
       mojo::PendingRemote<media_app_ui::mojom::OcrUntrustedPage> page) override;
+  void CreateMahiUntrustedService(
+      mojo::PendingReceiver<media_app_ui::mojom::MahiUntrustedService> receiver,
+      mojo::PendingRemote<media_app_ui::mojom::MahiUntrustedPage> page,
+      const std::string& file_name) override;
+  void CreateMantisUntrustedService(
+      CreateMantisUntrustedServiceCallback callback) override;
 
   void StartFontDataRequest(
       const std::string& path,
@@ -90,9 +104,10 @@ class MediaAppGuestUI
   bool app_navigation_committed_ = false;
 
   std::unique_ptr<ui::ColorChangeHandler> color_provider_handler_;
-  mojo::Receiver<media_app_ui::mojom::UntrustedPageHandlerFactory>
-      untrusted_page_handler_factory_{this};
-  std::unique_ptr<media_app_ui::mojom::OcrUntrustedPageHandler> ocr_handler_;
+  std::unique_ptr<MantisUntrustedServiceManager>
+      mantis_untrusted_service_manager_;
+  mojo::Receiver<media_app_ui::mojom::UntrustedServiceFactory>
+      untrusted_service_factory_{this};
   std::unique_ptr<MediaAppGuestUIDelegate> delegate_;
 
   base::WeakPtrFactory<MediaAppGuestUI> weak_factory_{this};

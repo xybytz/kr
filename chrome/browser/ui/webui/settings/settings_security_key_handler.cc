@@ -11,7 +11,6 @@
 
 #include "base/base64.h"
 #include "base/containers/contains.h"
-#include "base/containers/cxx20_erase_vector.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
 #include "base/ranges/algorithm.h"
@@ -65,7 +64,7 @@ base::Value::Dict EncodeEnrollment(const std::vector<uint8_t>& id,
                                    const std::string& name) {
   base::Value::Dict value;
   value.Set("name", name);
-  value.Set("id", base::HexEncode(id.data(), id.size()));
+  value.Set("id", base::HexEncode(id));
   return value;
 }
 
@@ -432,7 +431,6 @@ void SecurityKeysCredentialHandler::HandleDelete(
     std::vector<uint8_t> credential_id_bytes;
     if (!base::HexStringToBytes(el.GetString(), &credential_id_bytes)) {
       NOTREACHED();
-      continue;
     }
     device::PublicKeyCredentialDescriptor credential_id(
         device::CredentialType::kPublicKey, std::move(credential_id_bytes));
@@ -521,7 +519,6 @@ void SecurityKeysCredentialHandler::OnHaveCredentials(
       std::string credential_id = base::HexEncode(credential.credential_id.id);
       if (credential_id.empty()) {
         NOTREACHED();
-        continue;
       }
       std::string userHandle = base::HexEncode(credential.user.id);
 
@@ -571,7 +568,6 @@ void SecurityKeysCredentialHandler::OnCredentialsDeleted(
     device::CtapDeviceResponseCode status) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(State::kDeletingCredentials, state_);
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(credential_management_);
   DCHECK(!callback_id_.empty());
 
@@ -592,7 +588,6 @@ void SecurityKeysCredentialHandler::OnUserInformationUpdated(
     device::CtapDeviceResponseCode status) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(State::kUpdatingUserInformation, state_);
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(credential_management_);
   DCHECK(!callback_id_.empty());
 
@@ -934,7 +929,6 @@ void SecurityKeysBioEnrollmentHandler::HandleDelete(
   std::vector<uint8_t> template_id;
   if (!base::HexStringToBytes(args[1].GetString(), &template_id)) {
     NOTREACHED();
-    return;
   }
   bio_->DeleteTemplate(
       std::move(template_id),
@@ -962,7 +956,6 @@ void SecurityKeysBioEnrollmentHandler::HandleRename(
   std::vector<uint8_t> template_id;
   if (!base::HexStringToBytes(args[1].GetString(), &template_id)) {
     NOTREACHED();
-    return;
   }
   bio_->RenameTemplate(
       std::move(template_id), args[2].GetString(),
@@ -1061,7 +1054,7 @@ void SecurityKeysPhonesHandler::HandleRename(const base::Value::List& args) {
           Profile::FromBrowserContext(browser_ctx));
 
   // Remove the device that is getting renamed from the set of linked devices.
-  base::EraseIf(
+  std::erase_if(
       known_devices->linked_devices,
       [&public_key](const std::unique_ptr<device::cablev2::Pairing>& device) {
         return device->peer_public_key_x962 == public_key;

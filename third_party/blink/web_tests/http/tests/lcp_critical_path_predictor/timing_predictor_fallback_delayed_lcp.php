@@ -2,14 +2,7 @@
 <script src="/priorities/resources/common.js"></script>
 <script type=module>
 import {setupLCPTest} from "./resources/common.js";
-
-if (!window.testRunner) {
-  console.log("This test requires window.testRunner.")
-}
-
-testRunner.dumpAsText();
-testRunner.waitUntilDone();
-await setupLCPTest();
+await setupLCPTest(["lcp_image_id.pb"]);
 </script>
 <?php
 // Do not output the HTML below this PHP block until the test is reloaded with

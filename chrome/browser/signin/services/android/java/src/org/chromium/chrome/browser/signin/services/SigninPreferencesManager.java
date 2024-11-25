@@ -124,21 +124,64 @@ public class SigninPreferencesManager {
     }
 
     /**
+     * Sets the timestamp of the suppression period start for the CCT account mismatch
+     * notifications.
+     *
+     * @param timeMillis the epoch time in milliseconds (see {@link System#currentTimeMillis()}).
+     */
+    public void setCctMismatchNoticeSuppressionPeriodStart(long timeMillis) {
+        mManager.writeLong(
+                ChromePreferenceKeys.CUSTOM_TABS_MISMATCH_NOTICE_SUPPRESSION_PERIOD_START,
+                timeMillis);
+    }
+
+    /**
+     * Returns the timestamp of the suppression period start for the CCT account mismatch
+     * notifications.
+     */
+    public long getCctMismatchNoticeSuppressionPeriodStart() {
+        return mManager.readLong(
+                ChromePreferenceKeys.CUSTOM_TABS_MISMATCH_NOTICE_SUPPRESSION_PERIOD_START);
+    }
+
+    /**
+     * Clears the timestamp of the suppression period start for the CCT account mismatch
+     * notifications.
+     */
+    public void clearCctMismatchNoticeSuppressionPeriodStart() {
+        mManager.removeKey(
+                ChromePreferenceKeys.CUSTOM_TABS_MISMATCH_NOTICE_SUPPRESSION_PERIOD_START);
+    }
+
+    /**
      * Sets the email of the account for which sync was enabled.
      *
      * @param accountEmail The email of the sync account or null if sync isn't enabled.
      */
-    // TODO(https://crbug.com/1091858): Remove this after migrating the legacy code that uses
+    // TODO(crbug.com/40697988): Remove this after migrating the legacy code that uses
     //                                  the sync account before the native is loaded.
+    public void setLegacyPrimaryAccountEmail(@Nullable String accountEmail) {
+        mManager.writeString(
+                ChromePreferenceKeys.SIGNIN_LEGACY_PRIMARY_ACCOUNT_EMAIL, accountEmail);
+    }
+
+    // TODO(crbug.com/337003667): Remove after fixing internal usages.
+    @Deprecated
     public void setLegacySyncAccountEmail(@Nullable String accountEmail) {
-        mManager.writeString(ChromePreferenceKeys.SIGNIN_LEGACY_SYNC_ACCOUNT_EMAIL, accountEmail);
+        setLegacyPrimaryAccountEmail(accountEmail);
     }
 
     /** The email of the account for which sync was enabled. */
-    // TODO(https://crbug.com/1091858): Remove this after migrating the legacy code that uses
+    // TODO(crbug.com/40697988): Remove this after migrating the legacy code that uses
     //                                  the sync account before the native is loaded.
+    public String getLegacyPrimaryAccountEmail() {
+        return mManager.readString(ChromePreferenceKeys.SIGNIN_LEGACY_PRIMARY_ACCOUNT_EMAIL, null);
+    }
+
+    // TODO(crbug.com/337003667): Remove after fixing internal usages.
+    @Deprecated
     public String getLegacySyncAccountEmail() {
-        return mManager.readString(ChromePreferenceKeys.SIGNIN_LEGACY_SYNC_ACCOUNT_EMAIL, null);
+        return getLegacyPrimaryAccountEmail();
     }
 
     /** Increments the active dismissal count for the account picker bottom sheet. */

@@ -10,15 +10,17 @@
 #import "base/no_destructor.h"
 #import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
+class ProfileIOS;
+
 namespace drive {
 
 class DriveService;
 
 // Singleton that owns all instances of DriveService and associates them with
-// instances of ChromeBrowserState.
+// instances of ProfileIOS.
 class DriveServiceFactory final : public BrowserStateKeyedServiceFactory {
  public:
-  static DriveService* GetForBrowserState(web::BrowserState* browser_state);
+  static DriveService* GetForProfile(ProfileIOS* profile);
   static DriveServiceFactory* GetInstance();
 
  private:

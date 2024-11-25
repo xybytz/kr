@@ -9,13 +9,13 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
 
-#include <optional>
 #include "base/component_export.h"
 #include "base/files/file_path.h"
 #include "base/functional/callback.h"
@@ -177,7 +177,6 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
   QuotaManagerImpl(bool is_incognito,
                    const base::FilePath& profile_path,
                    scoped_refptr<base::SingleThreadTaskRunner> io_thread,
-                   base::RepeatingClosure quota_change_callback,
                    scoped_refptr<SpecialStoragePolicy> special_storage_policy,
                    const GetQuotaSettingsFunc& get_settings_function);
   QuotaManagerImpl(const QuotaManagerImpl&) = delete;
@@ -217,7 +216,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
   // to the callback. Will return a QuotaError to the callback on operation
   // failure.
   //
-  // TODO(crbug.com/1208141): Remove `storage_type` when the only supported
+  // TODO(crbug.com/40181609): Remove `storage_type` when the only supported
   // StorageType is kTemporary.
   virtual void CreateBucketForTesting(
       const blink::StorageKey& storage_key,
@@ -280,9 +279,12 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
                                   blink::mojom::StorageType type,
                                   UsageAndQuotaCallback callback);
 
-  // Called by Web Apps (navigator.storage.estimate())
+  // Called by Web Apps (navigator.storage.estimate()).
+  // Returns usage and real quota for sites with unlimited storage permission or
+  // static quota otherwise. Returning static quota in the limited storage case
+  // avoids leaking information about the user's browsing mode.
   // This method is declared as virtual to allow test code to override it.
-  virtual void GetUsageAndQuotaWithBreakdown(
+  virtual void GetUsageAndReportedQuotaWithBreakdown(
       const blink::StorageKey& storage_key,
       blink::mojom::StorageType type,
       UsageAndQuotaWithBreakdownCallback callback);
@@ -352,8 +354,9 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
   // deletion, `callback` may be called with a kErrorAbort status.
   // TODO(estade): Consider removing the status code from `callback` as it's
   // unused outside of tests.
-  // TODO(crbug/1456643): DEPRECATED please prefer using `DeleteStorageKeyData`.
-  // This should be removed as part of `CookiesTreeModel` deprecation.
+  // TODO(crbug.com/40273188): DEPRECATED please prefer using
+  // `DeleteStorageKeyData`. This should be removed as part of
+  // `CookiesTreeModel` deprecation.
   void DeleteHostData(const std::string& host,
                       blink::mojom::StorageType type,
                       StatusCallback callback);
@@ -419,7 +422,12 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
                                        UsageWithBreakdownCallback callback);
   void GetBucketUsageWithBreakdown(const BucketLocator& bucket,
                                    UsageWithBreakdownCallback callback);
-  void GetBucketUsageAndQuota(BucketId id, UsageAndQuotaCallback callback);
+  // Returns bucket usage and real quota for sites with unlimited storage
+  // permission and buckets with non-default quota, or static quota otherwise.
+  // Returning static quota in the non-default, limited storage case avoids
+  // leaking information about the user's browsing mode.
+  void GetBucketUsageAndReportedQuota(BucketId id,
+                                      UsageAndQuotaCallback callback);
   void GetBucketSpaceRemaining(
       const BucketLocator& bucket,
       base::OnceCallback<void(QuotaErrorOr<int64_t>)> callback);
@@ -458,10 +466,18 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
   // DevTools clients/QuotaOverrideHandle with an active override.
   void WithdrawOverridesForHandle(int handle_id);
 
-  static constexpr int kEvictionIntervalInMilliSeconds =
-      30 * kMinutesInMilliSeconds;
+  // The interval between periodic eviction rounds. Eviction rounds will delete
+  // both explicitly expired buckets (for non-default buckets with an expiry
+  // date) and LRU buckets when the system is under storage pressure.
+  static constexpr base::TimeDelta kEvictionInterval = base::Minutes(30);
+
+  // The amount of time to wait after loading or bootstrapping the database,
+  // which tends to happen on browser startup, before beginning the first
+  // eviction round.
+  static constexpr base::TimeDelta kMinutesAfterStartupToBeginEviction =
+      base::Minutes(5);
+
   static constexpr int kThresholdOfErrorsToBeDenylisted = 3;
-  static constexpr int kThresholdRandomizationPercent = 5;
 
   static constexpr char kDatabaseName[] = "QuotaManager";
 
@@ -527,6 +543,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
   friend class UsageTrackerTest;
   FRIEND_TEST_ALL_PREFIXES(QuotaManagerImplTest,
                            UpdateOrCreateBucket_Expiration);
+  FRIEND_TEST_ALL_PREFIXES(QuotaManagerImplTest, QuotaDatabaseBootstrap);
 
   class EvictionRoundInfoHelper;
   class UsageAndQuotaInfoGatherer;
@@ -587,7 +604,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
   void RegisterClient(
       mojo::PendingRemote<mojom::QuotaClient> client,
       QuotaClientType client_type,
-      const std::vector<blink::mojom::StorageType>& storage_types);
+      const base::flat_set<blink::mojom::StorageType>& storage_types);
 
   UsageTracker* GetUsageTracker(blink::mojom::StorageType type) const;
 
@@ -697,6 +714,10 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
   void DidGetBucketsForEvictionFromDatabase(
       GetBucketsCallback callback,
       QuotaErrorOr<std::set<BucketLocator>> result);
+  void GetUsageAndQuotaWithBreakdown(
+      const blink::StorageKey& storage_key,
+      blink::mojom::StorageType type,
+      UsageAndQuotaWithBreakdownCallback callback);
   void GetQuotaSettings(QuotaSettingsCallback callback);
   void DidGetSettings(std::optional<QuotaSettings> settings);
   void GetStorageCapacity(StorageCapacityCallback callback);
@@ -724,6 +745,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
       QuotaErrorOr<BucketInfo> result);
   void DidGetBucketForDeletion(StatusCallback callback,
                                QuotaErrorOr<BucketInfo> result);
+  void GetBucketUsageAndQuota(BucketId id, UsageAndQuotaCallback callback);
   void DidGetBucketForUsageAndQuota(UsageAndQuotaCallback callback,
                                     QuotaErrorOr<BucketInfo> result);
   void DidGetStorageKeys(GetStorageKeysCallback callback,
@@ -740,13 +762,6 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
   void MaybeRunStoragePressureCallback(const blink::StorageKey& storage_key,
                                        int64_t total_space,
                                        int64_t available_space);
-
-  // Evaluates disk statistics to identify storage pressure
-  // (low disk space availability) and starts the storage
-  // pressure event dispatch if appropriate.
-  // TODO(crbug.com/1088004): Implement UsageAndQuotaInfoGatherer::Completed()
-  // to use DetermineStoragePressure().
-  void DetermineStoragePressure(int64_t free_space, int64_t total_space);
 
   std::optional<int64_t> GetQuotaOverrideForStorageKey(
       const blink::StorageKey&);
@@ -797,7 +812,6 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
   scoped_refptr<base::TaskRunner> get_settings_task_runner_;
   base::RepeatingCallback<void(const blink::StorageKey&)>
       storage_pressure_callback_;
-  base::RepeatingClosure quota_change_callback_;
   QuotaSettings settings_;
   base::TimeTicks settings_timestamp_;
   std::tuple<base::TimeTicks, int64_t, int64_t>
@@ -831,7 +845,8 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
   // Iterating over this list is almost always incorrect. Most algorithms should
   // iterate over an entry in |client_types_|.
   //
-  // TODO(crbug.com/1016065): Handle Storage Service crashes. Will likely entail
+  // TODO(crbug.com/40103974): Handle Storage Service crashes. Will likely
+  // entail
   //                          using a mojo::RemoteSet here.
   std::vector<mojo::Remote<mojom::QuotaClient>> clients_for_ownership_;
 

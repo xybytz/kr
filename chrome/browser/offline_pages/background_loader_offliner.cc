@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/offline_pages/background_loader_offliner.h"
 
 #include <memory>
@@ -16,12 +21,15 @@
 #include "base/system/sys_info.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
+#include "chrome/browser/content_settings/page_specific_content_settings_delegate.h"
 #include "chrome/browser/offline_pages/offline_page_mhtml_archiver.h"
 #include "chrome/browser/offline_pages/offliner_helper.h"
 #include "chrome/browser/offline_pages/offliner_user_data.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ssl/security_state_tab_helper.h"
+#include "chrome/browser/renderer_preferences_util.h"
+#include "chrome/browser/ssl/chrome_security_state_tab_helper.h"
 #include "chrome/common/chrome_isolated_world_ids.h"
+#include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/offline_pages/core/background/offliner_policy.h"
 #include "components/offline_pages/core/background/save_page_request.h"
 #include "components/offline_pages/core/client_namespace_constants.h"
@@ -345,7 +353,6 @@ void BackgroundLoaderOffliner::StartSnapshot() {
       default:
         // We should've already checked for Success before entering here.
         NOTREACHED();
-        status = Offliner::RequestStatus::LOADING_FAILED;
     }
 
     std::move(completion_callback_).Run(request, status);
@@ -459,6 +466,15 @@ void BackgroundLoaderOffliner::ResetLoader() {
   loader_ = std::make_unique<background_loader::BackgroundLoaderContents>(
       browser_context_);
   loader_->SetDelegate(this);
+
+  // Initialize web contents settings.
+  renderer_preferences_util::UpdateFromSystemSettings(
+      loader_->web_contents()->GetMutableRendererPrefs(),
+      Profile::FromBrowserContext(browser_context_));
+  content_settings::PageSpecificContentSettings::CreateForWebContents(
+      loader_->web_contents(),
+      std::make_unique<PageSpecificContentSettingsDelegate>(
+          loader_->web_contents()));
 }
 
 void BackgroundLoaderOffliner::AttachObservers() {
@@ -509,7 +525,7 @@ BackgroundLoaderOffliner::GetVisibleSecurityState(
     content::WebContents* web_contents) {
   // Note: this tab helper needs to be created here as in the background it is
   // not created by default.
-  SecurityStateTabHelper::CreateForWebContents(web_contents);
+  ChromeSecurityStateTabHelper::CreateForWebContents(web_contents);
   SecurityStateTabHelper* helper =
       SecurityStateTabHelper::FromWebContents(web_contents);
   DCHECK(helper);

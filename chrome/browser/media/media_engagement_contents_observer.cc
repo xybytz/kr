@@ -271,6 +271,8 @@ void MediaEngagementContentsObserver::OnSignificantMediaPlaybackTimeForPlayer(
     const content::MediaPlayerId& id) {
   // Clear the timer.
   auto audible_row = audible_players_.find(id);
+  CHECK(audible_row != audible_players_.end());
+
   audible_row->second.second = nullptr;
 
   // Check that the tab is not muted.
@@ -520,8 +522,10 @@ content::WebContents* MediaEngagementContentsObserver::GetOpener() const {
     if (index == TabStripModel::kNoTab)
       continue;
 
-    // Whether or not the |opener| is null, this is the right tab strip.
-    return browser->tab_strip_model()->GetOpenerOfWebContentsAt(index);
+    // Whether or not the `opener` is null, this is the right tab strip.
+    const tabs::TabInterface* tab =
+        browser->tab_strip_model()->GetOpenerOfTabAt(index);
+    return tab ? tab->GetContents() : nullptr;
   }
 #endif  // !BUILDFLAG(IS_ANDROID)
 

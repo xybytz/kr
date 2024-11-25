@@ -9,19 +9,16 @@
 #include "base/scoped_observation.h"
 #include "base/test/bind.h"
 #include "base/unguessable_token.h"
-#include "chrome/browser/ash/file_manager/app_id.h"
 #include "chrome/browser/ash/file_manager/fileapi_util.h"
 #include "chrome/browser/ash/file_manager/path_util.h"
 #include "chrome/browser/ash/fileapi/file_change_service_factory.h"
 #include "chrome/browser/ash/fileapi/file_change_service_observer.h"
 #include "chrome/browser/ash/fileapi/file_system_backend.h"
-#include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/file_system_access/chrome_file_system_access_permission_context.h"
 #include "chrome/browser/file_system_access/file_system_access_permission_context_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_profile_manager.h"
-#include "components/user_manager/scoped_user_manager.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "mojo/public/cpp/system/data_pipe_producer.h"
 #include "mojo/public/cpp/system/string_data_source.h"
@@ -79,11 +76,6 @@ class MockFileChangeServiceObserver : public FileChangeServiceObserver {
   MOCK_METHOD(void,
               OnFileModified,
               (const storage::FileSystemURL& url),
-              (override));
-  MOCK_METHOD(void,
-              OnFileCopied,
-              (const storage::FileSystemURL& src,
-               const storage::FileSystemURL& dst),
               (override));
   MOCK_METHOD(void,
               OnFileMoved,
@@ -233,9 +225,7 @@ class TempFileSystem {
 
 class FileChangeServiceTest : public BrowserWithTestWindowTest {
  public:
-  FileChangeServiceTest()
-      : fake_user_manager_(new FakeChromeUserManager),
-        user_manager_enabler_(base::WrapUnique(fake_user_manager_.get())) {}
+  FileChangeServiceTest() = default;
 
   FileChangeServiceTest(const FileChangeServiceTest& other) = delete;
   FileChangeServiceTest& operator=(const FileChangeServiceTest& other) = delete;
@@ -252,15 +242,6 @@ class FileChangeServiceTest : public BrowserWithTestWindowTest {
   std::string GetDefaultProfileName() override {
     return "promary_profile@test";
   }
-  void LogIn(const std::string& email) override {
-    // TODO(crbug.com/1494005): Merge into BrowserWithTestWindowTest.
-    const AccountId account_id = AccountId::FromUserEmail(email);
-    fake_user_manager_->AddUser(account_id);
-    fake_user_manager_->LoginUser(account_id);
-  }
-
-  raw_ptr<FakeChromeUserManager, DanglingUntriaged> fake_user_manager_;
-  user_manager::ScopedUserManager user_manager_enabler_;
 };
 
 }  // namespace
@@ -340,82 +321,6 @@ TEST_F(FileChangeServiceTest, CreatesServiceInstanceForOTRGuestProfile) {
 
   // OTR service instances should be distinct from non-OTR service instances.
   ASSERT_NE(otr_guest_profile_service, guest_profile_service);
-}
-
-// Verifies `OnFileCopied()` events are propagated to observers.
-TEST_F(FileChangeServiceTest, PropagatesOnFileCopiedEvents) {
-  auto* profile = GetProfile();
-  auto* service = FileChangeServiceFactory::GetInstance()->GetService(profile);
-  ASSERT_TRUE(service);
-
-  testing::NiceMock<MockFileChangeServiceObserver> mock_observer;
-  base::ScopedObservation<FileChangeService, FileChangeServiceObserver>
-      scoped_observation{&mock_observer};
-  scoped_observation.Observe(service);
-
-  TempFileSystem temp_file_system(profile);
-  temp_file_system.SetUp();
-
-  storage::FileSystemURL src = temp_file_system.CreateFileSystemURL("src");
-  storage::FileSystemURL dst = temp_file_system.CreateFileSystemURL("dst");
-
-  ASSERT_EQ(temp_file_system.CreateFile(src), base::File::FILE_OK);
-
-  EXPECT_CALL(mock_observer, OnFileModified)
-      .WillRepeatedly([&](const storage::FileSystemURL& propagated_url) {
-        EXPECT_EQ(dst, propagated_url);
-      });
-
-  {
-    base::RunLoop copy_run_loop;
-    EXPECT_CALL(mock_observer, OnFileCopied)
-        .WillOnce([&](const storage::FileSystemURL& propagated_src,
-                      const storage::FileSystemURL& propagated_dst) {
-          EXPECT_EQ(src, propagated_src);
-          EXPECT_EQ(dst, propagated_dst);
-          copy_run_loop.Quit();
-        })
-        .RetiresOnSaturation();
-
-    base::RunLoop modify_run_loop;
-    EXPECT_CALL(mock_observer, OnFileModified)
-        .WillOnce([&](const storage::FileSystemURL& propagated_url) {
-          EXPECT_EQ(dst, propagated_url);
-          modify_run_loop.Quit();
-        })
-        .RetiresOnSaturation();
-
-    ASSERT_EQ(temp_file_system.CopyFile(src, dst), base::File::FILE_OK);
-    copy_run_loop.Run();
-    modify_run_loop.Run();
-  }
-
-  ::testing::Mock::VerifyAndClearExpectations(&mock_observer);
-  ASSERT_EQ(temp_file_system.RemoveFile(dst), base::File::FILE_OK);
-
-  {
-    base::RunLoop copy_run_loop;
-    EXPECT_CALL(mock_observer, OnFileCopied)
-        .WillOnce([&](const storage::FileSystemURL& propagated_src,
-                      const storage::FileSystemURL& propagated_dst) {
-          EXPECT_EQ(src, propagated_src);
-          EXPECT_EQ(dst, propagated_dst);
-          copy_run_loop.Quit();
-        })
-        .RetiresOnSaturation();
-
-    base::RunLoop modify_run_loop;
-    EXPECT_CALL(mock_observer, OnFileModified)
-        .WillOnce([&](const storage::FileSystemURL& propagated_url) {
-          EXPECT_EQ(dst, propagated_url);
-          modify_run_loop.Quit();
-        })
-        .RetiresOnSaturation();
-
-    ASSERT_EQ(temp_file_system.CopyFileLocal(src, dst), base::File::FILE_OK);
-    copy_run_loop.Run();
-    modify_run_loop.Run();
-  }
 }
 
 // Verifies `OnFileMoved()` events are propagated to observers.

@@ -26,7 +26,6 @@
 #import "ios/web/public/test/http_server/http_server.h"
 #import "ios/web/public/test/http_server/http_server_util.h"
 
-using base::test::ios::kWaitForActionTimeout;
 using chrome_test_util::ButtonWithAccessibilityLabelId;
 using chrome_test_util::OmniboxText;
 using chrome_test_util::TapWebElement;
@@ -141,16 +140,6 @@ void TestFormResponseProvider::GetResponseHeadersAndBody(
   NOTREACHED();
 }
 
-// Waits for the keyboard to appear. Returns NO on timeout.
-BOOL WaitForKeyboardToAppear() {
-  GREYCondition* waitForKeyboard = [GREYCondition
-      conditionWithName:@"Wait for keyboard"
-                  block:^BOOL {
-                    return [EarlGrey isKeyboardShownWithError:nil];
-                  }];
-  return [waitForKeyboard waitWithTimeout:kWaitForActionTimeout.InSecondsF()];
-}
-
 }  // namespace
 
 // Tests submition of HTTP forms POST data including cases involving navigation.
@@ -217,7 +206,7 @@ id<GREYMatcher> ResendPostButtonMatcher() {
     // disabled if the test fails.
     std::unique_ptr<ScopedSynchronizationDisabler> disabler =
         std::make_unique<ScopedSynchronizationDisabler>();
-    // TODO(crbug.com/989615): Investigate why this is necessary even with a
+    // TODO(crbug.com/41473918): Investigate why this is necessary even with a
     // visible check below.
     base::test::ios::SpinRunLoopWithMinDelay(base::Seconds(0.5));
 
@@ -261,8 +250,8 @@ id<GREYMatcher> ResendPostButtonMatcher() {
     // disabled if the test fails.
     std::unique_ptr<ScopedSynchronizationDisabler> disabler =
         std::make_unique<ScopedSynchronizationDisabler>();
-      // TODO(crbug.com/989615): Investigate why this is necessary even with a
-      // visible check below.
+    // TODO(crbug.com/41473918): Investigate why this is necessary even with a
+    // visible check below.
     base::test::ios::SpinRunLoopWithMinDelay(base::Seconds(0.5));
 
     [ChromeEarlGrey
@@ -304,8 +293,8 @@ id<GREYMatcher> ResendPostButtonMatcher() {
     // disabled if the test fails.
     std::unique_ptr<ScopedSynchronizationDisabler> disabler =
         std::make_unique<ScopedSynchronizationDisabler>();
-      // TODO(crbug.com/989615): Investigate why this is necessary even with a
-      // visible check below.
+    // TODO(crbug.com/41473918): Investigate why this is necessary even with a
+    // visible check below.
     base::test::ios::SpinRunLoopWithMinDelay(base::Seconds(0.5));
 
     [ChromeEarlGrey
@@ -569,16 +558,11 @@ id<GREYMatcher> ResendPostButtonMatcher() {
                           [ElementSelector selectorWithElementID:ID])];
 
     // Wait for the accessory icon to appear.
-    GREYAssert(WaitForKeyboardToAppear(), @"Keyboard didn't appear.");
+    [ChromeEarlGrey waitForKeyboardToAppear];
 
-    if (@available(iOS 16, *)) {
-      // TODO(crbug.com/1331347): Move this logic into EG.
-      XCUIApplication* app = [[XCUIApplication alloc] init];
-      [[[app keyboards] buttons][@"go"] tap];
-    } else {
-      [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"Go")]
-          performAction:grey_tap()];
-    }
+    // TODO(crbug.com/40227513): Move this logic into EG.
+    XCUIApplication* app = [[XCUIApplication alloc] init];
+    [[[app keyboards] buttons][@"go"] tap];
   }
 }
 

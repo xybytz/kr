@@ -12,8 +12,8 @@
 #include "base/notreached.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
-#include "components/user_education/common/help_bubble_factory_registry.h"
-#include "components/user_education/common/help_bubble_params.h"
+#include "components/user_education/common/help_bubble/help_bubble_factory_registry.h"
+#include "components/user_education/common/help_bubble/help_bubble_params.h"
 #include "components/user_education/test/test_help_bubble.h"
 #include "components/user_education/webui/help_bubble_webui.h"
 #include "components/user_education/webui/tracked_element_webui.h"
@@ -84,7 +84,6 @@ class TestHelpBubbleHandler : public HelpBubbleHandlerBase {
 
   content::WebUIController* GetController() override {
     NOTREACHED() << "Should not call this in tests.";
-    return nullptr;
   }
 
   class MockVisibilityProvider
@@ -95,7 +94,7 @@ class TestHelpBubbleHandler : public HelpBubbleHandlerBase {
 
     using HelpBubbleHandlerBase::VisibilityProvider::SetLastKnownVisibility;
 
-    MOCK_METHOD(absl::optional<bool>, CheckIsVisible, (), (override));
+    MOCK_METHOD(std::optional<bool>, CheckIsVisible, (), (override));
   };
 
  private:
@@ -778,7 +777,7 @@ TEST_F(HelpBubbleHandlerTest, WebContentsVisibilityNotAvailable) {
               kHelpBubbleHandlerTestElementIdentifier, element_shown.Get());
 
   EXPECT_CALL(*visibility_provider_, CheckIsVisible)
-      .WillOnce(testing::Return(absl::nullopt));
+      .WillOnce(testing::Return(std::nullopt));
   handler()->HelpBubbleAnchorVisibilityChanged(
       kHelpBubbleHandlerTestElementIdentifier.GetName(), true, kElementBounds);
 }
@@ -791,7 +790,7 @@ TEST_F(HelpBubbleHandlerTest, ElementShownOnmWebContentsBecomingVisible) {
               kHelpBubbleHandlerTestElementIdentifier, element_shown.Get());
 
   EXPECT_CALL(*visibility_provider_, CheckIsVisible)
-      .WillOnce(testing::Return(absl::nullopt));
+      .WillOnce(testing::Return(std::nullopt));
   handler()->HelpBubbleAnchorVisibilityChanged(
       kHelpBubbleHandlerTestElementIdentifier.GetName(), true, kElementBounds);
 
@@ -838,7 +837,7 @@ TEST_F(HelpBubbleHandlerTest, ElementHiddenWebContentsBecomingUnknown) {
 
   EXPECT_CALL_IN_SCOPE(
       element_hidden, Run,
-      visibility_provider_->SetLastKnownVisibility(absl::nullopt));
+      visibility_provider_->SetLastKnownVisibility(std::nullopt));
 }
 
 TEST_F(HelpBubbleHandlerTest, RepeatedlyQueriesVisibility) {
@@ -850,7 +849,7 @@ TEST_F(HelpBubbleHandlerTest, RepeatedlyQueriesVisibility) {
 
   EXPECT_CALL(*visibility_provider_, CheckIsVisible)
       .Times(2)
-      .WillRepeatedly(testing::Return(absl::nullopt));
+      .WillRepeatedly(testing::Return(std::nullopt));
   handler()->HelpBubbleAnchorVisibilityChanged(
       kHelpBubbleHandlerTestElementIdentifier.GetName(), true, kElementBounds);
   handler()->HelpBubbleAnchorVisibilityChanged(
@@ -872,7 +871,7 @@ TEST_F(HelpBubbleHandlerTest, WebContentsVisibilityCanChangeMultipleTimes) {
   visibility_provider_->SetLastKnownVisibility(false);
   EXPECT_CALL_IN_SCOPE(element_shown, Run,
                        visibility_provider_->SetLastKnownVisibility(true));
-  visibility_provider_->SetLastKnownVisibility(absl::nullopt);
+  visibility_provider_->SetLastKnownVisibility(std::nullopt);
   EXPECT_CALL_IN_SCOPE(element_shown, Run,
                        visibility_provider_->SetLastKnownVisibility(true));
 }

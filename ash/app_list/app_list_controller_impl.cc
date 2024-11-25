@@ -4,6 +4,7 @@
 
 #include "ash/app_list/app_list_controller_impl.h"
 
+#include <memory>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -13,8 +14,10 @@
 #include "ash/app_list/app_list_model_provider.h"
 #include "ash/app_list/app_list_presenter_impl.h"
 #include "ash/app_list/app_list_view_delegate.h"
+#include "ash/app_list/apps_collections_controller.h"
 #include "ash/app_list/model/search/search_box_model.h"
 #include "ash/app_list/quick_app_access_model.h"
+#include "ash/app_list/views/app_list_bubble_view.h"
 #include "ash/app_list/views/app_list_item_view.h"
 #include "ash/app_list/views/app_list_main_view.h"
 #include "ash/app_list/views/app_list_toast_container_view.h"
@@ -22,12 +25,12 @@
 #include "ash/app_list/views/app_list_view.h"
 #include "ash/app_list/views/contents_view.h"
 #include "ash/app_list/views/search_box_view.h"
-#include "ash/app_list/views/search_notifier_controller.h"
 #include "ash/assistant/assistant_controller_impl.h"
 #include "ash/assistant/model/assistant_ui_model.h"
 #include "ash/assistant/ui/assistant_view_delegate.h"
 #include "ash/assistant/util/assistant_util.h"
 #include "ash/assistant/util/deep_link_util.h"
+#include "ash/capture_mode/capture_mode_constants.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
@@ -38,20 +41,21 @@
 #include "ash/public/cpp/app_list/app_list_types.h"
 #include "ash/public/cpp/assistant/controller/assistant_controller.h"
 #include "ash/public/cpp/assistant/controller/assistant_ui_controller.h"
+#include "ash/public/cpp/capture_mode/capture_mode_api.h"
 #include "ash/public/cpp/feature_discovery_duration_reporter.h"
 #include "ash/public/cpp/feature_discovery_metric_util.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/public/cpp/wallpaper/wallpaper_controller.h"
 #include "ash/root_window_controller.h"
-#include "ash/scoped_animation_disabler.h"
 #include "ash/screen_util.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shelf/home_button.h"
 #include "ash/shelf/shelf_navigation_widget.h"
 #include "ash/shell.h"
+#include "ash/system/toast/anchored_nudge_manager_impl.h"
 #include "ash/user_education/welcome_tour/welcome_tour_metrics.h"
-#include "ash/wallpaper/wallpaper_controller_impl.h"
 #include "ash/wm/float/float_controller.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/overview/overview_controller.h"
@@ -72,7 +76,9 @@
 #include "base/trace_event/trace_event.h"
 #include "chromeos/ash/services/assistant/public/cpp/assistant_enums.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_member.h"
 #include "components/prefs/pref_registry_simple.h"
+#include "ui/base/mojom/menu_source_type.mojom-forward.h"
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_sequence.h"
@@ -81,6 +87,7 @@
 #include "ui/display/screen.h"
 #include "ui/display/util/display_util.h"
 #include "ui/views/controls/textfield/textfield.h"
+#include "ui/wm/core/scoped_animation_disabler.h"
 #include "ui/wm/core/window_animations.h"
 
 namespace ash {
@@ -257,6 +264,7 @@ void MaybeLogWelcomeTourInteraction(AppListShowSource show_source) {
   if (features::IsWelcomeTourEnabled() &&
       IsAppListShowSourceUserTriggered(show_source)) {
     welcome_tour_metrics::RecordInteraction(
+        GetLastActiveUserPrefService(),
         welcome_tour_metrics::Interaction::kLauncher);
   }
 }
@@ -278,7 +286,9 @@ AppListControllerImpl::AppListControllerImpl()
     : model_provider_(std::make_unique<AppListModelProvider>()),
       fullscreen_presenter_(std::make_unique<AppListPresenterImpl>(this)),
       bubble_presenter_(std::make_unique<AppListBubblePresenter>(this)),
-      badge_controller_(std::make_unique<AppListBadgeController>()) {
+      badge_controller_(std::make_unique<AppListBadgeController>()),
+      apps_collections_controller_(
+          std::make_unique<AppsCollectionsController>()) {
   SessionControllerImpl* session_controller =
       Shell::Get()->session_controller();
   session_controller->AddObserver(this);
@@ -289,13 +299,13 @@ AppListControllerImpl::AppListControllerImpl()
   OnSessionStateChanged(session_controller->GetSessionState());
 
   Shell* shell = Shell::Get();
-  shell->wallpaper_controller()->AddObserver(this);
+  WallpaperController::Get()->AddObserver(this);
   shell->AddShellObserver(this);
   shell->overview_controller()->AddObserver(this);
   display::Screen::GetScreen()->AddObserver(this);
   keyboard::KeyboardUIController::Get()->AddObserver(this);
   AssistantState::Get()->AddObserver(this);
-  shell->window_tree_host_manager()->AddObserver(this);
+  shell->display_manager()->AddDisplayManagerObserver(this);
   AssistantController::Get()->AddObserver(this);
   AssistantUiController::Get()->GetModel()->AddObserver(this);
   FeatureDiscoveryDurationReporter::GetInstance()->AddObserver(this);
@@ -337,10 +347,20 @@ void AppListControllerImpl::RegisterProfilePrefs(PrefRegistrySimple* registry) {
 
   // The prefs for launcher search controls.
   registry->RegisterDictionaryPref(prefs::kLauncherSearchCategoryControlStatus);
+
+  registry->RegisterTimePref(prefs::kLauncherSearchLastFileScanLogTime,
+                             base::Time());
+
+  // The prefs for apps collections experiment.
+  registry->RegisterIntegerPref(
+      prefs::kLauncherAppsCollectionsExperimentArm,
+      static_cast<int>(
+          AppsCollectionsController::ExperimentalArm::kDefaultValue));
 }
 
 void AppListControllerImpl::SetClient(AppListClient* client) {
   client_ = client;
+  apps_collections_controller_->SetClient(client);
 }
 
 AppListClient* AppListControllerImpl::GetClient() {
@@ -426,8 +446,16 @@ bool AppListControllerImpl::IsVisible() {
 
 void AppListControllerImpl::OnActiveUserPrefServiceChanged(
     PrefService* pref_service) {
-  if (IsKioskSession())
+  if (IsKioskSession()) {
     return;
+  }
+
+  sunfish_enabled_ = std::make_unique<BooleanPrefMember>();
+  sunfish_enabled_->Init(
+      prefs::kSunfishEnabled, pref_service,
+      base::BindRepeating(&AppListControllerImpl::UpdateSearchBoxUiVisibilities,
+                          weak_ptr_factory_.GetWeakPtr()));
+  UpdateSearchBoxUiVisibilities();
 
   if (!IsInTabletMode()) {
     DismissAppList();
@@ -487,7 +515,6 @@ void AppListControllerImpl::OnUserSessionAdded(const AccountId& account_id) {
       Shell::Get()->session_controller()->GetUserPrefServiceForUser(account_id);
   if (features::IsLauncherNudgeSessionResetEnabled()) {
     AppListNudgeController::ResetPrefsForNewUserSession(prefs);
-    SearchNotifierController::ResetPrefsForNewUserSession(prefs);
   }
 }
 
@@ -561,6 +588,9 @@ void AppListControllerImpl::UpdateAppListWithNewTemporarySortOrder(
       new_order, is_tablet_mode && animate,
       is_tablet_mode ? std::move(update_position_closure)
                      : base::NullCallback());
+
+  // Notify the AppsCollectionsController that there was a reorder.
+  apps_collections_controller_->SetAppsReordered();
 }
 
 ShelfAction AppListControllerImpl::ToggleAppList(
@@ -631,7 +661,7 @@ bool AppListControllerImpl::GoHome(int64_t display_id) {
   if (split_view_active) {
     foreground_windows = {split_view_controller->primary_window(),
                           split_view_controller->secondary_window()};
-    base::EraseIf(foreground_windows,
+    std::erase_if(foreground_windows,
                   [](aura::Window* window) { return !window; });
   } else if (!windows.empty() && !WindowState::Get(windows[0])->IsMinimized()) {
     foreground_windows.push_back(windows[0]);
@@ -674,12 +704,13 @@ bool AppListControllerImpl::GoHome(int64_t display_id) {
     // animation can interfere with WindowTransformToHomeScreenAnimation
     // visuals.
     //
-    // TODO(https://crbug.com/1019531): This can be removed once transitions
+    // TODO(crbug.com/40656009): This can be removed once transitions
     // between in-app state and home do not cause work area updates.
-    std::vector<std::unique_ptr<ScopedAnimationDisabler>> animation_disablers;
+    std::vector<std::unique_ptr<wm::ScopedAnimationDisabler>>
+        animation_disablers;
     for (aura::Window* window : foreground_windows) {
       animation_disablers.push_back(
-          std::make_unique<ScopedAnimationDisabler>(window));
+          std::make_unique<wm::ScopedAnimationDisabler>(window));
     }
 
     OnHomeLauncherPositionChanged(/*percent_shown=*/100, display_id);
@@ -946,7 +977,7 @@ void AppListControllerImpl::OnAssistantFeatureAllowedChanged(
   UpdateSearchBoxUiVisibilities();
 }
 
-void AppListControllerImpl::OnDisplayConfigurationChanged() {
+void AppListControllerImpl::OnDidApplyDisplayChanges() {
   // Entering tablet mode triggers a display configuration change when we
   // automatically switch to mirror mode. Switching to mirror mode happens
   // asynchronously (see DisplayConfigurationObserver::OnTabletModeStarted()).
@@ -1231,6 +1262,8 @@ void AppListControllerImpl::OpenSearchResult(const std::string& result_id,
       case AppListLaunchedFrom::kLaunchedFromShelf:
       case AppListLaunchedFrom::kLaunchedFromContinueTask:
       case AppListLaunchedFrom::kLaunchedFromQuickAppAccess:
+      case AppListLaunchedFrom::kLaunchedFromAppsCollections:
+      case AppListLaunchedFrom::kLaunchedFromDiscoveryChip:
         break;
       case AppListLaunchedFrom::DEPRECATED_kLaunchedFromSuggestionChip:
         NOTREACHED();
@@ -1251,7 +1284,6 @@ void AppListControllerImpl::OpenSearchResult(const std::string& result_id,
           break;
         case AppListLaunchType::kApp:
           NOTREACHED();
-          break;
       }
       break;
     case AppListLaunchedFrom::kLaunchedFromContinueTask:
@@ -1263,8 +1295,9 @@ void AppListControllerImpl::OpenSearchResult(const std::string& result_id,
     case AppListLaunchedFrom::kLaunchedFromShelf:
     case AppListLaunchedFrom::DEPRECATED_kLaunchedFromSuggestionChip:
     case AppListLaunchedFrom::kLaunchedFromQuickAppAccess:
+    case AppListLaunchedFrom::kLaunchedFromAppsCollections:
+    case AppListLaunchedFrom::kLaunchedFromDiscoveryChip:
       NOTREACHED();
-      break;
   }
 
   base::RecordAction(base::UserMetricsAction("AppList_OpenSearchResult"));
@@ -1311,7 +1344,8 @@ void AppListControllerImpl::ViewClosing() {
 
 void AppListControllerImpl::ActivateItem(const std::string& id,
                                          int event_flags,
-                                         AppListLaunchedFrom launched_from) {
+                                         AppListLaunchedFrom launched_from,
+                                         bool is_app_above_the_fold) {
   RecordAppLaunched(launched_from);
 
   const bool is_tablet_mode = IsInTabletMode();
@@ -1325,18 +1359,23 @@ void AppListControllerImpl::ActivateItem(const std::string& id,
                                     is_tablet_mode, last_show_timestamp_);
       break;
     case AppListLaunchedFrom::kLaunchedFromQuickAppAccess:
-      // Metrics for quick app launch already recorded at RecordApplaunched().
+    // Metrics for quick app launch already recorded at RecordApplaunched().
+    case AppListLaunchedFrom::kLaunchedFromAppsCollections:
+    // Metrics for apps collections launch recorded by the
+    // AppListViewDelegate.
+    case AppListLaunchedFrom::kLaunchedFromDiscoveryChip:
+      // Metrics for discovery chip already recorded at RecordApplaunched().
       break;
     case AppListLaunchedFrom::kLaunchedFromContinueTask:
     case AppListLaunchedFrom::kLaunchedFromSearchBox:
     case AppListLaunchedFrom::kLaunchedFromShelf:
     case AppListLaunchedFrom::DEPRECATED_kLaunchedFromSuggestionChip:
       NOTREACHED();
-      break;
   }
 
   if (client_)
-    client_->ActivateItem(profile_id_, id, event_flags, launched_from);
+    client_->ActivateItem(profile_id_, id, event_flags, launched_from,
+                          is_app_above_the_fold);
 
   ResetHomeLauncherIfShown();
 }
@@ -1352,7 +1391,7 @@ void AppListControllerImpl::GetContextMenuModel(
 
 void AppListControllerImpl::ShowWallpaperContextMenu(
     const gfx::Point& onscreen_location,
-    ui::MenuSourceType source_type) {
+    ui::mojom::MenuSourceType source_type) {
   Shell::Get()->ShowContextMenu(onscreen_location, source_type);
 }
 
@@ -1488,6 +1527,16 @@ void AppListControllerImpl::SetCategoryEnabled(
   ScopedDictPrefUpdate pref_update(prefs,
                                    prefs::kLauncherSearchCategoryControlStatus);
   pref_update->Set(GetAppListControlCategoryName(category), enabled);
+}
+
+void AppListControllerImpl::RecordAppsDefaultVisibility(
+    const std::vector<std::string>& apps_above_the_fold,
+    const std::vector<std::string>& apps_below_the_fold,
+    bool is_apps_collections_page) {
+  if (client_) {
+    client_->RecordAppsDefaultVisibility(
+        apps_above_the_fold, apps_below_the_fold, is_apps_collections_page);
+  }
 }
 
 void AppListControllerImpl::GetAppLaunchedMetricParams(
@@ -1640,8 +1689,17 @@ void AppListControllerImpl::OnVisibilityChanged(bool visible,
     last_visible_ = real_visibility;
 
     // Updates AppsContainerView in `fullscreen_presenter_`.
-    if (app_list_view)
+    if (app_list_view) {
       app_list_view->OnAppListVisibilityChanged(real_visibility);
+
+      // Only handle the tablet mode visibility changes, and let clamshell mode
+      // handle the nudge separately.
+      if (real_visibility && IsInTabletMode()) {
+        MaybeShowSunfishLauncherNudge(fullscreen_presenter_->GetView()
+                                          ->search_box_view()
+                                          ->sunfish_button());
+      }
+    }
 
     for (auto& observer : observers_)
       observer.OnAppListVisibilityChanged(real_visibility, display_id);
@@ -1708,6 +1766,12 @@ void AppListControllerImpl::OnVisibilityWillChange(bool visible,
       observer.OnAppListVisibilityWillChange(real_target_visibility,
                                              display_id);
     }
+
+    // The virtual keyboard should be hidden before the bubble launcher
+    // calculating the work area.
+    if (real_target_visibility) {
+      keyboard::KeyboardUIController::Get()->HideKeyboardExplicitlyBySystem();
+    }
   }
 }
 
@@ -1723,8 +1787,9 @@ SearchModel* AppListControllerImpl::GetSearchModel() {
 }
 
 void AppListControllerImpl::UpdateSearchBoxUiVisibilities() {
-  GetSearchModel()->search_box()->SetShowAssistantButton(
-      IsAssistantAllowedAndEnabled());
+  SearchBoxModel* search_box_model = GetSearchModel()->search_box();
+  search_box_model->SetShowAssistantButton(IsAssistantAllowedAndEnabled());
+  search_box_model->SetShowSunfishButton(IsSunfishAllowedAndEnabled());
 
   if (!client_) {
     return;
@@ -1756,7 +1821,7 @@ void AppListControllerImpl::ResetHomeLauncherIfShown() {
   fullscreen_presenter_->GetView()->CloseOpenedPage();
 
   // Refresh the suggestion chips with empty query.
-  // TODO(crbug.com/1269115): Switch to client_->StartZeroStateSearch()?
+  // TODO(crbug.com/40204937): Switch to client_->StartZeroStateSearch()?
   StartSearch(std::u16string());
 }
 
@@ -1910,13 +1975,13 @@ void AppListControllerImpl::Shutdown() {
   Shell* shell = Shell::Get();
   AssistantController::Get()->RemoveObserver(this);
   AssistantUiController::Get()->GetModel()->RemoveObserver(this);
-  shell->window_tree_host_manager()->RemoveObserver(this);
+  shell->display_manager()->RemoveDisplayManagerObserver(this);
   AssistantState::Get()->RemoveObserver(this);
   keyboard::KeyboardUIController::Get()->RemoveObserver(this);
   display::Screen::GetScreen()->RemoveObserver(this);
   shell->overview_controller()->RemoveObserver(this);
   shell->RemoveShellObserver(this);
-  shell->wallpaper_controller()->RemoveObserver(this);
+  WallpaperController::Get()->RemoveObserver(this);
   shell->session_controller()->RemoveObserver(this);
   FeatureDiscoveryDurationReporter::GetInstance()->RemoveObserver(this);
 
@@ -1966,7 +2031,7 @@ void AppListControllerImpl::StartTrackingAnimationSmoothness(
     int64_t display_id) {
   auto* root_window = Shell::GetRootWindowForDisplayId(display_id);
   auto* compositor = root_window->layer()->GetCompositor();
-  smoothness_tracker_ = compositor->RequestNewThroughputTracker();
+  smoothness_tracker_ = compositor->RequestNewCompositorMetricsTracker();
   smoothness_tracker_->Start(
       metrics_util::ForSmoothnessV3(base::BindRepeating([](int smoothness) {
         UMA_HISTOGRAM_PERCENTAGE(kHomescreenAnimationHistogram, smoothness);
@@ -2010,6 +2075,28 @@ bool AppListControllerImpl::SetHomeButtonQuickApp(const std::string& app_id) {
     return false;
   }
   return model_provider_->quick_app_access_model()->SetQuickApp(app_id);
+}
+
+void AppListControllerImpl::MaybeShowSunfishLauncherNudge(
+    views::View* launcher_button) {
+  if (!IsSunfishAllowedAndEnabled()) {
+    return;
+  }
+
+  // TODO(hewer): Add user prefs to prevent the nudge from appearing too
+  // frequently.
+
+  CHECK(launcher_button);
+
+  // TODO(hewer): Upload string for translation.
+  AnchoredNudgeData nudge_data = AnchoredNudgeData(
+      capture_mode::kSunfishLauncherNudgeId,
+      NudgeCatalogName::kSunfishLauncherNudge,
+      u"Select anything on your screen and let your Chromebook suggest best "
+      u"actions from there",
+      launcher_button);
+
+  AnchoredNudgeManager::Get()->Show(nudge_data);
 }
 
 }  // namespace ash

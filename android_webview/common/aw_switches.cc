@@ -23,6 +23,10 @@ const char kWebViewSafebrowsingBlockAllResources[] =
 // tint. This is useful for identifying WebViews in an Android application.
 const char kHighlightAllWebViews[] = "highlight-all-webviews";
 
+// Enable net logging from WebView. This captures network activity for debugging
+// purposes, and stores the files in DevUi.
+const char kNetLog[] = "net-log";
+
 // WebView will log additional debugging information to logcat, such as
 // variations and commandline state.
 const char kWebViewVerboseLogging[] = "webview-verbose-logging";
@@ -65,15 +69,8 @@ const char kWebViewEnableModernCookieSameSite[] =
 const char kWebViewSelectiveImageInversionDarkening[] =
     "webview-selective-image-inversion-darkening";
 
-// Enables FencedFrames. This also implies PrivacySandboxAdsAPIsOverride and
-// SharedStorageAPI.
+// Enables FencedFrames. This also enables PrivacySandboxAdsAPIsOverride.
 const char kWebViewFencedFrames[] = "webview-fenced-frames";
-
-// Disables WebView from checking for app recovery mitigations.
-const char kWebViewDisableAppRecovery[] = "webview-disable-app-recovery";
-
-// Enables WebView to check for app recovery mitigations.
-const char kWebViewEnableAppRecovery[] = "webview-enable-app-recovery";
 
 // Enables downloading TrustTokenKeyCommitmentsComponent by the component
 // updater downloading service in nonembedded WebView. See
@@ -84,5 +81,30 @@ const char kWebViewEnableTrustTokensComponent[] =
 // Enables downloading TpcdMetadataComponentInstallerPolicy by the component
 // updater downloading service in nonembedded WebView.
 const char kWebViewTpcdMetadaComponent[] = "webview-tpcd-metadata-component";
+
+// Enables downloading FirstPartySetsComponentInstallerPolicy by the component
+// updater downloading service in nonembedded WebView.
+const char kWebViewFpsComponent[] = "webview-fps-component";
+
+// Force disables 3rd party cookie for all apps.
+const char kWebViewForceDisable3pcs[] = "webview-force-disable-3pcs";
+
+// Enables crashes during WebView startup in the Java layer
+const char kWebViewForceCrashJava[] = "webview-force-crash-java";
+
+// Enables crashes during WebView startup in the Native layer
+const char kWebViewForceCrashNative[] = "webview-force-crash-native";
+
+// Use WebView's context for resource lookups instead of the embedding app's.
+const char kWebViewUseSeparateResourceContext[] =
+    "webview-use-separate-resource-context";
+
+// Override and enable features useful for BSA library testing/debugging.
+const char kDebugBsa[] = "debug-bsa";
+
+// When enabled, the cookie header will be included in the request headers
+// for shouldInterceptRequest.
+const char kWebViewInterceptedCookieHeader[] =
+    "webview-intercepted-cookie-header";
 
 }  // namespace switches

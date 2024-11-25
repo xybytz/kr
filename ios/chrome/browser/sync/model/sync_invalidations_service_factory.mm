@@ -11,14 +11,13 @@
 #import "components/sync/invalidations/sync_invalidations_service_impl.h"
 #import "ios/chrome/browser/gcm/model/instance_id/ios_chrome_instance_id_profile_service_factory.h"
 #import "ios/chrome/browser/gcm/model/ios_chrome_gcm_profile_service_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 
 // static
 syncer::SyncInvalidationsService*
-SyncInvalidationsServiceFactory::GetForBrowserState(
-    ChromeBrowserState* browser_state) {
+SyncInvalidationsServiceFactory::GetForProfile(ProfileIOS* profile) {
   return static_cast<syncer::SyncInvalidationsService*>(
-      GetInstance()->GetServiceForBrowserState(browser_state, /*create=*/true));
+      GetInstance()->GetServiceForBrowserState(profile, true));
 }
 
 // static
@@ -41,15 +40,12 @@ SyncInvalidationsServiceFactory::~SyncInvalidationsServiceFactory() = default;
 std::unique_ptr<KeyedService>
 SyncInvalidationsServiceFactory::BuildServiceInstanceFor(
     web::BrowserState* context) const {
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(context);
+  ProfileIOS* profile = ProfileIOS::FromBrowserState(context);
 
   gcm::GCMDriver* gcm_driver =
-      IOSChromeGCMProfileServiceFactory::GetForBrowserState(browser_state)
-          ->driver();
+      IOSChromeGCMProfileServiceFactory::GetForProfile(profile)->driver();
   instance_id::InstanceIDDriver* instance_id_driver =
-      IOSChromeInstanceIDProfileServiceFactory::GetForBrowserState(
-          browser_state)
+      IOSChromeInstanceIDProfileServiceFactory::GetForProfile(profile)
           ->driver();
   return std::make_unique<syncer::SyncInvalidationsServiceImpl>(
       gcm_driver, instance_id_driver);

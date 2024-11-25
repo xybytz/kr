@@ -53,7 +53,6 @@ base::FilePath ConvertDrivePathToAbsoluteFilePath(
       return absolute_file_path;
   }
   NOTREACHED();
-  return base::FilePath();
 }
 
 // Returns a mojo connection to the ARC file system.
@@ -172,9 +171,8 @@ void HoldingSpaceFileSystemDelegate::OnConnectionReady() {
       continue;
 
     holding_space_util::ValidityRequirement requirements;
-    if (!features::IsHoldingSpacePredictabilityEnabled()) {
-      if (item->type() != HoldingSpaceItem::Type::kPinnedFile)
-        requirements.must_be_newer_than = kMaxFileAge;
+    if (item->type() != HoldingSpaceItem::Type::kPinnedFile) {
+      requirements.must_be_newer_than = kMaxFileAge;
     }
     ScheduleFilePathValidityCheck({item->file().file_path, requirements});
   }
@@ -331,9 +329,8 @@ void HoldingSpaceFileSystemDelegate::OnHoldingSpaceItemsAdded(
       continue;
 
     holding_space_util::ValidityRequirement requirements;
-    if (!features::IsHoldingSpacePredictabilityEnabled()) {
-      if (item->type() != HoldingSpaceItem::Type::kPinnedFile)
-        requirements.must_be_newer_than = kMaxFileAge;
+    if (item->type() != HoldingSpaceItem::Type::kPinnedFile) {
+      requirements.must_be_newer_than = kMaxFileAge;
     }
     ScheduleFilePathValidityCheck({item->file().file_path, requirements});
   }
@@ -348,7 +345,7 @@ void HoldingSpaceFileSystemDelegate::OnHoldingSpaceItemsRemoved(
 
 void HoldingSpaceFileSystemDelegate::OnHoldingSpaceItemUpdated(
     const HoldingSpaceItem* item,
-    uint32_t updated_fields) {
+    const HoldingSpaceItemUpdatedFields& updated_fields) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // In-progress items are not subject to validity checks.
@@ -377,9 +374,8 @@ void HoldingSpaceFileSystemDelegate::OnVolumeMounted(
       continue;
     }
     holding_space_util::ValidityRequirement requirements;
-    if (!features::IsHoldingSpacePredictabilityEnabled()) {
-      if (item->type() != HoldingSpaceItem::Type::kPinnedFile)
-        requirements.must_be_newer_than = kMaxFileAge;
+    if (item->type() != HoldingSpaceItem::Type::kPinnedFile) {
+      requirements.must_be_newer_than = kMaxFileAge;
     }
     ScheduleFilePathValidityCheck({item->file().file_path, requirements});
   }
@@ -420,8 +416,7 @@ void HoldingSpaceFileSystemDelegate::OnFileCreatedFromShowSaveFilePicker(
   holding_space_metrics::RecordFileCreatedFromShowSaveFilePicker(
       file_picker_binding_context, url.path());
 
-  if (features::IsHoldingSpacePhotoshopWebIntegrationEnabled() &&
-      file_picker_binding_context.DomainIs("photoshop.adobe.com")) {
+  if (file_picker_binding_context.DomainIs("photoshop.adobe.com")) {
     service()->AddItemOfType(HoldingSpaceItem::Type::kPhotoshopWeb, url.path());
   }
 }
@@ -488,7 +483,6 @@ void HoldingSpaceFileSystemDelegate::OnFilePathMoved(
       base::FilePath target_path(dst);
       if (!src.AppendRelativePath(item->file().file_path, &target_path)) {
         NOTREACHED();
-        continue;
       }
       items_to_move.push_back(std::make_pair(item->id(), target_path));
     }
@@ -514,8 +508,7 @@ void HoldingSpaceFileSystemDelegate::OnFilePathMoved(
   // Get a list of the enabled Trash locations. Trash can be enabled and
   // disabled via policy, so ensure the latest list is retrieved.
   file_manager::trash::TrashPathsMap enabled_trash_locations =
-      file_manager::trash::GenerateEnabledTrashLocationsForProfile(
-          profile(), /*base_path=*/base::FilePath());
+      file_manager::trash::GenerateEnabledTrashLocationsForProfile(profile());
 
   // Mark items that were moved to an enabled Trash location for removal.
   std::set<std::string> item_ids_to_remove;

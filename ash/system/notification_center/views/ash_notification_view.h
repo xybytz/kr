@@ -36,6 +36,7 @@ namespace ash {
 class RoundedImageView;
 class AshNotificationExpandButton;
 class IconButton;
+class TimestampView;
 
 // Customized NotificationView for notification on ChromeOS. This view is used
 // to displays all current types of notification on ChromeOS (web, basic, image,
@@ -97,7 +98,7 @@ class ASH_EXPORT AshNotificationView
 
   // message_center::NotificationViewBase:
   void AddedToWidget() override;
-  void Layout() override;
+  void Layout(PassKey) override;
   void UpdateViewForExpandedState(bool expanded) override;
   void UpdateWithNotification(
       const message_center::Notification& notification) override;
@@ -120,7 +121,6 @@ class ASH_EXPORT AshNotificationView
   void SetExpandButtonVisibility(bool visible) override;
   bool IsExpandable() const override;
   void UpdateCornerRadius(int top_radius, int bottom_radius) override;
-  void SetDrawBackgroundAsActive(bool active) override;
   void OnThemeChanged() override;
   std::unique_ptr<message_center::NotificationInputContainer>
   GenerateNotificationInputContainer() override;
@@ -151,6 +151,8 @@ class ASH_EXPORT AshNotificationView
   GetActionButtonsForTest();
 
   views::Label* GetTitleRowLabelForTest();
+
+  message_center::NotificationInputContainer* GetInlineReplyForTest();
 
   // View containing all grouped notifications, propagates size changes
   // to the parent notification view.
@@ -184,8 +186,9 @@ class ASH_EXPORT AshNotificationView
   // Customized title row for this notification view with added timestamp in
   // collapse mode.
   class NotificationTitleRow : public views::View {
+    METADATA_HEADER(NotificationTitleRow, views::View)
+
    public:
-    METADATA_HEADER(NotificationTitleRow);
     explicit NotificationTitleRow(const std::u16string& title);
     NotificationTitleRow(const NotificationTitleRow&) = delete;
     NotificationTitleRow& operator=(const NotificationTitleRow&) = delete;
@@ -194,8 +197,7 @@ class ASH_EXPORT AshNotificationView
     // Update title view's text.
     void UpdateTitle(const std::u16string& title);
 
-    // Update the text for `timestamp_in_collapsed_view_`. Also used the timer
-    // to re-update this timestamp view when the next update is needed.
+    // Update the text for `timestamp_in_collapsed_view_`.
     void UpdateTimestamp(base::Time timestamp);
 
     // Update children's visibility based on the state of expand/collapse.
@@ -208,7 +210,8 @@ class ASH_EXPORT AshNotificationView
     void SetMaxAvailableWidth(int max_available_width);
 
     // views::View:
-    gfx::Size CalculatePreferredSize() const override;
+    gfx::Size CalculatePreferredSize(
+        const views::SizeBounds& available_size) const override;
     void OnThemeChanged() override;
 
     views::Label* title_view() { return title_view_; }
@@ -220,14 +223,10 @@ class ASH_EXPORT AshNotificationView
 
     // Timestamp view shown alongside the title in collapsed state.
     const raw_ptr<views::Label> title_row_divider_;
-    const raw_ptr<views::Label> timestamp_in_collapsed_view_;
+    const raw_ptr<TimestampView> timestamp_in_collapsed_view_;
 
     // The maximum width available to the title row.
     int max_available_width_ = 0;
-
-    // Timer that updates the timestamp over time.
-    base::OneShotTimer timestamp_update_timer_;
-    std::optional<base::Time> timestamp_;
   };
 
   // message_center::MessageCenterObserver:
@@ -256,22 +255,11 @@ class ASH_EXPORT AshNotificationView
   void UpdateMessageLabelInExpandedState(
       const message_center::Notification& notification);
 
-  // Update the background color with rounded corner.
-  void UpdateBackground(int top_radius, int bottom_radius);
-
   // Get the available space for `message_label_in_expanded_state_` width.
   int GetExpandedMessageLabelWidth();
 
-  // Disable the notification of this view. Called after the turn of
-  // notifications button is clicked.
-  void DisableNotification();
-
   // Update the color and icon for `app_icon_view_`.
   void UpdateAppIconView(const message_center::Notification* notification);
-
-  // Calculate the color used for the app icon and action buttons.
-  SkColor CalculateIconAndButtonsColor(
-      const message_center::Notification* notification);
 
   // Update the color of icon and buttons.
   void UpdateIconAndButtonsColor(
@@ -307,6 +295,35 @@ class ASH_EXPORT AshNotificationView
   // called only if this notification view is draggable.
   void AttachBinaryImageAsDropData(ui::OSExchangeData* data);
 
+  // Called when the fade out animation for `view` has ended. This function
+  // resets the views's opacity to 1.0f and makes it invisible.
+  void OnFadeOutAnimationEnded(int view_id);
+
+  // Called when the grouped animation for this view has ended, or has been
+  // aborted.
+  void OnGroupedAnimationEnded(views::View* left_content,
+                               views::View* right_content,
+                               views::View* message_label_in_expanded_state,
+                               views::View* image_container_view,
+                               views::View* action_buttons_row,
+                               AshNotificationExpandButton* expand_button,
+                               std::string notification_id,
+                               std::string parent_id);
+
+  // A helper wrapping `OnFadeOutAnimationEnded` for `view` as a closure.
+  base::OnceClosure OnFadeOutAnimationEndedClosure(int view_id);
+
+  // A helper for grouped animations ending/aborting.
+  base::OnceClosure OnGroupedAnimationEndedClosure(
+      views::View* left_content,
+      views::View* right_content,
+      views::View* message_label_in_expanded_state,
+      views::View* image_container_view,
+      views::View* action_buttons_row,
+      AshNotificationExpandButton* expand_button,
+      const std::string& notification_id,
+      std::string parent_id);
+
   // Owned by views hierarchy.
   raw_ptr<views::View> main_view_ = nullptr;
   raw_ptr<views::View> main_right_view_ = nullptr;
@@ -319,8 +336,6 @@ class ASH_EXPORT AshNotificationView
   raw_ptr<views::View> collapsed_summary_view_ = nullptr;
   raw_ptr<message_center::NotificationControlButtonsView>
       control_buttons_view_ = nullptr;
-  raw_ptr<views::LabelButton> turn_off_notifications_button_ = nullptr;
-  raw_ptr<views::LabelButton> inline_settings_cancel_button_ = nullptr;
   raw_ptr<views::View> snooze_button_spacer_ = nullptr;
   raw_ptr<IconButton> snooze_button_ = nullptr;
 

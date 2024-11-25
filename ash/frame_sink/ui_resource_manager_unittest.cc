@@ -28,7 +28,7 @@ std::unique_ptr<UiResource> MakeResource(const gfx::Size& resource_size,
   resource->ui_source_id = ui_source_id;
   resource->format = format;
   resource->resource_size = resource_size;
-  resource->SetExternallyOwnedMailbox(gpu::Mailbox::GenerateForSharedImage());
+  resource->SetExternallyOwnedMailbox(gpu::Mailbox::Generate());
   return resource;
 }
 
@@ -48,7 +48,7 @@ class UiResourceManagerTest : public testing::Test {
   std::unique_ptr<UiResourceManager> resource_manager_;
 };
 
-TEST_F(UiResourceManagerTest, ReuseResource_NoResources) {
+TEST_F(UiResourceManagerTest, ReuseResourceNoResources) {
   viz::ResourceId resource_id = resource_manager_->FindResourceToReuse(
       gfx::Size(100, 100), viz::SinglePlaneFormat::kBGRA_8888,
       kTestUiSourceId_1);
@@ -126,7 +126,7 @@ TEST_F(UiResourceManagerDeathTest,
   EXPECT_DCHECK_DEATH({ resource_manager_.reset(); });
 }
 
-TEST_F(UiResourceManagerTest, PrepareResourceForExporting_InvalidIds) {
+TEST_F(UiResourceManagerTest, PrepareResourceForExportingInvalidIds) {
   viz::ResourceId to_be_released_resource =
       resource_manager_->OfferResource(std::make_unique<UiResource>());
   resource_manager_->OfferResource(std::make_unique<UiResource>());
@@ -134,7 +134,7 @@ TEST_F(UiResourceManagerTest, PrepareResourceForExporting_InvalidIds) {
     // We cannot export a resource that we do not manage.
     auto transferable_resource =
         resource_manager_->PrepareResourceForExport(viz::ResourceId(20));
-    EXPECT_TRUE(transferable_resource.is_null());
+    EXPECT_TRUE(transferable_resource.is_empty());
     EXPECT_EQ(resource_manager_->exported_resources_count(), 0u);
 
     resource_manager_->ReleaseAvailableResource(to_be_released_resource);
@@ -145,7 +145,7 @@ TEST_F(UiResourceManagerTest, PrepareResourceForExporting_InvalidIds) {
 
     auto transferable_resource =
         resource_manager_->PrepareResourceForExport(to_be_released_resource);
-    EXPECT_TRUE(transferable_resource.is_null());
+    EXPECT_TRUE(transferable_resource.is_empty());
     EXPECT_EQ(resource_manager_->exported_resources_count(), 0u);
   }
 }
@@ -180,10 +180,10 @@ TEST_F(UiResourceManagerTest, CannotExportAlreadyExportedResource) {
 
   auto transferable_resource =
       resource_manager_->PrepareResourceForExport(to_be_exported_resource_id);
-  EXPECT_TRUE(transferable_resource.is_null());
+  EXPECT_TRUE(transferable_resource.is_empty());
 }
 
-TEST_F(UiResourceManagerTest, ReleaseResource_InvalidIds) {
+TEST_F(UiResourceManagerTest, ReleaseResourceInvalidIds) {
   // We can only release a resource that we currently manage.
   const auto released_resource =
       resource_manager_->ReleaseAvailableResource(viz::ResourceId(20));

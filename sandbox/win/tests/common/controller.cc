@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "sandbox/win/tests/common/controller.h"
 
 #include <memory>
@@ -10,8 +15,10 @@
 
 #include "base/check.h"
 #include "base/dcheck_is_on.h"
+#include "base/functional/callback.h"
 #include "base/memory/platform_shared_memory_region.h"
 #include "base/memory/read_only_shared_memory_region.h"
+#include "base/notreached.h"
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
 #include "base/sequence_checker.h"
@@ -128,6 +135,28 @@ std::wstring MakePathToSys(const wchar_t* name, bool is_obj_man_path) {
              : MakePathToSys32(name, is_obj_man_path);
 }
 
+// This delegate is required for initializing BrokerServices and configures it
+// to use synchronous launching.
+class TestBrokerServicesDelegateImpl : public BrokerServicesDelegate {
+ public:
+  bool ParallelLaunchEnabled() override { return false; }
+
+  void ParallelLaunchPostTaskAndReplyWithResult(
+      const base::Location& from_here,
+      base::OnceCallback<CreateTargetResult()> task,
+      base::OnceCallback<void(CreateTargetResult)> reply) override {
+    // This function is only used for parallel launching and should not get
+    // called.
+    NOTREACHED();
+  }
+
+  void BeforeTargetProcessCreateOnCreationThread(
+      const void* trace_id) override {}
+
+  void AfterTargetProcessCreateOnCreationThread(const void* trace_id,
+                                                DWORD process_id) override {}
+};
+
 BrokerServices* GetBroker() {
   static BrokerServices* broker = SandboxFactory::GetBrokerServices();
   static bool is_initialized = false;
@@ -143,7 +172,9 @@ BrokerServices* GetBroker() {
     }
 
     auto tracker = std::make_unique<TargetTracker>(g_no_targets_event);
-    if (SBOX_ALL_OK != broker->InitForTesting(std::move(tracker))) {
+    if (SBOX_ALL_OK != broker->InitForTesting(  // IN-TEST
+                           std::make_unique<TestBrokerServicesDelegateImpl>(),
+                           std::move(tracker))) {
       return nullptr;
     }
 
@@ -266,11 +297,11 @@ int TestRunner::InternalRunTest(const wchar_t* command) {
     target_process_id_ = 0;
   }
 
-  ResultCode result = SBOX_ALL_OK;
   if (disable_csrss_) {
-    result = policy_->GetConfig()->SetDisconnectCsrss();
-    if (result != SBOX_ALL_OK)
-      return SBOX_TEST_FAILED_SETUP;
+    auto* config = policy_->GetConfig();
+    if (config->GetAppContainer() == nullptr) {
+      config->SetDisconnectCsrss();
+    }
   }
 
   // Get the path to the sandboxed process.
@@ -287,6 +318,7 @@ int TestRunner::InternalRunTest(const wchar_t* command) {
   arguments += no_sandbox_ ? L"-no-sandbox " : L" ";
   arguments += command;
 
+  ResultCode result = SBOX_ALL_OK;
   if (no_sandbox_) {
     STARTUPINFO startup_info = {sizeof(STARTUPINFO)};
     if (!::CreateProcessW(prog_name, &arguments[0], NULL, NULL, FALSE, 0,

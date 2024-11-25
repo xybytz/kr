@@ -35,6 +35,7 @@
 
 namespace {
 
+using ::testing::_;
 using ::testing::NiceMock;
 using ::testing::Return;
 using ::testing::ReturnRefOfCopy;
@@ -47,7 +48,10 @@ class MockDownloadBubbleNavigationHandler
   void OpenSecurityDialog(const offline_items_collection::ContentId&) override {
   }
   void CloseDialog(views::Widget::ClosedReason) override {}
-  void ResizeDialog() override {}
+  MOCK_METHOD(void,
+              OnSecurityDialogButtonPress,
+              (const DownloadUIModel& model, DownloadCommands::Command command),
+              (override));
   void OnDialogInteracted() override {}
   std::unique_ptr<views::BubbleDialogDelegate::CloseOnDeactivatePin>
   PreventDialogCloseOnDeactivate() override {
@@ -71,7 +75,9 @@ class MockDownloadCoreService : public DownloadCoreService {
               ());
   MOCK_METHOD(bool, HasCreatedDownloadManager, ());
   MOCK_METHOD(int, BlockingShutdownCount, (), (const));
-  MOCK_METHOD(void, CancelDownloads, ());
+  MOCK_METHOD(void,
+              CancelDownloads,
+              (DownloadCoreService::CancelDownloadsTrigger));
   MOCK_METHOD(void,
               SetDownloadManagerDelegateForTesting,
               (std::unique_ptr<ChromeDownloadManagerDelegate> delegate));
@@ -145,7 +151,9 @@ class DownloadBubbleContentsViewTest
     params.window = window_.get();
     browser_ = std::unique_ptr<Browser>(Browser::Create(params));
 
-    anchor_widget_ = CreateTestWidget(views::Widget::InitParams::TYPE_WINDOW);
+    anchor_widget_ =
+        CreateTestWidget(views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET,
+                         views::Widget::InitParams::TYPE_WINDOW);
     auto bubble_delegate = std::make_unique<views::BubbleDialogDelegate>(
         anchor_widget_->GetContentsView(), views::BubbleBorder::TOP_RIGHT);
     bubble_delegate_ = bubble_delegate.get();
@@ -403,6 +411,21 @@ TEST_P(DownloadBubbleContentsViewTest,
   std::vector<DownloadItemWarningData::WarningActionEvent> events =
       DownloadItemWarningData::GetWarningActionEvents(download_items_[0].get());
   EXPECT_TRUE(events.empty());
+}
+
+TEST_P(DownloadBubbleContentsViewTest,
+       ProcessSecuritySubpageButtonPressCallsOnSecurityDialogButtonPress) {
+  contents_view_->ShowSecurityPage(
+      OfflineItemUtils::GetContentIdForDownload(download_items_[0].get()));
+  EXPECT_TRUE(contents_view_->security_view_for_testing()->IsInitialized());
+
+  EXPECT_CALL(*download_items_[0], Remove());
+  EXPECT_CALL(*navigation_handler_, OnSecurityDialogButtonPress(
+                                        _, DownloadCommands::Command::DISCARD))
+      .Times(1);
+  contents_view_->ProcessSecuritySubpageButtonPress(
+      OfflineItemUtils::GetContentIdForDownload(download_items_[0].get()),
+      DownloadCommands::Command::DISCARD);
 }
 
 }  // namespace

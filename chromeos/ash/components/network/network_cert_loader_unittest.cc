@@ -42,7 +42,6 @@ class FakePolicyCertificateProvider : public PolicyCertificateProvider {
       const chromeos::onc::CertificateScope& scope) const override {
     // NetworkCertLoader does not call this.
     NOTREACHED();
-    return net::CertificateList();
   }
 
   net::CertificateList GetAllAuthorityCertificates(
@@ -57,21 +56,18 @@ class FakePolicyCertificateProvider : public PolicyCertificateProvider {
       const chromeos::onc::CertificateScope& scope) const override {
     // NetworkCertLoader does not call this.
     NOTREACHED();
-    return net::CertificateList();
   }
 
   net::CertificateList GetCertificatesWithoutWebTrust(
       const chromeos::onc::CertificateScope& scope) const override {
     // NetworkCertLoader does not call this.
     NOTREACHED();
-    return net::CertificateList();
   }
 
   const std::set<std::string>& GetExtensionIdsWithPolicyCertificates()
       const override {
     // NetworkCertLoader does not call this.
     NOTREACHED();
-    return kNoExtensions;
   }
 
   void SetAuthorityCertificates(

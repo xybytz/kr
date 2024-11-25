@@ -15,7 +15,7 @@
                 passwordState:(PasswordSafetyCheckState)passwordState
             safeBrowsingState:(SafeBrowsingSafetyCheckState)safeBrowsingState
                  runningState:(RunningSafetyCheckState)runningState {
-  if (self = [super init]) {
+  if ((self = [super init])) {
     _updateChromeState = updateChromeState;
     _passwordState = passwordState;
     _safeBrowsingState = safeBrowsingState;
@@ -25,15 +25,26 @@
   return self;
 }
 
+#pragma mark - Public
+
+- (NSUInteger)numberOfIssues {
+  NSUInteger invalidCheckCount = 0;
+  if (InvalidUpdateChromeState(_updateChromeState)) {
+    invalidCheckCount++;
+  }
+  if (InvalidPasswordState(_passwordState)) {
+    invalidCheckCount++;
+  }
+  if (InvalidSafeBrowsingState(_safeBrowsingState)) {
+    invalidCheckCount++;
+  }
+
+  return invalidCheckCount;
+}
+
 #pragma mark - MagicStackModule
 
 - (ContentSuggestionsModuleType)type {
-  int issues = CheckIssuesCount(self);
-  if (issues > 2) {
-    return ContentSuggestionsModuleType::kSafetyCheckMultiRowOverflow;
-  } else if (issues == 2) {
-    return ContentSuggestionsModuleType::kSafetyCheckMultiRow;
-  }
   return ContentSuggestionsModuleType::kSafetyCheck;
 }
 

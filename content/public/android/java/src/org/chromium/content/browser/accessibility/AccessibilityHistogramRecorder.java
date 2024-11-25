@@ -10,8 +10,6 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.TraceEvent;
 import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.content_public.browser.ContentFeatureList;
-import org.chromium.content_public.browser.ContentFeatureMap;
 import org.chromium.ui.accessibility.AccessibilityState;
 
 /** Helper class for recording UMA histograms of accessibility events */
@@ -96,6 +94,22 @@ public class AccessibilityHistogramRecorder {
     public static final String AUTO_DISABLE_ACCESSIBILITY_ENABLED_TIME_SUCCESSIVE =
             "Accessibility.Android.AutoDisableV2.EnabledTime.Successive";
 
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    public static final String ACCESSIBILITY_INLINE_TEXT_BOXES_BUNDLE =
+            "Accessibility.Android.InlineTextBoxes.Bundle.FromFocus";
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    public static final String ACCESSIBILITY_INLINE_TEXT_BOXES_COUNT =
+            "Accessibility.InlineTextBoxes.Count";
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    public static final String ACCESSIBILITY_INLINE_TEXT_BOXES_PRESENT_IN_UPDATE =
+            "Accessibility.InlineTextBoxes.PresentInUpdate";
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    public static final String ACCESSIBILITY_INLINE_TEXT_BOXES_DUPLICATE_REQUEST =
+            "Accessibility.Android.InlineTextBoxes.DuplicateRequest";
+
     private static final int EVENTS_DROPPED_HISTOGRAM_MIN_BUCKET = 1;
     private static final int EVENTS_DROPPED_HISTOGRAM_MAX_BUCKET = 10000;
     private static final int EVENTS_DROPPED_HISTOGRAM_BUCKET_COUNT = 100;
@@ -135,7 +149,8 @@ public class AccessibilityHistogramRecorder {
         TraceEvent.begin("AccessibilityHistogramRecorder.onDisabledCalled");
         // To disable accessibility, it needs to have been previously initialized.
         assert mTimeOfNativeInitialization > 0
-                : "Accessibility onDisabled was called, but accessibility has not been initialized.";
+                : "Accessibility onDisabled was called, but accessibility has not been"
+                        + " initialized.";
         long now = SystemClock.elapsedRealtime();
 
         // As we disable accessibility, we want to record how long it had been enabled.
@@ -255,11 +270,6 @@ public class AccessibilityHistogramRecorder {
 
     /** Record UMA histograms for the event counts for the OnDemand feature. */
     public void recordEventsHistograms() {
-        // To investigate whether adding more AXModes could be beneficial, track separate
-        // stats when both the AccessibilityPerformanceFiltering and OnDemand features are enabled.
-        boolean isAccessibilityPerformanceFilteringEnabled =
-                ContentFeatureMap.isEnabled(ContentFeatureList.ACCESSIBILITY_PERFORMANCE_FILTERING);
-
         // There are only 2 AXModes, kAXModeComplete is used when a screenreader is active.
         boolean isAXModeComplete = AccessibilityState.isScreenReaderEnabled();
         boolean isAXModeFormControls = AccessibilityState.isOnlyPasswordManagersEnabled();
@@ -270,16 +280,13 @@ public class AccessibilityHistogramRecorder {
             int percentSent = (int) (mTotalDispatchedEvents * 1.0 / mTotalEnqueuedEvents * 100.0);
             RecordHistogram.recordPercentageHistogram(
                     PERCENTAGE_DROPPED_HISTOGRAM, 100 - percentSent);
-            // Log the percentage dropped per AXMode as well.
-            if (isAccessibilityPerformanceFilteringEnabled) {
-                RecordHistogram.recordPercentageHistogram(
-                        isAXModeComplete
-                                ? PERCENTAGE_DROPPED_HISTOGRAM_AXMODE_COMPLETE
-                                : isAXModeFormControls
-                                        ? PERCENTAGE_DROPPED_HISTOGRAM_AXMODE_FORM_CONTROLS
-                                        : PERCENTAGE_DROPPED_HISTOGRAM_AXMODE_BASIC,
-                        100 - percentSent);
-            }
+            RecordHistogram.recordPercentageHistogram(
+                    isAXModeComplete
+                            ? PERCENTAGE_DROPPED_HISTOGRAM_AXMODE_COMPLETE
+                            : isAXModeFormControls
+                                    ? PERCENTAGE_DROPPED_HISTOGRAM_AXMODE_FORM_CONTROLS
+                                    : PERCENTAGE_DROPPED_HISTOGRAM_AXMODE_BASIC,
+                    100 - percentSent);
 
             // Log the total number of dropped events. (Not relevant to be tracked per AXMode)
             RecordHistogram.recordCustomCountHistogram(
@@ -299,19 +306,16 @@ public class AccessibilityHistogramRecorder {
                         EVENTS_DROPPED_HISTOGRAM_MAX_BUCKET,
                         EVENTS_DROPPED_HISTOGRAM_BUCKET_COUNT);
 
-                // Log the 100% events count per AXMode as well.
-                if (isAccessibilityPerformanceFilteringEnabled) {
-                    RecordHistogram.recordCustomCountHistogram(
-                            isAXModeComplete
-                                    ? ONE_HUNDRED_PERCENT_HISTOGRAM_AXMODE_COMPLETE
-                                    : isAXModeFormControls
-                                            ? ONE_HUNDRED_PERCENT_HISTOGRAM_AXMODE_FORM_CONTROLS
-                                            : ONE_HUNDRED_PERCENT_HISTOGRAM_AXMODE_BASIC,
-                            mTotalEnqueuedEvents - mTotalDispatchedEvents,
-                            EVENTS_DROPPED_HISTOGRAM_MIN_BUCKET,
-                            EVENTS_DROPPED_HISTOGRAM_MAX_BUCKET,
-                            EVENTS_DROPPED_HISTOGRAM_BUCKET_COUNT);
-                }
+                RecordHistogram.recordCustomCountHistogram(
+                        isAXModeComplete
+                                ? ONE_HUNDRED_PERCENT_HISTOGRAM_AXMODE_COMPLETE
+                                : isAXModeFormControls
+                                        ? ONE_HUNDRED_PERCENT_HISTOGRAM_AXMODE_FORM_CONTROLS
+                                        : ONE_HUNDRED_PERCENT_HISTOGRAM_AXMODE_BASIC,
+                        mTotalEnqueuedEvents - mTotalDispatchedEvents,
+                        EVENTS_DROPPED_HISTOGRAM_MIN_BUCKET,
+                        EVENTS_DROPPED_HISTOGRAM_MAX_BUCKET,
+                        EVENTS_DROPPED_HISTOGRAM_BUCKET_COUNT);
             }
         }
 
@@ -377,13 +381,18 @@ public class AccessibilityHistogramRecorder {
                     USAGE_ACCESSIBILITY_ALWAYS_ON_TIME, now - mTimeOfNativeInitialization);
         }
 
+        // Reset values.
         mTimeOfFirstShown = -1;
+    }
 
-        // When the auto-disable feature is running, the accessibility engine will be disabled in
-        // the background, and native initialization time will be reset at that point.
-        if (ContentFeatureMap.isEnabled(ContentFeatureList.AUTO_DISABLE_ACCESSIBILITY_V2)) return;
-
-        // Reset value.
-        mTimeOfNativeInitialization = -1;
+    /**
+     * Record UMA histograms for whether or not an explicit request for an inline text box was a
+     * duplicate request.
+     *
+     * @param isDuplicate True if this was a duplicate request.
+     */
+    public void recordInlineTextBoxesDuplicateRequestHistogram(boolean isDuplicate) {
+        RecordHistogram.recordBooleanHistogram(
+                ACCESSIBILITY_INLINE_TEXT_BOXES_DUPLICATE_REQUEST, isDuplicate);
     }
 }

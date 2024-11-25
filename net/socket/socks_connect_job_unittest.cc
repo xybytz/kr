@@ -30,6 +30,7 @@
 #include "net/test/gtest_util.h"
 #include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
+#include "net/url_request/static_http_user_agent_settings.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -57,9 +58,9 @@ class SOCKSConnectJobTest : public testing::Test, public WithTaskEnvironment {
             /*http_auth_handler_factory=*/nullptr,
             /*spdy_session_pool=*/nullptr,
             /*quic_supported_versions=*/nullptr,
-            /*quic_stream_factory=*/nullptr,
+            /*quic_session_pool=*/nullptr,
             /*proxy_delegate=*/nullptr,
-            /*http_user_agent_settings=*/nullptr,
+            &http_user_agent_settings_,
             /*ssl_client_context=*/nullptr,
             /*socket_performance_watcher_factory=*/nullptr,
             /*network_quality_estimator=*/nullptr,
@@ -68,7 +69,8 @@ class SOCKSConnectJobTest : public testing::Test, public WithTaskEnvironment {
             /*http_server_properties=*/nullptr,
             /*alpn_protos=*/nullptr,
             /*application_settings=*/nullptr,
-            /*ignore_certificate_errors=*/nullptr) {}
+            /*ignore_certificate_errors=*/nullptr,
+            /*early_data_enabled=*/nullptr) {}
 
   ~SOCKSConnectJobTest() override = default;
 
@@ -76,10 +78,10 @@ class SOCKSConnectJobTest : public testing::Test, public WithTaskEnvironment {
       SOCKSVersion socks_version,
       SecureDnsPolicy secure_dns_policy = SecureDnsPolicy::kAllow) {
     return base::MakeRefCounted<SOCKSSocketParams>(
-        base::MakeRefCounted<TransportSocketParams>(
+        ConnectJobParams(base::MakeRefCounted<TransportSocketParams>(
             HostPortPair(kProxyHostName, kProxyPort), NetworkAnonymizationKey(),
             secure_dns_policy, OnHostResolutionCallback(),
-            /*supported_alpns=*/base::flat_set<std::string>()),
+            /*supported_alpns=*/base::flat_set<std::string>())),
         socks_version == SOCKSVersion::V5,
         socks_version == SOCKSVersion::V4
             ? HostPortPair(kSOCKS4TestHost, kSOCKS4TestPort)
@@ -91,6 +93,8 @@ class SOCKSConnectJobTest : public testing::Test, public WithTaskEnvironment {
   MockHostResolver host_resolver_{/*default_result=*/MockHostResolverBase::
                                       RuleResolver::GetLocalhostResult()};
   MockTaggingClientSocketFactory client_socket_factory_;
+  const StaticHttpUserAgentSettings http_user_agent_settings_ = {"*",
+                                                                 "test-ua"};
   const CommonConnectJobParams common_connect_job_params_;
 };
 
@@ -125,11 +129,11 @@ TEST_F(SOCKSConnectJobTest, HostResolutionFailureSOCKS4Endpoint) {
 
     scoped_refptr<SOCKSSocketParams> socket_params =
         base::MakeRefCounted<SOCKSSocketParams>(
-            base::MakeRefCounted<TransportSocketParams>(
+            ConnectJobParams(base::MakeRefCounted<TransportSocketParams>(
                 HostPortPair(kProxyHostName, kProxyPort),
                 NetworkAnonymizationKey(), SecureDnsPolicy::kAllow,
                 OnHostResolutionCallback(),
-                /*supported_alpns=*/base::flat_set<std::string>()),
+                /*supported_alpns=*/base::flat_set<std::string>())),
             false /* socks_v5 */, HostPortPair(hostname, kSOCKS4TestPort),
             NetworkAnonymizationKey(), TRAFFIC_ANNOTATION_FOR_TESTS);
 

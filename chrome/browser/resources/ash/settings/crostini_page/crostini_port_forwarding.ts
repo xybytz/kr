@@ -7,32 +7,31 @@
  * 'crostini-port-forwarding' is the settings port forwarding subpage for
  * Crostini.
  */
-import 'chrome://resources/cr_elements/icons.html.js';
-import 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
-import 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
-import 'chrome://resources/cr_elements/cr_toast/cr_toast.js';
-import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.js';
+import 'chrome://resources/ash/common/cr_elements/icons.html.js';
+import 'chrome://resources/ash/common/cr_elements/cr_action_menu/cr_action_menu.js';
+import 'chrome://resources/ash/common/cr_elements/cr_lazy_render/cr_lazy_render.js';
+import 'chrome://resources/ash/common/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_toast/cr_toast.js';
+import 'chrome://resources/ash/common/cr_elements/cr_toggle/cr_toggle.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
-import '/shared/settings/controls/settings_toggle_button.js';
+import '../controls/settings_toggle_button.js';
 import '../os_settings_page/settings_card.js';
 import '../settings_shared.css.js';
 import './crostini_port_forwarding_add_port_dialog.js';
 
-import {PrefsMixin} from 'chrome://resources/cr_components/settings_prefs/prefs_mixin.js';
-import {CrActionMenuElement} from 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
-import {CrLazyRenderElement} from 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.js';
-import {CrToastElement} from 'chrome://resources/cr_elements/cr_toast/cr_toast.js';
-import {CrToggleElement} from 'chrome://resources/cr_elements/cr_toggle/cr_toggle.js';
-import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {PrefsMixin} from '/shared/settings/prefs/prefs_mixin.js';
+import type {CrActionMenuElement} from 'chrome://resources/ash/common/cr_elements/cr_action_menu/cr_action_menu.js';
+import type {CrLazyRenderElement} from 'chrome://resources/ash/common/cr_elements/cr_lazy_render/cr_lazy_render.js';
+import type {CrToastElement} from 'chrome://resources/ash/common/cr_elements/cr_toast/cr_toast.js';
+import type {CrToggleElement} from 'chrome://resources/ash/common/cr_elements/cr_toggle/cr_toggle.js';
+import {WebUiListenerMixin} from 'chrome://resources/ash/common/cr_elements/web_ui_listener_mixin.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {ContainerInfo, GuestId} from '../guest_os/guest_os_browser_proxy.js';
+import type {ContainerInfo, GuestId} from '../guest_os/guest_os_browser_proxy.js';
 import {containerLabel, equalContainerId} from '../guest_os/guest_os_container_select.js';
-import {recordSettingChange} from '../metrics_recorder.js';
 
-import {CrostiniBrowserProxy, CrostiniBrowserProxyImpl, CrostiniPortActiveSetting, CrostiniPortSetting, DEFAULT_CROSTINI_CONTAINER, DEFAULT_CROSTINI_GUEST_ID, DEFAULT_CROSTINI_VM} from './crostini_browser_proxy.js';
+import {type CrostiniBrowserProxy, CrostiniBrowserProxyImpl, type CrostiniPortActiveSetting, type CrostiniPortSetting, DEFAULT_CROSTINI_CONTAINER, DEFAULT_CROSTINI_GUEST_ID, DEFAULT_CROSTINI_VM} from './crostini_browser_proxy.js';
 import {getTemplate} from './crostini_port_forwarding.html.js';
 
 type HtmlElementWithData<T extends HTMLElement = HTMLElement> = T&{
@@ -215,8 +214,7 @@ export class CrostiniPortForwardingElement extends CrostiniPortForwardingBase {
     this.browserProxy_
         .removeCrostiniPortForward(containerId, portNumber, protocolType)
         .then((_result) => {
-          // TODO(crbug.com/848127): Error handling for result
-          recordSettingChange();
+          // TODO(crbug.com/41391957): Error handling for result
         });
   }
 
@@ -226,7 +224,6 @@ export class CrostiniPortForwardingElement extends CrostiniPortForwardingBase {
     for (const container of this.allContainers_) {
       this.browserProxy_.removeAllCrostiniPortForwards(container.id);
     }
-    recordSettingChange();
     menu.close();
   }
 
@@ -244,14 +241,14 @@ export class CrostiniPortForwardingElement extends CrostiniPortForwardingBase {
             if (!result) {
               this.$.errorToast.show();
             }
-            // TODO(crbug.com/848127): Elaborate on error handling for result
+            // TODO(crbug.com/41391957): Elaborate on error handling for result
           });
     } else {
       this.browserProxy_
           .deactivateCrostiniPortForward(containerId, portNumber, protocolType)
           .then(
               (_result) => {
-                  // TODO(crbug.com/848127): Error handling for result
+                  // TODO(crbug.com/41391957): Error handling for result
               });
     }
   }

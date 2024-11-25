@@ -54,8 +54,8 @@ ExtensionServiceTestWithInstall::ExtensionServiceTestWithInstall(
 ExtensionServiceTestWithInstall::~ExtensionServiceTestWithInstall() {}
 
 void ExtensionServiceTestWithInstall::InitializeExtensionService(
-    const ExtensionServiceInitParams& params) {
-  ExtensionServiceTestBase::InitializeExtensionService(params);
+    ExtensionServiceInitParams params) {
+  ExtensionServiceTestBase::InitializeExtensionService(std::move(params));
 
   registry_observation_.Observe(registry());
 }
@@ -226,8 +226,7 @@ const Extension* ExtensionServiceTestWithInstall::VerifyCrxInstall(
       EXPECT_EQ(expected_extensions_count_, actual_extension_count) <<
           path.value();
       extension = loaded_extensions_[0].get();
-      EXPECT_TRUE(registry()->GetExtensionById(extension->id(),
-                                               ExtensionRegistry::ENABLED))
+      EXPECT_TRUE(registry()->enabled_extensions().GetByID(extension->id()))
           << path.value();
     }
 

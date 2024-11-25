@@ -5,16 +5,16 @@
 #ifndef IOS_CHROME_BROWSER_SEARCH_ENGINE_CHOICE_MODEL_SEARCH_ENGINE_CHOICE_UTIL_H_
 #define IOS_CHROME_BROWSER_SEARCH_ENGINE_CHOICE_MODEL_SEARCH_ENGINE_CHOICE_UTIL_H_
 
-class Browser;
+class ProfileIOS;
 
 // Utilities for the search engine choice screen.
 
 // Whether or not the choice screen should be displayed for existing users.
-bool ShouldDisplaySearchEngineChoiceScreen(Browser* browser);
-
-// Whether the choice screen might be displayed. The choice screen is by default
-// disabled for tests or for non-branded builds. This method eliminates those
-// cases.
-bool IsChoiceEnabled();
+// The parameter `app_started_via_external_intent` is used only if
+// `is_first_run_entrypoint` is set to `false . The value is ignored otherwise.
+bool ShouldDisplaySearchEngineChoiceScreen(
+    ProfileIOS& profile,
+    bool is_first_run_entrypoint,
+    bool app_started_via_external_intent);
 
 #endif  // IOS_CHROME_BROWSER_SEARCH_ENGINE_CHOICE_MODEL_SEARCH_ENGINE_CHOICE_UTIL_H_

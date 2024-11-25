@@ -9,7 +9,7 @@
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/time/time.h"
-#include "base/types/optional_util.h"
+#include "base/types/optional_ref.h"
 #include "net/base/features.h"
 #include "net/base/schemeful_site.h"
 #include "net/first_party_sets/first_party_set_metadata.h"
@@ -36,8 +36,8 @@ FirstPartySetsAccessDelegate::FirstPartySetsAccessDelegate(
       wait_for_init_(base::FeatureList::IsEnabled(
           net::features::kWaitForFirstPartySetsInit)),
       ready_event_(receiver.is_valid() && manager->is_enabled()
-                       ? absl::nullopt
-                       : absl::make_optional(
+                       ? std::nullopt
+                       : std::make_optional(
                              network::mojom::FirstPartySetsReadyEvent::New())),
       pending_queries_(
           ready_event_.has_value() || !wait_for_init_
@@ -65,11 +65,11 @@ void FirstPartySetsAccessDelegate::SetEnabled(bool enabled) {
   enabled_ = enabled;
 }
 
-absl::optional<std::pair<net::FirstPartySetMetadata,
-                         net::FirstPartySetsCacheFilter::MatchInfo>>
+std::optional<std::pair<net::FirstPartySetMetadata,
+                        net::FirstPartySetsCacheFilter::MatchInfo>>
 FirstPartySetsAccessDelegate::ComputeMetadata(
     const net::SchemefulSite& site,
-    const net::SchemefulSite* top_frame_site,
+    base::optional_ref<const net::SchemefulSite> top_frame_site,
     base::OnceCallback<void(net::FirstPartySetMetadata,
                             net::FirstPartySetsCacheFilter::MatchInfo)>
         callback) {
@@ -87,17 +87,17 @@ FirstPartySetsAccessDelegate::ComputeMetadata(
     // base::Unretained() is safe because `this` owns `pending_queries_` and
     // `pending_queries_` will not run the enqueued callbacks after `this` is
     // destroyed.
-    EnqueuePendingQuery(base::BindOnce(
-        &FirstPartySetsAccessDelegate::ComputeMetadataAndInvoke,
-        base::Unretained(this), site, base::OptionalFromPtr(top_frame_site),
-        std::move(callback)));
-    return absl::nullopt;
+    EnqueuePendingQuery(
+        base::BindOnce(&FirstPartySetsAccessDelegate::ComputeMetadataAndInvoke,
+                       base::Unretained(this), site,
+                       top_frame_site.CopyAsOptional(), std::move(callback)));
+    return std::nullopt;
   }
 
   net::FirstPartySetsCacheFilter::MatchInfo match_info(
       cache_filter()->GetMatchInfo(site));
 
-  absl::optional<net::FirstPartySetMetadata> metadata =
+  std::optional<net::FirstPartySetMetadata> metadata =
       manager_->ComputeMetadata(
           site, top_frame_site, *context_config(),
           base::BindOnce(
@@ -110,12 +110,12 @@ FirstPartySetsAccessDelegate::ComputeMetadata(
               },
               std::move(callback), match_info));
 
-  return metadata.has_value() ? absl::make_optional(std::make_pair(
+  return metadata.has_value() ? std::make_optional(std::make_pair(
                                     std::move(metadata).value(), match_info))
-                              : absl::nullopt;
+                              : std::nullopt;
 }
 
-absl::optional<FirstPartySetsAccessDelegate::EntriesResult>
+std::optional<FirstPartySetsAccessDelegate::EntriesResult>
 FirstPartySetsAccessDelegate::FindEntries(
     const base::flat_set<net::SchemefulSite>& sites,
     base::OnceCallback<void(FirstPartySetsAccessDelegate::EntriesResult)>
@@ -135,7 +135,7 @@ FirstPartySetsAccessDelegate::FindEntries(
     EnqueuePendingQuery(
         base::BindOnce(&FirstPartySetsAccessDelegate::FindEntriesAndInvoke,
                        base::Unretained(this), sites, std::move(callback)));
-    return absl::nullopt;
+    return std::nullopt;
   }
 
   return manager_->FindEntries(sites, *context_config(), std::move(callback));
@@ -143,7 +143,7 @@ FirstPartySetsAccessDelegate::FindEntries(
 
 void FirstPartySetsAccessDelegate::ComputeMetadataAndInvoke(
     const net::SchemefulSite& site,
-    const absl::optional<net::SchemefulSite> top_frame_site,
+    base::optional_ref<const net::SchemefulSite> top_frame_site,
     base::OnceCallback<void(net::FirstPartySetMetadata,
                             net::FirstPartySetsCacheFilter::MatchInfo)>
         callback) const {
@@ -161,9 +161,9 @@ void FirstPartySetsAccessDelegate::ComputeMetadataAndInvoke(
   net::FirstPartySetsCacheFilter::MatchInfo match_info(
       cache_filter()->GetMatchInfo(site));
 
-  absl::optional<net::FirstPartySetMetadata> sync_result =
+  std::optional<net::FirstPartySetMetadata> sync_result =
       manager_->ComputeMetadata(
-          site, base::OptionalToPtr(top_frame_site), *context_config(),
+          site, top_frame_site, *context_config(),
           base::BindOnce(
               [](CallbackType callback,
                  net::FirstPartySetsCacheFilter::MatchInfo match_info,
@@ -193,7 +193,7 @@ void FirstPartySetsAccessDelegate::FindEntriesAndInvoke(
       base::OnceCallback<void(FirstPartySetsAccessDelegate::EntriesResult)>>
       callbacks = base::SplitOnceCallback(std::move(callback));
 
-  absl::optional<FirstPartySetsAccessDelegate::EntriesResult> sync_result =
+  std::optional<FirstPartySetsAccessDelegate::EntriesResult> sync_result =
       manager_->FindEntries(sites, *context_config(),
                             std::move(callbacks.first));
 

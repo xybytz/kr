@@ -48,7 +48,6 @@ const char* TypeToString(blink::mojom::MediaStreamType type) {
     default:
       NOTREACHED();
   }
-  return "INVALID";
 }
 
 std::string GetOpenLogString(const base::UnguessableToken& session_id,

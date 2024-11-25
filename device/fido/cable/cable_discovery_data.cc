@@ -8,6 +8,7 @@
 
 #include "base/check_op.h"
 #include "base/i18n/string_compare.h"
+#include "base/notreached.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
@@ -64,8 +65,7 @@ bool CableDiscoveryData::operator==(const CableDiscoveryData& other) const {
       return v2.value() == other.v2.value();
 
     case CableDiscoveryData::Version::INVALID:
-      CHECK(false);
-      return false;
+      NOTREACHED();
   }
 }
 
@@ -110,13 +110,13 @@ Pairing::Pairing() = default;
 Pairing::~Pairing() = default;
 
 // static
-absl::optional<std::unique_ptr<Pairing>> Pairing::Parse(
+std::optional<std::unique_ptr<Pairing>> Pairing::Parse(
     const cbor::Value& cbor,
     tunnelserver::KnownDomainID domain,
     base::span<const uint8_t, kQRSeedSize> local_identity_seed,
     base::span<const uint8_t, 32> handshake_hash) {
   if (!cbor.is_map()) {
-    return absl::nullopt;
+    return std::nullopt;
   }
 
   const cbor::Value::MapValue& map = cbor.GetMap();
@@ -136,7 +136,7 @@ absl::optional<std::unique_ptr<Pairing>> Pairing::Parse(
           }) ||
       its[3]->second.GetBytestring().size() !=
           std::tuple_size<decltype(pairing->peer_public_key_x962)>::value) {
-    return absl::nullopt;
+    return std::nullopt;
   }
 
   pairing->tunnel_server_domain = domain;
@@ -150,7 +150,7 @@ absl::optional<std::unique_ptr<Pairing>> Pairing::Parse(
   if (!VerifyPairingSignature(local_identity_seed,
                               pairing->peer_public_key_x962, handshake_hash,
                               its[4]->second.GetBytestring())) {
-    return absl::nullopt;
+    return std::nullopt;
   }
 
   const auto play_services_tag_it = map.find(cbor::Value(999));

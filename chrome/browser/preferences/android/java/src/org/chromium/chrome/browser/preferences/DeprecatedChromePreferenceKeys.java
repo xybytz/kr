@@ -12,11 +12,11 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * These values have been used as SharedPreferences keys in the past and should not be reused.
- * Do not remove values from this list.
+ * These values have been used as SharedPreferences keys in the past and should not be reused. Do
+ * not remove values from this list.
  *
- * TODO(crbug.com/1483469): Rename this to reflect that deprecated keys from all registries should
- * rest here, not just Chrome-layer keys.
+ * <p>TODO(crbug.com/40282028): Rename this to reflect that deprecated keys from all registries
+ * should rest here, not just Chrome-layer keys.
  */
 @CheckDiscard("Validation is performed in tests and in debug builds.")
 public class DeprecatedChromePreferenceKeys {
@@ -44,6 +44,8 @@ public class DeprecatedChromePreferenceKeys {
                 "Chrome.OfflineMeasurements.IsRoaming",
                 "Chrome.OfflineMeasurements.TimeBetweenChecksMillisList",
                 "Chrome.OfflineMeasurements.UserStateList",
+                "Chrome.PriceTracking.PriceAlerts",
+                "Chrome.PriceTracking.PriceAlertsShowCount",
                 "Chrome.PriceTracking.PriceDropAlerts",
                 "Chrome.Querytiles.RecentMvClicks",
                 "Chrome.Querytiles.RecentQueryTileClicks",
@@ -53,10 +55,18 @@ public class DeprecatedChromePreferenceKeys {
                 "Chrome.QueryTiles.ShownOnStartSurface",
                 "Chrome.RequestDesktopSiteExceptionsDowngrade.GlobalSettingEnabled",
                 "Chrome.RequestDesktopSiteExceptionsDowngrade.TabSettingSet",
+                "Chrome.RequestDesktopSiteGlobalSetting.DefaultEnabledCohort",
                 "Chrome.RequestDesktopSiteGlobalSetting.DefaultEnabledShowMessage",
+                "Chrome.RequestDesktopSiteGlobalSetting.DefaultOnCohortDisplaySpec",
+                "Chrome.RequestDesktopSiteGlobalSetting.OptInMessageCohort",
                 "Chrome.RequestDesktopSiteGlobalSetting.OptInMessageShown",
                 "Chrome.Segmentation.ShowQueryTiles",
                 "Chrome.SigninPromo.NTPImpressions",
+                "Chrome.StartSurface.IncognitoTabCount",
+                "Chrome.StartSurface.RegularTabCount",
+                "Chrome.Tab.ArchiveIphShowing",
+                "Chrome.Tab.ShowArchiveTabDialogIPH",
+                "Chrome.Tab.ShowTabGroupCreationDialog",
                 "Chrome.UMA.OnPreCreateCounter",
                 "Chrome.UMA.OnResumeCounter",
                 "Chrome.VideoTutorials.ShareUrls",
@@ -165,6 +175,8 @@ public class DeprecatedChromePreferenceKeys {
                 "swap_pixel_format_to_fix_convert_from_translucent",
                 "tab_group_android_enabled",
                 "tab_persistent_store_task_runner_enabled",
+                "user_font_scale_factor",
+                "user_set_force_enable_zoom",
                 "webapk_number_of_uninstalls",
                 "website_settings_filter");
     }

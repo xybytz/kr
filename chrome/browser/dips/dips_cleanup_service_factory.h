@@ -6,21 +6,18 @@
 #define CHROME_BROWSER_DIPS_DIPS_CLEANUP_SERVICE_FACTORY_H_
 
 #include "base/no_destructor.h"
-#include "chrome/browser/profiles/profile_keyed_service_factory.h"
-
+#include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 namespace content {
 class BrowserContext;
 }
 
 class DIPSCleanupService;
 
-class DIPSCleanupServiceFactory : public ProfileKeyedServiceFactory {
+class DIPSCleanupServiceFactory : public BrowserContextKeyedServiceFactory {
  public:
   static DIPSCleanupServiceFactory* GetInstance();
   static DIPSCleanupService* GetForBrowserContext(
       content::BrowserContext* context);
-
-  static ProfileSelections CreateProfileSelections();
 
  private:
   friend base::NoDestructor<DIPSCleanupServiceFactory>;
@@ -29,7 +26,9 @@ class DIPSCleanupServiceFactory : public ProfileKeyedServiceFactory {
   ~DIPSCleanupServiceFactory() override;
 
   // BrowserContextKeyedServiceFactory:
-  KeyedService* BuildServiceInstanceFor(
+  content::BrowserContext* GetBrowserContextToUse(
+      content::BrowserContext* context) const override;
+  std::unique_ptr<KeyedService> BuildServiceInstanceForBrowserContext(
       content::BrowserContext* context) const override;
   bool ServiceIsCreatedWithBrowserContext() const override;
 };

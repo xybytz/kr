@@ -5,17 +5,35 @@
 #include "components/remote_cocoa/app_shim/immersive_mode_tabbed_controller_cocoa.h"
 
 #include "base/apple/foundation_util.h"
+#include "base/debug/dump_without_crashing.h"
+#include "base/feature_list.h"
 #include "base/functional/callback_forward.h"
+#import "components/remote_cocoa/app_shim/NSToolbar+Private.h"
 #import "components/remote_cocoa/app_shim/bridged_content_view.h"
+#import "components/remote_cocoa/app_shim/browser_native_widget_window_mac.h"
+#include "components/remote_cocoa/app_shim/features.h"
+
+namespace {
+void SetAlwaysShowTrafficLights(NSWindow* browser_window, bool always_show) {
+  if (base::FeatureList::IsEnabled(
+          remote_cocoa::features::kFullscreenAlwaysShowTrafficLights)) {
+    [base::apple::ObjCCast<BrowserNativeWidgetWindow>(browser_window)
+        setAlwaysShowTrafficLights:always_show ? YES : NO];
+  }
+}
+}  // namespace
 
 namespace remote_cocoa {
 
 ImmersiveModeTabbedControllerCocoa::ImmersiveModeTabbedControllerCocoa(
-    NativeWidgetMacNSWindow* browser_window,
-    NativeWidgetMacNSWindow* overlay_window,
-    NativeWidgetMacNSWindow* tab_window)
+    BrowserNativeWidgetWindow* browser_window,
+    NativeWidgetMacOverlayNSWindow* overlay_window,
+    NativeWidgetMacOverlayNSWindow* tab_window)
     : ImmersiveModeControllerCocoa(browser_window, overlay_window) {
   tab_window_ = tab_window;
+#ifndef NDEBUG
+  tab_window_.title = @"tab overlay";
+#endif  // NDEBUG
 
   browser_window.titleVisibility = NSWindowTitleHidden;
 
@@ -27,9 +45,17 @@ ImmersiveModeTabbedControllerCocoa::ImmersiveModeTabbedControllerCocoa(
   // enough is able to paint underneath the traffic lights. This also works with
   // RTL setups.
   tab_titlebar_view_controller_.layoutAttribute = NSLayoutAttributeTrailing;
+
+  // During fullscreen restore or split screen restore tab window can be left
+  // without a parent, leading to the window being hidden which causes
+  // compositing to stop.
+  if (!tab_window.parentWindow) {
+    [overlay_window addChildWindow:tab_window ordered:NSWindowAbove];
+  }
 }
 
 ImmersiveModeTabbedControllerCocoa::~ImmersiveModeTabbedControllerCocoa() {
+  SetAlwaysShowTrafficLights(browser_window(), false);
   StopObservingChildWindows(tab_window_);
   browser_window().toolbar = nil;
   BridgedContentView* tab_content_view = tab_content_view_;
@@ -40,6 +66,8 @@ ImmersiveModeTabbedControllerCocoa::~ImmersiveModeTabbedControllerCocoa() {
 }
 
 void ImmersiveModeTabbedControllerCocoa::Init() {
+  SetAlwaysShowTrafficLights(browser_window(), true);
+
   ImmersiveModeControllerCocoa::Init();
   BridgedContentView* tab_content_view =
       base::apple::ObjCCastStrict<BridgedContentView>(tab_window_.contentView);
@@ -49,6 +77,10 @@ void ImmersiveModeTabbedControllerCocoa::Init() {
   // Use a placeholder view since the content has been moved to the
   // NSTitlebarAccessoryViewController.
   tab_window_.contentView = [[OpaqueView alloc] init];
+  if (base::FeatureList::IsEnabled(
+          remote_cocoa::features::kImmersiveFullscreenOverlayWindowDebug)) {
+    [tab_window_ debugWithColor:NSColor.redColor];
+  }
 
   // This will allow the NSToolbarFullScreenWindow to become key when
   // interacting with the tab strip.
@@ -94,7 +126,11 @@ void ImmersiveModeTabbedControllerCocoa::Init() {
 }
 
 void ImmersiveModeTabbedControllerCocoa::UpdateToolbarVisibility(
-    mojom::ToolbarVisibilityStyle style) {
+    std::optional<mojom::ToolbarVisibilityStyle> style) {
+  if (!style.has_value()) {
+    return;
+  }
+
   // Don't make changes when a reveal lock is active. Do update the
   // `last_used_style` so the style will be updated once all outstanding reveal
   // locks are released.
@@ -103,12 +139,12 @@ void ImmersiveModeTabbedControllerCocoa::UpdateToolbarVisibility(
     return;
   }
 
-  // TODO(https://crbug.com/1426944): A NSTitlebarAccessoryViewController hosted
+  // TODO(crbug.com/40261565): A NSTitlebarAccessoryViewController hosted
   // in the titlebar, as opposed to above or below it, does not hide/show when
   // using the `hidden` property. Instead we must entirely remove the view
   // controller to make the view hide. Switch to using the `hidden` property
   // once Apple resolves this bug.
-  switch (style) {
+  switch (style.value()) {
     case mojom::ToolbarVisibilityStyle::kAlways:
       AddController();
       TitlebarReveal();
@@ -124,10 +160,7 @@ void ImmersiveModeTabbedControllerCocoa::UpdateToolbarVisibility(
   }
   ImmersiveModeControllerCocoa::UpdateToolbarVisibility(style);
 
-  // During fullscreen restore or split screen restore tab window can be left
-  // without a parent, leading to the window being hidden which causes
-  // compositing to stop. This call ensures that tab window is parented to
-  // overlay window and is in the correct z-order.
+  // Ensures that tab window is in the correct z-order.
   OrderTabWindowZOrderOnTop();
 
   // macOS 10.15 does not call `OnTitlebarFrameDidChange` as often as newer
@@ -160,40 +193,59 @@ void ImmersiveModeTabbedControllerCocoa::OnTopViewBoundsChanged(
                        tab_titlebar_view_controller_.view.frame.size.height)];
 }
 
-void ImmersiveModeTabbedControllerCocoa::RevealLock() {
+void ImmersiveModeTabbedControllerCocoa::RevealLocked() {
   AddController();
   TitlebarReveal();
-
   // Call after TitlebarReveal() for a proper layout.
-  ImmersiveModeControllerCocoa::RevealLock();
+  ImmersiveModeControllerCocoa::RevealLocked();
   LayoutWindowWithAnchorView(tab_window_, tab_content_view_);
 }
 
-void ImmersiveModeTabbedControllerCocoa::RevealUnlock() {
-  // The reveal lock count will be updated in
-  // ImmersiveModeControllerCocoa::RevealUnlock(), count 1 or less here as
-  // unlocked.
-  if (reveal_lock_count() < 2 &&
-      last_used_style() == mojom::ToolbarVisibilityStyle::kAutohide) {
+void ImmersiveModeTabbedControllerCocoa::RevealUnlocked() {
+  if (last_used_style() == mojom::ToolbarVisibilityStyle::kAutohide) {
     TitlebarHide();
   }
 
-  // Call after TitlebarHide() for a proper layout.
-  ImmersiveModeControllerCocoa::RevealUnlock();
+  // Call after TitlebarReveal() for a proper layout.
+  ImmersiveModeControllerCocoa::RevealUnlocked();
   LayoutWindowWithAnchorView(tab_window_, tab_content_view_);
 }
 
 void ImmersiveModeTabbedControllerCocoa::TitlebarReveal() {
-  browser_window().toolbar.visible = YES;
+  NSToolbar* toolbar = browser_window().toolbar;
+  if (toolbar.visible) {
+    return;
+  }
+  toolbar.visible = YES;
+
+  // The tab controller and toolbar views are siblings. When the toolbar view
+  // is removed then re-added it becomes z-order on top of the tab controller
+  // view. This becomes an issue when the window is not active but we want to
+  // handle the first click. The toolbar view returns NO for
+  // -acceptsFirstMouse:. Prefer to send the toolbar view to the back of the
+  // siblings list. If we are unable to get a handle on the toolbar view remove
+  // and re-add the tab controller so its view is z-order above the toolbar
+  // view. See http://crbug/40283902 for details.
+  // TODO(http://crbug.com/40261565): Remove when FB12010731 is fixed in AppKit.
+  if (NSView* toolbar_view = toolbar.privateToolbarView) {
+    [toolbar_view.superview addSubview:toolbar_view
+                            positioned:NSWindowBelow
+                            relativeTo:nil];
+  } else {
+    // We want to know if the toolbar no longer responds to _toolbarView but
+    // since we have a backup workaround DumpWithoutCrashing();
+    base::debug::DumpWithoutCrashing();
+    RemoveController();
+    AddController();
+  }
 }
 
 void ImmersiveModeTabbedControllerCocoa::TitlebarHide() {
   browser_window().toolbar.visible = NO;
 }
 
-void ImmersiveModeTabbedControllerCocoa::OnTitlebarFrameDidChange(
-    NSRect frame) {
-  ImmersiveModeControllerCocoa::OnTitlebarFrameDidChange(frame);
+void ImmersiveModeTabbedControllerCocoa::Reanchor() {
+  ImmersiveModeControllerCocoa::Reanchor();
   LayoutWindowWithAnchorView(tab_window_, tab_content_view_);
 }
 
@@ -235,7 +287,12 @@ void ImmersiveModeTabbedControllerCocoa::OrderTabWindowZOrderOnTop() {
   // window to always be z-order on top of overlay window children.
   // Practically this allows for the tab preview hover card to be z-order on top
   // of omnibox results popup.
-  if (overlay_window().childWindows.lastObject != tab_window_) {
+  // If the tab window does not have a parent or the parent is not the overlay
+  // window, do not perform the shuffle. Otherwise we could throw off the child
+  // window counts in NativeWidgetNSWindowBridge::NotifyVisibilityChangeDown
+  // during immersive fullscreen exit.
+  if (tab_window_.parentWindow == overlay_window() &&
+      overlay_window().childWindows.lastObject != tab_window_) {
     [overlay_window() removeChildWindow:tab_window_];
     [overlay_window() addChildWindow:tab_window_ ordered:NSWindowAbove];
   }

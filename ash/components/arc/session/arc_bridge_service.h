@@ -29,6 +29,9 @@ class AppInstance;
 class AppPermissionsInstance;
 class AppfuseHost;
 class AppfuseInstance;
+class ArcShellExecutionInstance;
+class ArcWifiHost;
+class ArcWifiInstance;
 class AudioHost;
 class AudioInstance;
 class AuthHost;
@@ -42,16 +45,16 @@ class CameraHost;
 class CameraInstance;
 class ChromeFeatureFlagsInstance;
 class CastReceiverInstance;
-class ClipboardHost;
-class ClipboardInstance;
 class CompatibilityModeInstance;
 class CrashCollectorHost;
 class CrashCollectorInstance;
 class DigitalGoodsInstance;
-class DiskQuotaHost;
-class DiskQuotaInstance;
+class DiskSpaceHost;
+class DiskSpaceInstance;
 class EnterpriseReportingHost;
 class EnterpriseReportingInstance;
+class ErrorNotificationHost;
+class ErrorNotificationInstance;
 class FileSystemHost;
 class FileSystemInstance;
 class IioSensorHost;
@@ -62,12 +65,8 @@ class InputMethodManagerHost;
 class InputMethodManagerInstance;
 class IntentHelperHost;
 class IntentHelperInstance;
-class KeyboardShortcutHost;
-class KeyboardShortcutInstance;
 class KeymasterHost;
 class KeymasterInstance;
-class KioskHost;
-class KioskInstance;
 class MediaSessionInstance;
 class MemoryInstance;
 class MetricsHost;
@@ -82,6 +81,7 @@ class ObbMounterHost;
 class ObbMounterInstance;
 class OemCryptoHost;
 class OemCryptoInstance;
+class OnDeviceSafetyInstance;
 class PipHost;
 class PipInstance;
 class PolicyHost;
@@ -93,12 +93,10 @@ class PrintSpoolerInstance;
 class PrivacyItemsHost;
 class PrivacyItemsInstance;
 class ProcessInstance;
-class PropertyInstance;
 class ScreenCaptureHost;
 class ScreenCaptureInstance;
 class SharesheetHost;
 class SharesheetInstance;
-class StorageManagerInstance;
 class SystemStateHost;
 class SystemStateInstance;
 class SystemUiInstance;
@@ -174,6 +172,12 @@ class ArcBridgeService {
   ConnectionHolder<mojom::AppfuseInstance, mojom::AppfuseHost>* appfuse() {
     return &appfuse_;
   }
+  ConnectionHolder<mojom::ArcShellExecutionInstance>* arc_shell_execution() {
+    return &arc_shell_execution_;
+  }
+  ConnectionHolder<mojom::ArcWifiInstance, mojom::ArcWifiHost>* arc_wifi() {
+    return &arc_wifi_;
+  }
   ConnectionHolder<mojom::AudioInstance, mojom::AudioHost>* audio() {
     return &audio_;
   }
@@ -201,10 +205,6 @@ class ArcBridgeService {
   ConnectionHolder<mojom::ChromeFeatureFlagsInstance>* chrome_feature_flags() {
     return &chrome_feature_flags_;
   }
-  ConnectionHolder<mojom::ClipboardInstance, mojom::ClipboardHost>*
-  clipboard() {
-    return &clipboard_;
-  }
   ConnectionHolder<mojom::CompatibilityModeInstance>* compatibility_mode() {
     return &compatibility_mode_;
   }
@@ -215,14 +215,19 @@ class ArcBridgeService {
   ConnectionHolder<mojom::DigitalGoodsInstance>* digital_goods() {
     return &digital_goods_;
   }
-  ConnectionHolder<mojom::DiskQuotaInstance, mojom::DiskQuotaHost>*
-  disk_quota() {
-    return &disk_quota_;
+  ConnectionHolder<mojom::DiskSpaceInstance, mojom::DiskSpaceHost>*
+  disk_space() {
+    return &disk_space_;
   }
   ConnectionHolder<mojom::EnterpriseReportingInstance,
                    mojom::EnterpriseReportingHost>*
   enterprise_reporting() {
     return &enterprise_reporting_;
+  }
+  ConnectionHolder<mojom::ErrorNotificationInstance,
+                   mojom::ErrorNotificationHost>*
+  error_notification() {
+    return &error_notification_;
   }
   ConnectionHolder<mojom::FileSystemInstance, mojom::FileSystemHost>*
   file_system() {
@@ -242,11 +247,6 @@ class ArcBridgeService {
   intent_helper() {
     return &intent_helper_;
   }
-  ConnectionHolder<mojom::KeyboardShortcutInstance,
-                   mojom::KeyboardShortcutHost>*
-  keyboard_shortcut() {
-    return &keyboard_shortcut_;
-  }
   ConnectionHolder<mojom::KeymasterInstance, mojom::KeymasterHost>*
   keymaster() {
     return &keymaster_;
@@ -255,9 +255,6 @@ class ArcBridgeService {
                    mojom::keymint::KeyMintHost>*
   keymint() {
     return &keymint_;
-  }
-  ConnectionHolder<mojom::KioskInstance, mojom::KioskHost>* kiosk() {
-    return &kiosk_;
   }
   ConnectionHolder<mojom::MediaSessionInstance>* media_session() {
     return &media_session_;
@@ -282,6 +279,9 @@ class ArcBridgeService {
   oemcrypto() {
     return &oemcrypto_;
   }
+  ConnectionHolder<mojom::OnDeviceSafetyInstance>* on_device_safety() {
+    return &on_device_safety_;
+  }
   ConnectionHolder<chromeos::payments::mojom::PaymentAppInstance>*
   payment_app() {
     return &payment_app_;
@@ -302,7 +302,6 @@ class ArcBridgeService {
     return &privacy_items_;
   }
   ConnectionHolder<mojom::ProcessInstance>* process() { return &process_; }
-  ConnectionHolder<mojom::PropertyInstance>* property() { return &property_; }
   ConnectionHolder<mojom::ScreenCaptureInstance, mojom::ScreenCaptureHost>*
   screen_capture() {
     return &screen_capture_;
@@ -310,10 +309,6 @@ class ArcBridgeService {
   ConnectionHolder<mojom::SharesheetInstance, mojom::SharesheetHost>*
   sharesheet() {
     return &sharesheet_;
-  }
-
-  ConnectionHolder<mojom::StorageManagerInstance>* storage_manager() {
-    return &storage_manager_;
   }
   ConnectionHolder<mojom::SystemStateInstance, mojom::SystemStateHost>*
   system_state() {
@@ -355,6 +350,7 @@ class ArcBridgeService {
   ConnectionHolder<mojom::AppInstance, mojom::AppHost> app_;
   ConnectionHolder<mojom::AppPermissionsInstance> app_permissions_;
   ConnectionHolder<mojom::AppfuseInstance, mojom::AppfuseHost> appfuse_;
+  ConnectionHolder<mojom::ArcWifiInstance, mojom::ArcWifiHost> arc_wifi_;
   ConnectionHolder<mojom::AudioInstance, mojom::AudioHost> audio_;
   ConnectionHolder<mojom::AuthInstance, mojom::AuthHost> auth_;
   ConnectionHolder<mojom::BackupSettingsInstance> backup_settings_;
@@ -364,15 +360,18 @@ class ArcBridgeService {
   ConnectionHolder<mojom::CameraInstance, mojom::CameraHost> camera_;
   ConnectionHolder<mojom::CastReceiverInstance> cast_receiver_;
   ConnectionHolder<mojom::ChromeFeatureFlagsInstance> chrome_feature_flags_;
-  ConnectionHolder<mojom::ClipboardInstance, mojom::ClipboardHost> clipboard_;
   ConnectionHolder<mojom::CompatibilityModeInstance> compatibility_mode_;
   ConnectionHolder<mojom::CrashCollectorInstance, mojom::CrashCollectorHost>
       crash_collector_;
+  ConnectionHolder<mojom::ArcShellExecutionInstance> arc_shell_execution_;
   ConnectionHolder<mojom::DigitalGoodsInstance> digital_goods_;
-  ConnectionHolder<mojom::DiskQuotaInstance, mojom::DiskQuotaHost> disk_quota_;
+  ConnectionHolder<mojom::DiskSpaceInstance, mojom::DiskSpaceHost> disk_space_;
   ConnectionHolder<mojom::EnterpriseReportingInstance,
                    mojom::EnterpriseReportingHost>
       enterprise_reporting_;
+  ConnectionHolder<mojom::ErrorNotificationInstance,
+                   mojom::ErrorNotificationHost>
+      error_notification_;
   ConnectionHolder<mojom::FileSystemInstance, mojom::FileSystemHost>
       file_system_;
   ConnectionHolder<mojom::IioSensorInstance, mojom::IioSensorHost> iio_sensor_;
@@ -382,12 +381,9 @@ class ArcBridgeService {
       input_method_manager_;
   ConnectionHolder<mojom::IntentHelperInstance, mojom::IntentHelperHost>
       intent_helper_;
-  ConnectionHolder<mojom::KeyboardShortcutInstance, mojom::KeyboardShortcutHost>
-      keyboard_shortcut_;
   ConnectionHolder<mojom::KeymasterInstance, mojom::KeymasterHost> keymaster_;
   ConnectionHolder<mojom::keymint::KeyMintInstance, mojom::keymint::KeyMintHost>
       keymint_;
-  ConnectionHolder<mojom::KioskInstance, mojom::KioskHost> kiosk_;
   ConnectionHolder<mojom::MediaSessionInstance> media_session_;
   ConnectionHolder<mojom::MemoryInstance> memory_;
   ConnectionHolder<mojom::MetricsInstance, mojom::MetricsHost> metrics_;
@@ -398,6 +394,7 @@ class ArcBridgeService {
   ConnectionHolder<mojom::ObbMounterInstance, mojom::ObbMounterHost>
       obb_mounter_;
   ConnectionHolder<mojom::OemCryptoInstance, mojom::OemCryptoHost> oemcrypto_;
+  ConnectionHolder<mojom::OnDeviceSafetyInstance> on_device_safety_;
   ConnectionHolder<chromeos::payments::mojom::PaymentAppInstance> payment_app_;
   ConnectionHolder<mojom::PipInstance, mojom::PipHost> pip_;
   ConnectionHolder<mojom::PolicyInstance, mojom::PolicyHost> policy_;
@@ -407,12 +404,10 @@ class ArcBridgeService {
   ConnectionHolder<mojom::PrivacyItemsInstance, mojom::PrivacyItemsHost>
       privacy_items_;
   ConnectionHolder<mojom::ProcessInstance> process_;
-  ConnectionHolder<mojom::PropertyInstance> property_;
   ConnectionHolder<mojom::ScreenCaptureInstance, mojom::ScreenCaptureHost>
       screen_capture_;
   ConnectionHolder<mojom::SharesheetInstance, mojom::SharesheetHost>
       sharesheet_;
-  ConnectionHolder<mojom::StorageManagerInstance> storage_manager_;
   ConnectionHolder<mojom::SystemStateInstance, mojom::SystemStateHost>
       system_state_;
   ConnectionHolder<mojom::SystemUiInstance> system_ui_;

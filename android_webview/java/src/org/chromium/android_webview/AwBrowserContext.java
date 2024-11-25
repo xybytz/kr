@@ -6,36 +6,88 @@ package org.chromium.android_webview;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Bundle;
+import android.util.LruCache;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.UiThread;
 import androidx.annotation.VisibleForTesting;
 
 import org.jni_zero.CalledByNative;
 import org.jni_zero.JNINamespace;
+import org.jni_zero.JniType;
 import org.jni_zero.NativeMethods;
 
+import org.chromium.android_webview.AwPrefetchCallback.StatusCode;
 import org.chromium.android_webview.common.Lifetime;
+import org.chromium.android_webview.common.MediaIntegrityApiStatus;
+import org.chromium.android_webview.common.MediaIntegrityProvider;
+import org.chromium.base.BaseFeatures;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.StrictModeContext;
+import org.chromium.base.ThreadUtils;
+import org.chromium.base.TraceEvent;
 import org.chromium.base.memory.MemoryPressureMonitor;
+import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.blink.mojom.PermissionStatus;
+import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.content_public.browser.BrowserContextHandle;
+import org.chromium.content_public.browser.ContentFeatureList;
 import org.chromium.content_public.browser.ContentViewStatics;
+import org.chromium.url.Origin;
 
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.Executor;
 
 /**
- * Java side of the Browser Context: contains all the java side objects needed to host one
- * browsing session (i.e. profile).
+ * Java side of the Browser Context: contains all the java side objects needed to host one browsing
+ * session (i.e. profile).
  *
- * Note that historically WebView was running in single process mode, and limitations on renderer
+ * <p>Note that historically WebView was running in single process mode, and limitations on renderer
  * process only being able to use a single browser context, currently there can only be one
  * AwBrowserContext instance, so at this point the class mostly exists for conceptual clarity.
  */
 @JNINamespace("android_webview")
 @Lifetime.Profile
 public class AwBrowserContext implements BrowserContextHandle {
-    private static final String TAG = "AwBrowserContext";
     private static final String BASE_PREFERENCES = "WebViewProfilePrefs";
+
+    /**
+     * Cache storing already-initialized Play providers for the Media Integrity Blink renderer
+     * extension. This cache speeds up calls for new providers from a similar context.
+     *
+     * <p>Cached entries will remain cached across page loads. The cache is Profile-specific to
+     * avoid sharing values between profiles.
+     *
+     * <p>The cache size is estimated from the {@code Android.WebView.OriginsVisited} histogram,
+     * looking at the 1-day aggregation of a representative app where users browse multiple domains.
+     * The P95 for the metric over 1 day is 15.
+     *
+     * @see MediaIntegrityProviderKey
+     */
+    private final LruCache<MediaIntegrityProviderKey, MediaIntegrityProvider>
+            mMediaIntegrityProviderCache =
+                    new LruCache<>(10) {
+
+                        private int mEvictionCounter;
+
+                        @Override
+                        protected void entryRemoved(
+                                boolean evicted,
+                                MediaIntegrityProviderKey key,
+                                MediaIntegrityProvider oldValue,
+                                MediaIntegrityProvider newValue) {
+                            // Log evictions due to lack of space.
+                            if (evicted) {
+                                RecordHistogram.recordCount100Histogram(
+                                        "Android.WebView.MediaIntegrity"
+                                                + ".TokenProviderCacheEvictionsCumulativeV2",
+                                        ++mEvictionCounter);
+                            }
+                        }
+                    };
 
     private AwGeolocationPermissions mGeolocationPermissions;
     private AwServiceWorkerController mServiceWorkerController;
@@ -49,6 +101,51 @@ public class AwBrowserContext implements BrowserContextHandle {
     @NonNull private final AwCookieManager mCookieManager;
     private final boolean mIsDefault;
     @NonNull private final SharedPreferences mSharedPreferences;
+
+    /**
+     * Cache key for MediaIntegrityProviders. Ensures that values are keyed by
+     *
+     * <ul>
+     *   <li>top frame origin
+     *   <li>source frame origin
+     *   <li>Api status
+     *   <li>cloud project number
+     * </ul>
+     */
+    public static final class MediaIntegrityProviderKey {
+
+        private final Origin mTopFrameOrigin;
+        private final Origin mSourceOrigin;
+        @MediaIntegrityApiStatus private final int mRequestMode;
+        private final long mCloudProjectNumber;
+
+        public MediaIntegrityProviderKey(
+                Origin topFrameOrigin,
+                Origin sourceOrigin,
+                @MediaIntegrityApiStatus int requestMode,
+                long cloudProjectNumber) {
+            mTopFrameOrigin = topFrameOrigin;
+            mSourceOrigin = sourceOrigin;
+            mRequestMode = requestMode;
+            mCloudProjectNumber = cloudProjectNumber;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(mTopFrameOrigin, mSourceOrigin, mRequestMode, mCloudProjectNumber);
+        }
+
+        @Override
+        public boolean equals(@Nullable Object obj) {
+            if (!(obj instanceof MediaIntegrityProviderKey other)) {
+                return false;
+            }
+            return Objects.equals(this.mTopFrameOrigin, other.mTopFrameOrigin)
+                    && Objects.equals(this.mSourceOrigin, other.mSourceOrigin)
+                    && this.mRequestMode == other.mRequestMode
+                    && this.mCloudProjectNumber == other.mCloudProjectNumber;
+        }
+    }
 
     public AwBrowserContext(long nativeAwBrowserContext) {
         this(
@@ -89,7 +186,10 @@ public class AwBrowserContext implements BrowserContextHandle {
                         new AwContentsLifecycleNotifier.Observer() {
                             @Override
                             public void onFirstWebViewCreated() {
-                                MemoryPressureMonitor.INSTANCE.enablePolling();
+                                MemoryPressureMonitor.INSTANCE.enablePolling(
+                                        AwFeatureMap.isEnabled(
+                                                BaseFeatures
+                                                        .POST_GET_MY_MEMORY_STATE_TO_BACKGROUND));
                             }
 
                             @Override
@@ -158,6 +258,95 @@ public class AwBrowserContext implements BrowserContextHandle {
         return mQuotaManagerBridge;
     }
 
+    @Nullable
+    public MediaIntegrityProvider getCachedMediaIntegrityProvider(
+            @NonNull MediaIntegrityProviderKey key) {
+        return mMediaIntegrityProviderCache.get(key);
+    }
+
+    public void putMediaIntegrityProviderInCache(
+            @NonNull MediaIntegrityProviderKey key, @NonNull MediaIntegrityProvider provider) {
+        mMediaIntegrityProviderCache.put(key, provider);
+    }
+
+    /**
+     * Remove an invalid AWMI token provider from the provider cache.
+     *
+     * @param key The key of the cache entry to invalidate.
+     * @param provider The value of the cache entry to invalidate. The cache entry will only be
+     *     removed if the current provider for the given key matches this provider.
+     */
+    public void invalidateCachedMediaIntegrityProvider(
+            @NonNull MediaIntegrityProviderKey key, @NonNull MediaIntegrityProvider provider) {
+        final MediaIntegrityProvider current = mMediaIntegrityProviderCache.get(key);
+        if (current == provider) {
+            mMediaIntegrityProviderCache.remove(key);
+        }
+    }
+
+    @UiThread
+    public void startPrefetchRequest(
+            @NonNull String url,
+            @Nullable AwPrefetchParameters prefetchParameters,
+            @NonNull AwPrefetchCallback callback,
+            @NonNull Executor callbackExecutor) {
+        assert ThreadUtils.runningOnUiThread();
+        if (!UrlUtilities.isHttps(url)) {
+            callbackExecutor.execute(
+                    () ->
+                            callback.onError(
+                                    new IllegalArgumentException(
+                                            "URL must have HTTPS scheme for prefetch.")));
+        }
+
+        if (!AwFeatureMap.isEnabled(ContentFeatureList.PREFETCH_BROWSER_INITIATED_TRIGGERS)) {
+            callbackExecutor.execute(
+                    () ->
+                            callback.onError(
+                                    new IllegalStateException(
+                                            "WebView initiated prefetching feature is not"
+                                                    + " enabled.")));
+        }
+
+        try (TraceEvent event = TraceEvent.scoped("WebView.Profile.Prefetch.START")) {
+            AwBrowserContextJni.get()
+                    .startPrefetchRequest(
+                            mNativeAwBrowserContext,
+                            url,
+                            prefetchParameters,
+                            callback,
+                            callbackExecutor);
+        }
+    }
+
+    @CalledByNative
+    public void onPrefetchStartFailed(AwPrefetchCallback callback, Executor callbackExecutor) {
+        callbackExecutor.execute(
+                () -> callback.onStatusUpdated(StatusCode.PREFETCH_START_FAILED, null));
+    }
+
+    @CalledByNative
+    public void onPrefetchResponseCompleted(
+            AwPrefetchCallback callback, Executor callbackExecutor) {
+        callbackExecutor.execute(
+                () -> callback.onStatusUpdated(StatusCode.PREFETCH_RESPONSE_COMPLETED, null));
+    }
+
+    @CalledByNative
+    public void onPrefetchResponseError(AwPrefetchCallback callback, Executor callbackExecutor) {
+        callbackExecutor.execute(
+                () -> callback.onStatusUpdated(StatusCode.PREFETCH_RESPONSE_GENERIC_ERROR, null));
+    }
+
+    @CalledByNative
+    public void onPrefetchResponseServerError(
+            AwPrefetchCallback callback, Executor callbackExecutor, int httpResponseCode) {
+        Bundle extras = new Bundle();
+        extras.putInt(AwPrefetchCallback.EXTRA_HTTP_RESPONSE_CODE, httpResponseCode);
+        callbackExecutor.execute(
+                () -> callback.onStatusUpdated(StatusCode.PREFETCH_RESPONSE_SERVER_ERROR, extras));
+    }
+
     private void migrateGeolocationPreferences() {
         // Prefs dir will be created if it doesn't exist, so must allow writes
         // for this and so that the actual prefs can be written to the new
@@ -207,11 +396,6 @@ public class AwBrowserContext implements BrowserContextHandle {
         return sInstance;
     }
 
-    // See comments in WebViewChromiumFactoryProvider for details.
-    public void setWebLayerRunningInSameProcess() {
-        AwBrowserContextJni.get().setWebLayerRunningInSameProcess(mNativeAwBrowserContext);
-    }
-
     public void clearPersistentOriginTrialStorageForTesting() {
         AwBrowserContextJni.get()
                 .clearPersistentOriginTrialStorageForTesting(mNativeAwBrowserContext);
@@ -255,6 +439,17 @@ public class AwBrowserContext implements BrowserContextHandle {
         }
     }
 
+    @CalledByNative
+    private int getGeolocationPermission(String origin) {
+        AwGeolocationPermissions permissions = getGeolocationPermissions();
+        if (!permissions.hasOrigin(origin)) {
+            return PermissionStatus.ASK;
+        }
+        return permissions.isOriginAllowed(origin)
+                ? PermissionStatus.GRANTED
+                : PermissionStatus.DENIED;
+    }
+
     @NativeMethods
     interface Natives {
         AwBrowserContext getDefaultJava();
@@ -264,8 +459,6 @@ public class AwBrowserContext implements BrowserContextHandle {
         String getDefaultContextRelativePath();
 
         long getQuotaManagerBridge(long nativeAwBrowserContext);
-
-        void setWebLayerRunningInSameProcess(long nativeAwBrowserContext);
 
         String[] updateServiceWorkerXRequestedWithAllowListOriginMatcher(
                 long nativeAwBrowserContext, String[] rules);
@@ -278,5 +471,14 @@ public class AwBrowserContext implements BrowserContextHandle {
 
         void setServiceWorkerIoThreadClient(
                 long nativeAwBrowserContext, AwContentsIoThreadClient ioThreadClient);
+
+        // TODO (crbug.com/372915956) Consider flattening the prefetch parameters before passing to
+        // native.
+        void startPrefetchRequest(
+                long nativeAwBrowserContext,
+                @JniType("std::string") String url,
+                AwPrefetchParameters prefetchParameters,
+                AwPrefetchCallback callback,
+                Executor callbackExecutor);
     }
 }

@@ -15,7 +15,7 @@ namespace android_webview {
 class AwWebContentsDelegate
     : public web_contents_delegate_android::WebContentsDelegateAndroid {
  public:
-  AwWebContentsDelegate(JNIEnv* env, jobject obj);
+  AwWebContentsDelegate(JNIEnv* env, const jni_zero::JavaRef<jobject>& obj);
   ~AwWebContentsDelegate() override;
 
   void RendererUnresponsive(
@@ -38,15 +38,17 @@ class AwWebContentsDelegate
   void RunFileChooser(content::RenderFrameHost* render_frame_host,
                       scoped_refptr<content::FileSelectListener> listener,
                       const blink::mojom::FileChooserParams& params) override;
+  bool UseFileChooserForFileSystemAccess() const override;
   // See //android_webview/docs/how-does-on-create-window-work.md for more
   // details.
-  void AddNewContents(content::WebContents* source,
-                      std::unique_ptr<content::WebContents> new_contents,
-                      const GURL& target_url,
-                      WindowOpenDisposition disposition,
-                      const blink::mojom::WindowFeatures& window_features,
-                      bool user_gesture,
-                      bool* was_blocked) override;
+  content::WebContents* AddNewContents(
+      content::WebContents* source,
+      std::unique_ptr<content::WebContents> new_contents,
+      const GURL& target_url,
+      WindowOpenDisposition disposition,
+      const blink::mojom::WindowFeatures& window_features,
+      bool user_gesture,
+      bool* was_blocked) override;
 
   void NavigationStateChanged(content::WebContents* source,
                               content::InvalidateTypes changed_flags) override;
@@ -77,8 +79,13 @@ class AwWebContentsDelegate
       const content::WebContents* web_contents) override;
   void UpdateUserGestureCarryoverInfo(
       content::WebContents* web_contents) override;
+  bool IsBackForwardCacheSupported(content::WebContents& web_contents) override;
   content::PreloadingEligibility IsPrerender2Supported(
       content::WebContents& web_contents) override;
+  content::NavigationController::UserAgentOverrideOption
+  ShouldOverrideUserAgentForPrerender2() override;
+  bool ShouldAllowPartialParamMismatchOfPrerender2(
+      content::NavigationHandle& navigation_handle) override;
 
   scoped_refptr<content::FileSelectListener> TakeFileSelectListener();
 

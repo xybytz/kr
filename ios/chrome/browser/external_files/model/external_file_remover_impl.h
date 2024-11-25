@@ -5,16 +5,17 @@
 #ifndef IOS_CHROME_BROWSER_EXTERNAL_FILES_MODEL_EXTERNAL_FILE_REMOVER_IMPL_H_
 #define IOS_CHROME_BROWSER_EXTERNAL_FILES_MODEL_EXTERNAL_FILE_REMOVER_IMPL_H_
 
-#include <vector>
+#import <vector>
 
-#include "base/functional/callback.h"
-#include "base/functional/callback_helpers.h"
-#include "base/memory/weak_ptr.h"
-#include "base/time/time.h"
-#include "components/sessions/core/tab_restore_service_observer.h"
+#import "base/functional/callback.h"
+#import "base/functional/callback_helpers.h"
+#import "base/memory/raw_ptr.h"
+#import "base/memory/weak_ptr.h"
+#import "base/time/time.h"
+#import "components/sessions/core/tab_restore_service_observer.h"
 #import "ios/chrome/browser/external_files/model/external_file_remover.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 
 namespace sessions {
 class TabRestoreService;
@@ -27,7 +28,7 @@ class ExternalFileRemoverImpl : public ExternalFileRemover,
   // Creates an ExternalFileRemoverImpl to remove external documents not
   // referenced by the specified BrowserViewController. Use Remove to initiate
   // the removal.
-  ExternalFileRemoverImpl(ChromeBrowserState* browser_state,
+  ExternalFileRemoverImpl(ProfileIOS* profile,
                           sessions::TabRestoreService* tab_restore_service);
 
   ExternalFileRemoverImpl(const ExternalFileRemoverImpl&) = delete;
@@ -67,10 +68,10 @@ class ExternalFileRemoverImpl : public ExternalFileRemover,
   // Vector used to store delayed requests.
   std::vector<DelayedFileRemoveRequest> delayed_file_remove_requests_;
   // Pointer to the tab restore service.
-  sessions::TabRestoreService* tab_restore_service_ = nullptr;
-  // ChromeBrowserState used to get the referenced files. Must outlive this
+  raw_ptr<sessions::TabRestoreService> tab_restore_service_ = nullptr;
+  // ProfileIOS used to get the referenced files. Must outlive this
   // object.
-  ChromeBrowserState* browser_state_ = nullptr;
+  raw_ptr<ProfileIOS> profile_ = nullptr;
   // Used to ensure that this class' methods are called on the correct sequence.
   SEQUENCE_CHECKER(sequence_checker_);
   // Used to ensure `Remove()` is not run when this object is destroyed.

@@ -10,10 +10,11 @@
 #import <vector>
 
 #import "base/containers/circular_deque.h"
+#import "base/memory/raw_ptr.h"
 #import "base/scoped_observation.h"
 #import "base/time/time.h"
 #import "ios/chrome/browser/metrics/model/tab_usage_recorder_metrics.h"
-#import "ios/chrome/browser/sessions/session_restoration_observer.h"
+#import "ios/chrome/browser/sessions/model/session_restoration_observer.h"
 #import "ios/chrome/browser/shared/model/browser/browser_observer.h"
 #import "ios/chrome/browser/shared/model/browser/browser_user_data.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer.h"
@@ -95,7 +96,7 @@ class TabUsageRecorderBrowserAgent
   void ResetAll();
 
  private:
-  // TODO(crbug.com/731724): remove this once the code has been refactored not
+  // TODO(crbug.com/41324440): remove this once the code has been refactored not
   // to depends on injecting values in `termination_timestamps_`.
   friend class TabUsageRecorderBrowserAgentTest;
 
@@ -177,7 +178,7 @@ class TabUsageRecorderBrowserAgent
 
   // Keep track of the current tab, but only if it has been evicted.
   // This is kept as a pointer value only - it should never be dereferenced.
-  web::WebState* evicted_web_state_ = nullptr;
+  raw_ptr<web::WebState> evicted_web_state_ = nullptr;
 
   // State of `evicted_web_state_` at the time it became the current tab.
   tab_usage_recorder::TabStateWhenSelected evicted_web_state_state_ =
@@ -186,11 +187,11 @@ class TabUsageRecorderBrowserAgent
   // Keep track of the tab last selected when this tab model was switched
   // away from to another mode (e.g. to incognito).
   // Kept as a pointer value only - it should never be dereferenced.
-  web::WebState* mode_switch_web_state_ = nullptr;
+  raw_ptr<web::WebState> mode_switch_web_state_ = nullptr;
 
   // Keep track of a tab that was created to be immediately selected.  It should
   // not contribute to the "StatusWhenSwitchedBackToForeground" metric.
-  web::WebState* web_state_created_selected_ = nullptr;
+  raw_ptr<web::WebState> web_state_created_selected_ = nullptr;
 
   // Keep track of when the evicted tab starts to reload, so that the total
   // time it takes to reload can be recorded.
@@ -201,11 +202,11 @@ class TabUsageRecorderBrowserAgent
       evicted_web_states_;
 
   // The WebStateList containing all the monitored tabs.
-  WebStateList* web_state_list_;  // weak
+  raw_ptr<WebStateList> web_state_list_;  // weak
 
   // The PrerenderService used to check whether a tab is pre-rendering. May
   // be null during unit testing.
-  PrerenderService* prerender_service_;
+  raw_ptr<PrerenderService> prerender_service_;
 
   // Observation for SessionRestorationService events.
   base::ScopedObservation<SessionRestorationService, SessionRestorationObserver>

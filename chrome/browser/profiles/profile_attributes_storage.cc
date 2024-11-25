@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 
 #include <algorithm>
@@ -33,7 +38,6 @@
 #include "chrome/browser/profiles/profile_avatar_downloader.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/profiles/profile_metrics.h"
-#include "chrome/browser/signin/signin_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/account_id/account_id.h"
@@ -43,6 +47,7 @@
 #include "components/profile_metrics/state.h"
 #include "components/signin/public/base/persistent_repeating_timer.h"
 #include "components/signin/public/base/signin_pref_names.h"
+#include "components/signin/public/base/signin_switches.h"
 #include "components/signin/public/identity_manager/account_managed_status_finder.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -89,10 +94,10 @@ enum class MultiProfileUserType {
 };
 
 const char kProfileCountLastUpdatePref[] = "profile.profile_counts_reported";
-#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
 const char kLegacyProfileNameMigrated[] = "legacy.profile.name.migrated";
 bool g_migration_enabled_for_testing = false;
-#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
 
 // Reads a PNG from disk and decodes it. If the bitmap was successfully read
 // from disk then this will return the bitmap image, otherwise it will return
@@ -199,44 +204,27 @@ MultiProfileUserType GetMultiProfileUserType(
   return MultiProfileUserType::kActiveMultiProfile;
 }
 
-profile_metrics::AvatarState GetAvatarState(ProfileAttributesEntry* entry) {
-  size_t index = entry->GetAvatarIconIndex();
-  bool is_modern = profiles::IsModernAvatarIconIndex(index);
-  if (entry->GetSigninState() == SigninState::kNotSignedIn) {
-    if (index == profiles::GetPlaceholderAvatarIndex())
-      return profile_metrics::AvatarState::kSignedOutDefault;
-    return is_modern ? profile_metrics::AvatarState::kSignedOutModern
-                     : profile_metrics::AvatarState::kSignedOutOld;
-  }
-  if (entry->IsUsingGAIAPicture())
-    return profile_metrics::AvatarState::kSignedInGaia;
-  return is_modern ? profile_metrics::AvatarState::kSignedInModern
-                   : profile_metrics::AvatarState::kSignedInOld;
-}
-
 profile_metrics::UnconsentedPrimaryAccountType GetUnconsentedPrimaryAccountType(
     ProfileAttributesEntry* entry) {
   if (entry->GetSigninState() == SigninState::kNotSignedIn)
     return profile_metrics::UnconsentedPrimaryAccountType::kSignedOut;
-  if (entry->IsChild())
+  if (entry->IsSupervised()) {
     return profile_metrics::UnconsentedPrimaryAccountType::kChild;
-  // TODO(crbug.com/1060113): Replace this check by
+  }
+  // TODO(crbug.com/40121889): Replace this check by
   // !entry->GetHostedDomain().has_value() in M84 (once the attributes storage
   // gets reasonably well populated).
-  if (signin::AccountManagedStatusFinder::IsEnterpriseUserBasedOnEmail(
-          base::UTF16ToUTF8(entry->GetUserName())) ==
-      signin::AccountManagedStatusFinder::EmailEnterpriseStatus::
-          kKnownNonEnterprise) {
+  if (!signin::AccountManagedStatusFinder::MayBeEnterpriseUserBasedOnEmail(
+          base::UTF16ToUTF8(entry->GetUserName()))) {
     return profile_metrics::UnconsentedPrimaryAccountType::kConsumer;
   }
-  // TODO(crbug.com/1060113): Figure out how to distinguish EDU accounts from
+  // TODO(crbug.com/40121889): Figure out how to distinguish EDU accounts from
   // other enterprise.
   return profile_metrics::UnconsentedPrimaryAccountType::kEnterprise;
 }
 
 void RecordProfileState(ProfileAttributesEntry* entry,
                         profile_metrics::StateSuffix suffix) {
-  profile_metrics::LogProfileAvatar(GetAvatarState(entry), suffix);
   profile_metrics::LogProfileAccountType(
       GetUnconsentedPrimaryAccountType(entry), suffix);
   profile_metrics::LogProfileSyncEnabled(
@@ -329,7 +317,7 @@ ProfileAttributesStorage::ProfileAttributesStorage(
   LoadGAIAPictureIfNeeded();
 #endif
 
-#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
   bool migrate_legacy_profile_names =
       (!prefs_->GetBoolean(kLegacyProfileNameMigrated) ||
        g_migration_enabled_for_testing);
@@ -342,7 +330,7 @@ ProfileAttributesStorage::ProfileAttributesStorage(
       prefs_, kProfileCountLastUpdatePref, base::Hours(24),
       base::BindRepeating(&ProfileMetrics::LogNumberOfProfiles, this));
   repeating_timer_->Start();
-#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
 
   EnsureProfilesOrderPrefIsInitialized();
 }
@@ -354,9 +342,9 @@ void ProfileAttributesStorage::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterDictionaryPref(prefs::kProfileAttributes);
   registry->RegisterListPref(prefs::kProfilesOrder);
   registry->RegisterTimePref(kProfileCountLastUpdatePref, base::Time());
-#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
   registry->RegisterBooleanPref(kLegacyProfileNameMigrated, false);
-#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
 }
 
 // static
@@ -460,7 +448,6 @@ void ProfileAttributesStorage::RemoveProfile(
   ProfileAttributesEntry* entry = GetProfileAttributesWithPath(profile_path);
   if (!entry) {
     NOTREACHED();
-    return;
   }
 
   std::u16string name = entry->GetName();
@@ -666,14 +653,14 @@ std::u16string ProfileAttributesStorage::ChooseNameForNewProfile(
     size_t icon_index) const {
   std::u16string name;
   for (int name_index = 1;; ++name_index) {
-#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_ANDROID)
+#if !BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_ANDROID)
     // Using native digits will break IsDefaultProfileName() below because
     // it uses sscanf.
     // TODO(jshin): fix IsDefaultProfileName to handle native digits.
     name = l10n_util::GetStringFUTF16(IDS_NEW_NUMBERED_PROFILE_NAME,
                                       base::NumberToString16(name_index));
 #else
-    // TODO(crbug.com/937834): Clean up this code.
+    // TODO(crbug.com/41444689): Clean up this code.
     if (icon_index < profiles::GetGenericAvatarIconCount() ||
         profiles::IsModernAvatarIconIndex(icon_index)) {
       name = l10n_util::GetStringFUTF16Int(IDS_NUMBERED_PROFILE_NAME,
@@ -715,7 +702,7 @@ bool ProfileAttributesStorage::IsDefaultProfileName(
     }
   }
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_ANDROID)
+#if !BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_ANDROID)
   if (!include_check_for_legacy_profile_name)
     return false;
 #endif
@@ -952,7 +939,7 @@ std::string ProfileAttributesStorage::StorageKeyFromProfilePath(
 }
 
 void ProfileAttributesStorage::DisableProfileMetricsForTesting() {
-#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
   repeating_timer_.reset();
 #endif
 }
@@ -1014,9 +1001,9 @@ void ProfileAttributesStorage::SaveAvatarImageAtPath(
     base::OnceClosure callback) {
   cached_avatar_images_[key] = image;
 
-  std::unique_ptr<ImageData> data(new ImageData);
   scoped_refptr<base::RefCountedMemory> png_data = image.As1xPNGBytes();
-  data->assign(png_data->front(), png_data->front() + png_data->size());
+  auto data = std::make_unique<ImageData>(png_data->size());
+  base::span(*data).copy_from(*png_data);
 
   // Remove the file from the list of downloads in progress. Note that this list
   // only contains the high resolution avatars, and not the Gaia profile images.
@@ -1081,7 +1068,7 @@ void ProfileAttributesStorage::LoadGAIAPictureIfNeeded() {
 }
 #endif
 
-#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
 void ProfileAttributesStorage::MigrateLegacyProfileNamesAndRecomputeIfNeeded() {
   std::vector<ProfileAttributesEntry*> entries = GetAllProfilesAttributes();
   for (size_t i = 0; i < entries.size(); i++) {
@@ -1116,7 +1103,7 @@ void ProfileAttributesStorage::MigrateLegacyProfileNamesAndRecomputeIfNeeded() {
 void ProfileAttributesStorage::SetLegacyProfileMigrationForTesting(bool value) {
   g_migration_enabled_for_testing = value;
 }
-#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
 
 void ProfileAttributesStorage::OnAvatarPictureLoaded(
     const base::FilePath& profile_path,

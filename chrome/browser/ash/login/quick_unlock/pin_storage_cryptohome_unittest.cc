@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/run_loop.h"
 #include "chrome/browser/ash/login/quick_unlock/fake_pin_salt_storage.h"
@@ -16,7 +17,6 @@
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_utils.h"
 #include "chromeos/ash/components/cryptohome/common_types.h"
 #include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
-#include "chromeos/ash/components/cryptohome/cryptohome_util.h"
 #include "chromeos/ash/components/cryptohome/system_salt_getter.h"
 #include "chromeos/ash/components/dbus/cryptohome/rpc.pb.h"
 #include "chromeos/ash/components/dbus/userdataauth/fake_cryptohome_misc_client.h"
@@ -47,7 +47,7 @@ class PinStorageCryptohomeUnitTest : public testing::Test {
   // testing::Test:
   void SetUp() override {
     user_context_ = std::make_unique<UserContext>(
-        user_manager::USER_TYPE_REGULAR, test_account_id_);
+        user_manager::UserType::kRegular, test_account_id_);
 
     test_api_ = std::make_unique<TestApi>(/*override_quick_unlock=*/true);
     test_api_->EnablePinByPolicy(Purpose::kAny);
@@ -100,7 +100,8 @@ class PinStorageCryptohomeUnitTest : public testing::Test {
     storage_->CanAuthenticate(
         std::make_unique<UserContext>(*user_context_), Purpose::kAny,
         base::BindOnce(
-            [](base::OnceClosure closure, bool* res, bool can_auth) {
+            [](base::OnceClosure closure, bool* res, bool can_auth,
+               cryptohome::PinLockAvailability available_at) {
               *res = can_auth;
               std::move(closure).Run();
             },
@@ -229,7 +230,7 @@ class PinStorageCryptohomeUnitTest : public testing::Test {
   AccountId test_account_id_{
       AccountId::FromUserEmailGaiaId("user@example.com", "11111")};
   std::unique_ptr<UserContext> user_context_ =
-      std::make_unique<UserContext>(user_manager::USER_TYPE_REGULAR,
+      std::make_unique<UserContext>(user_manager::UserType::kRegular,
                                     test_account_id_);
   std::unique_ptr<TestApi> test_api_;
 };

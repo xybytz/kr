@@ -7,11 +7,11 @@
 #import <stdlib.h>
 
 #import "base/apple/foundation_util.h"
+#import "ios/chrome/browser/reading_list/ui_bundled/number_badge_view.h"
+#import "ios/chrome/browser/reading_list/ui_bundled/text_badge_view.h"
 #import "ios/chrome/browser/shared/ui/table_view/legacy_chrome_table_view_styler.h"
 #import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_ui_constants.h"
-#import "ios/chrome/browser/ui/reading_list/number_badge_view.h"
-#import "ios/chrome/browser/ui/reading_list/text_badge_view.h"
 #import "ios/chrome/common/material_timing.h"
 #import "ios/chrome/common/string_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
@@ -88,7 +88,7 @@ NSMutableAttributedString* GetAttributedString(NSString* imageName,
 #pragma mark - PopupMenuItem
 
 - (CGSize)cellSizeForWidth:(CGFloat)width {
-  // TODO(crbug.com/828357): This should be done at the table view level.
+  // TODO(crbug.com/41380449): This should be done at the table view level.
   static PopupMenuTextCell* cell;
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{

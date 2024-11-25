@@ -40,7 +40,6 @@ shared_highlighting::LinkGenerationError OutcomeToError(
     case LinkGenerationOutcome::kSuccess:
       // kSuccess is not supposed to happen, as it is not an error.
       NOTREACHED();
-      return LinkGenerationError::kUnknown;
   }
 }
 

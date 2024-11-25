@@ -64,10 +64,6 @@ BASE_FEATURE(kCaptivePortalInterstitial,
              "CaptivePortalInterstitial",
              base::FEATURE_ENABLED_BY_DEFAULT);
 
-BASE_FEATURE(kCaptivePortalCertificateList,
-             "CaptivePortalCertificateList",
-             base::FEATURE_ENABLED_BY_DEFAULT);
-
 namespace {
 
 BASE_FEATURE(kSSLCommonNameMismatchHandling,
@@ -96,7 +92,7 @@ class CommonNameMismatchRedirectObserver
   CommonNameMismatchRedirectObserver& operator=(
       const CommonNameMismatchRedirectObserver&) = delete;
 
-  ~CommonNameMismatchRedirectObserver() override {}
+  ~CommonNameMismatchRedirectObserver() override = default;
 
   static void AddToConsoleAfterNavigation(
       content::WebContents* web_contents,
@@ -189,7 +185,7 @@ class ConfigSingleton {
 
   // Returns a DynamicInterstitialInfo that matches with |ssl_info|. If is no
   // match, return null.
-  absl::optional<DynamicInterstitialInfo> MatchDynamicInterstitial(
+  std::optional<DynamicInterstitialInfo> MatchDynamicInterstitial(
       const net::SSLInfo& ssl_info,
       bool is_overridable);
 
@@ -333,7 +329,7 @@ const std::string ConfigSingleton::MatchKnownMITMSoftware(
   return ssl_error_assistant_->MatchKnownMITMSoftware(cert);
 }
 
-absl::optional<DynamicInterstitialInfo>
+std::optional<DynamicInterstitialInfo>
 ConfigSingleton::MatchDynamicInterstitial(const net::SSLInfo& ssl_info,
                                           bool is_overridable) {
   return ssl_error_assistant_->MatchDynamicInterstitial(ssl_info,
@@ -669,7 +665,7 @@ void SSLErrorHandler::StartHandlingError() {
     return;
   }
 
-  absl::optional<DynamicInterstitialInfo> dynamic_interstitial =
+  std::optional<DynamicInterstitialInfo> dynamic_interstitial =
       g_config.Pointer()->MatchDynamicInterstitial(
           ssl_info_, delegate_->IsErrorOverridable());
   if (dynamic_interstitial) {
@@ -716,14 +712,6 @@ void SSLErrorHandler::StartHandlingError() {
   if (only_error_is_name_mismatch) {
     delegate_->ReportNetworkConnectivity(
         g_config.Pointer()->report_network_connectivity_callback());
-
-    if (base::FeatureList::IsEnabled(kCaptivePortalCertificateList) &&
-        g_config.Pointer()->IsKnownCaptivePortalCertificate(ssl_info_) &&
-        !is_captive_portal_login_tab) {
-      RecordUMA(CAPTIVE_PORTAL_CERT_FOUND);
-      ShowCaptivePortalInterstitial(GURL());
-      return;
-    }
   }
 
   // The MITM software interstitial is displayed if and only if:
@@ -849,7 +837,6 @@ void SSLErrorHandler::ShowDynamicInterstitial(
   switch (dynamic_interstitial.interstitial_type) {
     case chrome_browser_ssl::DynamicInterstitial::INTERSTITIAL_PAGE_NONE:
       NOTREACHED();
-      return;
     case chrome_browser_ssl::DynamicInterstitial::INTERSTITIAL_PAGE_SSL:
       delegate_->ShowSSLInterstitial(dynamic_interstitial.support_url);
       return;

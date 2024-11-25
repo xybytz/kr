@@ -4,28 +4,22 @@
 
 package org.chromium.chrome.browser.toolbar;
 
-import androidx.annotation.VisibleForTesting;
+import android.os.Build.VERSION;
+import android.os.Build.VERSION_CODES;
 
+import org.chromium.base.ResettersForTesting;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 
 /** Utility class for toolbar code interacting with features and params. */
 public final class ToolbarFeatures {
 
-    private static final String ALLOW_CAPTURES = "allow_captures";
-
-    @VisibleForTesting public static final String BLOCK_FOR_FULLSCREEN = "block_for_fullscreen";
+    private static Boolean sTabStripLayoutOptimizationEnabledForTesting;
 
     /** Private constructor to avoid instantiation. */
     private ToolbarFeatures() {}
 
     public static boolean shouldSuppressCaptures() {
         return ChromeFeatureList.sSuppressionToolbarCaptures.isEnabled();
-    }
-
-    /** Returns if the suppression logic should avoid capturing during fullscreen, such as video. */
-    public static boolean shouldBlockCapturesForFullscreen() {
-        return ChromeFeatureList.getFieldTrialParamByFeatureAsBoolean(
-                ChromeFeatureList.SUPPRESS_TOOLBAR_CAPTURES, BLOCK_FOR_FULLSCREEN, false);
     }
 
     /**
@@ -35,5 +29,21 @@ public final class ToolbarFeatures {
      */
     public static boolean shouldRecordSuppressionMetrics() {
         return ChromeFeatureList.sRecordSuppressionMetrics.isEnabled();
+    }
+
+    /** Returns if we are using optimized window layout for tab strip. */
+    public static boolean isTabStripWindowLayoutOptimizationEnabled(boolean isTablet) {
+        if (sTabStripLayoutOptimizationEnabledForTesting != null) {
+            return sTabStripLayoutOptimizationEnabledForTesting;
+        }
+        return ChromeFeatureList.sTabStripLayoutOptimization.isEnabled()
+                && isTablet
+                && VERSION.SDK_INT >= VERSION_CODES.R;
+    }
+
+    /** Set the return value for {@link #isTabStripWindowLayoutOptimizationEnabled(boolean)}. */
+    public static void setIsTabStripLayoutOptimizationEnabledForTesting(boolean enabled) {
+        sTabStripLayoutOptimizationEnabledForTesting = enabled;
+        ResettersForTesting.register(() -> sTabStripLayoutOptimizationEnabledForTesting = null);
     }
 }

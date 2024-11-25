@@ -28,10 +28,10 @@ import org.chromium.base.BaseSwitches;
 import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.EarlyTraceEvent;
+import org.chromium.base.JavaUtils;
 import org.chromium.base.Log;
 import org.chromium.base.MemoryPressureLevel;
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.compat.ApiHelperForN;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.memory.MemoryPressureMonitor;
 import org.chromium.base.metrics.RecordHistogram;
@@ -41,28 +41,26 @@ import java.util.List;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
- * This is the base class for child services.
- * Pre-Q, and for privileged services, the embedding application should contain ProcessService0,
- * 1, etc subclasses that provide the concrete service entry points, so it can connect to more than
- * one distinct process (i.e. one process per service number, up to limit of N).
- * The embedding application must declare these service instances in the application section
- * of its AndroidManifest.xml, first with some meta-data describing the services:
- *     <meta-data android:name="org.chromium.test_app.SERVICES_NAME"
- *           android:value="org.chromium.test_app.ProcessService"/>
- * and then N entries of the form:
- *     <service android:name="org.chromium.test_app.ProcessServiceX"
- *              android:process=":processX" />
+ * This is the base class for child services. Pre-Q, and for privileged services, the embedding
+ * application should contain ProcessService0, 1, etc subclasses that provide the concrete service
+ * entry points, so it can connect to more than one distinct process (i.e. one process per service
+ * number, up to limit of N). The embedding application must declare these service instances in the
+ * application section of its AndroidManifest.xml, first with some meta-data describing the
+ * services: <meta-data android:name="org.chromium.test_app.SERVICES_NAME"
+ * android:value="org.chromium.test_app.ProcessService"/> and then N entries of the form: <service
+ * android:name="org.chromium.test_app.ProcessServiceX" android:process=":processX" />
  *
- * Q added bindIsolatedService which supports creating multiple instances from a single manifest
+ * <p>Q added bindIsolatedService which supports creating multiple instances from a single manifest
  * declaration for isolated services. In this case, only need to declare instance 0 in the manifest.
  *
- * Subclasses must also provide a delegate in this class constructor. That delegate is responsible
- * for loading native libraries and running the main entry point of the service.
+ * <p>Subclasses must also provide a delegate in this class constructor. That delegate is
+ * responsible for loading native libraries and running the main entry point of the service.
  *
- * This class does not directly inherit from Service because the logic may be used by a Service
+ * <p>This class does not directly inherit from Service because the logic may be used by a Service
  * implementation which cannot directly inherit from this class (e.g. for WebLayer child services).
  */
 @JNINamespace("base::android")
+@SuppressWarnings("SynchronizeOnNonFinalField") // mMainThread assigned in onCreate().
 public class ChildProcessService {
     private static final String MAIN_THREAD_NAME = "ChildProcessMain";
     private static final String TAG = "ChildProcessService";
@@ -156,7 +154,10 @@ public class ChildProcessService {
 
                 @Override
                 public void setupConnection(
-                        Bundle args, IParentProcess parentProcess, List<IBinder> callbacks)
+                        Bundle args,
+                        IParentProcess parentProcess,
+                        List<IBinder> callbacks,
+                        IBinder binderBox)
                         throws RemoteException {
                     assert mServiceBound;
                     synchronized (mBinderLock) {
@@ -188,7 +189,7 @@ public class ChildProcessService {
                     parentProcess.finishSetupConnection(
                             pid, zygotePid, startupTimeMillis, relroBundle);
                     mParentProcess = parentProcess;
-                    processConnectionBundle(args, callbacks);
+                    processConnectionBundle(args, callbacks, binderBox);
                 }
 
                 @Override
@@ -332,16 +333,18 @@ public class ChildProcessService {
             } catch (RemoteException re) {
                 Log.e(TAG, "Failed to call reportExceptionInInit.", re);
             }
-            throw new RuntimeException(e);
+            JavaUtils.throwUnchecked(e);
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             // Record process startup time histograms.
-            long startTime = SystemClock.uptimeMillis() - ApiHelperForN.getStartUptimeMillis();
+            long startTime = SystemClock.uptimeMillis() - Process.getStartUptimeMillis();
             String baseHistogramName = "Android.ChildProcessStartTimeV2";
             String suffix = ContextUtils.isIsolatedProcess() ? ".Isolated" : ".NotIsolated";
-            RecordHistogram.recordMediumTimesHistogram(baseHistogramName + ".All", startTime);
-            RecordHistogram.recordMediumTimesHistogram(baseHistogramName + suffix, startTime);
+            RecordHistogram.deprecatedRecordMediumTimesHistogram(
+                    baseHistogramName + ".All", startTime);
+            RecordHistogram.deprecatedRecordMediumTimesHistogram(
+                    baseHistogramName + suffix, startTime);
         }
 
         mDelegate.runMain();
@@ -399,7 +402,8 @@ public class ChildProcessService {
         sZygoteStartupTimeMillis = zygoteStartupTimeMillis;
     }
 
-    private void processConnectionBundle(Bundle bundle, List<IBinder> clientInterfaces) {
+    private void processConnectionBundle(
+            Bundle bundle, List<IBinder> clientInterfaces, IBinder binderBox) {
         // Required to unparcel FileDescriptorInfo.
         ClassLoader classLoader = getApplicationContext().getClassLoader();
         bundle.setClassLoader(classLoader);
@@ -419,7 +423,7 @@ public class ChildProcessService {
                 mFdInfos = new FileDescriptorInfo[fdInfosAsParcelable.length];
                 System.arraycopy(fdInfosAsParcelable, 0, mFdInfos, 0, fdInfosAsParcelable.length);
             }
-            mDelegate.onConnectionSetup(bundle, clientInterfaces);
+            mDelegate.onConnectionSetup(bundle, clientInterfaces, binderBox);
             mMainThread.notifyAll();
         }
     }

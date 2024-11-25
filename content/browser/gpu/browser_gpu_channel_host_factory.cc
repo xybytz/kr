@@ -327,7 +327,6 @@ scoped_refptr<gpu::GpuChannelHost>
 BrowserGpuChannelHostFactory::EstablishGpuChannelSync() {
 #if BUILDFLAG(IS_ANDROID)
   NOTREACHED();
-  return nullptr;
 #else
   EstablishGpuChannel(gpu::GpuChannelEstablishedCallback(), true);
   return gpu_channel_;
@@ -338,7 +337,7 @@ void BrowserGpuChannelHostFactory::EstablishGpuChannel(
     gpu::GpuChannelEstablishedCallback callback,
     bool sync) {
   if (gpu_channel_.get() && gpu_channel_->IsLost()) {
-// TODO(crbug.com/1248936): DCHECKs are disabled during automated testing on
+// TODO(crbug.com/40790884): DCHECKs are disabled during automated testing on
 // CrOS and this check failed when tested on an experimental builder. Revert
 // https://crrev.com/c/3174621 to enable it. See go/chrome-dcheck-on-cros
 // or http://crbug.com/1113456 for more details.

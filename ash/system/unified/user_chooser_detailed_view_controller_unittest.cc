@@ -109,7 +109,8 @@ TEST_F(UserChooserDetailedViewControllerTest, SwitchUserWithOverview) {
   ASSERT_NE(GetActiveUser(), secondary_user);
 
   // Create an activatable widget.
-  std::unique_ptr<views::Widget> widget = CreateTestWidget();
+  std::unique_ptr<views::Widget> widget =
+      CreateTestWidget(views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET);
 
   // Enter overview mode.
   EnterOverview();
@@ -138,7 +139,7 @@ TEST_F(UserChooserDetailedViewControllerTest,
   GetSessionControllerClient()->Reset();
 
   // Log in as a child user.
-  SimulateUserLogin("child@gmail.com", user_manager::USER_TYPE_CHILD);
+  SimulateUserLogin("child@gmail.com", user_manager::UserType::kChild);
 
   EXPECT_FALSE(UserChooserDetailedViewController::IsUserChooserEnabled());
 }

@@ -14,6 +14,8 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
+import android.graphics.drawable.Icon;
+import android.os.Bundle;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
@@ -21,7 +23,6 @@ import androidx.annotation.VisibleForTesting;
 import androidx.core.app.NotificationCompat;
 import androidx.core.graphics.drawable.IconCompat;
 
-import org.chromium.base.compat.ApiHelperForM;
 import org.chromium.components.browser_ui.notifications.NotificationMetadata;
 import org.chromium.components.browser_ui.notifications.NotificationWrapper;
 import org.chromium.components.browser_ui.notifications.NotificationWrapperBuilder;
@@ -138,11 +139,14 @@ public abstract class NotificationBuilderBase {
     protected int mSmallIconId;
     @Nullable protected Bitmap mSmallIconBitmapForStatusBar;
     @Nullable protected Bitmap mSmallIconBitmapForContent;
+    @Nullable protected Bundle mExtras;
 
     protected PendingIntentProvider mContentIntent;
     protected PendingIntentProvider mDeleteIntent;
+    protected @NotificationUmaTracker.ActionType int mDeleteIntentActionType =
+            NotificationUmaTracker.ActionType.UNKNOWN;
     protected List<Action> mActions = new ArrayList<>(MAX_AUTHOR_PROVIDED_ACTION_BUTTONS);
-    protected Action mSettingsAction;
+    protected List<Action> mSettingsActions = new ArrayList<>(1);
     protected int mDefaults;
     protected long[] mVibratePattern;
     protected boolean mSilent;
@@ -150,6 +154,8 @@ public abstract class NotificationBuilderBase {
     protected boolean mRenotify;
     protected int mPriority;
     private Bitmap mLargeIcon;
+    private boolean mSuppressShowingLargeIcon;
+    protected long mTimeoutAfterMs;
 
     public NotificationBuilderBase(Resources resources) {
         mLargeIconWidthPx =
@@ -198,6 +204,22 @@ public abstract class NotificationBuilderBase {
         return this;
     }
 
+    /** Sets whether to hide the large icon that would normally be shown in the notification. */
+    public NotificationBuilderBase setSuppressShowingLargeIcon(boolean hideLargeIcon) {
+        mSuppressShowingLargeIcon = hideLargeIcon;
+        return this;
+    }
+
+    /**
+     * Sets the duration after which to auto-close the notification, as if the user closed it.
+     *
+     * @param ms The timeout duration in milliseconds. No timeout unless positive.
+     */
+    public NotificationBuilderBase setTimeoutAfter(long ms) {
+        mTimeoutAfterMs = ms;
+        return this;
+    }
+
     /**
      * Sets the resource id of a small icon that is shown in the notification and in the status bar.
      * Bitmaps set via {@link #setStatusBarIcon} and {@link #setSmallIconForContent} have precedence
@@ -224,6 +246,11 @@ public abstract class NotificationBuilderBase {
      */
     public NotificationBuilderBase setSmallIconForContent(@Nullable Bitmap iconBitmap) {
         mSmallIconBitmapForContent = applyWhiteOverlay(iconBitmap);
+        return this;
+    }
+
+    public NotificationBuilderBase setExtras(Bundle extras) {
+        mExtras = extras;
         return this;
     }
 
@@ -286,6 +313,22 @@ public abstract class NotificationBuilderBase {
         return this;
     }
 
+    /**
+     * Sets the PendingIntent to send when the notification is cleared by the user directly from the
+     * notification panel.
+     *
+     * <p>Records the intent in UMA as a special action instead of a dismissal.
+     *
+     * @param actionType The `ActionType` to record in UMA.
+     */
+    public NotificationBuilderBase setDeleteIntent(
+            @Nullable PendingIntentProvider intent,
+            @NotificationUmaTracker.ActionType int actionType) {
+        mDeleteIntent = intent;
+        mDeleteIntentActionType = actionType;
+        return this;
+    }
+
     /** Sets the channel id of the notification. */
     public NotificationBuilderBase setChannelId(String channelId) {
         mChannelId = channelId;
@@ -334,17 +377,23 @@ public abstract class NotificationBuilderBase {
         mActions.add(new Action(iconBitmap, limitLength(title), intent, actionType, placeholder));
     }
 
-    /** Adds an action to the notification for opening the settings screen. */
+    /**
+     * Adds an action to the notification for performing a settings related action, such as opening
+     * the settings screen or revoking the permission in one tap.
+     */
     public NotificationBuilderBase addSettingsAction(
-            int iconId, @Nullable CharSequence title, PendingIntentProvider intent) {
-        mSettingsAction =
+            int iconId,
+            @Nullable CharSequence title,
+            PendingIntentProvider intent,
+            @NotificationUmaTracker.ActionType int umaActionType) {
+        mSettingsActions.add(
                 new Action(
                         iconId,
                         limitLength(title),
                         intent,
                         Action.Type.BUTTON,
                         null,
-                        NotificationUmaTracker.ActionType.SETTINGS);
+                        umaActionType));
         return this;
     }
 
@@ -407,6 +456,9 @@ public abstract class NotificationBuilderBase {
      * <p>See {@link NotificationBuilderBase#ensureNormalizedIcon} for more details.
      */
     protected Bitmap getNormalizedLargeIcon() {
+        if (mSuppressShowingLargeIcon) {
+            return null;
+        }
         return ensureNormalizedIcon(mLargeIcon, mOrigin);
     }
 
@@ -452,7 +504,7 @@ public abstract class NotificationBuilderBase {
             Bitmap publicIcon =
                     mSmallIconBitmapForStatusBar.copy(
                             mSmallIconBitmapForStatusBar.getConfig(), true);
-            builder.setSmallIcon(ApiHelperForM.createIconWithBitmap(publicIcon));
+            builder.setSmallIcon(Icon.createWithBitmap(publicIcon));
         }
         return builder.build();
     }
@@ -476,7 +528,7 @@ public abstract class NotificationBuilderBase {
     protected static void setStatusBarIcon(
             NotificationWrapperBuilder builder, int iconId, @Nullable Bitmap iconBitmap) {
         if (iconBitmap != null) {
-            builder.setSmallIcon(ApiHelperForM.createIconWithBitmap(iconBitmap));
+            builder.setSmallIcon(Icon.createWithBitmap(iconBitmap));
         } else {
             builder.setSmallIcon(iconId);
         }
@@ -516,7 +568,7 @@ public abstract class NotificationBuilderBase {
     static void setGroupOnBuilder(NotificationWrapperBuilder builder, CharSequence origin) {
         if (origin == null) return;
         builder.setGroup(NotificationConstants.GROUP_WEB_PREFIX + origin);
-        // TODO(crbug.com/674927) Post a group summary notification.
+        // TODO(crbug.com/40498483) Post a group summary notification.
         // Notifications with the same group will only actually be stacked if we post a group
         // summary notification. Calling setGroup at least prevents them being autobundled with
         // all Chrome notifications on N though (see crbug.com/674015).

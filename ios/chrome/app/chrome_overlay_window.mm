@@ -28,6 +28,13 @@
     [self updateCrashKeys];
     _userInterfaceStyleRecorder = [[UserInterfaceStyleRecorder alloc]
         initWithUserInterfaceStyle:self.traitCollection.userInterfaceStyle];
+    if (@available(iOS 17, *)) {
+      NSArray<UITrait>* traits = @[
+        UITraitHorizontalSizeClass.class, UITraitUserInterfaceStyle.class
+      ];
+      [self registerForTraitChanges:traits
+                         withAction:@selector(updateCrashKeys)];
+    }
   }
   return self;
 }
@@ -56,19 +63,14 @@
 
 #pragma mark - UITraitEnvironment
 
+#if !defined(__IPHONE_17_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_17_0
 - (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
   [super traitCollectionDidChange:previousTraitCollection];
-  if (previousTraitCollection.horizontalSizeClass !=
-      self.traitCollection.horizontalSizeClass) {
-    [self updateCrashKeys];
-  }
-  if ([self.traitCollection
-          hasDifferentColorAppearanceComparedToTraitCollection:
-              previousTraitCollection]) {
-    [self.userInterfaceStyleRecorder
-        userInterfaceStyleDidChange:self.traitCollection.userInterfaceStyle];
+  if (@available(iOS 17, *)) {
+    return;
   }
   [self updateCrashKeys];
 }
+#endif
 
 @end

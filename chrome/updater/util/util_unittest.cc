@@ -4,6 +4,7 @@
 
 #include "chrome/updater/util/util.h"
 
+#include <cstdint>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -25,27 +26,30 @@
 #include "base/test/task_environment.h"
 #include "chrome/updater/constants.h"
 #include "chrome/updater/tag.h"
-#include "chrome/updater/test_scope.h"
-#include "chrome/updater/util/unit_test_util.h"
+#include "chrome/updater/test/test_scope.h"
+#include "chrome/updater/test/unit_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace updater {
 
-namespace {
-
-enum class TestEnum {
-  kEnumValue1 = 0L,
-  kEnumValue2 = 5L,
-  kEnumValue3,
+struct UtilTagArgsTestCase {
+  const std::string tag_switch;
 };
 
-}  // namespace
+class UtilTagArgsTest : public ::testing::TestWithParam<UtilTagArgsTestCase> {};
 
-TEST(Util, AppArgsAndAP) {
+INSTANTIATE_TEST_SUITE_P(UtilTagArgsTestCases,
+                         UtilTagArgsTest,
+                         ::testing::ValuesIn(std::vector<UtilTagArgsTestCase>{
+                             {kInstallSwitch},
+                             {kHandoffSwitch},
+                         }));
+
+TEST_P(UtilTagArgsTest, AppArgsAndAP) {
   base::test::ScopedCommandLine original_command_line;
   {
     base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-    command_line->AppendSwitchASCII(kTagSwitch,
+    command_line->AppendSwitchASCII(GetParam().tag_switch,
                                     "appguid=8a69f345-c564-463c-aff1-"
                                     "a69d9e530f96&appname=TestApp&ap=TestAP");
 
@@ -58,6 +62,25 @@ TEST(Util, AppArgsAndAP) {
                  "8a69f345-c564-463c-aff1-a69d9e530f96");
     EXPECT_STREQ(app_args->app_name.c_str(), "TestApp");
   }
+}
+
+TEST_P(UtilTagArgsTest, GetTagArgsForCommandLine) {
+  base::CommandLine command_line(base::FilePath(FILE_PATH_LITERAL("my.exe")));
+  command_line.AppendSwitchASCII(GetParam().tag_switch,
+                                 "appguid={8a69}&appname=Chrome");
+  command_line.AppendSwitchASCII(kAppArgsSwitch,
+                                 "&appguid={8a69}&installerdata=%7B%22homepage%"
+                                 "22%3A%22http%3A%2F%2Fwww.google.com%");
+  command_line.AppendSwitch(kSilentSwitch);
+  command_line.AppendSwitchASCII(kSessionIdSwitch, "{123-456}");
+
+  TagParsingResult result = GetTagArgsForCommandLine(command_line);
+  EXPECT_EQ(result.error, tagging::ErrorCode::kSuccess);
+  EXPECT_EQ(result.tag_args->apps.size(), size_t{1});
+  EXPECT_EQ(result.tag_args->apps[0].app_id, "{8a69}");
+  EXPECT_EQ(result.tag_args->apps[0].app_name, "Chrome");
+  EXPECT_EQ(result.tag_args->apps[0].encoded_installer_data,
+            "%7B%22homepage%22%3A%22http%3A%2F%2Fwww.google.com%");
 }
 
 TEST(Util, WriteInstallerDataToTempFile) {
@@ -83,28 +106,9 @@ TEST(Util, WriteInstallerDataToTempFile) {
   EXPECT_TRUE(base::DeleteFile(*installer_data_file));
 }
 
-TEST(Util, GetTagArgsForCommandLine) {
-  base::CommandLine command_line(base::FilePath(FILE_PATH_LITERAL("my.exe")));
-  command_line.AppendSwitchASCII(kHandoffSwitch,
-                                 "appguid={8a69}&appname=Chrome");
-  command_line.AppendSwitchASCII(kAppArgsSwitch,
-                                 "&appguid={8a69}&installerdata=%7B%22homepage%"
-                                 "22%3A%22http%3A%2F%2Fwww.google.com%");
-  command_line.AppendSwitch(kSilentSwitch);
-  command_line.AppendSwitchASCII(kSessionIdSwitch, "{123-456}");
-
-  TagParsingResult result = GetTagArgsForCommandLine(command_line);
-  EXPECT_EQ(result.error, tagging::ErrorCode::kSuccess);
-  EXPECT_EQ(result.tag_args->apps.size(), size_t{1});
-  EXPECT_EQ(result.tag_args->apps[0].app_id, "{8a69}");
-  EXPECT_EQ(result.tag_args->apps[0].app_name, "Chrome");
-  EXPECT_EQ(result.tag_args->apps[0].encoded_installer_data,
-            "%7B%22homepage%22%3A%22http%3A%2F%2Fwww.google.com%");
-}
-
 TEST(Util, GetCrashDatabasePath) {
   std::optional<base::FilePath> crash_database_path(
-      GetCrashDatabasePath(GetTestScope()));
+      GetCrashDatabasePath(GetUpdaterScopeForTesting()));
   ASSERT_TRUE(crash_database_path);
   EXPECT_EQ(crash_database_path->BaseName().value(),
             FILE_PATH_LITERAL("Crashpad"));
@@ -112,17 +116,22 @@ TEST(Util, GetCrashDatabasePath) {
 
 TEST(Util, GetCrxDiffCacheDirectory) {
   std::optional<base::FilePath> diff_cache_directory(
-      GetCrxDiffCacheDirectory(GetTestScope()));
+      GetCrxDiffCacheDirectory(GetUpdaterScopeForTesting()));
   ASSERT_TRUE(diff_cache_directory);
   EXPECT_EQ(diff_cache_directory->BaseName().value(),
             FILE_PATH_LITERAL("crx_cache"));
 }
 
 TEST(Util, StreamEnumValue) {
+  enum class TestEnum {
+    kValue1 = 0L,
+    kValue2 = 5L,
+    kValue3,
+  };
+
   std::stringstream output;
-  output << "First: " << TestEnum::kEnumValue1
-         << ", second: " << TestEnum::kEnumValue2
-         << ", third: " << TestEnum::kEnumValue3;
+  output << "First: " << TestEnum::kValue1 << ", second: " << TestEnum::kValue2
+         << ", third: " << TestEnum::kValue3;
   EXPECT_EQ(output.str(), "First: 0, second: 5, third: 6");
 }
 
@@ -137,6 +146,74 @@ TEST(Util, DeleteExcept) {
   test::SetupMockUpdater(except_executable);
   EXPECT_TRUE(DeleteExcept(except_executable));
   test::ExpectOnlyMockUpdater(except_executable);
+}
+
+TEST(Util, CeilingDivide) {
+  EXPECT_EQ(CeilingDivide(0, 1), 0);
+  EXPECT_EQ(CeilingDivide(1, 2), 1);
+  EXPECT_EQ(CeilingDivide(1, 1), 1);
+  EXPECT_EQ(CeilingDivide(3, 2), 2);
+  EXPECT_EQ(CeilingDivide(5, 3), 2);
+  EXPECT_EQ(CeilingDivide(4, 2), 2);
+
+  EXPECT_EQ(CeilingDivide(-1, 2), 0);
+  EXPECT_EQ(CeilingDivide(-1, 1), -1);
+  EXPECT_EQ(CeilingDivide(-3, 2), -1);
+  EXPECT_EQ(CeilingDivide(-5, 3), -1);
+  EXPECT_EQ(CeilingDivide(-2, 1), -2);
+  EXPECT_EQ(CeilingDivide(-4, 2), -2);
+
+  EXPECT_EQ(CeilingDivide(1, -2), 0);
+  EXPECT_EQ(CeilingDivide(1, -1), -1);
+  EXPECT_EQ(CeilingDivide(3, -2), -1);
+  EXPECT_EQ(CeilingDivide(5, -3), -1);
+  EXPECT_EQ(CeilingDivide(2, -1), -2);
+  EXPECT_EQ(CeilingDivide(4, -2), -2);
+
+  EXPECT_EQ(CeilingDivide(-0, -1), 0);
+  EXPECT_EQ(CeilingDivide(-1, -2), 1);
+  EXPECT_EQ(CeilingDivide(-1, -1), 1);
+  EXPECT_EQ(CeilingDivide(-3, -2), 2);
+  EXPECT_EQ(CeilingDivide(-5, -3), 2);
+  EXPECT_EQ(CeilingDivide(-4, -2), 2);
+}
+
+TEST(Util, OptionalBaseInsertion) {
+  // Tests insertion in a gTest expectation.
+  std::optional<base::FilePath> file_path;
+  EXPECT_TRUE(true) << file_path;
+
+  std::stringstream os;
+  os << file_path << std::endl;
+  EXPECT_EQ(os.str(), "std::nullopt\n");
+  os.str("");
+  file_path = std::make_optional<base::FilePath>(FILE_PATH_LITERAL("test"));
+  os << file_path << std::endl;
+  EXPECT_EQ(os.str(), "test\n");
+}
+
+TEST(WinUtil, GetDownloadProgress) {
+  EXPECT_EQ(GetDownloadProgress(0, 50), 0);
+  EXPECT_EQ(GetDownloadProgress(12, 50), 24);
+  EXPECT_EQ(GetDownloadProgress(25, 50), 50);
+  EXPECT_EQ(GetDownloadProgress(50, 50), 100);
+  EXPECT_EQ(GetDownloadProgress(50, 50), 100);
+  EXPECT_EQ(GetDownloadProgress(0, -1), -1);
+  EXPECT_EQ(GetDownloadProgress(-1, -1), -1);
+  EXPECT_EQ(GetDownloadProgress(50, 0), -1);
+}
+
+TEST(Util, ToSignedIntegral) {
+  EXPECT_EQ(ToSignedIntegral(uint8_t{0}), 0);
+  EXPECT_EQ(ToSignedIntegral(uint8_t{0x7F}), 0x7F);
+  EXPECT_EQ(ToSignedIntegral(uint8_t{0x80}), -1);
+  EXPECT_EQ(ToSignedIntegral(uint32_t{0}), 0);
+  EXPECT_EQ(ToSignedIntegral(uint32_t{1357}), 1357);
+  EXPECT_EQ(ToSignedIntegral(uint32_t{0x7FFFFFFF}), 0x7FFFFFFF);
+  EXPECT_EQ(ToSignedIntegral(uint32_t{0x80000000}), -1);
+  EXPECT_EQ(ToSignedIntegral(uint32_t{0xFFFFFFFF}), -1);
+  EXPECT_EQ(ToSignedIntegral(uint64_t{0x7FFFFFFFFFFFFFFF}), 0x7FFFFFFFFFFFFFFF);
+  EXPECT_EQ(ToSignedIntegral(uint64_t{0x8000000000000000}), -1);
 }
 
 }  // namespace updater

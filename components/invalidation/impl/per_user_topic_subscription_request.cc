@@ -63,18 +63,18 @@ void RecordRequestStatus(SubscriptionStatus status,
                          int net_error = net::OK,
                          int response_code = 200) {
   switch (type) {
-    case PerUserTopicSubscriptionRequest::SUBSCRIBE: {
+    case PerUserTopicSubscriptionRequest::RequestType::kSubscribe: {
       base::UmaHistogramEnumeration(
           "FCMInvalidations.SubscriptionRequestStatus", status);
       break;
     }
-    case PerUserTopicSubscriptionRequest::UNSUBSCRIBE: {
+    case PerUserTopicSubscriptionRequest::RequestType::kUnsubscribe: {
       base::UmaHistogramEnumeration(
           "FCMInvalidations.UnsubscriptionRequestStatus", status);
       break;
     }
   }
-  if (type != PerUserTopicSubscriptionRequest::SUBSCRIBE) {
+  if (type != PerUserTopicSubscriptionRequest::RequestType::kSubscribe) {
     return;
   }
 
@@ -150,7 +150,7 @@ void PerUserTopicSubscriptionRequest::OnURLFetchCompleteInternal(
     return;
   }
 
-  if (type_ == UNSUBSCRIBE) {
+  if (type_ == RequestType::kUnsubscribe) {
     // No response body expected for DELETE requests.
     RecordRequestStatus(SubscriptionStatus::kSuccess, type_, topic_, net_error,
                         response_code);
@@ -210,12 +210,12 @@ PerUserTopicSubscriptionRequest::Builder::Build() const {
 
   std::string url;
   switch (type_) {
-    case SUBSCRIBE:
+    case RequestType::kSubscribe:
       url = base::StringPrintf(
           "%s/v1/perusertopics/%s/rel/topics/?subscriber_token=%s",
           scope_.c_str(), project_id_.c_str(), instance_id_token_.c_str());
       break;
-    case UNSUBSCRIBE:
+    case RequestType::kUnsubscribe:
       std::string public_param;
       if (topic_is_public_) {
         public_param = "subscription.is_public=true&";
@@ -235,8 +235,9 @@ PerUserTopicSubscriptionRequest::Builder::Build() const {
   request->topic_ = topic_;
 
   std::string body;
-  if (type_ == SUBSCRIBE)
+  if (type_ == RequestType::kSubscribe) {
     body = BuildBody();
+  }
   net::HttpRequestHeaders headers = BuildHeaders();
   request->simple_loader_ = BuildURLFetcher(headers, body, full_url);
 
@@ -321,19 +322,15 @@ PerUserTopicSubscriptionRequest::Builder::BuildURLFetcher(
     const HttpRequestHeaders& headers,
     const std::string& body,
     const GURL& url) const {
-  // TODO(crbug.com/1404927): Chrome Sync does not use topics anymore, update
-  // the description.
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation("per_user_topic_registration_request",
                                           R"(
         semantics {
           sender:
-            "Subscribe the Sync client for listening to the specific topic"
+            "Subscribe for listening to the specific user topic"
           description:
-            "Chromium can receive Sync invalidations via FCM messages."
-            "This request subscribes the client for receiving messages for the"
-            "concrete topic. In case of Chrome Sync topic is a ModelType,"
-            "e.g. BOOKMARK"
+            "This request subscribes the client for receiving FCM messages for"
+            "the concrete user topic."
           trigger:
             "Subscription takes place only once per profile per topic. "
           data:
@@ -344,20 +341,17 @@ PerUserTopicSubscriptionRequest::Builder::BuildURLFetcher(
           cookies_allowed: NO
           setting:
             "This feature can not be disabled by settings now"
-          chrome_policy: {
-             SyncDisabled {
-               policy_options {mode: MANDATORY}
-               SyncDisabled: false
-             }
-          }
+          policy_exception_justification:
+            "This feature is required to deliver core user experiences and "
+            "cannot be disabled by policy."
         })");
 
   auto request = std::make_unique<network::ResourceRequest>();
   switch (type_) {
-    case SUBSCRIBE:
+    case PerUserTopicSubscriptionRequest::RequestType::kSubscribe:
       request->method = "POST";
       break;
-    case UNSUBSCRIBE:
+    case PerUserTopicSubscriptionRequest::RequestType::kUnsubscribe:
       request->method = "DELETE";
       break;
   }

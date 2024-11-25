@@ -596,8 +596,9 @@ IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest,
   EXPECT_FALSE(offline_item.is_off_the_record);
 }
 
+// Flaky on multiple platforms (b/323879025)/
 IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest,
-                       OfflineItemCollection_VerifyIconReceived) {
+                       DISABLED_OfflineItemCollection_VerifyIconReceived) {
   // Starts a Background Fetch for a single to-be-downloaded file and waits for
   // the fetch to be registered with the offline items collection. We then
   // verify that the expected icon is associated with the newly added offline
@@ -697,7 +698,7 @@ IN_PROC_BROWSER_TEST_F(
             offline_items_collection::OfflineItemState::CANCELLED);
 }
 
-// TODO(crbug.com/1329696): Fix flaky timeouts and re-enable.
+// TODO(crbug.com/40842751): Fix flaky timeouts and re-enable.
 IN_PROC_BROWSER_TEST_F(
     BackgroundFetchBrowserTest,
     DISABLED_OfflineItemCollection_VerifyResourceDownloadedWhenCorrectDownloadTotalSpecified) {
@@ -803,7 +804,7 @@ IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest, ClickEventIsDispatched) {
   }
 }
 
-// TODO(crbug.com/1056096): Re-enable this test.
+// TODO(crbug.com/40120187): Re-enable this test.
 IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest, DISABLED_AbortFromUI) {
   std::vector<OfflineItem> items;
   // Creates a registration with more than one request.
@@ -861,7 +862,7 @@ IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest, FetchFromServiceWorker) {
       "StartFetchFromServiceWorker()", "permissionerror"));
 }
 
-// TODO(crbug.com/1271962): Flaky on many platforms.
+// TODO(crbug.com/40805915): Flaky on many platforms.
 IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest,
                        DISABLED_FetchFromServiceWorkerWithAsk) {
   auto* settings_map =
@@ -879,7 +880,7 @@ IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest,
             offline_items_collection::OfflineItemState::PAUSED);
 }
 
-// TODO(crbug.com/1271962): Flaky on many platforms.
+// TODO(crbug.com/40805915): Flaky on many platforms.
 IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest,
                        DISABLED_FetchFromChildFrameWithPermissions) {
   // Give the needed permissions. The fetch should still start in a paused
@@ -896,7 +897,7 @@ IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest,
             offline_items_collection::OfflineItemState::PAUSED);
 }
 
-// TODO(crbug.com/1271962): Flaky on many platforms.
+// TODO(crbug.com/40805915): Flaky on many platforms.
 IN_PROC_BROWSER_TEST_F(BackgroundFetchBrowserTest,
                        DISABLED_FetchFromChildFrameWithAsk) {
   SetPermission(ContentSettingsType::AUTOMATIC_DOWNLOADS, CONTENT_SETTING_ASK);

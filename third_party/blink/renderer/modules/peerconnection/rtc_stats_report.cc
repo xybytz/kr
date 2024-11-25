@@ -29,10 +29,11 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_video_source_stats.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/modules/mediastream/user_media_client.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_stats.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/peerconnection/webrtc_util.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/webrtc/api/stats/rtc_stats.h"
 #include "third_party/webrtc/api/stats/rtc_stats_report.h"
@@ -54,7 +55,6 @@ v8::Local<v8::Value> HashMapToValue(ScriptState* script_state,
   v8::Local<v8::Object> v8_object = builder.V8Value();
   if (v8_object.IsEmpty()) {
     NOTREACHED();
-    return v8::Undefined(script_state->GetIsolate());
   }
   return v8_object;
 }
@@ -160,6 +160,17 @@ RTCInboundRtpStreamStats* ToV8Stat(
   if (webrtc_stat.qp_sum.has_value()) {
     v8_stat->setQpSum(*webrtc_stat.qp_sum);
   }
+  if (webrtc_stat.total_corruption_probability.has_value()) {
+    v8_stat->setTotalCorruptionProbability(
+        *webrtc_stat.total_corruption_probability);
+  }
+  if (webrtc_stat.total_squared_corruption_probability.has_value()) {
+    v8_stat->setTotalSquaredCorruptionProbability(
+        *webrtc_stat.total_squared_corruption_probability);
+  }
+  if (webrtc_stat.corruption_measurements.has_value()) {
+    v8_stat->setCorruptionMeasurements(*webrtc_stat.corruption_measurements);
+  }
   if (webrtc_stat.total_decode_time.has_value()) {
     v8_stat->setTotalDecodeTime(*webrtc_stat.total_decode_time);
   }
@@ -202,7 +213,7 @@ RTCInboundRtpStreamStats* ToV8Stat(
     v8_stat->setFecPacketsDiscarded(*webrtc_stat.fec_packets_discarded);
   }
   if (webrtc_stat.fec_bytes_received.has_value()) {
-    v8_stat->setFecPacketsDiscarded(*webrtc_stat.fec_bytes_received);
+    v8_stat->setFecBytesReceived(*webrtc_stat.fec_bytes_received);
   }
   if (webrtc_stat.fec_ssrc.has_value()) {
     v8_stat->setFecSsrc(*webrtc_stat.fec_ssrc);
@@ -960,7 +971,7 @@ RTCStats* RTCStatsToIDL(ScriptState* script_state,
     const auto& media_source =
         static_cast<const webrtc::RTCMediaSourceStats&>(stat);
     DCHECK(media_source.kind.has_value());
-    std::string kind = media_source.kind.ValueOrDefault("");
+    std::string kind = media_source.kind.value_or("");
     if (kind == "audio") {
       v8_stats =
           ToV8Stat(script_state, stat.cast_to<webrtc::RTCAudioSourceStats>());
@@ -1001,7 +1012,13 @@ RTCStats* RTCStatsToIDL(ScriptState* script_state,
   }
 
   v8_stats->setId(String::FromUTF8(stat.id()));
-  v8_stats->setTimestamp(stat.timestamp().ms<double>());
+  LocalDOMWindow* window = LocalDOMWindow::From(script_state);
+  DocumentLoadTiming& time_converter =
+      window->GetFrame()->Loader().GetDocumentLoader()->GetTiming();
+  v8_stats->setTimestamp(time_converter
+                             .MonotonicTimeToPseudoWallTime(
+                                 ConvertToBaseTimeTicks(stat.timestamp()))
+                             .InMillisecondsF());
   v8_stats->setType(String::FromUTF8(stat.type()));
   return v8_stats;
 }

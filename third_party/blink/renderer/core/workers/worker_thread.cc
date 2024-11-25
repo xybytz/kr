@@ -167,7 +167,7 @@ WorkerThread::~WorkerThread() {
 
 void WorkerThread::Start(
     std::unique_ptr<GlobalScopeCreationParams> global_scope_creation_params,
-    const absl::optional<WorkerBackingThreadStartupData>& thread_startup_data,
+    const std::optional<WorkerBackingThreadStartupData>& thread_startup_data,
     std::unique_ptr<WorkerDevToolsParams> devtools_params) {
   DCHECK_CALLED_ON_VALID_THREAD(parent_thread_checker_);
   devtools_worker_token_ = devtools_params->devtools_worker_token;
@@ -193,7 +193,9 @@ void WorkerThread::Start(
       CrossThreadBindOnce(&WorkerThread::InitializeOnWorkerThread,
                           CrossThreadUnretained(this),
                           std::move(global_scope_creation_params),
-                          thread_startup_data, std::move(devtools_params)));
+                          IsOwningBackingThread() ?
+                              thread_startup_data : std::nullopt,
+                          std::move(devtools_params)));
 }
 
 void WorkerThread::EvaluateClassicScript(
@@ -408,7 +410,6 @@ bool WorkerThread::IsForciblyTerminated() {
       return true;
   }
   NOTREACHED() << static_cast<int>(exit_code_);
-  return false;
 }
 
 void WorkerThread::WaitForShutdownForTesting() {
@@ -506,7 +507,6 @@ WorkerThread::TerminationState WorkerThread::ShouldTerminateScriptExecution() {
                  : TerminationState::kTerminationUnnecessary;
   }
   NOTREACHED();
-  return TerminationState::kTerminationUnnecessary;
 }
 
 void WorkerThread::EnsureScriptExecutionTerminates(ExitCode exit_code) {
@@ -568,6 +568,7 @@ void WorkerThread::InitializeSchedulerOnWorkerThread(
       TaskType::kJavascriptTimerDelayedLowNesting,
       TaskType::kJavascriptTimerDelayedHighNesting,
       TaskType::kMediaElementEvent,
+      TaskType::kMachineLearning,
       TaskType::kMicrotask,
       TaskType::kMiscPlatformAPI,
       TaskType::kNetworking,
@@ -596,8 +597,9 @@ void WorkerThread::InitializeSchedulerOnWorkerThread(
 
 void WorkerThread::InitializeOnWorkerThread(
     std::unique_ptr<GlobalScopeCreationParams> global_scope_creation_params,
-    const absl::optional<WorkerBackingThreadStartupData>& thread_startup_data,
+    const std::optional<WorkerBackingThreadStartupData>& thread_startup_data,
     std::unique_ptr<WorkerDevToolsParams> devtools_params) {
+  base::ElapsedTimer timer;
   DCHECK(IsCurrentThread());
   backing_thread_weak_factory_.emplace(this);
   worker_reporting_proxy_.WillInitializeWorkerContext();
@@ -607,6 +609,7 @@ void WorkerThread::InitializeOnWorkerThread(
     DCHECK_EQ(ThreadState::kNotStarted, thread_state_);
 
     if (IsOwningBackingThread()) {
+      global_scope_creation_params->is_default_world_of_isolate = true;
       DCHECK(thread_startup_data.has_value());
       GetWorkerBackingThread().InitializeOnBackingThread(*thread_startup_data);
     } else {
@@ -620,6 +623,12 @@ void WorkerThread::InitializeOnWorkerThread(
     const KURL url_for_debugger = global_scope_creation_params->script_url;
 
     console_message_storage_ = MakeGarbageCollected<ConsoleMessageStorage>();
+    // Record this only for the DedicatedWorker.
+    if (global_scope_creation_params->dedicated_worker_start_time.has_value()) {
+      base::UmaHistogramTimes(
+          "Worker.TopLevelScript.Initialization2GlobalScopeCreation",
+          timer.Elapsed());
+    }
     global_scope_ =
         CreateWorkerGlobalScope(std::move(global_scope_creation_params));
     worker_scheduler_->InitializeOnWorkerThread(global_scope_);
@@ -745,7 +754,7 @@ void WorkerThread::PrepareForShutdownOnWorkerThread() {
     SetThreadState(ThreadState::kReadyToShutdown);
   }
 
-  backing_thread_weak_factory_ = absl::nullopt;
+  backing_thread_weak_factory_ = std::nullopt;
   if (pause_or_freeze_count_ > 0) {
     DCHECK(nested_runner_);
     pause_or_freeze_count_ = 0;
@@ -825,7 +834,6 @@ void WorkerThread::SetThreadState(ThreadState next_thread_state) {
   switch (next_thread_state) {
     case ThreadState::kNotStarted:
       NOTREACHED();
-      return;
     case ThreadState::kRunning:
       DCHECK_EQ(ThreadState::kNotStarted, thread_state_);
       thread_state_ = next_thread_state;

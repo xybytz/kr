@@ -19,10 +19,10 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/enterprise/profile_management/profile_management_features.h"
 #include "chrome/browser/enterprise/profile_management/saml_response_parser.h"
+#include "chrome/browser/enterprise/signin/profile_token_web_signin_interceptor.h"
+#include "chrome/browser/enterprise/signin/profile_token_web_signin_interceptor_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profiles_state.h"
-#include "chrome/browser/signin/profile_token_web_signin_interceptor.h"
-#include "chrome/browser/signin/profile_token_web_signin_interceptor_factory.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/account_id/account_id.h"
 #include "components/prefs/pref_service.h"
@@ -64,7 +64,7 @@ base::flat_map<std::string, SAMLProfileAttributes>& GetAttributeMap() {
     return *profile_attributes;
   }
 
-  // TODO(crbug.com/1445072): Add actual domains with attribute names.
+  // TODO(crbug.com/40267996): Add actual domains with attribute names.
   profile_attributes->insert(std::make_pair(
       "supported.test",
       SAMLProfileAttributes("placeholderName", "placeholderDomain",
@@ -149,7 +149,7 @@ class ProfileManagementWebContentsLifetimeHelper
   }
 
   void OpenURL(const content::OpenURLParams& url_params) {
-    GetWebContents().OpenURL(url_params);
+    GetWebContents().OpenURL(url_params, /*navigation_handle_callback=*/{});
   }
 
  private:
@@ -221,7 +221,7 @@ void ProfileManagementNavigationThrottle::ClearAttributeMapForTesting() {
 
 void ProfileManagementNavigationThrottle::OnResponseBodyReady(
     const std::string& body) {
-  // TODO(crbug.com/1445072): As a fallback, check more attributes that may
+  // TODO(crbug.com/40267996): As a fallback, check more attributes that may
   // contain the user's email address.
   const auto profile_attributes =
       GetAttributeMap().at(navigation_handle()->GetURL().host());

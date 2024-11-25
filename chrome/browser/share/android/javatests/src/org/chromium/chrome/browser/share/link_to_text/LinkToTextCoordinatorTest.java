@@ -19,9 +19,7 @@ import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -29,13 +27,11 @@ import org.mockito.MockitoAnnotations;
 import org.robolectric.Robolectric;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.share.ChromeShareExtras;
 import org.chromium.chrome.browser.share.share_sheet.ChromeOptionShareCallback;
 import org.chromium.chrome.browser.share.share_sheet.ShareSheetLinkToggleCoordinator.LinkToggleState;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.browser_ui.share.ShareParams;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtilsJni;
@@ -47,9 +43,6 @@ import org.chromium.url.JUnitTestGURLs;
 /** Tests for {@link LinkToTextCoordinator}. */
 @RunWith(BaseRobolectricTestRunner.class)
 public class LinkToTextCoordinatorTest {
-    @Rule public JniMocker jniMocker = new JniMocker();
-
-    @Rule public TestRule mFeatureProcessor = new Features.JUnitProcessor();
 
     @Mock private ChromeOptionShareCallback mShareCallback;
     @Mock private WindowAndroid mWindow;
@@ -107,7 +100,7 @@ public class LinkToTextCoordinatorTest {
     public void setUpTest() {
         mActivity = Robolectric.setupActivity(Activity.class);
         MockitoAnnotations.initMocks(this);
-        jniMocker.mock(DomDistillerUrlUtilsJni.TEST_HOOKS, mDistillerUrlUtilsJniMock);
+        DomDistillerUrlUtilsJni.setInstanceForTesting(mDistillerUrlUtilsJniMock);
         when(mDistillerUrlUtilsJniMock.getOriginalUrlFromDistillerUrl(any(String.class)))
                 .thenAnswer(
                         (invocation) -> {
@@ -118,7 +111,7 @@ public class LinkToTextCoordinatorTest {
         when(mTab.getWindowAndroid()).thenReturn(mWindow);
         when(mTab.getContext()).thenReturn(mActivity);
 
-        jniMocker.mock(LinkToTextBridgeJni.TEST_HOOKS, mLinkToTextBridge);
+        LinkToTextBridgeJni.setInstanceForTesting(mLinkToTextBridge);
         when(mLinkToTextBridge.shouldOfferLinkToText(any(GURL.class)))
                 .thenAnswer(
                         (invocation) -> {

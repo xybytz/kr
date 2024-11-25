@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/ash/accessibility/service/accessibility_service_client.h"
+
 #include <optional>
 
 #include "ash/accessibility/accessibility_controller.h"
@@ -23,7 +25,6 @@
 #include "base/test/bind.h"
 #include "chrome/browser/accessibility/service/accessibility_service_router_factory.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
-#include "chrome/browser/ash/accessibility/service/accessibility_service_client.h"
 #include "chrome/browser/ash/accessibility/service/automation_client_impl.h"
 #include "chrome/browser/ash/accessibility/service/fake_accessibility_service.h"
 #include "chrome/browser/ash/accessibility/service/speech_recognition_impl.h"
@@ -49,6 +50,7 @@
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/compositor/layer.h"
+#include "ui/events/event_constants.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 
 using ax::mojom::AssistiveTechnologyType;
@@ -280,9 +282,9 @@ class TestEventHandler : public ui::EventHandler {
  public:
   explicit TestEventHandler(base::RepeatingClosure callback)
       : callback_(callback) {
-    Shell::Get()->AddPostTargetHandler(this);
+    Shell::Get()->AddPreTargetHandler(this);
   }
-  ~TestEventHandler() override { Shell::Get()->RemovePostTargetHandler(this); }
+  ~TestEventHandler() override { Shell::Get()->RemovePreTargetHandler(this); }
 
   // ui::EventHandler:
   void OnKeyEvent(ui::KeyEvent* event) override {
@@ -291,7 +293,14 @@ class TestEventHandler : public ui::EventHandler {
     callback_.Run();
   }
 
+  void OnMouseEvent(ui::MouseEvent* event) override {
+    // Make a copy of the event, so it's valid outside this function context.
+    mouse_events.push_back(std::make_unique<ui::MouseEvent>(event));
+    callback_.Run();
+  }
+
   std::vector<std::unique_ptr<ui::KeyEvent>> key_events;
+  std::vector<std::unique_ptr<ui::MouseEvent>> mouse_events;
 
  private:
   base::RepeatingClosure callback_;
@@ -330,7 +339,8 @@ class AccessibilityServiceClientTest : public InProcessBrowserTest {
                 &AccessibilityServiceClientTest::CreateTestAccessibilityService,
                 base::Unretained(this)));
     sr_test_helper_ = std::make_unique<SpeechRecognitionTestHelper>(
-        speech::SpeechRecognitionType::kNetwork);
+        speech::SpeechRecognitionType::kNetwork,
+        media::mojom::RecognizerClientType::kDictation);
     sr_test_helper_->SetUp(browser()->profile());
   }
 
@@ -365,13 +375,12 @@ class AccessibilityServiceClientTest : public InProcessBrowserTest {
       client->automation_client_->Disable();
   }
 
-  // TODO(crbug.com/1493545): Toggle features on AccessibilityManager for client
-  // test.
+  // TODO(crbug.com/40936728): Toggle features on AccessibilityManager for
+  // client test.
   void TurnOnAccessibilityService(AssistiveTechnologyType type) {
     switch (type) {
       case ax::mojom::AssistiveTechnologyType::kUnknown:
         NOTREACHED() << "Unknown AT type";
-        break;
       case ax::mojom::AssistiveTechnologyType::kChromeVox:
         Client()->SetChromeVoxEnabled(true);
         break;
@@ -1403,7 +1412,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityServiceClientTest,
   TurnOnAccessibilityService(AssistiveTechnologyType::kChromeVox);
   base::RunLoop loop;
   fake_service_->RequestLoadFile(
-      base::FilePath("chromevox/chromeVoxChromeBackgroundScript.js"),
+      base::FilePath("chromevox/common/closure_loader.js"),
       base::BindLambdaForTesting([&loop](base::File file) mutable {
         // Note: we post a task to the thread pool here because dealing with the
         // file causes blocking operations. Since this is a single process
@@ -1460,7 +1469,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityServiceClientTest,
         }
 
         ui::KeyEvent* press_event = test_event_handler.key_events[0].get();
-        EXPECT_EQ(press_event->type(), ui::ET_KEY_PRESSED);
+        EXPECT_EQ(press_event->type(), ui::EventType::kKeyPressed);
         EXPECT_EQ(press_event->code(), ui::DomCode::US_P);
         EXPECT_FALSE(press_event->IsAltDown());
         EXPECT_FALSE(press_event->IsCommandDown());
@@ -1468,7 +1477,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityServiceClientTest,
         EXPECT_FALSE(press_event->IsShiftDown());
 
         ui::KeyEvent* release_event = test_event_handler.key_events[1].get();
-        EXPECT_EQ(release_event->type(), ui::ET_KEY_RELEASED);
+        EXPECT_EQ(release_event->type(), ui::EventType::kKeyReleased);
         EXPECT_EQ(release_event->code(), ui::DomCode::US_P);
         EXPECT_FALSE(release_event->IsAltDown());
         EXPECT_FALSE(release_event->IsCommandDown());
@@ -1527,7 +1536,7 @@ IN_PROC_BROWSER_TEST_F(
         }
 
         ui::KeyEvent* press_event = test_event_handler.key_events[0].get();
-        EXPECT_EQ(press_event->type(), ui::ET_KEY_PRESSED);
+        EXPECT_EQ(press_event->type(), ui::EventType::kKeyPressed);
         EXPECT_EQ(press_event->code(), ui::DomCode::US_S);
         EXPECT_TRUE(press_event->IsAltDown());
         EXPECT_TRUE(press_event->IsCommandDown());
@@ -1535,7 +1544,7 @@ IN_PROC_BROWSER_TEST_F(
         EXPECT_TRUE(press_event->IsShiftDown());
 
         ui::KeyEvent* release_event = test_event_handler.key_events[1].get();
-        EXPECT_EQ(release_event->type(), ui::ET_KEY_RELEASED);
+        EXPECT_EQ(release_event->type(), ui::EventType::kKeyReleased);
         EXPECT_EQ(release_event->code(), ui::DomCode::US_S);
         EXPECT_TRUE(release_event->IsAltDown());
         EXPECT_TRUE(release_event->IsCommandDown());
@@ -1551,6 +1560,161 @@ IN_PROC_BROWSER_TEST_F(
   // Send a release.
   fake_service_->RequestSendSyntheticKeyEventForShortcutOrNavigation(
       std::move(key_release_event));
+  waiter.Run();
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityServiceClientTest,
+                       SendSyntheticMouseEventPress) {
+  TurnOnAccessibilityService(AssistiveTechnologyType::kSwitchAccess);
+  fake_service_->BindAnotherUserInput();
+
+  auto mouse_event = ax::mojom::SyntheticMouseEvent::New();
+  mouse_event->type = ui::mojom::EventType::MOUSE_PRESSED_EVENT;
+  mouse_event->point = gfx::Point(0, 0);
+
+  base::RunLoop waiter;
+
+  TestEventHandler test_event_handler(base::BindLambdaForTesting([&]() {
+    ASSERT_NE(0u, test_event_handler.mouse_events.size());
+    ui::MouseEvent* mouse_event = test_event_handler.mouse_events.back().get();
+    EXPECT_EQ(mouse_event->type(), ui::EventType::kMousePressed);
+    EXPECT_FALSE(mouse_event->flags() & ui::EF_TOUCH_ACCESSIBILITY);
+    EXPECT_TRUE(mouse_event->IsOnlyLeftMouseButton());
+    waiter.Quit();
+  }));
+
+  fake_service_->RequestSendSyntheticMouseEvent(std::move(mouse_event));
+  waiter.Run();
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityServiceClientTest,
+                       SendSyntheticMouseEventRelease) {
+  TurnOnAccessibilityService(AssistiveTechnologyType::kSwitchAccess);
+  fake_service_->BindAnotherUserInput();
+
+  auto mouse_event = ax::mojom::SyntheticMouseEvent::New();
+  mouse_event->type = ui::mojom::EventType::MOUSE_RELEASED_EVENT;
+  mouse_event->point = gfx::Point(0, 0);
+  mouse_event->mouse_button = ax::mojom::SyntheticMouseEventButton::kMiddle;
+  mouse_event->touch_accessibility = false;
+
+  base::RunLoop waiter;
+
+  TestEventHandler test_event_handler(base::BindLambdaForTesting([&]() {
+    ASSERT_NE(0u, test_event_handler.mouse_events.size());
+    ui::MouseEvent* mouse_event = test_event_handler.mouse_events.back().get();
+    EXPECT_EQ(mouse_event->type(), ui::EventType::kMouseReleased);
+    EXPECT_FALSE(mouse_event->flags() & ui::EF_TOUCH_ACCESSIBILITY);
+    EXPECT_EQ(mouse_event->button_flags(), ui::EF_MIDDLE_MOUSE_BUTTON);
+    waiter.Quit();
+  }));
+
+  fake_service_->RequestSendSyntheticMouseEvent(std::move(mouse_event));
+  waiter.Run();
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityServiceClientTest,
+                       SendSyntheticMouseEventDrag) {
+  TurnOnAccessibilityService(AssistiveTechnologyType::kSwitchAccess);
+  fake_service_->BindAnotherUserInput();
+
+  auto mouse_event = ax::mojom::SyntheticMouseEvent::New();
+  mouse_event->type = ui::mojom::EventType::MOUSE_DRAGGED_EVENT;
+  mouse_event->point = gfx::Point(0, 0);
+  mouse_event->mouse_button = ax::mojom::SyntheticMouseEventButton::kRight;
+  mouse_event->touch_accessibility = true;
+
+  base::RunLoop waiter;
+
+  TestEventHandler test_event_handler(base::BindLambdaForTesting([&]() {
+    ASSERT_NE(0u, test_event_handler.mouse_events.size());
+    ui::MouseEvent* mouse_event = test_event_handler.mouse_events.back().get();
+    EXPECT_EQ(mouse_event->type(), ui::EventType::kMouseDragged);
+    EXPECT_TRUE(mouse_event->flags() & ui::EF_TOUCH_ACCESSIBILITY);
+    EXPECT_EQ(mouse_event->button_flags(), ui::EF_RIGHT_MOUSE_BUTTON);
+    waiter.Quit();
+  }));
+
+  fake_service_->RequestSendSyntheticMouseEvent(std::move(mouse_event));
+  waiter.Run();
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityServiceClientTest,
+                       SendSyntheticMouseEventMove) {
+  TurnOnAccessibilityService(AssistiveTechnologyType::kSwitchAccess);
+  fake_service_->BindAnotherUserInput();
+
+  auto mouse_event = ax::mojom::SyntheticMouseEvent::New();
+  mouse_event->type = ui::mojom::EventType::MOUSE_MOVED_EVENT;
+  mouse_event->point = gfx::Point(0, 0);
+
+  base::RunLoop waiter;
+
+  TestEventHandler test_event_handler(base::BindLambdaForTesting([&]() {
+    ASSERT_NE(0u, test_event_handler.mouse_events.size());
+    ui::MouseEvent* mouse_event = test_event_handler.mouse_events.back().get();
+    // We may see an enter event fired before the actual move event.
+    if (mouse_event->type() == ui::EventType::kMouseEntered) {
+      return;
+    }
+
+    EXPECT_EQ(mouse_event->type(), ui::EventType::kMouseMoved);
+    EXPECT_FALSE(mouse_event->flags() & ui::EF_TOUCH_ACCESSIBILITY);
+    EXPECT_EQ(mouse_event->button_flags(), 0);
+    waiter.Quit();
+  }));
+
+  fake_service_->RequestSendSyntheticMouseEvent(std::move(mouse_event));
+  waiter.Run();
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityServiceClientTest,
+                       SendSyntheticMouseEventEnter) {
+  TurnOnAccessibilityService(AssistiveTechnologyType::kSwitchAccess);
+  fake_service_->BindAnotherUserInput();
+
+  auto mouse_event = ax::mojom::SyntheticMouseEvent::New();
+  mouse_event->type = ui::mojom::EventType::MOUSE_ENTERED_EVENT;
+  mouse_event->point = gfx::Point(0, 0);
+  mouse_event->mouse_button = ax::mojom::SyntheticMouseEventButton::kBack;
+
+  base::RunLoop waiter;
+
+  TestEventHandler test_event_handler(base::BindLambdaForTesting([&]() {
+    ASSERT_NE(0u, test_event_handler.mouse_events.size());
+    ui::MouseEvent* mouse_event = test_event_handler.mouse_events.back().get();
+    EXPECT_EQ(mouse_event->type(), ui::EventType::kMouseEntered);
+    EXPECT_FALSE(mouse_event->flags() & ui::EF_TOUCH_ACCESSIBILITY);
+    EXPECT_EQ(mouse_event->button_flags(), ui::EF_BACK_MOUSE_BUTTON);
+    waiter.Quit();
+  }));
+
+  fake_service_->RequestSendSyntheticMouseEvent(std::move(mouse_event));
+  waiter.Run();
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityServiceClientTest,
+                       SendSyntheticMouseEventExit) {
+  TurnOnAccessibilityService(AssistiveTechnologyType::kSwitchAccess);
+  fake_service_->BindAnotherUserInput();
+
+  auto mouse_event = ax::mojom::SyntheticMouseEvent::New();
+  mouse_event->type = ui::mojom::EventType::MOUSE_EXITED_EVENT;
+  mouse_event->point = gfx::Point(0, 0);
+  mouse_event->mouse_button = ax::mojom::SyntheticMouseEventButton::kForward;
+
+  base::RunLoop waiter;
+
+  TestEventHandler test_event_handler(base::BindLambdaForTesting([&]() {
+    ASSERT_NE(0u, test_event_handler.mouse_events.size());
+    ui::MouseEvent* mouse_event = test_event_handler.mouse_events.back().get();
+    EXPECT_EQ(mouse_event->type(), ui::EventType::kMouseExited);
+    EXPECT_FALSE(mouse_event->flags() & ui::EF_TOUCH_ACCESSIBILITY);
+    EXPECT_EQ(mouse_event->button_flags(), ui::EF_FORWARD_MOUSE_BUTTON);
+    waiter.Quit();
+  }));
+
+  fake_service_->RequestSendSyntheticMouseEvent(std::move(mouse_event));
   waiter.Run();
 }
 

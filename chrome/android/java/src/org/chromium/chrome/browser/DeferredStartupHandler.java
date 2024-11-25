@@ -7,10 +7,12 @@ package org.chromium.chrome.browser;
 import android.os.Handler;
 import android.os.Looper;
 
+import org.chromium.base.CallbackUtils;
 import org.chromium.base.ResettersForTesting;
 import org.chromium.base.ThreadUtils;
 
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -74,7 +76,7 @@ public class DeferredStartupHandler {
                             // Note that we can't simply check myQueue().isIdle() as this will
                             // continue to return true even if native tasks are queued up (until
                             // we return control to the Looper).
-                            new Handler().post(() -> {});
+                            new Handler().post(CallbackUtils.emptyRunnable());
                             return true;
                         });
     }
@@ -83,7 +85,7 @@ public class DeferredStartupHandler {
      * Adds a single deferred task to the queue. The caller is responsible for calling
      * queueDeferredTasksOnIdleHandler after adding tasks.
      *
-     * @param deferredTask The tasks to be run.
+     * @param deferredTask The task to be run.
      */
     public void addDeferredTask(Runnable deferredTask) {
         ThreadUtils.assertOnUiThread();
@@ -91,11 +93,22 @@ public class DeferredStartupHandler {
     }
 
     /**
+     * Adds multiple deferred tasks to the queue. The caller is responsible for calling
+     * queueDeferredTasksOnIdleHandler after adding tasks.
+     *
+     * @param deferredTasks The tasks to be run.
+     */
+    public void addDeferredTasks(List<Runnable> deferredTasks) {
+        ThreadUtils.assertOnUiThread();
+        mDeferredTasks.addAll(deferredTasks);
+    }
+
+    /**
      * Avoid using CriteriaHelper for waiting for deferred tasks to complete, as the act of polling
      * can prevent the Looper from going idle, preventing the tasks from running.
      *
-     * You should wait until the activity has posted its deferred startup tasks before calling this
-     * function to avoid races.
+     * <p>You should wait until the activity has posted its deferred startup tasks before calling
+     * this function to avoid races.
      *
      * @return Whether deferred startup has been completed before the timeout expires.
      */
@@ -103,7 +116,7 @@ public class DeferredStartupHandler {
         ThreadUtils.assertOnBackgroundThread();
         // sInstance could become null while executing this function, so keep a ref here.
         DeferredStartupHandler instance =
-                ThreadUtils.runOnUiThreadBlockingNoException(
+                ThreadUtils.runOnUiThreadBlocking(
                         () -> {
                             if (sInstance != null) {
                                 sInstance.mLatchForTesting = new CountDownLatch(1);

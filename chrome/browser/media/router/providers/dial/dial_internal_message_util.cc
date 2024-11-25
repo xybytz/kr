@@ -54,7 +54,6 @@ std::string DialInternalMessageTypeToString(DialInternalMessageType type) {
       break;
   }
   NOTREACHED() << "Unknown message type: " << static_cast<int>(type);
-  return "unknown";
 }
 
 DialInternalMessageType StringToDialInternalMessageType(
@@ -91,7 +90,6 @@ std::string DialReceiverActionToString(DialReceiverAction action) {
       return "stop";
   }
   NOTREACHED() << "Unknown DialReceiverAction: " << static_cast<int>(action);
-  return "";
 }
 
 std::string DialAppInfoErrorToString(DialAppInfoResultCode error) {
@@ -106,7 +104,6 @@ std::string DialAppInfoErrorToString(DialAppInfoResultCode error) {
     case DialAppInfoResultCode::kCount:
       NOTREACHED() << "Unexpected DialAppInfoResultCode: "
                    << static_cast<int>(error);
-      return "";
   }
 }
 

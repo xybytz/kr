@@ -49,6 +49,7 @@
 #include "ui/gfx/geometry/transform_util.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/geometry/vector2d_f.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/animation_builder.h"
 #include "ui/views/view.h"
 #include "ui/views/view_model_utils.h"
@@ -130,7 +131,6 @@ class PagedAppsGridView::BackgroundCardLayer : public ui::LayerOwner,
  public:
   explicit BackgroundCardLayer(PagedAppsGridView* paged_apps_grid_view)
       : LayerOwner(std::make_unique<ui::Layer>(ui::LAYER_TEXTURED)),
-        is_jelly_enabled_(chromeos::features::IsJellyEnabled()),
         paged_apps_grid_view_(paged_apps_grid_view) {
     layer()->SetFillsBoundsOpaquely(false);
     layer()->set_delegate(this);
@@ -162,37 +162,17 @@ class PagedAppsGridView::BackgroundCardLayer : public ui::LayerOwner,
     // Draw a solid rounded rect as the background.
     cc::PaintFlags flags;
     if (is_active_page_) {
-      if (is_jelly_enabled_) {
-        flags.setColor(color_provider->GetColor(
-            cros_tokens::kCrosSysRippleNeutralOnSubtle));
-      } else {
-        const auto base_color_and_opacity =
-            ColorProvider::Get()->GetInkDropBaseColorAndOpacity();
-        flags.setColor(SkColorSetA(base_color_and_opacity.first,
-                                   base_color_and_opacity.second * 255));
-      }
+      flags.setColor(
+          color_provider->GetColor(cros_tokens::kCrosSysRippleNeutralOnSubtle));
     } else {
-      if (is_jelly_enabled_) {
-        flags.setColor(
-            color_provider->GetColor(cros_tokens::kCrosSysHoverOnSubtle));
-      } else {
-        flags.setColor(
-            color_provider->GetColor(kColorAshControlBackgroundColorInactive));
-      }
+      flags.setColor(
+          color_provider->GetColor(cros_tokens::kCrosSysHoverOnSubtle));
     }
     flags.setStyle(cc::PaintFlags::kFill_Style);
     canvas->DrawRoundRect(card_size, kBackgroundCardCornerRadius, flags);
 
     if (is_active_page_) {
-      if (is_jelly_enabled_) {
-        flags.setColor(color_provider->GetColor(cros_tokens::kCrosSysOutline));
-      } else {
-        // Draw a border around the active page.
-        const bool dark_mode =
-            DarkLightModeControllerImpl::Get()->IsDarkModeEnabled();
-        flags.setColor(dark_mode ? SK_ColorWHITE : SK_ColorBLACK);
-        flags.setAlphaf(dark_mode ? 0.16f : 0.12f);
-      }
+      flags.setColor(color_provider->GetColor(cros_tokens::kCrosSysOutline));
       flags.setStyle(cc::PaintFlags::kStroke_Style);
       flags.setStrokeWidth(kBackgroundCardBorderStrokeWidth);
       flags.setAntiAlias(true);
@@ -206,7 +186,6 @@ class PagedAppsGridView::BackgroundCardLayer : public ui::LayerOwner,
 
   bool is_active_page_ = false;
 
-  const bool is_jelly_enabled_;
   const raw_ptr<PagedAppsGridView> paged_apps_grid_view_;
 };
 
@@ -235,6 +214,8 @@ PagedAppsGridView::PagedAppsGridView(
   pagination_controller_ = std::make_unique<PaginationController>(
       &pagination_model_, PaginationController::SCROLL_AXIS_VERTICAL,
       base::BindRepeating(&AppListRecordPageSwitcherSourceByEventType));
+
+  GetViewAccessibility().SetClipsChildren(true);
 }
 
 PagedAppsGridView::~PagedAppsGridView() {
@@ -279,7 +260,7 @@ void PagedAppsGridView::OnGestureEvent(ui::GestureEvent* event) {
   // in our current design. This prevents both ignoring horizontal scrolls in
   // app list, and closing open folders.
   if (pagination_controller_->OnGestureEvent(*event, GetContentsBounds()) ||
-      event->type() == ui::ET_GESTURE_SCROLL_BEGIN) {
+      event->type() == ui::EventType::kGestureScrollBegin) {
     event->SetHandled();
   }
 }
@@ -287,7 +268,7 @@ void PagedAppsGridView::OnGestureEvent(ui::GestureEvent* event) {
 ////////////////////////////////////////////////////////////////////////////////
 // views::View:
 
-void PagedAppsGridView::Layout() {
+void PagedAppsGridView::Layout(PassKey) {
   if (ignore_layout())
     return;
 
@@ -325,11 +306,6 @@ void PagedAppsGridView::Layout() {
     MaskContainerToBackgroundBounds();
   }
   views::ViewModelUtils::SetViewBoundsToIdealBounds(pulsing_blocks_model());
-}
-
-void PagedAppsGridView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  AppsGridView::GetAccessibleNodeData(node_data);
-  node_data->AddBoolAttribute(ax::mojom::BoolAttribute::kClipsChildren, true);
 }
 
 void PagedAppsGridView::OnThemeChanged() {
@@ -560,7 +536,7 @@ void PagedAppsGridView::SelectedPageChanged(int old_selected,
                                             int new_selected) {
   items_container()->layer()->SetTransform(gfx::Transform());
   if (IsDragging()) {
-    Layout();
+    DeprecatedLayoutImmediately();
     UpdateDropTargetRegion();
     MaybeStartPageFlipTimer(last_drag_point());
   } else {
@@ -577,7 +553,7 @@ void PagedAppsGridView::SelectedPageChanged(int old_selected,
     } else {
       ClearSelectedView();
     }
-    Layout();
+    DeprecatedLayoutImmediately();
   }
 }
 
@@ -591,11 +567,11 @@ void PagedAppsGridView::TransitionStarting() {
 void PagedAppsGridView::TransitionStarted() {
   if (abs(pagination_model_.transition().target_page -
           pagination_model_.selected_page()) > 1) {
-    Layout();
+    DeprecatedLayoutImmediately();
   }
 
   pagination_metrics_tracker_ =
-      GetWidget()->GetCompositor()->RequestNewThroughputTracker();
+      GetWidget()->GetCompositor()->RequestNewCompositorMetricsTracker();
   pagination_metrics_tracker_->Start(metrics_util::ForSmoothnessV3(
       base::BindRepeating(&ReportPaginationSmoothness)));
 }
@@ -641,6 +617,11 @@ void PagedAppsGridView::ScrollEnded() {
 
 bool PagedAppsGridView::ShouldContainerHandleDragEvents() {
   return true;
+}
+
+bool PagedAppsGridView::IsAboveTheFold(AppListItemView* item_view) {
+  // The first page is considered above the fold.
+  return GetIndexOfView(item_view).page == 0;
 }
 
 bool PagedAppsGridView::DoesIntersectRect(const views::View* target,
@@ -803,10 +784,10 @@ void PagedAppsGridView::EndAppsGridCardifiedView() {
 
 void PagedAppsGridView::AnimateCardifiedState() {
   if (GetWidget()) {
-    // Normally Layout() cancels any animations. At this point there may be a
-    // pending Layout(), force it now so that one isn't triggered part way
-    // through the animation. Further, ignore this layout so that the position
-    // isn't reset.
+    // Normally layout cancels any animations. At this point there may be a
+    // pending layout; force it now so that one isn't triggered part way through
+    // the animation. Further, ignore this layout so that the position isn't
+    // reset.
     DCHECK(!ignore_layout_);
     base::AutoReset<bool> auto_reset(&ignore_layout_, true);
     GetWidget()->LayoutRootViewIfNecessary();
@@ -1208,10 +1189,10 @@ void PagedAppsGridView::AnimateOnNudgeRemoved() {
   UpdateTilePadding();
 
   if (GetWidget()) {
-    // Normally Layout() cancels any animations. At this point there may be a
-    // pending Layout(), force it now so that one isn't triggered part way
-    // through the animation. Further, ignore this layout so that the position
-    // isn't reset.
+    // Normally layout cancels any animations. At this point there may be a
+    // pending layout; force it now so that one isn't triggered part way through
+    // the animation. Further, ignore this layout so that the position isn't
+    // reset.
     base::AutoReset<bool> auto_reset(&ignore_layout_, true);
     GetWidget()->LayoutRootViewIfNecessary();
   }

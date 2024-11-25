@@ -35,8 +35,15 @@ bool IsMediaStatusMessage(const cast_channel::InternalMessage& message) {
 AppActivity::AppActivity(const MediaRoute& route,
                          const std::string& app_id,
                          cast_channel::CastMessageHandler* message_handler,
-                         CastSessionTracker* session_tracker)
-    : CastActivity(route, app_id, message_handler, session_tracker) {}
+                         CastSessionTracker* session_tracker,
+                         mojo::Remote<mojom::Logger>& logger,
+                         mojo::Remote<mojom::Debugger>& debugger)
+    : CastActivity(route,
+                   app_id,
+                   message_handler,
+                   session_tracker,
+                   logger,
+                   debugger) {}
 
 AppActivity::~AppActivity() = default;
 
@@ -138,7 +145,8 @@ void AppActivity::BindMediaController(
   }
 }
 
-void AppActivity::OnAppMessage(const cast::channel::CastMessage& message) {
+void AppActivity::OnAppMessage(
+    const openscreen::cast::proto::CastMessage& message) {
   if (!session_id_) {
     DVLOG(2) << "No session associated with activity!";
     return;
@@ -182,15 +190,16 @@ bool AppActivity::CanJoinSession(const CastMediaSource& cast_source) const {
   return true;
 }
 
-bool AppActivity::HasJoinableClient(AutoJoinPolicy policy,
-                                    const url::Origin& origin,
-                                    int frame_tree_node_id) const {
+bool AppActivity::HasJoinableClient(
+    AutoJoinPolicy policy,
+    const url::Origin& origin,
+    content::FrameTreeNodeId frame_tree_node_id) const {
   return base::ranges::any_of(
       connected_clients_,
       [policy, &origin, frame_tree_node_id](const auto& client) {
-        return IsAutoJoinAllowed(policy, origin, frame_tree_node_id,
+        return IsAutoJoinAllowed(policy, origin, frame_tree_node_id.value(),
                                  client.second->origin(),
-                                 client.second->frame_tree_node_id());
+                                 client.second->frame_tree_node_id().value());
       });
 }
 

@@ -55,7 +55,6 @@ GCMClient::ChromeChannel GetChannel(version_info::Channel channel) {
       return GCMClient::CHANNEL_STABLE;
   }
   NOTREACHED();
-  return GCMClient::CHANNEL_UNKNOWN;
 }
 
 std::string GetVersion() {

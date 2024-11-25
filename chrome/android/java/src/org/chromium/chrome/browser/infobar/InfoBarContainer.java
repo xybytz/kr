@@ -16,7 +16,9 @@ import org.jni_zero.NativeMethods;
 
 import org.chromium.base.ObserverList;
 import org.chromium.base.UserData;
+import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.fullscreen.BrowserControlsManager;
 import org.chromium.chrome.browser.fullscreen.BrowserControlsManagerSupplier;
 import org.chromium.chrome.browser.fullscreen.FullscreenManager;
@@ -24,6 +26,7 @@ import org.chromium.chrome.browser.fullscreen.FullscreenOptions;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabObserver;
+import org.chromium.chrome.browser.ui.edge_to_edge.EdgeToEdgeController;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetControllerProvider;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetObserver;
@@ -222,7 +225,7 @@ public class InfoBarContainer implements UserData, KeyboardVisibilityListener, I
      * Helper class to manage showing in-product help bubbles over specific info bars. It will be
      * null when the {@link Tab} is detached from a {@link Activity}.
      */
-    private @Nullable IPHInfoBarSupport mIPHSupport;
+    private @Nullable IphInfoBarSupport mIphSupport;
 
     /** A {@link BottomSheetObserver} so this view knows when to show/hide. */
     private @Nullable BottomSheetObserver mBottomSheetObserver;
@@ -483,11 +486,20 @@ public class InfoBarContainer implements UserData, KeyboardVisibilityListener, I
     private void initializeContainerView(Activity activity) {
         BrowserControlsManager browserControlsManager =
                 BrowserControlsManagerSupplier.getValueOrNullFrom(mTab.getWindowAndroid());
+
+        // Note: Doing a cast and pulling off dependencies from ChromeActivity is generally a
+        // pattern we try to avoid. However, InfoBar is slated for deprecation soon, so a better
+        // dependency management approach won't be used.
+        ObservableSupplier<EdgeToEdgeController> edgeToEdgeSupplier = null;
+        if (activity instanceof ChromeActivity) {
+            edgeToEdgeSupplier = ((ChromeActivity) activity).getEdgeToEdgeSupplier();
+        }
         mInfoBarContainerView =
                 new InfoBarContainerView(
                         activity,
                         mContainerViewObserver,
                         browserControlsManager,
+                        edgeToEdgeSupplier,
                         DeviceFormFactor.isWindowOnTablet(mTab.getWindowAndroid()));
         if (browserControlsManager != null) {
             browserControlsManager.getFullscreenManager().removeObserver(mFullscreenObserver);
@@ -513,9 +525,9 @@ public class InfoBarContainer implements UserData, KeyboardVisibilityListener, I
         mInfoBarContainerView.setHidden(mIsHidden);
         setParentView(activity.findViewById(R.id.bottom_container));
 
-        mIPHSupport = new IPHInfoBarSupport(new IPHBubbleDelegateImpl(activity, mTab));
-        addAnimationListener(mIPHSupport);
-        addObserver(mIPHSupport);
+        mIphSupport = new IphInfoBarSupport(new IphBubbleDelegateImpl(activity, mTab));
+        addAnimationListener(mIphSupport);
+        addObserver(mIphSupport);
 
         mTab.getWindowAndroid().getKeyboardDelegate().addKeyboardVisibilityListener(this);
     }
@@ -540,10 +552,10 @@ public class InfoBarContainer implements UserData, KeyboardVisibilityListener, I
     }
 
     private void destroyContainerView() {
-        if (mIPHSupport != null) {
-            removeAnimationListener(mIPHSupport);
-            removeObserver(mIPHSupport);
-            mIPHSupport = null;
+        if (mIphSupport != null) {
+            removeAnimationListener(mIphSupport);
+            removeObserver(mIphSupport);
+            mIphSupport = null;
         }
 
         BrowserControlsManager browserControlsManager =

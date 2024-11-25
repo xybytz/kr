@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/enterprise/connectors/device_trust/key_management/browser/commands/win_key_rotation_command.h"
 
 #include <comutil.h>
@@ -224,10 +229,8 @@ void WinKeyRotationCommand::Trigger(const KeyRotationCommand::Params& params,
               return KeyRotationCommand::Status::FAILED_INVALID_INSTALLATION;
             }
 
-            std::string token_base64;
-            base::Base64Encode(params.dm_token, &token_base64);
-            std::string nonce_base64;
-            base::Base64Encode(params.nonce, &nonce_base64);
+            std::string token_base64 = base::Base64Encode(params.dm_token);
+            std::string nonce_base64 = base::Base64Encode(params.nonce);
 
             std::optional<DWORD> return_code;
 

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {ExperimentalFeaturesData, FlagsBrowserProxy} from 'chrome://flags/flags_browser_proxy.js';
+import type {ExperimentalFeaturesData, FlagsBrowserProxy} from 'chrome://flags/flags_browser_proxy.js';
 import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
 
 export class TestFlagsBrowserProxy extends TestBrowserProxy implements
@@ -14,8 +14,10 @@ export class TestFlagsBrowserProxy extends TestBrowserProxy implements
     'needsRestart': false,
     'showBetaChannelPromotion': false,
     'showDevChannelPromotion': false,
+    // <if expr="chromeos_ash">
     'showOwnerWarning': false,
     'showSystemFlagsLink': true,
+    // </if>
   };
 
   constructor() {
@@ -25,6 +27,7 @@ export class TestFlagsBrowserProxy extends TestBrowserProxy implements
       'crosUrlFlagsRedirect',
       // </if>
       'resetAllFlags',
+      'requestDeprecatedFeatures',
       'requestExperimentalFeatures',
       'enableExperimentalFeature',
       'selectExperimentalFeature',
@@ -49,6 +52,11 @@ export class TestFlagsBrowserProxy extends TestBrowserProxy implements
 
   resetAllFlags() {
     this.methodCalled('resetAllFlags');
+  }
+
+  requestDeprecatedFeatures() {
+    this.methodCalled('requestDeprecatedFeatures');
+    return Promise.resolve(structuredClone(this.featureData));
   }
 
   requestExperimentalFeatures() {

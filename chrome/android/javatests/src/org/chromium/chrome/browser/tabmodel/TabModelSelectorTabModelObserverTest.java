@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser.tabmodel;
 
+import androidx.test.annotation.UiThreadTest;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
@@ -12,16 +13,14 @@ import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
-import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserverTestRule.TabModelSelectorTestTabModel;
-import org.chromium.chrome.browser.tasks.tab_groups.TabGroupModelFilter;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.List;
 import java.util.concurrent.TimeoutException;
@@ -49,7 +48,7 @@ public class TabModelSelectorTabModelObserverTest {
     public void testAlreadyInitializedSelector() throws TimeoutException {
         final CallbackHelper registrationCompleteCallback = new CallbackHelper();
         TabModelSelectorTabModelObserver observer =
-                TestThreadUtils.runOnUiThreadBlockingNoException(
+                ThreadUtils.runOnUiThreadBlocking(
                         () ->
                                 new TabModelSelectorTabModelObserver(mSelector) {
                                     @Override
@@ -66,7 +65,7 @@ public class TabModelSelectorTabModelObserverTest {
     @SmallTest
     public void testUninitializedSelector() throws TimeoutException {
         mSelector =
-                new TabModelSelectorBase(null, TabGroupModelFilter::new, false) {
+                new TabModelSelectorBase(null, false) {
                     @Override
                     public void requestToShowTab(Tab tab, int type) {}
 
@@ -92,7 +91,11 @@ public class TabModelSelectorTabModelObserverTest {
                         registrationCompleteCallback.notifyCalled();
                     }
                 };
-        mSelector.initialize(sTestRule.getNormalTabModel(), sTestRule.getIncognitoTabModel());
+        TabUngrouperFactory factory =
+                (isIncognitoBranded, tabGroupModelFilterSupplier) ->
+                        new PassthroughTabUngrouper(tabGroupModelFilterSupplier);
+        mSelector.initialize(
+                sTestRule.getNormalTabModel(), sTestRule.getIncognitoTabModel(), factory);
         registrationCompleteCallback.waitForCallback(0);
         assertAllModelsHaveObserver(mSelector, observer);
     }

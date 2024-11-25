@@ -10,7 +10,8 @@
 
 #include "base/callback_list.h"
 #include "base/functional/callback_forward.h"
-#include "base/scoped_multi_source_observation.h"
+#import "base/memory/raw_ptr.h"
+#include "base/scoped_observation.h"
 #include "components/bookmarks/browser/base_bookmark_model_observer.h"
 #include "components/history/core/browser/history_client.h"
 #include "components/history/core/browser/history_service.h"
@@ -25,9 +26,7 @@ class BookmarkNode;
 class HistoryClientImpl : public history::HistoryClient,
                           public bookmarks::BaseBookmarkModelObserver {
  public:
-  explicit HistoryClientImpl(
-      bookmarks::BookmarkModel* local_or_syncable_bookmark_model,
-      bookmarks::BookmarkModel* account_bookmark_model);
+  explicit HistoryClientImpl(bookmarks::BookmarkModel* bookmark_model);
 
   HistoryClientImpl(const HistoryClientImpl&) = delete;
   HistoryClientImpl& operator=(const HistoryClientImpl&) = delete;
@@ -35,7 +34,7 @@ class HistoryClientImpl : public history::HistoryClient,
   ~HistoryClientImpl() override;
 
  private:
-  void StopObservingBookmarkModels();
+  void StopObservingBookmarkModel();
 
   // history::HistoryClient implementation.
   void OnHistoryServiceCreated(
@@ -50,29 +49,25 @@ class HistoryClientImpl : public history::HistoryClient,
 
   // bookmarks::BaseBookmarkModelObserver implementation.
   void BookmarkModelChanged() override;
-  void BookmarkModelBeingDeleted(bookmarks::BookmarkModel* model) override;
-  void BookmarkNodeRemoved(bookmarks::BookmarkModel* model,
-                           const bookmarks::BookmarkNode* parent,
+  void BookmarkModelBeingDeleted() override;
+  void BookmarkNodeRemoved(const bookmarks::BookmarkNode* parent,
                            size_t old_index,
                            const bookmarks::BookmarkNode* node,
-                           const std::set<GURL>& no_longer_bookmarked) override;
-  void BookmarkAllUserNodesRemoved(bookmarks::BookmarkModel* model,
-                                   const std::set<GURL>& removed_urls) override;
+                           const std::set<GURL>& no_longer_bookmarked,
+                           const base::Location& location) override;
+  void BookmarkAllUserNodesRemoved(const std::set<GURL>& removed_urls,
+                                   const base::Location& location) override;
 
   // Callback registered in `favicons_changed_subscription_`.
   void OnFaviconsChanged(const std::set<GURL>& page_urls,
                          const GURL& favicon_url);
 
   // Called when bookmarks are removed from a model and calls
-  // `on_bookmarks_removed_`. `model` can be either `account_bookmark_model_` or
-  // `local_or_syncable_bookmark_model_`. A bookmark is considered truly removed
-  // only if it's not in any of the models.
-  void HandleBookmarksRemovedFromModel(bookmarks::BookmarkModel* model,
-                                       const std::set<GURL>& removed_urls);
+  // `on_bookmarks_removed_`.
+  void HandleBookmarksRemovedFromModel(const std::set<GURL>& removed_urls);
 
-  // BookmarkModel instances providing access to bookmarks. May be null.
-  bookmarks::BookmarkModel* local_or_syncable_bookmark_model_ = nullptr;
-  bookmarks::BookmarkModel* account_bookmark_model_ = nullptr;
+  // BookmarkModel instance providing access to bookmarks. May be null.
+  raw_ptr<bookmarks::BookmarkModel> bookmark_model_ = nullptr;
 
   // Callback invoked when URLs are removed from BookmarkModel.
   base::RepeatingCallback<void(const std::set<GURL>&)> on_bookmarks_removed_;
@@ -80,9 +75,9 @@ class HistoryClientImpl : public history::HistoryClient,
   // Subscription for notifications of changes to favicons.
   base::CallbackListSubscription favicons_changed_subscription_;
 
-  base::ScopedMultiSourceObservation<bookmarks::BookmarkModel,
-                                     bookmarks::BaseBookmarkModelObserver>
-      bookmark_model_observations_{this};
+  base::ScopedObservation<bookmarks::BookmarkModel,
+                          bookmarks::BaseBookmarkModelObserver>
+      bookmark_model_observation_{this};
 };
 
 #endif  // IOS_CHROME_BROWSER_HISTORY_MODEL_HISTORY_CLIENT_IMPL_H_

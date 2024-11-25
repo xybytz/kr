@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/extensions/activity_log/activity_log.h"
 
 #include <stddef.h>
@@ -92,14 +97,17 @@ class InterceptingRendererStartupHelper : public RendererStartupHelper,
   void CancelSuspendExtension(const std::string& extension_id) override {}
   void SetDeveloperMode(bool current_developer_mode) override {}
   void SetSessionInfo(version_info::Channel channel,
-                      mojom::FeatureSessionType session,
-                      bool is_lock_screen_context) override {}
+                      mojom::FeatureSessionType session) override {}
   void SetSystemFont(const std::string& font_family,
                      const std::string& font_size) override {}
   void SetWebViewPartitionID(const std::string& partition_id) override {}
   void SetScriptingAllowlist(
       const std::vector<std::string>& extension_ids) override {}
-  void UpdateUserScriptWorld(mojom::UserScriptWorldInfoPtr info) override {}
+  void UpdateUserScriptWorlds(
+      std::vector<mojom::UserScriptWorldInfoPtr> info) override {}
+  void ClearUserScriptWorldConfig(
+      const std::string& extension_id,
+      const std::optional<std::string>& world_id) override {}
   void ShouldSuspend(ShouldSuspendCallback callback) override {
     std::move(callback).Run();
   }
@@ -165,8 +173,9 @@ class ActivityLogTest : public ChromeRenderViewHostTestHarness {
   }
 
   TestingProfile::TestingFactories GetTestingFactories() const override {
-    return {{RendererStartupHelperFactory::GetInstance(),
-             base::BindRepeating(&BuildFakeRendererStartupHelper)}};
+    return {TestingProfile::TestingFactory{
+        RendererStartupHelperFactory::GetInstance(),
+        base::BindRepeating(&BuildFakeRendererStartupHelper)}};
   }
 
   void TearDown() override {
@@ -331,10 +340,10 @@ TEST_F(ActivityLogTest, LogPrerender) {
 
   const gfx::Size kSize(640, 480);
   std::unique_ptr<prerender::NoStatePrefetchHandle> no_state_prefetch_handle(
-      no_state_prefetch_manager->StartPrefetchingFromOmnibox(
+      no_state_prefetch_manager->AddSameOriginSpeculation(
           url,
           web_contents()->GetController().GetDefaultSessionStorageNamespace(),
-          kSize, nullptr));
+          kSize, url::Origin::Create(url)));
 
   const std::vector<content::WebContents*> contentses =
       no_state_prefetch_manager->GetAllNoStatePrefetchingContentsForTesting();

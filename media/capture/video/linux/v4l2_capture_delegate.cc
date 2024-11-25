@@ -17,6 +17,8 @@
 #include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/raw_ptr_exclusion.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
@@ -169,6 +171,8 @@ bool IsNonEmptyRange(const mojom::RangePtr& range) {
 class V4L2CaptureDelegate::BufferTracker
     : public base::RefCounted<BufferTracker> {
  public:
+  REQUIRE_ADOPTION_FOR_REFCOUNTED_TYPE();
+
   explicit BufferTracker(V4L2CaptureDevice* v4l2);
 
   // Abstract method to mmap() given |fd| according to |buffer|.
@@ -187,9 +191,8 @@ class V4L2CaptureDelegate::BufferTracker
 
   const raw_ptr<V4L2CaptureDevice> v4l2_;
 
-  // This field is not a raw_ptr<> because it always points to a mmap'd
-  // region of memory outside of the PA heap. Thus, there would be overhead
-  // involved with using a raw_ptr<> but no safety gains.
+  // RAW_PTR_EXCLUSION: Never allocated by PartitionAlloc (always mmap'ed), so
+  // there is no benefit to using a raw_ptr, only cost.
   RAW_PTR_EXCLUSION uint8_t* start_ = nullptr;
   size_t length_;
   size_t payload_size_;
@@ -450,8 +453,7 @@ void V4L2CaptureDelegate::AllocateAndStart(
 
 #if BUILDFLAG(IS_LINUX)
   if (use_gpu_buffer_) {
-    v4l2_gpu_helper_ = std::make_unique<V4L2CaptureDelegateGpuHelper>(
-        std::move(gmb_support_test_));
+    v4l2_gpu_helper_ = std::make_unique<V4L2CaptureDelegateGpuHelper>();
   }
 #endif  // BUILDFLAG(IS_LINUX)
 
@@ -791,11 +793,6 @@ base::WeakPtr<V4L2CaptureDelegate> V4L2CaptureDelegate::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();
 }
 
-void V4L2CaptureDelegate::SetGPUEnvironmentForTesting(
-    std::unique_ptr<gpu::GpuMemoryBufferSupport> gmb_support) {
-  gmb_support_test_ = std::move(gmb_support);
-}
-
 V4L2CaptureDelegate::~V4L2CaptureDelegate() = default;
 
 bool V4L2CaptureDelegate::RunIoctl(int request, void* argp) {
@@ -1084,7 +1081,6 @@ void V4L2CaptureDelegate::DoCapture() {
           break;
         default:
           NOTREACHED() << "Unexpected event type dequeued: " << event.type;
-          break;
       }
     } while (event.pending > 0u);
 
@@ -1162,7 +1158,8 @@ void V4L2CaptureDelegate::DoCapture() {
         client_->OnIncomingCapturedData(
             buffer_tracker->start(), buffer_tracker->payload_size(),
             capture_format_, gfx::ColorSpace(), rotation_, false /* flip_y */,
-            now, timestamp);
+            now, timestamp, /*capture_begin_timestamp=*/std::nullopt,
+            /*metadata=*/std::nullopt);
     }
 
     while (!take_photo_callbacks_.empty()) {
@@ -1337,12 +1334,10 @@ gfx::ColorSpace V4L2CaptureDelegate::BuildColorSpaceFromv4l2() {
     case V4L2_YCBCR_ENC_BT2020:
       matrix = gfx::ColorSpace::MatrixID::BT2020_NCL;
       break;
-    case V4L2_YCBCR_ENC_BT2020_CONST_LUM:
-      matrix = gfx::ColorSpace::MatrixID::BT2020_CL;
-      break;
     case V4L2_YCBCR_ENC_SMPTE240M:
       matrix = gfx::ColorSpace::MatrixID::SMPTE240M;
       break;
+    case V4L2_YCBCR_ENC_BT2020_CONST_LUM:
     case V4L2_YCBCR_ENC_XV601:
     case V4L2_YCBCR_ENC_XV709:
     case V4L2_YCBCR_ENC_SYCC:

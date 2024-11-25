@@ -28,7 +28,6 @@
 #include "sql/recovery.h"
 #include "sql/statement.h"
 #include "sql/transaction.h"
-#include "third_party/sqlite/sqlite3.h"
 #include "url/origin.h"
 
 #if BUILDFLAG(IS_APPLE)
@@ -45,10 +44,10 @@ namespace favicon {
 //   icon_id          The ID of favicon that this mapping maps to.
 //
 // favicons           This table associates a row to each favicon for a
-//                    |page_url| in the |icon_mapping| table. This is the
-//                    default favicon |page_url|/favicon.ico plus any favicons
+//                    `page_url` in the `icon_mapping` table. This is the
+//                    default favicon `page_url`/favicon.ico plus any favicons
 //                    associated via <link rel="icon_type" href="url">.
-//                    The |id| matches the |icon_id| field in the appropriate
+//                    The `id` matches the `icon_id` field in the appropriate
 //                    row in the icon_mapping table.
 //
 //   id               Unique ID.
@@ -60,8 +59,8 @@ namespace favicon {
 // favicon_bitmaps    This table contains the PNG encoded bitmap data of the
 //                    favicons. There is a separate row for every size in a
 //                    multi resolution bitmap. The bitmap data is associated
-//                    to the favicon via the |icon_id| field which matches
-//                    the |id| field in the appropriate row in the |favicons|
+//                    to the favicon via the `icon_id` field which matches
+//                    the `id` field in the appropriate row in the `favicons`
 //                    table.
 //
 //   id               Unique ID.
@@ -73,8 +72,8 @@ namespace favicon {
 //                    This is used only for ON_VISIT icons, for ON_DEMAND the
 //                    value is always 0.
 //   image_data       PNG encoded data of the favicon.
-//   width            Pixel width of |image_data|.
-//   height           Pixel height of |image_data|.
+//   width            Pixel width of `image_data`.
+//   height           Pixel height of `image_data`.
 //   last_requested   The time at which this bitmap was last requested. This
 //                    entry is non-zero iff the bitmap is of type ON_DEMAND.
 //                    This info is used for clearing old ON_DEMAND bitmaps.
@@ -106,13 +105,6 @@ const int kCurrentVersionNumber = 8;
 const int kCompatibleVersionNumber = 8;
 const int kDeprecatedVersionNumber = 6;  // and earlier.
 
-// When enabled, prefer to use the new recovery module to recover the
-// `FaviconDatabase` database. See https://crbug.com/1385500 for details.
-// This is a kill switch and is not intended to be used in a field trial.
-BASE_FEATURE(kFaviconDatabaseUseBuiltInRecoveryIfSupported,
-             "FaviconDatabaseUseBuiltInRecoveryIfSupported",
-             base::FEATURE_ENABLED_BY_DEFAULT);
-
 void FillIconMapping(const GURL& page_url,
                      sql::Statement& statement,
                      IconMapping* icon_mapping) {
@@ -125,7 +117,7 @@ void FillIconMapping(const GURL& page_url,
 }
 
 // NOTE(shess): Schema modifications must consider initial creation in
-// |InitImpl()| and history pruning in |RetainDataForPageUrls()|.
+// `InitImpl()` and history pruning in `RetainDataForPageUrls()`.
 bool InitTables(sql::Database* db) {
   static const char kIconMappingSql[] =
       "CREATE TABLE IF NOT EXISTS icon_mapping"
@@ -168,7 +160,7 @@ bool InitTables(sql::Database* db) {
 }
 
 // NOTE(shess): Schema modifications must consider initial creation in
-// |InitImpl()| and history pruning in |RetainDataForPageUrls()|.
+// `InitImpl()` and history pruning in `RetainDataForPageUrls()`.
 bool InitIndices(sql::Database* db) {
   static const char kIconMappingUrlIndexSql[] =
       "CREATE INDEX IF NOT EXISTS icon_mapping_page_url_idx"
@@ -203,10 +195,9 @@ void DatabaseErrorCallback(sql::Database* db,
   // see how to reach that.
 
   // Attempt to recover a corrupt database, if it is eligible to be recovered.
-  if (sql::BuiltInRecovery::RecoverIfPossible(
+  if (sql::Recovery::RecoverIfPossible(
           db, extended_error,
-          sql::BuiltInRecovery::Strategy::kRecoverWithMetaVersionOrRaze,
-          &kFaviconDatabaseUseBuiltInRecoveryIfSupported)) {
+          sql::Recovery::Strategy::kRecoverWithMetaVersionOrRaze)) {
     // Recovery was attempted. The database handle has been poisoned and the
     // error callback has been reset.
 
@@ -225,16 +216,17 @@ void DatabaseErrorCallback(sql::Database* db,
     return;
   }
 
-  // The default handling is to assert on debug and to ignore on release.
-  if (!sql::Database::IsExpectedSqliteError(extended_error))
-    DLOG(FATAL) << db->GetErrorMessage();
+  // The default handling is to log an error on debug and to ignore on release.
+  if (!sql::Database::IsExpectedSqliteError(extended_error)) {
+    DLOG(ERROR) << db->GetErrorMessage();
+  }
 }
 
 }  // namespace
 
-FaviconDatabase::IconMappingEnumerator::IconMappingEnumerator() {}
+FaviconDatabase::IconMappingEnumerator::IconMappingEnumerator() = default;
 
-FaviconDatabase::IconMappingEnumerator::~IconMappingEnumerator() {}
+FaviconDatabase::IconMappingEnumerator::~IconMappingEnumerator() = default;
 
 bool FaviconDatabase::IconMappingEnumerator::GetNextIconMapping(
     IconMapping* icon_mapping) {
@@ -288,15 +280,15 @@ void FaviconDatabase::ComputeDatabaseMetrics() {
 }
 
 void FaviconDatabase::BeginTransaction() {
-  db_.BeginTransaction();
+  db_.BeginTransactionDeprecated();
 }
 
 void FaviconDatabase::CommitTransaction() {
-  db_.CommitTransaction();
+  db_.CommitTransactionDeprecated();
 }
 
 void FaviconDatabase::RollbackTransaction() {
-  db_.RollbackTransaction();
+  db_.RollbackTransactionDeprecated();
 }
 
 void FaviconDatabase::Vacuum() {
@@ -381,8 +373,8 @@ bool FaviconDatabase::GetFaviconBitmaps(
     std::vector<uint8_t> bitmap_data_blob;
     statement.ColumnBlobAsVector(2, &bitmap_data_blob);
     if (!bitmap_data_blob.empty()) {
-      favicon_bitmap.bitmap_data =
-          base::RefCountedBytes::TakeVector(&bitmap_data_blob);
+      favicon_bitmap.bitmap_data = base::MakeRefCounted<base::RefCountedBytes>(
+          std::move(bitmap_data_blob));
     }
     favicon_bitmap.pixel_size =
         gfx::Size(statement.ColumnInt(3), statement.ColumnInt(4));
@@ -416,7 +408,8 @@ bool FaviconDatabase::GetFaviconBitmap(
     std::vector<uint8_t> png_data_blob;
     statement.ColumnBlobAsVector(1, &png_data_blob);
     if (!png_data_blob.empty())
-      *png_icon_data = base::RefCountedBytes::TakeVector(&png_data_blob);
+      *png_icon_data =
+          base::MakeRefCounted<base::RefCountedBytes>(std::move(png_data_blob));
   }
 
   if (pixel_size) {
@@ -577,7 +570,7 @@ bool FaviconDatabase::GetFaviconLastUpdatedTime(favicon_base::FaviconID icon_id,
   if (!statement.Step())
     return false;
 
-  // Return false also if there there is no bitmap with |icon_id|.
+  // Return false also if there there is no bitmap with `icon_id`.
   if (statement.GetColumnType(0) == sql::ColumnType::kNull)
     return false;
 
@@ -736,11 +729,11 @@ bool FaviconDatabase::GetIconMappingsForPageURL(
   return result;
 }
 
-absl::optional<GURL> FaviconDatabase::FindFirstPageURLForHost(
+std::optional<GURL> FaviconDatabase::FindFirstPageURLForHost(
     const GURL& url,
     const favicon_base::IconTypeSet& required_icon_types) {
   if (url.host().empty())
-    return absl::nullopt;
+    return std::nullopt;
 
   sql::Statement statement(
       db_.GetCachedStatement(SQL_FROM_HERE,
@@ -769,9 +762,9 @@ absl::optional<GURL> FaviconDatabase::FindFirstPageURLForHost(
         FaviconDatabase::FromPersistedIconType(statement.ColumnInt(1));
 
     if (required_icon_types.count(icon_type) != 0)
-      return absl::make_optional(GURL(statement.ColumnString(0)));
+      return std::make_optional(GURL(statement.ColumnString(0)));
   }
-  return absl::nullopt;
+  return std::nullopt;
 }
 
 IconMappingID FaviconDatabase::AddIconMapping(const GURL& page_url,
@@ -861,7 +854,7 @@ bool FaviconDatabase::RetainDataForPageUrls(
   if (!transaction.Begin())
     return false;
 
-  // Populate temp.retained_urls with |urls_to_keep|.
+  // Populate temp.retained_urls with `urls_to_keep`.
   {
     static const char kCreateRetainedUrls[] =
         "CREATE TEMP TABLE retained_urls (url LONGVARCHAR PRIMARY KEY)";
@@ -1025,9 +1018,9 @@ sql::InitStatus FaviconDatabase::InitImpl(const base::FilePath& db_name) {
 
   // Clear databases which are too old to process.
   DCHECK_LT(kDeprecatedVersionNumber, kCurrentVersionNumber);
-  if (!sql::MetaTable::RazeIfIncompatible(
+  if (sql::MetaTable::RazeIfIncompatible(
           &db_, /*lowest_supported_version=*/kDeprecatedVersionNumber + 1,
-          kCurrentVersionNumber)) {
+          kCurrentVersionNumber) == sql::RazeIfIncompatibleResult::kFailed) {
     return sql::INIT_FAILURE;
   }
 

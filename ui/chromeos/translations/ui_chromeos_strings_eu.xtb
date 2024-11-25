@@ -19,6 +19,7 @@
 <translation id="115443833402798225">Hangul ahnmatae</translation>
 <translation id="1155759005174418845">Katalana</translation>
 <translation id="1168100932582989117">Google izen-zerbitzariak</translation>
+<translation id="1170788066030116158">Ateratako data</translation>
 <translation id="1172970565351728681"><ph name="REMAINING_TIME" /> inguru geratzen dira</translation>
 <translation id="1173894706177603556">Aldatu izena</translation>
 <translation id="1173916544412572294"><ph name="NETWORK_INDEX" />/<ph name="NETWORK_COUNT" /> sarea, <ph name="PHONE_NAME" />. <ph name="CONNECTION_STATUS" />. Seinalearen indarra: % <ph name="SIGNAL_STRENGTH" />. Telefonoaren bateria: % <ph name="BATTERY_STATUS" />. Xehetasunak.</translation>
@@ -167,7 +168,7 @@
 <translation id="2305020378527873881">Kanporatu da <ph name="VOLUME_NAME" />.</translation>
 <translation id="2307462900900812319">Konfiguratu sarea</translation>
 <translation id="2312704192806647271">{COUNT,plural, =1{Ezin da aurkitu <ph name="BEGIN_LIST" /><ph name="END_LIST" /> identifikatzailearekin lotutako luzapenik. Jarri administratzailearekin harremanetan.}other{Ezin da aurkitu <ph name="BEGIN_LIST" /><ph name="END_LIST" /> identifikatzaileekin lotutako luzapenik. Jarri administratzailearekin harremanetan.}}</translation>
-<translation id="2325650632570794183">Ez dira mota horretako fitxategiak onartzen. Horrelako fitxategiak ireki ditzaketen aplikazioak aurkitzeko, zoaz Chrome Web Store dendara.</translation>
+<translation id="2325650632570794183">Ez dira mota horretako fitxategiak onartzen. Horrelako fitxategiak ireki ditzaketen aplikazioak aurkitzeko, zoaz Chrome Web Store-ra.</translation>
 <translation id="2326539130272988168">Bulgariarra</translation>
 <translation id="233822363739146957">Ez dago fitxategi guztiak sinkronizatzeko behar adina toki biltegian</translation>
 <translation id="23721837607121582">Deskargatu mugikorreko profila, <ph name="NETWORK_INDEX" /> / <ph name="NETWORK_COUNT" /> sare, <ph name="NETWORK_NAME" /></translation>
@@ -257,7 +258,6 @@
 <translation id="3083975830683400843">Chromebit-ak</translation>
 <translation id="3085752524577180175">SOCKS ostalaria</translation>
 <translation id="3104793765551262433"><ph name="NETWORK_COUNT" /> saretatik <ph name="NETWORK_INDEX" />garrena, <ph name="NETWORK_NAME" />, <ph name="SECURITY_STATUS" />,<ph name="CONNECTION_STATUS" />, Seinalearen indarra: ehuneko <ph name="SIGNAL_STRENGTH" />, Administratzaileak blokeatu du, Xehetasunak</translation>
-<translation id="3113153474486991170">Ezin izan da ireki "<ph name="PATH" />" kokapen honetatik. Irekitzeko, kopia ezazu "Nire fitxategiak" atalean.</translation>
 <translation id="3113592018909187986">Saiakera bat gelditzen zaizu. Ezingo duzu erabili sarea beste PIN bat konfiguratzen duzun arte.</translation>
 <translation id="3124404833828281817">Esna dagoela ametsetan ari den pertsona</translation>
 <translation id="3126026824346185272">Ktrl</translation>
@@ -338,6 +338,7 @@
 <translation id="3689865792480713551">Utzi <ph name="ACTIVITY_DESCRIPTION" />.</translation>
 <translation id="3690128548376345212"><ph name="NETWORK_COUNT" /> saretatik <ph name="NETWORK_INDEX" />garrena, <ph name="NETWORK_NAME" />, aktibatu gabe, <ph name="CONNECTION_STATUS" />, seinalearen indarra: ehuneko <ph name="SIGNAL_STRENGTH" />, xehetasunak</translation>
 <translation id="3691184985318546178">Sinhalarra</translation>
+<translation id="3702842351052426940">SIM txartela edo eSIMaren profila agian desaktibatuta dago. Ordeztu SIM txartela edo aldatu eSIMaren profila.</translation>
 <translation id="3722341589402358578">Errore bat gertatu da. Baliteke elementu batzuk zaborrontzira eraman ez izatea.</translation>
 <translation id="3726463242007121105">Ezin da gailua ireki bere fitxategi-sistema onartzen ez delako.</translation>
 <translation id="3727148787322499904">Ezarpen hau aldatzeak partekatutako sare guztietan izango du eragina</translation>
@@ -357,8 +358,8 @@
 <translation id="3822559385185038546">Administratzaileak ezartzen du proxya</translation>
 <translation id="3830674330436234648">Ez dago erreprodukziorik</translation>
 <translation id="383652340667548381">Serbiarra</translation>
+<translation id="3839045880592694915">Operadoreak ez dio eman konektatzeko baimenik modemari. Xehetasun gehiago lortzeko, jarri operadorearekin harremanetan.</translation>
 <translation id="385051799172605136">Atzera</translation>
-<translation id="3851491607336266896">Konektatuta, konexio mugatua dago</translation>
 <translation id="3855472144336161447">Neo 2 alemana</translation>
 <translation id="3858860766373142691">Izena</translation>
 <translation id="3866249974567520381">Azalpena</translation>
@@ -377,10 +378,10 @@
 <translation id="3999574733850440202">Duela gutxi irekitako Microsoft-eko fitxategiak OneDrive-ra eraman dira</translation>
 <translation id="4002066346123236978">Izena</translation>
 <translation id="4017788180641807848">Ingelesa (AEB), Workman teklatuarekin</translation>
-<translation id="4019998208269143058">Ainguratu Fitxategi bizkorrak atalean</translation>
 <translation id="4040753847560036377">Okerreko PUKa</translation>
 <translation id="4057991113334098539">Aktibatzen…</translation>
 <translation id="4092890906744441904">Irlandarra</translation>
+<translation id="4101601646343868113">Hasi saioa sare mugikorrean eta berretsi mugikorrerako datu-tarifa aktibo daukazula</translation>
 <translation id="4124731372776320263">Drive-ko fitxategi bat sinkronizatzen</translation>
 <translation id="4124935795427217608">Adarbakarra</translation>
 <translation id="4131235941541910880">Eraman zaborrontzira behar ez dituzun elementuak</translation>
@@ -421,6 +422,7 @@
 <translation id="4387004326333427325">Autentifikazio-ziurtagiria urrunetik baztertu da</translation>
 <translation id="4394214039309501350">Kanpoko esteka</translation>
 <translation id="4394980935660306080">Aste honetan lehenago</translation>
+<translation id="4397435965699247285">OneDrive ezin da erabili konexiorik gabe</translation>
 <translation id="4398096759193130964">Leheneratu elementuak edo arrasta itzazu zaborrontzitik kanpoko beste karpeta batera</translation>
 <translation id="4401287888955153199">Atera guztia</translation>
 <translation id="4410695710508688828">Ezin izan da atera. <ph name="ERROR_MESSAGE" /></translation>
@@ -491,7 +493,7 @@
 <translation id="485316830061041779">Alemana</translation>
 <translation id="4862885579661885411">Fitxategien ezarpenak</translation>
 <translation id="4867079195717347957">Egin klik zutabea beheranzko ordenan ezartzeko.</translation>
-<translation id="4867297348137739678">Aurreko astea</translation>
+<translation id="4867297348137739678">Joan den astea</translation>
 <translation id="4873265419374180291"><ph name="NUMBER_OF_BYTES" /> byte</translation>
 <translation id="4874569719830985133">Ezabatu betiko</translation>
 <translation id="4880214202172289027">Bolumen-graduatzailea</translation>
@@ -605,6 +607,7 @@
 <translation id="5625294776298156701">Tamildarra, Tamil99 teklatuarekin</translation>
 <translation id="5633226425545095130">Elementu hau mugituz gero, "<ph name="DESTINATION_NAME" />" karpeta partekatua ikus dezakeen edonorekin partekatuko da.</translation>
 <translation id="5649768706273821470">Entzun</translation>
+<translation id="5650895901941743674">Egiaztatu APNaren konfigurazioa</translation>
 <translation id="5669691691057771421">Idatzi PIN berria</translation>
 <translation id="5678784840044122290">Linux aplikazioa erabilgarri egongo da zure terminalean eta baliteke haren ikonoa abiarazlean agertzea.</translation>
 <translation id="5686799162999241776"><ph name="BEGIN_BOLD" />Ezin da deskonektatu artxibotik edo disko birtualetik<ph name="END_BOLD" />
@@ -615,7 +618,7 @@
 <translation id="5700087501958648444">Audioari buruzko informazioa</translation>
 <translation id="5720028165859493293">Eraman da zaborrontzira <ph name="FILE_NAME" /></translation>
 <translation id="5724172041621205163">Thailandiarra, Pattachote teklatuarekin</translation>
-<translation id="57383366388012121">Aurreko hilabetea</translation>
+<translation id="57383366388012121">Joan den hilabetea</translation>
 <translation id="575175778971367197">Une honetan ezin da sinkronizatu fitxategi hau</translation>
 <translation id="5756666464756035725">QWERTY teklatu hungariarra</translation>
 <translation id="5760252553414789727"><ph name="SELECTED_FILES_COUNT" /> elementu hautatu dira</translation>
@@ -684,6 +687,7 @@
 <translation id="6267547857941397424"><ph name="NETWORK_INDEX" />/<ph name="NETWORK_COUNT" />, <ph name="PHONE_NAME" />. Seinalearen indarra: % <ph name="SIGNAL_STRENGTH" />. Telefonoaren bateria: % <ph name="BATTERY_STATUS" />. Konektatu.</translation>
 <translation id="6269630227984243955">Malaysiarra</translation>
 <translation id="6271903698064569429">Ezin dira kargatu fitxategiak, <ph name="SHARED_DRIVE_NAME" /> unitate partekatuko biltegian ez dagoelako behar adina toki.</translation>
+<translation id="6279140785485544797">Agian iraungita dago mugikorrerako datu-tarifa. Laguntza jasotzeko, jarri operadorearekin harremanetan.</translation>
 <translation id="6287852322318138013">Hautatu fitxategia irekitzeko aplikazioa</translation>
 <translation id="6295542640242147836">Blokeatu SIMa</translation>
 <translation id="6296410173147755564">PUKak ez du balio</translation>
@@ -693,7 +697,6 @@
 <translation id="6320212353742551423"><ph name="ARCHIVE_TYPE" /> artxiboa</translation>
 <translation id="6321303798550928047">Agurtzen</translation>
 <translation id="6327785803543103246">Web-proxyaren hautemate automatikoa</translation>
-<translation id="6337014272874260727">Kendu Fitxategi bizkorrak atalerako aingura</translation>
 <translation id="6339145975392024142">AEBko nazioarteko teklatua (PCrako)</translation>
 <translation id="6356685157277930264">Fitxategiei buruzko oharren leihoa</translation>
 <translation id="6358884629796491903">Dragoia</translation>
@@ -717,7 +720,7 @@
 <translation id="6503285896705205014">Administratzailearen gidalerroek ez dute uzten <ph name="COUNT" /> fitxategi kopiatzen</translation>
 <translation id="6509122719576673235">Norvegiarra</translation>
 <translation id="6528513914570774834">Baimendu sare hau erabiltzea gailu hau darabiltenei</translation>
-<translation id="6549689063733911810">Azkenak</translation>
+<translation id="6549689063733911810">Azkenaldikoak</translation>
 <translation id="6558280019477628686">Errore bat gertatu da. Agian ez dira ezabatu elementu batzuk.</translation>
 <translation id="656398493051028875">"<ph name="FILENAME" />" ezabatzen…</translation>
 <translation id="6581162200855843583">Google Drive esteka</translation>
@@ -739,6 +742,7 @@
 <translation id="6750737795876287924">Oraingo direktorioa</translation>
 <translation id="6751256176799620176">Karpeta bat hautatu da</translation>
 <translation id="6755827872271341378">ChromeOS Flex-eko gailua</translation>
+<translation id="6777029074498310250">Informazio gehiago lortzeko, joan <ph name="LINK_BEGIN" />onedrive.live.com<ph name="LINK_END" /> helbidera</translation>
 <translation id="6790428901817661496">Erreproduzitu</translation>
 <translation id="6794539005637808366">Leheneratu elementua edo arrasta ezazu zaborrontzitik kanpoko beste karpeta batera</translation>
 <translation id="6795884519221689054">Panda</translation>
@@ -792,6 +796,7 @@
 <translation id="7086590977277044826">Tamildarra, InScript teklatuarekin</translation>
 <translation id="7088615885725309056">Zaharragoa</translation>
 <translation id="7103992300314999525">Mazedoniarra</translation>
+<translation id="7104338189998813914">Arazo bat dago OneDrive-ko kontua atzitzeko</translation>
 <translation id="7106346894903675391">Erosi memoria gehiago…</translation>
 <translation id="7126604456862387217">"&lt;b&gt;<ph name="SEARCH_STRING" />&lt;/b&gt;" - &lt;em&gt;bilatu Drive-n&lt;/em&gt;</translation>
 <translation id="7135561821015524160">Kannadar fonetikoa</translation>
@@ -822,7 +827,7 @@
 <translation id="7339898014177206373">Leiho berria</translation>
 <translation id="7343393116438664539">Vietnamdarra (telex)</translation>
 <translation id="7347346221088620549">Fitxategi enkriptatua</translation>
-<translation id="7357762654218998920">Fitxategi mota hau ez da bateragarria. <ph name="BEGIN_LINK_HELP" />Lortu informazio gehiago<ph name="END_LINK_HELP" /> fitxategiak Chrome OS-n irekitzeari buruz.</translation>
+<translation id="7357762654218998920">Fitxategi mota hau ez da onartzen. <ph name="BEGIN_LINK_HELP" />Lortu informazio gehiago<ph name="END_LINK_HELP" /> fitxategiak Chrome OS-n irekitzeari buruz.</translation>
 <translation id="7359359531237882347"><ph name="NUMBER_OF_ITEMS" /> elementu kopiatzen…</translation>
 <translation id="7375951387215729722">"<ph name="COLUMN_NAME" />" zutabearen arabera ageri da fitxategien zerrenda, beherantz ordenatuta.</translation>
 <translation id="7377161162143020057">Administratzailearen gidalerroek ez dute uzten fitxategia kopiatzen</translation>
@@ -852,6 +857,7 @@
 <translation id="7589661784326793847">Itxaron unetxo batean</translation>
 <translation id="7600126690270271294">Serbiarra</translation>
 <translation id="7603724359189955920">Saretak</translation>
+<translation id="7624010287655004652">Beste operadore batek blokeatuta dauka</translation>
 <translation id="7627790789328695202">Badago <ph name="FILE_NAME" /> izena duen fitxategia. Aldatu izena eta saiatu berriro.</translation>
 <translation id="7628656427739290098">% <ph name="PERCENT" /> osatuta.</translation>
 <translation id="7649070708921625228">Laguntza</translation>
@@ -949,7 +955,7 @@
 <translation id="8261506727792406068">Ezabatu</translation>
 <translation id="8261561378965667560">Txinatarra (matriziala)</translation>
 <translation id="8262872909443689080">Administratzailearen gidalerroak</translation>
-<translation id="8264024885325823677">Administratzaileak kudeatzen du ezarpen hau.</translation>
+<translation id="8264024885325823677">Administratzaileak ezarpen hau kudeatzen du.</translation>
 <translation id="8269755669432358899">Tolestu fitxategien oharren panelak</translation>
 <translation id="8280151743281770066">Armeniar fonetikoa</translation>
 <translation id="8285791779547722821"><ph name="ORIGINAL_MIME_TYPE" /> enkriptatu da</translation>
@@ -1009,6 +1015,7 @@
 <translation id="8600173386174225982">Irudi txikiko ikuspegira aldatu da fitxategi-zerrenda.</translation>
 <translation id="8601932370724196034">Crostini motako irudi-fitxategia</translation>
 <translation id="8609695766746872526">Islandiarra</translation>
+<translation id="8630384863424041081">Idatzi zure SIM txartelaren PINa edo operadoreak emandako PIN lehenetsia. Laguntza jasotzeko, jarri operadorearekin harremanetan.</translation>
 <translation id="863903787380594467">PINa okerra da. <ph name="RETRIES" /> saiakera gelditzen zaizkizu.</translation>
 <translation id="8639391553632924850"><ph name="INPUT_LABEL" /> - Ataka</translation>
 <translation id="8656407365183407932">Kendu egin behar izan ditugu konexiorik gabe erabilgarri zenituen fitxategiak</translation>
@@ -1018,7 +1025,6 @@
 <translation id="8698877009525468705">Fitxategia isilpekoa da, eta administratzailearen gidalerroek ezarritako murriztapenen mende dago.</translation>
 <translation id="8712637175834984815">Ados</translation>
 <translation id="8713112442029511308">Maltarra</translation>
-<translation id="8714138378966541668">Hornitzaileak blokeatu du</translation>
 <translation id="8714406895390098252">Bizikleta</translation>
 <translation id="8719721339511222681">Hautatu da <ph name="ENTRY_NAME" />.</translation>
 <translation id="872537912056138402">Kroaziarra</translation>

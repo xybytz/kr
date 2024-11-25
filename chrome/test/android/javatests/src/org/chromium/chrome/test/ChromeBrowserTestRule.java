@@ -25,10 +25,8 @@ public class ChromeBrowserTestRule implements TestRule {
                 new Statement() {
                     @Override
                     public void evaluate() throws Throwable {
-                        /**
-                         * Loads the native library on the activity UI thread.  After loading the library,
-                         * this will initialize the browser process if necessary.
-                         */
+                        // Loads the native library on the activity UI thread. After loading the
+                        // library, this will initialize the browser process if necessary.
                         NativeLibraryTestUtils.loadNativeLibraryAndInitBrowserProcess();
                         base.evaluate();
                     }
@@ -39,6 +37,11 @@ public class ChromeBrowserTestRule implements TestRule {
     /** Adds an account of the given accountName to the fake AccountManagerFacade. */
     public CoreAccountInfo addAccount(String accountName) {
         return mSigninTestRule.addAccount(accountName);
+    }
+
+    /** Adds and signs in an account with the default name without sync consent. */
+    public CoreAccountInfo addTestAccountThenSignin() {
+        return mSigninTestRule.addTestAccountThenSignin();
     }
 
     /** Add and sign in an account with the default name. */

@@ -30,7 +30,6 @@
 #include "media/base/media_log.h"
 #include "media/base/media_resource.h"
 #include "media/base/renderer_client.h"
-#include "services/service_manager/public/mojom/interface_provider.mojom.h"
 
 namespace chromecast {
 namespace media {
@@ -166,7 +165,7 @@ void CastRenderer::OnApplicationMediaInfoReceived(
   // TODO(erickung): crbug.com/443956. Need to provide right LoadType.
   LoadType load_type = kLoadTypeMediaSource;
   MediaPipelineDeviceParams::MediaSyncType sync_type =
-      (load_type == kLoadTypeMediaStream)
+      (load_type == kLoadTypeMediaStream || !is_buffering_enabled_)
           ? MediaPipelineDeviceParams::kModeIgnorePts
           : MediaPipelineDeviceParams::kModeSyncPts;
 

@@ -9,7 +9,6 @@
 
 #include "ash/accelerometer/accelerometer_reader.h"
 #include "ash/accelerometer/accelerometer_types.h"
-#include "ash/constants/app_types.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/display/screen_orientation_controller_test_api.h"
 #include "ash/shell.h"
@@ -24,8 +23,11 @@
 #include "ash/wm/window_util.h"
 #include "base/command_line.h"
 #include "base/numerics/math_constants.h"
+#include "chromeos/ui/base/app_types.h"
+#include "chromeos/ui/base/window_properties.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
+#include "ui/base/mojom/ui_base_types.mojom-shared.h"
 #include "ui/compositor/layer_type.h"
 #include "ui/display/display.h"
 #include "ui/display/display_switches.h"
@@ -128,8 +130,7 @@ class ScreenOrientationControllerTest : public AshTestBase {
  protected:
   aura::Window* CreateAppWindowInShellWithId(int id) {
     aura::Window* window = CreateTestWindowInShellWithId(id);
-    window->SetProperty(aura::client::kAppType,
-                        static_cast<int>(AppType::CHROME_APP));
+    window->SetProperty(chromeos::kAppTypeKey, chromeos::AppType::CHROME_APP);
     return window;
   }
 
@@ -155,6 +156,17 @@ class ScreenOrientationControllerTest : public AshTestBase {
   SplitViewController* split_view_controller() {
     return SplitViewController::Get(Shell::GetPrimaryRootWindow());
   }
+
+  display::ManagedDisplayInfo CreateDisplayInfo(int64_t id,
+                                                const gfx::Rect& bounds) {
+    display::ManagedDisplayInfo info = display::CreateDisplayInfo(id, bounds);
+    // Each display should have at least one native mode.
+    display::ManagedDisplayMode mode(bounds.size(), /*refresh_rate=*/60.f,
+                                     /*is_interlaced=*/true,
+                                     /*native=*/true);
+    info.SetManagedDisplayModes({mode});
+    return info;
+  }
 };
 
 // Tests that a Window can lock rotation.
@@ -172,7 +184,7 @@ TEST_F(ScreenOrientationControllerTest, LockOrientation) {
   EXPECT_TRUE(RotationLocked());
 
   auto modal = CreateTestWindow(gfx::Rect(0, 0, 400, 400));
-  modal->SetProperty(aura::client::kModalKey, ui::MODAL_TYPE_SYSTEM);
+  modal->SetProperty(aura::client::kModalKey, ui::mojom::ModalType::kSystem);
   EXPECT_EQ(display::Display::ROTATE_0, GetCurrentInternalDisplayRotation());
   EXPECT_TRUE(RotationLocked());
 }
@@ -569,9 +581,9 @@ TEST_F(ScreenOrientationControllerTest, RotateInactiveDisplay) {
   const display::Display::Rotation kNewRotation = display::Display::ROTATE_180;
 
   const display::ManagedDisplayInfo internal_display_info =
-      display::CreateDisplayInfo(kInternalDisplayId, gfx::Rect(0, 0, 600, 500));
+      CreateDisplayInfo(kInternalDisplayId, gfx::Rect(0, 0, 600, 500));
   const display::ManagedDisplayInfo external_display_info =
-      display::CreateDisplayInfo(kExternalDisplayId, gfx::Rect(1, 1, 600, 500));
+      CreateDisplayInfo(kExternalDisplayId, gfx::Rect(1, 1, 600, 500));
 
   std::vector<display::ManagedDisplayInfo> display_info_list_two_active;
   display_info_list_two_active.push_back(internal_display_info);

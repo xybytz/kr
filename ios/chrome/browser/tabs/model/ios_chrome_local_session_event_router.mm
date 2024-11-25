@@ -72,7 +72,11 @@ void IOSChromeLocalSessionEventRouter::Observer::WebStateListDidChange(
       const WebStateListChangeDetach& detach_change =
           change.As<WebStateListChangeDetach>();
       web::WebState* detached_web_state = detach_change.detached_web_state();
-      router_->OnWebStateChange(detached_web_state);
+      if (detach_change.is_closing()) {
+        router_->OnWebStateClosed();
+      } else {
+        router_->OnWebStateChange(detached_web_state);
+      }
       detached_web_state->RemoveObserver(this);
       break;
     }
@@ -94,6 +98,19 @@ void IOSChromeLocalSessionEventRouter::Observer::WebStateListDidChange(
       insert_change.inserted_web_state()->AddObserver(this);
       break;
     }
+    case WebStateListChange::Type::kGroupCreate:
+      // TODO(crbug.com/329640035): Notify the router about the group creation.
+      break;
+    case WebStateListChange::Type::kGroupVisualDataUpdate:
+      // TODO(crbug.com/329640035): Notify the router about the group's visual
+      // data update.
+      break;
+    case WebStateListChange::Type::kGroupMove:
+      // Do nothing when a tab group is moved.
+      break;
+    case WebStateListChange::Type::kGroupDelete:
+      // TODO(crbug.com/329640035): Notify the router about the group deletion.
+      break;
   }
 }
 
@@ -118,9 +135,7 @@ void IOSChromeLocalSessionEventRouter::Observer::PageLoaded(
 
 void IOSChromeLocalSessionEventRouter::Observer::WasShown(
     web::WebState* web_state) {
-  if (base::FeatureList::IsEnabled(syncer::kSyncSessionOnVisibilityChanged)) {
-    router_->OnWebStateChange(web_state);
-  }
+  router_->OnWebStateChange(web_state);
 }
 
 void IOSChromeLocalSessionEventRouter::Observer::DidChangeBackForwardState(
@@ -130,7 +145,7 @@ void IOSChromeLocalSessionEventRouter::Observer::DidChangeBackForwardState(
 
 void IOSChromeLocalSessionEventRouter::Observer::WebStateDestroyed(
     web::WebState* web_state) {
-  router_->OnWebStateChange(web_state);
+  router_->OnWebStateClosed();
   web_state->RemoveObserver(this);
 }
 
@@ -189,6 +204,19 @@ void IOSChromeLocalSessionEventRouter::OnWebStateChange(
   }
   if (!tab->ShouldSync(sessions_client_)) {
     return;
+  }
+
+  if (!flare_.is_null()) {
+    std::move(flare_).Run(syncer::SESSIONS);
+  }
+}
+
+void IOSChromeLocalSessionEventRouter::OnWebStateClosed() {
+  if (batch_in_progress_) {
+    return;
+  }
+  if (handler_) {
+    handler_->OnLocalTabClosed();
   }
 
   if (!flare_.is_null()) {

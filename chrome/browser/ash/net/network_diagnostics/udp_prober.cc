@@ -13,6 +13,7 @@
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
 #include "base/logging.h"
+#include "base/memory/raw_span.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -55,7 +56,7 @@ class UdpProberImpl final : public network::mojom::UDPSocketListener,
   // invoked.  The UdpProberImpl must be created on the UI thread and will
   // invoke |callback| on the UI thread.  |network_context_getter| will be
   // invoked on the UI thread.
-  UdpProberImpl(NetworkContextGetter network_context_getter,
+  UdpProberImpl(network::NetworkContextGetter network_context_getter,
                 net::HostPortPair host_port_pair,
                 base::span<const uint8_t> data,
                 net::NetworkTrafficAnnotationTag tag,
@@ -96,11 +97,11 @@ class UdpProberImpl final : public network::mojom::UDPSocketListener,
   void OnDisconnect();
 
   // Gets the active profile-specific network context.
-  NetworkContextGetter network_context_getter_;
+  network::NetworkContextGetter network_context_getter_;
   // Contains the hostname and port.
   net::HostPortPair host_port_pair_;
   // Data to be sent to the destination.
-  base::span<const uint8_t> data_;
+  base::raw_span<const uint8_t> data_;
   // Network annotation tag describing the socket traffic.
   net::NetworkTrafficAnnotationTag tag_;
   // Represents the time after host resolution.
@@ -122,12 +123,13 @@ class UdpProberImpl final : public network::mojom::UDPSocketListener,
   base::WeakPtrFactory<UdpProberImpl> weak_factory_{this};
 };
 
-UdpProberImpl::UdpProberImpl(NetworkContextGetter network_context_getter,
-                             net::HostPortPair host_port_pair,
-                             base::span<const uint8_t> data,
-                             net::NetworkTrafficAnnotationTag tag,
-                             base::TimeDelta timeout_after_host_resolution,
-                             UdpProbeCompleteCallback callback)
+UdpProberImpl::UdpProberImpl(
+    network::NetworkContextGetter network_context_getter,
+    net::HostPortPair host_port_pair,
+    base::span<const uint8_t> data,
+    net::NetworkTrafficAnnotationTag tag,
+    base::TimeDelta timeout_after_host_resolution,
+    UdpProbeCompleteCallback callback)
     : network_context_getter_(std::move(network_context_getter)),
       host_port_pair_(std::move(host_port_pair)),
       data_(std::move(data)),
@@ -145,10 +147,11 @@ UdpProberImpl::UdpProberImpl(NetworkContextGetter network_context_getter,
 
   host_resolver_ = network::SimpleHostResolver::Create(network_context);
 
+  // Resolver host parameter source must be unset or set to ANY in order for DNS
+  // queries with BuiltInDnsClientEnabled policy disabled to work (b/353448388).
   network::mojom::ResolveHostParametersPtr parameters =
       network::mojom::ResolveHostParameters::New();
   parameters->dns_query_type = net::DnsQueryType::A;
-  parameters->source = net::HostResolverSource::DNS;
   parameters->cache_usage =
       network::mojom::ResolveHostParameters::CacheUsage::DISALLOWED;
 
@@ -269,7 +272,7 @@ void UdpProberImpl::OnDisconnect() {
 
 // static
 std::unique_ptr<UdpProber> UdpProber::Start(
-    NetworkContextGetter network_context_getter,
+    network::NetworkContextGetter network_context_getter,
     net::HostPortPair host_port_pair,
     base::span<const uint8_t> data,
     net::NetworkTrafficAnnotationTag tag,

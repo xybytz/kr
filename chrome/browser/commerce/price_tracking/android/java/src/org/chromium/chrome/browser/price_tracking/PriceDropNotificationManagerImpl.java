@@ -28,13 +28,11 @@ import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.IntentUtils;
 import org.chromium.base.Log;
-import org.chromium.base.ResettersForTesting;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.shared_preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.bookmarks.BookmarkModel;
 import org.chromium.chrome.browser.bookmarks.BookmarkModelObserver;
 import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
-import org.chromium.chrome.browser.commerce.ShoppingFeatures;
 import org.chromium.chrome.browser.commerce.ShoppingServiceFactory;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
@@ -45,9 +43,11 @@ import org.chromium.chrome.browser.notifications.channels.ChromeChannelDefinitio
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.ChromeSharedPreferences;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.components.browser_ui.notifications.NotificationManagerProxy;
 import org.chromium.components.browser_ui.notifications.NotificationManagerProxyImpl;
 import org.chromium.components.browser_ui.notifications.channels.ChannelsInitializer;
+import org.chromium.components.commerce.core.CommerceFeatureUtils;
 import org.chromium.components.commerce.core.CommerceSubscription;
 import org.chromium.components.commerce.core.IdentifierType;
 import org.chromium.components.commerce.core.ManagementType;
@@ -94,9 +94,6 @@ public class PriceDropNotificationManagerImpl implements PriceDropNotificationMa
     public static final String NOTIFICATION_USER_MANAGED_COUNT_HISTOGRAM =
             "Commerce.PriceDrops.UserManaged.NotificationCount";
 
-    private static NotificationManagerProxy sNotificationManagerForTesting;
-    private static BookmarkModel sBookmarkModelForTesting;
-
     /** Used to host click logic for "turn off alert" action intent. */
     public static class TrampolineActivity extends Activity {
         @Override
@@ -121,8 +118,11 @@ public class PriceDropNotificationManagerImpl implements PriceDropNotificationMa
             ChromeBrowserInitializer.getInstance()
                     .runNowOrAfterFullBrowserStarted(
                             () -> {
+                                // TODO(339295368): Pass the Profile reference in the notification
+                                // message details, and load the correct Profile here.
                                 PriceDropNotificationManager priceDropNotificationManager =
-                                        PriceDropNotificationManagerFactory.create();
+                                        PriceDropNotificationManagerFactory.create(
+                                                ProfileManager.getLastUsedRegularProfile());
                                 assert ACTION_ID_TURN_OFF_ALERT.equals(actionId)
                                         : "Currently, only turn off alert action uses this.";
                                 priceDropNotificationManager.onNotificationActionClicked(
@@ -150,19 +150,20 @@ public class PriceDropNotificationManagerImpl implements PriceDropNotificationMa
     }
 
     private final Context mContext;
-    private final NotificationManagerProxy mNotificationManager;
+    private final Profile mProfile;
     private final SharedPreferencesManager mPreferencesManager;
 
     /**
      * Constructor.
+     *
      * @param context The application context.
+     * @param profile The {@link Profile} associated with the price drops.
      * @param notificationManagerProxy The {@link NotificationManagerProxy} for sending
-     *         notifications.
+     *     notifications.
      */
-    public PriceDropNotificationManagerImpl(
-            Context context, NotificationManagerProxy notificationManagerProxy) {
-        mContext = context;
-        mNotificationManager = notificationManagerProxy;
+    public PriceDropNotificationManagerImpl(Profile profile) {
+        mContext = ContextUtils.getApplicationContext();
+        mProfile = profile;
         mPreferencesManager = ChromeSharedPreferences.getInstance();
     }
 
@@ -176,7 +177,9 @@ public class PriceDropNotificationManagerImpl implements PriceDropNotificationMa
         // Currently we only post notifications for explicit price tracking which is gated by the
         // "shopping list" feature flag. When we start implicit price tracking, we should use a
         // separate flag and add the check on it here.
-        if (!areAppNotificationsEnabled() || !ShoppingFeatures.isShoppingListEligible()) {
+        if (!areAppNotificationsEnabled()
+                || !CommerceFeatureUtils.isShoppingListEligible(
+                        ShoppingServiceFactory.getForProfile(mProfile))) {
             return false;
         }
 
@@ -192,7 +195,10 @@ public class PriceDropNotificationManagerImpl implements PriceDropNotificationMa
 
     @Override
     public boolean canPostNotificationWithMetricsRecorded() {
-        if (!ShoppingFeatures.isShoppingListEligible()) return false;
+        if (!CommerceFeatureUtils.isShoppingListEligible(
+                ShoppingServiceFactory.getForProfile(mProfile))) {
+            return false;
+        }
         boolean isSystemNotificationEnabled = areAppNotificationsEnabled();
         RecordHistogram.recordBooleanHistogram(
                 NOTIFICATION_ENABLED_HISTOGRAM, isSystemNotificationEnabled);
@@ -248,19 +254,13 @@ public class PriceDropNotificationManagerImpl implements PriceDropNotificationMa
                             NotificationIntentInterceptor.INVALID_CREATE_TIME);
         } else if (actionId.equals(ACTION_ID_TURN_OFF_ALERT)) {
             if (offerId == null && clusterId == null) return;
-            ShoppingService shoppingService =
-                    ShoppingServiceFactory.getForProfile(Profile.getLastUsedRegularProfile());
+            ShoppingService shoppingService = ShoppingServiceFactory.getForProfile(mProfile);
             Callback<Boolean> callback =
                     (status) -> {
                         assert status : "Failed to remove subscriptions.";
                         Log.e(TAG, "Failed to remove subscriptions.");
                     };
-            final BookmarkModel bookmarkModel;
-            if (sBookmarkModelForTesting != null) {
-                bookmarkModel = sBookmarkModelForTesting;
-            } else {
-                bookmarkModel = BookmarkModel.getForProfile(Profile.getLastUsedRegularProfile());
-            }
+            final BookmarkModel bookmarkModel = BookmarkModel.getForProfile(mProfile);
 
             Runnable unsubscribeRunnable =
                     () -> {
@@ -321,6 +321,8 @@ public class PriceDropNotificationManagerImpl implements PriceDropNotificationMa
 
     @Override
     public Intent getNotificationClickIntent(String url, int notificationId) {
+        // TODO(339295368): Pass a Profile reference so the correct activity is reopened based on
+        // this notification being clicked.
         Intent intent =
                 new Intent()
                         .setAction(Intent.ACTION_VIEW)
@@ -368,10 +370,7 @@ public class PriceDropNotificationManagerImpl implements PriceDropNotificationMa
 
     @Override
     public boolean areAppNotificationsEnabled() {
-        if (sNotificationManagerForTesting != null) {
-            return sNotificationManagerForTesting.areNotificationsEnabled();
-        }
-        return mNotificationManager.areNotificationsEnabled();
+        return NotificationManagerProxyImpl.getInstance().areNotificationsEnabled();
     }
 
     @Override
@@ -380,7 +379,7 @@ public class PriceDropNotificationManagerImpl implements PriceDropNotificationMa
         NotificationChannel channel = getNotificationChannel();
         if (channel != null) return;
         new ChannelsInitializer(
-                        mNotificationManager,
+                        NotificationManagerProxyImpl.getInstance(),
                         ChromeChannelDefinitions.getInstance(),
                         mContext.getResources())
                 .ensureInitialized(ChromeChannelDefinitions.ChannelId.PRICE_DROP_DEFAULT);
@@ -393,9 +392,6 @@ public class PriceDropNotificationManagerImpl implements PriceDropNotificationMa
             createNotificationChannel();
         }
         mContext.startActivity(getNotificationSettingsIntent());
-        // Disable PriceAlertsMessageCard after the first time we send users to notification
-        // settings.
-        PriceTrackingUtilities.disablePriceAlertsMessageCard();
     }
 
     @Override
@@ -426,37 +422,16 @@ public class PriceDropNotificationManagerImpl implements PriceDropNotificationMa
     @VisibleForTesting
     @RequiresApi(Build.VERSION_CODES.O)
     public NotificationChannel getNotificationChannel() {
-        return mNotificationManager.getNotificationChannel(
-                ChromeChannelDefinitions.ChannelId.PRICE_DROP_DEFAULT);
-    }
-
-    /**
-     * Set notificationManager for testing.
-     *
-     * @param notificationManager that will be set.
-     */
-    public static void setNotificationManagerForTesting(
-            NotificationManagerProxy notificationManager) {
-        sNotificationManagerForTesting = notificationManager;
-        ResettersForTesting.register(() -> sNotificationManagerForTesting = null);
-    }
-
-    /**
-     * Set a mock BookmarkModel for testing so we don't need to access Profile.
-     *
-     * @param bookmarkModel The bookmark bridge to use.
-     */
-    public static void setBookmarkModelForTesting(BookmarkModel bookmarkModel) {
-        sBookmarkModelForTesting = bookmarkModel;
-        ResettersForTesting.register(() -> sBookmarkModelForTesting = null);
+        return NotificationManagerProxyImpl.getInstance()
+                .getNotificationChannel(ChromeChannelDefinitions.ChannelId.PRICE_DROP_DEFAULT);
     }
 
     /** Delete price drop notification channel for testing. */
     @Override
     @RequiresApi(Build.VERSION_CODES.O)
     public void deleteChannelForTesting() {
-        mNotificationManager.deleteNotificationChannel(
-                ChromeChannelDefinitions.ChannelId.PRICE_DROP_DEFAULT);
+        NotificationManagerProxyImpl.getInstance()
+                .deleteNotificationChannel(ChromeChannelDefinitions.ChannelId.PRICE_DROP_DEFAULT);
     }
 
     @Override
@@ -551,7 +526,7 @@ public class PriceDropNotificationManagerImpl implements PriceDropNotificationMa
     }
 
     private static void dismissNotification(int notificationId) {
-        new NotificationManagerProxyImpl(ContextUtils.getApplicationContext())
+        NotificationManagerProxyImpl.getInstance()
                 .cancel(PriceDropNotifier.NOTIFICATION_TAG, notificationId);
     }
 }

@@ -2,11 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {LegacyElementMixin} from 'chrome://resources/polymer/v3_0/polymer/lib/legacy/legacy-element-mixin.js';
+import {LegacyElementMixin} from '//resources/polymer/v3_0/polymer/lib/legacy/legacy-element-mixin.js';
 
 interface NetworkPasswordInputElement extends LegacyElementMixin, HTMLElement {
   value: string;
   invalid: boolean;
+  readonly: boolean;
 }
 
 declare global {

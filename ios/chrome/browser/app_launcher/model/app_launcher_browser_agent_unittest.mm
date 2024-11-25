@@ -8,6 +8,7 @@
 
 #import <map>
 
+#import "base/memory/raw_ptr.h"
 #import "base/test/metrics/histogram_tester.h"
 #import "ios/chrome/app/application_delegate/app_state.h"
 #import "ios/chrome/browser/app_launcher/model/app_launcher_tab_helper.h"
@@ -20,14 +21,14 @@
 #import "ios/chrome/browser/overlays/model/public/web_content_area/app_launcher_overlay.h"
 #import "ios/chrome/browser/shared/coordinator/scene/scene_state.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
 #import "ios/web/public/test/fakes/fake_navigation_manager.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "ios/web/public/web_state.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "testing/gtest/include/gtest/gtest.h"
 #import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
@@ -61,19 +62,18 @@ class FakeAppLauncherTabHelper : public AppLauncherTabHelper {
   AppLauncherTabHelperDelegate* delegate() { return delegate_; }
 
  private:
-  AppLauncherTabHelperDelegate* delegate_;
+  raw_ptr<AppLauncherTabHelperDelegate> delegate_;
 };
 
 // Test fixture for AppLauncherBrowserAgent.
 class AppLauncherBrowserAgentTest : public PlatformTest {
  protected:
   AppLauncherBrowserAgentTest() {
-    browser_state_ = TestChromeBrowserState::Builder().Build();
+    profile_ = TestProfileIOS::Builder().Build();
     app_state_ = [[AppState alloc] initWithStartupInformation:nil];
     scene_state_ = [[SceneState alloc] initWithAppState:app_state_];
     scene_state_.activationLevel = SceneActivationLevelForegroundActive;
-    browser_ =
-        std::make_unique<TestBrowser>(browser_state_.get(), scene_state_);
+    browser_ = std::make_unique<TestBrowser>(profile_.get(), scene_state_);
     browser_->GetSceneState().activationLevel =
         SceneActivationLevelForegroundActive;
     AppLauncherBrowserAgent::CreateForBrowser(browser_.get());
@@ -83,8 +83,8 @@ class AppLauncherBrowserAgentTest : public PlatformTest {
 
   ~AppLauncherBrowserAgentTest() override {
     [application_ stopMocking];
-    browser_->GetWebStateList()->CloseAllWebStates(
-        WebStateList::CLOSE_NO_FLAGS);
+    CloseAllWebStates(*browser_->GetWebStateList(),
+                      WebStateList::CLOSE_NO_FLAGS);
   }
 
   // Returns the AppLauncherBrowserAgent.
@@ -122,6 +122,7 @@ class AppLauncherBrowserAgentTest : public PlatformTest {
     FakeAppLauncherAbuseDetector* abuse_detector =
         [[FakeAppLauncherAbuseDetector alloc] init];
     abuse_detectors_[web_state] = abuse_detector;
+    OverlayRequestQueue::CreateForWebState(web_state);
     FakeAppLauncherTabHelper::CreateForWebState(web_state, abuse_detector,
                                                 incognito);
     app_launcher_tab_helper_browser_presentation_provider_ = OCMProtocolMock(
@@ -133,10 +134,10 @@ class AppLauncherBrowserAgentTest : public PlatformTest {
             app_launcher_tab_helper_browser_presentation_provider_);
 
     // Insert the WebState into the Browser's WebStateList.
-    int index = browser_->GetWebStateList()->count();
     browser_->GetWebStateList()->InsertWebState(
-        index, std::move(passed_web_state), WebStateList::INSERT_ACTIVATE,
-        WebStateOpener(opener));
+        std::move(passed_web_state),
+        WebStateList::InsertionParams::Automatic().Activate().WithOpener(
+            WebStateOpener(opener)));
     return web_state;
   }
 
@@ -159,7 +160,7 @@ class AppLauncherBrowserAgentTest : public PlatformTest {
   }
 
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   AppState* app_state_;
   SceneState* scene_state_;
   std::unique_ptr<TestBrowser> browser_;
@@ -336,7 +337,7 @@ TEST_F(AppLauncherBrowserAgentTest, ShowDialogInOpener) {
 
   // Verify that an app launch overlay request was added to `web_state`'s queue.
   EXPECT_TRUE(IsShowingDialog(
-      opener,
+      web_state,
       app_launcher_overlays::AppLaunchConfirmationRequestCause::kOther));
 }
 

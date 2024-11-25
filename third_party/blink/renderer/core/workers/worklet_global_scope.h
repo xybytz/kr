@@ -77,10 +77,10 @@ class CORE_EXPORT WorkletGlobalScope
   const base::UnguessableToken& GetDevToolsToken() const override;
   bool IsInitialized() const final { return true; }
   CodeCacheHost* GetCodeCacheHost() override;
-  absl::optional<mojo::PendingRemote<network::mojom::blink::URLLoaderFactory>>
+  std::optional<mojo::PendingRemote<network::mojom::blink::URLLoaderFactory>>
   FindRaceNetworkRequestURLLoaderFactory(
       const base::UnguessableToken& token) override {
-    return absl::nullopt;
+    return std::nullopt;
   }
 
   // Returns `blob_url_store_pending_remote_` for use when instantiating the
@@ -148,7 +148,7 @@ class CORE_EXPORT WorkletGlobalScope
   // Returns the ExecutionContextToken that uniquely identifies the parent
   // context that created this worklet. Note that this will always be a
   // LocalFrameToken.
-  absl::optional<ExecutionContextToken> GetParentExecutionContextToken()
+  std::optional<ExecutionContextToken> GetParentExecutionContextToken()
       const final {
     return frame_token_;
   }
@@ -216,6 +216,10 @@ class CORE_EXPORT WorkletGlobalScope
   // requests both to fetch code cache when loading resources
   // and to store generated code cache to disk.
   std::unique_ptr<CodeCacheHost> code_cache_host_;
+
+  // The interface through which the worklet may request interfaces from the
+  // browser. It's currently only set for SharedStorageWorklet.
+  blink::BrowserInterfaceBrokerProxyImpl browser_interface_broker_proxy_;
 
   // A PendingRemote for use in threaded worklets that gets created from the
   // parent frame's BrowserInterfaceBroker and used when instantiating the

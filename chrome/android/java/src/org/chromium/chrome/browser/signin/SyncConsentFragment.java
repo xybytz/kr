@@ -13,11 +13,12 @@ import androidx.annotation.Nullable;
 
 import org.chromium.base.BuildInfo;
 import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
+import org.chromium.chrome.browser.settings.SettingsNavigationFactory;
+import org.chromium.chrome.browser.signin.services.SigninManager;
 import org.chromium.chrome.browser.sync.settings.ManageSyncSettings;
 import org.chromium.chrome.browser.ui.signin.SyncConsentDelegate;
 import org.chromium.chrome.browser.ui.signin.SyncConsentFragmentBase;
-import org.chromium.components.browser_ui.settings.SettingsLauncher;
+import org.chromium.components.browser_ui.settings.SettingsNavigation;
 import org.chromium.components.signin.metrics.SigninAccessPoint;
 
 import java.lang.annotation.Retention;
@@ -95,15 +96,17 @@ public class SyncConsentFragment extends SyncConsentFragmentBase {
     }
 
     @Override
-    protected void onSyncAccepted(String accountName, boolean settingsClicked, Runnable callback) {
+    protected void onSyncAccepted(
+            String accountName, boolean settingsClicked, SigninManager.SignInCallback callback) {
         signinAndEnableSync(accountName, settingsClicked, callback);
     }
 
     @Override
     protected void closeAndMaybeOpenSyncSettings(boolean settingsClicked) {
         if (settingsClicked) {
-            SettingsLauncher settingsLauncher = new SettingsLauncherImpl();
-            settingsLauncher.launchSettingsActivity(
+            SettingsNavigation settingsNavigation =
+                    SettingsNavigationFactory.createSettingsNavigation();
+            settingsNavigation.startSettings(
                     getActivity(),
                     ManageSyncSettings.class,
                     ManageSyncSettings.createArguments(true));

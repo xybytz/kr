@@ -12,6 +12,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/one_shot_event.h"
 #include "base/scoped_observation.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/launch_result_type.h"

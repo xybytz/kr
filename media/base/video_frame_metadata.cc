@@ -51,11 +51,12 @@ void VideoFrameMetadata::MergeMetadataFrom(
   MERGE_VALUE_FIELD(dcomp_surface, metadata_source);
   MERGE_VALUE_FIELD(protected_video, metadata_source);
   MERGE_VALUE_FIELD(hw_protected, metadata_source);
+  MERGE_VALUE_FIELD(needs_detiling, metadata_source);
   MERGE_VALUE_FIELD(is_webgpu_compatible, metadata_source);
 #if BUILDFLAG(USE_VAAPI)
   MERGE_OPTIONAL_FIELD(hw_va_protected_session_id, metadata_source);
 #endif
-  MERGE_OPTIONAL_FIELD(overlay_plane_id, metadata_source);
+  MERGE_OPTIONAL_FIELD(tracking_token, metadata_source);
   MERGE_VALUE_FIELD(power_efficient, metadata_source);
   MERGE_VALUE_FIELD(texture_origin_is_top_left, metadata_source);
   MERGE_OPTIONAL_FIELD(device_scale_factor, metadata_source);
@@ -71,12 +72,13 @@ void VideoFrameMetadata::MergeMetadataFrom(
   MERGE_OPTIONAL_FIELD(wallclock_frame_duration, metadata_source);
   MERGE_OPTIONAL_FIELD(maximum_composition_delay_in_frames, metadata_source);
   MERGE_OPTIONAL_FIELD(frame_sequence, metadata_source);
+  MERGE_OPTIONAL_FIELD(background_blur, metadata_source);
 
 #undef MERGE_VALUE_FIELD
 #undef MERGE_OPTIONAL_FIELD
 }
 
-void VideoFrameMetadata::ClearTextureFrameMedatada() {
+void VideoFrameMetadata::ClearTextureFrameMetadata() {
   is_webgpu_compatible = false;
   texture_origin_is_top_left = true;
   read_lock_fences_enabled = false;

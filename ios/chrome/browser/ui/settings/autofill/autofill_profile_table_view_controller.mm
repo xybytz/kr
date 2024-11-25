@@ -7,26 +7,31 @@
 #import "base/apple/foundation_util.h"
 #import "base/check.h"
 #import "base/i18n/message_formatter.h"
+#import "base/memory/raw_ptr.h"
 #import "base/metrics/user_metrics.h"
 #import "base/metrics/user_metrics_action.h"
 #import "base/strings/sys_string_conversions.h"
 #import "base/strings/utf_string_conversions.h"
+#import "components/autofill/core/browser/address_data_manager.h"
 #import "components/autofill/core/browser/personal_data_manager.h"
 #import "components/autofill/core/browser/profile_requirement_utils.h"
 #import "components/autofill/core/common/autofill_features.h"
 #import "components/autofill/core/common/autofill_prefs.h"
 #import "components/autofill/ios/browser/personal_data_manager_observer_bridge.h"
 #import "components/password_manager/core/common/password_manager_features.h"
+#import "components/plus_addresses/features.h"
+#import "components/plus_addresses/grit/plus_addresses_strings.h"
 #import "components/prefs/pref_service.h"
 #import "components/strings/grit/components_strings.h"
-#import "components/sync/base/features.h"
 #import "components/sync/service/sync_user_settings.h"
 #import "ios/chrome/browser/autofill/model/personal_data_manager_factory.h"
 #import "ios/chrome/browser/net/model/crurl.h"
 #import "ios/chrome/browser/shared/coordinator/alert/action_sheet_coordinator.h"
 #import "ios/chrome/browser/shared/model/application_context/application_context.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
+#import "ios/chrome/browser/shared/public/commands/application_commands.h"
+#import "ios/chrome/browser/shared/public/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/shared/ui/symbols/symbols.h"
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_detail_text_item.h"
@@ -41,23 +46,27 @@
 #import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/signin/model/authentication_service.h"
 #import "ios/chrome/browser/signin/model/authentication_service_factory.h"
-#import "ios/chrome/browser/ui/settings/autofill/autofill_constants.h"
 #import "ios/chrome/browser/ui/settings/autofill/autofill_profile_edit_coordinator.h"
-#import "ios/chrome/browser/ui/settings/autofill/cells/autofill_address_profile_source.h"
+#import "ios/chrome/browser/ui/settings/autofill/autofill_settings_constants.h"
+#import "ios/chrome/browser/ui/settings/autofill/cells/autofill_address_profile_record_type.h"
 #import "ios/chrome/browser/ui/settings/autofill/cells/autofill_profile_item.h"
 #import "ios/chrome/browser/ui/settings/elements/enterprise_info_popover_view_controller.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/table_view/table_view_cells_constants.h"
 #import "ios/chrome/grit/ios_strings.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "ui/base/l10n/l10n_util.h"
 #import "ui/strings/grit/ui_strings.h"
 
 namespace {
 
+// Plus Address Section header height.
+const CGFloat kPlusAddressSectionHeaderHeight = 24;
+
 typedef NS_ENUM(NSInteger, SectionIdentifier) {
   SectionIdentifierSwitches = kSectionIdentifierEnumZero,
   SectionIdentifierProfiles,
+  SectionIdentifierPlusAddress
 };
 
 typedef NS_ENUM(NSInteger, ItemType) {
@@ -66,6 +75,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
   ItemTypeAddress,
   ItemTypeHeader,
   ItemTypeFooter,
+  ItemTypePlusAddress,
+  ItemTypePlusAddressFooter
 };
 
 }  // namespace
@@ -76,9 +87,9 @@ typedef NS_ENUM(NSInteger, ItemType) {
     AutofillProfileEditCoordinatorDelegate,
     PersonalDataManagerObserver,
     PopoverLabelViewControllerDelegate> {
-  autofill::PersonalDataManager* _personalDataManager;
+  raw_ptr<autofill::PersonalDataManager> _personalDataManager;
 
-  Browser* _browser;
+  raw_ptr<Browser> _browser;
   std::unique_ptr<autofill::PersonalDataManagerObserverBridge> _observer;
 
   // Deleting profiles updates PersonalDataManager resulting in an observer
@@ -121,9 +132,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
     self.title = l10n_util::GetNSString(IDS_AUTOFILL_ADDRESSES_SETTINGS_TITLE);
     self.shouldDisableDoneButtonOnEdit = YES;
     _browser = browser;
-    _personalDataManager =
-        autofill::PersonalDataManagerFactory::GetForBrowserState(
-            _browser->GetBrowserState());
+    _personalDataManager = autofill::PersonalDataManagerFactory::GetForProfile(
+        _browser->GetProfile());
     _observer.reset(new autofill::PersonalDataManagerObserverBridge(self));
     _personalDataManager->AddObserver(_observer.get());
   }
@@ -134,8 +144,6 @@ typedef NS_ENUM(NSInteger, ItemType) {
   [super viewDidLoad];
   self.tableView.allowsMultipleSelectionDuringEditing = YES;
   self.tableView.accessibilityIdentifier = kAutofillProfileTableViewID;
-  self.tableView.estimatedSectionFooterHeight =
-      kTableViewHeaderFooterViewHeight;
   [self determineUserEmail];
   [self updateUIForEditState];
   [self loadModel];
@@ -150,7 +158,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
   [model addSectionWithIdentifier:SectionIdentifierSwitches];
 
-  if (_browser->GetBrowserState()->GetPrefs()->IsManagedPreference(
+  if (_browser->GetProfile()->GetPrefs()->IsManagedPreference(
           autofill::prefs::kAutofillProfileEnabled)) {
     [model addItem:[self managedAddressItem]
         toSectionWithIdentifier:SectionIdentifierSwitches];
@@ -161,6 +169,17 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
   [model setFooter:[self addressSwitchFooter]
       forSectionWithIdentifier:SectionIdentifierSwitches];
+
+  if (base::FeatureList::IsEnabled(
+          plus_addresses::features::kPlusAddressesEnabled) &&
+      self.userEmail) {
+    [model addSectionWithIdentifier:SectionIdentifierPlusAddress];
+    [model addItem:[self plusAddressItem]
+        toSectionWithIdentifier:SectionIdentifierPlusAddress];
+
+    [model setFooter:[self plusAddressFooter]
+        forSectionWithIdentifier:SectionIdentifierPlusAddress];
+  }
 
   [self populateProfileSection];
 }
@@ -178,13 +197,13 @@ typedef NS_ENUM(NSInteger, ItemType) {
     return;
 
   TableViewModel* model = self.tableViewModel;
-  const std::vector<autofill::AutofillProfile*> autofillProfiles =
-      _personalDataManager->GetProfilesForSettings();
+  const std::vector<const autofill::AutofillProfile*> autofillProfiles =
+      _personalDataManager->address_data_manager().GetProfilesForSettings();
   if (!autofillProfiles.empty()) {
     [model addSectionWithIdentifier:SectionIdentifierProfiles];
     [model setHeader:[self profileSectionHeader]
         forSectionWithIdentifier:SectionIdentifierProfiles];
-    for (autofill::AutofillProfile* autofillProfile : autofillProfiles) {
+    for (const autofill::AutofillProfile* autofillProfile : autofillProfiles) {
       DCHECK(autofillProfile);
       [model addItem:[self itemForProfile:*autofillProfile]
           toSectionWithIdentifier:SectionIdentifierProfiles];
@@ -200,6 +219,24 @@ typedef NS_ENUM(NSInteger, ItemType) {
   switchItem.on = [self isAutofillProfileEnabled];
   switchItem.accessibilityIdentifier = kAutofillAddressSwitchViewId;
   return switchItem;
+}
+
+- (TableViewItem*)plusAddressItem {
+  TableViewDetailTextItem* plusAddressItem =
+      [[TableViewDetailTextItem alloc] initWithType:ItemTypePlusAddress];
+
+  plusAddressItem.text =
+      l10n_util::GetNSString(IDS_PLUS_ADDRESS_SETTINGS_LABEL);
+  plusAddressItem.accessorySymbol =
+      TableViewDetailTextCellAccessorySymbolExternalLink;
+  return plusAddressItem;
+}
+
+- (TableViewHeaderFooterItem*)plusAddressFooter {
+  TableViewLinkHeaderFooterItem* footer = [[TableViewLinkHeaderFooterItem alloc]
+      initWithType:ItemTypePlusAddressFooter];
+  footer.text = l10n_util::GetNSString(IDS_PLUS_ADDRESS_SETTINGS_SUBLABEL);
+  return footer;
 }
 
 - (TableViewInfoButtonItem*)managedAddressItem {
@@ -249,14 +286,14 @@ typedef NS_ENUM(NSInteger, ItemType) {
   item.GUID = guid;
   item.showMigrateToAccountButton = NO;
   item.localProfileIconShown = NO;
-  if (autofillProfile.source() == autofill::AutofillProfile::Source::kAccount) {
-    item.autofillProfileSource =
-        AutofillAddressProfileSource::AutofillAccountProfile;
+  if (autofillProfile.IsAccountProfile()) {
+    item.autofillProfileRecordType =
+        AutofillAddressProfileRecordType::AutofillAccountProfile;
   } else if (self.syncEnabled) {
-    item.autofillProfileSource =
-        AutofillAddressProfileSource::AutofillSyncableProfile;
+    item.autofillProfileRecordType =
+        AutofillAddressProfileRecordType::AutofillSyncableProfile;
   } else {
-    item.autofillProfileSource = AutofillLocalProfile;
+    item.autofillProfileRecordType = AutofillLocalProfile;
     if ([self shouldShowCloudOffIconForProfile:autofillProfile]) {
       item.showMigrateToAccountButton = YES;
       item.image = CustomSymbolTemplateWithPointSize(
@@ -268,8 +305,9 @@ typedef NS_ENUM(NSInteger, ItemType) {
 }
 
 - (BOOL)localProfilesExist {
-  return !_settingsAreDismissed &&
-         !_personalDataManager->GetProfilesForSettings().empty();
+  return !_settingsAreDismissed && !_personalDataManager->address_data_manager()
+                                        .GetProfilesForSettings()
+                                        .empty();
 }
 
 #pragma mark - SettingsControllerProtocol
@@ -334,6 +372,34 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 #pragma mark - UITableViewDelegate
 
+- (CGFloat)tableView:(UITableView*)tableView
+    heightForHeaderInSection:(NSInteger)section {
+  NSInteger sectionIdentifier =
+      [self.tableViewModel sectionIdentifierForSectionIndex:section];
+
+  if (base::FeatureList::IsEnabled(
+          plus_addresses::features::kPlusAddressesEnabled) &&
+      sectionIdentifier == SectionIdentifierPlusAddress) {
+    return kPlusAddressSectionHeaderHeight;
+  }
+
+  return [super tableView:tableView heightForHeaderInSection:section];
+}
+
+- (CGFloat)tableView:(UITableView*)tableView
+    heightForFooterInSection:(NSInteger)section {
+  NSInteger sectionIdentifier =
+      [self.tableViewModel sectionIdentifierForSectionIndex:section];
+
+  if (base::FeatureList::IsEnabled(
+          plus_addresses::features::kPlusAddressesEnabled) &&
+      sectionIdentifier == SectionIdentifierPlusAddress) {
+    return kTableViewHeaderFooterViewHeight;
+  }
+
+  return [super tableView:tableView heightForFooterInSection:section];
+}
+
 - (void)setEditing:(BOOL)editing animated:(BOOL)animated {
   [super setEditing:editing animated:animated];
   if (_settingsAreDismissed)
@@ -356,6 +422,16 @@ typedef NS_ENUM(NSInteger, ItemType) {
     return;
   }
 
+  if ([self.tableViewModel itemTypeForIndexPath:indexPath] ==
+      ItemTypePlusAddress) {
+    base::RecordAction(base::UserMetricsAction("Settings.PlusAddresses"));
+    OpenNewTabCommand* command = [OpenNewTabCommand
+        commandWithURLFromChrome:
+            GURL(plus_addresses::features::kPlusAddressManagementUrl.Get())];
+    [self.applicationHandler closePresentedViewsAndOpenURL:command];
+    return;
+  }
+
   if (![self isItemTypeForIndexPathAddress:indexPath]) {
     return;
   }
@@ -364,7 +440,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
       [self.tableViewModel itemAtIndexPath:indexPath]);
   [self
       showAddressProfileDetailsPageForProfile:_personalDataManager
-                                                  ->GetProfileByGUID(item.GUID)
+                                                  ->address_data_manager()
+                                                  .GetProfileByGUID(item.GUID)
                    withMigrateToAccountButton:item.showMigrateToAccountButton];
   [self.tableView deselectRowAtIndexPath:indexPath animated:YES];
 }
@@ -436,6 +513,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
     case ItemTypeAddress:
     case ItemTypeHeader:
     case ItemTypeFooter:
+    case ItemTypePlusAddress:
+    case ItemTypePlusAddressFooter:
       break;
     case ItemTypeAutofillAddressSwitch: {
       TableViewSwitchCell* switchCell =
@@ -521,26 +600,26 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 - (BOOL)isAutofillProfileEnabled {
   return autofill::prefs::IsAutofillProfileEnabled(
-      _browser->GetBrowserState()->GetPrefs());
+      _browser->GetProfile()->GetPrefs());
 }
 
 - (void)setAutofillProfileEnabled:(BOOL)isEnabled {
   return autofill::prefs::SetAutofillProfileEnabled(
-      _browser->GetBrowserState()->GetPrefs(), isEnabled);
+      _browser->GetProfile()->GetPrefs(), isEnabled);
 }
 
 - (void)determineUserEmail {
   self.syncEnabled = NO;
   self.userEmail = nil;
   AuthenticationService* authenticationService =
-      AuthenticationServiceFactory::GetForBrowserState(
-          _browser->GetBrowserState());
+      AuthenticationServiceFactory::GetForProfile(_browser->GetProfile());
   CHECK(authenticationService);
   id<SystemIdentity> identity =
       authenticationService->GetPrimaryIdentity(signin::ConsentLevel::kSignin);
   if (identity) {
     self.userEmail = identity.userEmail;
-    self.syncEnabled = _personalDataManager->IsSyncFeatureEnabledForAutofill();
+    self.syncEnabled = _personalDataManager->address_data_manager()
+                           .IsSyncFeatureEnabledForAutofill();
   }
 }
 
@@ -658,7 +737,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
     AutofillProfileItem* item =
         base::apple::ObjCCastStrict<AutofillProfileItem>(
             [self.tableViewModel itemAtIndexPath:indexPath]);
-    switch (item.autofillProfileSource) {
+    switch (item.autofillProfileRecordType) {
       case AutofillAccountProfile:
         accountProfiles = YES;
         break;
@@ -701,7 +780,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
               profileCount)
                 action:^{
                   [weakSelf willDeleteItemsAtIndexPaths:indexPaths];
-                  // TODO(crbug.com/650390) Generalize removing empty sections
+                  // TODO(crbug.com/41277594) Generalize removing empty sections
                   [weakSelf removeSectionIfEmptyForSectionWithIdentifier:
                                 SectionIdentifierProfiles];
                   [weakSelf dismissDeletionSheet];
@@ -749,7 +828,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 }
 
 - (void)showAddressProfileDetailsPageForProfile:
-            (autofill::AutofillProfile*)profile
+            (const autofill::AutofillProfile*)profile
                      withMigrateToAccountButton:(BOOL)migrateToAccountButton {
   self.autofillProfileEditCoordinator = [[AutofillProfileEditCoordinator alloc]
       initWithBaseNavigationController:self.navigationController
@@ -765,9 +844,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
 // icon.
 - (BOOL)shouldShowCloudOffIconForProfile:
     (const autofill::AutofillProfile&)profile {
-  return IsEligibleForMigrationToAccount(*_personalDataManager, profile) &&
-         base::FeatureList::IsEnabled(
-             syncer::kSyncEnableContactInfoDataTypeInTransportMode) &&
+  return IsEligibleForMigrationToAccount(
+             _personalDataManager->address_data_manager(), profile) &&
          self.userEmail != nil;
 }
 

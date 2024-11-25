@@ -35,9 +35,8 @@ int GetResourceId(int preview_index) {
     case 3:
       return IDR_SCALABLE_IPH_NOTIFICATION_WALLPAPER_4_PNG;
     default:
-      CHECK(false);
+      NOTREACHED();
   }
-  NOTREACHED_NORETURN();
 }
 #endif  // BUILDFLAG(ENABLE_CROS_SCALABLE_IPH)
 
@@ -102,7 +101,7 @@ void WallpaperAshNotificationView::CreatePreview() {
   }
 }
 
-BEGIN_METADATA(WallpaperAshNotificationView, ScalableIphAshNotificationView)
+BEGIN_METADATA(WallpaperAshNotificationView)
 END_METADATA
 
 }  // namespace ash

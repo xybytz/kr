@@ -13,6 +13,7 @@
 #include <string>
 
 #include "base/android/scoped_java_ref.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/notifications/displayed_notifications_dispatch_callback.h"
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/notification_platform_bridge.h"
@@ -43,37 +44,46 @@ class NotificationPlatformBridgeAndroid : public NotificationPlatformBridge {
   ~NotificationPlatformBridgeAndroid() override;
 
   // Called by the Java implementation when the notification has been clicked.
-  void OnNotificationClicked(
-      JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& java_object,
-      const base::android::JavaParamRef<jstring>& java_notification_id,
-      jint java_notification_type,
-      const base::android::JavaParamRef<jstring>& java_origin,
-      const base::android::JavaParamRef<jstring>& java_scope_url,
-      const base::android::JavaParamRef<jstring>& java_profile_id,
-      jboolean incognito,
-      const base::android::JavaParamRef<jstring>& java_webapk_package,
-      jint action_index,
-      const base::android::JavaParamRef<jstring>& java_reply);
+  void OnNotificationClicked(JNIEnv* env,
+                             const jni_zero::JavaParamRef<jobject>& java_object,
+                             std::string& notification_id,
+                             jint java_notification_type,
+                             std::string& origin,
+                             std::string& scope_url,
+                             std::string& profile_id,
+                             jboolean incognito,
+                             std::string& webapk_package,
+                             jint action_index,
+                             const jni_zero::JavaParamRef<jstring>& java_reply);
 
   // Called by the Java implementation when the query of WebAPK's package name
   // is done.
   void StoreCachedWebApkPackageForNotificationId(
       JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& java_object,
-      const base::android::JavaParamRef<jstring>& java_notification_id,
-      const base::android::JavaParamRef<jstring>& java_webapk_package);
+      const jni_zero::JavaParamRef<jobject>& java_object,
+      std::string& notification_id,
+      std::string& webapk_package);
 
   // Called by the Java implementation when the notification has been closed.
-  void OnNotificationClosed(
+  void OnNotificationClosed(JNIEnv* env,
+                            const jni_zero::JavaParamRef<jobject>& java_object,
+                            std::string& notification_id,
+                            jint java_notification_type,
+                            std::string& origin,
+                            std::string& profile_id,
+                            jboolean incognito,
+                            jboolean by_user);
+
+  // Called by the Java implementation when the user commits to unsubscribing
+  // from notification from this origin.
+  void OnNotificationDisablePermission(
       JNIEnv* env,
-      const base::android::JavaParamRef<jobject>& java_object,
-      const base::android::JavaParamRef<jstring>& java_notification_id,
+      const jni_zero::JavaParamRef<jobject>& java_object,
+      std::string& otification_id,
       jint java_notification_type,
-      const base::android::JavaParamRef<jstring>& java_origin,
-      const base::android::JavaParamRef<jstring>& java_profile_id,
-      jboolean incognito,
-      jboolean by_user);
+      std::string& origin,
+      std::string& profile_id,
+      jboolean incognito);
 
   // NotificationPlatformBridge implementation.
   void Display(NotificationHandler::Type notification_type,
@@ -93,6 +103,8 @@ class NotificationPlatformBridgeAndroid : public NotificationPlatformBridge {
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
  private:
+  void OnNotificationProcessed(const std::string& notification_id);
+
   // Contains information necessary in order to enable closing notifications
   // that were not created by this instance of the manager. This list may not
   // contain the notifications that have not been interacted with since the last
@@ -124,6 +136,8 @@ class NotificationPlatformBridgeAndroid : public NotificationPlatformBridge {
       regenerated_notification_infos_;
 
   base::android::ScopedJavaGlobalRef<jobject> java_object_;
+
+  base::WeakPtrFactory<NotificationPlatformBridgeAndroid> weak_factory_{this};
 };
 
 #endif  // CHROME_BROWSER_NOTIFICATIONS_NOTIFICATION_PLATFORM_BRIDGE_ANDROID_H_

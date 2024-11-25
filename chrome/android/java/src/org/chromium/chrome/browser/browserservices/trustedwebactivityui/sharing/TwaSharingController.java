@@ -22,7 +22,6 @@ import org.chromium.chrome.browser.browserservices.metrics.TrustedWebActivityUma
 import org.chromium.chrome.browser.browserservices.ui.controller.Verifier;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityNavigationController;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityTabProvider;
-import org.chromium.chrome.browser.dependency_injection.ActivityScope;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.webapps.WebApkPostShareTargetNavigator;
 import org.chromium.content_public.browser.LoadUrlParams;
@@ -31,37 +30,26 @@ import java.util.ArrayList;
 import java.util.Locale;
 import java.util.function.Function;
 
-import javax.inject.Inject;
-
 /** Handles sharing intents coming to Trusted Web Activities. */
-@ActivityScope
 public class TwaSharingController {
     private final CustomTabActivityTabProvider mTabProvider;
     private final CustomTabActivityNavigationController mNavigationController;
-    private final WebApkPostShareTargetNavigator mPostNavigator;
     private final Verifier mVerifierDelegate;
-    private final TrustedWebActivityUmaRecorder mUmaRecorder;
 
-    @Inject
     public TwaSharingController(
             CustomTabActivityTabProvider tabProvider,
             CustomTabActivityNavigationController navigationController,
-            WebApkPostShareTargetNavigator postNavigator,
-            Verifier verifierDelegate,
-            TrustedWebActivityUmaRecorder umaRecorder) {
+            Verifier verifierDelegate) {
         mTabProvider = tabProvider;
         mNavigationController = navigationController;
-        mPostNavigator = postNavigator;
         mVerifierDelegate = verifierDelegate;
-        mUmaRecorder = umaRecorder;
     }
 
     /**
-     * Checks whether the incoming intent (represented by a
-     * {@link BrowserServicesIntentDataProvider}) is a sharing intent and attempts to perform the
-     * sharing.
+     * Checks whether the incoming intent (represented by a {@link
+     * BrowserServicesIntentDataProvider}) is a sharing intent and attempts to perform the sharing.
      *
-     * Returns a {@link Promise<Boolean>} with a boolean telling whether sharing was successful.
+     * <p>Returns a {@link Promise<Boolean>} with a boolean telling whether sharing was successful.
      */
     public Promise<Boolean> deliverToShareTarget(
             BrowserServicesIntentDataProvider intentDataProvider) {
@@ -87,7 +75,7 @@ public class TwaSharingController {
                                     if (shareTarget.isShareMethodPost()) {
                                         boolean success = sendPost(shareData, shareTarget);
                                         if (success) {
-                                            mUmaRecorder.recordShareTargetRequest(
+                                            TrustedWebActivityUmaRecorder.recordShareTargetRequest(
                                                     ShareRequestMethod.POST);
                                         }
                                         return success;
@@ -98,7 +86,8 @@ public class TwaSharingController {
                                                     computeStartUrlForGETShareTarget(
                                                             shareData, shareTarget)),
                                             intent);
-                                    mUmaRecorder.recordShareTargetRequest(ShareRequestMethod.GET);
+                                    TrustedWebActivityUmaRecorder.recordShareTargetRequest(
+                                            ShareRequestMethod.GET);
                                     return true;
                                 });
     }
@@ -140,7 +129,7 @@ public class TwaSharingController {
             assert false : "Null tab when sharing";
             return false;
         }
-        return mPostNavigator.navigateIfPostShareTarget(
+        return WebApkPostShareTargetNavigator.navigateIfPostShareTarget(
                 target.getAction(), target, shareData, tab.getWebContents());
     }
 

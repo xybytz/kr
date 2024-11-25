@@ -7,7 +7,7 @@
 
 #include "base/component_export.h"
 #include "base/memory/scoped_refptr.h"
-#include "services/network/public/cpp/corb/corb_api.h"
+#include "services/network/public/cpp/orb/orb_api.h"
 
 namespace net {
 class URLRequestContext;
@@ -52,8 +52,10 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) URLLoaderContext {
   virtual net::URLRequestContext* GetUrlRequestContext() const = 0;
   virtual scoped_refptr<ResourceSchedulerClient> GetResourceSchedulerClient()
       const = 0;
-  virtual corb::PerFactoryState& GetMutableCorbState() = 0;
+  virtual orb::PerFactoryState& GetMutableOrbState() = 0;
   virtual bool DataUseUpdatesEnabled() = 0;
+  virtual mojom::DeviceBoundSessionAccessObserver*
+  GetDeviceBoundSessionAccessObserver() const = 0;
 
  protected:
   // `protected` destructor = can only destruct via concrete implementations

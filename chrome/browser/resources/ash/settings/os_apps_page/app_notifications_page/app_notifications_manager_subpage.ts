@@ -8,14 +8,15 @@
  * for sending notifications for the apps.
  */
 
-import 'chrome://resources/cr_elements/cr_shared_style.css.js';
+import 'chrome://resources/ash/common/cr_elements/cr_shared_style.css.js';
 import './app_notification_row.js';
 
 import {assert} from 'chrome://resources/js/assert.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {isRevampWayfindingEnabled} from '../../common/load_time_booleans.js';
-import {App, AppNotificationsHandlerInterface, AppNotificationsObserverReceiver} from '../../mojom-webui/app_notification_handler.mojom-webui.js';
+import type {App, AppNotificationsHandlerInterface} from '../../mojom-webui/app_notification_handler.mojom-webui.js';
+import {AppNotificationsObserverReceiver} from '../../mojom-webui/app_notification_handler.mojom-webui.js';
 import {isAppInstalled} from '../os_apps_page.js';
 
 import {getTemplate} from './app_notifications_manager_subpage.html.js';

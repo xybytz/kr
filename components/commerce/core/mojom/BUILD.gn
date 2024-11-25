@@ -7,7 +7,9 @@ import("//mojo/public/tools/bindings/mojom.gni")
 mojom("mojo_bindings") {
   sources = [
     "commerce_web_extractor.mojom",
-    "shopping_list.mojom",
+    "product_specifications.mojom",
+    "shared.mojom",
+    "shopping_service.mojom",
   ]
   webui_module_path = "/"
   public_deps = [

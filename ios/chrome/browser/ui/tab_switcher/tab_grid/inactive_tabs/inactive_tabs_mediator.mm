@@ -4,24 +4,25 @@
 
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/inactive_tabs/inactive_tabs_mediator.h"
 
+#import "base/memory/raw_ptr.h"
 #import "base/notreached.h"
 #import "base/scoped_multi_source_observation.h"
 #import "base/scoped_observation.h"
 #import "components/prefs/ios/pref_observer_bridge.h"
 #import "components/prefs/pref_change_registrar.h"
 #import "components/prefs/pref_service.h"
-#import "ios/chrome/browser/crash_report/model/crash_keys_helper.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/shared/model/prefs/pref_names.h"
 #import "ios/chrome/browser/shared/model/url/url_util.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer_bridge.h"
-#import "ios/chrome/browser/snapshots/model/snapshot_storage.h"
-#import "ios/chrome/browser/snapshots/model/snapshot_storage_observer.h"
+#import "ios/chrome/browser/snapshots/model/model_swift.h"
+#import "ios/chrome/browser/snapshots/model/snapshot_id_wrapper.h"
+#import "ios/chrome/browser/snapshots/model/snapshot_storage_wrapper.h"
 #import "ios/chrome/browser/snapshots/model/snapshot_tab_helper.h"
 #import "ios/chrome/browser/tabs/model/inactive_tabs/features.h"
 #import "ios/chrome/browser/tabs/model/tabs_closer.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_collection_consumer.h"
+#import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/grid_item_identifier.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/inactive_tabs/inactive_tabs_info_consumer.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/toolbars/tab_grid_toolbars_configuration.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_utils.h"
@@ -52,8 +53,7 @@ NSArray* CreateItemsOrderedByRecency(WebStateList* web_state_list) {
             });
 
   for (web::WebState* web_state : web_states) {
-    [items
-        addObject:[[WebStateTabSwitcherItem alloc] initWithWebState:web_state]];
+    [items addObject:[GridItemIdentifier tabIdentifier:web_state]];
   }
   return items;
 }
@@ -73,8 +73,7 @@ void AddWebStateObservations(
 void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
                            WebStateList* web_state_list) {
   [consumer populateItems:CreateItemsOrderedByRecency(web_state_list)
-           selectedItemID:web::WebStateID()];
-  crash_keys::SetInactiveTabCount(web_state_list->count());
+      selectedItemIdentifier:nil];
 }
 
 }  // namespace
@@ -84,9 +83,9 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
                                     SnapshotStorageObserver,
                                     WebStateListObserving> {
   // The list of inactive tabs.
-  WebStateList* _webStateList;
+  raw_ptr<WebStateList> _webStateList;
   // The snapshot storage of _webStateList.
-  __weak SnapshotStorage* _snapshotStorage;
+  __weak SnapshotStorageWrapper* _snapshotStorage;
   // The observers of _webStateList.
   std::unique_ptr<WebStateListObserverBridge> _webStateListObserverBridge;
   std::unique_ptr<ScopedWebStateListObservation> _scopedWebStateListObservation;
@@ -94,7 +93,7 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
   std::unique_ptr<web::WebStateObserverBridge> _webStateObserverBridge;
   std::unique_ptr<ScopedWebStateObservation> _scopedWebStateObservation;
   // Preference service from the application context.
-  PrefService* _prefService;
+  raw_ptr<PrefService> _prefService;
   // Pref observer to track changes to prefs.
   std::unique_ptr<PrefObserverBridge> _prefObserverBridge;
   // Registrar for pref changes notifications.
@@ -110,7 +109,7 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
 
 - (instancetype)initWithWebStateList:(WebStateList*)webStateList
                          prefService:(PrefService*)prefService
-                     snapshotStorage:(SnapshotStorage*)snapshotStorage
+                     snapshotStorage:(SnapshotStorageWrapper*)snapshotStorage
                           tabsCloser:(std::unique_ptr<TabsCloser>)tabsCloser {
   CHECK(IsInactiveTabsAvailable());
   CHECK(webStateList);
@@ -205,9 +204,8 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
 }
 
 - (void)updateConsumerItemForWebState:(web::WebState*)webState {
-  TabSwitcherItem* item =
-      [[WebStateTabSwitcherItem alloc] initWithWebState:webState];
-  [_consumer replaceItemID:webState->GetUniqueIdentifier() withItem:item];
+  GridItemIdentifier* item = [GridItemIdentifier tabIdentifier:webState];
+  [_consumer replaceItem:item withReplacementItem:item];
 }
 
 #pragma mark - PrefObserverDelegate
@@ -222,13 +220,12 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
 
 #pragma mark - SnapshotStorageObserver
 
-- (void)snapshotStorage:(SnapshotStorage*)snapshotStorage
-    didUpdateSnapshotForID:(SnapshotID)snapshotID {
+- (void)didUpdateSnapshotStorageWithSnapshotID:(SnapshotIDWrapper*)snapshotID {
   web::WebState* webState = nullptr;
   for (int i = 0; i < _webStateList->count(); i++) {
     SnapshotTabHelper* snapshotTabHelper =
         SnapshotTabHelper::FromWebState(_webStateList->GetWebStateAt(i));
-    if (snapshotID == snapshotTabHelper->GetSnapshotID()) {
+    if (snapshotID.snapshot_id == snapshotTabHelper->GetSnapshotID()) {
       webState = _webStateList->GetWebStateAt(i);
       break;
     }
@@ -237,9 +234,8 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
     // It is possible to observe an updated snapshot for a WebState before
     // observing that the WebState has been added to the WebStateList. It is the
     // consumer's responsibility to ignore any updates before inserts.
-    TabSwitcherItem* item =
-        [[WebStateTabSwitcherItem alloc] initWithWebState:webState];
-    [_consumer replaceItemID:webState->GetUniqueIdentifier() withItem:item];
+    GridItemIdentifier* item = [GridItemIdentifier tabIdentifier:webState];
+    [_consumer replaceItem:item withReplacementItem:item];
   }
 }
 
@@ -255,8 +251,9 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
   }
 
   web::WebState* detachedWebState = detachChange.detached_web_state();
-  [_consumer removeItemWithID:detachedWebState->GetUniqueIdentifier()
-               selectedItemID:web::WebStateID()];
+  [_consumer removeItemWithIdentifier:[GridItemIdentifier
+                                          tabIdentifier:detachedWebState]
+               selectedItemIdentifier:nil];
 
   _scopedWebStateObservation->RemoveObservation(detachedWebState);
 }
@@ -279,7 +276,11 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
       break;
     case WebStateListChange::Type::kMove:
     case WebStateListChange::Type::kReplace:
-      NOTREACHED_NORETURN();
+    case WebStateListChange::Type::kGroupCreate:
+    case WebStateListChange::Type::kGroupVisualDataUpdate:
+    case WebStateListChange::Type::kGroupMove:
+    case WebStateListChange::Type::kGroupDelete:
+      NOTREACHED();
     case WebStateListChange::Type::kInsert: {
       // Insertions are only supported for iPad multiwindow support when
       // changing the user settings for Inactive Tabs (i.e. when picking a
@@ -289,11 +290,15 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
       const WebStateListChangeInsert& insertChange =
           change.As<WebStateListChangeInsert>();
       web::WebState* insertedWebState = insertChange.inserted_web_state();
-      TabSwitcherItem* item =
-          [[WebStateTabSwitcherItem alloc] initWithWebState:insertedWebState];
-      [_consumer insertItem:item
-                    atIndex:status.index
-             selectedItemID:web::WebStateID()];
+      int nextItemIndex = insertChange.index() + 1;
+      GridItemIdentifier* nextItemIdentifier;
+      if (webStateList->ContainsIndex(nextItemIndex)) {
+        nextItemIdentifier = [GridItemIdentifier
+            tabIdentifier:webStateList->GetWebStateAt(nextItemIndex)];
+      }
+      [_consumer insertItem:[GridItemIdentifier tabIdentifier:insertedWebState]
+                    beforeItemID:nextItemIdentifier
+          selectedItemIdentifier:nil];
 
       _scopedWebStateObservation->AddObservation(insertedWebState);
       break;
@@ -322,29 +327,23 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
 #pragma mark - GridCommands
 
 - (BOOL)addNewItem {
-  NOTREACHED_NORETURN();
-}
-
-- (void)insertNewItemAtIndex:(NSUInteger)index {
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 - (BOOL)isItemWithIDSelected:(web::WebStateID)itemID {
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
-- (void)moveItemWithID:(web::WebStateID)itemID toIndex:(NSUInteger)index {
-  NOTREACHED_NORETURN();
-}
-
-- (void)closeItemsWithIDs:(const std::set<web::WebStateID>&)itemIDs {
-  NOTREACHED_NORETURN();
+- (void)closeItemsWithTabIDs:(const std::set<web::WebStateID>&)tabIDs
+                    groupIDs:(const std::set<tab_groups::TabGroupId>&)groupIDs
+                    tabCount:(int)tabCount {
+  NOTREACHED();
 }
 
 - (void)closeAllItems {
-  // TODO(crbug.com/1418021): Add metrics when the user closes all inactive
+  // TODO(crbug.com/40257500): Add metrics when the user closes all inactive
   // tabs.
-  _webStateList->CloseAllWebStates(WebStateList::CLOSE_USER_ACTION);
+  CloseAllWebStates(*_webStateList, WebStateList::CLOSE_USER_ACTION);
   [_snapshotStorage removeAllImages];
 }
 
@@ -353,7 +352,7 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
     return;
   }
 
-  // TODO(crbug.com/1418021): Add metrics when the user closes all inactive
+  // TODO(crbug.com/40257500): Add metrics when the user closes all inactive
   // tabs from regular tab grid.
   _tabsCloser->CloseTabs();
 }
@@ -362,7 +361,7 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
   if (![self canUndoCloseAllTabs]) {
     return;
   }
-  // TODO(crbug.com/1418021): Add metrics when the user restores all inactive
+  // TODO(crbug.com/40257500): Add metrics when the user restores all inactive
   // tabs from regular tab grid.
   _tabsCloser->UndoCloseTabs();
 }
@@ -378,40 +377,34 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
             (const std::set<web::WebStateID>&)itemIDs
                                                 anchor:(UIBarButtonItem*)
                                                            buttonAnchor {
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 - (void)shareItems:(const std::set<web::WebStateID>&)itemIDs
             anchor:(UIBarButtonItem*)buttonAnchor {
-  NOTREACHED_NORETURN();
-}
-
-- (NSArray<UIMenuElement*>*)addToButtonMenuElementsForItems:
-    (const std::set<web::WebStateID>&)itemIDs {
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 - (void)searchItemsWithText:(NSString*)searchText {
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 - (void)resetToAllItems {
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
-- (void)fetchSearchHistoryResultsCountForText:(NSString*)searchText
-                                   completion:(void (^)(size_t))completion {
-  NOTREACHED_NORETURN();
+- (void)selectItemWithID:(web::WebStateID)itemID
+                    pinned:(BOOL)pinned
+    isFirstActionOnTabGrid:(BOOL)isFirstActionOnTabGrid {
+  NOTREACHED();
 }
 
-#pragma mark - TabCollectionCommands
-
-- (void)selectItemWithID:(web::WebStateID)itemID {
-  NOTREACHED_NORETURN();
+- (void)selectTabGroup:(const TabGroup*)tabGroup {
+  NOTREACHED();
 }
 
 - (void)closeItemWithID:(web::WebStateID)itemID {
-  // TODO(crbug.com/1418021): Add metrics when the user closes an inactive tab.
+  // TODO(crbug.com/40257500): Add metrics when the user closes an inactive tab.
   int index = GetWebStateIndex(_webStateList, WebStateSearchCriteria{
                                                   .identifier = itemID,
                                               });
@@ -421,7 +414,21 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
 }
 
 - (void)setPinState:(BOOL)pinState forItemWithID:(web::WebStateID)itemID {
-  NOTREACHED_NORETURN();
+  NOTREACHED();
+}
+
+- (void)deleteTabGroup:(base::WeakPtr<const TabGroup>)group
+            sourceView:(UIView*)sourceView {
+  NOTREACHED();
+}
+
+- (void)closeTabGroup:(base::WeakPtr<const TabGroup>)group {
+  NOTREACHED();
+}
+
+- (void)ungroupTabGroup:(base::WeakPtr<const TabGroup>)group
+             sourceView:(UIView*)sourceView {
+  NOTREACHED();
 }
 
 #pragma mark - GridToolbarsConfigurationProvider
@@ -430,7 +437,6 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
   TabGridToolbarsConfiguration* toolbarsConfiguration =
       [[TabGridToolbarsConfiguration alloc]
           initWithPage:TabGridPageRegularTabs];
-  toolbarsConfiguration.mode = TabGridModeInactive;
   toolbarsConfiguration.closeAllButton = [self canCloseTabs];
   toolbarsConfiguration.searchButton = YES;
   toolbarsConfiguration.undoButton = [self canUndoCloseAllTabs];
@@ -449,6 +455,25 @@ void PopulateConsumerItems(id<TabCollectionConsumer> consumer,
 
 - (BOOL)canUndoCloseAllTabs {
   return _tabsCloser && _tabsCloser->CanUndoCloseTabs();
+}
+
+#pragma mark - GridViewControllerMutator
+
+- (void)userTappedOnItemID:(GridItemIdentifier*)itemID {
+  // No-op
+}
+
+- (void)addToSelectionItemID:(GridItemIdentifier*)itemID {
+  NOTREACHED();
+}
+
+- (void)removeFromSelectionItemID:(GridItemIdentifier*)itemID {
+  // No-op
+}
+
+- (void)closeItemWithIdentifier:(GridItemIdentifier*)identifier {
+  CHECK(identifier.type == GridItemType::kTab);
+  [self closeItemWithID:identifier.tabSwitcherItem.identifier];
 }
 
 @end

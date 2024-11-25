@@ -6,18 +6,20 @@ package org.chromium.components.webauthn;
 
 import android.app.PendingIntent;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Parcel;
+import android.os.ResultReceiver;
 
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
 
-import org.chromium.base.ContextUtils;
 import org.chromium.blink.mojom.PublicKeyCredentialCreationOptions;
 import org.chromium.blink.mojom.PublicKeyCredentialRequestOptions;
 import org.chromium.components.externalauth.ExternalAuthUtils;
 import org.chromium.components.externalauth.UserRecoverableErrorHandler;
 import org.chromium.components.webauthn.Fido2ApiCall.Fido2ApiCallParams;
+import org.chromium.components.webauthn.Fido2ApiCall.WebauthnCredentialDetailsListResult;
 
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
@@ -49,13 +51,16 @@ public class Fido2ApiCallHelper {
     }
 
     public void invokeFido2GetCredentials(
+            AuthenticationContextProvider authenticationContextProvider,
             String relyingPartyId,
             OnSuccessListener<List<WebauthnCredentialDetails>> successCallback,
             OnFailureListener failureCallback) {
-        Fido2ApiCall call = new Fido2ApiCall(ContextUtils.getApplicationContext());
+        Fido2ApiCallParams params =
+                WebauthnModeProvider.getInstance()
+                        .getFido2ApiCallParams(authenticationContextProvider.getWebContents());
+        Fido2ApiCall call = new Fido2ApiCall(authenticationContextProvider.getContext(), params);
         Parcel args = call.start();
-        Fido2ApiCall.WebauthnCredentialDetailsListResult result =
-                new Fido2ApiCall.WebauthnCredentialDetailsListResult();
+        WebauthnCredentialDetailsListResult result = new WebauthnCredentialDetailsListResult();
         args.writeStrongBinder(result);
         args.writeString(relyingPartyId);
 
@@ -69,22 +74,52 @@ public class Fido2ApiCallHelper {
         task.addOnFailureListener(failureCallback);
     }
 
+    public void invokePasskeyCacheGetCredentials(
+            AuthenticationContextProvider authenticationContextProvider,
+            String relyingParty,
+            OnSuccessListener<List<WebauthnCredentialDetails>> successListener,
+            OnFailureListener failureListener) {
+        Fido2ApiCall call =
+                new Fido2ApiCall(
+                        authenticationContextProvider.getContext(), Fido2ApiCall.PERSISTENT_API);
+        Parcel args = call.start();
+        WebauthnCredentialDetailsListResult result = new WebauthnCredentialDetailsListResult();
+        result.setInterface(Fido2ApiCall.PERSISTENT_API_INTERFACE);
+        args.writeStrongBinder(result);
+        args.writeString(relyingParty);
+
+        Task<List<WebauthnCredentialDetails>> task =
+                call.run(
+                        Fido2ApiCall.METHOD_LIST_PASSKEYS_FOR_RP,
+                        Fido2ApiCall.TRANSACTION_LIST_PASSKEYS_FOR_RP,
+                        args,
+                        result);
+        task.addOnSuccessListener(successListener);
+        task.addOnFailureListener(failureListener);
+    }
+
     public void invokeFido2MakeCredential(
+            AuthenticationContextProvider authenticationContextProvider,
             PublicKeyCredentialCreationOptions options,
             Uri uri,
             byte[] clientDataHash,
+            Bundle browserOptions,
+            ResultReceiver resultReceiver,
             OnSuccessListener<PendingIntent> successCallback,
             OnFailureListener failureCallback)
             throws NoSuchAlgorithmException {
-        Fido2ApiCall call = new Fido2ApiCall(ContextUtils.getApplicationContext());
+        Fido2ApiCallParams params =
+                WebauthnModeProvider.getInstance()
+                        .getFido2ApiCallParams(authenticationContextProvider.getWebContents());
+        Fido2ApiCall call = new Fido2ApiCall(authenticationContextProvider.getContext(), params);
         Parcel args = call.start();
-        Fido2ApiCall.PendingIntentResult result = new Fido2ApiCall.PendingIntentResult();
+        Fido2ApiCall.PendingIntentResult result =
+                new Fido2ApiCall.PendingIntentResult(params.mCallbackDescriptor);
         args.writeStrongBinder(result);
         args.writeInt(1); // This indicates that the following options are present.
 
-        Fido2ApiCallParams params = WebauthnModeProvider.getInstance().getFido2ApiCallParams();
-
-        params.mMethodInterfaces.makeCredential(options, uri, clientDataHash, args);
+        params.mMethodInterfaces.makeCredential(
+                options, uri, clientDataHash, browserOptions, resultReceiver, args);
 
         Task<PendingIntent> task =
                 call.run(params.mRegisterMethodId, Fido2ApiCall.TRANSACTION_REGISTER, args, result);
@@ -93,20 +128,25 @@ public class Fido2ApiCallHelper {
     }
 
     public void invokeFido2GetAssertion(
+            AuthenticationContextProvider authenticationContextProvider,
             PublicKeyCredentialRequestOptions options,
             Uri uri,
             byte[] clientDataHash,
+            ResultReceiver resultReceiver,
             OnSuccessListener<PendingIntent> successCallback,
             OnFailureListener failureCallback) {
-        Fido2ApiCall call = new Fido2ApiCall(ContextUtils.getApplicationContext());
+        Fido2ApiCallParams params =
+                WebauthnModeProvider.getInstance()
+                        .getFido2ApiCallParams(authenticationContextProvider.getWebContents());
+        Fido2ApiCall call = new Fido2ApiCall(authenticationContextProvider.getContext(), params);
         Parcel args = call.start();
-        Fido2ApiCall.PendingIntentResult result = new Fido2ApiCall.PendingIntentResult();
+        Fido2ApiCall.PendingIntentResult result =
+                new Fido2ApiCall.PendingIntentResult(params.mCallbackDescriptor);
         args.writeStrongBinder(result);
         args.writeInt(1); // This indicates that the following options are present.
 
-        Fido2ApiCallParams params = WebauthnModeProvider.getInstance().getFido2ApiCallParams();
         params.mMethodInterfaces.getAssertion(
-                options, uri, clientDataHash, /* tunnelId= */ null, args);
+                options, uri, clientDataHash, /* tunnelId= */ null, resultReceiver, args);
         Task<PendingIntent> task =
                 call.run(params.mSignMethodId, Fido2ApiCall.TRANSACTION_SIGN, args, result);
         task.addOnSuccessListener(successCallback);

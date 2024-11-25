@@ -34,6 +34,7 @@
 
 #include <memory>
 
+#include "base/numerics/safe_conversions.h"
 #include "base/ranges/algorithm.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
@@ -169,8 +170,7 @@ void EventSource::Connect() {
     std::string last_event_id_utf8 = parser_->LastEventId().Utf8();
     request.SetHttpHeaderField(
         http_names::kLastEventID,
-        AtomicString(reinterpret_cast<const LChar*>(last_event_id_utf8.c_str()),
-                     last_event_id_utf8.length()));
+        AtomicString(base::as_byte_span(last_event_id_utf8)));
   }
 
   ResourceLoaderOptions resource_loader_options(world_);
@@ -304,12 +304,12 @@ void EventSource::DidReceiveResponse(uint64_t identifier,
   }
 }
 
-void EventSource::DidReceiveData(const char* data, unsigned length) {
+void EventSource::DidReceiveData(base::span<const char> data) {
   DCHECK_EQ(kOpen, state_);
   DCHECK(loader_);
   DCHECK(parser_);
 
-  parser_->AddBytes(data, length);
+  parser_->AddBytes(data);
 }
 
 void EventSource::DidFinishLoading(uint64_t) {
@@ -387,6 +387,7 @@ void EventSource::Trace(Visitor* visitor) const {
   visitor->Trace(parser_);
   visitor->Trace(loader_);
   visitor->Trace(connect_timer_);
+  visitor->Trace(world_);
   EventTarget::Trace(visitor);
   ThreadableLoaderClient::Trace(visitor);
   ExecutionContextLifecycleObserver::Trace(visitor);

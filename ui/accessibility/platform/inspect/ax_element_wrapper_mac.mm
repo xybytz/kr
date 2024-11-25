@@ -4,12 +4,14 @@
 
 #include "ui/accessibility/platform/inspect/ax_element_wrapper_mac.h"
 
+#import <Accessibility/Accessibility.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <Foundation/Foundation.h>
 
 #include <ostream>
 
 #include "base/apple/bridging.h"
+#include "base/apple/foundation_util.h"
 #include "base/apple/scoped_cftyperef.h"
 #include "base/containers/fixed_flat_set.h"
 #include "base/debug/stack_trace.h"
@@ -17,6 +19,7 @@
 #include "base/logging.h"
 #include "base/strings/pattern.h"
 #include "base/strings/sys_string_conversions.h"
+#include "ui/accessibility/platform/ax_platform_node_cocoa.h"
 #include "ui/accessibility/platform/ax_private_attributes_mac.h"
 
 // error: 'accessibilityAttributeNames' is deprecated: first deprecated in
@@ -27,8 +30,45 @@
 
 namespace ui {
 
+// AXUIElementCopyAttributeValue("AXCustomContent") returns an NSData
+// that contains an NSDictionary in NSKeyedArchiver format.
+// This function unpacks the array of AXCustomContents contained within.
+NSArray<AXCustomContent*>* CustomContentFromArchive(NSData* archive_data) {
+  NSError* error = nil;
+  NSKeyedUnarchiver* unarchiver =
+      [[NSKeyedUnarchiver alloc] initForReadingFromData:archive_data
+                                                  error:&error];
+
+  if (error) {
+    return nil;
+  }
+
+  id contents = [unarchiver
+      decodeObjectOfClasses:
+          [NSSet setWithArray:@[ NSArray.class, AXCustomContent.class ]]
+                     forKey:NSKeyedArchiveRootObjectKey];
+
+  return base::apple::ObjCCast<NSArray>(contents);
+}
+
+}  // namespace ui
+
+namespace ui {
+
 constexpr char kUnsupportedObject[] =
     "Only AXUIElementRef and BrowserAccessibilityCocoa are supported.";
+
+// static
+AXElementWrapper::AXType AXElementWrapper::TypeOf(const id node) {
+  DCHECK(IsValidElement(node));
+  if (IsNSAccessibilityElement(node)) {
+    return AXType::kNSAccessibilityElement;
+  }
+  if (IsAXUIElement(node)) {
+    return AXType::kAXUIElement;
+  }
+  NOTREACHED() << "Unknown accessibility object type";
+}
 
 // static
 bool AXElementWrapper::IsValidElement(const id node) {
@@ -95,7 +135,6 @@ NSArray* AXElementWrapper::Children() const {
 
   NOTREACHED()
       << "Only AXUIElementRef and BrowserAccessibilityCocoa are supported.";
-  return nil;
 }
 
 NSSize AXElementWrapper::Size() const {
@@ -106,7 +145,6 @@ NSSize AXElementWrapper::Size() const {
   if (!IsAXUIElement()) {
     NOTREACHED()
         << "Only AXUIElementRef and BrowserAccessibilityCocoa are supported.";
-    return NSMakeSize(0, 0);
   }
 
   id value = *GetAttributeValue(NSAccessibilitySizeAttribute);
@@ -138,15 +176,22 @@ NSPoint AXElementWrapper::Position() const {
         }
       }
     }
+    return NSMakePoint(0, 0);
   }
 
   NOTREACHED()
       << "Only AXUIElementRef and BrowserAccessibilityCocoa are supported.";
-  return NSMakePoint(0, 0);
 }
 
 NSArray* AXElementWrapper::AttributeNames() const {
   if (IsNSAccessibilityElement()) {
+    // The NSAccessibility protocol implementation in AXPlatformNodeCocoa no
+    // longer exposes old-style attributes. Instead, it provides the
+    // internalAccessibilityAttributeNames method for backward compatibility in
+    // testing.
+    if ([node_ isKindOfClass:[AXPlatformNodeCocoa class]]) {
+      return [node_ internalAccessibilityAttributeNames];
+    }
     return [node_ accessibilityAttributeNames];
   }
 
@@ -162,7 +207,6 @@ NSArray* AXElementWrapper::AttributeNames() const {
 
   NOTREACHED()
       << "Only AXUIElementRef and BrowserAccessibilityCocoa are supported.";
-  return nil;
 }
 
 NSArray* AXElementWrapper::ParameterizedAttributeNames() const {
@@ -182,7 +226,6 @@ NSArray* AXElementWrapper::ParameterizedAttributeNames() const {
 
   NOTREACHED()
       << "Only AXUIElementRef and BrowserAccessibilityCocoa are supported.";
-  return nil;
 }
 
 AXOptionalNSObject AXElementWrapper::GetAttributeValue(
@@ -196,6 +239,20 @@ AXOptionalNSObject AXElementWrapper::GetAttributeValue(
     AXError result = AXUIElementCopyAttributeValue(
         (__bridge AXUIElementRef)node_, (__bridge CFStringRef)attribute,
         value_ref.InitializeInto());
+
+    // AXCustomContent returns an NSData which contains a NSKeyedArchiver,
+    // which cannot be easily understood. Convert to NSArray of AXCustomContent
+    // objects.
+    if ([attribute isEqualToString:@"AXCustomContent"] &&
+        result == kAXErrorSuccess &&
+        CFGetTypeID(value_ref.get()) == CFDataGetTypeID()) {
+      NSData* data = (__bridge NSData*)value_ref.get();
+      NSArray<AXCustomContent*>* custom_contents =
+          CustomContentFromArchive(data);
+
+      return AXOptionalNSObject(custom_contents);
+    }
+
     return ToOptional(
         (__bridge id)value_ref.get(), result,
         "AXGetAttributeValue(" + base::SysNSStringToUTF8(attribute) + ")");
@@ -234,24 +291,24 @@ AXOptionalNSObject AXElementWrapper::GetParameterizedAttributeValue(
   return AXOptionalNSObject::Error(kUnsupportedObject);
 }
 
-absl::optional<id> AXElementWrapper::PerformSelector(
+std::optional<id> AXElementWrapper::PerformSelector(
     const std::string& selector_string) const {
   if (![node_ conformsToProtocol:@protocol(NSAccessibility)])
-    return absl::nullopt;
+    return std::nullopt;
 
   NSString* selector_nsstring = base::SysUTF8ToNSString(selector_string);
   SEL selector = NSSelectorFromString(selector_nsstring);
 
   if ([node_ respondsToSelector:selector])
     return [node_ valueForKey:selector_nsstring];
-  return absl::nullopt;
+  return std::nullopt;
 }
 
-absl::optional<id> AXElementWrapper::PerformSelector(
+std::optional<id> AXElementWrapper::PerformSelector(
     const std::string& selector_string,
     const std::string& argument_string) const {
   if (![node_ conformsToProtocol:@protocol(NSAccessibility)])
-    return absl::nullopt;
+    return std::nullopt;
 
   SEL selector =
       NSSelectorFromString(base::SysUTF8ToNSString(selector_string + ":"));
@@ -262,7 +319,7 @@ absl::optional<id> AXElementWrapper::PerformSelector(
   if ([node_ respondsToSelector:selector])
     return [node_ performSelector:selector withObject:argument];
 #pragma clang diagnostic pop
-  return absl::nullopt;
+  return std::nullopt;
 }
 
 void AXElementWrapper::SetAttributeValue(NSString* attribute, id value) const {
@@ -298,7 +355,6 @@ NSArray* AXElementWrapper::ActionNames() const {
 
   NOTREACHED()
       << "Only AXUIElementRef and BrowserAccessibilityCocoa are supported.";
-  return nil;
 }
 
 void AXElementWrapper::PerformAction(NSString* action) const {
@@ -325,26 +381,51 @@ std::string AXElementWrapper::AXErrorMessage(AXError result,
 
   std::string error;
   switch (result) {
+    case kAXErrorAPIDisabled:
+      error = "API disabled; you may need to add terminal and/or this binary "
+              "to System Settings -> Privacy & Security -> Accessibility";
+      break;
+    case kAXErrorActionUnsupported:
+      error = "action unsupported";
+      break;
     case kAXErrorAttributeUnsupported:
       error = "attribute unsupported";
       break;
-    case kAXErrorParameterizedAttributeUnsupported:
-      error = "parameterized attribute unsupported";
+    case kAXErrorCannotComplete:
+      error = "cannot complete";
       break;
-    case kAXErrorNoValue:
-      error = "no value";
+    case kAXErrorFailure:
+      error = "failure";
       break;
     case kAXErrorIllegalArgument:
       error = "illegal argument";
       break;
     case kAXErrorInvalidUIElement:
-      error = "invalid UIElement";
+      error = "invalid UI element";
       break;
-    case kAXErrorCannotComplete:
-      error = "cannot complete";
+    case kAXErrorInvalidUIElementObserver:
+      error = "illegal UI element observer";
+      break;
+    case kAXErrorNoValue:
+      error = "no value";
+      break;
+    case kAXErrorNotEnoughPrecision:
+      error = "not enough precision";
       break;
     case kAXErrorNotImplemented:
       error = "not implemented";
+      break;
+    case kAXErrorNotificationAlreadyRegistered:
+      error = "notification already registered";
+      break;
+    case kAXErrorNotificationNotRegistered:
+      error = "notification not registered";
+      break;
+    case kAXErrorNotificationUnsupported:
+      error = "notification unsupported";
+      break;
+    case kAXErrorParameterizedAttributeUnsupported:
+      error = "parameterized attribute unsupported";
       break;
     default:
       error = "unknown error";

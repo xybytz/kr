@@ -33,10 +33,10 @@
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/menu_model.h"
-#include "ui/base/models/simple_menu_model.h"
-#include "ui/base/ui_base_types.h"
+#include "ui/base/mojom/menu_source_type.mojom-forward.h"
 #include "ui/chromeos/styles/cros_tokens_color_mappings.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/menus/simple_menu_model.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/background.h"
@@ -79,10 +79,6 @@ bool IsFooterRequired(
     crosapi::mojom::ClipboardHistoryControllerShowSource show_source,
     const std::optional<base::Time>& menu_last_time_shown,
     const std::optional<base::Time>& nudge_last_time_shown) {
-  if (!features::IsClipboardHistoryFooterEnabled()) {
-    return false;
-  }
-
   // A footer is always required when the menu is shown via Ctrl+V long press.
   using crosapi::mojom::ClipboardHistoryControllerShowSource;
   if (show_source == ClipboardHistoryControllerShowSource::kControlVLongpress) {
@@ -336,7 +332,7 @@ class ClipboardHistoryMenuModelAdapter::ScopedA11yIgnore {
     for (auto& item_view_command_id_pair :
          menu_model_adapter_->item_views_by_command_id_) {
       views::View* item_view = item_view_command_id_pair.second;
-      item_view->GetViewAccessibility().OverrideIsIgnored(ignore);
+      item_view->GetViewAccessibility().SetIsIgnored(ignore);
     }
   }
 
@@ -362,7 +358,7 @@ ClipboardHistoryMenuModelAdapter::~ClipboardHistoryMenuModelAdapter() = default;
 
 void ClipboardHistoryMenuModelAdapter::Run(
     const gfx::Rect& anchor_rect,
-    ui::MenuSourceType source_type,
+    ui::mojom::MenuSourceType source_type,
     crosapi::mojom::ClipboardHistoryControllerShowSource show_source,
     const std::optional<base::Time>& menu_last_time_shown,
     const std::optional<base::Time>& nudge_last_time_shown) {
@@ -530,23 +526,24 @@ void ClipboardHistoryMenuModelAdapter::RemoveMenuItemWithCommandId(
       item_view_to_delete->GetViewAccessibility();
 
   // Polish the a11y announcement for deletion operation.
-  view_accessibility.OverrideDescription(
+  view_accessibility.SetDescription(
       l10n_util::GetStringUTF16(IDS_CLIPBOARD_HISTORY_ITEM_DELETION));
 
   // Enable a11y announcement for the view to be deleted.
-  view_accessibility.OverrideIsIgnored(false);
+  view_accessibility.SetIsIgnored(false);
 
   // Disabling `item_view_to_delete` is more like implementation details.
   // So do not expose it to users.
-  view_accessibility.OverrideIsEnabled(true);
+  view_accessibility.SetIsEnabled(true);
 
-  // Specify `item_view_to_delete`'s position in the set. Without calling
-  // `OverridePosInSet()`, the menu's size after deletion may be announced.
+  // Specify `item_view_to_delete`'s position in the set. Without updating the
+  // position in set and set size, the menu's size after deletion may be
+  // announced.
   const int pos_in_set = std::distance(item_views_by_command_id_.begin(),
                                        item_view_to_delete_iter) +
                          1;
-  view_accessibility.OverridePosInSet(pos_in_set,
-                                      item_views_by_command_id_.size());
+  view_accessibility.SetPosInSet(pos_in_set);
+  view_accessibility.SetSetSize(item_views_by_command_id_.size());
 
   // Disable views to be removed in order to prevent them from handling
   // events.
@@ -724,7 +721,7 @@ views::MenuItemView* ClipboardHistoryMenuModelAdapter::AppendMenuItem(
 
   // Ignore `container` in accessibility events handling. Let `item_view`
   // handle.
-  container->GetViewAccessibility().OverrideIsIgnored(true);
+  container->GetViewAccessibility().SetIsIgnored(true);
 
   // Margins are managed by `ClipboardHistoryItemView`.
   container->set_vertical_margin(0);

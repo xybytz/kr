@@ -7,10 +7,7 @@ package org.chromium.chrome.browser.password_manager;
 import android.app.Activity;
 import android.content.Context;
 import android.content.DialogInterface;
-import android.text.SpannableString;
-import android.text.Spanned;
 import android.text.method.LinkMovementMethod;
-import android.text.style.ClickableSpan;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.TextView;
@@ -18,6 +15,7 @@ import android.widget.TextView;
 import androidx.appcompat.app.AlertDialog;
 
 import org.jni_zero.CalledByNative;
+import org.jni_zero.JniType;
 import org.jni_zero.NativeMethods;
 
 import org.chromium.chrome.R;
@@ -32,8 +30,6 @@ public class AutoSigninFirstRunDialog
     private final Context mContext;
     private final String mTitle;
     private final String mExplanation;
-    private final int mExplanationLinkStart;
-    private final int mExplanationLinkEnd;
     private final String mOkButtonText;
     private final String mTurnOffButtonText;
     private long mNativeAutoSigninFirstRunDialog;
@@ -45,16 +41,12 @@ public class AutoSigninFirstRunDialog
             long nativeAutoSigninFirstRunDialog,
             String title,
             String explanation,
-            int explanationLinkStart,
-            int explanationLinkEnd,
             String okButtonText,
             String turnOffButtonText) {
         mNativeAutoSigninFirstRunDialog = nativeAutoSigninFirstRunDialog;
         mContext = context;
         mTitle = title;
         mExplanation = explanation;
-        mExplanationLinkStart = explanationLinkStart;
-        mExplanationLinkEnd = explanationLinkEnd;
         mOkButtonText = okButtonText;
         mTurnOffButtonText = turnOffButtonText;
     }
@@ -63,12 +55,10 @@ public class AutoSigninFirstRunDialog
     private static AutoSigninFirstRunDialog createAndShowDialog(
             WindowAndroid windowAndroid,
             long nativeAutoSigninFirstRunDialog,
-            String title,
-            String explanation,
-            int explanationLinkStart,
-            int explanationLinkEnd,
-            String okButtonText,
-            String turnOffButtonText) {
+            @JniType("std::u16string") String title,
+            @JniType("std::u16string") String explanation,
+            @JniType("std::u16string") String okButtonText,
+            @JniType("std::u16string") String turnOffButtonText) {
         Activity activity = windowAndroid.getActivity().get();
         if (activity == null) return null;
 
@@ -78,8 +68,6 @@ public class AutoSigninFirstRunDialog
                         nativeAutoSigninFirstRunDialog,
                         title,
                         explanation,
-                        explanationLinkStart,
-                        explanationLinkEnd,
                         okButtonText,
                         turnOffButtonText);
         dialog.show();
@@ -94,30 +82,9 @@ public class AutoSigninFirstRunDialog
                         .setNegativeButton(mTurnOffButtonText, this);
         View view =
                 LayoutInflater.from(mContext).inflate(R.layout.auto_sign_in_first_run_dialog, null);
-        TextView summaryView = (TextView) view.findViewById(R.id.summary);
-
-        if (mExplanationLinkStart != mExplanationLinkEnd && mExplanationLinkEnd != 0) {
-            SpannableString spanableExplanation = new SpannableString(mExplanation);
-            spanableExplanation.setSpan(
-                    new ClickableSpan() {
-                        @Override
-                        public void onClick(View view) {
-                            AutoSigninFirstRunDialogJni.get()
-                                    .onLinkClicked(
-                                            mNativeAutoSigninFirstRunDialog,
-                                            AutoSigninFirstRunDialog.this);
-                            mDialog.dismiss();
-                        }
-                    },
-                    mExplanationLinkStart,
-                    mExplanationLinkEnd,
-                    Spanned.SPAN_INCLUSIVE_INCLUSIVE);
-            summaryView.setText(spanableExplanation);
-            summaryView.setMovementMethod(LinkMovementMethod.getInstance());
-        } else {
-            summaryView.setText(mExplanation);
-            summaryView.setMovementMethod(LinkMovementMethod.getInstance());
-        }
+        TextView summaryView = view.findViewById(R.id.summary);
+        summaryView.setText(mExplanation);
+        summaryView.setMovementMethod(LinkMovementMethod.getInstance());
         builder.setView(view);
 
         mDialog = builder.create();

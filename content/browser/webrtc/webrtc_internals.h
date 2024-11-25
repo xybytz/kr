@@ -62,8 +62,7 @@ class CONTENT_EXPORT WebRTCInternals : public PeerConnectionTrackerHostObserver,
                              int lid,
                              base::ProcessId pid,
                              const std::string& url,
-                             const std::string& rtc_configuration,
-                             const std::string& constraints) override;
+                             const std::string& rtc_configuration) override;
   void OnPeerConnectionRemoved(GlobalRenderFrameHostId frame_id,
                                int lid) override;
   void OnPeerConnectionUpdated(GlobalRenderFrameHostId frame_id,
@@ -73,9 +72,6 @@ class CONTENT_EXPORT WebRTCInternals : public PeerConnectionTrackerHostObserver,
   void OnAddStandardStats(GlobalRenderFrameHostId frame_id,
                           int lid,
                           base::Value::List value) override;
-  void OnAddLegacyStats(GlobalRenderFrameHostId frame_id,
-                        int lid,
-                        base::Value::List value) override;
   void OnGetUserMedia(GlobalRenderFrameHostId frame_id,
                       base::ProcessId pid,
                       int request_id,
@@ -173,10 +169,8 @@ class CONTENT_EXPORT WebRTCInternals : public PeerConnectionTrackerHostObserver,
                            const ChildProcessTerminationInfo& info) override;
 
   // ui::SelectFileDialog::Listener implementation.
-  void FileSelected(const ui::SelectedFileInfo& file,
-                    int index,
-                    void* unused_params) override;
-  void FileSelectionCanceled(void* params) override;
+  void FileSelected(const ui::SelectedFileInfo& file, int index) override;
+  void FileSelectionCanceled() override;
 
   // Called when a renderer exits (including crashes).
   void OnRendererExit(int render_process_id);

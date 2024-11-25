@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <string_view>
 
 #include "base/memory/raw_ref.h"
 #include "base/memory/weak_ptr.h"
@@ -34,16 +35,6 @@ class ExternalVideoEncoder final : public VideoEncoder {
   // using ExternalVideoEncoder with the given |video_config|.
   static bool IsSupported(const FrameSenderConfig& video_config);
 
-  // Returns true if the external encoder should be used for a codec with a
-  // given receiver and set of VEA profiles. Some receivers have implementation
-  // bugs that keep the external encoder from being used even if it is supported
-  // by the sender.
-  static bool IsRecommended(
-      Codec codec,
-      base::StringPiece receiver_model_name,
-      const std::vector<media::VideoEncodeAccelerator::SupportedProfile>&
-          profiles);
-
   ExternalVideoEncoder(
       const scoped_refptr<CastEnvironment>& cast_environment,
       const FrameSenderConfig& video_config,
@@ -51,6 +42,7 @@ class ExternalVideoEncoder final : public VideoEncoder {
       const gfx::Size& frame_size,
       FrameId first_frame_id,
       StatusChangeCallback status_change_cb,
+      FrameEncodedCallback output_cb,
       const CreateVideoEncodeAcceleratorCallback& create_vea_cb);
 
   ExternalVideoEncoder(const ExternalVideoEncoder&) = delete;
@@ -60,8 +52,7 @@ class ExternalVideoEncoder final : public VideoEncoder {
 
   // VideoEncoder implementation.
   bool EncodeVideoFrame(scoped_refptr<media::VideoFrame> video_frame,
-                        base::TimeTicks reference_time,
-                        FrameEncodedCallback frame_encoded_callback) final;
+                        base::TimeTicks reference_time) final;
   void SetBitRate(int new_bit_rate) final;
   void GenerateKeyFrame() final;
 
@@ -88,6 +79,8 @@ class ExternalVideoEncoder final : public VideoEncoder {
 
   raw_ref<VideoEncoderMetricsProvider> metrics_provider_;
 
+  FrameEncodedCallback output_cb_;
+
   // The size of the visible region of the video frames to be encoded.
   const gfx::Size frame_size_;
 
@@ -111,6 +104,7 @@ class SizeAdaptableExternalVideoEncoder final
       const FrameSenderConfig& video_config,
       std::unique_ptr<VideoEncoderMetricsProvider> metrics_provider,
       StatusChangeCallback status_change_cb,
+      FrameEncodedCallback output_cb,
       const CreateVideoEncodeAcceleratorCallback& create_vea_cb);
 
   SizeAdaptableExternalVideoEncoder(const SizeAdaptableExternalVideoEncoder&) =
@@ -135,8 +129,8 @@ class SizeAdaptableExternalVideoEncoder final
 class QuantizerEstimator {
  public:
   static constexpr int NO_RESULT = -1;
-  static constexpr int MIN_VP8_QUANTIZER = 4;
-  static constexpr int MAX_VP8_QUANTIZER = 63;
+  static constexpr int MIN_VPX_QUANTIZER = 4;
+  static constexpr int MAX_VPX_QUANTIZER = 63;
 
   QuantizerEstimator();
 

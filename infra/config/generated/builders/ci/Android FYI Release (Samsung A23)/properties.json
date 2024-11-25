@@ -65,7 +65,8 @@
           "builder": "Android FYI Release (Samsung A23)",
           "project": "chromium"
         }
-      ]
+      ],
+      "targets_spec_directory": "src/infra/config/generated/builders/ci/Android FYI Release (Samsung A23)/targets"
     }
   },
   "$recipe_engine/resultdb/test_presentation": {
@@ -76,6 +77,9 @@
     ]
   },
   "builder_group": "chromium.gpu.fyi",
+  "gardener_rotations": [
+    "chromium.gpu"
+  ],
   "perf_dashboard_machine_group": "ChromiumGPUFYI",
   "recipe": "chromium",
   "sheriff_rotations": [

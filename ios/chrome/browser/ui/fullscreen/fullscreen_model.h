@@ -53,7 +53,6 @@ class FullscreenModel : public ChromeBroadcastObserverInterface {
         GetExpandedTopToolbarHeight() - GetCollapsedTopToolbarHeight();
     if (top_delta < FLT_EPSILON &&
         GetCollapsedBottomToolbarHeight() >= FLT_EPSILON) {
-      CHECK(IsBottomOmniboxSteadyStateEnabled());
       CGFloat bottom_delta =
           GetExpandedBottomToolbarHeight() - GetCollapsedBottomToolbarHeight();
       return bottom_delta;
@@ -74,7 +73,17 @@ class FullscreenModel : public ChromeBroadcastObserverInterface {
 
   // Whether the view is scrolled all the way to the bottom.
   bool is_scrolled_to_bottom() const {
-    return y_content_offset_ + scroll_view_height_ >= content_height_;
+    if (base::FeatureList::IsEnabled(web::features::kSmoothScrollingDefault)) {
+      return y_content_offset_ + scroll_view_height_ >= content_height_;
+    } else {
+      return y_content_offset_ -
+                 (GetCollapsedTopToolbarHeight() +
+                  GetCollapsedBottomToolbarHeight() + safe_area_insets_.bottom +
+                  safe_area_insets_.top) +
+                 (scroll_view_height_ + GetExpandedTopToolbarHeight() +
+                  GetExpandedBottomToolbarHeight()) >=
+             content_height_;
+    }
   }
 
   // The min, max, and current insets caused by the toolbars.
@@ -186,6 +195,8 @@ class FullscreenModel : public ChromeBroadcastObserverInterface {
   // the bottom toolbar is collapsed above the keyboard.
   void SetForceFullscreenMode(bool force_fullscreen_mode);
   bool IsForceFullscreenMode() const;
+  void SetInsetsUpdateEnabled(bool enabled);
+  bool IsInsetsUpdateEnabled() const;
 
  private:
   // Returns how a scroll to the current `y_content_offset_` from `from_offset`
@@ -250,10 +261,9 @@ class FullscreenModel : public ChromeBroadcastObserverInterface {
   CGFloat top_inset_ = 0.0;
   // How many currently-running features require the toolbar be visible.
   size_t disabled_counter_ = 0;
-  // Whether fullscreen is force enabled. Active when the bottom toolbar is
-  // collapsed above the keyboard. When active, prevents fullscreen exit.
-  // Fullscreen will be reset when exiting this mode.
-  bool is_force_fullscreen_mode_ = false;
+  // Counts the number of currently-running feature that require to force
+  // fullscreen mode.
+  size_t force_fullscreen_mode_counter_ = 0;
   // Whether fullscreen is disabled for short content.
   bool disabled_for_short_content_ = false;
   // Whether the main content is being scrolled.
@@ -270,6 +280,8 @@ class FullscreenModel : public ChromeBroadcastObserverInterface {
   UIEdgeInsets safe_area_insets_ = UIEdgeInsetsZero;
   // The number of FullscreenModelObserver callbacks currently being executed.
   size_t observer_callback_count_ = 0;
+  // Whether updating insets is enabled.
+  bool insets_update_enabled_ = true;
 };
 
 #endif  // IOS_CHROME_BROWSER_UI_FULLSCREEN_FULLSCREEN_MODEL_H_

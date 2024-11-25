@@ -11,20 +11,21 @@ import org.json.JSONArray;
 
 import org.chromium.base.Callback;
 import org.chromium.base.ThreadUtils;
-import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.base.GoogleServiceAuthError;
+import org.chromium.components.sync.LocalDataDescription;
 import org.chromium.components.sync.SyncService;
 import org.chromium.components.sync.SyncServiceImpl;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.components.sync.UserSelectableType;
 
-import java.util.Date;
+import java.util.HashMap;
 import java.util.Set;
 
 /**
  * Fake some SyncService methods for testing.
  *
- * Only what has been needed for tests so far has been faked.
+ * <p>Only what has been needed for tests so far has been faked.
  */
 public class FakeSyncServiceImpl implements SyncService {
     private final SyncService mDelegate;
@@ -36,11 +37,11 @@ public class FakeSyncServiceImpl implements SyncService {
     private boolean mTrustedVaultRecoverabilityDegraded;
     private boolean mEncryptEverythingEnabled;
     private boolean mRequiresClientUpgrade;
-    private boolean mCanSyncFeatureStart;
     @GoogleServiceAuthError.State private int mAuthError;
+    private Set<Integer> mTypesWithUnsyncedData = Set.of();
 
     public FakeSyncServiceImpl() {
-        mDelegate = SyncServiceFactory.getForProfile(Profile.getLastUsedRegularProfile());
+        mDelegate = SyncServiceFactory.getForProfile(ProfileManager.getLastUsedRegularProfile());
     }
 
     @Override
@@ -51,7 +52,7 @@ public class FakeSyncServiceImpl implements SyncService {
 
     @AnyThread
     public void setEngineInitialized(boolean engineInitialized) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mEngineInitialized = engineInitialized;
                     notifySyncStateChanged();
@@ -66,7 +67,7 @@ public class FakeSyncServiceImpl implements SyncService {
 
     @AnyThread
     public void setAuthError(@GoogleServiceAuthError.State int authError) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mAuthError = authError;
                     notifySyncStateChanged();
@@ -88,7 +89,7 @@ public class FakeSyncServiceImpl implements SyncService {
     @AnyThread
     public void setPassphraseRequiredForPreferredDataTypes(
             boolean passphraseRequiredForPreferredDataTypes) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mPassphraseRequiredForPreferredDataTypes =
                             passphraseRequiredForPreferredDataTypes;
@@ -104,7 +105,7 @@ public class FakeSyncServiceImpl implements SyncService {
 
     @AnyThread
     public void setTrustedVaultKeyRequired(boolean trustedVaultKeyRequired) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mTrustedVaultKeyRequired = trustedVaultKeyRequired;
                     notifySyncStateChanged();
@@ -120,7 +121,7 @@ public class FakeSyncServiceImpl implements SyncService {
     @AnyThread
     public void setTrustedVaultKeyRequiredForPreferredDataTypes(
             boolean trustedVaultKeyRequiredForPreferredDataTypes) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mTrustedVaultKeyRequiredForPreferredDataTypes =
                             trustedVaultKeyRequiredForPreferredDataTypes;
@@ -136,7 +137,7 @@ public class FakeSyncServiceImpl implements SyncService {
 
     @AnyThread
     public void setTrustedVaultRecoverabilityDegraded(boolean recoverabilityDegraded) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mTrustedVaultRecoverabilityDegraded = recoverabilityDegraded;
                     notifySyncStateChanged();
@@ -150,21 +151,6 @@ public class FakeSyncServiceImpl implements SyncService {
     }
 
     @Override
-    public boolean canSyncFeatureStart() {
-        ThreadUtils.assertOnUiThread();
-        return mCanSyncFeatureStart;
-    }
-
-    @AnyThread
-    public void setCanSyncFeatureStart(boolean canSyncFeatureStart) {
-        TestThreadUtils.runOnUiThreadBlocking(
-                () -> {
-                    mCanSyncFeatureStart = canSyncFeatureStart;
-                    notifySyncStateChanged();
-                });
-    }
-
-    @Override
     public boolean requiresClientUpgrade() {
         ThreadUtils.assertOnUiThread();
         return mRequiresClientUpgrade;
@@ -172,7 +158,7 @@ public class FakeSyncServiceImpl implements SyncService {
 
     @AnyThread
     public void setRequiresClientUpgrade(boolean requiresClientUpgrade) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mRequiresClientUpgrade = requiresClientUpgrade;
                     notifySyncStateChanged();
@@ -181,19 +167,28 @@ public class FakeSyncServiceImpl implements SyncService {
 
     @AnyThread
     public void setEncryptEverythingEnabled(boolean encryptEverythingEnabled) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mEncryptEverythingEnabled = encryptEverythingEnabled;
                 });
     }
 
-    private void notifySyncStateChanged() {
-        ((SyncServiceImpl) mDelegate).syncStateChanged();
+    @Override
+    public void getTypesWithUnsyncedData(Callback<Set<Integer>> callback) {
+        ThreadUtils.assertOnUiThread();
+        callback.onResult(mTypesWithUnsyncedData);
     }
 
-    @Override
-    public boolean isTransportStateActive() {
-        return mDelegate.isTransportStateActive();
+    @AnyThread
+    public void setTypesWithUnsyncedData(Set<Integer> typesWithUnsyncedData) {
+        ThreadUtils.runOnUiThreadBlocking(
+                () -> {
+                    mTypesWithUnsyncedData = typesWithUnsyncedData;
+                });
+    }
+
+    private void notifySyncStateChanged() {
+        ((SyncServiceImpl) mDelegate).syncStateChanged();
     }
 
     @Override
@@ -238,6 +233,17 @@ public class FakeSyncServiceImpl implements SyncService {
     }
 
     @Override
+    public void getLocalDataDescriptions(
+            Set<Integer> types, Callback<HashMap<Integer, LocalDataDescription>> callback) {
+        mDelegate.getLocalDataDescriptions(types, callback);
+    }
+
+    @Override
+    public void triggerLocalDataMigration(Set<Integer> types) {
+        mDelegate.triggerLocalDataMigration(types);
+    }
+
+    @Override
     public boolean hasKeepEverythingSynced() {
         return mDelegate.hasKeepEverythingSynced();
     }
@@ -255,6 +261,11 @@ public class FakeSyncServiceImpl implements SyncService {
     @Override
     public void setSelectedTypes(boolean syncEverything, Set<Integer> enabledTypes) {
         mDelegate.setSelectedTypes(syncEverything, enabledTypes);
+    }
+
+    @Override
+    public void setSelectedType(@UserSelectableType int type, boolean isTypeOn) {
+        mDelegate.setSelectedType(type, isTypeOn);
     }
 
     @Override
@@ -292,10 +303,9 @@ public class FakeSyncServiceImpl implements SyncService {
         return mDelegate.getPassphraseType();
     }
 
-    @Nullable
     @Override
-    public Date getExplicitPassphraseTime() {
-        return mDelegate.getExplicitPassphraseTime();
+    public int getTransportState() {
+        return mDelegate.getTransportState();
     }
 
     @Override
@@ -331,6 +341,11 @@ public class FakeSyncServiceImpl implements SyncService {
     @Override
     public boolean isSyncingUnencryptedUrls() {
         return mDelegate.isSyncingUnencryptedUrls();
+    }
+
+    @Override
+    public long getNativeSyncServiceAndroidBridge() {
+        return mDelegate.getNativeSyncServiceAndroidBridge();
     }
 
     @Override

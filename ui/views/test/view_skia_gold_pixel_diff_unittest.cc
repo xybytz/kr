@@ -86,10 +86,10 @@ class ViewSkiaGoldPixelDiffTest : public views::test::WidgetTest {
   }
 
  private:
-  absl::optional<ui::test::SkiaGoldPixelDiff::ScopedSessionCacheForTesting>
+  std::optional<ui::test::SkiaGoldPixelDiff::ScopedSessionCacheForTesting>
       session_cache_;
-  absl::optional<MockLaunchProcess> mock_launch_process_;
-  absl::optional<
+  std::optional<MockLaunchProcess> mock_launch_process_;
+  std::optional<
       base::AutoReset<ui::test::SkiaGoldPixelDiff::LaunchProcessCallback>>
       auto_reset_custom_launch_process_;
 };
@@ -100,7 +100,7 @@ TEST_F(ViewSkiaGoldPixelDiffTest, CompareScreenshotByView) {
   views::Widget* widget = CreateTopLevelNativeWidget();
   views::View* child_view = AddChildViewToWidget(widget);
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   constexpr char kPrefix[] = "Prefix.Demo.";
 #else
   constexpr char kPrefix[] = "Prefix_Demo_";

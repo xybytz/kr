@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "media/mojo/mojom/stable/stable_video_decoder_types_mojom_traits.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -46,7 +51,7 @@ TEST(StableVideoDecoderTypesMojomTraitsTest, ValidNonEOSDecoderBuffer) {
             mojom_decoder_buffer->timestamp);
   EXPECT_EQ(deserialized_decoder_buffer->duration(),
             mojom_decoder_buffer->duration);
-  EXPECT_EQ(deserialized_decoder_buffer->data_size(),
+  EXPECT_EQ(deserialized_decoder_buffer->size(),
             base::strict_cast<size_t>(mojom_decoder_buffer->data_size));
   EXPECT_EQ(deserialized_decoder_buffer->is_key_frame(),
             mojom_decoder_buffer->is_key_frame);
@@ -380,7 +385,7 @@ TEST(StableVideoDecoderTypesMojomTraitsTest, StatusDataWithAbortedCause) {
       stable::mojom::StatusData::New();
   mojom_status_data->group = std::string(DecoderStatusTraits::Group());
   mojom_status_data->code = stable::mojom::StatusCode::kError;
-  mojom_status_data->cause = absl::make_optional<internal::StatusData>(
+  mojom_status_data->cause = std::make_optional<internal::StatusData>(
       DecoderStatusTraits::Group(),
       static_cast<StatusCodeType>(DecoderStatus::Codes::kAborted),
       /*message=*/"",
@@ -415,7 +420,7 @@ TEST(StableVideoDecoderTypesMojomTraitsTest, ValidCENCDecryptConfig) {
   mojom_decrypt_config->subsamples = {
       SubsampleEntry(/*clear_bytes=*/4u, /*cypher_bytes=*/10u),
       SubsampleEntry(/*clear_bytes=*/90u, /*cypher_bytes=*/2u)};
-  mojom_decrypt_config->encryption_pattern = absl::nullopt;
+  mojom_decrypt_config->encryption_pattern = std::nullopt;
 
   std::vector<uint8_t> serialized_decrypt_config =
       stable::mojom::DecryptConfig::Serialize(&mojom_decrypt_config);
@@ -573,7 +578,7 @@ TEST(StableVideoDecoderTypesMojomTraitsTest, EmptyVideoFrameMetadata) {
   EXPECT_TRUE(deserialized_video_frame_metadata.power_efficient);
   EXPECT_TRUE(deserialized_video_frame_metadata.read_lock_fences_enabled);
   EXPECT_FALSE(deserialized_video_frame_metadata.interactive_content);
-  EXPECT_FALSE(deserialized_video_frame_metadata.overlay_plane_id.has_value());
+  EXPECT_FALSE(deserialized_video_frame_metadata.tracking_token.has_value());
   EXPECT_FALSE(
       deserialized_video_frame_metadata.device_scale_factor.has_value());
   EXPECT_FALSE(deserialized_video_frame_metadata.page_scale_factor.has_value());
@@ -642,7 +647,7 @@ TEST(StableVideoDecoderTypesMojomTraitsTest, ValidVideoFrameMetadata) {
   EXPECT_TRUE(deserialized_video_frame_metadata.power_efficient);
   EXPECT_TRUE(deserialized_video_frame_metadata.read_lock_fences_enabled);
   EXPECT_FALSE(deserialized_video_frame_metadata.interactive_content);
-  EXPECT_FALSE(deserialized_video_frame_metadata.overlay_plane_id.has_value());
+  EXPECT_FALSE(deserialized_video_frame_metadata.tracking_token.has_value());
   EXPECT_FALSE(
       deserialized_video_frame_metadata.device_scale_factor.has_value());
   EXPECT_FALSE(deserialized_video_frame_metadata.page_scale_factor.has_value());
@@ -759,7 +764,6 @@ TEST(StableVideoDecoderTypesMojomTraitsTest, ValidVideoDecoderConfig) {
             mojom_video_decoder_config->natural_size);
   EXPECT_EQ(deserialized_video_decoder_config.hdr_metadata(),
             mojom_video_decoder_config->hdr_metadata);
-  EXPECT_FALSE(deserialized_video_decoder_config.is_rtc());
   EXPECT_TRUE(deserialized_video_decoder_config.IsValidConfig());
 }
 
@@ -872,40 +876,42 @@ TEST(StableVideoDecoderTypesMojomTraitsTest, ValidMediaLogRecord) {
 }
 
 TEST(StableVideoDecoderTypesMojomTraitsTest, ValidDecoderBufferSideData) {
-  auto decoder_buffer_side_data = DecoderBufferSideData();
-  decoder_buffer_side_data.spatial_layers = {1, 2, 3};
-  decoder_buffer_side_data.alpha_data = {0, 1, 2};
-  decoder_buffer_side_data.secure_handle = 14;
+  auto decoder_buffer_side_data = std::make_unique<DecoderBufferSideData>();
+  decoder_buffer_side_data->spatial_layers = {1, 2, 3};
+  decoder_buffer_side_data->alpha_data =
+      base::HeapArray<uint8_t>::CopiedFrom(base::as_byte_span("alpha_data"));
+  decoder_buffer_side_data->secure_handle = 14;
 
   std::vector<uint8_t> serialized_decoder_buffer_side_data =
       stable::mojom::DecoderBufferSideData::Serialize(
           &decoder_buffer_side_data);
 
-  DecoderBufferSideData deserialized_decoder_buffer_side_data;
+  std::unique_ptr<DecoderBufferSideData> deserialized_decoder_buffer_side_data;
   ASSERT_TRUE(stable::mojom::DecoderBufferSideData::Deserialize(
       serialized_decoder_buffer_side_data,
       &deserialized_decoder_buffer_side_data));
 
-  EXPECT_EQ(decoder_buffer_side_data.spatial_layers,
-            deserialized_decoder_buffer_side_data.spatial_layers);
-  EXPECT_EQ(decoder_buffer_side_data.alpha_data,
-            deserialized_decoder_buffer_side_data.alpha_data);
-  EXPECT_EQ(decoder_buffer_side_data.secure_handle,
-            deserialized_decoder_buffer_side_data.secure_handle);
+  EXPECT_EQ(decoder_buffer_side_data->spatial_layers,
+            deserialized_decoder_buffer_side_data->spatial_layers);
+  EXPECT_EQ(decoder_buffer_side_data->alpha_data.as_span(),
+            deserialized_decoder_buffer_side_data->alpha_data.as_span());
+  EXPECT_EQ(decoder_buffer_side_data->secure_handle,
+            deserialized_decoder_buffer_side_data->secure_handle);
 }
 
 TEST(StableVideoDecoderTypesMojomTraitsTest,
      DecoderBufferSideDataWithTooManySpatialLayers) {
-  auto decoder_buffer_side_data = DecoderBufferSideData();
-  decoder_buffer_side_data.spatial_layers = {1, 2, 3, 4};
-  decoder_buffer_side_data.alpha_data = {0, 1, 2};
-  decoder_buffer_side_data.secure_handle = 14;
+  auto decoder_buffer_side_data = std::make_unique<DecoderBufferSideData>();
+  decoder_buffer_side_data->spatial_layers = {1, 2, 3, 4};
+  decoder_buffer_side_data->alpha_data =
+      base::HeapArray<uint8_t>::CopiedFrom(base::as_byte_span("alpha_data"));
+  decoder_buffer_side_data->secure_handle = 14;
 
   std::vector<uint8_t> serialized_decoder_buffer_side_data =
       stable::mojom::DecoderBufferSideData::Serialize(
           &decoder_buffer_side_data);
 
-  DecoderBufferSideData deserialized_decoder_buffer_side_data;
+  std::unique_ptr<DecoderBufferSideData> deserialized_decoder_buffer_side_data;
   ASSERT_FALSE(stable::mojom::DecoderBufferSideData::Deserialize(
       serialized_decoder_buffer_side_data,
       &deserialized_decoder_buffer_side_data));

@@ -43,7 +43,6 @@ from blinkpy.common.path_finder import PathFinder
 class PortFactory:
     PORT_CLASSES = (
         'android.AndroidPort',
-        'chrome.ChromePort',
         'fuchsia.FuchsiaPort',
         'ios.IOSPort',
         'linux.LinuxPort',
@@ -223,26 +222,24 @@ def add_configuration_options_group(parser: argparse.ArgumentParser,
     group.add_argument('--chrome-branded',
                        action='store_true',
                        help='Set the configuration as chrome_branded.')
+    group.add_argument('--no-xvfb',
+                       action='store_false',
+                       dest='use_xvfb',
+                       help='Do not run tests with Xvfb')
+    group.add_argument('--coverage-dir', type=str, help=argparse.SUPPRESS)
     add_common_wpt_options(group)
-    if rwt:
-        group.add_argument('--no-xvfb',
-                           action='store_false',
-                           dest='use_xvfb',
-                           help='Do not run tests with Xvfb')
-    else:
+    if not rwt:
         group.add_argument(
             '-p',
             '--product',
-            default='chrome',
+            default='headless_shell',
             choices=(product_choices or []),
             metavar='PRODUCT',
             help='Product (browser or browser component) to test.')
-        group.add_argument(
-            '--no-headless',
-            action='store_false',
-            dest='headless',
-            help=('Do not run the browser headlessly; pause after each test '
-                  'until the window is closed. On Linux, do not start Xvfb.'))
+        group.add_argument('--no-headless',
+                           action='store_false',
+                           dest='headless',
+                           help=('Do not run browser in headless mode.'))
         group.add_argument('--webdriver-binary',
                            metavar='PATH',
                            type=str,
@@ -274,10 +271,10 @@ def add_results_options_group(parser: argparse.ArgumentParser,
     results_group.add_argument(
         '--build-directory',
         metavar='PATH',
-        default='out',
-        help=(
-            'Path to the directory where build files are kept, not including '
-            'configuration. In general this will be "out".'))
+        help=('Full path to the directory where build files are generated. '
+              'Likely similar to "out/some-dir-name/". If not specified, will '
+              'look for a dir under out/ of the same name as the value passed '
+              'to --target.'))
     results_group.add_argument(
         '--clobber-old-results',
         action='store_true',
@@ -309,15 +306,16 @@ def add_results_options_group(parser: argparse.ArgumentParser,
                                action='store_false',
                                default=None,
                                help='Do not run just the SmokeTests')
+    results_group.add_argument(
+        '--additional-expectations',
+        action='append',
+        default=[],
+        help=('Path to a test_expectations file that will override previous '
+              'expectations. Specify multiple times for multiple sets of '
+              'overrides.'))
+    results_group.add_argument('--driver-name',
+                               help='Alternative driver binary to use')
     if rwt:
-        results_group.add_argument(
-            '--additional-expectations',
-            action='append',
-            default=[],
-            help=(
-                'Path to a test_expectations file that will override previous '
-                'expectations. Specify multiple times for multiple sets of '
-                'overrides.'))
         results_group.add_argument(
             '--ignore-default-expectations',
             action='store_true',
@@ -346,8 +344,6 @@ def add_results_options_group(parser: argparse.ArgumentParser,
                 'copy the current baseline into the *most-specific-platform* '
                 'directory, or the flag-specific generic-platform directory if '
                 '--additional-driver-flag is specified. See --reset-results.'))
-        results_group.add_argument('--driver-name',
-                                   help='Alternative driver binary to use')
         results_group.add_argument(
             '--reset-results',
             action='store_true',
@@ -456,6 +452,11 @@ def add_testing_options_group(parser: argparse.ArgumentParser,
                                action='append',
                                metavar='FILE',
                                help='read filters for tests to run')
+    testing_group.add_argument(
+        '--inverted-test-launcher-filter-file',
+        action='append',
+        metavar='FILE',
+        help=('Filters in the file will be inverted before applied.'))
     testing_group.add_argument(
         '--isolated-script-test-filter-file',
         '--test-launcher-filter-file',
@@ -665,6 +666,13 @@ def add_testing_options_group(parser: argparse.ArgumentParser,
                 'Default is 1 second, can be overriden for specific use cases.'
             ))
         testing_group.add_argument(
+            '--kill-driver-with-sigterm',
+            action='store_true',
+            help=(
+                'Send SIGTERM to the driver process; useful in conjunction '
+                'with "--wrapper", for wrapper executables (such as rr) that '
+                'require SIGTERM to finish cleanly.'))
+        testing_group.add_argument(
             '--ignore-testharness-expected-txt',
             action='store_true',
             help=('Ignore *-expected.txt for all testharness tests. All '
@@ -693,6 +701,10 @@ def add_testing_options_group(parser: argparse.ArgumentParser,
             ],
             metavar='TYPE',
             help=f'Test types to run (choices: {", ".join(test_types)})')
+        testing_group.add_argument('--no-virtual-tests',
+                                   action='store_true',
+                                   default=None,
+                                   help=('Do not run virtual tests.'))
         testing_group.add_argument('--no-wpt-internal',
                                    action='store_false',
                                    dest='run_wpt_internal',
@@ -801,6 +813,9 @@ def _update_configuration_and_target(host, options):
         options.configuration = gn_configuration
         return
 
+    if getattr(options, 'configuration', None):
+        return
+
     if options.target in ('Debug', 'Debug_x64'):
         options.configuration = 'Debug'
     elif options.target in ('Release', 'Release_x64'):
@@ -815,13 +830,14 @@ def _update_configuration_and_target(host, options):
 
 def _read_configuration_from_gn(fs, options):
     """Returns the configuration to used based on args.gn, if possible."""
-    build_directory = getattr(options, 'build_directory', 'out')
-    target = options.target
+    build_directory = getattr(options, 'build_directory', None)
     finder = PathFinder(fs)
-    path = fs.join(finder.chromium_base(), build_directory, target, 'args.gn')
+    if not build_directory:
+        build_directory = fs.join(finder.chromium_base(), 'out',
+                                  options.target)
+    path = fs.join(build_directory, 'args.gn')
     if not fs.exists(path):
-        path = fs.join(finder.chromium_base(), build_directory, target,
-                       'toolchain.ninja')
+        path = fs.join(build_directory, 'toolchain.ninja')
         if not fs.exists(path):
             # This does not appear to be a GN-based build directory, so we don't know
             # how to interpret it.

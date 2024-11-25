@@ -32,7 +32,6 @@ NSString* TitleForCollectionShortcutType(NTPCollectionShortcutType type) {
       return l10n_util::GetNSString(IDS_IOS_CONTENT_SUGGESTIONS_WHATS_NEW);
     case NTPCollectionShortcutTypeCount:
       NOTREACHED();
-      return @"";
   }
 }
 
@@ -55,7 +54,6 @@ UIImage* SymbolForCollectionShortcutType(NTPCollectionShortcutType type) {
           kCheckmarkSealSymbol, kSymbolContentSuggestionsPointSize);
     case NTPCollectionShortcutTypeCount:
       NOTREACHED();
-      return nil;
   }
 }
 

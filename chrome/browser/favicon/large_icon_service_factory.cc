@@ -19,6 +19,10 @@
 #include "content/public/browser/storage_partition.h"
 #include "ui/gfx/favicon_size.h"
 
+#if BUILDFLAG(IS_ANDROID)
+#include "components/search_engines/search_engine_choice/search_engine_choice_utils.h"
+#endif
+
 namespace {
 
 favicon::LargeIconService* GetLargeIconService(
@@ -27,9 +31,10 @@ favicon::LargeIconService* GetLargeIconService(
 }
 
 #if BUILDFLAG(IS_ANDROID)
-// Seems like on Android `1 dip == 1 px`. The value of `kDipForServerRequests`
-// can be overridden by `features::kLargeFaviconFromGoogle`.
-const int kDipForServerRequests = 24;
+// Seems like on Android `1 dip == 1 px`.
+// Matches the size used on iOS, see `kDipForServerRequests` in
+// `//ios/c/b/favicon/model/ios_chrome_large_icon_service_factory.cc`.
+const int kDipForServerRequests = 32;
 const favicon_base::IconType kIconTypeForServerRequests =
     favicon_base::IconType::kTouchIcon;
 const char kGoogleServerClientParam[] = "chrome";
@@ -60,9 +65,12 @@ LargeIconServiceFactory::LargeIconServiceFactory()
           "LargeIconService",
           ProfileSelections::Builder()
               .WithRegular(ProfileSelection::kRedirectedToOriginal)
-              // TODO(crbug.com/1418376): Check if this service is needed in
+              // TODO(crbug.com/40257657): Check if this service is needed in
               // Guest mode.
               .WithGuest(ProfileSelection::kRedirectedToOriginal)
+              // TODO(crbug.com/41488885): Check if this service is needed for
+              // Ash Internals.
+              .WithAshInternals(ProfileSelection::kRedirectedToOriginal)
               .Build()) {
   DependsOn(FaviconServiceFactory::GetInstance());
   favicon::SetLargeIconServiceGetter(base::BindRepeating(&GetLargeIconService));
@@ -90,9 +98,6 @@ LargeIconServiceFactory::BuildServiceInstanceForBrowserContext(
 
 // static
 int LargeIconServiceFactory::desired_size_in_dip_for_server_requests() {
-  if (base::FeatureList::IsEnabled(features::kLargeFaviconFromGoogle)) {
-    return features::kLargeFaviconFromGoogleSizeInDip.Get();
-  }
   return kDipForServerRequests;
 }
 

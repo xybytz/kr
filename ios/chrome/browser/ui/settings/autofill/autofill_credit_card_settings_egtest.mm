@@ -10,9 +10,9 @@
 #import "components/autofill/core/browser/metrics/payments/mandatory_reauth_metrics.h"
 #import "components/autofill/core/common/autofill_payments_features.h"
 #import "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/autofill/ui_bundled/autofill_app_interface.h"
 #import "ios/chrome/browser/metrics/model/metrics_app_interface.h"
-#import "ios/chrome/browser/ui/autofill/autofill_app_interface.h"
-#import "ios/chrome/browser/ui/settings/autofill/autofill_constants.h"
+#import "ios/chrome/browser/ui/settings/autofill/autofill_settings_constants.h"
 #import "ios/chrome/browser/ui/settings/settings_root_table_constants.h"
 #import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_actions.h"
@@ -27,10 +27,11 @@
 
 using chrome_test_util::ButtonWithAccessibilityLabel;
 using chrome_test_util::ButtonWithAccessibilityLabelId;
+using chrome_test_util::NavigationBarCancelButton;
 using chrome_test_util::NavigationBarDoneButton;
 using chrome_test_util::PaymentMethodsButton;
-using chrome_test_util::SettingsMenuBackButton;
 using chrome_test_util::SettingsDoneButton;
+using chrome_test_util::SettingsMenuBackButton;
 using chrome_test_util::SettingsToolbarAddButton;
 using chrome_test_util::TabGridEditButton;
 
@@ -91,13 +92,6 @@ id<GREYMatcher> BottomToolbar() {
 
 @implementation AutofillCreditCardSettingsTestCase
 
-- (AppLaunchConfiguration)appConfigurationForTestCase {
-  AppLaunchConfiguration config;
-  config.features_enabled.push_back(
-      autofill::features::kAutofillEnablePaymentsMandatoryReauth);
-  return config;
-}
-
 - (void)setUp {
   [super setUp];
 
@@ -111,7 +105,7 @@ id<GREYMatcher> BottomToolbar() {
   [MetricsAppInterface overrideMetricsAndCrashReportingForTesting];
 }
 
-- (void)tearDown {
+- (void)tearDownHelper {
   [AutofillAppInterface clearCreditCardStore];
   [AutofillAppInterface clearMockReauthenticationModule];
 
@@ -119,7 +113,7 @@ id<GREYMatcher> BottomToolbar() {
   GREYAssertNil([MetricsAppInterface releaseHistogramTester],
                 @"Cannot reset histogram tester.");
 
-  [super tearDown];
+  [super tearDownHelper];
 }
 
 // Returns the label for `creditCard` in the settings page for Autofill credit
@@ -310,7 +304,8 @@ id<GREYMatcher> BottomToolbar() {
 }
 
 // Test that the page for viewing Autofill credit card details is accessible.
-- (void)testAccessibilityOnCreditCardViewPage {
+// TODO(crbug.com/366085550): Re-enable the test.
+- (void)DISABLED_testAccessibilityOnCreditCardViewPage {
   NSString* lastDigits = [AutofillAppInterface saveLocalCreditCard];
   [AutofillAppInterface mockReauthenticationModuleExpectedResult:
                             ReauthenticationResult::kSuccess];
@@ -336,6 +331,10 @@ id<GREYMatcher> BottomToolbar() {
   [[EarlGrey selectElementWithMatcher:NavigationBarEditButton()]
       performAction:grey_tap()];
   [ChromeEarlGrey verifyAccessibilityForCurrentScreen];
+
+  // Leave edit mode.
+  [[EarlGrey selectElementWithMatcher:NavigationBarCancelButton()]
+      performAction:grey_tap()];
 
   // Go back to the list view page.
   [[EarlGrey selectElementWithMatcher:SettingsMenuBackButton(0)]

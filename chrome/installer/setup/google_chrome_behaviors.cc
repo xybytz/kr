@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/installer/setup/brand_behaviors.h"
-
 #include <windows.h>
 
 #include <shellapi.h>
@@ -24,6 +22,7 @@
 #include "base/win/wmi.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/install_static/install_util.h"
+#include "chrome/installer/setup/brand_behaviors.h"
 #include "chrome/installer/util/google_update_constants.h"
 #include "chrome/installer/util/google_update_settings.h"
 #include "chrome/installer/util/install_util.h"
@@ -39,16 +38,16 @@ namespace {
 constexpr std::wstring_view kUninstallSurveyUrl(
     L"https://support.google.com/chrome?p=chrome_uninstall_survey");
 
-bool NavigateToUrlWithEdge(const std::wstring& url) {
-  std::wstring protocol_url = L"microsoft-edge:" + url;
+// Launches the url directly with the user's default handler for |url|.
+bool NavigateToUrlWithHttps(const std::wstring& url) {
   SHELLEXECUTEINFO info = {sizeof(info)};
   info.fMask = SEE_MASK_NOASYNC;
   info.lpVerb = L"open";
-  info.lpFile = protocol_url.c_str();
+  info.lpFile = url.c_str();
   info.nShow = SW_SHOWNORMAL;
   if (::ShellExecuteEx(&info))
     return true;
-  PLOG(ERROR) << "Failed to launch Edge for uninstall survey";
+  PLOG(ERROR) << "Failed to launch default browser for uninstall survey";
   return false;
 }
 
@@ -205,7 +204,7 @@ void DoPostUninstallOperations(const base::Version& version,
   }
 
   if (os_info->version() < base::win::Version::WIN10 ||
-      !NavigateToUrlWithEdge(url)) {
+      !NavigateToUrlWithHttps(url)) {
     NavigateToUrlWithIExplore(url);
   }
 }

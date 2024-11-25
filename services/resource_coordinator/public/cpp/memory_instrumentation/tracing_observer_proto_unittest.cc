@@ -197,7 +197,14 @@ TEST_F(TracingObserverProtoTest,
   data_source_tester.EndTracing();
 }
 
-TEST_F(TracingObserverProtoTest, AddChromeDumpToTraceIfEnabled) {
+// crbug.com/379290393: consistent failures on linux TSAN bots.
+#if BUILDFLAG(IS_LINUX) && defined(THREAD_SANITIZER)
+#define MAYBE_AddChromeDumpToTraceIfEnabled \
+  DISABLED_AddChromeDumpToTraceIfEnabled
+#else
+#define MAYBE_AddChromeDumpToTraceIfEnabled AddChromeDumpToTraceIfEnabled
+#endif
+TEST_F(TracingObserverProtoTest, MAYBE_AddChromeDumpToTraceIfEnabled) {
   auto* tracing_observer =
       memory_instrumentation::TracingObserverProto::GetInstance();
   tracing::DataSourceTester data_source_tester(tracing_observer);
@@ -209,11 +216,6 @@ TEST_F(TracingObserverProtoTest, AddChromeDumpToTraceIfEnabled) {
   EXPECT_TRUE(tracing_observer->AddChromeDumpToTraceIfEnabled(
       args, kTestPid, &pmd, kTimestamp));
   data_source_tester.EndTracing();
-
-  // In SDK build we may see some metadata packets as well.
-#if !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
-  ASSERT_EQ(1ul, data_source_tester.GetFinalizedPacketCount());
-#endif  // !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 
   const perfetto::protos::TracePacket* packet = nullptr;
   for (size_t i = 0; i < data_source_tester.GetFinalizedPacketCount(); ++i) {
@@ -266,7 +268,13 @@ TEST_F(TracingObserverProtoTest, AddChromeDumpToTraceIfEnabled) {
   EXPECT_EQ(423ul, edge1.target_id());
 }
 
-TEST_F(TracingObserverProtoTest, AddOsDumpToTraceIfEnabled) {
+// TODO(crbug.com/376824014): Re-enable this test.
+#if defined(THREAD_SANITIZER)
+#define MAYBE_AddOsDumpToTraceIfEnabled DISABLED_AddOsDumpToTraceIfEnabled
+#else
+#define MAYBE_AddOsDumpToTraceIfEnabled AddOsDumpToTraceIfEnabled
+#endif
+TEST_F(TracingObserverProtoTest, MAYBE_AddOsDumpToTraceIfEnabled) {
   auto* tracing_observer =
       memory_instrumentation::TracingObserverProto::GetInstance();
   tracing::DataSourceTester data_source_tester(tracing_observer);
@@ -282,11 +290,6 @@ TEST_F(TracingObserverProtoTest, AddOsDumpToTraceIfEnabled) {
   EXPECT_TRUE(tracing_observer->AddOsDumpToTraceIfEnabled(
       args, kTestPid, os_dump, memory_map, kTimestamp));
   data_source_tester.EndTracing();
-
-  // In SDK build we may see some metadata packets as well.
-#if !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
-  EXPECT_EQ(2ul, data_source_tester.GetFinalizedPacketCount());
-#endif  // !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 
   const perfetto::protos::TracePacket* process_stats_trace_packet = nullptr;
   const perfetto::protos::TracePacket* smaps_trace_packet = nullptr;
@@ -344,7 +347,13 @@ TEST_F(TracingObserverProtoTest, AddOsDumpToTraceIfEnabled) {
   }
 }
 
-TEST_F(TracingObserverProtoTest, AsProtoInto) {
+// TODO(crbug.com/376596183): Re-enable this test.
+#if defined(THREAD_SANITIZER)
+#define MAYBE_AsProtoInto DISABLED_AsProtoInto
+#else
+#define MAYBE_AsProtoInto AsProtoInto
+#endif
+TEST_F(TracingObserverProtoTest, MAYBE_AsProtoInto) {
   auto* tracing_observer =
       memory_instrumentation::TracingObserverProto::GetInstance();
   tracing::DataSourceTester data_source_tester(tracing_observer);
@@ -375,23 +384,10 @@ TEST_F(TracingObserverProtoTest, AsProtoInto) {
     handle->Finalize();
   };
 
-#if BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
   base::TrackEvent::Trace([&](base::TrackEvent::TraceContext ctx) {
     write_dump(ctx.NewTracePacket());
   });
-#else   // !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
-  perfetto::DataSourceConfig config;
-  std::unique_ptr<perfetto::TraceWriter> trace_writer =
-      data_source_tester.GetProducerClient()->CreateTraceWriter(
-          config.target_buffer());
-  write_dump(trace_writer->NewTracePacket());
-#endif  // !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
   data_source_tester.EndTracing();
-
-  // In SDK build we may see some metadata packets as well.
-#if !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
-  EXPECT_EQ(1ul, data_source_tester.GetFinalizedPacketCount());
-#endif  // !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 
   const perfetto::protos::TracePacket* packet = nullptr;
   for (size_t i = 0; i < data_source_tester.GetFinalizedPacketCount(); ++i) {

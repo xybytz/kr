@@ -4,6 +4,9 @@
 
 #include "chromeos/ash/components/browser_context_helper/browser_context_helper.h"
 
+#include <string_view>
+
+#include "ash/constants/ash_features.h"
 #include "base/check.h"
 #include "base/check_is_test.h"
 #include "base/logging.h"
@@ -25,7 +28,7 @@ constexpr char kBrowserContextDirPrefix[] = "u-";
 
 BrowserContextHelper* g_instance = nullptr;
 
-bool ShouldAddBrowserContextDirPrefix(base::StringPiece user_id_hash) {
+bool ShouldAddBrowserContextDirPrefix(std::string_view user_id_hash) {
   // Do not add profile dir prefix for legacy profile dir and test
   // user profile. The reason of not adding prefix for test user profile
   // is to keep the promise that TestingProfile::kTestUserProfileDir and
@@ -81,7 +84,7 @@ std::string BrowserContextHelper::GetUserIdHashFromBrowserContext(
     return std::string();
   }
 
-  return dir.substr(base::StringPiece(kBrowserContextDirPrefix).length());
+  return dir.substr(std::string_view(kBrowserContextDirPrefix).length());
 }
 
 content::BrowserContext* BrowserContextHelper::GetBrowserContextByAccountId(
@@ -103,12 +106,15 @@ content::BrowserContext* BrowserContextHelper::GetBrowserContextByUser(
     return nullptr;
   }
 
-  content::BrowserContext* browser_context = delegate_->GetBrowserContextByPath(
-      GetBrowserContextPathByUserIdHash(user->username_hash()));
+  content::BrowserContext* browser_context =
+      UseAnnotatedAccountId()
+          ? delegate_->GetBrowserContextByAccountId(user->GetAccountId())
+          : delegate_->GetBrowserContextByPath(
+                GetBrowserContextPathByUserIdHash(user->username_hash()));
 
   // GetBrowserContextByPath() returns a new instance of ProfileImpl,
   // but actually its off-the-record profile should be used.
-  // TODO(hidehiko): Replace this by user->GetType() == USER_TYPE_GUEST.
+  // TODO(hidehiko): Replace this by user->GetType() == kGuest.
   if (user_manager::UserManager::Get()->IsLoggedInAsGuest()) {
     browser_context =
         delegate_->GetOrCreatePrimaryOTRBrowserContext(browser_context);
@@ -126,22 +132,26 @@ const user_manager::User* BrowserContextHelper::GetUserByBrowserContext(
   browser_context = delegate_->GetOriginalBrowserContext(browser_context);
   const AccountId* account_id = AnnotatedAccountId::Get(browser_context);
   if (!account_id) {
-    // TODO(crbug.com/1325210): fix tests to annotate AccountId properly.
+    // TODO(crbug.com/40225390): fix tests to annotate AccountId properly.
     LOG(ERROR) << "AccountId is not annotated";
     CHECK_IS_TEST();
+  }
+  if (UseAnnotatedAccountId()) {
+    CHECK(account_id);
+    return user_manager::UserManager::Get()->FindUser(*account_id);
   }
 
   const std::string hash = GetUserIdHashFromBrowserContext(browser_context);
 
   // Finds the matching user in logged-in user list since only a logged-in
   // user would have a profile.
-  // TODO(crbug.com/1325210): find user by AccountId, once it is annotated
+  // TODO(crbug.com/40225390): find user by AccountId, once it is annotated
   // to Profile in tests.
   auto* user_manager = user_manager::UserManager::Get();
   for (const user_manager::User* user : user_manager->GetLoggedInUsers()) {
     if (user->username_hash() == hash) {
       if (!account_id || *account_id != user->GetAccountId()) {
-        // TODO(crbug.com/1325210): fix tests to annotate AccountId properly.
+        // TODO(crbug.com/40225390): fix tests to annotate AccountId properly.
         LOG(ERROR) << "AccountId is mismatched";
         CHECK_IS_TEST();
       }
@@ -153,7 +163,7 @@ const user_manager::User* BrowserContextHelper::GetUserByBrowserContext(
 
 // static
 std::string BrowserContextHelper::GetUserBrowserContextDirName(
-    base::StringPiece user_id_hash) {
+    std::string_view user_id_hash) {
   CHECK(!user_id_hash.empty());
   return ShouldAddBrowserContextDirPrefix(user_id_hash)
              ? base::StrCat({kBrowserContextDirPrefix, user_id_hash})
@@ -161,7 +171,7 @@ std::string BrowserContextHelper::GetUserBrowserContextDirName(
 }
 
 base::FilePath BrowserContextHelper::GetBrowserContextPathByUserIdHash(
-    base::StringPiece user_id_hash) {
+    std::string_view user_id_hash) {
   // Fails if Chrome runs with "--login-manager", but not "--login-profile", and
   // needs to restart. This might happen if you test Chrome OS on Linux and
   // you start a guest session or Chrome crashes. Be sure to add
@@ -197,12 +207,6 @@ BrowserContextHelper::DeprecatedGetOrCreateSigninBrowserContext() {
   return delegate_->GetOrCreatePrimaryOTRBrowserContext(browser_context);
 }
 
-base::FilePath BrowserContextHelper::GetLockScreenAppBrowserContextPath()
-    const {
-  return delegate_->GetUserDataDir()->Append(
-      kLockScreenAppBrowserContextBaseName);
-}
-
 base::FilePath BrowserContextHelper::GetLockScreenBrowserContextPath() const {
   return delegate_->GetUserDataDir()->Append(kLockScreenBrowserContextBaseName);
 }
@@ -220,6 +224,11 @@ base::FilePath BrowserContextHelper::GetShimlessRmaAppBrowserContextPath()
     const {
   return delegate_->GetUserDataDir()->Append(
       kShimlessRmaAppBrowserContextBaseName);
+}
+
+bool BrowserContextHelper::UseAnnotatedAccountId() {
+  return base::FeatureList::IsEnabled(ash::features::kUseAnnotatedAccountId) ||
+         use_annotated_account_id_for_testing_;
 }
 
 }  // namespace ash

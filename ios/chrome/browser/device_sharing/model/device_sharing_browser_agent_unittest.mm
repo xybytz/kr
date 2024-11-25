@@ -11,12 +11,12 @@
 #import "ios/chrome/browser/device_sharing/model/device_sharing_manager_factory.h"
 #import "ios/chrome/browser/device_sharing/model/device_sharing_manager_impl.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
 #import "ios/web/public/test/web_task_environment.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "testing/gtest_mac.h"
 #import "testing/platform_test.h"
 #import "url/gurl.h"
@@ -28,40 +28,34 @@ class DeviceSharingBrowserAgentTest : public PlatformTest {
         url_2_("http://www.test.com/2.html"),
         url_3_("http://www.test.com/3.html"),
         url_4_("http://www.test.com/4.html") {
-    TestChromeBrowserState::Builder test_browser_state_builder;
-    test_browser_state_builder.AddTestingFactory(
-        DeviceSharingManagerFactory::GetInstance(),
-        DeviceSharingManagerFactory::GetDefaultFactory());
+    TestProfileIOS::Builder builder;
+    builder.AddTestingFactory(DeviceSharingManagerFactory::GetInstance(),
+                              DeviceSharingManagerFactory::GetDefaultFactory());
 
-    chrome_browser_state_ = test_browser_state_builder.Build();
-    browser_ = std::make_unique<TestBrowser>(chrome_browser_state_.get());
+    profile_ = std::move(builder).Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get());
 
-    other_browser_ = std::make_unique<TestBrowser>(chrome_browser_state_.get());
-    incognito_browser_ = std::make_unique<TestBrowser>(
-        chrome_browser_state_->GetOffTheRecordChromeBrowserState());
+    other_browser_ = std::make_unique<TestBrowser>(profile_.get());
+    incognito_browser_ =
+        std::make_unique<TestBrowser>(profile_->GetOffTheRecordProfile());
   }
 
   NSURL* ActiveHandoffUrl() {
     DeviceSharingManagerImpl* sharing_manager =
         static_cast<DeviceSharingManagerImpl*>(
-            DeviceSharingManagerFactory::GetForBrowserState(
-                chrome_browser_state_.get()));
+            DeviceSharingManagerFactory::GetForProfile(profile_.get()));
     return [sharing_manager->handoff_manager_ userActivityWebpageURL];
-  }
-
-  web::FakeWebState* AppendNewWebState(Browser* browser, const GURL url) {
-    return AppendNewWebState(browser, url, WebStateList::INSERT_ACTIVATE);
   }
 
   web::FakeWebState* AppendNewWebState(Browser* browser,
                                        const GURL url,
-                                       WebStateList::InsertionFlags flags) {
+                                       bool activate = true) {
     auto fake_web_state = std::make_unique<web::FakeWebState>();
     fake_web_state->SetCurrentURL(url);
     web::FakeWebState* inserted_web_state = fake_web_state.get();
-    browser->GetWebStateList()->InsertWebState(WebStateList::kInvalidIndex,
-                                               std::move(fake_web_state), flags,
-                                               WebStateOpener());
+    browser->GetWebStateList()->InsertWebState(
+        std::move(fake_web_state),
+        WebStateList::InsertionParams::Automatic().Activate(activate));
     return inserted_web_state;
   }
 
@@ -71,7 +65,7 @@ class DeviceSharingBrowserAgentTest : public PlatformTest {
   const GURL url_4_;
 
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> chrome_browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<Browser> browser_;
   std::unique_ptr<Browser> other_browser_;
   std::unique_ptr<Browser> incognito_browser_;
@@ -106,7 +100,7 @@ TEST_F(DeviceSharingBrowserAgentTest, ActivateInBrowser) {
   AppendNewWebState(browser_.get(), url_1_);
   EXPECT_NSEQ(ActiveHandoffUrl(), net::NSURLWithGURL(url_1_));
   // Appending a web state without activating will not change the active URL.
-  AppendNewWebState(browser_.get(), url_2_, WebStateList::INSERT_NO_FLAGS);
+  AppendNewWebState(browser_.get(), url_2_, /*activate=*/false);
   EXPECT_NSEQ(ActiveHandoffUrl(), net::NSURLWithGURL(url_1_));
 }
 
@@ -126,7 +120,7 @@ TEST_F(DeviceSharingBrowserAgentTest, NavigateInBrowser) {
 TEST_F(DeviceSharingBrowserAgentTest, NavigateInactiveInBrowser) {
   DeviceSharingBrowserAgent::CreateForBrowser(browser_.get());
   web::FakeWebState* web_state =
-      AppendNewWebState(browser_.get(), url_1_, WebStateList::INSERT_NO_FLAGS);
+      AppendNewWebState(browser_.get(), url_1_, /*activate=*/false);
   AppendNewWebState(browser_.get(), url_2_);
 
   DeviceSharingBrowserAgent::FromBrowser(browser_.get())

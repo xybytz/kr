@@ -24,17 +24,18 @@ END_METADATA
 
 ReadLaterSidePanelWebView::ReadLaterSidePanelWebView(
     Browser* browser,
+    SidePanelEntryScope& scope,
     base::RepeatingClosure close_cb)
     : SidePanelWebUIViewT(
+          scope,
           base::BindRepeating(
               &ReadLaterSidePanelWebView::UpdateActiveURLToActiveTab,
               base::Unretained(this)),
           close_cb,
-          std::make_unique<BubbleContentsWrapperT<ReadingListUI>>(
+          std::make_unique<WebUIContentsWrapperT<ReadingListUI>>(
               GURL(chrome::kChromeUIReadLaterURL),
               browser->profile(),
               IDS_READ_LATER_TITLE,
-              /*webui_resizes_host=*/false,
               /*esc_closes_ui=*/false)),
       browser_(browser) {
   SetProperty(views::kElementIdentifierKey,

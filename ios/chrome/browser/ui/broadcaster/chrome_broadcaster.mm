@@ -145,7 +145,7 @@ NSInvocation* InvocationForBroadcasterSelector(SEL selector) {
 @synthesize observerInvocations = _observerInvocations;
 
 - (instancetype)init {
-  if (self = [super init]) {
+  if ((self = [super init])) {
     _observers =
         [[NSMutableDictionary<NSString*, BroadcastObservers*> alloc] init];
     _items = [[NSMutableDictionary<NSString*, BroadcastItem*> alloc] init];
@@ -189,7 +189,7 @@ NSInvocation* InvocationForBroadcasterSelector(SEL selector) {
   // Sanity check: `selector` must not already be broadcast.
   DCHECK(!self.items[name]);
 
-  // TODO(crbug.com/719911) -- Another sanity check is needed here -- verify
+  // TODO(crbug.com/40519578) -- Another sanity check is needed here -- verify
   // that the value to be observed is of the type that `selector` expects.
 
   self.items[name] =
@@ -327,7 +327,6 @@ NSInvocation* InvocationForBroadcasterSelector(SEL selector) {
   } else {
     // Add more clauses as needed.
     NOTREACHED() << "Unknown argument type: " << type;
-    return nil;
   }
 
   return invocation;

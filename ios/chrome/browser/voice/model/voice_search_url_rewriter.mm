@@ -9,7 +9,7 @@
 #import "base/strings/sys_string_conversions.h"
 #import "components/google/core/common/google_util.h"
 #import "components/prefs/pref_service.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/voice/model/speech_input_locale_config.h"
 #import "ios/chrome/browser/voice/model/voice_search_prefs.h"
 #import "net/base/url_util.h"
@@ -20,10 +20,9 @@ bool VoiceSearchURLRewriter(GURL* url, web::BrowserState* browser_state) {
     return false;
   }
 
-  ChromeBrowserState* chrome_browser_state =
-      ChromeBrowserState::FromBrowserState(browser_state);
+  ProfileIOS* profile = ProfileIOS::FromBrowserState(browser_state);
   std::string language =
-      chrome_browser_state->GetPrefs()->GetString(prefs::kVoiceSearchLocale);
+      profile->GetPrefs()->GetString(prefs::kVoiceSearchLocale);
   GURL rewritten_url(*url);
   // The `hl` parameter will be overriden only if the voice search locale
   // is not empty. If it is empty (indicating that voice search locale
@@ -39,7 +38,6 @@ bool VoiceSearchURLRewriter(GURL* url, web::BrowserState* browser_state) {
     }
     if (!language.length()) {
       NOTREACHED();
-      language = "en-US";
     }
   }
   rewritten_url =

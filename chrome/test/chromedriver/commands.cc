@@ -327,18 +327,31 @@ void ExecuteSessionCommandOnSessionThread(
                   ", but failed to kill browser:" + quit_status.message();
           }
           status = Status(kUnknownError, message, status);
-        } else if (status.code() == kDisconnected ||
-                   status.code() == kTargetDetached) {
+        } else if (status.code() == kDisconnected) {
+          session->quit = true;
+          std::string message(
+              "session deleted as the browser has closed the connection");
+          if (!session->detach) {
+            // Even though the connection was lost that makes the graceful
+            // shutdown impossible the Quit procedure falls back on killing the
+            // process in case if it is still alive.
+            Status quit_status = session->chrome->Quit();
+            if (quit_status.IsError()) {
+              message +=
+                  ", but failed to kill browser:" + quit_status.message();
+            }
+          }
+          status = Status(kInvalidSessionId, message, status);
+        } else if (status.code() == kTargetDetached) {
           // Some commands, like clicking a button or link which closes the
-          // window, may result in a kDisconnected error code.
-          std::list<std::string> web_view_ids;
-          Status status_tmp = session->chrome->GetWebViewIds(
-              &web_view_ids, session->w3c_compliant);
-          if (status_tmp.IsError() &&
-              status_tmp.code() != kChromeNotReachable) {
+          // window, may result in a kTargetDetached error code.
+          std::list<std::string> tab_view_ids;
+          Status status_tmp = session->chrome->GetTopLevelWebViewIds(
+              &tab_view_ids, session->w3c_compliant);
+          if (status_tmp.IsError()) {
             status.AddDetails("failed to check if window was closed: " +
                               status_tmp.message());
-          } else if (!base::Contains(web_view_ids, session->window)) {
+          } else if (!base::Contains(tab_view_ids, session->window)) {
             status = Status(kOk);
           }
         }

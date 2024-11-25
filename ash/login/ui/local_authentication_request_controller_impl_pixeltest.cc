@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ash/login/ui/local_authentication_request_controller_impl.h"
-
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "ash/constants/ash_features.h"
+#include "ash/login/ui/local_authentication_request_controller_impl.h"
 #include "ash/login/ui/local_authentication_request_view.h"
 #include "ash/login/ui/local_authentication_request_widget.h"
 #include "ash/login/ui/login_button.h"
@@ -20,6 +20,7 @@
 #include "ash/test/pixel/ash_pixel_differ.h"
 #include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
+#include "base/test/scoped_feature_list.h"
 #include "chromeos/ash/components/cryptohome/system_salt_getter.h"
 #include "chromeos/ash/components/dbus/cryptohome/account_identifier_operators.h"
 #include "chromeos/ash/components/dbus/cryptohome/key.pb.h"
@@ -55,7 +56,10 @@ class LocalAuthenticationRequestControllerImplPixelTest : public AshTestBase {
       const LocalAuthenticationRequestControllerImplPixelTest&) = delete;
 
  protected:
-  LocalAuthenticationRequestControllerImplPixelTest() = default;
+  LocalAuthenticationRequestControllerImplPixelTest() {
+    scoped_features_.InitAndDisableFeature(
+        features::kLocalAuthenticationWithPin);
+  }
   ~LocalAuthenticationRequestControllerImplPixelTest() override = default;
 
   std::optional<pixel_test::InitParams> CreatePixelTestInitParams()
@@ -114,18 +118,23 @@ class LocalAuthenticationRequestControllerImplPixelTest : public AshTestBase {
                   SystemSaltGetter::ConvertRawSaltToHexString(
                       FakeCryptohomeMiscClient::GetStubSystemSalt()));
 
-    cryptohome::Key cryptohome_key;
-    cryptohome_key.mutable_data()->set_label(kCryptohomeLocalPasswordKeyLabel);
-    cryptohome_key.set_secret(key.GetSecret());
+    user_data_auth::AuthFactor auth_factor;
+    user_data_auth::AuthInput auth_input;
 
+    auth_factor.set_label(ash::kCryptohomeLocalPasswordKeyLabel);
+    auth_factor.set_type(user_data_auth::AUTH_FACTOR_TYPE_PASSWORD);
+
+    auth_input.mutable_password_input()->set_secret(key.GetSecret());
+
+    // Add the password key to the user.
     test_api->AddExistingUser(cryptohome_id);
-    test_api->AddKey(cryptohome_id, cryptohome_key);
+    test_api->AddAuthFactor(cryptohome_id, auth_factor, auth_input);
     session_ids_ = test_api->AddSession(cryptohome_id, false);
   }
 
   // Simulates mouse press event on a |button|.
   void SimulateButtonPress(views::Button* button) {
-    ui::MouseEvent event(/*type=*/ui::ET_MOUSE_PRESSED,
+    ui::MouseEvent event(/*type=*/ui::EventType::kMousePressed,
                          /*location=*/gfx::Point(),
                          /*root_location=*/gfx::Point(),
                          /*time_stamp=*/ui::EventTimeForNow(),
@@ -143,7 +152,7 @@ class LocalAuthenticationRequestControllerImplPixelTest : public AshTestBase {
   void StartLocalAuthenticationRequest() {
     // Configure the user context.
     std::unique_ptr<UserContext> user_context = std::make_unique<UserContext>(
-        user_manager::USER_TYPE_REGULAR, test_account_id_);
+        user_manager::UserType::kRegular, test_account_id_);
 
     user_context->SetAuthSessionIds(session_ids_.first, session_ids_.second);
 
@@ -183,6 +192,8 @@ class LocalAuthenticationRequestControllerImplPixelTest : public AshTestBase {
     base::RunLoop().RunUntilIdle();
   }
 
+  base::test::ScopedFeatureList scoped_features_;
+
   // Number of times the view was dismissed with close button.
   int close_action_ = 0;
 
@@ -219,12 +230,12 @@ TEST_F(LocalAuthenticationRequestControllerImplPixelTest, FailedValidation) {
 
   // Verify the UI.
   EXPECT_TRUE(GetPixelDiffer()->CompareUiComponentsOnPrimaryScreen(
-      "Ready", /*revision_number=*/2, view));
+      "Ready", /*revision_number=*/4, view));
 
   SimulateValidation(false);
   // Verify the UI.
   EXPECT_TRUE(GetPixelDiffer()->CompareUiComponentsOnPrimaryScreen(
-      "Fail", /*revision_number=*/2, view));
+      "Fail", /*revision_number=*/4, view));
 }
 
 // Tests local authentication dialog theme change
@@ -246,7 +257,7 @@ TEST_F(LocalAuthenticationRequestControllerImplPixelTest, ThemeChange) {
   DarkLightModeControllerImpl::Get()->SetDarkModeEnabledForTest(false);
   // Verify the UI.
   EXPECT_TRUE(GetPixelDiffer()->CompareUiComponentsOnPrimaryScreen(
-      "Light", /*revision_number=*/1, view));
+      "Light", /*revision_number=*/3, view));
 }
 
 }  // namespace

@@ -218,7 +218,6 @@ bool OncParsedCertificates::ParseCertificate(
       return ParseClientCertificate(*guid, onc_certificate);
   }
   NOTREACHED();
-  return false;
 }
 
 bool OncParsedCertificates::ParseServerOrCaCertificate(

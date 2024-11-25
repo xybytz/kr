@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
@@ -21,8 +22,6 @@
 #include "base/thread_annotations.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
-#include "third_party/abseil-cpp/absl/base/attributes.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/webrtc/rtc_base/physical_socket_server.h"
 #include "third_party/webrtc_overrides/api/location.h"
 #include "third_party/webrtc_overrides/metronome_source.h"
@@ -33,7 +32,7 @@ namespace {
 
 constexpr base::TimeDelta kTaskLatencySampleDuration = base::Seconds(3);
 
-ABSL_CONST_INIT thread_local ThreadWrapper* jingle_thread_wrapper = nullptr;
+constinit thread_local ThreadWrapper* jingle_thread_wrapper = nullptr;
 
 }  // namespace
 
@@ -262,12 +261,12 @@ void ThreadWrapper::PostDelayedTaskImpl(absl::AnyInvocable<void() &&> task,
   }
 }
 
-absl::optional<base::TimeTicks> ThreadWrapper::PrepareRunTask() {
+std::optional<base::TimeTicks> ThreadWrapper::PrepareRunTask() {
   if (!latency_sampler_ && task_latency_callback_) {
     latency_sampler_ = std::make_unique<PostTaskLatencySampler>(
         task_runner_, std::move(task_latency_callback_));
   }
-  absl::optional<base::TimeTicks> task_start_timestamp;
+  std::optional<base::TimeTicks> task_start_timestamp;
   if (!task_duration_callback_.is_null() && latency_sampler_ &&
       latency_sampler_->ShouldSampleNextTaskDuration()) {
     task_start_timestamp = base::TimeTicks::Now();
@@ -276,7 +275,7 @@ absl::optional<base::TimeTicks> ThreadWrapper::PrepareRunTask() {
 }
 
 void ThreadWrapper::RunTaskQueueTask(absl::AnyInvocable<void() &&> task) {
-  absl::optional<base::TimeTicks> task_start_timestamp = PrepareRunTask();
+  std::optional<base::TimeTicks> task_start_timestamp = PrepareRunTask();
 
   std::move(task)();
   task = nullptr;
@@ -296,14 +295,13 @@ void ThreadWrapper::RunCoalescedTaskQueueTasks(base::TimeTicks scheduled_time) {
 }
 
 void ThreadWrapper::FinalizeRunTask(
-    absl::optional<base::TimeTicks> task_start_timestamp) {
+    std::optional<base::TimeTicks> task_start_timestamp) {
   if (task_start_timestamp.has_value())
     task_duration_callback_.Run(base::TimeTicks::Now() - *task_start_timestamp);
 }
 
 bool ThreadWrapper::IsQuitting() {
   NOTREACHED();
-  return false;
 }
 
 // All methods below are marked as not reached. See comments in the
@@ -318,7 +316,6 @@ void ThreadWrapper::Restart() {
 
 int ThreadWrapper::GetDelay() {
   NOTREACHED();
-  return 0;
 }
 
 void ThreadWrapper::Stop() {

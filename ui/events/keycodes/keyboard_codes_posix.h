@@ -32,7 +32,6 @@
 #define UI_EVENTS_KEYCODES_KEYBOARD_CODES_POSIX_H_
 
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 
 namespace ui {
 
@@ -257,7 +256,15 @@ enum KeyboardCode : unsigned short {
   // All applications - this also triggers the launcher in Chrome OS.
   VKEY_ALL_APPLICATIONS = 0xEF,
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
+  VKEY_FUNCTION = 0xFF,
+  VKEY_RIGHT_ALT = 0x100,
+#endif
+
+  // System Accessibility Binding.
+  VKEY_ACCESSIBILITY = 0x101,
+
+#if BUILDFLAG(IS_CHROMEOS)
   // The following values are used to be able to recognize button events within
   // ChromeOS. They have no functionality by default.
   VKEY_BUTTON_0 = 0xFF00,

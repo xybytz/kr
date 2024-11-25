@@ -11,15 +11,6 @@
 
 namespace blink {
 
-namespace {
-
-void RecordState(StateOnGet state) {
-  UMA_HISTOGRAM_ENUMERATION("Memory.Renderer.BlinkCachedMetadataGetResult",
-                            state);
-}
-
-}  // namespace
-
 ScriptCachedMetadataHandler::ScriptCachedMetadataHandler(
     const WTF::TextEncoding& encoding,
     std::unique_ptr<CachedMetadataSender> sender)
@@ -68,16 +59,9 @@ void ScriptCachedMetadataHandler::ClearCachedMetadata(
 scoped_refptr<CachedMetadata> ScriptCachedMetadataHandler::GetCachedMetadata(
     uint32_t data_type_id,
     GetCachedMetadataBehavior behavior) const {
-  if (!cached_metadata_) {
-    RecordState(cached_metadata_discarded_ ? StateOnGet::kWasDiscarded
-                                           : StateOnGet::kWasNeverPresent);
+  if (!cached_metadata_ || cached_metadata_->DataTypeID() != data_type_id) {
     return nullptr;
   }
-  if (cached_metadata_->DataTypeID() != data_type_id) {
-    RecordState(StateOnGet::kDataTypeMismatch);
-    return nullptr;
-  }
-  RecordState(StateOnGet::kPresent);
   return cached_metadata_;
 }
 
@@ -87,11 +71,11 @@ void ScriptCachedMetadataHandler::SetSerializedCachedMetadata(
   // triggers, it indicates an efficiency problem which is most likely
   // unexpected in code designed to improve performance.
   DCHECK(!cached_metadata_);
-  cached_metadata_ = CachedMetadata::CreateFromSerializedData(std::move(data));
+  cached_metadata_ = CachedMetadata::CreateFromSerializedData(data);
 }
 
 String ScriptCachedMetadataHandler::Encoding() const {
-  return String(encoding_.GetName());
+  return encoding_.GetName();
 }
 
 bool ScriptCachedMetadataHandler::IsServedFromCacheStorage() const {
@@ -117,12 +101,9 @@ size_t ScriptCachedMetadataHandler::GetCodeCacheSize() const {
 void ScriptCachedMetadataHandler::CommitToPersistentStorage(
     CodeCacheHost* code_cache_host) {
   if (cached_metadata_) {
-    base::span<const uint8_t> serialized_data =
-        cached_metadata_->SerializedData();
-    sender_->Send(code_cache_host, serialized_data.data(),
-                  serialized_data.size());
+    sender_->Send(code_cache_host, cached_metadata_->SerializedData());
   } else {
-    sender_->Send(code_cache_host, nullptr, 0);
+    sender_->Send(code_cache_host, base::span<const uint8_t>());
   }
 }
 
@@ -179,9 +160,13 @@ void ScriptCachedMetadataHandlerWithHashing::SetSerializedCachedMetadata(
   if (data.size() < sizeof(CachedMetadataHeaderWithHash)) {
     return;
   }
+  auto [header_bytes, payload_bytes] =
+      base::span(data).split_at(sizeof(CachedMetadataHeaderWithHash));
+
   // Ensure the marker matches, otherwise discard the data.
   const CachedMetadataHeaderWithHash* header =
-      reinterpret_cast<const CachedMetadataHeaderWithHash*>(data.data());
+      reinterpret_cast<const CachedMetadataHeaderWithHash*>(
+          header_bytes.data());
   if (header->marker != CachedMetadataHandler::kSingleEntryWithHashAndPadding) {
     return;
   }
@@ -190,8 +175,7 @@ void ScriptCachedMetadataHandlerWithHashing::SetSerializedCachedMetadata(
   memcpy(hash_, header->hash, kSha256Bytes);
   hash_state_ = kDeserialized;
   cached_metadata_ = CachedMetadata::CreateFromSerializedData(
-      data.data() + sizeof(CachedMetadataHeaderWithHash),
-      data.size() - sizeof(CachedMetadataHeaderWithHash));
+      data, sizeof(CachedMetadataHeaderWithHash));
 }
 
 scoped_refptr<CachedMetadata>
@@ -214,9 +198,7 @@ ScriptCachedMetadataHandlerWithHashing::GetCachedMetadata(
 
 void ScriptCachedMetadataHandlerWithHashing::CommitToPersistentStorage(
     CodeCacheHost* code_cache_host) {
-  Vector<uint8_t> serialized_data = GetSerializedCachedMetadata();
-  Sender()->Send(code_cache_host, serialized_data.data(),
-                 serialized_data.size());
+  Sender()->Send(code_cache_host, GetSerializedCachedMetadata());
 }
 
 Vector<uint8_t>
@@ -234,11 +216,9 @@ ScriptCachedMetadataHandlerWithHashing::GetSerializedCachedMetadata() const {
                            sizeof(padding));
     CHECK_EQ(serialized_data.size(),
              offsetof(CachedMetadataHeaderWithHash, hash));
-    serialized_data.Append(hash_, kSha256Bytes);
+    serialized_data.AppendSpan(base::span(hash_));
     CHECK_EQ(serialized_data.size(), sizeof(CachedMetadataHeaderWithHash));
-    base::span<const uint8_t> data = cached_metadata_->SerializedData();
-    serialized_data.Append(data.data(),
-                           base::checked_cast<wtf_size_t>(data.size()));
+    serialized_data.AppendSpan(cached_metadata_->SerializedData());
   }
   return serialized_data;
 }

@@ -38,7 +38,6 @@
 #include "components/sync/model/string_ordinal.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_process_host_creation_observer.h"
-#include "extensions/browser/api/declarative_net_request/ruleset_install_pref.h"
 #include "extensions/browser/crx_file_info.h"
 #include "extensions/browser/disable_reason.h"
 #include "extensions/browser/extension_host_registry.h"
@@ -54,13 +53,7 @@
 #include "extensions/common/extension_set.h"
 #include "extensions/common/manifest.h"
 
-#if !BUILDFLAG(ENABLE_EXTENSIONS)
-#error "Extensions must be enabled"
-#endif
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/extensions/ash_extension_keeplist_manager.h"
-#endif
+static_assert(BUILDFLAG(ENABLE_EXTENSIONS));
 
 class BlocklistedExtensionSyncServiceTest;
 class Profile;
@@ -379,8 +372,7 @@ class ExtensionService : public ExtensionServiceInterface,
   void OnExtensionInstalled(const Extension* extension,
                             const syncer::StringOrdinal& page_ordinal,
                             int install_flags,
-                            const declarative_net_request::RulesetInstallPrefs&
-                                ruleset_install_prefs = {});
+                            base::Value::Dict ruleset_install_prefs = {});
   void OnExtensionInstalled(const Extension* extension,
                             const syncer::StringOrdinal& page_ordinal) {
     OnExtensionInstalled(extension, page_ordinal,
@@ -484,6 +476,10 @@ class ExtensionService : public ExtensionServiceInterface,
   // Simulate an extension being blocklisted for tests.
   void BlocklistExtensionForTest(const std::string& extension_id);
 
+  // Simulate an extension being greylisted for tests.
+  void GreylistExtensionForTest(const std::string& extension_id,
+                                const BitMapBlocklistState& state);
+
 #if defined(UNIT_TEST)
   void FinishInstallationForTest(const Extension* extension) {
     FinishInstallation(extension);
@@ -513,7 +509,7 @@ class ExtensionService : public ExtensionServiceInterface,
  private:
   // Loads extensions specified via a command line flag/switch.
   void LoadExtensionsFromCommandLineFlag(const char* switch_name);
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   void LoadSigninProfileTestExtension(const std::string& path);
 #endif
 
@@ -583,14 +579,12 @@ class ExtensionService : public ExtensionServiceInterface,
   // pages; and perform other extension install tasks before calling
   // AddExtension.
   // |install_flags| is a bitmask of InstallFlags.
-  void AddNewOrUpdatedExtension(
-      const Extension* extension,
-      Extension::State initial_state,
-      int install_flags,
-      const syncer::StringOrdinal& page_ordinal,
-      const std::string& install_parameter,
-      const declarative_net_request::RulesetInstallPrefs&
-          ruleset_install_prefs);
+  void AddNewOrUpdatedExtension(const Extension* extension,
+                                Extension::State initial_state,
+                                int install_flags,
+                                const syncer::StringOrdinal& page_ordinal,
+                                const std::string& install_parameter,
+                                base::Value::Dict ruleset_install_prefs);
 
   // Common helper to finish installing the given extension.
   void FinishInstallation(const Extension* extension);
@@ -657,6 +651,12 @@ class ExtensionService : public ExtensionServiceInterface,
   void InstallationFromExternalFileFinished(
       const std::string& extension_id,
       const std::optional<CrxInstallError>& error);
+
+  // Called when the Developer Mode preference is changed:
+  // - Disables unpacked extensions if developer mode is OFF.
+  // - Re-enables unpacked extensions if developer mode is ON and there are no
+  // other disable reasons associated with them.
+  void OnDeveloperModePrefChanged();
 
   raw_ptr<const base::CommandLine, DanglingUntriaged> command_line_ = nullptr;
 
@@ -790,13 +790,11 @@ class ExtensionService : public ExtensionServiceInterface,
   base::ScopedObservation<CWSInfoService, CWSInfoService::Observer>
       cws_info_service_observation_{this};
 
-  using InstallGateRegistry =
-      std::map<ExtensionPrefs::DelayReason, InstallGate*>;
+  using InstallGateRegistry = std::map<ExtensionPrefs::DelayReason,
+                                       raw_ptr<InstallGate, CtnExperimental>>;
   InstallGateRegistry install_delayer_registry_;
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  AshExtensionKeeplistManager ash_keeplist_manager_;
-#endif
+  PrefChangeRegistrar pref_change_registrar_;
 
   base::WeakPtrFactory<ExtensionService> weak_ptr_factory_{this};
 

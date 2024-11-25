@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chromeos/ui/frame/caption_buttons/frame_caption_button_container_view.h"
 
 #include <algorithm>
@@ -17,6 +22,7 @@
 #include "base/metrics/user_metrics.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
+#include "chromeos/ui/base/chromeos_ui_constants.h"
 #include "chromeos/ui/base/display_util.h"
 #include "chromeos/ui/base/window_properties.h"
 #include "chromeos/ui/base/window_state_type.h"
@@ -182,7 +188,6 @@ class DefaultCaptionButtonModel : public CaptionButtonModel {
         break;
     }
     NOTREACHED();
-    return false;
   }
   bool IsEnabled(views::CaptionButtonIcon type) const override {
     if (type == views::CAPTION_BUTTON_ICON_CLOSE) {
@@ -216,6 +221,8 @@ FrameCaptionButtonContainerView::FrameCaptionButtonContainerView(
     bool is_close_button_enabled,
     std::unique_ptr<views::FrameCaptionButton> custom_button)
     : views::AnimationDelegateViews(frame->GetRootView()), frame_(frame) {
+  SetID(ViewID::VIEW_ID_CAPTION_BUTTON_CONTAINER);
+
   auto default_caption_button_model =
       std::make_unique<DefaultCaptionButtonModel>(frame,
                                                   is_close_button_enabled);
@@ -398,7 +405,7 @@ void FrameCaptionButtonContainerView::UpdateBorderlessModeEnabled(
   // so similarly to hiding the title bar, also the caption button container
   // containing them will be hidden.
   is_borderless_mode_enabled_ = enabled;
-  SetVisible(enabled);
+  SetVisible(!enabled);
 }
 
 void FrameCaptionButtonContainerView::UpdateCaptionButtonState(bool animate) {
@@ -513,8 +520,8 @@ void FrameCaptionButtonContainerView::ClearOnSizeButtonPressedCallback() {
   on_size_button_pressed_callback_.Reset();
 }
 
-void FrameCaptionButtonContainerView::Layout() {
-  views::View::Layout();
+void FrameCaptionButtonContainerView::Layout(PassKey) {
+  LayoutSuperclass<views::View>(this);
 
   // This ensures that the first frame of the animation to show the size button
   // pushes the buttons to the left of the size button into the center.
@@ -533,10 +540,22 @@ void FrameCaptionButtonContainerView::Layout() {
 }
 
 void FrameCaptionButtonContainerView::ChildPreferredSizeChanged(View* child) {
+  // In the `View::PreferredSizeChanged` method, `ChildPreferredSizeChanged`
+  // occurs before the `InvalidateLayout` method. If we call the `Layout` method
+  // in `ChildPreferredSizeChanged`, due to the order of calls, there is a
+  // layout cache in `LayoutManagerBase`. `Layout` cannot be laid out correctly
+  // at this time. So we need to actively call `InvalidateLayout` to clean up
+  // the layout cache of `LayoutManagerBase`.
+  //
+  // Here, we call `Layout` in
+  // `BrowserNonClientFrameViewChromeOS::ChildPreferredSizeChanged`.
+  InvalidateLayout();
   PreferredSizeChanged();
 }
 
 void FrameCaptionButtonContainerView::ChildVisibilityChanged(View* child) {
+  // Same as ChildPreferredSizeChanged.
+  InvalidateLayout();
   PreferredSizeChanged();
 }
 
@@ -724,10 +743,11 @@ void FrameCaptionButtonContainerView::MenuButtonPressed() {
 
   // Send up event as well as down event as ARC++ clients expect this sequence.
   aura::Window* root_window = GetWidget()->GetNativeWindow()->GetRootWindow();
-  ui::KeyEvent press_key_event(ui::ET_KEY_PRESSED, ui::VKEY_APPS, ui::EF_NONE);
+  ui::KeyEvent press_key_event(ui::EventType::kKeyPressed, ui::VKEY_APPS,
+                               ui::EF_NONE);
   std::ignore = root_window->GetHost()->GetEventSink()->OnEventFromSource(
       &press_key_event);
-  ui::KeyEvent release_key_event(ui::ET_KEY_RELEASED, ui::VKEY_APPS,
+  ui::KeyEvent release_key_event(ui::EventType::kKeyReleased, ui::VKEY_APPS,
                                  ui::EF_NONE);
   std::ignore = root_window->GetHost()->GetEventSink()->OnEventFromSource(
       &release_key_event);
@@ -893,7 +913,7 @@ FrameCaptionButtonContainerView::GetMultitaskMenuNudgeController() {
   return &nudge_controller_;
 }
 
-BEGIN_METADATA(FrameCaptionButtonContainerView, views::View)
+BEGIN_METADATA(FrameCaptionButtonContainerView)
 END_METADATA
 
 }  // namespace chromeos

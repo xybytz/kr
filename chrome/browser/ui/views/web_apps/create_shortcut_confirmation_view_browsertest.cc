@@ -22,18 +22,27 @@
 #include "content/public/test/browser_test.h"
 #include "third_party/blink/public/common/features.h"
 
-#if BUILDFLAG(IS_CHROMEOS)
-#include "chromeos/constants/chromeos_features.h"
-#endif
-
-struct Params {
-  bool shortstand_enabled;
-  bool tab_strip_enabled;
+enum CreateShortcutViewParams {
+  kTabStripEnabled = 0,
+  kTabStripDisabled = 1,
+  kCreateShortcutCreatesDiy = 2,
 };
+
+std::string ParamsToString(
+    const testing::TestParamInfo<CreateShortcutViewParams>& test_params) {
+  switch (test_params.param) {
+    case kTabStripEnabled:
+      return "TabStripEnabled";
+    case kTabStripDisabled:
+      return "TabStripDisabled";
+    case kCreateShortcutCreatesDiy:
+      return "CreateShortcutCreatesDiy";
+  }
+}
 
 class CreateShortcutConfirmationViewBrowserTest
     : public DialogBrowserTest,
-      public ::testing::WithParamInterface<Params> {
+      public ::testing::WithParamInterface<CreateShortcutViewParams> {
  public:
   CreateShortcutConfirmationViewBrowserTest() = default;
   CreateShortcutConfirmationViewBrowserTest(
@@ -43,11 +52,9 @@ class CreateShortcutConfirmationViewBrowserTest
 
   // DialogBrowserTest:
   void ShowUi(const std::string& name) override {
-    auto app_info = std::make_unique<web_app::WebAppInstallInfo>(
-        web_app::GenerateManifestIdFromStartUrlOnly(
-            GURL("https://example.com")));
+    auto app_info = web_app::WebAppInstallInfo::CreateWithStartUrlForTesting(
+        GURL("https://example.com"));
     app_info->title = u"Test app";
-    app_info->start_url = GURL("https://example.com");
 
     auto callback = [](bool result,
                        std::unique_ptr<web_app::WebAppInstallInfo>) {};
@@ -66,29 +73,28 @@ class CreateShortcutConfirmationViewBrowserTest
 
   void SetUp() override {
     base::flat_map<base::test::FeatureRef, bool> features;
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-    features.insert(
-        {chromeos::features::kCrosShortstand, IsShortstandEnabled()});
-    // TODO(b/311512111): Write lacros test
-#endif
-
-    features.insert(
-        {blink::features::kDesktopPWAsTabStrip, GetParam().tab_strip_enabled});
-    features.insert(
-        {features::kDesktopPWAsTabStripSettings, GetParam().tab_strip_enabled});
+    switch (GetParam()) {
+      case CreateShortcutViewParams::kTabStripEnabled:
+        features.insert({blink::features::kDesktopPWAsTabStrip, true});
+        features.insert({features::kDesktopPWAsTabStripSettings, true});
+        features.insert({features::kDisableShortcutsEnableDiy, false});
+        break;
+      case CreateShortcutViewParams::kTabStripDisabled:
+        features.insert({blink::features::kDesktopPWAsTabStrip, false});
+        features.insert({features::kDesktopPWAsTabStripSettings, false});
+        features.insert({features::kDisableShortcutsEnableDiy, false});
+        break;
+      case CreateShortcutViewParams::kCreateShortcutCreatesDiy:
+        features.insert({features::kDisableShortcutsEnableDiy, true});
+        break;
+    }
 
     feature_list.InitWithFeatureStates(features);
     DialogBrowserTest::SetUp();
   }
 
-  bool IsShortstandEnabled() {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-    return GetParam().shortstand_enabled;
-#else
-    // TODO(b/311512111): Write lacros test
-    return false;
-#endif
+  bool ShouldCreateDiyAppsForShortcutApps() {
+    return GetParam() == CreateShortcutViewParams::kCreateShortcutCreatesDiy;
   }
 
  private:
@@ -97,10 +103,9 @@ class CreateShortcutConfirmationViewBrowserTest
 
 IN_PROC_BROWSER_TEST_P(CreateShortcutConfirmationViewBrowserTest,
                        ShowCreateShortcutDialog) {
-  auto app_info = std::make_unique<web_app::WebAppInstallInfo>(
-      web_app::GenerateManifestIdFromStartUrlOnly(GURL("https://example.com")));
+  auto app_info = web_app::WebAppInstallInfo::CreateWithStartUrlForTesting(
+      GURL("https://example.com"));
   app_info->title = u"Test app";
-  app_info->start_url = GURL("https://example.com");
 
   web_app::SetAutoAcceptWebAppDialogForTesting(/*auto_accept=*/true,
                                                /*auto_open_in_window=*/true);
@@ -125,21 +130,16 @@ IN_PROC_BROWSER_TEST_P(CreateShortcutConfirmationViewBrowserTest,
                                    base::BindLambdaForTesting(callback));
   EXPECT_TRUE(is_accepted);
 
-  if (IsShortstandEnabled()) {
-    EXPECT_EQ(install_info->user_display_mode,
-              web_app::mojom::UserDisplayMode::kBrowser);
-  } else {
-    EXPECT_EQ(install_info->user_display_mode,
-              web_app::mojom::UserDisplayMode::kStandalone);
-  }
+  EXPECT_EQ(install_info->user_display_mode,
+            web_app::mojom::UserDisplayMode::kStandalone);
+  EXPECT_EQ(install_info->is_diy_app, ShouldCreateDiyAppsForShortcutApps());
 }
 
 IN_PROC_BROWSER_TEST_P(CreateShortcutConfirmationViewBrowserTest,
                        VerifyCreateShortcutDialogContents) {
-  auto app_info = std::make_unique<web_app::WebAppInstallInfo>(
-      web_app::GenerateManifestIdFromStartUrlOnly(GURL("https://example.com")));
+  auto app_info = web_app::WebAppInstallInfo::CreateWithStartUrlForTesting(
+      GURL("https://example.com"));
   app_info->title = u"Test app";
-  app_info->start_url = GURL("https://example.com");
 
   web_app::SetAutoAcceptWebAppDialogForTesting(/*auto_accept=*/false,
                                                /*auto_open_in_window=*/false);
@@ -163,13 +163,6 @@ IN_PROC_BROWSER_TEST_P(CreateShortcutConfirmationViewBrowserTest,
   ASSERT_TRUE(dialog);
   EXPECT_TRUE(dialog->GetVisible());
 
-  if (IsShortstandEnabled()) {
-    EXPECT_FALSE(dialog->GetOpenAsWindowCheckboxForTesting());
-    EXPECT_FALSE(dialog->GetOpenAsTabRadioForTesting());
-    EXPECT_FALSE(dialog->GetOpenAsWindowRadioForTesting());
-    EXPECT_FALSE(dialog->GetOpenAsTabbedWindowRadioForTesting());
-  }
-
   dialog->Accept();
 
   EXPECT_TRUE(install_result.Get<bool /*is_accepted*/>());
@@ -177,6 +170,45 @@ IN_PROC_BROWSER_TEST_P(CreateShortcutConfirmationViewBrowserTest,
   EXPECT_EQ(install_result.Get<std::unique_ptr<web_app::WebAppInstallInfo>>()
                 ->user_display_mode,
             web_app::mojom::UserDisplayMode::kBrowser);
+  EXPECT_EQ(install_result.Get<std::unique_ptr<web_app::WebAppInstallInfo>>()
+                ->is_diy_app,
+            ShouldCreateDiyAppsForShortcutApps());
+}
+
+IN_PROC_BROWSER_TEST_P(CreateShortcutConfirmationViewBrowserTest,
+                       DialogCancelNotDiy) {
+  auto app_info = web_app::WebAppInstallInfo::CreateWithStartUrlForTesting(
+      GURL("https://example.com"));
+  app_info->title = u"Test app";
+
+  web_app::SetAutoAcceptWebAppDialogForTesting(/*auto_accept=*/false,
+                                               /*auto_open_in_window=*/false);
+  base::test::TestFuture<bool, std::unique_ptr<web_app::WebAppInstallInfo>>
+      install_result;
+
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  std::unique_ptr<webapps::MlInstallOperationTracker> install_tracker =
+      webapps::MLInstallabilityPromoter::FromWebContents(web_contents)
+          ->RegisterCurrentInstallForWebContents(
+              webapps::WebappInstallSource::MENU_CREATE_SHORTCUT);
+
+  web_app::ShowCreateShortcutDialog(web_contents, std::move(app_info),
+                                    std::move(install_tracker),
+                                    install_result.GetCallback());
+
+  CreateShortcutConfirmationView* dialog =
+      CreateShortcutConfirmationView::GetDialogForTesting();
+
+  ASSERT_TRUE(dialog);
+  EXPECT_TRUE(dialog->GetVisible());
+
+  dialog->Cancel();
+
+  EXPECT_FALSE(install_result.Get<bool /*is_accepted*/>());
+  EXPECT_FALSE(
+      install_result.Get<std::unique_ptr<web_app::WebAppInstallInfo>>()
+          ->is_diy_app);
 }
 
 IN_PROC_BROWSER_TEST_P(CreateShortcutConfirmationViewBrowserTest,
@@ -199,11 +231,9 @@ IN_PROC_BROWSER_TEST_P(CreateShortcutConfirmationViewBrowserTest,
   };
 
   for (const TestCases& test_case : test_cases) {
-    auto app_info = std::make_unique<web_app::WebAppInstallInfo>(
-        web_app::GenerateManifestIdFromStartUrlOnly(
-            GURL("https://example.com")));
+    auto app_info = web_app::WebAppInstallInfo::CreateWithStartUrlForTesting(
+        GURL("https://example.com"));
     app_info->title = test_case.input;
-    app_info->start_url = GURL("https://example.com");
 
     bool is_accepted = false;
     std::u16string title;
@@ -229,9 +259,10 @@ IN_PROC_BROWSER_TEST_P(CreateShortcutConfirmationViewBrowserTest,
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(All,
-                         CreateShortcutConfirmationViewBrowserTest,
-                         ::testing::Values(Params{false, false},
-                                           Params{false, true},
-                                           Params{true, false},
-                                           Params{true, true}));
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    CreateShortcutConfirmationViewBrowserTest,
+    ::testing::Values(CreateShortcutViewParams::kTabStripDisabled,
+                      CreateShortcutViewParams::kTabStripEnabled,
+                      CreateShortcutViewParams::kCreateShortcutCreatesDiy),
+    ParamsToString);

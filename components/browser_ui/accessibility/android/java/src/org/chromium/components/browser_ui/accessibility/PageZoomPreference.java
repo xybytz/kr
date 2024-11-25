@@ -167,13 +167,10 @@ public class PageZoomPreference extends Preference implements SeekBar.OnSeekBarC
         if (seekBar.getId() == R.id.page_zoom_slider) {
             int zoomLevel =
                     (int) Math.round(100 * PageZoomUtils.convertSeekBarValueToZoomLevel(progress));
-            mCurrentValueText.setText(
-                    getContext().getResources().getString(R.string.page_zoom_level, zoomLevel));
+            mCurrentValueText.setText(getContext().getString(R.string.page_zoom_level, zoomLevel));
         } else if (seekBar.getId() == R.id.text_size_contrast_slider) {
             mTextSizeContrastCurrentLevelText.setText(
-                    getContext()
-                            .getResources()
-                            .getString(R.string.text_size_contrast_level, progress));
+                    getContext().getString(R.string.text_size_contrast_level, progress));
         }
     }
 
@@ -191,14 +188,14 @@ public class PageZoomPreference extends Preference implements SeekBar.OnSeekBarC
         mPreviewSmallText.setTextSize(
                 TypedValue.COMPLEX_UNIT_SP, calculateAdjustedTextSize(DEFAULT_SMALL_TEXT_SIZE_SP));
 
-        // TODO(crbug.com/1459631): Edit preview images when smart image sizing is added.
+        // TODO(crbug.com/40919531): Edit preview images when smart image sizing is added.
         mPreviewImageParams.width = (int) (mDefaultPreviewImageSize * mCurrentMultiplier);
         mPreviewImageParams.height = (int) (mDefaultPreviewImageSize * mCurrentMultiplier);
         mPreviewImage.setLayoutParams(mPreviewImageParams);
     }
 
     private float calculateAdjustedTextSize(float startingTextSize) {
-        // TODO(crbug.com/1459631): Add the following non-linear formula
+        // TODO(crbug.com/40919531): Add the following non-linear formula
         if (mTextSizeContrastFactor > 0
                 && ContentFeatureMap.isEnabled(ContentFeatureList.SMART_ZOOM)) {}
         return startingTextSize * mCurrentMultiplier;

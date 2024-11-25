@@ -26,9 +26,9 @@ import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskRunner;
 import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.app.tabmodel.TabWindowManagerSingleton;
-import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.ChromeSharedPreferences;
+import org.chromium.chrome.browser.tab_ui.TabContentManager;
 import org.chromium.chrome.browser.tabpersistence.TabStateDirectory;
 import org.chromium.chrome.browser.tabpersistence.TabStateFileManager;
 
@@ -44,8 +44,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Handles the Tabbed mode specific behaviors of tab persistence. */
 public class TabbedModeTabPersistencePolicy implements TabPersistencePolicy {
-
     private static final String TAG = "tabmodel";
+
+    // This shared prefs file was used for storing tab group session counts. It is no longer in use.
+    private static final String LEGACY_TAB_GROUP_PREFS_FILE = "tab_group_pref";
+
+    // This shared prefs file was used for storing tab properties to use before tabs had loaded for
+    // tab switching surfaces.
+    private static final String LEGACY_TAB_ATTRIBUTE_CACHE_FILE = "tab_attribute_cache";
 
     /** <M53 The name of the file where the old tab metadata file is saved per directory. */
     @VisibleForTesting static final String LEGACY_SAVED_STATE_FILE = "tab_state";
@@ -60,7 +66,7 @@ public class TabbedModeTabPersistencePolicy implements TabPersistencePolicy {
     private static final Object CLEAN_UP_TASK_LOCK = new Object();
 
     /** Tracks whether tabs from two TabPersistentStores tabs are being merged together. */
-    // TODO(crbug.com/1082936): Transit AtomicBoolean to an AtomicInteger to keep track the task id
+    // TODO(crbug.com/40131185): Transit AtomicBoolean to an AtomicInteger to keep track the task id
     //        of activity being merged.
     private static final AtomicBoolean MERGE_IN_PROGRESS = new AtomicBoolean();
 
@@ -369,11 +375,13 @@ public class TabbedModeTabPersistencePolicy implements TabPersistencePolicy {
         TabModelSelector selector =
                 TabWindowManagerSingleton.getInstance().getTabModelSelectorById(index);
         if (selector != null) {
-            // Remove all the tabs from the instance if it is in running state to be able to
-            // delete the corresponding tab state file.
             for (int i = 0; i < selector.getModels().size(); i++) {
                 TabModel tabModel = selector.getModels().get(i);
-                while (tabModel.getCount() > 0) tabModel.removeTab(tabModel.getTabAt(0));
+                if (tabModel.getCount() != 0) {
+                    throw new IllegalStateException(
+                            "A running instance that is being cleaned up should have closed all its"
+                                    + " tabs.");
+                }
             }
         }
         synchronized (CLEAN_UP_TASK_LOCK) {
@@ -444,11 +452,6 @@ public class TabbedModeTabPersistencePolicy implements TabPersistencePolicy {
         mDestroyed = true;
     }
 
-    @Override
-    public boolean allowSkipLoadingTab() {
-        return true;
-    }
-
     private class CleanUpTabStateDataTask extends AsyncTask<Void> {
         private final Callback<TabPersistenceFileInfo> mTabDataToDelete;
 
@@ -472,6 +475,12 @@ public class TabbedModeTabPersistencePolicy implements TabPersistencePolicy {
             String thumbnailDirectory = PathUtils.getThumbnailCacheDirectory();
             mThumbnailFileNames = new File(thumbnailDirectory).list();
             mOtherTabIds = mOtherTabSupplier.get();
+
+            ContextUtils.getApplicationContext()
+                    .deleteSharedPreferences(LEGACY_TAB_GROUP_PREFS_FILE);
+            ContextUtils.getApplicationContext()
+                    .deleteSharedPreferences(LEGACY_TAB_ATTRIBUTE_CACHE_FILE);
+
             return null;
         }
 
@@ -525,12 +534,12 @@ public class TabbedModeTabPersistencePolicy implements TabPersistencePolicy {
         }
 
         private boolean shouldDeleteTabFile(int tabId, TabWindowManager tabWindowManager) {
-            return tabWindowManager.getTabById(tabId) == null && !mOtherTabIds.get(tabId);
+            return tabWindowManager.canTabStateBeDeleted(tabId) && !mOtherTabIds.get(tabId);
         }
 
         @Override
         protected void onCancelled(Void result) {
-            super.onCancelled(result);
+            super.onCancelled(null);
             synchronized (CLEAN_UP_TASK_LOCK) {
                 sCleanupTask = null;
             }

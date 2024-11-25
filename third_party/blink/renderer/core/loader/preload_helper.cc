@@ -11,12 +11,13 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_prescient_networking.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_compile_hints_common.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_idle_request_options.h"
 #include "third_party/blink/renderer/core/css/media_list.h"
 #include "third_party/blink/renderer/core/css/media_query_evaluator.h"
 #include "third_party/blink/renderer/core/css/parser/sizes_attribute_parser.h"
 #include "third_party/blink/renderer/core/dom/document.h"
-#include "third_party/blink/renderer/core/dom/scripted_idle_task_controller.h"
+#include "third_party/blink/renderer/core/execution_context/agent.h"
 #include "third_party/blink/renderer/core/frame/frame_console.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -45,6 +46,7 @@
 #include "third_party/blink/renderer/core/loader/subresource_integrity_helper.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/viewport_description.h"
+#include "third_party/blink/renderer/core/scheduler/scripted_idle_task_controller.h"
 #include "third_party/blink/renderer/core/script/modulator.h"
 #include "third_party/blink/renderer/core/script/script_loader.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -56,7 +58,6 @@
 #include "third_party/blink/renderer/platform/loader/link_header.h"
 #include "third_party/blink/renderer/platform/loader/subresource_integrity.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 
@@ -74,6 +75,7 @@ class LoadDictionaryWhenIdleTask final : public IdleTask {
   void Trace(Visitor* visitor) const override {
     visitor->Trace(resource_fetcher_);
     visitor->Trace(pending_preload_);
+    visitor->Trace(fetch_params_);
     IdleTask::Trace(visitor);
   }
 
@@ -128,7 +130,6 @@ bool IsSupportedType(ResourceType resource_type, const String& mime_type) {
     default:
       NOTREACHED();
   }
-  return false;
 }
 
 MediaValuesCached* CreateMediaValues(
@@ -149,11 +150,12 @@ MediaValuesCached* CreateMediaValues(
 
 bool MediaMatches(const String& media,
                   MediaValues* media_values,
-                  const ExecutionContext* execution_context) {
+                  ExecutionContext* execution_context) {
   MediaQuerySet* media_queries =
       MediaQuerySet::Create(media, execution_context);
-  MediaQueryEvaluator evaluator(media_values);
-  return evaluator.Eval(*media_queries);
+  MediaQueryEvaluator* evaluator =
+      MakeGarbageCollected<MediaQueryEvaluator>(media_values);
+  return evaluator->Eval(*media_queries);
 }
 
 KURL GetBestFitImageURL(const Document& document,
@@ -221,7 +223,8 @@ bool IsResourceLoadAllowed(PreloadHelper::LoadLinksFromHeaderMode mode,
   }
 }
 
-bool IsDictionaryLoadAllowed(PreloadHelper::LoadLinksFromHeaderMode mode) {
+bool IsCompressionDictionaryLoadAllowed(
+    PreloadHelper::LoadLinksFromHeaderMode mode) {
   // Document header can trigger dictionary load after the page load completes.
   // Subresources header can trigger dictionary load if it is not from the
   // memory cache.
@@ -328,7 +331,7 @@ void PreloadHelper::PreconnectIfNeeded(
 // served from the cache correctly. Until
 // https://github.com/w3c/preload/issues/97 is resolved and implemented we need
 // to disable these preloads.
-absl::optional<ResourceType> PreloadHelper::GetResourceTypeFromAsAttribute(
+std::optional<ResourceType> PreloadHelper::GetResourceTypeFromAsAttribute(
     const String& as) {
   DCHECK_EQ(as.DeprecatedLower(), as);
   if (as == "image")
@@ -343,7 +346,7 @@ absl::optional<ResourceType> PreloadHelper::GetResourceTypeFromAsAttribute(
     return ResourceType::kFont;
   if (as == "fetch")
     return ResourceType::kRaw;
-  return absl::nullopt;
+  return std::nullopt;
 }
 
 // |base_url| is used in Link HTTP Header based preloads to resolve relative
@@ -361,7 +364,7 @@ void PreloadHelper::PreloadIfNeeded(
   if (!document.Loader() || !params.rel.IsLinkPreload())
     return;
 
-  absl::optional<ResourceType> resource_type =
+  std::optional<ResourceType> resource_type =
       PreloadHelper::GetResourceTypeFromAsAttribute(params.as);
 
   MediaValuesCached* media_values = nullptr;
@@ -413,7 +416,7 @@ void PreloadHelper::PreloadIfNeeded(
 
   if (caller == kLinkCalledFromHeader)
     UseCounter::Count(document, WebFeature::kLinkHeaderPreload);
-  if (resource_type == absl::nullopt) {
+  if (resource_type == std::nullopt) {
     String message;
     if (IsValidButUnsupportedAsAttribute(params.as)) {
       message = String("<link rel=preload> uses an unsupported `as` value");
@@ -624,10 +627,11 @@ void PreloadHelper::ModulePreloadIfNeeded(
   // is specified, or the empty string otherwise." [spec text]
   // |nonce| parameter is the value of the nonce attribute.
 
-  // Step 8. "Let integrity metadata be the value of the integrity attribute, if
+  // Step 9. "Let integrity metadata be the value of the integrity attribute, if
   // it is specified, or the empty string otherwise." [spec text]
   IntegrityMetadataSet integrity_metadata;
-  if (!params.integrity.empty()) {
+  String integrity_value = params.integrity;
+  if (!integrity_value.empty()) {
     SubresourceIntegrity::IntegrityFeatures integrity_features =
         SubresourceIntegrityHelper::GetFeatures(document.GetExecutionContext());
     SubresourceIntegrity::ReportInfo report_info;
@@ -635,32 +639,38 @@ void PreloadHelper::ModulePreloadIfNeeded(
         params.integrity, integrity_features, integrity_metadata, &report_info);
     SubresourceIntegrityHelper::DoReport(*document.GetExecutionContext(),
                                          report_info);
+  } else if (integrity_value.IsNull()) {
+    // Step 10. "If el does not have an integrity attribute, then set integrity
+    // metadata to the result of resolving a module integrity metadata with url
+    // and settings object." [spec text]
+    integrity_value = modulator->GetIntegrityMetadataString(params.href);
+    integrity_metadata = modulator->GetIntegrityMetadata(params.href);
   }
 
-  // Step 9. "Let referrer policy be the current state of the element's
+  // Step 11. "Let referrer policy be the current state of the element's
   // referrerpolicy attribute." [spec text]
   // |referrer_policy| parameter is the value of the referrerpolicy attribute.
 
-  // Step 10. "Let options be a script fetch options whose cryptographic nonce
+  // Step 12. "Let options be a script fetch options whose cryptographic nonce
   // is cryptographic nonce, integrity metadata is integrity metadata, parser
   // metadata is "not-parser-inserted", credentials mode is credentials mode,
   // and referrer policy is referrer policy." [spec text]
   ModuleScriptFetchRequest request(
       params.href, ModuleType::kJavaScript, context_type, destination,
-      ScriptFetchOptions(params.nonce, integrity_metadata, params.integrity,
+      ScriptFetchOptions(params.nonce, integrity_metadata, integrity_value,
                          kNotParserInserted, credentials_mode,
                          params.referrer_policy,
                          mojom::blink::FetchPriorityHint::kAuto,
                          RenderBlockingBehavior::kNonBlocking),
       Referrer::NoReferrer(), TextPosition::MinimumPosition());
 
-  // Step 11. "Fetch a modulepreload module script graph given url, destination,
+  // Step 13. "Fetch a modulepreload module script graph given url, destination,
   // settings object, and options. Wait until the algorithm asynchronously
   // completes with result." [spec text]
   //
-  // https://wicg.github.io/import-maps/#wait-for-import-maps
   modulator->SetAcquiringImportMapsState(
       Modulator::AcquiringImportMapsState::kAfterModuleScriptLoad);
+  // Step 2. Fetch a single module script given ...
   modulator->FetchSingle(request, window->Fetcher(),
                          ModuleGraphLevel::kDependentModuleFetch,
                          ModuleScriptCustomFetchType::kNone, client);
@@ -691,12 +701,25 @@ void PreloadHelper::PrefetchIfNeeded(const LinkLoadParameters& params,
 
   ResourceRequest resource_request(params.href);
 
+  bool as_document = EqualIgnoringASCIICase(params.as, "document");
+
+  // If this corresponds to a preload that we promoted to a prefetch, and the
+  // preload had `as="document"`, don't proceed because the original preload
+  // statement was invalid.
+  if (as_document && params.recursive_prefetch_token) {
+    document.AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
+        mojom::blink::ConsoleMessageSource::kOther,
+        mojom::blink::ConsoleMessageLevel::kWarning,
+        String("Link header with rel=preload and as=document is unsupported")));
+    return;
+  }
+
   // Later a security check is done asserting that the initiator of a
   // cross-origin prefetch request is same-origin with the origin that the
   // browser process is aware of. However, since opaque request initiators are
   // always cross-origin with every other origin, we must not request
   // cross-origin prefetches from opaque requestors.
-  if (EqualIgnoringASCIICase(params.as, "document") &&
+  if (as_document &&
       !document.GetExecutionContext()->GetSecurityOrigin()->IsOpaque()) {
     resource_request.SetPrefetchMaybeForTopLevelNavigation(true);
 
@@ -762,9 +785,10 @@ void PreloadHelper::LoadLinksFromHeader(
     bool is_network_hint_allowed = IsNetworkHintAllowed(mode);
     bool is_resource_load_allowed =
         IsResourceLoadAllowed(mode, header.IsViewportDependent());
-    bool is_dictionary_load_allowed = IsDictionaryLoadAllowed(mode);
+    bool is_compression_dictionary_load_allowed =
+        IsCompressionDictionaryLoadAllowed(mode);
     if (!is_network_hint_allowed && !is_resource_load_allowed &&
-        !is_dictionary_load_allowed) {
+        !is_compression_dictionary_load_allowed) {
       continue;
     }
 
@@ -782,7 +806,7 @@ void PreloadHelper::LoadLinksFromHeader(
     if (alternate_resource_info && params.rel.IsLinkPreload()) {
       DCHECK(document);
       KURL url = params.href;
-      absl::optional<ResourceType> resource_type =
+      std::optional<ResourceType> resource_type =
           PreloadHelper::GetResourceTypeFromAsAttribute(params.as);
       if (resource_type == ResourceType::kImage &&
           !params.image_srcset.empty()) {
@@ -840,7 +864,7 @@ void PreloadHelper::LoadLinksFromHeader(
 
       PreconnectIfNeeded(params, document, &frame, kLinkCalledFromHeader);
     }
-    if (is_resource_load_allowed || is_dictionary_load_allowed) {
+    if (is_resource_load_allowed || is_compression_dictionary_load_allowed) {
       DCHECK(document);
       PendingLinkPreload* pending_preload =
           MakeGarbageCollected<PendingLinkPreload>(*document,
@@ -854,8 +878,8 @@ void PreloadHelper::LoadLinksFromHeader(
         ModulePreloadIfNeeded(params, *document, viewport_description,
                               pending_preload);
       }
-      if (is_dictionary_load_allowed) {
-        FetchDictionaryIfNeeded(params, *document, pending_preload);
+      if (is_compression_dictionary_load_allowed) {
+        FetchCompressionDictionaryIfNeeded(params, *document, pending_preload);
       }
     }
     if (params.rel.IsServiceWorker()) {
@@ -867,7 +891,7 @@ void PreloadHelper::LoadLinksFromHeader(
 
 // TODO(crbug.com/1413922):
 // Always load the resource after the full document load completes
-void PreloadHelper::FetchDictionaryIfNeeded(
+void PreloadHelper::FetchCompressionDictionaryIfNeeded(
     const LinkLoadParameters& params,
     Document& document,
     PendingLinkPreload* pending_preload) {
@@ -880,12 +904,12 @@ void PreloadHelper::FetchDictionaryIfNeeded(
     return;
   }
 
-  if (!params.rel.IsDictionary() || !params.href.IsValid() ||
+  if (!params.rel.IsCompressionDictionary() || !params.href.IsValid() ||
       !document.GetFrame()) {
     return;
   }
 
-  DVLOG(1) << "PreloadHelper::FetchDictionaryIfNeeded "
+  DVLOG(1) << "PreloadHelper::FetchCompressionDictionaryIfNeeded "
            << params.href.GetString().Utf8();
   ResourceRequest resource_request(params.href);
 
@@ -902,10 +926,11 @@ void PreloadHelper::FetchDictionaryIfNeeded(
 
   FetchParameters link_fetch_params(std::move(resource_request), options);
   IdleRequestOptions* idle_options = IdleRequestOptions::Create();
-  document.RequestIdleCallback(
-      MakeGarbageCollected<LoadDictionaryWhenIdleTask>(
-          std::move(link_fetch_params), document.Fetcher(), pending_preload),
-      idle_options);
+  ScriptedIdleTaskController::From(*document.GetExecutionContext())
+      .RegisterCallback(MakeGarbageCollected<LoadDictionaryWhenIdleTask>(
+                            std::move(link_fetch_params), document.Fetcher(),
+                            pending_preload),
+                        idle_options);
 }
 
 Resource* PreloadHelper::StartPreload(ResourceType type,
@@ -934,9 +959,13 @@ Resource* PreloadHelper::StartPreload(ResourceType type,
 
       params.SetRequestContext(mojom::blink::RequestContextType::SCRIPT);
       params.SetRequestDestination(network::mojom::RequestDestination::kScript);
+
       resource = ScriptResource::Fetch(
-          params, resource_fetcher, nullptr, ScriptResource::kAllowStreaming,
-          v8_compile_hints_producer, v8_compile_hints_consumer);
+          params, resource_fetcher, nullptr, document.GetAgent().isolate(),
+          ScriptResource::kAllowStreaming, v8_compile_hints_producer,
+          v8_compile_hints_consumer,
+          v8_compile_hints::GetMagicCommentMode(
+              document.GetExecutionContext()));
       break;
     }
     case ResourceType::kCSSStyleSheet:

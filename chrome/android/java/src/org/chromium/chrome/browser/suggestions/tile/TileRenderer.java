@@ -26,7 +26,6 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.omnibox.suggestions.mostvisited.SuggestTileType;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.suggestions.ImageFetcher;
 import org.chromium.chrome.browser.suggestions.SiteSuggestion;
 import org.chromium.chrome.browser.suggestions.SuggestionsConfig.TileStyle;
@@ -36,7 +35,6 @@ import org.chromium.components.favicon.IconType;
 import org.chromium.components.favicon.LargeIconBridge;
 import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.feature_engagement.Tracker;
-import org.chromium.components.search_engines.TemplateUrlService;
 import org.chromium.ui.base.ViewUtils;
 
 import java.lang.ref.WeakReference;
@@ -50,7 +48,6 @@ import java.util.Map;
  */
 public class TileRenderer {
     private final Context mContext;
-    private final Resources.Theme mTheme;
     private RoundedIconGenerator mIconGenerator;
     private ImageFetcher mImageFetcher;
 
@@ -60,10 +57,9 @@ public class TileRenderer {
     private final float mIconCornerRadius;
     private int mTitleLinesCount;
     private boolean mNativeInitializationComplete;
+    private Profile mProfile;
 
     @LayoutRes private final int mLayout;
-
-    @LayoutRes private final int mTopSitesLayout;
 
     private class LargeIconCallbackImpl implements LargeIconBridge.LargeIconCallback {
         private final WeakReference<Tile> mTile;
@@ -103,7 +99,6 @@ public class TileRenderer {
 
         mContext = context;
         Resources res = context.getResources();
-        mTheme = context.getTheme();
         mDesiredIconSize = res.getDimensionPixelSize(R.dimen.tile_view_icon_size);
         mIconCornerRadius = res.getDimension(R.dimen.tile_view_icon_corner_radius);
         int minIconSize = res.getDimensionPixelSize(R.dimen.tile_view_icon_min_size);
@@ -112,7 +107,6 @@ public class TileRenderer {
         mMinIconSize = Math.min(mDesiredIconSize, minIconSize);
 
         mLayout = getLayout();
-        mTopSitesLayout = getTopSitesLayout();
 
         int iconColor = context.getColor(R.color.default_favicon_background_color);
         int iconTextSize = res.getDimensionPixelSize(R.dimen.tile_view_icon_text_size);
@@ -171,8 +165,9 @@ public class TileRenderer {
     }
 
     /** Record that a tile was clicked for IPH reasons. */
-    private void recordTileClickedForIPH(String eventName) {
-        Tracker tracker = TrackerFactory.getTrackerForProfile(Profile.getLastUsedRegularProfile());
+    private void recordTileClickedForIph(String eventName) {
+        assert mProfile != null;
+        Tracker tracker = TrackerFactory.getTrackerForProfile(mProfile);
         tracker.notifyEvent(eventName);
     }
 
@@ -202,11 +197,12 @@ public class TileRenderer {
         updateIcon(tile, setupDelegate);
         updateContentDescription(tile, tileView);
 
-        TileGroup.TileInteractionDelegate delegate = setupDelegate.createInteractionDelegate(tile);
+        TileGroup.TileInteractionDelegate delegate =
+                setupDelegate.createInteractionDelegate(tile, tileView);
         if (tile.getSource() == TileSource.HOMEPAGE) {
             delegate.setOnClickRunnable(
                     () -> {
-                        recordTileClickedForIPH(EventConstants.HOMEPAGE_TILE_CLICKED);
+                        recordTileClickedForIph(EventConstants.HOMEPAGE_TILE_CLICKED);
                         RecordHistogram.recordEnumeratedHistogram(
                                 "NewTabPage.SuggestTiles.SelectedTileType",
                                 SuggestTileType.OTHER,
@@ -250,27 +246,25 @@ public class TileRenderer {
         return tileView;
     }
 
-    /** @return True, if the tile represents a Search query. */
-    private boolean isSearchTile(Tile tile) {
-        TemplateUrlService searchService =
-                TemplateUrlServiceFactory.getForProfile(Profile.getLastUsedRegularProfile());
-        return searchService != null
-                && searchService.isSearchResultsPageFromDefaultSearchProvider(tile.getUrl());
+    /** Returns whether the tile represents a Search query. */
+    public boolean isSearchTile(Tile tile) {
+        return TileUtils.isSearchTile(mProfile, tile);
     }
 
     /**
      * Notify the component that the native initialization has completed and the component can
      * safely execute native code.
      */
-    public void onNativeInitializationReady() {
+    public void onNativeInitializationReady(Profile profile) {
         mNativeInitializationComplete = true;
+        mProfile = profile;
     }
 
     /**
      * Given a Tile data and TileView, apply appropriate content description that will be announced
-     * when the view is focused for accessibility.
-     * The objective of the description is to offer audible guidance that helps users differentiate
-     * navigation (open www.site.com) and search (search www.site.com).
+     * when the view is focused for accessibility. The objective of the description is to offer
+     * audible guidance that helps users differentiate navigation (open www.site.com) and search
+     * (search www.site.com).
      *
      * @param tile Tile data that carries information about the destination URL.
      * @param tileView The view that should receive updated content description.
@@ -349,17 +343,6 @@ public class TileRenderer {
                 return R.layout.suggestions_tile_view;
             case TileStyle.MODERN_CONDENSED:
                 return R.layout.suggestions_tile_view_condensed;
-        }
-        assert false;
-        return 0;
-    }
-
-    private @LayoutRes int getTopSitesLayout() {
-        switch (mStyle) {
-            case TileStyle.MODERN:
-                return R.layout.top_sites_tile_view;
-            case TileStyle.MODERN_CONDENSED:
-                return R.layout.top_sites_tile_view_condensed;
         }
         assert false;
         return 0;

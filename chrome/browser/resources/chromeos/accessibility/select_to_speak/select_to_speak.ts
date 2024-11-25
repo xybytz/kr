@@ -2,13 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {AutomationPredicate} from '../common/automation_predicate.js';
-import {AutomationUtil} from '../common/automation_util.js';
-import {constants} from '../common/constants.js';
-import {NodeNavigationUtils} from '../common/node_navigation_utils.js';
-import {NodeUtils} from '../common/node_utils.js';
-import {ParagraphUtils} from '../common/paragraph_utils.js';
-import {WordUtils} from '../common/word_utils.js';
+import {AutomationPredicate} from '/common/automation_predicate.js';
+import {AutomationUtil} from '/common/automation_util.js';
+import {constants} from '/common/constants.js';
+import {FlagName, Flags} from '/common/flags.js';
+import {NodeNavigationUtils} from '/common/node_navigation_utils.js';
+import {NodeUtils} from '/common/node_utils.js';
+import {ParagraphUtils} from '/common/paragraph_utils.js';
+import {TestImportManager} from '/common/testing/test_import_manager.js';
+import {WordUtils} from '/common/word_utils.js';
 
 import {InputHandler} from './input_handler.js';
 import {MetricsUtils} from './metrics_utils.js';
@@ -165,7 +167,7 @@ export class SelectToSpeak implements SelectToSpeakUiListener {
     this.init_();
   }
 
-  private init_(): void {
+  private async init_(): Promise<void> {
     chrome.automation.getDesktop(desktop => {
       this.desktop_ = desktop;
 
@@ -175,6 +177,11 @@ export class SelectToSpeak implements SelectToSpeakUiListener {
       desktop.addEventListener(
           EventType.MOUSE_RELEASED, evt => this.onAutomationHitTest_(evt),
           true);
+      // Chrome PDF Viewer with PDF OCR sends a layout complete event when
+      // finishing extracting text from inaccessible PDF pages. The same for
+      // Backlight (AKA Gallery on ChromeOS).
+      desktop.addEventListener(
+          EventType.LAYOUT_COMPLETE, evt => this.onLayoutComplete_(evt), true);
 
       if (this.onLoadDesktopCallbackForTest_) {
         this.onLoadDesktopCallbackForTest_();
@@ -187,14 +194,26 @@ export class SelectToSpeak implements SelectToSpeakUiListener {
     this.runContentScripts_();
     this.setUpEventListeners_();
 
-    chrome.contextMenus.create({
+    await Flags.init();
+    const createArgs: chrome.contextMenus.CreateProperties = {
       title: chrome.i18n.getMessage(
           'select_to_speak_listen_context_menu_option_text'),
       contexts: [chrome.contextMenus.ContextType.SELECTION],
-      onclick: () => {
+      id: 'select_to_speak',
+    };
+    if (Flags.isEnabled(FlagName.MANIFEST_V3)) {
+      chrome.contextMenus.onClicked.addListener(() => {
         this.getFocusedNodeAndSpeakSelectedText_();
-      },
-    });
+      });
+    } else {
+      createArgs['onclick'] = () => {
+        this.getFocusedNodeAndSpeakSelectedText_();
+      };
+    }
+    // Install the context menu in the Ash browser.
+    await chrome.contextMenus.create(createArgs);
+
+    // Listen for context menu clicks from other contexts (like Lacros).
     chrome.accessibilityPrivate.onSelectToSpeakContextMenuClicked.addListener(
         () => {
           this.getFocusedNodeAndSpeakSelectedText_();
@@ -222,23 +241,93 @@ export class SelectToSpeak implements SelectToSpeakUiListener {
   }
 
   /**
+   * Read the status message under the status node in a PDF accessibility tree
+   * if PDF content is still being loaded. In the loading phase, the PDF a11y
+   * tree will have one child node with the banner role, which contains the
+   * loading status message as follows:
+   * pdfRoot
+   * - banner
+   * -- status
+   * --- staticText: "Loading PDF"
+   */
+  private readPdfStatusNodeIfStillLoading_(pdfRoot: AutomationNode): boolean {
+    if (pdfRoot.role === RoleType.PDF_ROOT && pdfRoot.children.length === 1 &&
+        pdfRoot.firstChild!.role === RoleType.BANNER &&
+        pdfRoot.firstChild!.children.length === 1 &&
+        pdfRoot.firstChild!.firstChild!.role === RoleType.STATUS &&
+        pdfRoot.firstChild!.firstChild!.children.length === 1 &&
+        pdfRoot.firstChild!.firstChild!.firstChild!.role ===
+            RoleType.STATIC_TEXT) {
+      this.startSpeechQueue_([pdfRoot.firstChild!.firstChild!.firstChild!], {
+        clearFocusRing: true,
+      });
+      return true;
+    }
+    return false;
+  }
+
+  private onLayoutComplete_(evt: AutomationEvent): void {
+    const root: AutomationNode = evt.target;
+    if (!root.url || !root.url.endsWith('.pdf')) {
+      return;
+    }
+
+    // Check if it's a PDF being viewed in Backlight (AKA the Gallery App on
+    // ChromeOS), or the Chrome PDF Viewer with PDF OCR in the full-page view.
+    const pdfRoot: AutomationNode|null = root.find({role: RoleType.PDF_ROOT});
+    if (!pdfRoot) {
+      return;
+    }
+
+    this.recordOcredPagesInPdf_(pdfRoot);
+  }
+
+  /**
+   * Record the number of OCRed pages in the PDF accessibility tree.
+   */
+  private recordOcredPagesInPdf_(pdfRoot: AutomationNode): void {
+    // When PDF OCR successfully extracts text from inaccessible PDF pages, PDF
+    // pages with OCRed content will have the "ocred_page" class name.
+    const orcedPages = pdfRoot.findAll({attributes: {className: 'ocred_page'}});
+    MetricsUtils.recordNumPdfPagesOcred(orcedPages.length);
+  }
+
+  /**
    * Called in response to our hit test after the mouse is released,
    * when the user is in a mode where Select-to-speak is capturing
    * mouse events (for example holding down Search).
    * @param evt The automation event from the hit test.
    */
   private onAutomationHitTest_(evt: AutomationEvent): void {
-    // Walk up to the nearest window, web area, toolbar, or dialog that the
-    // hit node is contained inside. Only speak objects within that
-    // container. In the future we might include other container-like
-    // roles here.
+    // Walk up to the nearest window, web area, graphics document, toolbar, or
+    // dialog that the hit node is contained inside. Only speak objects within
+    // that container. In the future we might include other root-like roles
+    // here. (Consider harmonizing with the `ui::IsRootLike` method.)
     var root = evt.target;
+
+    // In Chrome PDF Viewer, PDF content for a large PDF might still be loading
+    // into a PDF accessibility tree when the user selects text on a PDF page.
+    // In this case, the PDF root has only one child node, which is the status
+    // node that contains a loading status message. Read this status message if
+    // the user tries selecting text during this loading phase. The same should
+    // happen in the Gallery App (AKA Backlight). Backlight uses a different
+    // role for its PDF container: `ax::mojom::Role::kGraphicsDocument`.
+    if ((root.role === RoleType.EMBEDDED_OBJECT ||
+         root.role === RoleType.GRAPHICS_DOCUMENT) &&
+        root.children.length === 1 &&
+        root.firstChild!.role === RoleType.PDF_ROOT &&
+        root.firstChild!.children.length === 1 &&
+        this.readPdfStatusNodeIfStillLoading_(root.firstChild!)) {
+      return;
+    }
+
     // TODO: Use AutomationPredicate.root instead?
     while (root.parent && root.role !== RoleType.WINDOW &&
            root.role !== RoleType.ROOT_WEB_AREA &&
            root.role !== RoleType.DESKTOP && root.role !== RoleType.DIALOG &&
            root.role !== RoleType.ALERT_DIALOG &&
-           root.role !== RoleType.TOOLBAR) {
+           root.role !== RoleType.TOOLBAR &&
+           root.role !== RoleType.GRAPHICS_DOCUMENT) {
       root = root.parent;
     }
 
@@ -351,7 +440,8 @@ export class SelectToSpeak implements SelectToSpeakUiListener {
         NodeUtils.getDeepEquivalentForSelection(endObject!, endOffset, false);
 
     // TODO(katie): We go into these blocks but they feel redundant. Can
-    // there be another way to do this?
+    // there be another way to do this? (E.g. by using the `SelIsBackward` field
+    // in `AXTreeData`?)
     let firstPosition;
     let lastPosition;
     if (startPosition.node === endPosition.node) {
@@ -386,7 +476,7 @@ export class SelectToSpeak implements SelectToSpeakUiListener {
    * @param firstPosition The first position at which to start reading.
    * @param lastPosition The last position at which to stop reading.
    * @param method the method used to
-   *     activate the speech, null if not actived by user.
+   *     activate the speech, null if not activated by user.
    * @param focusedNode The node with user focus.
    */
   private readNodesBetweenPositions_(
@@ -1352,7 +1442,7 @@ export class SelectToSpeak implements SelectToSpeakUiListener {
   }
 
   /**
-   * Uses the 'word' speech event to determine which node is currently beings
+   * Uses the 'word' speech event to determine which node is currently being
    * spoken, and prepares for highlight if enabled.
    * @param event The event to use for updates.
    * @param nodeGroup The node group for this
@@ -1363,7 +1453,7 @@ export class SelectToSpeak implements SelectToSpeakUiListener {
     if (event.charIndex === undefined) {
       return;
     }
-    // Not all speech engines include length in the ttsEvent object. .
+    // Not all speech engines include length in the ttsEvent object.
     const hasLength = event.length !== undefined && event.length >= 0;
     const length = event.length || 0;
     // Only update the |this.currentCharIndex_| if event has a higher charIndex.
@@ -1728,3 +1818,5 @@ export class SelectToSpeak implements SelectToSpeakUiListener {
     callback();
   }
 }
+
+TestImportManager.exportForTesting(getGSuiteAppRoot);

@@ -70,19 +70,14 @@ void LinkStyle::NotifyFinished(Resource* resource) {
   }
 
   auto* cached_style_sheet = To<CSSStyleSheetResource>(resource);
-  // See the comment in pending_script.cc about why this check is necessary
-  // here, instead of in the resource fetcher. https://crbug.com/500701.
   if ((!cached_style_sheet->ErrorOccurred() &&
        !owner_->FastGetAttribute(html_names::kIntegrityAttr).empty() &&
        !cached_style_sheet->IntegrityMetadata().empty()) ||
-      resource->IsLinkPreload()) {
-    ResourceIntegrityDisposition disposition =
-        cached_style_sheet->IntegrityDisposition();
-
+      resource->ForceIntegrityChecks()) {
     SubresourceIntegrityHelper::DoReport(
         *GetExecutionContext(), cached_style_sheet->IntegrityReportInfo());
 
-    if (disposition == ResourceIntegrityDisposition::kFailed) {
+    if (!cached_style_sheet->PassedIntegrityChecks()) {
       loading_ = false;
       RemovePendingSheet();
       NotifyLoadedSheetAndAllCriticalSubresources(
@@ -262,6 +257,10 @@ void LinkStyle::SetDisabledState(bool disabled) {
 LinkStyle::LoadReturnValue LinkStyle::LoadStylesheetIfNeeded(
     const LinkLoadParameters& params,
     const WTF::TextEncoding& charset) {
+  if (GetDocument().StatePreservingAtomicMoveInProgress()) {
+    return kNotNeeded;
+  }
+
   if (disabled_state_ == kDisabled || !owner_->RelAttribute().IsStyleSheet() ||
       !StyleSheetTypeIsSupported(params.type) || !ShouldLoadResource() ||
       !params.href.IsValid())
@@ -288,8 +287,9 @@ LinkStyle::LoadReturnValue LinkStyle::LoadStylesheetIfNeeded(
   if (!owner_->Media().empty() && frame) {
     MediaQuerySet* media =
         MediaQuerySet::Create(owner_->Media(), GetExecutionContext());
-    MediaQueryEvaluator evaluator(frame);
-    media_query_matches = evaluator.Eval(*media);
+    MediaQueryEvaluator* evaluator =
+        MakeGarbageCollected<MediaQueryEvaluator>(frame);
+    media_query_matches = evaluator->Eval(*media);
   }
 
   // Don't hold up layout tree construction and script execution on

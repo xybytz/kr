@@ -9,6 +9,7 @@
 
 #include "base/files/file_path.h"
 #include "base/functional/callback_forward.h"
+#import "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -16,9 +17,15 @@
 #include "components/optimization_guide/core/optimization_guide_decision.h"
 #include "components/optimization_guide/core/optimization_guide_model_provider.h"
 #include "components/optimization_guide/core/optimization_metadata.h"
+#import "components/optimization_guide/optimization_guide_buildflags.h"
 #include "components/optimization_guide/proto/hints.pb.h"
 #include "ios/chrome/browser/download/model/background_service/background_download_service_factory.h"
 #include "url/gurl.h"
+
+#if BUILDFLAG(BUILD_WITH_INTERNAL_OPTIMIZATION_GUIDE)
+#include "components/optimization_guide/core/model_execution/model_execution_features_controller.h"
+#include "components/optimization_guide/core/optimization_guide_model_executor.h"
+#endif  // BUILDFLAG(BUILD_WITH_INTERNAL_OPTIMIZATION_GUIDE)
 
 namespace leveldb_proto {
 class ProtoDatabaseProvider;
@@ -28,13 +35,21 @@ namespace network {
 class SharedURLLoaderFactory;
 }  // namespace network
 
+#if BUILDFLAG(BUILD_WITH_INTERNAL_OPTIMIZATION_GUIDE)
 namespace optimization_guide {
-class TabUrlProvider;
-class TopHostProvider;
+class ModelExecutionManager;
+class OnDeviceModelAvailabilityObserver;
+class OnDeviceModelComponentStateManager;
+}  // namespace optimization_guide
+#endif  // BUILDFLAG(BUILD_WITH_INTERNAL_OPTIMIZATION_GUIDE)
+
+namespace optimization_guide {
+class HintsManager;
 class OptimizationGuideStore;
 class OptimizationTargetModelObserver;
 class PredictionManager;
-class HintsManager;
+class TabUrlProvider;
+class TopHostProvider;
 }  // namespace optimization_guide
 
 namespace signin {
@@ -51,11 +66,14 @@ class PrefService;
 // in //chrome/browser that is used for non-iOS. It cannot be directly used due
 // to the platform differences of the common data structures -
 // NavigationContext vs NavigationHandle, BrowserState vs Profile, etc.
-// TODO(crbug.com/1240907): Add support for clearing the hints when browsing
+// TODO(crbug.com/40785700): Add support for clearing the hints when browsing
 // data is cleared.
 class OptimizationGuideService
     : public KeyedService,
       public optimization_guide::OptimizationGuideDecider,
+#if BUILDFLAG(BUILD_WITH_INTERNAL_OPTIMIZATION_GUIDE)
+      public optimization_guide::OptimizationGuideModelExecutor,
+#endif
       public optimization_guide::OptimizationGuideModelProvider {
  public:
   // BackgroundDownloadService is only available once the profile is fully
@@ -69,8 +87,6 @@ class OptimizationGuideService
       bool off_the_record,
       const std::string& application_locale,
       base::WeakPtr<optimization_guide::OptimizationGuideStore> hint_store,
-      base::WeakPtr<optimization_guide::OptimizationGuideStore>
-          prediction_model_and_features_store,
       PrefService* pref_service,
       BrowserList* browser_list,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
@@ -81,7 +97,7 @@ class OptimizationGuideService
   OptimizationGuideService(const OptimizationGuideService&) = delete;
   OptimizationGuideService& operator=(const OptimizationGuideService&) = delete;
 
-  // Some initialization parts must be done once the browser_state is fully
+  // Some initialization parts must be done once the profile is fully
   // initialized.
   void DoFinalInit(download::BackgroundDownloadService*
                        background_download_service = nullptr);
@@ -98,6 +114,30 @@ class OptimizationGuideService
       const GURL& url,
       optimization_guide::proto::OptimizationType optimization_type,
       optimization_guide::OptimizationMetadata* optimization_metadata) override;
+
+#if BUILDFLAG(BUILD_WITH_INTERNAL_OPTIMIZATION_GUIDE)
+  // optimization_guide::OptimizationGuideModelExecutor implementation:
+  bool CanCreateOnDeviceSession(
+      optimization_guide::ModelBasedCapabilityKey feature,
+      optimization_guide::OnDeviceModelEligibilityReason*
+          on_device_model_eligibility_reason) override;
+  std::unique_ptr<Session> StartSession(
+      optimization_guide::ModelBasedCapabilityKey feature,
+      const std::optional<optimization_guide::SessionConfigParams>&
+          config_params) override;
+  void ExecuteModel(
+      optimization_guide::ModelBasedCapabilityKey feature,
+      const google::protobuf::MessageLite& request_metadata,
+      const std::optional<base::TimeDelta>& execution_timeout,
+      optimization_guide::OptimizationGuideModelExecutionResultCallback
+          callback) override;
+  void AddOnDeviceModelAvailabilityChangeObserver(
+      optimization_guide::ModelBasedCapabilityKey feature,
+      optimization_guide::OnDeviceModelAvailabilityObserver* observer) override;
+  void RemoveOnDeviceModelAvailabilityChangeObserver(
+      optimization_guide::ModelBasedCapabilityKey feature,
+      optimization_guide::OnDeviceModelAvailabilityObserver* observer) override;
+#endif
 
   // optimization_guide::OptimizationGuideModelProvider implementation:
   void AddObserverForOptimizationTargetModel(
@@ -125,6 +165,15 @@ class OptimizationGuideService
     return optimization_guide_logger_.get();
   }
 
+  // Adds hints for a URL with provided metadata to the optimization guide. For
+  // testing purposes only. This will flush any callbacks for `url` that were
+  // registered via `CanApplyOptimization`. If no applicable callbacks were
+  // registered, this will just add the hint for later use.
+  void AddHintForTesting(
+      const GURL& url,
+      optimization_guide::proto::OptimizationType optimization_type,
+      const std::optional<optimization_guide::OptimizationMetadata>& metadata);
+
  private:
   friend class OptimizationGuideServiceTest;
   friend class OptimizationGuideTabHelper;
@@ -142,14 +191,16 @@ class OptimizationGuideService
   // KeyedService implementation:
   void Shutdown() override;
 
-  // optimization_guide::NewOptimizationGuideDecider implementation:
+  // optimization_guide::OptimizationGuideDecider implementation:
   void CanApplyOptimizationOnDemand(
       const std::vector<GURL>& urls,
       const base::flat_set<optimization_guide::proto::OptimizationType>&
           optimization_types,
       optimization_guide::proto::RequestContext request_context,
       optimization_guide::OnDemandOptimizationGuideDecisionRepeatingCallback
-          callback) override;
+          callback,
+      std::optional<optimization_guide::proto::RequestContextMetadata>
+          request_context_metadata) override;
 
   // The store of hints.
   std::unique_ptr<optimization_guide::OptimizationGuideStore> hint_store_;
@@ -166,20 +217,26 @@ class OptimizationGuideService
   // tabs. Will be null if the user is off the record.
   std::unique_ptr<optimization_guide::TabUrlProvider> tab_url_provider_;
 
-  std::unique_ptr<OptimizationGuideLogger> optimization_guide_logger_;
-
-  // The store of optimization target prediction models and features.
-  std::unique_ptr<optimization_guide::OptimizationGuideStore>
-      prediction_model_and_features_store_;
+  raw_ptr<OptimizationGuideLogger> optimization_guide_logger_;
 
   // Manages the storing, loading, and evaluating of optimization target
   // prediction models.
   std::unique_ptr<optimization_guide::PredictionManager> prediction_manager_;
 
-  // The PrefService of the browser state this service is linked to.
-  PrefService* const pref_service_ = nullptr;
+#if BUILDFLAG(BUILD_WITH_INTERNAL_OPTIMIZATION_GUIDE)
+  // Manages the state of the on-device model.
+  scoped_refptr<optimization_guide::OnDeviceModelComponentStateManager>
+      on_device_model_state_manager_;
 
-  // Whether the service is linked to an incognito browser state.
+  // Manages the model execution. Not created for off the record profiles.
+  std::unique_ptr<optimization_guide::ModelExecutionManager>
+      model_execution_manager_;
+#endif
+
+  // The PrefService of the profile this service is linked to.
+  const raw_ptr<PrefService> pref_service_ = nullptr;
+
+  // Whether the service is linked to an incognito profile.
   const bool off_the_record_ = false;
 
   SEQUENCE_CHECKER(sequence_checker_);

@@ -5,7 +5,7 @@
 #import "ios/chrome/browser/ui/settings/google_services/parcel_tracking_settings_coordinator.h"
 
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/shared/ui/table_view/legacy_chrome_table_view_styler.h"
 #import "ios/chrome/browser/shared/ui/table_view/table_view_utils.h"
 #import "ios/chrome/browser/ui/settings/google_services/parcel_tracking_settings_mediator.h"
@@ -33,7 +33,7 @@
   _viewController = [[ParcelTrackingSettingsViewController alloc]
       initWithStyle:ChromeTableViewStyle()];
   _mediator = [[ParcelTrackingSettingsMediator alloc]
-      initWithPrefs:self.browser->GetBrowserState()->GetPrefs()];
+      initWithPrefs:self.browser->GetProfile()->GetPrefs()];
 
   _mediator.consumer = _viewController;
   _viewController.modelDelegate = _mediator;

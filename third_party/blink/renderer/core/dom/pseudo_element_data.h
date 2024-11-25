@@ -7,6 +7,7 @@
 
 #include "base/notreached.h"
 #include "build/build_config.h"
+#include "third_party/blink/renderer/core/dom/column_pseudo_element.h"
 #include "third_party/blink/renderer/core/dom/element_rare_data_field.h"
 #include "third_party/blink/renderer/core/dom/transition_pseudo_element_data.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -30,39 +31,100 @@ class PseudoElementData final : public GarbageCollected<PseudoElementData>,
   using PseudoElementVector = HeapVector<Member<PseudoElement>, 2>;
   PseudoElementVector GetPseudoElements() const;
 
+  const ColumnPseudoElementsVector* GetColumnPseudoElements() const {
+    return column_pseudo_elements_;
+  }
+  void AddColumnPseudoElement(ColumnPseudoElement& column_pseudo_element) {
+    if (!column_pseudo_elements_) {
+      column_pseudo_elements_ =
+          MakeGarbageCollected<ColumnPseudoElementsVector>();
+    }
+    DCHECK(column_pseudo_elements_->Find(column_pseudo_element) == kNotFound);
+    column_pseudo_elements_->push_back(column_pseudo_element);
+  }
+  void ClearColumnPseudoElements() {
+    if (!column_pseudo_elements_) {
+      return;
+    }
+    column_pseudo_elements_->clear();
+  }
+
   bool HasPseudoElements() const;
   void ClearPseudoElements();
   void Trace(Visitor* visitor) const override {
+    visitor->Trace(generated_check_);
     visitor->Trace(generated_before_);
     visitor->Trace(generated_after_);
+    visitor->Trace(generated_select_arrow_);
     visitor->Trace(generated_marker_);
     visitor->Trace(generated_first_letter_);
+    visitor->Trace(generated_scroll_marker_group_before_);
+    visitor->Trace(generated_scroll_marker_group_after_);
+    visitor->Trace(generated_scroll_marker_);
+    visitor->Trace(generated_scroll_up_button_);
+    visitor->Trace(generated_scroll_down_button_);
+    visitor->Trace(generated_scroll_left_button_);
+    visitor->Trace(generated_scroll_right_button_);
     visitor->Trace(backdrop_);
     visitor->Trace(transition_data_);
+    visitor->Trace(column_pseudo_elements_);
     ElementRareDataField::Trace(visitor);
   }
 
  private:
+  Member<PseudoElement> generated_check_;
   Member<PseudoElement> generated_before_;
   Member<PseudoElement> generated_after_;
+  Member<PseudoElement> generated_select_arrow_;
   Member<PseudoElement> generated_marker_;
   Member<PseudoElement> generated_first_letter_;
+  Member<PseudoElement> generated_scroll_marker_group_before_;
+  Member<PseudoElement> generated_scroll_marker_group_after_;
+  Member<PseudoElement> generated_scroll_marker_;
+  Member<PseudoElement> generated_scroll_up_button_;
+  Member<PseudoElement> generated_scroll_down_button_;
+  Member<PseudoElement> generated_scroll_left_button_;
+  Member<PseudoElement> generated_scroll_right_button_;
   Member<PseudoElement> backdrop_;
 
   Member<TransitionPseudoElementData> transition_data_;
+
+  // Column pseudo elements are created once per column (fragmentainer)
+  // with style specified with ::column. They live here as array, since there is
+  // no Element for column (fragmentainer), and they should appear somewhere for
+  // focus and a11y.
+  Member<ColumnPseudoElementsVector> column_pseudo_elements_;
 };
 
 inline bool PseudoElementData::HasPseudoElements() const {
-  return generated_before_ || generated_after_ || generated_marker_ ||
-         backdrop_ || generated_first_letter_ || transition_data_;
+  return generated_check_ || generated_before_ || generated_after_ ||
+         generated_select_arrow_ || generated_marker_ || backdrop_ ||
+         generated_first_letter_ || transition_data_ ||
+         generated_scroll_marker_group_before_ ||
+         generated_scroll_marker_group_after_ || generated_scroll_marker_ ||
+         generated_scroll_up_button_ || generated_scroll_down_button_ ||
+         generated_scroll_left_button_ || generated_scroll_right_button_ ||
+         (column_pseudo_elements_ && !column_pseudo_elements_->empty());
 }
 
 inline void PseudoElementData::ClearPseudoElements() {
+  SetPseudoElement(kPseudoIdCheckMark, nullptr);
   SetPseudoElement(kPseudoIdBefore, nullptr);
   SetPseudoElement(kPseudoIdAfter, nullptr);
+  SetPseudoElement(kPseudoIdSelectArrow, nullptr);
   SetPseudoElement(kPseudoIdMarker, nullptr);
   SetPseudoElement(kPseudoIdBackdrop, nullptr);
   SetPseudoElement(kPseudoIdFirstLetter, nullptr);
+  SetPseudoElement(kPseudoIdScrollMarkerGroupBefore, nullptr);
+  SetPseudoElement(kPseudoIdScrollMarkerGroupAfter, nullptr);
+  SetPseudoElement(kPseudoIdScrollMarker, nullptr);
+  SetPseudoElement(kPseudoIdScrollUpButton, nullptr);
+  SetPseudoElement(kPseudoIdScrollDownButton, nullptr);
+  SetPseudoElement(kPseudoIdScrollLeftButton, nullptr);
+  SetPseudoElement(kPseudoIdScrollRightButton, nullptr);
+  if (column_pseudo_elements_) {
+    column_pseudo_elements_->clear();
+  }
   if (transition_data_) {
     transition_data_->ClearPseudoElements();
     transition_data_ = nullptr;
@@ -75,6 +137,10 @@ inline void PseudoElementData::SetPseudoElement(
     const AtomicString& view_transition_name) {
   PseudoElement* previous_element = nullptr;
   switch (pseudo_id) {
+    case kPseudoIdCheckMark:
+      previous_element = generated_check_;
+      generated_check_ = element;
+      break;
     case kPseudoIdBefore:
       previous_element = generated_before_;
       generated_before_ = element;
@@ -83,9 +149,41 @@ inline void PseudoElementData::SetPseudoElement(
       previous_element = generated_after_;
       generated_after_ = element;
       break;
+    case kPseudoIdSelectArrow:
+      previous_element = generated_select_arrow_;
+      generated_select_arrow_ = element;
+      break;
     case kPseudoIdMarker:
       previous_element = generated_marker_;
       generated_marker_ = element;
+      break;
+    case kPseudoIdScrollMarkerGroupBefore:
+      previous_element = generated_scroll_marker_group_before_;
+      generated_scroll_marker_group_before_ = element;
+      break;
+    case kPseudoIdScrollMarkerGroupAfter:
+      previous_element = generated_scroll_marker_group_after_;
+      generated_scroll_marker_group_after_ = element;
+      break;
+    case kPseudoIdScrollMarker:
+      previous_element = generated_scroll_marker_;
+      generated_scroll_marker_ = element;
+      break;
+    case kPseudoIdScrollUpButton:
+      previous_element = generated_scroll_up_button_;
+      generated_scroll_up_button_ = element;
+      break;
+    case kPseudoIdScrollDownButton:
+      previous_element = generated_scroll_down_button_;
+      generated_scroll_down_button_ = element;
+      break;
+    case kPseudoIdScrollLeftButton:
+      previous_element = generated_scroll_left_button_;
+      generated_scroll_left_button_ = element;
+      break;
+    case kPseudoIdScrollRightButton:
+      previous_element = generated_scroll_right_button_;
+      generated_scroll_right_button_ = element;
       break;
     case kPseudoIdBackdrop:
       previous_element = backdrop_;
@@ -120,12 +218,39 @@ inline void PseudoElementData::SetPseudoElement(
 inline PseudoElement* PseudoElementData::GetPseudoElement(
     PseudoId pseudo_id,
     const AtomicString& view_transition_name) const {
+  if (kPseudoIdCheckMark == pseudo_id) {
+    return generated_check_.Get();
+  }
   if (kPseudoIdBefore == pseudo_id)
     return generated_before_.Get();
   if (kPseudoIdAfter == pseudo_id)
     return generated_after_.Get();
+  if (kPseudoIdSelectArrow == pseudo_id) {
+    return generated_select_arrow_.Get();
+  }
   if (kPseudoIdMarker == pseudo_id)
     return generated_marker_.Get();
+  if (kPseudoIdScrollMarkerGroupBefore == pseudo_id) {
+    return generated_scroll_marker_group_before_.Get();
+  }
+  if (kPseudoIdScrollMarkerGroupAfter == pseudo_id) {
+    return generated_scroll_marker_group_after_.Get();
+  }
+  if (kPseudoIdScrollMarker == pseudo_id) {
+    return generated_scroll_marker_.Get();
+  }
+  if (kPseudoIdScrollUpButton == pseudo_id) {
+    return generated_scroll_up_button_.Get();
+  }
+  if (kPseudoIdScrollDownButton == pseudo_id) {
+    return generated_scroll_down_button_.Get();
+  }
+  if (kPseudoIdScrollLeftButton == pseudo_id) {
+    return generated_scroll_left_button_.Get();
+  }
+  if (kPseudoIdScrollRightButton == pseudo_id) {
+    return generated_scroll_right_button_.Get();
+  }
 // Workaround for CPU bug. This avoids compiler optimizing
 // this group of if conditions into switch. See http://crbug.com/855390.
 #if defined(ARCH_CPU_ARMEL)
@@ -146,10 +271,16 @@ inline PseudoElement* PseudoElementData::GetPseudoElement(
 inline PseudoElementData::PseudoElementVector
 PseudoElementData::GetPseudoElements() const {
   PseudoElementData::PseudoElementVector result;
+  if (generated_check_) {
+    result.push_back(generated_check_);
+  }
   if (generated_before_)
     result.push_back(generated_before_);
   if (generated_after_)
     result.push_back(generated_after_);
+  if (generated_select_arrow_) {
+    result.push_back(generated_select_arrow_);
+  }
   if (generated_marker_)
     result.push_back(generated_marker_);
   if (generated_first_letter_)
@@ -158,6 +289,30 @@ PseudoElementData::GetPseudoElements() const {
     result.push_back(backdrop_);
   if (transition_data_)
     transition_data_->AddPseudoElements(&result);
+  if (generated_scroll_marker_group_before_) {
+    result.push_back(generated_scroll_marker_group_before_);
+  }
+  if (generated_scroll_marker_group_after_) {
+    result.push_back(generated_scroll_marker_group_after_);
+  }
+  if (generated_scroll_marker_) {
+    result.push_back(generated_scroll_marker_);
+  }
+  if (generated_scroll_up_button_) {
+    result.push_back(generated_scroll_up_button_);
+  }
+  if (generated_scroll_down_button_) {
+    result.push_back(generated_scroll_down_button_);
+  }
+  if (generated_scroll_left_button_) {
+    result.push_back(generated_scroll_left_button_);
+  }
+  if (generated_scroll_right_button_) {
+    result.push_back(generated_scroll_right_button_);
+  }
+  if (column_pseudo_elements_) {
+    result.AppendVector(*column_pseudo_elements_);
+  }
   return result;
 }
 

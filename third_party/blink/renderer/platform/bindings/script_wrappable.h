@@ -42,11 +42,12 @@
 
 namespace blink {
 
+class DOMDataStore;
 class ScriptState;
 
 // ScriptWrappable provides a way to map from/to C++ DOM implementation to/from
 // JavaScript object (platform object).  ToV8() converts a ScriptWrappable to
-// a v8::Object and toScriptWrappable() converts a v8::Object back to
+// a v8::Object and ToScriptWrappable() converts a v8::Object back to
 // a ScriptWrappable.  v8::Object as platform object is called "wrapper object".
 // The wrapper object for the main world is stored in ScriptWrappable.  Wrapper
 // objects for other worlds are stored in DOMDataStore.
@@ -55,9 +56,7 @@ class PLATFORM_EXPORT ScriptWrappable
       public NameClient {
  public:
   // This is a type dispatcher from ScriptWrappable* to a subtype, optimized for
-  // use cases that perform downcasts multiple times. If you perform a downcast
-  // only once, ScriptWrappable::DowncastTo or ScriptWrappable::ToMostDerived
-  // would be a better choice.
+  // use cases that perform downcasts multiple times.
   class TypeDispatcher final {
     STACK_ALLOCATED();
 
@@ -108,62 +107,25 @@ class PLATFORM_EXPORT ScriptWrappable
 
   virtual void Trace(Visitor*) const;
 
-  // Downcasts this instance to the given template parameter type or nullptr if
-  // this instance doesn't implement the given type. The inheritance is checked
-  // with WrapperTypeInfo, i.e. the check is based on the IDL definitions in
-  // *.idl files, not based on C++ class inheritance.
-  template <typename T>
-  T* DowncastTo() {
-    if (GetWrapperTypeInfo()->IsSubclass(T::GetStaticWrapperTypeInfo()))
-      return static_cast<T*>(this);
-    return nullptr;
-  }
-
-  // Downcasts this instance to the given template parameter type iff this
-  // instance implements the type as the most derived class (i.e. this instance
-  // does _not_ implement a subtype of the given type). Otherwise, returns
-  // nullptr. The inheritance is checked with WrapperTypeInfo, i.e. the check is
-  // based on the IDL definitions in *.idl files, not based on C++ class
-  // inheritance.
-  template <typename T>
-  T* ToMostDerived() {
-    if (GetWrapperTypeInfo() == T::GetStaticWrapperTypeInfo())
-      return static_cast<T*>(this);
-    return nullptr;
-  }
-
-  template <typename T>
-  T* ToImpl() {  // DEPRECATED
-    // All ScriptWrappables are managed by the Blink GC heap; check that
-    // |T| is a garbage collected type.
-    static_assert(
-        sizeof(T) && WTF::IsGarbageCollectedType<T>::value,
-        "Classes implementing ScriptWrappable must be garbage collected.");
-
-    // Check if T* is castable to ScriptWrappable*, which means T doesn't
-    // have two or more ScriptWrappable as superclasses. If T has two
-    // ScriptWrappable as superclasses, conversions from T* to
-    // ScriptWrappable* are ambiguous.
-    static_assert(!static_cast<ScriptWrappable*>(static_cast<T*>(nullptr)),
-                  "Class T must not have two or more ScriptWrappable as its "
-                  "superclasses.");
-
-    return static_cast<T*>(this);
-  }
-
   // Returns the WrapperTypeInfo of the instance.
   //
   // This method must be overridden by DEFINE_WRAPPERTYPEINFO macro.
   virtual const WrapperTypeInfo* GetWrapperTypeInfo() const = 0;
 
   // Returns a wrapper object, creating it if needed.
-  v8::MaybeLocal<v8::Value> ToV8(ScriptState*);
-  v8::MaybeLocal<v8::Value> ToV8(v8::Isolate*,
-                                 v8::Local<v8::Object> creation_context_object);
+  v8::Local<v8::Value> ToV8(ScriptState*);
+
+  // This overload is used for the case when a `ToV8()` caller does not have
+  // `script_state` but does have a receiver object (a creation context object)
+  // which is needed to create a wrapper. If a wrapper object corresponding to
+  // the receiver object exists, `ToV8()` can return it without a call to
+  // `ScriptState::ForRelevantRealm`, which is slow.
+  v8::Local<v8::Value> ToV8(v8::Isolate*,
+                            v8::Local<v8::Object> creation_context_object);
 
   // Creates and returns a new wrapper object. This DCHECKs that a wrapper does
   // not exist yet. Use ToV8() if a wrapper might already exist.
-  virtual v8::MaybeLocal<v8::Value> Wrap(ScriptState*);
+  virtual v8::Local<v8::Value> Wrap(ScriptState*);
 
   // Associates the instance with the given |wrapper| if this instance is not
   // yet associated with any wrapper.  Returns the wrapper already associated
@@ -174,76 +136,30 @@ class PLATFORM_EXPORT ScriptWrappable
       const WrapperTypeInfo*,
       v8::Local<v8::Object> wrapper);
 
-  // Associates this instance with the given |wrapper| if this instance is not
-  // yet associated with any wrapper.  Returns true if the given wrapper is
-  // associated with this instance, or false if this instance is already
-  // associated with a wrapper.  In the latter case, |wrapper| will be updated
-  // to the existing wrapper.
-  [[nodiscard]] bool SetWrapper(v8::Isolate* isolate,
-                                const WrapperTypeInfo* wrapper_type_info,
-                                v8::Local<v8::Object>& wrapper) {
-    DCHECK(!wrapper.IsEmpty());
-    if (UNLIKELY(ContainsWrapper())) {
-      wrapper = MainWorldWrapper(isolate);
-      return false;
-    }
-    if (wrapper_type_info->SupportsDroppingWrapper()) {
-      main_world_wrapper_.Reset(
-          isolate, wrapper, TraceWrapperV8Reference<v8::Object>::IsDroppable{});
-    } else {
-      main_world_wrapper_.Reset(isolate, wrapper);
-    }
-    DCHECK(ContainsWrapper());
-    return true;
-  }
-
-  bool IsEqualTo(const v8::Local<v8::Object>& other) const {
-    return main_world_wrapper_ == other;
-  }
-
-  bool SetReturnValue(v8::ReturnValue<v8::Value> return_value) {
-    const bool contains_wrapper = ContainsWrapper();
-    if (contains_wrapper) {
-      return_value.SetNonEmpty(main_world_wrapper_);
-    }
-    return contains_wrapper;
-  }
-
-
  protected:
   ScriptWrappable() = default;
 
  private:
-  bool ContainsWrapper() const { return !main_world_wrapper_.IsEmpty(); }
-
-  v8::Local<v8::Object> MainWorldWrapper(v8::Isolate* isolate) const {
-    return main_world_wrapper_.Get(isolate);
-  }
-
-  // Clear the main world wrapper if it is set to |handle|.
-  template <typename HandleType>
-  inline bool ClearMainWorldWrapperIfEqualTo(const HandleType& handle);
-
   static_assert(
       std::is_trivially_destructible<
           TraceWrapperV8Reference<v8::Object>>::value,
       "TraceWrapperV8Reference<v8::Object> should be trivially destructible.");
 
-  TraceWrapperV8Reference<v8::Object> main_world_wrapper_;
-
-  // These classes are exceptionally allowed to directly interact with the main
-  // world wrapper.
+  // Inline storage for the a single wrapper reference. Only
+  // `DOMDataStore::UncheckedInlineStorageForWrappable()` should access this
+  // field.
+  TraceWrapperV8Reference<v8::Object> wrapper_;
   friend class DOMDataStore;
-  friend class DOMWrapperWorld;
 };
 
-template <typename HandleType>
-bool ScriptWrappable::ClearMainWorldWrapperIfEqualTo(const HandleType& handle) {
-  if (main_world_wrapper_ == handle) {
-    main_world_wrapper_.Reset();
-    return true;
-  }
-  return false;
+template <typename T>
+  requires std::derived_from<T, ScriptWrappable>
+T* ToScriptWrappable(v8::Isolate* isolate, v8::Local<v8::Object> wrapper) {
+  const WrapperTypeInfo* wrapper_type_info = T::GetStaticWrapperTypeInfo();
+  return static_cast<T*>(v8::Object::Unwrap<ScriptWrappable>(
+      isolate, wrapper,
+      v8::CppHeapPointerTagRange(wrapper_type_info->this_tag,
+                                 wrapper_type_info->max_subclass_tag)));
 }
 
 // Defines |GetWrapperTypeInfo| virtual method which returns the WrapperTypeInfo

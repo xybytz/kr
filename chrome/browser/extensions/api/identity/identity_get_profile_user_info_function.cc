@@ -34,7 +34,6 @@ signin::ConsentLevel GetConsentLevelFromProfileDetails(
 
   NOTREACHED() << "Unexpected value for account_status: "
                << api::identity::ToString(account_status);
-  return signin::ConsentLevel::kSync;
 }
 }  // namespace
 

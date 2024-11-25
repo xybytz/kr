@@ -18,7 +18,7 @@ import org.jni_zero.CalledByNative;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.PackageUtils;
-import org.chromium.base.StrictModeContext;
+import org.chromium.base.ResettersForTesting;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.base.task.PostTask;
@@ -48,18 +48,17 @@ import java.util.Set;
  * WebappDataStorage class). This class must be used on the main thread, except when warming
  * SharedPreferences.
  *
- * Aside from web app registration, which is asynchronous as a new SharedPreferences file must be
+ * <p>Aside from web app registration, which is asynchronous as a new SharedPreferences file must be
  * opened, all methods in this class are synchronous. All web app SharedPreferences known to
  * WebappRegistry are pre-warmed on browser startup when creating the singleton WebappRegistry
  * instance, whilst registering a new web app will automatically cache the new SharedPreferences
  * after it is created.
  *
- * This class is not a comprehensive list of installed web apps because it is impossible to know
+ * <p>This class is not a comprehensive list of installed web apps because it is impossible to know
  * when the user removes a web app from the home screen. The WebappDataStorage.wasUsedRecently()
  * heuristic attempts to compensate for this.
  */
 public class WebappRegistry {
-
     static final String REGISTRY_FILE_NAME = "webapp_registry";
     static final String KEY_WEBAPP_SET = "webapp_set";
     static final String KEY_LAST_CLEANUP = "last_cleanup";
@@ -129,9 +128,9 @@ public class WebappRegistry {
     /**
      * Registers the existence of a web app, creates a SharedPreference entry for it, and runs the
      * supplied callback (if not null) on the UI thread with the resulting WebappDataStorage object.
+     *
      * @param webappId The id of the web app to register.
      * @param callback The callback to run with the WebappDataStorage argument.
-     * @return The storage object for the web app.
      */
     public void register(final String webappId, final FetchWebappDataStorageCallback callback) {
         new AsyncTask<WebappDataStorage>() {
@@ -217,7 +216,10 @@ public class WebappRegistry {
             String scope = getWebApkScopeFromStorage(storage);
             if (scope.isEmpty()) continue;
 
-            if (scope.startsWith(origin)) return true;
+            if (scope.startsWith(origin)
+                    && PackageUtils.isPackageInstalled(storage.getWebApkPackageName())) {
+                return true;
+            }
         }
         return false;
     }
@@ -283,34 +285,12 @@ public class WebappRegistry {
             }
 
             WebappInfo webApkInfo = WebApkDataProvider.getPartialWebappInfo(scope);
-            if (webApkInfo == null) {
+            WebApkSpecifics webApkSpecifics =
+                    WebApkSyncService.getWebApkSpecifics(webApkInfo, storage);
+            if (webApkSpecifics == null) {
                 continue;
             }
-
-            WebApkSpecifics.Builder webApkSpecificsBuilder = WebApkSpecifics.newBuilder();
-            if (webApkInfo.manifestId() != null) {
-                webApkSpecificsBuilder.setManifestId(webApkInfo.manifestId());
-            }
-            if (webApkInfo.manifestStartUrl() != null) {
-                webApkSpecificsBuilder.setStartUrl(webApkInfo.manifestStartUrl());
-            }
-            if (webApkInfo.name() != null) {
-                webApkSpecificsBuilder.setName(webApkInfo.name());
-            }
-            if ((webApkInfo.name() == null || webApkInfo.name().equals(""))
-                    && webApkInfo.shortName() != null) {
-                webApkSpecificsBuilder.setName(webApkInfo.shortName());
-            }
-            if (webApkInfo.hasValidToolbarColor()) {
-                webApkSpecificsBuilder.setThemeColor((int) webApkInfo.toolbarColor());
-            }
-            if (webApkInfo.scopeUrl() != null) {
-                webApkSpecificsBuilder.setScope(webApkInfo.scopeUrl());
-            }
-
-            // TODO(hartmanng): support icons and last used timestamp
-
-            webApkSpecificsList.add(webApkSpecificsBuilder.build());
+            webApkSpecificsList.add(webApkSpecifics);
         }
         return webApkSpecificsList;
     }
@@ -343,9 +323,19 @@ public class WebappRegistry {
      * restored from Sync on Chrome's 2nd run.
      */
     @CalledByNative
-    public static void setNeedsPwaRestore() {
+    public static void setNeedsPwaRestore(boolean needs) {
         ChromeSharedPreferences.getInstance()
-                .writeBoolean(ChromePreferenceKeys.PWA_RESTORE_APPS_AVAILABLE, true);
+                .writeBoolean(ChromePreferenceKeys.PWA_RESTORE_APPS_AVAILABLE, needs);
+    }
+
+    /**
+     * Gets the value of an Android Shared Preference bit which indicates whether or not there are
+     * WebAPKs that need to be restored from Sync on Chrome's 2nd run.
+     */
+    @CalledByNative
+    public static boolean getNeedsPwaRestore() {
+        return ChromeSharedPreferences.getInstance()
+                .readBoolean(ChromePreferenceKeys.PWA_RESTORE_APPS_AVAILABLE, false);
     }
 
     /**
@@ -415,11 +405,12 @@ public class WebappRegistry {
 
     /**
      * Deletes the data for all "old" web apps, as well as all WebAPKs that have been uninstalled in
-     * the last month. "Old" web apps have not been opened by the user in the last 3 months, or have
-     * had their last used time set to 0 by the user clearing their history. Cleanup is run, at
-     * most, once a month.
+     * the last month, and removes all WebAPKs from Sync which haven't been used in the last month.
+     * "Old" web apps have not been opened by the user in the last 3 months, or have had their last
+     * used time set to 0 by the user clearing their history. Cleanup is run, at most, once a month.
+     *
      * @param currentTime The current time which will be checked to decide if the task should be run
-     *                    and if a web app should be cleaned up.
+     *     and if a web app should be cleaned up.
      */
     public void unregisterOldWebapps(long currentTime) {
         if ((currentTime - mPreferences.getLong(KEY_LAST_CLEANUP, 0)) < FULL_CLEANUP_DURATION) {
@@ -442,6 +433,8 @@ public class WebappRegistry {
             storage.delete();
             it.remove();
         }
+
+        WebApkSyncService.removeOldWebAPKsFromSync(currentTime);
 
         mPreferences
                 .edit()
@@ -474,8 +467,15 @@ public class WebappRegistry {
         return mPermissionStore;
     }
 
+    public void setPermissionStoreForTesting(InstalledWebappPermissionStore store) {
+        var oldValue = mPermissionStore;
+        mPermissionStore = store;
+        ResettersForTesting.register(() -> mPermissionStore = oldValue);
+    }
+
     /**
      * Deletes the data of all web apps whose url matches |urlFilter|.
+     *
      * @param urlFilter The filter object to check URLs.
      */
     @VisibleForTesting
@@ -524,13 +524,8 @@ public class WebappRegistry {
     }
 
     private static SharedPreferences openSharedPreferences() {
-        // TODO(peconn): Don't open general WebappRegistry preferences when we just need the
-        // InstalledWebappPermissionStore.
-        // This is required to fix https://crbug.com/952841.
-        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
-            return ContextUtils.getApplicationContext()
-                    .getSharedPreferences(REGISTRY_FILE_NAME, Context.MODE_PRIVATE);
-        }
+        return ContextUtils.getApplicationContext()
+                .getSharedPreferences(REGISTRY_FILE_NAME, Context.MODE_PRIVATE);
     }
 
     private void clearStoragesForTesting() {

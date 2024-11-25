@@ -70,17 +70,15 @@ class FollowManagementMediator {
 
     // Once the list of feeds has been refreshed, get the list.
     private void getFollowedWebFeeds(boolean success) {
-        // TODO(https://crbug.com/1197286) If this fails, show a snackbar with a failure message.
+        // TODO(crbug.com/40176853) If this fails, show a snackbar with a failure message.
         WebFeedBridge.getAllFollowedWebFeeds(this::fillRecyclerView);
     }
 
     // When we get the list of followed pages, add them to the recycler view.
     @VisibleForTesting
     void fillRecyclerView(List<WebFeedMetadata> followedWebFeeds) {
-        String updatesUnavailable =
-                mContext.getResources().getString(R.string.follow_manage_updates_unavailable);
-        String waitingForContent =
-                mContext.getResources().getString(R.string.follow_manage_waiting_for_content);
+        String updatesUnavailable = mContext.getString(R.string.follow_manage_updates_unavailable);
+        String waitingForContent = mContext.getString(R.string.follow_manage_waiting_for_content);
 
         // Remove the loading UI from the recycler view before showing the results.
         mModelList.clear();

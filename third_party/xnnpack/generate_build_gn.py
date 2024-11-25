@@ -32,13 +32,19 @@
 
 import atexit
 import collections
+import io
 import json
 import logging
 import os
 import platform
+import tempfile
 import shutil
 import subprocess
 import sys
+import urllib.request
+
+from dataclasses import dataclass, field
+
 
 _HEADER = '''
 # Copyright 2022 The Chromium Authors
@@ -65,6 +71,7 @@ config("xnnpack_config") {
     "src/deps/clog/include",
     "src/include",
     "src/src",
+    "src",
   ]
 
   cflags=[
@@ -73,6 +80,8 @@ config("xnnpack_config") {
   ]
 
   defines = [
+    "CHROMIUM",
+
     # Don't enable this without first talking to Chrome Security!
     # XNNPACK runs in the browser process. The hardening and fuzzing needed
     # to ensure JIT can be used safely is not in place yet.
@@ -93,6 +102,12 @@ config("xnnpack_config") {
       "XNN_ENABLE_ARM_I8MM=1",
     ]
   }
+
+  if (current_cpu == "x86" || current_cpu == "x64") {
+    defines += [
+      "XNN_ENABLE_AVXVNNI=1",
+    ]
+  }
 }
 '''.strip()
 
@@ -105,6 +120,8 @@ source_set("xnnpack") {
   configs += [ "//build/config/sanitizers:cfi_icall_generalize_pointers" ]
 
   sources = [
+  "src/include/xnnpack.h",
+  "build_identifier.c",
 %SRCS%
   ]
 
@@ -127,6 +144,8 @@ source_set("xnnpack_standalone") {
   configs += [ "//build/config/sanitizers:cfi_icall_generalize_pointers" ]
 
   sources = [
+  "src/include/xnnpack.h",
+  "build_identifier.c",
 %SRCS%
   ]
 
@@ -152,6 +171,7 @@ source_set("%TARGET_NAME%") {
   ]
 %ASMFLAGS%
   sources = [
+    "src/include/xnnpack.h",
 %SRCS%
   ]
 
@@ -176,6 +196,7 @@ source_set("%TARGET_NAME%_standalone") {
   ]
 %ASMFLAGS%
   sources = [
+    "src/include/xnnpack.h",
 %SRCS%
   ]
 
@@ -352,9 +373,28 @@ cc_toolchain_config = rule(
 
 '''.strip()
 
-# A SourceSet corresponds to a single source_set() gn tuple.
-SourceSet = collections.namedtuple('SourceSet', ['dir', 'srcs', 'args'],
-                                   defaults=['', [], []])
+
+@dataclass
+class SourceSet:
+  """A SourceSet corresponds to a single source_set() gn tuple."""
+
+  dir: str = ''
+  srcs: list[str] = field(default_factory=list)
+  args: list[str] = field(default_factory=list)
+
+  def AddSource(self, src):
+    if src not in self.srcs:
+      self.srcs.append(src)
+
+
+@dataclass(frozen=True)
+class ObjectBuild:
+  """An ObjectBuild corresponds to a single built object, which is parsed from a
+  single bazel compiler invocation on a single source file."""
+
+  dir: str
+  src: str
+  args: list[str]
 
 
 def NameForSourceSet(source_set, arch):
@@ -374,12 +414,6 @@ def NameForSourceSet(source_set, arch):
       })
 
 
-# An ObjectBuild corresponds to a single built object, which is parsed from a
-# single bazel compiler invocation on a single source file.
-ObjectBuild = collections.namedtuple('ObjectBuild', ['src', 'dir', 'args'],
-                                     defaults=['', '', []])
-
-
 def _objectbuild_from_bazel_log(action):
   """
   Attempts to scrape a compiler invocation from a single bazel build output
@@ -391,16 +425,21 @@ def _objectbuild_from_bazel_log(action):
   dir = ''
   args = []
   for i, arg in enumerate(action_args):
-    if arg == '-c' and action_args[i + 1].startswith("external/XNNPACK/"):
-      src = os.path.join('src', action_args[i + 1][len("external/XNNPACK/"):])
-      # |src| should look like 'src/src/...'.
+    # Capture compiler flags.
+    if arg.startswith('-m'):
+      args.append(arg)
+
+    # Capture the source and its directory.
+    if arg == '-c' and action_args[i + 1].startswith("src/"):
+      src = os.path.join('src', 'src', action_args[i + 1][len("src/"):])
+      # |src| should look like 'src/...'
       src_path = src.split('/')
       if len(src_path) == 3:
         dir = 'xnnpack'
       else:
         dir = src_path[2]
-    if arg.startswith('-m'):
-      args.append(arg)
+  if not src:
+    return None
   return ObjectBuild(src=src, dir=dir, args=args)
 
 
@@ -411,15 +450,14 @@ def _xnnpack_dir():
   return os.path.dirname(os.path.realpath(__file__))
 
 
-def _tflite_dir():
+def _xnnpack_src_dir():
   """
-  Returns the absolute path of //third_party/tflite/src/tensorflow/lite/.
+  Returns the absolute path of //third_party/xnnpack/src.
   """
-  tp_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-  return os.path.join(tp_dir, "tflite", "src", "tensorflow", "lite")
+  return os.path.join(_xnnpack_dir(), "src")
 
 
-_TOOLCHAIN_DIR = os.path.join(_tflite_dir(),
+_TOOLCHAIN_DIR = os.path.join(_xnnpack_src_dir(),
                               "xnnpack-generate_build_gn-toolchain")
 
 
@@ -452,7 +490,9 @@ def _run_bazel_cmd(args):
   Runs a bazel command in the form of bazel <args...>. Returns the stdout,
   raising an Exception if the command failed.
   """
-  exec_path = shutil.which("bazel")
+
+  # Use standard Bazel install instead of the one included with depot_tools.
+  exec_path = "/usr/bin/bazel"
   if not exec_path:
     raise Exception(
         "bazel is not installed. Please run `sudo apt-get install " +
@@ -461,7 +501,7 @@ def _run_bazel_cmd(args):
   cmd.extend(args)
   proc = subprocess.Popen(cmd,
                           text=True,
-                          cwd=_tflite_dir(),
+                          cwd=_xnnpack_src_dir(),
                           stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE)
   stdout, stderr = proc.communicate()
@@ -483,25 +523,28 @@ def _run_bazel_cmd(args):
 def GenerateObjectBuilds(cpu):
   """
   Queries bazel for the compile commands needed for the XNNPACK source files
-  necessary to fulfill the :tensorflowlite target's dependencies for the given
-  cpu.
+  necessary to fulfill the :xnnpack_for_tflite target's dependencies for the
+  given cpu.
 
   Args:
     cpu: aarch64 or k8
   """
   logging.info(f'Querying xnnpack compile commands for {cpu} with bazel...')
+  # Make sure we have a clean start, this is important if the Android NDK
+  # version changed.
+  _run_bazel_cmd(['clean'])
+
   basename = os.path.basename(_TOOLCHAIN_DIR)
-  crosstool_top = f'//tensorflow/lite/{basename}:cc_suite'
+  crosstool_top = f'//{basename}:cc_suite'
   logs = _run_bazel_cmd([
-      'aquery',
-      f'--crosstool_top={crosstool_top}',
-      '--host_crosstool_top=@bazel_tools//tools/cpp:toolchain',
-      f'--cpu={cpu}',
-      ('mnemonic("CppCompile",'
-       'filter("@XNNPACK//:", deps(:tensorflowlite)))'),
-      '--define',
-      'xnn_enable_jit=false',
-      "--output=jsonproto",
+    'aquery',
+    f'--crosstool_top={crosstool_top}',
+    '--host_crosstool_top=@bazel_tools//tools/cpp:toolchain',
+    f'--cpu={cpu}',
+    'mnemonic("CppCompile", filter("//:", deps(:XNNPACK)))',
+    '--define',
+    'xnn_enable_jit=false',
+    "--output=jsonproto",
   ])
   logging.info('parsing actions from bazel aquery...')
   obs = []
@@ -519,26 +562,25 @@ def CombineObjectBuildsIntoSourceSets(obs, arch):
   """
   Combines all the given ObjectBuild's into SourceSet's by combining source
   files whose SourceSet name's (that is their directory and compiler flags)
-  match.
+  match. Returns the top level XNNPACK source set and an iterable of all other
+  sub-source sets.
 
   Args:
     obs: a list of ObjectBuild's
     arch: CPU architecture, arm64 or x64
   """
-  sss = {}
+  source_sets = {}
   for ob in obs:
     single = SourceSet(dir=ob.dir, srcs=[ob.src], args=ob.args)
     name = NameForSourceSet(single, arch)
-    if name not in sss:
-      sss[name] = single
+    if name not in source_sets:
+      source_sets[name] = single
     else:
-      ss = sss[name]
-      ss = ss._replace(srcs=list(set(ss.srcs + [ob.src])))
-      sss[name] = ss
-  xxnpack_ss = sss.pop('xnnpack')
-  logging.info('Generated %d sub targets for xnnpack' % len(sss))
-  return xxnpack_ss, sorted(list(sss.values()),
-                            key=lambda ss: NameForSourceSet(ss, arch))
+      source_sets[name].AddSource(ob.src)
+  xxnpack_source_set = source_sets.pop('xnnpack')
+  logging.info('Generated %d sub targets for xnnpack' % len(source_sets))
+  return xxnpack_source_set, sorted(
+      source_sets.values(), key=lambda ss: NameForSourceSet(ss, arch))
 
 
 def MakeTargetSourceSet(ss, arch):
@@ -605,6 +647,36 @@ def MakeXNNPACKDepsList(target_sss):
   return deps_list
 
 
+def EnsureAndroidNDK():
+  """
+  Ensures that the Android NDK is available and bazel can find it later.
+
+  This must use command line utilities instead of native Python as a workaround
+  for https://github.com/python/cpython/issues/59999.
+  """
+  tempdir = tempfile.mkdtemp()
+  zipdownload = os.path.join(tempdir, 'android-ndk-r25b-linux.zip')
+  extractdir = os.path.join(tempdir, 'android-ndk-r25b')
+  logging.info('Downloading a copy of the Android NDK')
+  subprocess.check_call(
+    [
+      'curl',
+      'https://dl.google.com/android/repository/android-ndk-r25b-linux.zip',
+      '-o',
+      zipdownload,
+    ],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+  )
+  logging.info('Unpacking the Android NDK')
+  subprocess.check_call(
+    ['unzip', zipdownload, '-d', extractdir],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+  )
+  os.environ['ANDROID_NDK_HOME'] = os.path.join(extractdir, 'android-ndk-r25b')
+
+
 def MakeXNNPACKSourceSet(ss):
   """
   Generates the BUILD file text for the main XNNPACK build target, given the
@@ -615,6 +687,16 @@ def MakeXNNPACKSourceSet(ss):
       '%SRCS%', ',\n'.join(['    "%s"' % src for src in sorted(ss.srcs)]))
   return target
 
+
+# Generates the `build_identifier.c` using bazel and copies to the correct directory.
+def GenerateBuildIdentifier():
+  _run_bazel_cmd(['build', 'generate_build_identifier'])
+  bazel_bin_dir =_run_bazel_cmd(['info', 'bazel-bin']).strip()
+  build_identifier_src = os.path.join(bazel_bin_dir, 'src', 'build_identifier.c')
+  assert os.path.exists(build_identifier_src)
+  build_identifier_dst = os.path.join(_xnnpack_dir(), 'build_identifier.c')
+  logging.info(f'Copying {build_identifier_src} to {build_identifier_dst}')
+  shutil.copyfile(build_identifier_src, build_identifier_dst)
 
 def main():
   logging.basicConfig(level=logging.INFO)
@@ -627,6 +709,8 @@ def main():
     logging.error(f'{_AARCH64_LINUX_GCC} and {_X86_64_LINUX_GCC} are required!')
     logging.error('On x86-64 Debian, install gcc-aarch64-linux-gnu and gcc.')
     sys.exit(1)
+
+  EnsureAndroidNDK()
 
   CreateToolchainFiles()
 
@@ -677,7 +761,13 @@ def main():
         f.write('\n\n')
       f.write('}\n')
 
-  logging.info('Done! Please run `git cl format`')
+  GenerateBuildIdentifier()
+
+  logging.info('Running `git cl format` for you.')
+
+  subprocess.check_output(['git', 'cl', 'format'], cwd=_xnnpack_dir())
+
+  logging.info('Done')
 
 
 if __name__ == "__main__":

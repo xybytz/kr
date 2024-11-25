@@ -7,7 +7,6 @@
 #include "build/build_config.h"
 #include "chrome/browser/ash/login/test/enrollment_helper_mixin.h"
 #include "chrome/browser/ash/login/test/enrollment_ui_mixin.h"
-#include "chrome/browser/ash/login/test/hid_controller_mixin.h"
 #include "chrome/browser/ash/login/test/js_checker.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
 #include "chrome/browser/ash/login/test/oobe_configuration_waiter.h"
@@ -144,7 +143,7 @@ IN_PROC_BROWSER_TEST_F(OobeConfigurationTest, TestSwitchLanguageIME) {
   // scheme to be able to compare them.
 
   const std::string ime_id =
-      imm->GetInputMethodUtil()->MigrateInputMethod("xkb:de:neo:ger");
+      imm->GetInputMethodUtil()->GetMigratedInputMethod("xkb:de:neo:ger");
   EXPECT_EQ(ime_id, imm->GetActiveIMEState()->GetCurrentInputMethod().id());
 
   const std::string language_code = g_browser_process->local_state()->GetString(

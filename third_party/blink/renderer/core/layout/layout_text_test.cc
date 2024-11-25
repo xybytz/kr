@@ -17,9 +17,7 @@
 #include "third_party/blink/renderer/core/editing/testing/selection_sample.h"
 #include "third_party/blink/renderer/core/layout/inline/inline_node_data.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/testing/font_test_helpers.h"
-#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 
 namespace blink {
 
@@ -50,7 +48,7 @@ class LayoutTextTest : public RenderingTest {
     const SelectionInDOMTree selection =
         SelectionSample::SetSelectionText(GetDocument().body(), selection_text);
     UpdateAllLifecyclePhasesForTest();
-    Selection().SetSelectionAndEndTyping(selection);
+    Selection().SetSelection(selection, SetSelectionOptions());
     Selection().CommitAppearanceIfNeeded();
   }
 
@@ -61,7 +59,6 @@ class LayoutTextTest : public RenderingTest {
         return To<LayoutText>(node.GetLayoutObject());
     }
     NOTREACHED();
-    return nullptr;
   }
 
   PhysicalRect GetSelectionRectFor(const std::string& selection_text) {
@@ -69,7 +66,7 @@ class LayoutTextTest : public RenderingTest {
     stream << "<div style='font: 10px/10px Ahem;'>" << selection_text
            << "</div>";
     SetSelectionAndUpdateLayoutSelection(stream.str());
-    const Node* target = GetDocument().getElementById(AtomicString("target"));
+    const Node* target = GetElementById("target");
     const LayoutObject* layout_object =
         target ? target->GetLayoutObject() : FindFirstLayoutText();
     return layout_object->LocalSelectionVisualRect();
@@ -1041,9 +1038,9 @@ TEST_F(LayoutTextTest, PhysicalLinesBoundingBox) {
   //     Box offset:0,-17 size:89x53
   //       Box offset:20,15 size:49x23
   //         Text offset:5,5 size:39x13 start: 8 end: 11
-  const Element& div = *GetDocument().getElementById(AtomicString("div"));
-  const Element& one = *GetDocument().getElementById(AtomicString("one"));
-  const Element& two = *GetDocument().getElementById(AtomicString("two"));
+  const Element& div = *GetElementById("div");
+  const Element& one = *GetElementById("one");
+  const Element& two = *GetElementById("two");
   EXPECT_EQ(PhysicalRect(3, 6, 52, 13),
             To<LayoutText>(div.firstChild()->GetLayoutObject())
                 ->PhysicalLinesBoundingBox());
@@ -1067,9 +1064,9 @@ TEST_F(LayoutTextTest, PhysicalLinesBoundingBoxTextCombine) {
   const auto& text_01234 = *To<Text>(target.firstChild())->GetLayoutObject();
   const auto& text_b = *To<Text>(target.nextSibling())->GetLayoutObject();
 
-  //   LayoutNGBlockFlow {HTML} at (0,0) size 800x600
-  //     LayoutNGBlockFlow {BODY} at (8,8) size 784x584
-  //       LayoutNGBlockFlow {DIV} at (0,0) size 130x300
+  //   LayoutBlockFlow {HTML} at (0,0) size 800x600
+  //     LayoutBlockFlow {BODY} at (8,8) size 784x584
+  //       LayoutBlockFlow {DIV} at (0,0) size 130x300
   //         LayoutText {#text} at (15,0) size 100x100
   //           text run at (15,0) width 100: "a"
   //         LayoutInline {C} at (15,100) size 100x100
@@ -1111,9 +1108,9 @@ TEST_F(LayoutTextTest, PhysicalLinesBoundingBoxVerticalRL) {
   )HTML");
   // Similar to the previous test, with logical coordinates converted to
   // physical coordinates.
-  const Element& div = *GetDocument().getElementById(AtomicString("div"));
-  const Element& one = *GetDocument().getElementById(AtomicString("one"));
-  const Element& two = *GetDocument().getElementById(AtomicString("two"));
+  const Element& div = *GetElementById("div");
+  const Element& one = *GetElementById("one");
+  const Element& two = *GetElementById("two");
   EXPECT_EQ(PhysicalRect(25, 3, 13, 52),
             To<LayoutText>(div.firstChild()->GetLayoutObject())
                 ->PhysicalLinesBoundingBox());
@@ -1258,53 +1255,6 @@ TEST_F(LayoutTextTest, LocalSelectionRectLineHeightVertical) {
             GetSelectionRectFor("<div style='line-height: 50px; height:1em; "
                                 "writing-mode:vertical-lr'>"
                                 "foo bar b^a|z</div>"));
-}
-
-TEST_F(LayoutTextTest, VisualRectInDocumentSVGTspan) {
-  LoadAhem();
-  SetBodyInnerHTML(R"HTML(
-    <style>
-      body {
-        margin:0px;
-        font: 20px/20px Ahem;
-      }
-    </style>
-    <svg>
-      <text x="10" y="50" width="100">
-        <tspan id="target" dx="15" dy="25">tspan</tspan>
-      </text>
-    </svg>
-  )HTML");
-
-  auto* target =
-      To<LayoutText>(GetLayoutObjectByElementId("target")->SlowFirstChild());
-  const int ascent = 16;
-  PhysicalRect expected(10 + 15, 50 + 25 - ascent, 20 * 5, 20);
-  EXPECT_EQ(expected, target->VisualRectInDocument());
-  EXPECT_EQ(expected, target->VisualRectInDocument(kUseGeometryMapper));
-}
-
-TEST_F(LayoutTextTest, VisualRectInDocumentSVGTspanTB) {
-  LoadAhem();
-  SetBodyInnerHTML(R"HTML(
-    <style>
-      body {
-        margin:0px;
-        font: 20px/20px Ahem;
-      }
-    </style>
-    <svg>
-      <text x="50" y="10" width="100" writing-mode="tb">
-        <tspan id="target" dx="15" dy="25">tspan</tspan>
-      </text>
-    </svg>
-  )HTML");
-
-  auto* target =
-      To<LayoutText>(GetLayoutObjectByElementId("target")->SlowFirstChild());
-  PhysicalRect expected(50 + 15 - 20 / 2, 10 + 25, 20, 20 * 5);
-  EXPECT_EQ(expected, target->VisualRectInDocument());
-  EXPECT_EQ(expected, target->VisualRectInDocument(kUseGeometryMapper));
 }
 
 TEST_F(LayoutTextTest, PositionForPointAtLeading) {
@@ -1573,8 +1523,9 @@ TEST_F(LayoutTextTest, SetTextWithOffsetDeleteWithBidiControl) {
   Text& text = To<Text>(*GetElementById("target")->firstChild());
   text.deleteData(0, 1, ASSERT_NO_EXCEPTION);  // remove "\n"
 
-  EXPECT_EQ("LayoutText has NeedsCollectInlines",
-            GetItemsAsString(*text.GetLayoutObject()));
+  // FirstLetterPseudoElement::FirstLetterLength() change (due to \n removed)
+  // makes ShouldUpdateLayoutByReattaching() (in text.cc) return true.
+  EXPECT_TRUE(text.GetForceReattachLayoutTree());
 }
 
 // http://crbug.com/1125262
@@ -1644,8 +1595,8 @@ TEST_F(LayoutTextTest, SetTextWithOffsetInsertSameCharacters) {
   text.insertData(0, "aa", ASSERT_NO_EXCEPTION);
 
   EXPECT_EQ(
-      "*{'aaa', ShapeResult=0+3 width=\"150\"}\n"
-      "{'aa', ShapeResult=3+2 width=\"20\"}\n",
+      "*{'aaa', ShapeResult=0+3 width=150}\n"
+      "{'aa', ShapeResult=3+2 width=20}\n",
       GetItemsAsString(*text.GetLayoutObject(), 0, kIncludeSnappedWidth));
 }
 

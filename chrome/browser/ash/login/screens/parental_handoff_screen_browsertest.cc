@@ -11,9 +11,7 @@
 #include "base/auto_reset.h"
 #include "base/functional/callback.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/test_future.h"
-#include "chrome/browser/ash/child_accounts/family_features.h"
 #include "chrome/browser/ash/login/screens/assistant_optin_flow_screen.h"
 #include "chrome/browser/ash/login/screens/edu_coexistence_login_screen.h"
 #include "chrome/browser/ash/login/test/js_checker.h"
@@ -30,7 +28,7 @@
 #include "chrome/browser/ui/webui/ash/login/parental_handoff_screen_handler.h"
 #include "chrome/browser/ui/webui/ash/login/sync_consent_screen_handler.h"
 #include "chrome/browser/ui/webui/ash/login/user_creation_screen_handler.h"
-#include "chrome/browser/ui/webui/ash/system_web_dialog_delegate.h"
+#include "chrome/browser/ui/webui/ash/system_web_dialog/system_web_dialog_delegate.h"
 #include "chrome/test/base/fake_gaia_mixin.h"
 #include "components/account_id/account_id.h"
 #include "content/public/test/browser_test.h"
@@ -44,7 +42,7 @@ const test::UIPath kNextButton = {"parental-handoff", "nextButton"};
 
 class ParentalHandoffScreenBrowserTest : public OobeBaseTest {
  public:
-  ParentalHandoffScreenBrowserTest();
+  ParentalHandoffScreenBrowserTest() = default;
   ParentalHandoffScreenBrowserTest(const ParentalHandoffScreenBrowserTest&) =
       delete;
   ParentalHandoffScreenBrowserTest& operator=(
@@ -79,8 +77,6 @@ class ParentalHandoffScreenBrowserTest : public OobeBaseTest {
 
   FakeGaiaMixin fake_gaia_{&mixin_host_};
 
-  base::test::ScopedFeatureList feature_list_;
-
   base::HistogramTester histogram_tester_;
 
   std::unique_ptr<base::AutoReset<bool>> is_google_branded_build_;
@@ -90,11 +86,6 @@ class ParentalHandoffScreenBrowserTest : public OobeBaseTest {
   LoginManagerMixin login_manager_mixin_{&mixin_host_, /* initial_users */ {},
                                          &fake_gaia_};
 };
-
-ParentalHandoffScreenBrowserTest::ParentalHandoffScreenBrowserTest() {
-  feature_list_.InitWithFeatures({kFamilyLinkOobeHandoff},
-                                 {} /*disable_features*/);
-}
 
 void ParentalHandoffScreenBrowserTest::SetUpOnMainThread() {
   assistant_is_enabled_ =
@@ -190,7 +181,9 @@ class ParentalHandoffScreenChildBrowserTest
       &policy_server_mixin_};
 };
 
-IN_PROC_BROWSER_TEST_F(ParentalHandoffScreenChildBrowserTest, ChildUserLogin) {
+// TODO(crbug.com/353692644): Test is flaky
+IN_PROC_BROWSER_TEST_F(ParentalHandoffScreenChildBrowserTest,
+                       DISABLED_ChildUserLogin) {
   LoginAsNewChildUser();
 
   WizardController* wizard = WizardController::default_controller();

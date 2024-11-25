@@ -5,9 +5,11 @@
 """Siso configuration for clang."""
 
 load("@builtin//struct.star", "module")
+load("./mac_sdk.star", "mac_sdk")
+load("./win_sdk.star", "win_sdk")
 
 def __filegroups(ctx):
-    return {
+    fg = {
         "third_party/libc++/src/include:headers": {
             "type": "glob",
             "includes": ["*"],
@@ -16,6 +18,14 @@ def __filegroups(ctx):
         "third_party/libc++abi/src/include:headers": {
             "type": "glob",
             "includes": ["*.h"],
+        },
+        # vendor provided headers for libc++.
+        "buildtools/third_party/libc++:headers": {
+            "type": "glob",
+            "includes": [
+                "__*",
+                "gross_hack.h",
+            ],
         },
 
         # toolchain root
@@ -26,18 +36,40 @@ def __filegroups(ctx):
                 "*.h",
                 "bin/clang",
                 "bin/clang++",
+                "bin/clang-cl",
                 "bin/clang-cl.exe",
+                "*_ignorelist.txt",
+                # https://crbug.com/335997052
+                "clang_rt.profile*.lib",
             ],
         },
     }
+    if win_sdk.enabled(ctx):
+        fg.update(win_sdk.filegroups(ctx))
+    if mac_sdk.enabled(ctx):
+        fg.update(mac_sdk.filegroups(ctx))
+    return fg
 
 __input_deps = {
     # need this because we use
     # third_party/libc++/src/include:headers,
     # but scandeps doesn't scan `__config` file, which uses
     # `#include <__config_site>`
+    # also need `__assertion_handler`. b/321171148
     "third_party/libc++/src/include": [
-        "buildtools/third_party/libc++/__config_site",
+        "buildtools/third_party/libc++:headers",
+    ],
+    "third_party/llvm-build/Release+Asserts/bin/clang": [
+        "build/config/unsafe_buffers_paths.txt",
+    ],
+    "third_party/llvm-build/Release+Asserts/bin/clang++": [
+        "build/config/unsafe_buffers_paths.txt",
+    ],
+    "third_party/llvm-build/Release+Asserts/bin/clang-cl": [
+        "build/config/unsafe_buffers_paths.txt",
+    ],
+    "third_party/llvm-build/Release+Asserts/bin/clang-cl.exe": [
+        "build/config/unsafe_buffers_paths.txt",
     ],
 }
 

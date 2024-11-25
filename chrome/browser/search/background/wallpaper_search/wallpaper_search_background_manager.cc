@@ -34,10 +34,6 @@ const char kWallpaperSearchHistoryMood[] = "mood";
 const char kWallpaperSearchHistoryStyle[] = "style";
 const char kWallpaperSearchHistorySubject[] = "subject";
 
-void WriteFileToPath(const std::string& data, const base::FilePath& path) {
-  base::WriteFile(path, base::as_bytes(base::make_span(data)));
-}
-
 void DeleteWallpaperSearchImage(const std::string& id,
                                 const base::FilePath& profile_path) {
   base::FilePath path = profile_path.AppendASCII(
@@ -150,6 +146,11 @@ WallpaperSearchBackgroundManager::WallpaperSearchBackgroundManager(
       profile_(profile),
       pref_service_(profile_->GetPrefs()) {
   CHECK(ntp_custom_background_service_);
+  pref_change_registrar_.Init(profile_->GetPrefs());
+  pref_change_registrar_.Add(
+      prefs::kNtpWallpaperSearchHistory,
+      base::BindRepeating(&WallpaperSearchBackgroundManager::NotifyAboutHistory,
+                          weak_ptr_factory_.GetWeakPtr()));
 }
 
 WallpaperSearchBackgroundManager::~WallpaperSearchBackgroundManager() = default;
@@ -167,6 +168,15 @@ std::vector<HistoryEntry> WallpaperSearchBackgroundManager::GetHistory() {
   return history;
 }
 
+bool WallpaperSearchBackgroundManager::IsCurrentBackground(
+    const base::Token& id) {
+  std::optional<CustomBackground> current_theme =
+      ntp_custom_background_service_->GetCustomBackground();
+  return current_theme.has_value() &&
+         current_theme->local_background_id.has_value() &&
+         current_theme->local_background_id->ToString() == id.ToString();
+}
+
 void WallpaperSearchBackgroundManager::SelectHistoryImage(
     const base::Token& id,
     const gfx::Image& image,
@@ -176,7 +186,8 @@ void WallpaperSearchBackgroundManager::SelectHistoryImage(
     return;
   }
 
-  ntp_custom_background_service_->SetBackgroundToLocalResourceWithId(id);
+  ntp_custom_background_service_->SetBackgroundToLocalResourceWithId(
+      id, /*is_inspiration_image=*/false);
   ntp_custom_background_service_->UpdateCustomLocalBackgroundColorAsync(image);
 
   UmaHistogramMediumTimes(
@@ -187,15 +198,15 @@ void WallpaperSearchBackgroundManager::SelectHistoryImage(
 void WallpaperSearchBackgroundManager::SelectLocalBackgroundImage(
     const base::Token& id,
     const SkBitmap& bitmap,
+    bool is_inspiration_image,
     base::ElapsedTimer timer) {
   if (ntp_custom_background_service_->IsCustomBackgroundDisabledByPolicy()) {
     return;
   }
 
-  std::vector<unsigned char> encoded;
-  const bool success = gfx::PNGCodec::EncodeBGRASkBitmap(
-      bitmap, /*discard_transparency=*/false, &encoded);
-  if (success) {
+  std::optional<std::vector<uint8_t>> encoded =
+      gfx::PNGCodec::EncodeBGRASkBitmap(bitmap, /*discard_transparency=*/false);
+  if (encoded) {
     // Do not update theme image unless it is different from the current.
     // Otherwise, we end up deleting the image file as part of the cleanup
     // of the last theme.
@@ -207,14 +218,19 @@ void WallpaperSearchBackgroundManager::SelectLocalBackgroundImage(
       base::ThreadPool::PostTaskAndReply(
           FROM_HERE, {base::TaskPriority::USER_VISIBLE, base::MayBlock()},
           base::BindOnce(
-              &WriteFileToPath, std::string(encoded.begin(), encoded.end()),
+              // Resolve ambiguous base::WriteFile call with inline lambda.
+              [](const base::FilePath& filename,
+                 base::span<const uint8_t> data) {
+                base::WriteFile(filename, data);
+              },
               profile_->GetPath().AppendASCII(
                   id.ToString() +
-                  chrome::kChromeUIUntrustedNewTabPageBackgroundFilename)),
+                  chrome::kChromeUIUntrustedNewTabPageBackgroundFilename),
+              encoded.value()),
           base::BindOnce(&WallpaperSearchBackgroundManager::
                              SetBackgroundToLocalResourceWithId,
                          weak_ptr_factory_.GetWeakPtr(), id, std::move(timer),
-                         bitmap));
+                         bitmap, is_inspiration_image));
     } else {
       ntp_custom_background_service_->UpdateCustomLocalBackgroundColorAsync(
           gfx::Image::CreateFrom1xBitmap(bitmap));
@@ -259,14 +275,34 @@ WallpaperSearchBackgroundManager::SaveCurrentBackgroundToHistory(
   return std::nullopt;
 }
 
+void WallpaperSearchBackgroundManager::AddObserver(
+    WallpaperSearchBackgroundManagerObserver* observer) {
+  observers_.AddObserver(observer);
+}
+
+void WallpaperSearchBackgroundManager::RemoveObserver(
+    WallpaperSearchBackgroundManagerObserver* observer) {
+  observers_.RemoveObserver(observer);
+}
+
 void WallpaperSearchBackgroundManager::SetBackgroundToLocalResourceWithId(
     const base::Token& id,
     base::ElapsedTimer timer,
-    const SkBitmap& bitmap) {
-  ntp_custom_background_service_->SetBackgroundToLocalResourceWithId(id);
+    const SkBitmap& bitmap,
+    bool is_inspiration_image) {
+  ntp_custom_background_service_->SetBackgroundToLocalResourceWithId(
+      id, is_inspiration_image);
   ntp_custom_background_service_->UpdateCustomLocalBackgroundColorAsync(
       gfx::Image::CreateFrom1xBitmap(bitmap));
   UmaHistogramMediumTimes(
-      "NewTabPage.WallpaperSearch.SetResultThemeProcessingLatency",
+      is_inspiration_image
+          ? "NewTabPage.WallpaperSearch.SetInspirationThemeProcessingLatency"
+          : "NewTabPage.WallpaperSearch.SetResultThemeProcessingLatency",
       timer.Elapsed());
+}
+
+void WallpaperSearchBackgroundManager::NotifyAboutHistory() {
+  for (auto& observer : observers_) {
+    observer.OnHistoryUpdated();
+  }
 }

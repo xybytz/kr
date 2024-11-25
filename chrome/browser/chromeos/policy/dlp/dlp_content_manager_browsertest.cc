@@ -29,12 +29,13 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/enterprise/data_controls/dlp_histogram_helper.h"
-#include "components/enterprise/data_controls/dlp_policy_event.pb.h"
+#include "components/enterprise/common/proto/synced/dlp_policy_event.pb.h"
+#include "components/enterprise/data_controls/core/browser/dlp_histogram_helper.h"
 #include "components/reporting/client/report_queue_impl.h"
 #include "components/reporting/storage/test_storage_module.h"
 #include "components/reporting/util/test_support_callbacks.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/test/browser_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -69,7 +70,6 @@ const DlpContentRestrictionSet kScreenShareWarned(
 constexpr char kPrintBlockedNotificationId[] = "print_dlp_blocked";
 
 constexpr char kExampleUrl[] = "https://example.com";
-constexpr char kSrcPattern[] = "example.com";
 constexpr char kLabel[] = "label";
 const std::u16string kApplicationTitle = u"example.com";
 
@@ -110,7 +110,7 @@ class DlpContentManagerBrowserTest : public InProcessBrowserTest {
 
     EXPECT_CALL(*mock_rules_manager_, GetSourceUrlPattern)
         .WillRepeatedly(testing::DoAll(testing::SetArgPointee<3>(kRuleMetadata),
-                                       testing::Return(kSrcPattern)));
+                                       testing::Return("example.com")));
     EXPECT_CALL(*mock_rules_manager_, IsRestricted)
         .WillRepeatedly(testing::Return(DlpRulesManager::Level::kAllow));
   }
@@ -128,10 +128,10 @@ class DlpContentManagerBrowserTest : public InProcessBrowserTest {
                    size_t count) {
     EXPECT_EQ(events_.size(), count);
     for (size_t i = 0; i < count; ++i) {
-      EXPECT_THAT(
-          events_[i],
-          data_controls::IsDlpPolicyEvent(data_controls::CreateDlpPolicyEvent(
-              kSrcPattern, restriction, kRuleName, kRuleId, level)));
+      EXPECT_THAT(events_[i], data_controls::IsDlpPolicyEvent(
+                                  data_controls::CreateDlpPolicyEvent(
+                                      GURL(kExampleUrl).spec(), restriction,
+                                      kRuleName, kRuleId, level)));
     }
   }
 
@@ -341,6 +341,8 @@ class DlpContentManagerReportingBrowserTest
   void TearDownOnMainThread() override {
     DlpContentManagerBrowserTest::TearDownOnMainThread();
     cloned_tab_observer_.reset();
+    test_reporting_.reset();
+    storage_module_.reset();
   }
 
   // Sets up real report queue together with TestStorageModule
@@ -363,7 +365,10 @@ class DlpContentManagerReportingBrowserTest
         .WillByDefault(testing::Return(::reporting::Status::StatusOK()));
 
     auto config_result = ::reporting::ReportQueueConfiguration::Create(
-        ::reporting::EventType::kDevice, destination_, policy_check_callback_);
+                             {.event_type = ::reporting::EventType::kDevice,
+                              .destination = destination_})
+                             .SetPolicyCheckCallback(policy_check_callback_)
+                             .Build();
 
     ASSERT_TRUE(config_result.has_value());
 
@@ -406,7 +411,7 @@ class DlpContentManagerReportingBrowserTest
   void CheckRecord(DlpPolicyEvent expectedEvent, ::reporting::Record record) {
     DlpPolicyEvent event;
     EXPECT_TRUE(event.ParseFromString(record.data()));
-    EXPECT_EQ(event.source().url(), kSrcPattern);
+    EXPECT_EQ(event.source().url(), GURL(kExampleUrl).spec());
     EXPECT_EQ(event.triggered_rule_name(), kRuleName);
     EXPECT_EQ(event.triggered_rule_id(), kRuleId);
     EXPECT_THAT(event, data_controls::IsDlpPolicyEvent(expectedEvent));
@@ -420,8 +425,8 @@ class DlpContentManagerReportingBrowserTest
     EXPECT_CALL(*test_storage_module(), AddRecord)
         .Times(times)
         .WillRepeatedly(testing::WithArgs<1, 2>(testing::Invoke(
-            [=](::reporting::Record record,
-                base::OnceCallback<void(::reporting::Status)> callback) {
+            [=, this](::reporting::Record record,
+                      base::OnceCallback<void(::reporting::Status)> callback) {
               content::GetUIThreadTaskRunner({})->PostTask(
                   FROM_HERE,
                   base::BindOnce(
@@ -495,8 +500,9 @@ IN_PROC_BROWSER_TEST_F(DlpContentManagerReportingBrowserTest,
   SetupReportQueue();
   // Sets an action to execute when an event arrives to a storage module.
   SetAddRecordCheck(
-      CreateDlpPolicyEvent(kSrcPattern, DlpRulesManager::Restriction::kPrinting,
-                           kRuleName, kRuleId, DlpRulesManager::Level::kBlock),
+      CreateDlpPolicyEvent(GURL(kExampleUrl).spec(),
+                           DlpRulesManager::Restriction::kPrinting, kRuleName,
+                           kRuleId, DlpRulesManager::Level::kBlock),
       /*times=*/2);
 
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GURL(kExampleUrl)));
@@ -539,8 +545,9 @@ IN_PROC_BROWSER_TEST_F(DlpContentManagerReportingBrowserTest,
   SetupDlpRulesManager();
   SetupReportQueue();
   SetAddRecordCheck(
-      CreateDlpPolicyEvent(kSrcPattern, DlpRulesManager::Restriction::kPrinting,
-                           kRuleName, kRuleId, DlpRulesManager::Level::kReport),
+      CreateDlpPolicyEvent(GURL(kExampleUrl).spec(),
+                           DlpRulesManager::Restriction::kPrinting, kRuleName,
+                           kRuleId, DlpRulesManager::Level::kReport),
       /*times=*/2);
 
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GURL(kExampleUrl)));
@@ -581,8 +588,9 @@ IN_PROC_BROWSER_TEST_F(DlpContentManagerReportingBrowserTest, PrintingWarned) {
   helper_->ChangeConfidentiality(web_contents, kPrintWarned);
 
   SetAddRecordCheck(
-      CreateDlpPolicyEvent(kSrcPattern, DlpRulesManager::Restriction::kPrinting,
-                           kRuleName, kRuleId, DlpRulesManager::Level::kWarn),
+      CreateDlpPolicyEvent(GURL(kExampleUrl).spec(),
+                           DlpRulesManager::Restriction::kPrinting, kRuleName,
+                           kRuleId, DlpRulesManager::Level::kWarn),
       /*times=*/1);
 
   MockPrintManager* print_manager = GetPrintManager(web_contents);
@@ -601,8 +609,9 @@ IN_PROC_BROWSER_TEST_F(DlpContentManagerReportingBrowserTest, PrintingWarned) {
   EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(test_storage_module()));
 
   SetAddRecordCheck(
-      CreateDlpPolicyEvent(kSrcPattern, DlpRulesManager::Restriction::kPrinting,
-                           kRuleName, kRuleId, DlpRulesManager::Level::kWarn),
+      CreateDlpPolicyEvent(GURL(kExampleUrl).spec(),
+                           DlpRulesManager::Restriction::kPrinting, kRuleName,
+                           kRuleId, DlpRulesManager::Level::kWarn),
       /*times=*/1);
 
   // Attempt to print again.
@@ -610,10 +619,11 @@ IN_PROC_BROWSER_TEST_F(DlpContentManagerReportingBrowserTest, PrintingWarned) {
   EXPECT_EQ(helper_->ActiveWarningDialogsCount(), 1);
   EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(test_storage_module()));
 
-  SetAddRecordCheck(CreateDlpPolicyWarningProceededEvent(
-                        kSrcPattern, DlpRulesManager::Restriction::kPrinting,
-                        kRuleName, kRuleId),
-                    /*times=*/1);
+  SetAddRecordCheck(
+      CreateDlpPolicyWarningProceededEvent(
+          GURL(kExampleUrl).spec(), DlpRulesManager::Restriction::kPrinting,
+          kRuleName, kRuleId),
+      /*times=*/1);
   EXPECT_CALL(*print_manager, PrintPreviewAllowedForTesting()).Times(1);
 
   // Hit Enter to "Print anyway".
@@ -672,11 +682,12 @@ IN_PROC_BROWSER_TEST_F(DlpContentManagerReportingBrowserTest,
       /*shift=*/false, /*alt=*/false, /*command=*/false));
   EXPECT_EQ(helper_->ActiveWarningDialogsCount(), 0);
   EXPECT_EQ(events_.size(), 2u);
-  EXPECT_THAT(events_[1],
-              data_controls::IsDlpPolicyEvent(
-                  data_controls::CreateDlpPolicyWarningProceededEvent(
-                      kSrcPattern, DlpRulesManager::Restriction::kScreenShare,
-                      kRuleName, kRuleId)));
+  EXPECT_THAT(
+      events_[1],
+      data_controls::IsDlpPolicyEvent(
+          data_controls::CreateDlpPolicyWarningProceededEvent(
+              GURL(kExampleUrl).spec(),
+              DlpRulesManager::Restriction::kScreenShare, kRuleName, kRuleId)));
 
   // The contents should already be cached as allowed by the user, so this
   // should not trigger a new warning.

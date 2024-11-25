@@ -158,15 +158,15 @@ class CdmServiceTest : public testing::Test {
   void OnCdmCreated(bool expected_result,
                     mojo::PendingRemote<mojom::ContentDecryptionModule> remote,
                     mojom::CdmContextPtr cdm_context,
-                    const std::string& error_message) {
+                    CreateCdmStatus status) {
     if (!expected_result) {
       EXPECT_FALSE(remote);
       EXPECT_FALSE(cdm_context);
-      EXPECT_TRUE(!error_message.empty());
+      EXPECT_NE(status, CreateCdmStatus::kSuccess);
       return;
     }
     EXPECT_TRUE(remote);
-    EXPECT_TRUE(error_message.empty());
+    EXPECT_EQ(status, CreateCdmStatus::kSuccess);
     cdm_remote_.Bind(std::move(remote));
     cdm_remote_.set_disconnect_handler(base::BindOnce(
         &CdmServiceTest::CdmConnectionClosed, base::Unretained(this)));
@@ -178,12 +178,12 @@ class CdmServiceTest : public testing::Test {
 
 }  // namespace
 
-TEST_F(CdmServiceTest, InitializeCdm_Success) {
+TEST_F(CdmServiceTest, InitializeCdmSuccess) {
   Initialize();
   InitializeCdm(kClearKeyKeySystem, true);
 }
 
-TEST_F(CdmServiceTest, InitializeCdm_InvalidKeySystem) {
+TEST_F(CdmServiceTest, InitializeCdmInvalidKeySystem) {
   Initialize();
   InitializeCdm(kInvalidKeySystem, false);
 }
@@ -212,7 +212,7 @@ TEST_F(CdmServiceTest, DestroyCdmFactory) {
 }
 
 // Destroy service will destroy the CdmFactory and all CDMs.
-TEST_F(CdmServiceTest, DestroyCdmService_AfterCdmCreation) {
+TEST_F(CdmServiceTest, DestroyCdmServiceAfterCdmCreation) {
   Initialize();
   InitializeCdm(kClearKeyKeySystem, true);
 
@@ -228,7 +228,7 @@ TEST_F(CdmServiceTest, DestroyCdmService_AfterCdmCreation) {
 
 // Before the CDM is fully created, CdmService has been destroyed. We should
 // fail gracefully instead of a crash. See crbug.com/1190319.
-TEST_F(CdmServiceTest, DestroyCdmService_DuringCdmCreation) {
+TEST_F(CdmServiceTest, DestroyCdmServiceDuringCdmCreation) {
   base::RunLoop run_loop;
   EXPECT_CALL(*this, CdmFactoryConnectionClosed())
       .WillOnce(Invoke(&run_loop, &base::RunLoop::Quit));

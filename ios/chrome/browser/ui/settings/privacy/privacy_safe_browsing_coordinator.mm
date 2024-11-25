@@ -11,7 +11,7 @@
 #import "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/shared/coordinator/alert/alert_coordinator.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/shared/public/features/features.h"
@@ -73,7 +73,7 @@
       [UIColor colorNamed:kTextfieldHighlightBackgroundColor];
   self.viewController.presentationDelegate = self;
   self.mediator = [[PrivacySafeBrowsingMediator alloc]
-      initWithUserPrefService:self.browser->GetBrowserState()->GetPrefs()];
+      initWithUserPrefService:self.browser->GetProfile()->GetPrefs()];
   self.mediator.consumer = self.viewController;
   self.mediator.handler = self;
   self.viewController.modelDelegate = self.mediator;
@@ -87,6 +87,11 @@
   [self stopSafeBrowsingEnhancedProtectionCoordinator];
   [self stopSafeBrowsingStandardProtectionCoordinator];
   [super stop];
+}
+
+- (void)setOpenedFromPromoInteraction:(BOOL)openedFromPromoInteraction {
+  _openedFromPromoInteraction = openedFromPromoInteraction;
+  self.mediator.openedFromPromoInteraction = _openedFromPromoInteraction;
 }
 
 #pragma mark - SafeBrowsingViewControllerPresentationDelegate

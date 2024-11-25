@@ -2,11 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "components/nacl/renderer/json_manifest.h"
 
 #include <stddef.h>
 #include <stdint.h>
 
+#include <optional>
 #include <set>
 
 #include "base/json/json_reader.h"
@@ -14,7 +20,6 @@
 #include "base/types/expected_macros.h"
 #include "components/nacl/common/nacl_types.h"
 #include "components/nacl/renderer/nexe_load_manager.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace nacl {
@@ -358,7 +363,7 @@ void GrabUrlAndPnaclOptions(const base::Value::Dict& url_spec,
   *url = *url_str;
   pnacl_options->translate = PP_TRUE;
   if (url_spec.Find(kOptLevelKey)) {
-    absl::optional<int32_t> opt_raw = url_spec.FindInt(kOptLevelKey);
+    std::optional<int32_t> opt_raw = url_spec.FindInt(kOptLevelKey);
     DCHECK(opt_raw.has_value());
     // Currently only allow 0 or 2, since that is what we test.
     if (opt_raw.value() <= 0)
@@ -377,7 +382,7 @@ JsonManifest::JsonManifest(const std::string& manifest_base_url,
       sandbox_isa_(sandbox_isa),
       pnacl_debug_(pnacl_debug) {}
 
-JsonManifest::~JsonManifest() {}
+JsonManifest::~JsonManifest() = default;
 
 bool JsonManifest::Init(const std::string& manifest_json_data,
                         ErrorInfo* error_info) {
@@ -599,7 +604,6 @@ bool JsonManifest::GetURLFromISADictionary(
       // Should not reach here, because the earlier IsValidISADictionary()
       // call checked that the manifest covers the current architecture.
       NOTREACHED();
-      return false;
     }
   }
 

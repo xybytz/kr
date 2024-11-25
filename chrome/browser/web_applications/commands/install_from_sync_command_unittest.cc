@@ -192,11 +192,11 @@ TEST_F(InstallFromSyncTest, SuccessWithManifest) {
   // Page with manifest.
   auto& fake_page_state =
       web_contents_manager().GetOrCreatePageState(kWebAppStartUrl);
-  fake_page_state.url_load_result = WebAppUrlLoaderResult::kUrlLoaded;
+  fake_page_state.url_load_result = webapps::WebAppUrlLoaderResult::kUrlLoaded;
   fake_page_state.opt_metadata =
       FakeWebContentsManager::CreateMetadataWithIconAndTitle(
           kDocumentTitle, kDocumentIconUrl, kIconSize);
-  fake_page_state.opt_manifest =
+  fake_page_state.manifest_before_default_processing =
       CreateManifest(kWebAppStartUrl, kWebAppManifestId, /*icons=*/true);
 
   // Icon state.
@@ -211,7 +211,10 @@ TEST_F(InstallFromSyncTest, SuccessWithManifest) {
   EXPECT_EQ(webapps::InstallResultCode::kSuccessNewInstall,
             result.install_code);
   EXPECT_EQ(result.installed_app_id, app_id);
-  EXPECT_TRUE(registrar().IsInstalled(app_id));
+  EXPECT_TRUE(registrar().IsInstallState(
+      app_id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+               proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+               proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 
   // Check that the manifest info was installed.
   EXPECT_THAT(GetAppName(app_id), Eq(kManifestName));
@@ -228,7 +231,7 @@ TEST_F(InstallFromSyncTest, SuccessWithoutManifest) {
   // Page without manifest.
   auto& fake_page_state =
       web_contents_manager().GetOrCreatePageState(kWebAppStartUrl);
-  fake_page_state.url_load_result = WebAppUrlLoaderResult::kUrlLoaded;
+  fake_page_state.url_load_result = webapps::WebAppUrlLoaderResult::kUrlLoaded;
   fake_page_state.opt_metadata =
       FakeWebContentsManager::CreateMetadataWithIconAndTitle(
           kDocumentTitle, kDocumentIconUrl, kIconSize);
@@ -245,7 +248,10 @@ TEST_F(InstallFromSyncTest, SuccessWithoutManifest) {
   EXPECT_EQ(webapps::InstallResultCode::kSuccessNewInstall,
             result.install_code);
   EXPECT_EQ(result.installed_app_id, app_id);
-  EXPECT_TRUE(registrar().IsInstalled(app_id));
+  EXPECT_TRUE(registrar().IsInstallState(
+      app_id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+               proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+               proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 
   // Check that the document & fallback info was installed.
   EXPECT_THAT(registrar().GetAppShortName(app_id), Eq(kFallbackTitle));
@@ -262,11 +268,11 @@ TEST_F(InstallFromSyncTest, SuccessManifestNoIcons) {
   // Page with manifest, no icons.
   auto& fake_page_state =
       web_contents_manager().GetOrCreatePageState(kWebAppStartUrl);
-  fake_page_state.url_load_result = WebAppUrlLoaderResult::kUrlLoaded;
+  fake_page_state.url_load_result = webapps::WebAppUrlLoaderResult::kUrlLoaded;
   fake_page_state.opt_metadata =
       FakeWebContentsManager::CreateMetadataWithIconAndTitle(
           kDocumentTitle, kDocumentIconUrl, kIconSize);
-  fake_page_state.opt_manifest =
+  fake_page_state.manifest_before_default_processing =
       CreateManifest(kWebAppStartUrl, kWebAppManifestId, /*icons=*/false);
 
   // Document icon state.
@@ -281,7 +287,10 @@ TEST_F(InstallFromSyncTest, SuccessManifestNoIcons) {
   EXPECT_EQ(webapps::InstallResultCode::kSuccessNewInstall,
             result.install_code);
   EXPECT_EQ(result.installed_app_id, app_id);
-  EXPECT_TRUE(registrar().IsInstalled(app_id));
+  EXPECT_TRUE(registrar().IsInstallState(
+      app_id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+               proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+               proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 
   // Check that the manifest was used & document icons were used.
   EXPECT_THAT(GetAppName(app_id), Eq(kManifestName));
@@ -298,7 +307,8 @@ TEST_F(InstallFromSyncTest, UrlRedirectUseFallback) {
   // Page redirects.
   auto& fake_page_state =
       web_contents_manager().GetOrCreatePageState(kWebAppStartUrl);
-  fake_page_state.url_load_result = WebAppUrlLoaderResult::kRedirectedUrlLoaded;
+  fake_page_state.url_load_result =
+      webapps::WebAppUrlLoaderResult::kRedirectedUrlLoaded;
 
   // Fallback icon state.
   web_contents_manager().GetOrCreateIconState(kFallbackIconUrl).bitmaps = {
@@ -315,7 +325,10 @@ TEST_F(InstallFromSyncTest, UrlRedirectUseFallback) {
   EXPECT_EQ(webapps::InstallResultCode::kSuccessNewInstall,
             result.install_code);
   EXPECT_EQ(result.installed_app_id, app_id);
-  EXPECT_TRUE(registrar().IsInstalled(app_id));
+  EXPECT_TRUE(registrar().IsInstallState(
+      app_id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+               proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+               proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 
   // Check that the fallback info was installed.
   EXPECT_THAT(registrar().GetAppShortName(app_id), Eq(kFallbackTitle));
@@ -332,7 +345,7 @@ TEST_F(InstallFromSyncTest, FallbackWebAppInstallInfo) {
   // Page redirects.
   auto& fake_page_state =
       web_contents_manager().GetOrCreatePageState(kWebAppStartUrl);
-  fake_page_state.url_load_result = WebAppUrlLoaderResult::kUrlLoaded;
+  fake_page_state.url_load_result = webapps::WebAppUrlLoaderResult::kUrlLoaded;
   fake_page_state.return_null_info = true;
 
   // Fallback icon state.
@@ -350,7 +363,10 @@ TEST_F(InstallFromSyncTest, FallbackWebAppInstallInfo) {
   EXPECT_EQ(webapps::InstallResultCode::kSuccessNewInstall,
             result.install_code);
   EXPECT_EQ(result.installed_app_id, app_id);
-  EXPECT_TRUE(registrar().IsInstalled(app_id));
+  EXPECT_TRUE(registrar().IsInstallState(
+      app_id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+               proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+               proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 
   // Check that the fallback info was installed.
   EXPECT_THAT(registrar().GetAppShortName(app_id), Eq(kFallbackTitle));
@@ -367,13 +383,14 @@ TEST_F(InstallFromSyncTest, FallbackManifestIdMismatch) {
   // Page with manifest.
   auto& fake_page_state =
       web_contents_manager().GetOrCreatePageState(kWebAppStartUrl);
-  fake_page_state.url_load_result = WebAppUrlLoaderResult::kUrlLoaded;
+  fake_page_state.url_load_result = webapps::WebAppUrlLoaderResult::kUrlLoaded;
   fake_page_state.opt_metadata =
       FakeWebContentsManager::CreateMetadataWithIconAndTitle(
           kDocumentTitle, kDocumentIconUrl, kIconSize);
-  fake_page_state.opt_manifest =
+  fake_page_state.manifest_before_default_processing =
       CreateManifest(kWebAppStartUrl, kWebAppManifestId, /*icons=*/true);
-  fake_page_state.opt_manifest->id = kOtherWebAppManifestId;
+  fake_page_state.manifest_before_default_processing->id =
+      kOtherWebAppManifestId;
 
   // Icon state.
   web_contents_manager().GetOrCreateIconState(kDocumentIconUrl).bitmaps = {
@@ -390,7 +407,10 @@ TEST_F(InstallFromSyncTest, FallbackManifestIdMismatch) {
   EXPECT_EQ(webapps::InstallResultCode::kSuccessNewInstall,
             result.install_code);
   EXPECT_EQ(result.installed_app_id, app_id);
-  EXPECT_TRUE(registrar().IsInstalled(app_id));
+  EXPECT_TRUE(registrar().IsInstallState(
+      app_id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+               proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+               proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 
   // Check that the fallback info was installed.
   EXPECT_THAT(registrar().GetAppShortName(app_id), Eq(kFallbackTitle));
@@ -472,8 +492,14 @@ TEST_F(InstallFromSyncTest, TwoInstalls) {
   content::WebContentsDestroyedWatcher web_contents_obserser(web_contents);
   web_contents_obserser.Wait();
   EXPECT_FALSE(command_manager().web_contents_for_testing());
-  EXPECT_TRUE(registrar().IsInstalled(app_id1));
-  EXPECT_TRUE(registrar().IsInstalled(app_id2));
+  EXPECT_TRUE(registrar().IsInstallState(
+      app_id1, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_TRUE(registrar().IsInstallState(
+      app_id2, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
   std::vector<Event> expected;
   if (AreAppsLocallyInstalledBySync()) {
     expected = {
@@ -505,11 +531,11 @@ TEST_F(InstallFromSyncTest, Shutdown) {
   // down.
   auto& fake_page_state =
       web_contents_manager().GetOrCreatePageState(kWebAppStartUrl);
-  fake_page_state.url_load_result = WebAppUrlLoaderResult::kUrlLoaded;
+  fake_page_state.url_load_result = webapps::WebAppUrlLoaderResult::kUrlLoaded;
   fake_page_state.opt_metadata =
       FakeWebContentsManager::CreateMetadataWithIconAndTitle(
           kDocumentTitle, kDocumentIconUrl, kIconSize);
-  fake_page_state.opt_manifest =
+  fake_page_state.manifest_before_default_processing =
       CreateManifest(kWebAppStartUrl, kWebAppManifestId, /*icons=*/true);
   fake_page_state.on_manifest_fetch =
       base::BindLambdaForTesting([&]() { command_manager().Shutdown(); });
@@ -524,7 +550,10 @@ TEST_F(InstallFromSyncTest, Shutdown) {
   ASSERT_TRUE(future.Wait());
   EXPECT_EQ(future.Get<webapps::InstallResultCode>(),
             webapps::InstallResultCode::kCancelledOnWebAppProviderShuttingDown);
-  EXPECT_FALSE(registrar().IsInstalled(app_id));
+  EXPECT_FALSE(registrar().IsInstallState(
+      app_id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+               proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+               proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 }
 
 }  // namespace

@@ -11,21 +11,23 @@
 import './privacy_hub_app_permission_row.js';
 import './privacy_hub_system_service_row.js';
 
+import {PrefsMixin} from '/shared/settings/prefs/prefs_mixin.js';
+import type {CrToggleElement} from 'chrome://resources/ash/common/cr_elements/cr_toggle/cr_toggle.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
+import {WebUiListenerMixin} from 'chrome://resources/ash/common/cr_elements/web_ui_listener_mixin.js';
 import {PermissionType} from 'chrome://resources/cr_components/app_management/app_management.mojom-webui.js';
 import {isPermissionEnabled} from 'chrome://resources/cr_components/app_management/permission_util.js';
-import {PrefsMixin} from 'chrome://resources/cr_components/settings_prefs/prefs_mixin.js';
-import {CrToggleElement} from 'chrome://resources/cr_elements/cr_toggle/cr_toggle.js';
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
-import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {castExists} from '../assert_extras.js';
-import {App, AppPermissionsHandlerInterface, AppPermissionsObserverReceiver} from '../mojom-webui/app_permission_handler.mojom-webui.js';
+import {MediaDevicesProxy} from '../common/media_devices_proxy.js';
+import type {App, AppPermissionsHandlerInterface} from '../mojom-webui/app_permission_handler.mojom-webui.js';
+import {AppPermissionsObserverReceiver} from '../mojom-webui/app_permission_handler.mojom-webui.js';
 
-import {MediaDevicesProxy} from './media_devices_proxy.js';
 import {getAppPermissionProvider} from './mojo_interface_provider.js';
-import {PrivacyHubBrowserProxy, PrivacyHubBrowserProxyImpl} from './privacy_hub_browser_proxy.js';
+import type {PrivacyHubBrowserProxy} from './privacy_hub_browser_proxy.js';
+import {PrivacyHubBrowserProxyImpl} from './privacy_hub_browser_proxy.js';
 import {MICROPHONE_SUBPAGE_USER_ACTION_HISTOGRAM_NAME, NUMBER_OF_POSSIBLE_USER_ACTIONS, PrivacyHubSensorSubpageUserAction} from './privacy_hub_metrics_util.js';
 import {getTemplate} from './privacy_hub_microphone_subpage.html.js';
 
@@ -66,20 +68,17 @@ export class SettingsPrivacyHubMicrophoneSubpage extends
         value: [],
       },
 
-      /**
-       * The list of microphones connected to the device.
-       */
-      connectedMicrophones_: {
+      connectedMicrophoneNames_: {
         type: Array,
         value: [],
       },
 
       /**
-       * Indicates whether `connectedMicrophones_` is empty.
+       * Indicates whether `connectedMicrophoneNames_` is empty.
        */
       isMicListEmpty_: {
         type: Boolean,
-        computed: 'computeIsMicListEmpty_(connectedMicrophones_)',
+        computed: 'computeIsMicListEmpty_(connectedMicrophoneNames_)',
       },
 
       /**
@@ -104,7 +103,7 @@ export class SettingsPrivacyHubMicrophoneSubpage extends
   private appList_: App[];
   private appPermissionsObserverReceiver_: AppPermissionsObserverReceiver|null;
   private browserProxy_: PrivacyHubBrowserProxy;
-  private connectedMicrophones_: string[];
+  private connectedMicrophoneNames_: string[];
   private isMicListEmpty_: boolean;
   private microphoneHardwareToggleActive_: boolean;
   private mojoInterfaceProvider_: AppPermissionsHandlerInterface;
@@ -183,21 +182,21 @@ export class SettingsPrivacyHubMicrophoneSubpage extends
   }
 
   private async updateMicrophoneList_(): Promise<void> {
-    const connectedMicrophones: string[] = [];
+    const connectedMicrophoneNames: string[] = [];
     const devices: MediaDeviceInfo[] =
         await MediaDevicesProxy.getMediaDevices().enumerateDevices();
 
     devices.forEach((device) => {
       if (device.kind === 'audioinput' && device.deviceId !== 'default') {
-        connectedMicrophones.push(device.label);
+        connectedMicrophoneNames.push(device.label);
       }
     });
 
-    this.connectedMicrophones_ = connectedMicrophones;
+    this.connectedMicrophoneNames_ = connectedMicrophoneNames;
   }
 
   private computeIsMicListEmpty_(): boolean {
-    return this.connectedMicrophones_.length === 0;
+    return this.connectedMicrophoneNames_.length === 0;
   }
 
   private computeOnOffText_(): string {
@@ -209,8 +208,9 @@ export class SettingsPrivacyHubMicrophoneSubpage extends
   private computeOnOffSubtext_(): string {
     const microphoneAllowed =
         this.getPref<string>('ash.user.microphone_allowed').value;
-    return microphoneAllowed ? this.i18n('microphoneToggleSubtext') :
-                               this.i18n('blockedForAllText');
+    return microphoneAllowed ?
+        this.i18n('privacyHubMicrophoneSubpageMicrophoneToggleSubtext') :
+        this.i18n('privacyHubMicrophoneAccessBlockedText');
   }
 
   private computeShouldDisableMicrophoneToggle_(): boolean {
@@ -223,7 +223,8 @@ export class SettingsPrivacyHubMicrophoneSubpage extends
         PrivacyHubSensorSubpageUserAction.WEBSITE_PERMISSION_LINK_CLICKED,
         NUMBER_OF_POSSIBLE_USER_ACTIONS);
 
-    window.open('chrome://settings/content/microphone');
+    this.mojoInterfaceProvider_.openBrowserPermissionSettings(
+        PermissionType.kMicrophone);
   }
 
   /**

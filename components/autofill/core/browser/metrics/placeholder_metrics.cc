@@ -4,9 +4,15 @@
 
 #include "components/autofill/core/browser/metrics/placeholder_metrics.h"
 
+#include "base/containers/adapters.h"
+#include "base/hash/hash.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/strcat.h"
+#include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/field_types.h"
+#include "components/autofill/core/browser/metrics/log_event.h"
+#include "third_party/abseil-cpp/absl/types/variant.h"
 
 namespace autofill::autofill_metrics {
 
@@ -33,7 +39,7 @@ int GetFieldTypeAutofillPreFilledFieldsStatus(
 
 void LogPreFilledFieldStatus(std::string_view form_type_name,
                              std::optional<bool> initial_value_changed,
-                             autofill::FieldType field_type) {
+                             FieldType field_type) {
   const AutofillPreFilledFieldStatus prefilled_status =
       initial_value_changed.has_value()
           ? AutofillPreFilledFieldStatus::kPreFilledOnPageLoad
@@ -44,6 +50,42 @@ void LogPreFilledFieldStatus(std::string_view form_type_name,
   base::UmaHistogramSparse(
       "Autofill.PreFilledFieldStatus.ByFieldType",
       GetFieldTypeAutofillPreFilledFieldsStatus(field_type, prefilled_status));
+}
+
+void LogPreFilledFieldClassifications(
+    std::string_view form_type_name,
+    std::optional<bool> initial_value_changed,
+    std::optional<bool> may_use_prefilled_placeholder) {
+  if (!initial_value_changed.has_value()) {
+    return;
+  }
+  base::UmaHistogramEnumeration(
+      base::StrCat({"Autofill.PreFilledFieldClassifications.", form_type_name}),
+      may_use_prefilled_placeholder.has_value()
+          ? AutofillPreFilledFieldClassifications::kClassified
+          : AutofillPreFilledFieldClassifications::kNotClassified);
+
+  if (may_use_prefilled_placeholder.has_value()) {
+    const std::string name = base::StrCat(
+        {"Autofill.PreFilledFieldClassificationsQuality.", form_type_name});
+    AutofillPreFilledFieldClassificationsQuality sample =
+        AutofillPreFilledFieldClassificationsQuality::
+            kMeaningfullyPreFilledValueChanged;
+    if (*initial_value_changed && *may_use_prefilled_placeholder) {
+      sample = AutofillPreFilledFieldClassificationsQuality::
+          kPlaceholderValueChanged;
+    } else if (!*initial_value_changed && *may_use_prefilled_placeholder) {
+      sample = AutofillPreFilledFieldClassificationsQuality::
+          kPlaceholderValueNotChanged;
+    } else if (!*initial_value_changed && !*may_use_prefilled_placeholder) {
+      sample = AutofillPreFilledFieldClassificationsQuality::
+          kMeaningfullyPreFilledValueNotChanged;
+    }
+    base::UmaHistogramEnumeration(
+        base::StrCat(
+            {"Autofill.PreFilledFieldClassificationsQuality.", form_type_name}),
+        sample);
+  }
 }
 
 }  // namespace autofill::autofill_metrics

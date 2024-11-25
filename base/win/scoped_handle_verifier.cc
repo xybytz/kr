@@ -16,12 +16,12 @@
 #include "base/debug/alias.h"
 #include "base/debug/stack_trace.h"
 #include "base/memory/raw_ref.h"
+#include "base/notreached.h"
 #include "base/synchronization/lock_impl.h"
 #include "base/trace_event/base_tracing.h"
 #include "base/win/base_win_buildflags.h"
 #include "base/win/current_module.h"
 #include "base/win/scoped_handle.h"
-#include "third_party/abseil-cpp/absl/base/attributes.h"
 
 extern "C" {
 __declspec(dllexport) void* GetHandleVerifier();
@@ -38,7 +38,7 @@ namespace internal {
 namespace {
 
 ScopedHandleVerifier* g_active_verifier = nullptr;
-ABSL_CONST_INIT thread_local bool closing = false;
+constinit thread_local bool closing = false;
 using GetHandleVerifierFn = void* (*)();
 using HandleMap =
     std::unordered_map<HANDLE, ScopedHandleVerifierInfo, HandleHash>;
@@ -50,8 +50,7 @@ NOINLINE void ReportErrorOnScopedHandleOperation(
   auto creation_stack_copy = creation_stack;
   debug::Alias(&creation_stack_copy);
   debug::Alias(&operation);
-  CHECK(false) << operation;
-  __builtin_unreachable();
+  NOTREACHED() << operation;
 }
 
 NOINLINE void ReportErrorOnScopedHandleOperation(
@@ -63,8 +62,7 @@ NOINLINE void ReportErrorOnScopedHandleOperation(
   auto creation_stack_copy = creation_stack;
   debug::Alias(&creation_stack_copy);
   debug::Alias(&operation);
-  CHECK(false) << operation;
-  __builtin_unreachable();
+  NOTREACHED() << operation;
 }
 
 }  // namespace
@@ -115,8 +113,7 @@ ScopedHandleVerifier* ScopedHandleVerifier::Get() {
 }
 
 bool CloseHandleWrapper(HANDLE handle) {
-  if (!::CloseHandle(handle))
-    CHECK(false) << "CloseHandle failed";
+  CHECK(::CloseHandle(handle)) << "CloseHandle failed";
   return true;
 }
 

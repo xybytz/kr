@@ -17,12 +17,13 @@ import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 import '../settings_shared.css.js';
 import '../site_favicon.js';
 
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import type {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
 import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {ChoiceMadeLocation, SearchEngine, SearchEnginesBrowserProxy, SearchEnginesBrowserProxyImpl} from '../search_engines_page/search_engines_browser_proxy.js';
+import type {SearchEngine, SearchEnginesBrowserProxy} from '../search_engines_page/search_engines_browser_proxy.js';
+import {ChoiceMadeLocation, SearchEnginesBrowserProxyImpl} from '../search_engines_page/search_engines_browser_proxy.js';
 
 import {getTemplate} from './search_engine_list_dialog.html.js';
 
@@ -62,14 +63,43 @@ export class SettingsSearchEngineListDialogElement extends
         type: String,
         value: '',
       },
+
+      /**
+       * Whether the checkbox to save the search engine choice in guest mode
+       * should be shown.
+       */
+      showSaveGuestChoice_: {
+        type: Boolean,
+        computed: 'computeShowSaveGuestChoice_(saveGuestChoice_)',
+      },
+
+      /**
+       * State of the checkbox to save the search engine in guest mode. Null if
+       * checkbox is not displayed.
+       */
+      saveGuestChoice_: {
+        type: Boolean,
+        value: null,
+        notify: true,
+      },
     };
   }
 
   searchEngines: SearchEngine[];
 
   private selectedEngineId_: string;
+  private saveGuestChoice_: boolean|null = null;
   private browserProxy_: SearchEnginesBrowserProxy =
       SearchEnginesBrowserProxyImpl.getInstance();
+
+  override ready() {
+    super.ready();
+
+    this.browserProxy_.getSaveGuestChoice().then(
+        (saveGuestChoice: boolean|null) => {
+          this.saveGuestChoice_ = saveGuestChoice;
+        });
+  }
 
   private onSetAsDefaultClick_() {
     const searchEngine = this.searchEngines.find(
@@ -77,7 +107,16 @@ export class SettingsSearchEngineListDialogElement extends
     assert(searchEngine);
 
     this.browserProxy_.setDefaultSearchEngine(
-        searchEngine.modelIndex, ChoiceMadeLocation.SEARCH_SETTINGS);
+        searchEngine.modelIndex, ChoiceMadeLocation.SEARCH_SETTINGS,
+        this.saveGuestChoice_);
+
+    this.dispatchEvent(new CustomEvent('search-engine-changed', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        searchEngine: searchEngine,
+      },
+    }));
     this.$.dialog.close();
   }
 
@@ -94,6 +133,10 @@ export class SettingsSearchEngineListDialogElement extends
         this.searchEngines.find(searchEngine => searchEngine.default);
     assert(defaultSearchEngine);
     this.selectedEngineId_ = defaultSearchEngine.id.toString();
+  }
+
+  private computeShowSaveGuestChoice_(saveGuestChoice: boolean|null): boolean {
+    return saveGuestChoice !== null;
   }
 }
 

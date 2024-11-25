@@ -74,7 +74,7 @@ TEST(FirstPartySetsTraitsTest, Roundtrips_FirstPartySetMetadata) {
   auto make_metadata = [&]() {
     // Use non-default values to ensure serialization/deserialization works
     // properly.
-    return net::FirstPartySetMetadata(&frame_entry, &top_frame_entry);
+    return net::FirstPartySetMetadata(frame_entry, top_frame_entry);
   };
 
   net::FirstPartySetMetadata original = make_metadata();
@@ -101,16 +101,16 @@ TEST(FirstPartySetsTraitsTest, RoundTrips_GlobalFirstPartySets) {
       /*entries=*/
       {
           {a,
-           net::FirstPartySetEntry(a, net::SiteType::kPrimary, absl::nullopt)},
+           net::FirstPartySetEntry(a, net::SiteType::kPrimary, std::nullopt)},
           {b, net::FirstPartySetEntry(a, net::SiteType::kAssociated, 0)},
           {c,
-           net::FirstPartySetEntry(a, net::SiteType::kService, absl::nullopt)},
+           net::FirstPartySetEntry(a, net::SiteType::kService, std::nullopt)},
       },
       /*aliases=*/{{c_cctld, c}});
 
   original.ApplyManuallySpecifiedSet(net::LocalSetDeclaration(
       /*set_entries=*/{{a, net::FirstPartySetEntry(a, net::SiteType::kPrimary,
-                                                   absl::nullopt)},
+                                                   std::nullopt)},
                        {b, net::FirstPartySetEntry(
                                a, net::SiteType::kAssociated, 0)}},
       /*aliases=*/{{b_cctld, b}}));
@@ -137,16 +137,16 @@ TEST(FirstPartySetsTraitsTest, GlobalFirstPartySets_InvalidVersion) {
       /*entries=*/
       {
           {a,
-           net::FirstPartySetEntry(a, net::SiteType::kPrimary, absl::nullopt)},
+           net::FirstPartySetEntry(a, net::SiteType::kPrimary, std::nullopt)},
           {b, net::FirstPartySetEntry(a, net::SiteType::kAssociated, 0)},
           {c,
-           net::FirstPartySetEntry(a, net::SiteType::kService, absl::nullopt)},
+           net::FirstPartySetEntry(a, net::SiteType::kService, std::nullopt)},
       },
       /*aliases=*/{{c_cctld, c}});
 
   original.ApplyManuallySpecifiedSet(net::LocalSetDeclaration(
       /*set_entries=*/{{a, net::FirstPartySetEntry(a, net::SiteType::kPrimary,
-                                                   absl::nullopt)},
+                                                   std::nullopt)},
                        {b, net::FirstPartySetEntry(
                                a, net::SiteType::kAssociated, 0)}},
       /*aliases=*/{{b_cctld, b}}));
@@ -174,7 +174,7 @@ TEST(FirstPartySetsTraitsTest, RoundTrips_FirstPartySetsContextConfig) {
 
   const net::FirstPartySetsContextConfig original({
       {a, net::FirstPartySetEntryOverride(net::FirstPartySetEntry(
-              a, net::SiteType::kPrimary, absl::nullopt))},
+              a, net::SiteType::kPrimary, std::nullopt))},
       {b, net::FirstPartySetEntryOverride(
               net::FirstPartySetEntry(a, net::SiteType::kAssociated, 0))},
       {c, net::FirstPartySetEntryOverride()},

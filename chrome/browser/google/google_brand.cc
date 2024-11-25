@@ -6,6 +6,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include "base/containers/contains.h"
 #include "base/containers/fixed_flat_set.h"
@@ -100,7 +101,7 @@ bool IsOrganic(const std::string& brand) {
     return true;
   }
 
-  constexpr auto kOrganicBrands = base::MakeFixedFlatSet<base::StringPiece>(
+  constexpr auto kOrganicBrands = base::MakeFixedFlatSet<std::string_view>(
       {"CHCA", "CHCB", "CHCG", "CHCH", "CHCI", "CHCJ", "CHCK", "CHCL", "CHFO",
        "CHFT", "CHHS", "CHHM", "CHMA", "CHMB", "CHME", "CHMF", "CHMG", "CHMH",
        "CHMI", "CHMQ", "CHMV", "CHNB", "CHNC", "CHNG", "CHNH", "CHNI", "CHOA",
@@ -146,7 +147,9 @@ bool IsEnterprise(const std::string& brand) {
   }
   const char* const kEnterpriseBrands[] = {
       "GCE", "GCF", "GCG", "GCH",  // CBE brands codes.
-      "GCC", "GCK", "GCL", "GCM"   // CBE+CBCM brand codes.
+      "GCO", "GCP", "GCQ", "GCS",
+      "GCC", "GCK", "GCL", "GCM",  // CBE+CBCM brand codes.
+      "GCT", "GCU", "GCV", "GCW",
   };
   return brand == "GGRV" ||
          base::ranges::any_of(kEnterpriseBrands, [&brand](const char* br) {

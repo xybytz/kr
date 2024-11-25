@@ -28,7 +28,7 @@
 #import "ios/net/cookies/ns_http_system_cookie_store.h"
 #import "ios/net/cookies/system_cookie_util.h"
 #import "ios/net/ios_net_buildflags.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "net/cookies/cookie_constants.h"
 #import "net/cookies/cookie_util.h"
 #import "net/cookies/parsed_cookie.h"
@@ -195,11 +195,6 @@ CookieStoreIOS::CookieStoreIOS(
                      std::move(system_cookie_store),
                      net_log) {}
 
-CookieStoreIOS::CookieStoreIOS(NSHTTPCookieStorage* ns_cookie_store,
-                               NetLog* net_log)
-    : CookieStoreIOS(std::make_unique<NSHTTPSystemCookieStore>(ns_cookie_store),
-                     net_log) {}
-
 CookieStoreIOS::~CookieStoreIOS() {
   NotificationTrampoline::GetInstance()->RemoveObserver(this);
 
@@ -243,7 +238,7 @@ void CookieStoreIOS::SetCanonicalCookieAsync(
     access_result = *cookie_access_result;
   }
 
-  if (cookie->IsSecure() &&
+  if (cookie->SecureAttribute() &&
       access_scheme == CookieAccessScheme::kNonCryptographic) {
     if (!callback.is_null()) {
       access_result.status.AddExclusionReason(
@@ -280,7 +275,7 @@ void CookieStoreIOS::GetCookieListWithOptionsAsync(
   // instead.
   DCHECK(SystemCookiesAllowed());
 
-  // TODO(crbug.com/1225444): Include cookie partition key when/if iOS supports
+  // TODO(crbug.com/40188414): Include cookie partition key when/if iOS supports
   // it.
 
   // TODO(mkwst): If/when iOS supports Same-Site cookies, we'll need to pass
@@ -298,8 +293,8 @@ void CookieStoreIOS::GetAllCookiesAsync(GetAllCookiesCallback callback) {
   // instead.
   DCHECK(SystemCookiesAllowed());
 
-  // TODO(crbug.com/459154): If/when iOS supports Same-Site cookies, we'll need
-  // to pass options in here as well.
+  // TODO(crbug.com/40406003): If/when iOS supports Same-Site cookies, we'll
+  // need to pass options in here as well.
   system_store_->GetAllCookiesAsync(
       base::BindOnce(&CookieStoreIOS::RunGetAllCookiesCallbackOnSystemCookies,
                      weak_factory_.GetWeakPtr(), std::move(callback)));
@@ -619,7 +614,7 @@ void CookieStoreIOS::RunCallbacksForCookies(
   CookieChangeCallbackList* callbacks = hook_map_[key].get();
   for (const auto& cookie : cookies) {
     DCHECK_EQ(name, cookie.Name());
-    // TODO(crbug.com/978172): Support CookieAccessSemantics values on iOS and
+    // TODO(crbug.com/40633505): Support CookieAccessSemantics values on iOS and
     // use it to check IncludeForRequestURL before notifying?
     callbacks->Notify(
         net::CookieChangeInfo(cookie, net::CookieAccessResult(), cause));

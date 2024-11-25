@@ -28,9 +28,11 @@
 #include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/ranges/algorithm.h"
 #include "base/scoped_observation.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/syslog_logging.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/timer/elapsed_timer.h"
 #include "base/values.h"
@@ -39,11 +41,9 @@
 #include "chrome/browser/ash/app_mode/kiosk_app_launch_error.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_types.h"
 #include "chrome/browser/ash/arc/arc_util.h"
-#include "chrome/browser/ash/boot_times_recorder.h"
-#include "chrome/browser/ash/crosapi/browser_data_migrator.h"
+#include "chrome/browser/ash/boot_times_recorder/boot_times_recorder.h"
 #include "chrome/browser/ash/customization/customization_document.h"
 #include "chrome/browser/ash/login/auth/chrome_login_performer.h"
-#include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #include "chrome/browser/ash/login/enterprise_user_session_metrics.h"
 #include "chrome/browser/ash/login/helper.h"
 #include "chrome/browser/ash/login/profile_auth_data.h"
@@ -55,19 +55,13 @@
 #include "chrome/browser/ash/login/signin/oauth2_token_initializer.h"
 #include "chrome/browser/ash/login/signin_specifics.h"
 #include "chrome/browser/ash/login/startup_utils.h"
-#include "chrome/browser/ash/login/ui/login_display_host.h"
-#include "chrome/browser/ash/login/ui/login_display_host_mojo.h"
-#include "chrome/browser/ash/login/ui/signin_ui.h"
-#include "chrome/browser/ash/login/ui/user_adding_screen.h"
-#include "chrome/browser/ash/login/ui/webui_login_view.h"
-#include "chrome/browser/ash/login/users/chrome_user_manager.h"
+#include "chrome/browser/ash/login/users/chrome_user_manager_util.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/ash/policy/core/browser_policy_connector_ash.h"
 #include "chrome/browser/ash/policy/core/device_local_account.h"
 #include "chrome/browser/ash/policy/core/device_local_account_policy_service.h"
 #include "chrome/browser/ash/policy/handlers/minimum_version_policy_handler.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/ash/system/device_disabling_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
@@ -78,12 +72,15 @@
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/chrome_device_id_helper.h"
-#include "chrome/browser/ui/ash/system_tray_client_impl.h"
+#include "chrome/browser/ui/ash/login/login_display_host.h"
+#include "chrome/browser/ui/ash/login/login_display_host_mojo.h"
+#include "chrome/browser/ui/ash/login/signin_ui.h"
+#include "chrome/browser/ui/ash/login/user_adding_screen.h"
+#include "chrome/browser/ui/ash/login/webui_login_view.h"
+#include "chrome/browser/ui/ash/system/system_tray_client_impl.h"
 #include "chrome/browser/ui/aura/accessibility/automation_manager_aura.h"
 #include "chrome/browser/ui/managed_ui.h"
 #include "chrome/browser/ui/webui/ash/login/encryption_migration_screen_handler.h"
-#include "chrome/browser/ui/webui/ash/login/kiosk_autolaunch_screen_handler.h"
-#include "chrome/browser/ui/webui/ash/login/kiosk_enable_screen_handler.h"
 #include "chrome/browser/ui/webui/ash/login/l10n_util.h"
 #include "chrome/browser/ui/webui/ash/login/tpm_error_screen_handler.h"
 #include "chrome/browser/ui/webui/ash/login/update_required_screen_handler.h"
@@ -93,13 +90,15 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
-#include "chromeos/ash/components/cryptohome/cryptohome_util.h"
 #include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
 #include "chromeos/ash/components/dbus/userdataauth/userdataauth_client.h"
+#include "chromeos/ash/components/demo_mode/utils/demo_session_utils.h"
 #include "chromeos/ash/components/install_attributes/install_attributes.h"
 #include "chromeos/ash/components/login/auth/public/auth_failure.h"
 #include "chromeos/ash/components/login/auth/public/key.h"
 #include "chromeos/ash/components/login/session/session_termination_manager.h"
+#include "chromeos/ash/components/osauth/public/auth_hub.h"
+#include "chromeos/ash/components/settings/cros_settings.h"
 #include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
@@ -115,14 +114,13 @@
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/known_user.h"
+#include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_names.h"
 #include "components/user_manager/user_type.h"
 #include "components/vector_icons/vector_icons.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/browser/storage_partition.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "google_apis/gaia/google_service_auth_error.h"
@@ -238,7 +236,7 @@ void SetLoginExtensionApiCanLockManagedGuestSessionPref(
   Profile* profile = ProfileHelper::Get()->GetProfileByUser(user);
   DCHECK(profile);
   PrefService* prefs = profile->GetPrefs();
-  prefs->SetBoolean(::prefs::kLoginExtensionApiCanLockManagedGuestSession,
+  prefs->SetBoolean(ash::prefs::kLoginExtensionApiCanLockManagedGuestSession,
                     can_lock_managed_guest_session);
   prefs->CommitPendingWrite();
 }
@@ -251,7 +249,7 @@ std::optional<EncryptionMigrationMode> GetEncryptionMigrationMode(
     return EncryptionMigrationMode::RESUME_MIGRATION;
   }
 
-  if (user_context.GetUserType() == user_manager::USER_TYPE_CHILD) {
+  if (user_context.GetUserType() == user_manager::UserType::kChild) {
     // Force-migrate child users.
     return EncryptionMigrationMode::START_MIGRATION;
   }
@@ -274,15 +272,13 @@ std::optional<EncryptionMigrationMode> GetEncryptionMigrationMode(
 AccountId GetPublicSessionAutoLoginAccountId(
     const std::vector<policy::DeviceLocalAccount>& device_local_accounts,
     const std::string& auto_login_account_id) {
-  for (std::vector<policy::DeviceLocalAccount>::const_iterator it =
-           device_local_accounts.begin();
-       it != device_local_accounts.end(); ++it) {
-    if (it->account_id == auto_login_account_id) {
-      VLOG(2) << "PublicSession autologin found: " << it->user_id;
-      return AccountId::FromUserEmail(it->user_id);
-    }
-  }
-  return EmptyAccountId();
+  const auto& it = base::ranges::find_if(
+      device_local_accounts, [&auto_login_account_id](const auto& account) {
+        return account.account_id == auto_login_account_id;
+      });
+  return it == device_local_accounts.end()
+             ? EmptyAccountId()
+             : AccountId::FromUserEmail(it->user_id);
 }
 
 int CountRegularUsers(const user_manager::UserList& users) {
@@ -291,14 +287,14 @@ int CountRegularUsers(const user_manager::UserList& users) {
   for (user_manager::User* user : users) {
     // Skip kiosk apps for login screen user list. Kiosk apps as pods (aka new
     // kiosk UI) is currently disabled and it gets the apps directly from
-    // KioskChromeAppManager, ArcKioskAppManager and WebKioskAppManager.
+    // KioskChromeAppManager, WebKioskAppManager.
     if (user->IsKioskType()) {
       continue;
     }
     // Allow offline login from the error screen if user of one of these types
     // has already logged in.
-    if (user->GetType() == user_manager::USER_TYPE_REGULAR ||
-        user->GetType() == user_manager::USER_TYPE_CHILD) {
+    if (user->GetType() == user_manager::UserType::kRegular ||
+        user->GetType() == user_manager::UserType::kChild) {
       regular_users_counter++;
     }
   }
@@ -396,11 +392,7 @@ ExistingUserController::ExistingUserController()
 
   observed_user_manager_.Observe(user_manager::UserManager::Get());
 
-  if (ui::UserActivityDetector::Get()) {
-    ui::UserActivityDetector::Get()->AddObserver(this);
-  } else {
-    CHECK_IS_TEST();
-  }
+  ui::UserActivityDetector::Get()->AddObserver(this);
 }
 
 void ExistingUserController::Init(const user_manager::UserList& users) {
@@ -440,7 +432,8 @@ void ExistingUserController::UpdateLoginDisplay(
   }
 
   if (LoginDisplayHostMojo::Get()) {
-    auto login_users = ExtractLoginUsers(users);
+    auto login_users =
+        user_manager::UserManager::Get()->FindLoginAllowedUsersFrom(users);
     LoginDisplayHostMojo::Get()->SetUsers(login_users);
   }
 }
@@ -483,10 +476,7 @@ void ExistingUserController::HttpAuthDialogSupplied(
 
 ExistingUserController::~ExistingUserController() {
   HttpAuthDialog::RemoveObserver(this);
-  ui::UserActivityDetector* activity_detector = ui::UserActivityDetector::Get();
-  if (activity_detector) {
-    activity_detector->RemoveObserver(this);
-  }
+  ui::UserActivityDetector::Get()->RemoveObserver(this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -524,7 +514,7 @@ void ExistingUserController::Login(const UserContext& user_context,
 
   is_login_in_progress_ = true;
 
-  if (user_context.GetUserType() != user_manager::USER_TYPE_REGULAR &&
+  if (user_context.GetUserType() != user_manager::UserType::kRegular &&
       user_manager::UserManager::Get()->IsUserLoggedIn()) {
     // Multi-login is only allowed for regular users. If we are attempting to
     // do multi-login as another type of user somehow, bail out. Do not
@@ -610,12 +600,6 @@ void ExistingUserController::OnGaiaScreenReady() {
   StartAutoLoginTimer();
 }
 
-void ExistingUserController::OnStartKioskEnableScreen() {
-  KioskChromeAppManager::Get()->GetConsumerKioskAutoLaunchStatus(base::BindOnce(
-      &ExistingUserController::OnConsumerKioskAutoLaunchCheckCompleted,
-      weak_factory_.GetWeakPtr()));
-}
-
 void ExistingUserController::SetDisplayEmail(const std::string& email) {
   display_email_ = email;
 }
@@ -646,18 +630,6 @@ void ExistingUserController::LocalStateChanged(
   DeviceSettingsChanged();
 }
 
-void ExistingUserController::OnConsumerKioskAutoLaunchCheckCompleted(
-    KioskChromeAppManager::ConsumerKioskAutoLaunchStatus status) {
-  if (status ==
-      KioskChromeAppManager::ConsumerKioskAutoLaunchStatus::kConfigurable) {
-    ShowKioskEnableScreen();
-  }
-}
-
-void ExistingUserController::ShowKioskEnableScreen() {
-  GetLoginDisplayHost()->StartWizard(KioskEnableScreenView::kScreenId);
-}
-
 void ExistingUserController::ShowEncryptionMigrationScreen(
     std::unique_ptr<UserContext> user_context,
     EncryptionMigrationMode migration_mode) {
@@ -683,7 +655,7 @@ void ExistingUserController::ShowTPMError() {
 //
 
 void ExistingUserController::OnAuthFailure(const AuthFailure& failure) {
-  guest_mode_url_ = GURL::EmptyGURL();
+  guest_mode_url_ = GURL();
   std::string error = failure.GetErrorString();
 
   PerformLoginFinishedActions(false /* don't start auto login timer */);
@@ -759,11 +731,6 @@ void ExistingUserController::OnAuthSuccess(const UserContext& user_context) {
 
   StopAutoLoginTimer();
 
-  ContinueAuthSuccessAfterResumeAttempt(user_context);
-}
-
-void ExistingUserController::ContinueAuthSuccessAfterResumeAttempt(
-    const UserContext& user_context) {
   // Truth table of `has_auth_cookies`:
   //                          Regular        SAML
   //  /ServiceLogin              T            T
@@ -779,9 +746,8 @@ void ExistingUserController::ContinueAuthSuccessAfterResumeAttempt(
   login_performer_->set_delegate(nullptr);
   std::ignore = login_performer_.release();
 
-  const bool is_enterprise_managed = g_browser_process->platform_part()
-                                         ->browser_policy_connector_ash()
-                                         ->IsDeviceEnterpriseManaged();
+  const bool is_enterprise_managed =
+      ash::InstallAttributes::Get()->IsEnterpriseManaged();
 
   // Mark device will be consumer owned if the device is not managed and this is
   // the first user on the device.
@@ -798,7 +764,7 @@ void ExistingUserController::ContinueAuthSuccessAfterResumeAttempt(
   }
 
   if (user_context.CanLockManagedGuestSession()) {
-    CHECK(user_context.GetUserType() == user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+    CHECK(user_context.GetUserType() == user_manager::UserType::kPublicAccount);
     user_manager::User* user =
         user_manager::UserManager::Get()->FindUserAndModify(
             user_context.GetAccountId());
@@ -808,13 +774,8 @@ void ExistingUserController::ContinueAuthSuccessAfterResumeAttempt(
                        user_context.GetAccountId(), true));
   }
 
-  if (BrowserDataMigratorImpl::MaybeForceResumeMoveMigration(
-          g_browser_process->local_state(), user_context.GetAccountId(),
-          user_context.GetUserIDHash(),
-          crosapi::browser_util::PolicyInitState::kAfterInit)) {
-    // TODO(crbug.com/1261730): Add an UMA.
-    LOG(WARNING) << "Restarting Chrome to resume move migration.";
-    return;
+  if (user_context.GetUserType() == user_manager::UserType::kPublicAccount) {
+    SYSLOG(INFO) << "MGS: Finished login, starting session to load the profile";
   }
 
   UserSessionManager::StartSessionType start_session_type =
@@ -857,14 +818,14 @@ void ExistingUserController::ContinueAuthSuccessAfterResumeAttempt(
 }
 
 void ExistingUserController::ShowAutoLaunchManagedGuestSessionNotification() {
-  policy::BrowserPolicyConnectorAsh* connector =
-      g_browser_process->platform_part()->browser_policy_connector_ash();
-  DCHECK(connector->IsDeviceEnterpriseManaged());
+  DCHECK(ash::InstallAttributes::Get()->IsEnterpriseManaged());
   message_center::RichNotificationData data;
-  data.buttons.push_back(message_center::ButtonInfo(
-      l10n_util::GetStringUTF16(IDS_AUTO_LAUNCH_NOTIFICATION_BUTTON)));
+  data.buttons.emplace_back(
+      l10n_util::GetStringUTF16(IDS_AUTO_LAUNCH_NOTIFICATION_BUTTON));
   const std::u16string title =
       l10n_util::GetStringUTF16(IDS_AUTO_LAUNCH_NOTIFICATION_TITLE);
+  policy::BrowserPolicyConnectorAsh* connector =
+      g_browser_process->platform_part()->browser_policy_connector_ash();
   const std::u16string message = l10n_util::GetStringFUTF16(
       IDS_ASH_LOGIN_MANAGED_SESSION_MONITORING_FULL_WARNING,
       base::UTF8ToUTF16(connector->GetEnterpriseDomainManager()));
@@ -903,7 +864,7 @@ void ExistingUserController::OnProfilePrepared(Profile* profile,
   auto* profile_connector = profile->GetProfilePolicyConnector();
   bool is_enterprise_managed =
       profile_connector->IsManaged() &&
-      user_context.GetUserType() != user_manager::USER_TYPE_CHILD;
+      user_context.GetUserType() != user_manager::UserType::kChild;
 
   user_manager::KnownUser known_user(g_browser_process->local_state());
   known_user.SetIsEnterpriseManaged(user_context.GetAccountId(),
@@ -917,11 +878,19 @@ void ExistingUserController::OnProfilePrepared(Profile* profile,
     }
   }
 
+  if (user_context.GetUserType() == user_manager::UserType::kPublicAccount) {
+    SYSLOG(INFO) << "MGS: Session started, the profile is ready";
+  }
+
   // Inform `auth_status_consumers_` about successful login.
   // TODO(nkostylev): Pass UserContext back crbug.com/424550
   for (auto& auth_status_consumer : auth_status_consumers_) {
     auth_status_consumer.OnAuthSuccess(user_context);
   }
+
+  // Initialize `AuthHub` in `kInSession` mode, see documentation in
+  // `AuthHub` for more details.
+  AuthHub::Get()->InitializeForMode(AuthHubMode::kInSession);
 }
 
 base::WeakPtr<UserSessionManagerDelegate> ExistingUserController::AsWeakPtr() {
@@ -1064,7 +1033,8 @@ void ExistingUserController::DeviceSettingsChanged() {
     // Signed settings or user list changed. Notify views and update them.
     const user_manager::UserList& users =
         UserAddingScreen::Get()->IsRunning()
-            ? user_manager::UserManager::Get()->GetUsersAllowedForMultiProfile()
+            ? user_manager::UserManager::Get()
+                  ->GetUsersAllowedForMultiUserSignIn()
             : user_manager::UserManager::Get()->GetUsers();
 
     UpdateLoginDisplay(users);
@@ -1098,34 +1068,6 @@ bool ExistingUserController::password_changed() const {
   return password_changed_;
 }
 
-// static
-user_manager::UserList ExistingUserController::ExtractLoginUsers(
-    const user_manager::UserList& users) {
-  bool show_users_on_signin;
-  CrosSettings::Get()->GetBoolean(kAccountsPrefShowUserNamesOnSignIn,
-                                  &show_users_on_signin);
-  user_manager::UserList filtered_users;
-  for (user_manager::User* user : users) {
-    // Skip kiosk apps for login screen user list. Kiosk apps as pods (aka new
-    // kiosk UI) is currently disabled and it gets the apps directly from
-    // KioskChromeAppManager, ArcKioskAppManager and WebKioskAppManager.
-    if (user->IsKioskType()) {
-      continue;
-    }
-    const bool meets_allowlist_requirements =
-        !user->HasGaiaAccount() ||
-        user_manager::UserManager::Get()->IsGaiaUserAllowed(*user);
-    // Public session accounts are always shown on login screen.
-    const bool meets_show_users_requirements =
-        show_users_on_signin ||
-        user->GetType() == user_manager::USER_TYPE_PUBLIC_ACCOUNT;
-    if (meets_allowlist_requirements && meets_show_users_requirements) {
-      filtered_users.push_back(user);
-    }
-  }
-  return filtered_users;
-}
-
 void ExistingUserController::LoginAuthenticated(
     std::unique_ptr<UserContext> user_context) {
   CHECK(login_performer_);
@@ -1133,7 +1075,7 @@ void ExistingUserController::LoginAuthenticated(
 }
 
 void ExistingUserController::LoginAsGuest() {
-  PerformPreLoginActions(UserContext(user_manager::USER_TYPE_GUEST,
+  PerformPreLoginActions(UserContext(user_manager::UserType::kGuest,
                                      user_manager::GuestAccountId()));
 
   bool allow_guest = user_manager::UserManager::Get()->IsGuestSessionAllowed();
@@ -1156,16 +1098,17 @@ void ExistingUserController::LoginAsGuest() {
 
 void ExistingUserController::LoginAsPublicSession(
     const UserContext& user_context) {
-  VLOG(2) << "LoginAsPublicSession";
+  SYSLOG(INFO) << "MGS: Starting login process for account ID "
+               << user_context.GetAccountId();
   PerformPreLoginActions(user_context);
 
   // If there is no public account with the given user ID, logging in is not
   // possible.
   const user_manager::User* user =
       user_manager::UserManager::Get()->FindUser(user_context.GetAccountId());
-  if (!user || user->GetType() != user_manager::USER_TYPE_PUBLIC_ACCOUNT) {
-    VLOG(2) << "Public session user not found";
-    PerformLoginFinishedActions(true /* start auto login timer */);
+  if (!user || user->GetType() != user_manager::UserType::kPublicAccount) {
+    SYSLOG(ERROR) << "MGS: User not found for MGS account ID, cannot log in";
+    PerformLoginFinishedActions(/*start_auto_login_timer=*/true);
     return;
   }
 
@@ -1179,7 +1122,7 @@ void ExistingUserController::LoginAsPublicSession(
   const auto& user_id = user_context.GetAccountId().GetUserEmail();
   DCHECK(policy_service);
   if (!policy_service->IsPolicyAvailableForUser(user_id)) {
-    VLOG(2) << "Policies are not yet available for public session";
+    SYSLOG(INFO) << "MGS: Policies are not available yet, will wait";
     policy_waiter_ = std::make_unique<DeviceLocalAccountPolicyWaiter>(
         policy_service,
         base::BindOnce(
@@ -1195,7 +1138,7 @@ void ExistingUserController::LoginAsPublicSession(
 
 void ExistingUserController::LoginAsPublicSessionWhenPolicyAvailable(
     const UserContext& user_context) {
-  VLOG(2) << __func__;
+  SYSLOG(INFO) << "MGS: Policies are available, proceeding login";
   policy_waiter_.reset();
 
   UserContext new_user_context = user_context;
@@ -1230,7 +1173,7 @@ void ExistingUserController::LoginAsPublicSessionWhenPolicyAvailable(
     // When `locale` is set, a suitable keyboard layout should be chosen. In
     // most cases, this will already be the case because the UI shows a list of
     // keyboard layouts suitable for the `locale` and ensures that one of them
-    // us selected. However, it is still possible that `locale` is set but no
+    // is selected. However, it is still possible that `locale` is set but no
     // keyboard layout was chosen:
     // * The list of keyboard layouts is updated asynchronously. If the user
     //   enters the public session before the list of keyboard layouts for the
@@ -1242,7 +1185,8 @@ void ExistingUserController::LoginAsPublicSessionWhenPolicyAvailable(
     // The list of suitable keyboard layouts is constructed asynchronously. Once
     // it has been retrieved, `SetPublicSessionKeyboardLayoutAndLogin` will
     // select the first layout from the list and continue login.
-    VLOG(2) << "Requesting keyboard layouts for public session";
+    SYSLOG(INFO) << "MGS: Requesting keyboard layouts for locale '" << locale
+                 << "'";
     GetKeyboardLayoutsForLocale(
         base::BindOnce(
             &ExistingUserController::SetPublicSessionKeyboardLayoutAndLogin,
@@ -1271,13 +1215,21 @@ void ExistingUserController::ConfigureAutoLogin() {
 
   public_session_auto_login_account_id_ = GetPublicSessionAutoLoginAccountId(
       device_local_accounts, auto_login_account_id);
+  if (!auto_login_account_id.empty() &&
+      !public_session_auto_login_account_id_.is_valid()) {
+    SYSLOG(ERROR) << "MGS: Found an auto login account ID, but no corresponding"
+                     " device local account '"
+                  << auto_login_account_id << "'";
+  }
 
   const user_manager::User* public_session_user =
       user_manager::UserManager::Get()->FindUser(
           public_session_auto_login_account_id_);
-  if (!public_session_user || public_session_user->GetType() !=
-                                  user_manager::USER_TYPE_PUBLIC_ACCOUNT) {
-    VLOG(2) << "PublicSession autologin user not found";
+  if (public_session_auto_login_account_id_.is_valid() &&
+      (!public_session_user || public_session_user->GetType() !=
+                                   user_manager::UserType::kPublicAccount)) {
+    SYSLOG(ERROR) << "MGS: No valid user found for auto login account "
+                  << public_session_auto_login_account_id_;
     public_session_auto_login_account_id_ = EmptyAccountId();
   }
 
@@ -1292,6 +1244,9 @@ void ExistingUserController::ConfigureAutoLogin() {
     StopAutoLoginTimer();
     GetLoginDisplayHost()->StartWizard(UpdateRequiredView::kScreenId);
   } else if (public_session_auto_login_account_id_.is_valid()) {
+    SYSLOG(INFO) << "MGS: Setting up auto login timer with delay "
+                 << auto_login_delay_ << "ms for "
+                 << public_session_auto_login_account_id_;
     StartAutoLoginTimer();
   } else {
     StopAutoLoginTimer();
@@ -1308,10 +1263,10 @@ void ExistingUserController::OnUserActivity(const ui::Event* event) {
 
 void ExistingUserController::OnPublicSessionAutoLoginTimerFire() {
   CHECK(public_session_auto_login_account_id_.is_valid());
-  VLOG(2) << "Public session autologin fired";
+  SYSLOG(INFO) << "MGS: Starting auto login";
   SigninSpecifics signin_specifics;
   signin_specifics.is_auto_login = true;
-  Login(UserContext(user_manager::USER_TYPE_PUBLIC_ACCOUNT,
+  Login(UserContext(user_manager::UserType::kPublicAccount,
                     public_session_auto_login_account_id_),
         signin_specifics);
 }
@@ -1329,35 +1284,22 @@ void ExistingUserController::CancelPasswordChangedFlow() {
   PerformLoginFinishedActions(true /* start auto login timer */);
 }
 
-void ExistingUserController::MigrateUserData(const std::string& old_password) {
-  // LoginPerformer instance has state of the user so it should exist.
-  if (login_performer_.get()) {
-    VLOG(1) << "Migrate the existing cryptohome to new password.";
-    login_performer_->RecoverEncryptedData(old_password);
-  }
-}
-
-void ExistingUserController::ResyncUserData() {
-  // LoginPerformer instance has state of the user so it should exist.
-  if (login_performer_.get()) {
-    VLOG(1) << "Create a new cryptohome and resync user data.";
-    login_performer_->ResyncEncryptedData();
-  }
-}
-
 void ExistingUserController::StartAutoLoginTimer() {
   auto session_state = session_manager::SessionManager::Get()->session_state();
+  bool is_demo_mode = demo_mode::IsDeviceInDemoMode();
   if (is_login_in_progress_ ||
       !public_session_auto_login_account_id_.is_valid() ||
-      (session_state == session_manager::SessionState::OOBE &&
-       !DemoSession::IsDeviceInDemoMode())) {
+      (session_state == session_manager::SessionState::OOBE && !is_demo_mode) ||
+      (is_demo_mode && !demo_mode::ShouldFallBackToMGS())) {
     VLOG(2) << "Not starting autologin timer, because:";
     VLOG_IF(2, is_login_in_progress_) << "* Login is in process;";
     VLOG_IF(2, !public_session_auto_login_account_id_.is_valid())
         << "* No valid autologin account;";
     VLOG_IF(2, session_state == session_manager::SessionState::OOBE &&
-                   !DemoSession::IsDeviceInDemoMode())
+                   !is_demo_mode)
         << "* OOBE isn't completed and device isn't in demo mode;";
+    VLOG_IF(2, is_demo_mode && !demo_mode::ShouldFallBackToMGS())
+        << "* Should not fall back to manage guest session for demo mode;";
     return;
   }
   VLOG(2) << "Starting autologin timer with delay: " << auto_login_delay_;
@@ -1413,6 +1355,7 @@ void ExistingUserController::SetPublicSessionKeyboardLayoutAndLogin(
     }
   }
   DCHECK(!keyboard_layout.empty());
+  SYSLOG(INFO) << "MGS: Setting keyboard layout '" << keyboard_layout << "'";
   new_user_context.SetPublicSessionInputMethod(keyboard_layout);
 
   LoginAsPublicSessionInternal(new_user_context);
@@ -1420,9 +1363,8 @@ void ExistingUserController::SetPublicSessionKeyboardLayoutAndLogin(
 
 void ExistingUserController::LoginAsPublicSessionInternal(
     const UserContext& user_context) {
+  SYSLOG(INFO) << "MGS: Performing login for account";
   // Only one instance of LoginPerformer should exist at a time.
-  VLOG(2) << "LoginAsPublicSessionInternal for user: "
-          << user_context.GetAccountId();
   login_performer_.reset(nullptr);
   login_performer_ =
       std::make_unique<ChromeLoginPerformer>(this, AuthEventsRecorder::Get());
@@ -1538,16 +1480,20 @@ void ExistingUserController::ContinueLoginIfDeviceNotDisabled(
 }
 
 void ExistingUserController::DoCompleteLogin(
-    const UserContext& user_context_wo_device_id) {
-  UserContext user_context = user_context_wo_device_id;
+    const UserContext& login_user_context) {
+  UserContext user_context = login_user_context;
   user_manager::KnownUser known_user(g_browser_process->local_state());
-  std::string device_id = known_user.GetDeviceId(user_context.GetAccountId());
-  if (device_id.empty()) {
-    const bool is_ephemeral = ChromeUserManager::Get()->IsEphemeralAccountId(
-        user_context.GetAccountId());
-    device_id = GenerateSigninScopedDeviceId(is_ephemeral);
+
+  if (user_context.GetDeviceId().empty()) {
+    std::string device_id = known_user.GetDeviceId(user_context.GetAccountId());
+    if (device_id.empty()) {
+      const bool is_ephemeral =
+          user_manager::UserManager::Get()->IsEphemeralAccountId(
+              user_context.GetAccountId());
+      device_id = GenerateSigninScopedDeviceId(is_ephemeral);
+    }
+    user_context.SetDeviceId(device_id);
   }
-  user_context.SetDeviceId(device_id);
 
   const std::string& gaps_cookie = user_context.GetGAPSCookie();
   if (!gaps_cookie.empty()) {
@@ -1580,7 +1526,7 @@ void ExistingUserController::DoLogin(const UserContext& user_context,
   last_login_attempt_was_auto_login_ = specifics.is_auto_login;
   VLOG(2) << "DoLogin with a user type: " << user_context.GetUserType();
 
-  if (user_context.GetUserType() == user_manager::USER_TYPE_GUEST) {
+  if (user_context.GetUserType() == user_manager::UserType::kGuest) {
     if (!specifics.guest_mode_url.empty()) {
       guest_mode_url_ = GURL(specifics.guest_mode_url);
       if (specifics.guest_mode_url_append_locale) {
@@ -1592,25 +1538,25 @@ void ExistingUserController::DoLogin(const UserContext& user_context,
     return;
   }
 
-  if (user_context.GetUserType() == user_manager::USER_TYPE_PUBLIC_ACCOUNT) {
+  if (user_context.GetUserType() == user_manager::UserType::kPublicAccount) {
     LoginAsPublicSession(user_context);
     return;
   }
 
-  if (user_context.GetUserType() == user_manager::USER_TYPE_KIOSK_APP) {
+  if (user_context.GetUserType() == user_manager::UserType::kKioskApp) {
     LoginAsKioskApp(
         KioskAppId::ForChromeApp(user_context.GetAccountId().GetUserEmail(),
                                  user_context.GetAccountId()));
     return;
   }
 
-  if (user_context.GetUserType() == user_manager::USER_TYPE_ARC_KIOSK_APP) {
-    LoginAsKioskApp(KioskAppId::ForArcApp(user_context.GetAccountId()));
+  if (user_context.GetUserType() == user_manager::UserType::kWebKioskApp) {
+    LoginAsKioskApp(KioskAppId::ForWebApp(user_context.GetAccountId()));
     return;
   }
 
-  if (user_context.GetUserType() == user_manager::USER_TYPE_WEB_KIOSK_APP) {
-    LoginAsKioskApp(KioskAppId::ForWebApp(user_context.GetAccountId()));
+  if (user_context.GetUserType() == user_manager::UserType::kKioskIWA) {
+    LoginAsKioskApp(KioskAppId::ForIsolatedWebApp(user_context.GetAccountId()));
     return;
   }
 

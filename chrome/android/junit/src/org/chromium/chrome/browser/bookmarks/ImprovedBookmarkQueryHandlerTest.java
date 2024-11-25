@@ -6,6 +6,7 @@ package org.chromium.chrome.browser.bookmarks;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
@@ -32,7 +33,6 @@ import androidx.annotation.Nullable;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
@@ -43,14 +43,12 @@ import org.robolectric.annotation.Config;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Batch;
 import org.chromium.chrome.browser.bookmarks.BookmarkUiPrefs.BookmarkRowSortOrder;
-import org.chromium.chrome.browser.commerce.ShoppingFeatures;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.bookmarks.BookmarkId;
 import org.chromium.components.bookmarks.BookmarkItem;
+import org.chromium.components.commerce.core.CommerceFeatureUtils;
+import org.chromium.components.commerce.core.CommerceFeatureUtilsJni;
 import org.chromium.components.commerce.core.ShoppingService;
 import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.power_bookmarks.PowerBookmarkMeta;
@@ -67,21 +65,23 @@ import java.util.List;
 @Config(manifest = Config.NONE)
 public class ImprovedBookmarkQueryHandlerTest {
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
-    @Rule public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
 
     @Mock private BookmarkModel mBookmarkModel;
     @Mock private Tracker mTracker;
     @Mock private Profile mProfile;
     @Mock private BookmarkUiPrefs mBookmarkUiPrefs;
     @Mock private ShoppingService mShoppingService;
+    @Mock private CommerceFeatureUtils.Natives mCommerceFeatureUtilsJniMock;
 
     private ImprovedBookmarkQueryHandler mHandler;
 
     @Before
     public void setup() {
-        Profile.setLastUsedProfileForTesting(mProfile);
+        doReturn(false).when(mBookmarkModel).areAccountBookmarkFoldersActive();
         TrackerFactory.setTrackerForTests(mTracker);
         SharedBookmarkModelMocks.initMocks(mBookmarkModel);
+
+        CommerceFeatureUtilsJni.setInstanceForTesting(mCommerceFeatureUtilsJniMock);
 
         mHandler =
                 new ImprovedBookmarkQueryHandler(
@@ -106,9 +106,9 @@ public class ImprovedBookmarkQueryHandlerTest {
     }
 
     @Test
-    @EnableFeatures(ChromeFeatureList.ENABLE_BOOKMARK_FOLDERS_FOR_ACCOUNT_STORAGE)
     public void testBuildBookmarkListForParent_rootFolder_withAccountFolders() {
-        BookmarkModel fakeBookmarkModel = FakeBookmarkModel.createModel();
+        FakeBookmarkModel fakeBookmarkModel = FakeBookmarkModel.createModel();
+        fakeBookmarkModel.setAreAccountBookmarkFoldersActive(true);
         mHandler =
                 new ImprovedBookmarkQueryHandler(
                         fakeBookmarkModel, mBookmarkUiPrefs, mShoppingService);
@@ -120,9 +120,12 @@ public class ImprovedBookmarkQueryHandlerTest {
         List<BookmarkListEntry> result = mHandler.buildBookmarkListForParent(ROOT_BOOKMARK_ID);
         List<BookmarkId> expected =
                 Arrays.asList(
-                        null, // Account header
+                        null,
+                        fakeBookmarkModel.getAccountOtherFolderId(),
+                        fakeBookmarkModel.getAccountDesktopFolderId(),
+                        fakeBookmarkModel.getAccountMobileFolderId(),
                         fakeBookmarkModel.getAccountReadingListFolder(),
-                        null, // Local header
+                        null,
                         fakeBookmarkModel.getOtherFolderId(),
                         fakeBookmarkModel.getDesktopFolderId(),
                         fakeBookmarkModel.getMobileFolderId(),
@@ -222,7 +225,7 @@ public class ImprovedBookmarkQueryHandlerTest {
 
     @Test
     public void testBuildBookmarkListForParent_withShoppingFilter() {
-        ShoppingFeatures.setShoppingListEligibleForTesting(true);
+        doReturn(true).when(mCommerceFeatureUtilsJniMock).isShoppingListEligible(anyLong());
 
         ShoppingSpecifics trackedShoppingSpecifics =
                 ShoppingSpecifics.newBuilder().setProductClusterId(1).build();
@@ -285,7 +288,7 @@ public class ImprovedBookmarkQueryHandlerTest {
 
     @Test
     public void testSearchWithShoppingFilter() {
-        ShoppingFeatures.setShoppingListEligibleForTesting(true);
+        doReturn(true).when(mCommerceFeatureUtilsJniMock).isShoppingListEligible(anyLong());
 
         List<BookmarkId> queryIds =
                 Arrays.asList(
@@ -325,7 +328,7 @@ public class ImprovedBookmarkQueryHandlerTest {
 
     @Test
     public void testSearchWithShoppingFilter_shoppingListNotEligible() {
-        ShoppingFeatures.setShoppingListEligibleForTesting(false);
+        doReturn(false).when(mCommerceFeatureUtilsJniMock).isShoppingListEligible(anyLong());
 
         List<BookmarkId> queryIds =
                 Arrays.asList(
@@ -375,7 +378,7 @@ public class ImprovedBookmarkQueryHandlerTest {
 
     @Test
     public void testBuildBookmarkListForFolderSelect_rootFolder() {
-        BookmarkModel fakeBookmarkModel = FakeBookmarkModel.createModel();
+        FakeBookmarkModel fakeBookmarkModel = FakeBookmarkModel.createModel();
         mHandler =
                 new ImprovedBookmarkQueryHandler(
                         fakeBookmarkModel, mBookmarkUiPrefs, mShoppingService);
@@ -384,8 +387,7 @@ public class ImprovedBookmarkQueryHandlerTest {
                 .when(mBookmarkUiPrefs)
                 .getBookmarkRowSortOrder();
         List<BookmarkListEntry> result =
-                mHandler.buildBookmarkListForFolderSelect(
-                        mBookmarkModel.getRootFolderId(), /* movingFolder= */ false);
+                mHandler.buildBookmarkListForFolderSelect(mBookmarkModel.getRootFolderId());
         List<BookmarkId> expected =
                 Arrays.asList(
                         fakeBookmarkModel.getDesktopFolderId(),
@@ -393,23 +395,13 @@ public class ImprovedBookmarkQueryHandlerTest {
                         fakeBookmarkModel.getOtherFolderId(),
                         fakeBookmarkModel.getLocalOrSyncableReadingListFolder());
         verifyBookmarkIds(expected, result);
-
-        result =
-                mHandler.buildBookmarkListForFolderSelect(
-                        mBookmarkModel.getRootFolderId(), /* movingFolder= */ true);
-        expected =
-                Arrays.asList(
-                        fakeBookmarkModel.getDesktopFolderId(),
-                        fakeBookmarkModel.getMobileFolderId(),
-                        fakeBookmarkModel.getOtherFolderId());
-        verifyBookmarkIds(expected, result);
     }
 
     @Test
-    @EnableFeatures(ChromeFeatureList.ENABLE_BOOKMARK_FOLDERS_FOR_ACCOUNT_STORAGE)
     public void
             testBuildBookmarkListForFolderSelect_rootFolder_alphabetical_WithAccountBookmarks() {
-        BookmarkModel fakeBookmarkModel = FakeBookmarkModel.createModel();
+        FakeBookmarkModel fakeBookmarkModel = FakeBookmarkModel.createModel();
+        fakeBookmarkModel.setAreAccountBookmarkFoldersActive(true);
         mHandler =
                 new ImprovedBookmarkQueryHandler(
                         fakeBookmarkModel, mBookmarkUiPrefs, mShoppingService);
@@ -418,61 +410,45 @@ public class ImprovedBookmarkQueryHandlerTest {
                 .when(mBookmarkUiPrefs)
                 .getBookmarkRowSortOrder();
         List<BookmarkListEntry> result =
-                mHandler.buildBookmarkListForFolderSelect(
-                        mBookmarkModel.getRootFolderId(), /* movingFolder= */ false);
+                mHandler.buildBookmarkListForFolderSelect(mBookmarkModel.getRootFolderId());
         List<BookmarkId> expected =
                 Arrays.asList(
-                        null, // account header
+                        null,
+                        fakeBookmarkModel.getAccountDesktopFolderId(),
+                        fakeBookmarkModel.getAccountMobileFolderId(),
+                        fakeBookmarkModel.getAccountOtherFolderId(),
                         fakeBookmarkModel.getAccountReadingListFolder(),
-                        null, // local header
+                        null,
                         fakeBookmarkModel.getDesktopFolderId(),
                         fakeBookmarkModel.getMobileFolderId(),
                         fakeBookmarkModel.getOtherFolderId(),
                         fakeBookmarkModel.getLocalOrSyncableReadingListFolder());
         verifyBookmarkIds(expected, result);
-
-        result =
-                mHandler.buildBookmarkListForFolderSelect(
-                        mBookmarkModel.getRootFolderId(), /* movingFolder= */ true);
-        expected =
-                Arrays.asList(
-                        fakeBookmarkModel.getDesktopFolderId(),
-                        fakeBookmarkModel.getMobileFolderId(),
-                        fakeBookmarkModel.getOtherFolderId());
-        verifyBookmarkIds(expected, result);
     }
 
     @Test
-    @EnableFeatures(ChromeFeatureList.ENABLE_BOOKMARK_FOLDERS_FOR_ACCOUNT_STORAGE)
     public void testBuildBookmarkListForFolderSelect_rootFolder_manual_WithAccountBookmarks() {
-        BookmarkModel fakeBookmarkModel = FakeBookmarkModel.createModel();
+        FakeBookmarkModel fakeBookmarkModel = FakeBookmarkModel.createModel();
+        fakeBookmarkModel.setAreAccountBookmarkFoldersActive(true);
         mHandler =
                 new ImprovedBookmarkQueryHandler(
                         fakeBookmarkModel, mBookmarkUiPrefs, mShoppingService);
 
         doReturn(BookmarkRowSortOrder.MANUAL).when(mBookmarkUiPrefs).getBookmarkRowSortOrder();
         List<BookmarkListEntry> result =
-                mHandler.buildBookmarkListForFolderSelect(
-                        mBookmarkModel.getRootFolderId(), /* movingFolder= */ false);
+                mHandler.buildBookmarkListForFolderSelect(mBookmarkModel.getRootFolderId());
         List<BookmarkId> expected =
                 Arrays.asList(
-                        null, // account header
+                        null,
+                        fakeBookmarkModel.getAccountOtherFolderId(),
+                        fakeBookmarkModel.getAccountDesktopFolderId(),
+                        fakeBookmarkModel.getAccountMobileFolderId(),
                         fakeBookmarkModel.getAccountReadingListFolder(),
-                        null, // local header
+                        null,
                         fakeBookmarkModel.getOtherFolderId(),
                         fakeBookmarkModel.getDesktopFolderId(),
                         fakeBookmarkModel.getMobileFolderId(),
                         fakeBookmarkModel.getLocalOrSyncableReadingListFolder());
-        verifyBookmarkIds(expected, result);
-
-        result =
-                mHandler.buildBookmarkListForFolderSelect(
-                        mBookmarkModel.getRootFolderId(), /* movingFolder= */ true);
-        expected =
-                Arrays.asList(
-                        fakeBookmarkModel.getOtherFolderId(),
-                        fakeBookmarkModel.getDesktopFolderId(),
-                        fakeBookmarkModel.getMobileFolderId());
         verifyBookmarkIds(expected, result);
     }
 

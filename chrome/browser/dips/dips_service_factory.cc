@@ -5,16 +5,21 @@
 #include "chrome/browser/dips/dips_service_factory.h"
 
 #include "base/no_destructor.h"
-#include "chrome/browser/content_settings/cookie_settings_factory.h"
-#include "chrome/browser/dips/dips_service.h"
-#include "chrome/browser/signin/identity_manager_factory.h"
-#include "content/public/common/content_features.h"
+#include "chrome/browser/dips/chrome_dips_delegate.h"
+#include "chrome/browser/dips/dips_service_impl.h"
+#include "components/keyed_service/content/browser_context_dependency_manager.h"
+
+using PassKey = base::PassKey<DIPSServiceFactory>;
 
 /* static */
-DIPSService* DIPSServiceFactory::GetForBrowserContext(
+DIPSServiceImpl* DIPSServiceFactory::GetForBrowserContext(
     content::BrowserContext* context) {
-  return static_cast<DIPSService*>(
+  auto* dips_service = static_cast<DIPSServiceImpl*>(
       GetInstance()->GetServiceForBrowserContext(context, /*create=*/true));
+  if (dips_service) {
+    dips_service->MaybeNotifyCreated(PassKey());
+  }
+  return dips_service;
 }
 
 DIPSServiceFactory* DIPSServiceFactory::GetInstance() {
@@ -22,24 +27,28 @@ DIPSServiceFactory* DIPSServiceFactory::GetInstance() {
   return instance.get();
 }
 
-/* static */
-ProfileSelections DIPSServiceFactory::CreateProfileSelections() {
-  if (!base::FeatureList::IsEnabled(features::kDIPS)) {
-    return ProfileSelections::BuildNoProfilesSelected();
-  }
-
-  return GetHumanProfileSelections();
-}
-
 DIPSServiceFactory::DIPSServiceFactory()
-    : ProfileKeyedServiceFactory("DIPSService", CreateProfileSelections()) {
-  DependsOn(CookieSettingsFactory::GetInstance());
-  DependsOn(IdentityManagerFactory::GetInstance());
-}
+    : BrowserContextKeyedServiceFactory(
+          "DIPSServiceImpl",
+          BrowserContextDependencyManager::GetInstance()) {}
 
 DIPSServiceFactory::~DIPSServiceFactory() = default;
 
-KeyedService* DIPSServiceFactory::BuildServiceInstanceFor(
+content::BrowserContext* DIPSServiceFactory::GetBrowserContextToUse(
     content::BrowserContext* context) const {
-  return new DIPSService(context);
+  if (!base::FeatureList::IsEnabled(features::kDIPS)) {
+    return nullptr;
+  }
+
+  if (!ChromeDipsDelegate::Create()->ShouldEnableDips(context)) {
+    return nullptr;
+  }
+
+  return context;
+}
+
+std::unique_ptr<KeyedService>
+DIPSServiceFactory::BuildServiceInstanceForBrowserContext(
+    content::BrowserContext* context) const {
+  return std::make_unique<DIPSServiceImpl>(PassKey(), context);
 }

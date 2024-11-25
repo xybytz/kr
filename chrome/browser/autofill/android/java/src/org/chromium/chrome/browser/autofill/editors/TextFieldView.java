@@ -23,7 +23,6 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.TextView.OnEditorActionListener;
 
 import androidx.annotation.Nullable;
@@ -42,7 +41,7 @@ import java.util.List;
 // TODO(b/173103628): Re-enable this
 // @VisibleForTesting
 class TextFieldView extends FrameLayout implements FieldView {
-    // TODO(crbug.com/1300201): Replace with EditorDialog field once migrated.
+    // TODO(crbug.com/40824084): Replace with EditorDialog field once migrated.
     /** The indicator for input fields that are required. */
     public static final String REQUIRED_FIELD_INDICATOR = "*";
 
@@ -71,7 +70,6 @@ class TextFieldView extends FrameLayout implements FieldView {
     private TextInputLayout mInputLayout;
     private AutoCompleteTextView mInput;
     private View mIconsLayer;
-    private ImageView mActionIcon;
     private boolean mShowRequiredIndicator;
     @Nullable private EditorFieldValidator mValidator;
     @Nullable private TextWatcher mTextFormatter;
@@ -120,8 +118,7 @@ class TextFieldView extends FrameLayout implements FieldView {
                             int oldRight,
                             int oldBottom) {
                         // Padding at the end of mInput to preserve space for mIconsLayer.
-                        ViewCompat.setPaddingRelative(
-                                mInput,
+                        mInput.setPaddingRelative(
                                 ViewCompat.getPaddingStart(mInput),
                                 mInput.getPaddingTop(),
                                 mIconsLayer.getWidth(),

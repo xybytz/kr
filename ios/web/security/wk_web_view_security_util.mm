@@ -39,7 +39,6 @@ net::CertStatus GetCertStatusFromNSErrorCode(NSInteger code) {
       return net::CERT_STATUS_DATE_INVALID;
   }
   NOTREACHED();
-  return 0;
 }
 
 }  // namespace

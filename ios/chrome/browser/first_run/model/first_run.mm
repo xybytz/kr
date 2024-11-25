@@ -4,6 +4,8 @@
 
 #import "ios/chrome/browser/first_run/model/first_run.h"
 
+#import <string_view>
+
 #import "base/files/file.h"
 #import "base/files/file_path.h"
 #import "base/files/file_util.h"
@@ -38,7 +40,7 @@ FirstRun::FirstRunState FirstRun::first_run_ = FIRST_RUN_UNKNOWN;
 bool FirstRun::GetFirstRunSentinelFilePath(base::FilePath* path) {
   base::FilePath first_run_sentinel;
   if (!base::PathService::Get(ios::DIR_USER_DATA, &first_run_sentinel)) {
-    NOTREACHED();
+    DUMP_WILL_BE_NOTREACHED();
     return false;
   }
   *path = first_run_sentinel.Append(kSentinelFile);
@@ -53,6 +55,7 @@ bool FirstRun::IsChromeFirstRun() {
   base::FilePath first_run_sentinel;
   if (!GetFirstRunSentinelFilePath(&first_run_sentinel) ||
       base::PathExists(first_run_sentinel)) {
+    LoadSentinelInfo();
     first_run_ = FIRST_RUN_FALSE;
     return false;
   }
@@ -83,11 +86,12 @@ startup_metric_utils::FirstRunSentinelCreationResult FirstRun::CreateSentinel(
   if (base::PathExists(first_run_sentinel))
     return startup_metric_utils::FirstRunSentinelCreationResult::
         kFilePathExists;
-  bool success = base::WriteFile(first_run_sentinel, base::StringPiece());
+  GetSentinelInfoGlobal() = std::nullopt;
+  bool success = base::WriteFile(first_run_sentinel, std::string_view());
   if (error)
     *error = base::File::GetLastFileError();
 
-  if (success && !GetSentinelInfoGlobal().has_value()) {
+  if (success) {
     LoadSentinelInfo();
   }
   return success
@@ -125,5 +129,6 @@ void FirstRun::RegisterProfilePrefs(
 
 // static
 void FirstRun::ClearStateForTesting() {
+  GetSentinelInfoGlobal() = std::nullopt;
   first_run_ = FIRST_RUN_UNKNOWN;
 }

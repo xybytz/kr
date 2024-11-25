@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/350788890): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "url/url_canon_icu.h"
 
 #include <stddef.h>
@@ -47,8 +52,7 @@ TEST(URLCanonIcuTest, ICUCharsetConverter) {
 
     std::u16string input_str(
         test_utils::TruncateWStringToUTF16(icu_cases[i].input));
-    int input_len = static_cast<int>(input_str.length());
-    converter.ConvertFromUTF16(input_str.c_str(), input_len, &output);
+    converter.ConvertFromUTF16(input_str, &output);
     output.Complete();
 
     EXPECT_STREQ(icu_cases[i].expected, str.c_str());
@@ -67,8 +71,7 @@ TEST(URLCanonIcuTest, ICUCharsetConverter) {
       input.push_back('a');
 
     RawCanonOutput<static_size> output;
-    converter.ConvertFromUTF16(input.c_str(), static_cast<int>(input.length()),
-                               &output);
+    converter.ConvertFromUTF16(input, &output);
     EXPECT_EQ(input.length(), output.length());
   }
 }

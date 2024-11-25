@@ -283,8 +283,8 @@ protocol::Response InspectorEmulationAgent::setEmulatedMedia(
   auto const old_emulated_media_features_keys = emulated_media_features_.Keys();
   emulated_media_features_.Clear();
 
-  if (features.has_value()) {
-    for (const auto& media_feature : features.value()) {
+  if (features) {
+    for (const auto& media_feature : *features) {
       String name = media_feature->getName();
       String value = media_feature->getValue();
       emulated_media_features_.Set(name, value);
@@ -297,8 +297,8 @@ protocol::Response InspectorEmulationAgent::setEmulatedMedia(
 
     if (forced_colors_value == "active") {
       if (!forced_colors_override_) {
-        initial_system_color_info_state_ =
-            WebThemeEngineHelper::GetNativeThemeEngine()->GetSystemColorInfo();
+        initial_system_forced_colors_state_ =
+            GetWebViewImpl()->GetPage()->GetSettings().GetInForcedColors();
       }
       forced_colors_override_ = true;
       bool is_dark_mode = false;
@@ -311,22 +311,20 @@ protocol::Response InspectorEmulationAgent::setEmulatedMedia(
       } else {
         is_dark_mode = prefers_color_scheme_value == "dark";
       }
-      WebThemeEngineHelper::GetNativeThemeEngine()->OverrideForcedColorsTheme(
-          is_dark_mode);
       GetWebViewImpl()->GetPage()->EmulateForcedColors(is_dark_mode);
+      GetWebViewImpl()->GetPage()->GetSettings().SetInForcedColors(true);
     } else if (forced_colors_value == "none") {
       if (!forced_colors_override_) {
-        initial_system_color_info_state_ =
-            WebThemeEngineHelper::GetNativeThemeEngine()->GetSystemColorInfo();
+        initial_system_forced_colors_state_ =
+            GetWebViewImpl()->GetPage()->GetSettings().GetInForcedColors();
       }
       forced_colors_override_ = true;
-      WebThemeEngineHelper::GetNativeThemeEngine()->SetForcedColors(
-          ForcedColors::kNone);
       GetWebViewImpl()->GetPage()->DisableEmulatedForcedColors();
+      GetWebViewImpl()->GetPage()->GetSettings().SetInForcedColors(false);
     } else if (forced_colors_override_) {
-      WebThemeEngineHelper::GetNativeThemeEngine()->ResetToSystemColors(
-          initial_system_color_info_state_);
       GetWebViewImpl()->GetPage()->DisableEmulatedForcedColors();
+      GetWebViewImpl()->GetPage()->GetSettings().SetInForcedColors(
+          initial_system_forced_colors_state_);
     }
 
     for (const WTF::String& feature : emulated_media_features_.Keys()) {
@@ -575,14 +573,14 @@ protocol::Response InspectorEmulationAgent::setDefaultBackgroundColorOverride(
   protocol::Response response = AssertPage();
   if (!response.IsSuccess())
     return response;
-  if (!color.has_value()) {
+  if (!color) {
     // Clear the override and state.
-    GetWebViewImpl()->SetBaseBackgroundColorOverrideForInspector(absl::nullopt);
+    GetWebViewImpl()->SetBaseBackgroundColorOverrideForInspector(std::nullopt);
     default_background_color_override_rgba_.Clear();
     return protocol::Response::Success();
   }
 
-  blink::protocol::DOM::RGBA* rgba = &color.value();
+  blink::protocol::DOM::RGBA* rgba = &*color;
   default_background_color_override_rgba_.Set(rgba->Serialize());
   // Clamping of values is done by Color() constructor.
   int alpha = static_cast<int>(lroundf(255.0f * rgba->getA(1.0f)));
@@ -649,18 +647,17 @@ protocol::Response InspectorEmulationAgent::setUserAgentOverride(
         navigator_platform_override_.Get());
   }
 
-  if (ua_metadata_override.has_value()) {
+  if (ua_metadata_override) {
     blink::UserAgentMetadata default_ua_metadata =
         Platform::Current()->UserAgentMetadata();
 
     if (user_agent.empty()) {
-      ua_metadata_override_ = absl::nullopt;
+      ua_metadata_override_ = std::nullopt;
       serialized_ua_metadata_override_.Set(std::vector<uint8_t>());
       return protocol::Response::InvalidParams(
           "Can't specify UserAgentMetadata but no UA string");
     }
-    protocol::Emulation::UserAgentMetadata& ua_metadata =
-        ua_metadata_override.value();
+    protocol::Emulation::UserAgentMetadata& ua_metadata = *ua_metadata_override;
     ua_metadata_override_.emplace();
     if (ua_metadata.hasBrands()) {
       for (const auto& bv : *ua_metadata.getBrands(nullptr)) {
@@ -713,7 +710,7 @@ protocol::Response InspectorEmulationAgent::setUserAgentOverride(
     }
 
   } else {
-    ua_metadata_override_ = absl::nullopt;
+    ua_metadata_override_ = std::nullopt;
   }
 
   std::string marshalled =
@@ -810,7 +807,7 @@ void InspectorEmulationAgent::ApplyUserAgentOverride(String* user_agent) {
 }
 
 void InspectorEmulationAgent::ApplyUserAgentMetadataOverride(
-    absl::optional<blink::UserAgentMetadata>* ua_metadata) {
+    std::optional<blink::UserAgentMetadata>* ua_metadata) {
   // This applies when UA override is set.
   if (!user_agent_override_.Get().empty()) {
     *ua_metadata = ua_metadata_override_;

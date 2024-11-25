@@ -22,9 +22,9 @@
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "ui/gfx/native_widget_types.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "chrome/browser/ash/printing/cups_print_job_manager_factory.h"
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 class PrefRegistrySimple;
 
@@ -98,9 +98,13 @@ class PrintingAPIHandler : public BrowserContextKeyedAPI,
   static PrintingAPIHandler* Get(content::BrowserContext* browser_context);
 
   // crosapi::mojom::PrintJobObserver:
+  void OnPrintJobUpdateDeprecated(
+      const std::string& printer_id,
+      unsigned int job_id,
+      crosapi::mojom::PrintJobStatus status) override;
   void OnPrintJobUpdate(const std::string& printer_id,
                         unsigned int job_id,
-                        crosapi::mojom::PrintJobStatus status) override;
+                        crosapi::mojom::PrintJobUpdatePtr update) override;
 
   // Register the printing API preference with the |registry|.
   static void RegisterProfilePrefs(PrefRegistrySimple* registry);
@@ -185,16 +189,17 @@ struct BrowserContextFactoryDependencies<PrintingAPIHandler> {
   static void DeclareFactoryDependencies(
       BrowserContextKeyedAPIFactory<PrintingAPIHandler>* factory) {
     factory->DependsOn(EventRouterFactory::GetInstance());
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
     factory->DependsOn(ash::CupsPrintJobManagerFactory::GetInstance());
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
   }
 };
 
 template <>
-KeyedService*
-BrowserContextKeyedAPIFactory<PrintingAPIHandler>::BuildServiceInstanceFor(
-    content::BrowserContext* context) const;
+std::unique_ptr<KeyedService>
+BrowserContextKeyedAPIFactory<PrintingAPIHandler>::
+    BuildServiceInstanceForBrowserContext(
+        content::BrowserContext* context) const;
 
 }  // namespace extensions
 

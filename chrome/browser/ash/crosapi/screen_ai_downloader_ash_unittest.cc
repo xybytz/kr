@@ -4,9 +4,9 @@
 
 #include "chrome/browser/ash/crosapi/screen_ai_downloader_ash.h"
 
-#include "base/run_loop.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/test/task_environment.h"
+#include "base/test/test_future.h"
 #include "chrome/browser/screen_ai/screen_ai_downloader_chromeos.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -44,9 +44,9 @@ class ScreenAIDownloaderAshTest : public testing::Test {
 
  protected:
   base::test::SingleThreadTaskEnvironment task_environment_;
+  FakeScreenAIDownloader install_state_;
   crosapi::ScreenAIDownloaderAsh downloader_ash_;
   mojo::Remote<crosapi::mojom::ScreenAIDownloader> downloader_remote_;
-  FakeScreenAIDownloader install_state_;
 };
 
 TEST_F(ScreenAIDownloaderAshTest, EnsurePendingCallbackDestruction) {
@@ -82,17 +82,11 @@ class ScreenAIDownloaderAshReplyTest
   ScreenAIDownloaderAshReplyTest() {
     downloader_ash_.Bind(downloader_remote_.BindNewPipeAndPassReceiver());
     if (start_observing_before_call_) {
-      base::RunLoop run_loop;
+      base::test::TestFuture<const std::optional<::base::FilePath>&> future;
       // Calling `GetComponentFolder` for the first time sets the observer.
       GetComponentFolder(
-          /*download_if_needed=*/true,
-          base::BindOnce(
-              [](base::RunLoop* run_loop,
-                 const std::optional<::base::FilePath>& file_path) {
-                run_loop->Quit();
-              },
-              &run_loop));
-      run_loop.Run();
+          /*download_if_needed=*/true, future.GetCallback());
+      EXPECT_TRUE(future.Wait());
 
       // Remove downloaded component path and reset state.
       install_state_.ResetForTesting();
@@ -100,9 +94,8 @@ class ScreenAIDownloaderAshReplyTest
       EXPECT_TRUE(downloader_ash_.install_state_observer_.IsObserving());
     }
 
-    if (prior_state_ == screen_ai::ScreenAIInstallState::State::kDownloaded ||
-        prior_state_ == screen_ai::ScreenAIInstallState::State::kReady) {
-      // The component is already downloaded in these two states.
+    if (prior_state_ == screen_ai::ScreenAIInstallState::State::kDownloaded) {
+      // The component is already downloaded.
       install_state_.DownloadComponentInternal();
     }
     install_state_.SetStateForTesting(prior_state_);
@@ -112,7 +105,8 @@ class ScreenAIDownloaderAshReplyTest
     if (fake_download_success_) {
       install_state_.DownloadComponentInternal();
     } else {
-      install_state_.SetState(screen_ai::ScreenAIInstallState::State::kFailed);
+      install_state_.SetState(
+          screen_ai::ScreenAIInstallState::State::kDownloadFailed);
     }
   }
 
@@ -133,15 +127,9 @@ class ScreenAIDownloaderAshReplyTest
 //  - Call parameter `download_if_needed`.
 //  - If fake download should result successful.
 TEST_P(ScreenAIDownloaderAshReplyTest, EnsureReplyInAllStates) {
-  base::RunLoop run_loop;
+  base::test::TestFuture<const std::optional<::base::FilePath>&> future;
   GetComponentFolder(
-      /*download_if_needed=*/request_download_if_needed_,
-      base::BindOnce(
-          [](base::RunLoop* run_loop,
-             const std::optional<::base::FilePath>& file_path) {
-            run_loop->Quit();
-          },
-          &run_loop));
+      /*download_if_needed=*/request_download_if_needed_, future.GetCallback());
 
   // A `downloading` state will eventually result in a state change to
   // `downloaded` or `failed`.
@@ -149,7 +137,7 @@ TEST_P(ScreenAIDownloaderAshReplyTest, EnsureReplyInAllStates) {
     MockDownloadCompletion();
   }
 
-  run_loop.Run();
+  EXPECT_TRUE(future.Wait());
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -158,9 +146,8 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::Values(screen_ai::ScreenAIInstallState::State::kNotDownloaded,
                         screen_ai::ScreenAIInstallState::State::kDownloading,
-                        screen_ai::ScreenAIInstallState::State::kFailed,
-                        screen_ai::ScreenAIInstallState::State::kDownloaded,
-                        screen_ai::ScreenAIInstallState::State::kReady),
+                        screen_ai::ScreenAIInstallState::State::kDownloadFailed,
+                        screen_ai::ScreenAIInstallState::State::kDownloaded),
         testing::Bool(),
         testing::Bool(),
         testing::Bool()));

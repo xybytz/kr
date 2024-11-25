@@ -2,19 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
-import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
-import 'chrome://resources/cr_elements/cr_toast/cr_toast.js';
+import 'chrome://resources/ash/common/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/ash/common/cr_elements/cr_shared_vars.css.js';
+import 'chrome://resources/ash/common/cr_elements/cr_toast/cr_toast.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
-import './strings.m.js';
+import '/strings.m.js';
 
+import {getInstance} from 'chrome://resources/ash/common/cr_elements/cr_a11y_announcer/cr_a11y_announcer.js';
+import {CrDialogElement} from 'chrome://resources/ash/common/cr_elements/cr_dialog/cr_dialog.js';
+import {CrToastElement} from 'chrome://resources/ash/common/cr_elements/cr_toast/cr_toast.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
 import {KeyboardDiagramElement, MechanicalLayout as DiagramMechanicalLayout, PhysicalLayout as DiagramPhysicalLayout, TopRightKey as DiagramTopRightKey, TopRowKey as DiagramTopRowKey} from 'chrome://resources/ash/common/keyboard_diagram.js';
 import {KeyboardKeyState} from 'chrome://resources/ash/common/keyboard_key.js';
 import {loadTimeData} from 'chrome://resources/ash/common/load_time_data.m.js';
-import {getInstance} from 'chrome://resources/cr_elements/cr_a11y_announcer/cr_a11y_announcer.js';
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
-import {CrToastElement} from 'chrome://resources/cr_elements/cr_toast/cr_toast.js';
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {EventTracker} from 'chrome://resources/js/event_tracker.js';
 import {PolymerElementProperties} from 'chrome://resources/polymer/v3_0/polymer/interfaces.js';
@@ -144,9 +144,9 @@ export class KeyboardTesterElement extends KeyboardTesterElementBase {
        */
       keyboard: KeyboardInfo,
 
-      layoutIsKnown: {
+      shouldDisplayDiagram: {
         type: Boolean,
-        computed: 'computeLayoutIsKnown(keyboard)',
+        computed: 'computeShouldDisplayDiagram(keyboard)',
       },
 
       diagramMechanicalLayout: {
@@ -188,10 +188,10 @@ export class KeyboardTesterElement extends KeyboardTesterElementBase {
   }
 
   keyboard: KeyboardInfo;
-  protected isLoggedIn: boolean;
+  isLoggedIn: boolean;
   protected diagramTopRightKey: DiagramTopRightKey|null;
   private lostFocusToastLingerMs: number;
-  private layoutIsKnown: boolean;
+  private shouldDisplayDiagram: boolean;
   private diagramMechanicalLayout: DiagramMechanicalLayout|null;
   private diagramPhysicalLayout: DiagramPhysicalLayout|null;
   private showNumberPad: boolean;
@@ -216,7 +216,7 @@ export class KeyboardTesterElement extends KeyboardTesterElementBase {
     getInstance(this.$.dialog.getNative()).announce(e.detail.text);
   };
 
-  private computeLayoutIsKnown(keyboard?: KeyboardInfo): boolean {
+  private computeShouldDisplayDiagram(keyboard?: KeyboardInfo): boolean {
     if (!keyboard) {
       return false;
     }
@@ -337,11 +337,17 @@ export class KeyboardTesterElement extends KeyboardTesterElementBase {
   }
 
   close(): void {
-    const diagram: KeyboardDiagramElement|null =
-        this.shadowRoot!.querySelector('#diagram');
-    assert(diagram);
-    diagram.resetAllKeys();
+    if (this.shouldDisplayDiagram) {
+      const diagram: KeyboardDiagramElement|null =
+          this.shadowRoot!.querySelector('#diagram');
+      assert(diagram);
+      diagram.resetAllKeys();
+    }
     this.$.dialog.close();
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete('showDefaultKeyboardTester');
+    history.pushState(null, '', url);
   }
 
   handleClose(): void {

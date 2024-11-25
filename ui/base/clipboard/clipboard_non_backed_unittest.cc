@@ -130,33 +130,73 @@ TEST_F(ClipboardNonBackedTest, AdminWriteDoesNotRecordHistograms) {
   histogram_tester.ExpectTotalCount("Clipboard.Write", 0);
 }
 
+// Tests that text data uses 'text/plain' mime type.
+TEST_F(ClipboardNonBackedTest, PlainText) {
+  auto data = std::make_unique<ClipboardData>();
+  data->set_text("hello");
+  clipboard()->WriteClipboardData(std::move(data));
+  std::vector<std::u16string> types;
+  clipboard()->ReadAvailableTypes(ClipboardBuffer::kCopyPaste,
+                                  /*data_dst=*/nullptr, &types);
+
+  // Text data uses mime type 'text/plain'.
+  EXPECT_EQ(std::vector<std::string>({"text/plain"}), UTF8Types(types));
+  EXPECT_TRUE(clipboard()->IsFormatAvailable(
+      ClipboardFormatType::PlainTextType(), ClipboardBuffer::kCopyPaste,
+      /*data_dst=*/nullptr));
+
+  // Validate reading back the text.
+  std::u16string text;
+  clipboard()->ReadText(ClipboardBuffer::kCopyPaste, /*data_dst=*/nullptr,
+                        &text);
+  EXPECT_EQ(u"hello", text);
+}
+
 // Tests that site bookmark URLs are accessed as text, and
 // IsFormatAvailable('text/uri-list') is only true for files.
-TEST_F(ClipboardNonBackedTest, TextURIList) {
+TEST_F(ClipboardNonBackedTest, BookmarkURL) {
   auto data = std::make_unique<ClipboardData>();
+  data->set_bookmark_title("Example Page");
   data->set_bookmark_url("http://example.com");
   clipboard()->WriteClipboardData(std::move(data));
   std::vector<std::u16string> types;
   clipboard()->ReadAvailableTypes(ClipboardBuffer::kCopyPaste,
                                   /*data_dst=*/nullptr, &types);
 
-  // Bookmark data uses mime type 'text/plain' on Linux,
-  // 'public.utf8-plain-text' on Macs and CF_UNICODETEXT atom on Windows..
-  EXPECT_EQ(std::vector<std::string>(
-                {ClipboardFormatType::PlainTextType().GetName()}),
-            UTF8Types(types));
+  // Bookmark data returns available type 'text/plain'.
+  EXPECT_EQ(std::vector<std::string>({"text/plain"}), UTF8Types(types));
+  EXPECT_TRUE(clipboard()->IsFormatAvailable(
+      ClipboardFormatType::PlainTextType(), ClipboardBuffer::kCopyPaste,
+      /*data_dst=*/nullptr));
   EXPECT_TRUE(clipboard()->IsFormatAvailable(ClipboardFormatType::UrlType(),
                                              ClipboardBuffer::kCopyPaste,
                                              /*data_dst=*/nullptr));
+  EXPECT_TRUE(clipboard()->IsFormatAvailable(
+      ClipboardFormatType::PlainTextType(), ClipboardBuffer::kCopyPaste,
+      /*data_dst=*/nullptr));
   EXPECT_FALSE(clipboard()->IsFormatAvailable(
       ClipboardFormatType::FilenamesType(), ClipboardBuffer::kCopyPaste,
       /*data_dst=*/nullptr));
 
-  // Filenames data uses mime type 'text/uri-list'.
-  data = std::make_unique<ClipboardData>();
+  // Validate reading back the bookmark.
+  std::u16string title;
+  std::string url;
+  clipboard()->ReadBookmark(/*data_dst=*/nullptr, &title, &url);
+  EXPECT_EQ(u"Example Page", title);
+  EXPECT_EQ("http://example.com", url);
+  std::u16string text;
+  clipboard()->ReadText(ClipboardBuffer::kCopyPaste, /*data_dst=*/nullptr,
+                        &text);
+  EXPECT_EQ(u"http://example.com", text);
+}
+
+// Filenames data uses mime type 'text/uri-list'.
+TEST_F(ClipboardNonBackedTest, TextURIList) {
+  auto data = std::make_unique<ClipboardData>();
   data->set_filenames(
       {FileInfo(base::FilePath(FILE_PATH_LITERAL("/path")), base::FilePath())});
   clipboard()->WriteClipboardData(std::move(data));
+  std::vector<std::u16string> types;
   clipboard()->ReadAvailableTypes(ClipboardBuffer::kCopyPaste,
                                   /*data_dst=*/nullptr, &types);
   EXPECT_EQ(std::vector<std::string>({"text/uri-list"}), UTF8Types(types));
@@ -176,7 +216,7 @@ TEST_F(ClipboardNonBackedTest, TextURIList) {
   custom_data[u"text/uri-list"] = u"data";
   base::Pickle pickle;
   ui::WriteCustomDataToPickle(custom_data, &pickle);
-  data->SetCustomData(ui::ClipboardFormatType::WebCustomDataType(),
+  data->SetCustomData(ui::ClipboardFormatType::DataTransferCustomType(),
                       std::string(pickle.data_as_char(), pickle.size()));
   clipboard()->WriteClipboardData(std::move(data));
   clipboard()->ReadAvailableTypes(ClipboardBuffer::kCopyPaste,
@@ -215,8 +255,8 @@ TEST_F(ClipboardNonBackedTest, ImageEncoding) {
       }));
   loop.Run();
 
-  SkBitmap bitmap;
-  gfx::PNGCodec::Decode(png.data(), png.size(), &bitmap);
+  SkBitmap bitmap = gfx::PNGCodec::Decode(png);
+  ASSERT_FALSE(bitmap.isNull());
   EXPECT_TRUE(gfx::BitmapsAreEqual(bitmap, test_bitmap));
 }
 
@@ -268,8 +308,8 @@ TEST_F(ClipboardNonBackedTest, EncodeImageOnce) {
   // The bitmap should only have been encoded once.
   EXPECT_EQ(clipboard()->NumImagesEncodedForTesting(), 1);
 
-  SkBitmap bitmap;
-  gfx::PNGCodec::Decode(pngs[0].data(), pngs[0].size(), &bitmap);
+  SkBitmap bitmap = gfx::PNGCodec::Decode(pngs[0]);
+  ASSERT_FALSE(bitmap.isNull());
   EXPECT_TRUE(gfx::BitmapsAreEqual(bitmap, test_bitmap));
 }
 
@@ -332,10 +372,11 @@ TEST_F(ClipboardNonBackedTest, EncodeMultipleImages) {
   // should have been encoded separately.
   EXPECT_EQ(clipboard()->NumImagesEncodedForTesting(), 2);
 
-  SkBitmap bitmap;
-  gfx::PNGCodec::Decode(pngs[0].data(), pngs[0].size(), &bitmap);
+  SkBitmap bitmap = gfx::PNGCodec::Decode(pngs[0]);
+  ASSERT_FALSE(bitmap.isNull());
   EXPECT_TRUE(gfx::BitmapsAreEqual(bitmap, test_bitmap));
-  gfx::PNGCodec::Decode(pngs[2].data(), pngs[2].size(), &bitmap);
+  bitmap = gfx::PNGCodec::Decode(pngs[2]);
+  ASSERT_FALSE(bitmap.isNull());
   EXPECT_TRUE(gfx::BitmapsAreEqual(bitmap, test_bitmap2));
 }
 
@@ -409,7 +450,7 @@ TEST_F(ClipboardNonBackedMockTimeTest,
             /*url=*/std::make_unique<std::string>().get());
       }),
       base::BindLambdaForTesting([&]() {
-        clipboard->ReadCustomData(
+        clipboard->ReadDataTransferCustomData(
             ClipboardBuffer::kCopyPaste,
             /*type=*/std::u16string(), /*data_dst=*/nullptr,
             /*result=*/std::make_unique<std::u16string>().get());

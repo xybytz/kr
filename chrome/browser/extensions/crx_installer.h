@@ -16,6 +16,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
+#include "base/values.h"
 #include "base/version.h"
 #include "chrome/browser/extensions/extension_install_prompt.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -23,12 +24,12 @@
 #include "chrome/browser/profiles/profile_observer.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "components/sync/model/string_ordinal.h"
-#include "extensions/browser/api/declarative_net_request/ruleset_install_pref.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/install_flag.h"
 #include "extensions/browser/preload_check.h"
 #include "extensions/browser/sandboxed_unpacker.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/extension_id.h"
 #include "extensions/common/manifest.h"
 
 class ExtensionServiceTest;
@@ -125,7 +126,7 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
   // Install the unpacked crx in |unpacked_dir|.
   // If |delete_source_| is true, |unpacked_dir| will be removed at the end of
   // the installation.
-  void InstallUnpackedCrx(const std::string& extension_id,
+  void InstallUnpackedCrx(const ExtensionId& extension_id,
                           const std::string& public_key,
                           const base::FilePath& unpacked_dir);
 
@@ -137,7 +138,7 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
   // |unpacked_dir|.
   // If |delete_source_| is true, |unpacked_dir| will be removed at the end of
   // the update.
-  void UpdateExtensionFromUnpackedCrx(const std::string& extension_id,
+  void UpdateExtensionFromUnpackedCrx(const ExtensionId& extension_id,
                                       const std::string& public_key,
                                       const base::FilePath& unpacked_dir);
 
@@ -163,8 +164,8 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
     install_source_ = source;
   }
 
-  const std::string& expected_id() const { return expected_id_; }
-  void set_expected_id(const std::string& val) { expected_id_ = val; }
+  const ExtensionId& expected_id() const { return expected_id_; }
+  void set_expected_id(const ExtensionId& val) { expected_id_ = val; }
 
   // Expected SHA256 hash sum for the package.
   const std::string& expected_hash() const { return expected_hash_; }
@@ -308,8 +309,7 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
                        std::unique_ptr<base::Value::Dict> original_manifest,
                        const Extension* extension,
                        const SkBitmap& install_icon,
-                       declarative_net_request::RulesetInstallPrefs
-                           ruleset_install_prefs) override;
+                       base::Value::Dict ruleset_install_prefs) override;
   void OnStageChanged(InstallationStage stage) override;
 
   // ProfileObserver
@@ -367,7 +367,7 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
       std::unique_ptr<base::Value::Dict> original_manifest,
       scoped_refptr<const Extension> extension,
       SkBitmap install_icon,
-      declarative_net_request::RulesetInstallPrefs ruleset_install_prefs);
+      base::Value::Dict ruleset_install_prefs);
 
   void set_install_flag(int flag, bool val) {
     if (val)
@@ -412,7 +412,7 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
 
   // For updates, external and webstore installs we have an ID we're expecting
   // the extension to contain.
-  std::string expected_id_;
+  ExtensionId expected_id_;
 
   // An expected hash sum for the .crx file.
   std::string expected_hash_;
@@ -540,7 +540,7 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
   int install_flags_;
 
   // Install prefs needed for the Declarative Net Request API.
-  declarative_net_request::RulesetInstallPrefs ruleset_install_prefs_;
+  base::Value::Dict ruleset_install_prefs_;
 
   // Checks that may run before installing the extension.
   std::unique_ptr<PreloadCheck> policy_check_;

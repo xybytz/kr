@@ -19,23 +19,11 @@
 #include "base/apple/scoped_nsautorelease_pool.h"
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS)
-#include "ui/gfx/linux/gbm_util.h"  // nogncheck
-#endif
-
 namespace {
 
 class GlTestsSuite : public base::TestSuite {
  public:
-  GlTestsSuite(int argc, char** argv) : base::TestSuite(argc, argv) {
-#if BUILDFLAG(IS_CHROMEOS)
-    // TODO(b/271455200): the FeatureList has not been initialized by this
-    // point, so this call will always disable Intel media compression. We may
-    // want to move this to a later point to be able to run GL unit tests with
-    // Intel media compression enabled.
-    ui::EnsureIntelMediaCompressionEnvVarIsSet();
-#endif  // BUILDFLAG(IS_CHROMEOS)
-  }
+  GlTestsSuite(int argc, char** argv) : base::TestSuite(argc, argv) {}
 
  protected:
   void Initialize() override {
@@ -54,11 +42,13 @@ int main(int argc, char** argv) {
   base::CommandLine::Init(argc, argv);
   mojo::core::Init();
 
+  // GoogleMock alters the command line, so ensure we initialize it
+  // before passing it into the test suite
+  testing::InitGoogleMock(&argc, argv);
   GlTestsSuite gl_tests_suite(argc, argv);
 #if BUILDFLAG(IS_MAC)
   base::apple::ScopedNSAutoreleasePool pool;
 #endif
-  testing::InitGoogleMock(&argc, argv);
   return base::LaunchUnitTestsSerially(
       argc, argv,
       base::BindOnce(&GlTestsSuite::Run, base::Unretained(&gl_tests_suite)));

@@ -20,13 +20,15 @@
 - (void)openPrimaryAccountReauthDialog;
 
 // Opens the passphrase dialog.
-- (void)openPassphraseDialog;
+// Does nothing if the current scene is blocked.
+- (void)openPassphraseDialogWithModalPresentation:(BOOL)presentModally;
 
-// Opens the trusted vault reauthentication dialog for fetch keys.
+// Opens the trusted vault reauthentication dialog for fetch keys, for Chrome
+// Sync security domain.
 - (void)openTrustedVaultReauthForFetchKeys;
 
 // Opens the trusted vault reauthentication degraded recoverability dialog (to
-// enroll additional recovery factors).
+// enroll additional recovery factors), for Chrome Sync security domain.
 - (void)openTrustedVaultReauthForDegradedRecoverability;
 
 @end

@@ -16,7 +16,6 @@ COMPONENT_EXPORT(NETWORK_CPP)
 extern const char kHostResolverRules[];
 COMPONENT_EXPORT(NETWORK_CPP)
 extern const char kIgnoreCertificateErrorsSPKIList[];
-COMPONENT_EXPORT(NETWORK_CPP) extern const char kIgnoreUrlFetcherCertRequests[];
 COMPONENT_EXPORT(NETWORK_CPP) extern const char kLogNetLog[];
 COMPONENT_EXPORT(NETWORK_CPP) extern const char kNetLogCaptureMode[];
 COMPONENT_EXPORT(NETWORK_CPP) extern const char kNetLogMaxSizeMb[];
@@ -29,6 +28,8 @@ extern const char kAdditionalTrustTokenKeyCommitments[];
 COMPONENT_EXPORT(NETWORK_CPP) extern const char kUseFirstPartySet[];
 COMPONENT_EXPORT(NETWORK_CPP) extern const char kUseRelatedWebsiteSet[];
 COMPONENT_EXPORT(NETWORK_CPP) extern const char kIpAddressSpaceOverrides[];
+COMPONENT_EXPORT(NETWORK_CPP)
+extern const char kDisableSharedDictionaryStorageCleanupForTesting[];
 
 }  // namespace switches
 

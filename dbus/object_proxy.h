@@ -11,9 +11,11 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
@@ -43,7 +45,7 @@ class CHROME_DBUS_EXPORT ObjectProxy
   // Client code should use Bus::GetObjectProxy() or
   // Bus::GetObjectProxyWithOptions() instead of this constructor.
   ObjectProxy(Bus* bus,
-              const std::string& service_name,
+              std::string_view service_name,
               const ObjectPath& object_path,
               int options);
 
@@ -202,7 +204,9 @@ class CHROME_DBUS_EXPORT ObjectProxy
   // service is already available, or if connecting to the name-owner-changed
   // signal fails, |callback| will be run once asynchronously. Otherwise,
   // |callback| will be run once in the future after the service becomes
-  // available.
+  // available. |callback| will be called in the origin thread in either case.
+  //
+  // Must be called in the origin thread.
   virtual void WaitForServiceToBeAvailable(
       WaitForServiceToBeAvailableCallback callback);
 
@@ -352,7 +356,7 @@ class CHROME_DBUS_EXPORT ObjectProxy
   // Known name owner of the well-known bus name represented by |service_name_|.
   std::string service_name_owner_;
 
-  std::set<DBusPendingCall*> pending_calls_;
+  std::set<raw_ptr<DBusPendingCall, SetExperimental>> pending_calls_;
 };
 
 }  // namespace dbus

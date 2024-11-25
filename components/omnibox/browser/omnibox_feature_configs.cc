@@ -7,16 +7,24 @@
 #include "base/check.h"
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
+#include "build/build_config.h"
 #include "components/omnibox/common/omnibox_features.h"
 
 namespace omnibox_feature_configs {
+
+constexpr auto enabled_by_default_desktop_only =
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+    base::FEATURE_DISABLED_BY_DEFAULT;
+#else
+    base::FEATURE_ENABLED_BY_DEFAULT;
+#endif
 
 // TODO(manukh): Enabled by default in m120. Clean up 12/5 when after m121
 //   branch cut.
 // static
 BASE_FEATURE(CalcProvider::kCalcProvider,
              "OmniboxCalcProvider",
-             base::FEATURE_ENABLED_BY_DEFAULT);
+             enabled_by_default_desktop_only);
 CalcProvider::CalcProvider() {
   enabled = base::FeatureList::IsEnabled(kCalcProvider);
   score =
@@ -54,6 +62,35 @@ ForceAllowedToBeDefault::ForceAllowedToBeDefault() {
 }
 
 // static
+BASE_FEATURE(RealboxContextualAndTrendingSuggestions::
+                 kRealboxContextualAndTrendingSuggestions,
+             "NTPRealboxContextualAndTrendingSuggestions",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+RealboxContextualAndTrendingSuggestions::
+    RealboxContextualAndTrendingSuggestions() {
+  enabled =
+      base::FeatureList::IsEnabled(kRealboxContextualAndTrendingSuggestions);
+  total_limit = base::FeatureParam<int>(
+                    &kRealboxContextualAndTrendingSuggestions, "TotalLimit", 4)
+                    .Get();
+  contextual_suggestions_limit =
+      base::FeatureParam<int>(&kRealboxContextualAndTrendingSuggestions,
+                              "ContextualSuggestionsLimit", 4)
+          .Get();
+  trending_suggestions_limit =
+      base::FeatureParam<int>(&kRealboxContextualAndTrendingSuggestions,
+                              "TrendingSuggestionsLimit", 4)
+          .Get();
+}
+
+// static
+BASE_FEATURE(ReportNumZPSInSession::kReportNumZPSInSession,
+             "ReportNumZPSInSession",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+ReportNumZPSInSession::ReportNumZPSInSession()
+    : enabled(base::FeatureList::IsEnabled(kReportNumZPSInSession)) {}
+
+// static
 BASE_FEATURE(ShortcutBoosting::kShortcutBoost,
              "OmniboxShortcutBoost",
              base::FEATURE_ENABLED_BY_DEFAULT);
@@ -80,6 +117,35 @@ ShortcutBoosting::ShortcutBoosting() {
       base::FeatureParam<bool>(&kShortcutBoost,
                                "ShortcutBoostGroupWithSearches", true)
           .Get();
+}
+
+// static
+BASE_FEATURE(SparkSearch::kSparkSearch,
+             "SparkSearch",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+SparkSearch::SparkSearch() {
+  enabled = base::FeatureList::IsEnabled(kSparkSearch);
+  scoped = base::FeatureParam<bool>(&kSparkSearch,
+                                  "SparkSearch", false).Get();
+}
+
+// static
+BASE_FEATURE(SuggestionAnswerMigration::kOmniboxSuggestionAnswerMigration,
+             "OmniboxSuggestionAnswerMigration",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+SuggestionAnswerMigration::SuggestionAnswerMigration() {
+  enabled = base::FeatureList::IsEnabled(kOmniboxSuggestionAnswerMigration);
+}
+
+// static
+BASE_FEATURE(VitalizeAutocompletedKeywords::kVitalizeAutocompletedKeywords,
+             "OmniboxVitalizeAutocompletedKeywords",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+VitalizeAutocompletedKeywords::VitalizeAutocompletedKeywords() {
+  enabled = base::FeatureList::IsEnabled(kVitalizeAutocompletedKeywords);
+  score = base::FeatureParam<int>(&kVitalizeAutocompletedKeywords,
+                                  "VitalizeAutocompletedKeywordsScore", 450)
+              .Get();
 }
 
 }  // namespace omnibox_feature_configs

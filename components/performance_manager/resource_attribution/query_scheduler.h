@@ -5,33 +5,38 @@
 #ifndef COMPONENTS_PERFORMANCE_MANAGER_RESOURCE_ATTRIBUTION_QUERY_SCHEDULER_H_
 #define COMPONENTS_PERFORMANCE_MANAGER_RESOURCE_ATTRIBUTION_QUERY_SCHEDULER_H_
 
-#include <map>
 #include <memory>
 #include <optional>
 #include <vector>
 
 #include "base/functional/callback_forward.h"
 #include "base/location.h"
-#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
-#include "components/performance_manager/public/graph/graph.h"
 #include "components/performance_manager/public/graph/graph_registered.h"
 #include "components/performance_manager/public/resource_attribution/query_results.h"
 #include "components/performance_manager/public/resource_attribution/resource_contexts.h"
 #include "components/performance_manager/public/resource_attribution/resource_types.h"
 #include "components/performance_manager/resource_attribution/cpu_measurement_monitor.h"
 #include "components/performance_manager/resource_attribution/memory_measurement_provider.h"
+#include "components/performance_manager/resource_attribution/performance_manager_aliases.h"
 
-namespace performance_manager::resource_attribution::internal {
+namespace performance_manager {
+class Graph;
+}
 
+namespace resource_attribution {
 class ContextCollection;
-struct QueryParams;
+}
+
+namespace resource_attribution::internal {
+
+class QueryParams;
 
 // QueryScheduler keeps track of all queries for a particular resource type and
 // owns the machinery that performs measurements.
-class QueryScheduler : public GraphRegisteredImpl<QueryScheduler>,
-                       public GraphOwned {
+class QueryScheduler
+    : public performance_manager::GraphOwnedAndRegistered<QueryScheduler> {
  public:
   QueryScheduler();
   ~QueryScheduler() override;
@@ -55,6 +60,11 @@ class QueryScheduler : public GraphRegisteredImpl<QueryScheduler>,
   // `query_params` and deletes `query_params`.
   void RemoveScopedQuery(std::unique_ptr<QueryParams> query_params);
 
+  // Notifies the scheduler that a scoped query will begin repeatedly requesting
+  // results. The query now needs a QueryId to track what results it has
+  // received.
+  void StartRepeatingQuery(QueryParams* query_params);
+
   // Requests the latest results for the given `query_params`, and passes them
   // to `callback`.
   void RequestResults(const QueryParams& query_params,
@@ -73,12 +83,10 @@ class QueryScheduler : public GraphRegisteredImpl<QueryScheduler>,
   // Gives tests access to the query count for `resource_type`.
   uint32_t GetQueryCountForTesting(ResourceType resource_type) const;
 
- private:
-  // A map from a ResourceContext to a query result for a single ResourceType.
-  // The public interface uses QueryResultMap, from ResourceContext to a list of
-  // results for several ResourceTypes.
-  using SingleQueryResultMap = std::map<ResourceContext, QueryResult>;
+  // Logs metrics on Resource Attribution's memory usage to UMA.
+  void RecordMemoryMetrics();
 
+ private:
   // Increases the CPU query count. `cpu_monitor_` will start monitoring CPU
   // usage when the count > 0.
   void AddCPUQuery();
@@ -93,16 +101,15 @@ class QueryScheduler : public GraphRegisteredImpl<QueryScheduler>,
   // Decreases the memory query count.
   void RemoveMemoryQuery();
 
-  // Invoked from RequestResults when all results are received. `results` will
-  // contain a separate result map for each ResourceType that was requested.
+  // Invoked from RequestResults when all results are received. `all_results`
+  // will contain a separate result map for each ResourceType that was
+  // requested.
   void OnResultsReceived(
       const ContextCollection& contexts,
       base::OnceCallback<void(const QueryResultMap&)> callback,
-      const std::vector<SingleQueryResultMap>& results);
+      std::vector<QueryResultMap> all_results);
 
   SEQUENCE_CHECKER(sequence_checker_);
-
-  raw_ptr<Graph> graph_ GUARDED_BY_CONTEXT(sequence_checker_);
 
   // CPU measurement machinery.
   CPUMeasurementMonitor cpu_monitor_ GUARDED_BY_CONTEXT(sequence_checker_);
@@ -116,6 +123,6 @@ class QueryScheduler : public GraphRegisteredImpl<QueryScheduler>,
   base::WeakPtrFactory<QueryScheduler> weak_factory_{this};
 };
 
-}  // namespace performance_manager::resource_attribution::internal
+}  // namespace resource_attribution::internal
 
 #endif  // COMPONENTS_PERFORMANCE_MANAGER_RESOURCE_ATTRIBUTION_QUERY_SCHEDULER_H_

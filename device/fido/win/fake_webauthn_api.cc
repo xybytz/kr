@@ -2,18 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "device/fido/win/fake_webauthn_api.h"
 
 #include <stdint.h>
 #include <winerror.h>
+
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "base/check.h"
 #include "base/containers/span.h"
 #include "base/memory/raw_ptr_exclusion.h"
 #include "base/notreached.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_util_win.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/cbor/values.h"
@@ -29,7 +35,6 @@
 #include "device/fido/public_key_credential_rp_entity.h"
 #include "device/fido/public_key_credential_user_entity.h"
 #include "device/fido/virtual_fido_device.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/microsoft_webauthn/webauthn.h"
 
 namespace device {
@@ -127,10 +132,10 @@ struct FakeWinWebAuthnApi::WebAuthnAssertionEx {
   WebAuthnAssertionEx& operator=(const WebAuthnAssertionEx&) = delete;
 
   std::vector<uint8_t> credential_id;
-  absl::optional<std::vector<uint8_t>> user_id;
+  std::optional<std::vector<uint8_t>> user_id;
   std::vector<uint8_t> authenticator_data;
   std::vector<uint8_t> signature;
-  absl::optional<std::vector<uint8_t>> large_blob;
+  std::optional<std::vector<uint8_t>> large_blob;
   WEBAUTHN_ASSERTION assertion;
 };
 
@@ -250,6 +255,7 @@ HRESULT FakeWinWebAuthnApi::AuthenticatorMakeCredential(
                                 /*counter=*/1);
   bool resident_key =
       options->bRequireResidentKey || options->bPreferResidentKey;
+  registration.is_resident = resident_key;
   if (resident_key) {
     registration.rp =
         PublicKeyCredentialRpEntity(rp_id, base::WideToUTF8(rp->pwszName));
@@ -270,7 +276,7 @@ HRESULT FakeWinWebAuthnApi::AuthenticatorMakeCredential(
                             WEBAUTHN_USER_VERIFICATION_REQUIREMENT_DISCOURAGED,
                         /*backup_eligible=*/false, /*backup_state=*/false,
                         registration.counter, std::move(credential_data),
-                        /*extensions=*/absl::nullopt)
+                        /*extensions=*/std::nullopt)
           .SerializeToByteArray();
   attestation->credential_id = credential_id;
   // For now, only support none attestation.
@@ -289,7 +295,7 @@ HRESULT FakeWinWebAuthnApi::AuthenticatorMakeCredential(
   attestation->win_attestation.bResidentKey = resident_key;
   attestation->win_attestation.bLargeBlobSupported =
       options->dwLargeBlobSupport != WEBAUTHN_LARGE_BLOB_SUPPORT_NONE &&
-      version_ >= WEBAUTHN_API_VERSION_3;
+      version_ >= WEBAUTHN_API_VERSION_3 && large_blob_supported_;
   attestation->win_attestation.dwUsedTransport =
       attachment == WEBAUTHN_AUTHENTICATOR_ATTACHMENT_PLATFORM
           ? WEBAUTHN_CTAP_TRANSPORT_INTERNAL
@@ -368,8 +374,8 @@ HRESULT FakeWinWebAuthnApi::AuthenticatorGetAssertion(
               WEBAUTHN_USER_VERIFICATION_REQUIREMENT_DISCOURAGED,
           /*backup_eligible=*/false, /*backup_state=*/false,
           registration->counter++,
-          /*attested_credential_data=*/absl::nullopt,
-          /*extensions=*/absl::nullopt)
+          /*attested_credential_data=*/std::nullopt,
+          /*extensions=*/std::nullopt)
           .SerializeToByteArray();
 
   // Create the assertion signature.
@@ -467,7 +473,6 @@ HRESULT FakeWinWebAuthnApi::AuthenticatorGetAssertion(
 HRESULT FakeWinWebAuthnApi::CancelCurrentOperation(GUID* cancellation_id) {
   DCHECK(is_available_);
   NOTREACHED() << "not implemented";
-  return E_NOTIMPL;
 }
 
 HRESULT FakeWinWebAuthnApi::GetPlatformCredentialList(
@@ -541,8 +546,11 @@ HRESULT FakeWinWebAuthnApi::GetPlatformCredentialList(
 
 HRESULT FakeWinWebAuthnApi::DeletePlatformCredential(
     base::span<const uint8_t> credential_id) {
-  // TODO: not yet implemented.
-  CHECK(false);
+  const auto registration_it = registrations_.find(credential_id);
+  if (registration_it == registrations_.end()) {
+    return NTE_NOT_FOUND;
+  }
+  registrations_.erase(registration_it);
   return S_OK;
 }
 

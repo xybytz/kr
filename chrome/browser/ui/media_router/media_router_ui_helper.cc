@@ -63,7 +63,6 @@ base::TimeDelta GetRouteRequestTimeout(MediaCastMode cast_mode) {
       return base::Seconds(kCreateRouteTimeoutSecondsForRemotePlayback);
     default:
       NOTREACHED();
-      return base::TimeDelta();
   }
 }
 

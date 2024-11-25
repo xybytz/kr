@@ -5,9 +5,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_CSP_TEST_UTIL_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_CSP_TEST_UTIL_H_
 
+#include <optional>
+
 #include "base/memory/scoped_refptr.h"
 #include "services/network/public/mojom/content_security_policy.mojom-blink.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/inspector/inspector_audits_issue.h"
@@ -17,12 +18,18 @@
 
 namespace blink {
 
+MATCHER_P2(HasConsole, str, level, "") {
+  return arg.first.Contains(str) && arg.second == level;
+}
+
 // Simple CSP delegate that stores the console messages logged by the
 // ContentSecurityPolicy context and allows retrieving them.
 class TestCSPDelegate final : public GarbageCollected<TestCSPDelegate>,
                               public ContentSecurityPolicyDelegate {
  public:
-  Vector<String>& console_messages() { return console_messages_; }
+  Vector<std::pair<String, ConsoleMessage::Level>>& console_messages() {
+    return console_messages_;
+  }
 
   // ContentSecurityPolicyDelegate override
   const SecurityOrigin* GetSecurityOrigin() override {
@@ -35,7 +42,7 @@ class TestCSPDelegate final : public GarbageCollected<TestCSPDelegate>,
   std::unique_ptr<SourceLocation> GetSourceLocation() override {
     return nullptr;
   }
-  absl::optional<uint16_t> GetStatusCode() override { return absl::nullopt; }
+  std::optional<uint16_t> GetStatusCode() override { return std::nullopt; }
   String GetDocumentReferrer() override { return ""; }
   void DispatchViolationEvent(const SecurityPolicyViolationEventInit&,
                               Element*) override {}
@@ -46,7 +53,8 @@ class TestCSPDelegate final : public GarbageCollected<TestCSPDelegate>,
                            bool use_reporting_api) override {}
   void Count(WebFeature) override {}
   void AddConsoleMessage(ConsoleMessage* message) override {
-    console_messages_.push_back(message->Message());
+    console_messages_.push_back(
+        std::make_pair(message->Message(), message->GetLevel()));
   }
   void AddInspectorIssue(AuditsIssue) override {}
   void DisableEval(const String& error_message) override {}
@@ -62,7 +70,7 @@ class TestCSPDelegate final : public GarbageCollected<TestCSPDelegate>,
   const KURL url_ = KURL("https://example.test/index.html");
   const scoped_refptr<SecurityOrigin> security_origin_ =
       SecurityOrigin::Create(url_);
-  Vector<String> console_messages_;
+  Vector<std::pair<String, ConsoleMessage::Level>> console_messages_;
 };
 
 }  // namespace blink

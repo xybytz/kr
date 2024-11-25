@@ -9,11 +9,12 @@
 
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/arc/input_overlay/actions/action.h"
+#include "chrome/browser/ash/arc/input_overlay/arc_input_overlay_metrics.h"
 #include "chrome/browser/ash/arc/input_overlay/constants.h"
 #include "chrome/browser/ash/arc/input_overlay/db/proto/app_data.pb.h"
 #include "chrome/browser/ash/arc/input_overlay/display_overlay_controller.h"
 #include "chrome/browser/ash/arc/input_overlay/test/overlay_view_test_base.h"
-#include "chrome/browser/ash/arc/input_overlay/test/view_test_base.h"
+#include "chrome/browser/ash/arc/input_overlay/test/test_utils.h"
 #include "chrome/browser/ash/arc/input_overlay/touch_injector.h"
 #include "chrome/browser/ash/arc/input_overlay/ui/action_view.h"
 #include "chrome/browser/ash/arc/input_overlay/ui/action_view_list_item.h"
@@ -23,26 +24,15 @@
 #include "chrome/browser/ash/arc/input_overlay/ui/editing_list.h"
 #include "chrome/browser/ash/arc/input_overlay/ui/input_mapping_view.h"
 #include "chrome/browser/ash/arc/input_overlay/ui/name_tag.h"
+#include "components/ukm/test_ukm_recorder.h"
 #include "ui/events/keycodes/keyboard_codes_posix.h"
+#include "ui/views/view_utils.h"
 
 namespace arc::input_overlay {
 
 class EditLabelTest : public OverlayViewTestBase {
  public:
   EditLabelTest() = default;
-
-  EditLabel* GetEditLabel(const ActionViewListItem* list_item,
-                          size_t index) const {
-    auto& labels = list_item->labels_view_->labels_;
-    DCHECK_LT(index, labels.size());
-    return labels[index];
-  }
-
-  EditLabel* GetEditLabel(const ButtonOptionsMenu* menu, size_t index) const {
-    auto& labels = menu->action_edit_->labels_view_->labels_;
-    DCHECK_LT(index, labels.size());
-    return labels[index];
-  }
 
   ActionLabel* GetLabel(const ActionView* action_view, size_t index) const {
     auto& labels = action_view->labels();
@@ -51,8 +41,10 @@ class EditLabelTest : public OverlayViewTestBase {
   }
 
   void TapKeyboardKeyOnEditLabel(EditLabel* label, ui::KeyboardCode code) {
-    label->OnKeyPressed(ui::KeyEvent(ui::ET_KEY_PRESSED, code, ui::EF_NONE));
-    label->OnKeyReleased(ui::KeyEvent(ui::ET_KEY_RELEASED, code, ui::EF_NONE));
+    label->OnKeyPressed(
+        ui::KeyEvent(ui::EventType::kKeyPressed, code, ui::EF_NONE));
+    label->OnKeyReleased(
+        ui::KeyEvent(ui::EventType::kKeyReleased, code, ui::EF_NONE));
   }
 
   void FocusOnLabel(EditLabel* label) {
@@ -79,7 +71,7 @@ class EditLabelTest : public OverlayViewTestBase {
                    ActionType expect_action_type,
                    const std::vector<ui::DomCode>& expected_code,
                    const std::vector<std::u16string>& expected_labels,
-                   const std::u16string expected_name) {
+                   const std::u16string& expected_name) {
     DCHECK(action);
     ShowButtonOptionsMenu(action);
 
@@ -109,7 +101,7 @@ class EditLabelTest : public OverlayViewTestBase {
       return nullptr;
     }
     for (views::View* child : scroll_content->children()) {
-      if (auto* list_item = static_cast<ActionViewListItem*>(child);
+      if (auto* list_item = views::AsViewClass<ActionViewListItem>(child);
           list_item->action() == action) {
         return list_item;
       }
@@ -141,14 +133,14 @@ TEST_F(EditLabelTest, TestEditingListLabelEditing) {
   // Modify the label for ActionTap and noting is conflicted.
   // ActionTap: ␣ -> m.
   CheckAction(tap_action_, ActionType::TAP, {ui::DomCode::SPACE}, {u"␣"},
-              u"Game button ␣");
+              GetControlName(ActionType::TAP, u"␣"));
   CheckErrorState(GetButtonOptionsMenu(), tap_action_list_item_,
                   /*menu_has_error=*/false,
                   /*list_item_has_error=*/false);
   TapKeyboardKeyOnEditLabel(GetEditLabel(tap_action_list_item_, /*index=*/0),
                             ui::VKEY_M);
   CheckAction(tap_action_, ActionType::TAP, {ui::DomCode::US_M}, {u"m"},
-              u"Game button m");
+              GetControlName(ActionType::TAP, u"m"));
   CheckErrorState(GetButtonOptionsMenu(), tap_action_list_item_,
                   /*menu_has_error=*/false,
                   /*list_item_has_error=*/false);
@@ -160,7 +152,8 @@ TEST_F(EditLabelTest, TestEditingListLabelEditing) {
   CheckAction(move_action_, ActionType::MOVE,
               {ui::DomCode::US_W, ui::DomCode::US_A, ui::DomCode::US_S,
                ui::DomCode::US_D},
-              {u"w", u"a", u"s", u"d"}, u"Joystick wasd");
+              {u"w", u"a", u"s", u"d"},
+              GetControlName(ActionType::MOVE, u"wasd"));
   CheckErrorState(GetButtonOptionsMenu(), move_action_list_item_,
                   /*menu_has_error=*/false,
                   /*list_item_has_error=*/false);
@@ -172,7 +165,8 @@ TEST_F(EditLabelTest, TestEditingListLabelEditing) {
   CheckAction(move_action_, ActionType::MOVE,
               {ui::DomCode::US_L, ui::DomCode::US_A, ui::DomCode::US_S,
                ui::DomCode::US_D},
-              {u"l", u"a", u"s", u"d"}, u"Joystick lasd");
+              {u"l", u"a", u"s", u"d"},
+              GetControlName(ActionType::MOVE, u"lasd"));
   CheckErrorState(GetButtonOptionsMenu(), move_action_list_item_,
                   /*menu_has_error=*/false,
                   /*list_item_has_error=*/false);
@@ -186,7 +180,8 @@ TEST_F(EditLabelTest, TestEditingListLabelEditing) {
   CheckAction(move_action_, ActionType::MOVE,
               {ui::DomCode::NONE, ui::DomCode::US_A, ui::DomCode::US_L,
                ui::DomCode::US_D},
-              {u"?", u"a", u"l", u"d"}, u"Joystick ald");
+              {u"?", u"a", u"l", u"d"},
+              GetControlName(ActionType::MOVE, u"ald"));
   CheckErrorState(GetButtonOptionsMenu(), move_action_list_item_,
                   /*menu_has_error=*/true,
                   /*list_item_has_error=*/true);
@@ -199,14 +194,15 @@ TEST_F(EditLabelTest, TestEditingListLabelEditing) {
   TapKeyboardKeyOnEditLabel(GetEditLabel(move_action_list_item_, /*index=*/0),
                             ui::VKEY_M);
   CheckAction(tap_action_, ActionType::TAP, {ui::DomCode::NONE}, {u"?"},
-              u"Unassigned button");
+              GetControlName(ActionType::TAP, u""));
   CheckErrorState(GetButtonOptionsMenu(), tap_action_list_item_,
                   /*menu_has_error=*/true,
                   /*list_item_has_error=*/true);
   CheckAction(move_action_, ActionType::MOVE,
               {ui::DomCode::US_M, ui::DomCode::US_A, ui::DomCode::US_L,
                ui::DomCode::US_D},
-              {u"m", u"a", u"l", u"d"}, u"Joystick mald");
+              {u"m", u"a", u"l", u"d"},
+              GetControlName(ActionType::MOVE, u"mald"));
   CheckErrorState(GetButtonOptionsMenu(), move_action_list_item_,
                   /*menu_has_error=*/false,
                   /*list_item_has_error=*/false);
@@ -219,14 +215,15 @@ TEST_F(EditLabelTest, TestEditingListLabelEditing) {
   TapKeyboardKeyOnEditLabel(GetEditLabel(tap_action_list_item_, /*index=*/0),
                             ui::VKEY_D);
   CheckAction(tap_action_, ActionType::TAP, {ui::DomCode::US_D}, {u"d"},
-              u"Game button d");
+              GetControlName(ActionType::TAP, u"d"));
   CheckErrorState(GetButtonOptionsMenu(), tap_action_list_item_,
                   /*menu_has_error=*/false,
                   /*list_item_has_error=*/false);
   CheckAction(move_action_, ActionType::MOVE,
               {ui::DomCode::US_M, ui::DomCode::US_A, ui::DomCode::US_L,
                ui::DomCode::NONE},
-              {u"m", u"a", u"l", u"?"}, u"Joystick mal");
+              {u"m", u"a", u"l", u"?"},
+              GetControlName(ActionType::MOVE, u"mal"));
   CheckErrorState(GetButtonOptionsMenu(), move_action_list_item_,
                   /*menu_has_error=*/true,
                   /*list_item_has_error=*/true);
@@ -243,7 +240,7 @@ TEST_F(EditLabelTest, TestEditingListLabelReservedKey) {
                             ui::VKEY_ESCAPE);
   // Label is not changed.
   CheckAction(tap_action_, ActionType::TAP, {ui::DomCode::SPACE}, {u"␣"},
-              u"Game button ␣");
+              GetControlName(ActionType::TAP, u"␣"));
   // Error state shows temporarily on list item view.
   CheckErrorState(GetButtonOptionsMenu(), tap_action_list_item_,
                   /*menu_has_error=*/false,
@@ -262,7 +259,8 @@ TEST_F(EditLabelTest, TestEditingListLabelReservedKey) {
   CheckAction(move_action_, ActionType::MOVE,
               {ui::DomCode::US_W, ui::DomCode::US_A, ui::DomCode::US_S,
                ui::DomCode::NONE},
-              {u"w", u"a", u"s", u"?"}, u"Joystick was");
+              {u"w", u"a", u"s", u"?"},
+              GetControlName(ActionType::MOVE, u"was"));
   CheckErrorState(GetButtonOptionsMenu(), move_action_list_item_,
                   /*menu_has_error=*/true,
                   /*list_item_has_error=*/true);
@@ -292,7 +290,7 @@ TEST_F(EditLabelTest, TestEditingNewAction) {
   CheckAction(action, ActionType::MOVE,
               {ui::DomCode::NONE, ui::DomCode::NONE, ui::DomCode::NONE,
                ui::DomCode::NONE},
-              {u"", u"", u"", u""}, u"Unassigned joystick");
+              {u"", u"", u"", u""}, GetControlName(ActionType::MOVE, u""));
 
   auto* label0 = GetEditLabel(menu, /*index=*/0);
   FocusOnLabel(label0);
@@ -301,7 +299,7 @@ TEST_F(EditLabelTest, TestEditingNewAction) {
   CheckAction(action, ActionType::MOVE,
               {ui::DomCode::US_A, ui::DomCode::NONE, ui::DomCode::NONE,
                ui::DomCode::NONE},
-              {u"a", u"", u"", u""}, u"Joystick a");
+              {u"a", u"", u"", u""}, GetControlName(ActionType::MOVE, u"a"));
 
   auto* label1 = GetEditLabel(menu, /*index=*/1);
   FocusOnLabel(label1);
@@ -310,7 +308,68 @@ TEST_F(EditLabelTest, TestEditingNewAction) {
   CheckAction(action, ActionType::MOVE,
               {ui::DomCode::NONE, ui::DomCode::US_A, ui::DomCode::NONE,
                ui::DomCode::NONE},
-              {u"", u"a", u"", u""}, u"Joystick a");
+              {u"", u"a", u"", u""}, GetControlName(ActionType::MOVE, u"a"));
+}
+
+TEST_F(EditLabelTest, TestHistograms) {
+  widget_->GetNativeWindow()->SetBounds(gfx::Rect(310, 10, 300, 500));
+  base::HistogramTester histograms;
+  ukm::TestAutoSetUkmRecorder ukm_recorder;
+
+  // Check histograms for editing list.
+  const std::string editing_list_histogram_name =
+      BuildGameControlsHistogramName(kEditingListFunctionTriggeredHistogram);
+  std::map<EditingListFunction, int> expected_editing_list_histogram_values;
+  LeftClickOn(GetEditLabel(tap_action_list_item_, /*index=*/0));
+  MapIncreaseValueByOne(expected_editing_list_histogram_values,
+                        EditingListFunction::kEditLabelFocused);
+  VerifyHistogramValues(histograms, editing_list_histogram_name,
+                        expected_editing_list_histogram_values);
+  // There is a hover event recorded before this.
+  VerifyEditingListFunctionTriggeredUkmEvent(
+      ukm_recorder, /*expected_entry_size=*/2u,
+      static_cast<int64_t>(EditingListFunction::kEditLabelFocused));
+
+  auto* event_generator = GetEventGenerator();
+  event_generator->PressAndReleaseKey(ui::VKEY_M, ui::EF_NONE);
+  MapIncreaseValueByOne(expected_editing_list_histogram_values,
+                        EditingListFunction::kKeyAssigned);
+  VerifyHistogramValues(histograms, editing_list_histogram_name,
+                        expected_editing_list_histogram_values);
+  VerifyEditingListFunctionTriggeredUkmEvent(
+      ukm_recorder, /*expected_entry_size=*/3u,
+      static_cast<int64_t>(EditingListFunction::kKeyAssigned));
+
+  // Check histograms for button options menu.
+  const std::string button_options_histogram_name =
+      BuildGameControlsHistogramName(
+          kButtonOptionsMenuFunctionTriggeredHistogram);
+  std::map<ButtonOptionsMenuFunction, int>
+      expected_button_options_histogram_values;
+  auto* menu = ShowButtonOptionsMenu(move_action_);
+  LeftClickOn(GetEditLabel(menu, /*index=*/1));
+  MapIncreaseValueByOne(expected_button_options_histogram_values,
+                        ButtonOptionsMenuFunction::kEditLabelFocused);
+  VerifyHistogramValues(histograms, button_options_histogram_name,
+                        expected_button_options_histogram_values);
+  VerifyButtonOptionsMenuFunctionTriggeredUkmEvent(
+      ukm_recorder, /*expected_entry_size=*/1u, /*index=*/0u,
+      static_cast<int64_t>(ButtonOptionsMenuFunction::kEditLabelFocused));
+
+  event_generator->PressAndReleaseKey(ui::VKEY_N, ui::EF_NONE);
+  // After assign a key, the focus is automatically moved to the next one.
+  MapIncreaseValueByOne(expected_button_options_histogram_values,
+                        ButtonOptionsMenuFunction::kEditLabelFocused);
+  MapIncreaseValueByOne(expected_button_options_histogram_values,
+                        ButtonOptionsMenuFunction::kKeyAssigned);
+  VerifyHistogramValues(histograms, button_options_histogram_name,
+                        expected_button_options_histogram_values);
+  VerifyButtonOptionsMenuFunctionTriggeredUkmEvent(
+      ukm_recorder, /*expected_entry_size=*/3u, /*index=*/1u,
+      static_cast<int64_t>(ButtonOptionsMenuFunction::kKeyAssigned));
+  VerifyButtonOptionsMenuFunctionTriggeredUkmEvent(
+      ukm_recorder, /*expected_entry_size=*/3u, /*index=*/2u,
+      static_cast<int64_t>(ButtonOptionsMenuFunction::kEditLabelFocused));
 }
 
 }  // namespace arc::input_overlay

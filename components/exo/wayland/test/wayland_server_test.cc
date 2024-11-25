@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "components/exo/wayland/test/wayland_server_test.h"
 
 #include <wayland-server-protocol-core.h>
@@ -15,6 +20,7 @@
 #include "base/test/test_future.h"
 #include "components/exo/security_delegate.h"
 #include "components/exo/wayland/server.h"
+#include "components/exo/wayland/wayland_display_output.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace exo::wayland::test {
@@ -77,7 +83,9 @@ class ClientDestroyedWaiter {
   base::test::TestFuture<void> future_;
 };
 
-WaylandServerTest::WaylandServerTest() {
+WaylandServerTest::WaylandServerTest()
+    : WaylandServerTestBase(
+          base::test::TaskEnvironment::TimeSource::MOCK_TIME) {
   Server::SetServerGetter(base::BindLambdaForTesting([&](wl_display* display) {
     // Currently tests run with a single Server instance.
     EXPECT_EQ(display, server_->GetWaylandDisplay());
@@ -114,6 +122,11 @@ void WaylandServerTest::SetUp() {
 }
 
 void WaylandServerTest::TearDown() {
+  // Force a cleanup of any remaining outputs, which are deleted on a delay to
+  // give clients the opportunity to release the global.
+  task_environment()->FastForwardBy(WaylandDisplayOutput::kDeleteTaskDelay *
+                                    (WaylandDisplayOutput::kDeleteRetries + 1));
+
   client_resource_ = nullptr;
   client_thread_.reset();
   server_.reset();

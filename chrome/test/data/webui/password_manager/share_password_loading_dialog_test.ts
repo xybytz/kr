@@ -4,9 +4,10 @@
 
 import 'chrome://password-manager/password_manager.js';
 
-import {SharePasswordLoadingDialogElement} from 'chrome://password-manager/password_manager.js';
+import type {SharePasswordLoadingDialogElement} from 'chrome://password-manager/password_manager.js';
 import {assertEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
+import {isVisible} from 'chrome://webui-test/test_util.js';
 
 const TITLE = 'dialog title';
 
@@ -27,8 +28,8 @@ suite('SharePasswordLoadingDialogTest', function() {
     assertTrue(!!header);
     assertEquals(TITLE, header.innerHTML!.trim());
 
-    const spinner = dialog.shadowRoot!.querySelector('paper-spinner-lite');
+    const spinner = dialog.shadowRoot!.querySelector('.spinner');
     assertTrue(!!spinner);
-    assertTrue(spinner.active);
+    assertTrue(isVisible(spinner));
   });
 });

@@ -32,6 +32,7 @@ RemoteFrameOwner::RemoteFrameOwner(
       allow_payment_request_(frame_owner_properties.allow_payment_request),
       is_display_none_(frame_owner_properties.is_display_none),
       color_scheme_(frame_owner_properties.color_scheme),
+      preferred_color_scheme_(frame_owner_properties.preferred_color_scheme),
       needs_occlusion_tracking_(false) {}
 
 void RemoteFrameOwner::Trace(Visitor* visitor) const {
@@ -56,11 +57,14 @@ void RemoteFrameOwner::AddResourceTiming(
     mojom::blink::ResourceTimingInfoPtr info) {
   DCHECK(info);
   LocalFrame* frame = To<LocalFrame>(frame_.Get());
+  CHECK(!frame->IsProvisional());
   frame->GetLocalFrameHostRemote().ForwardResourceTimingToParent(
       std::move(info));
 }
 
 void RemoteFrameOwner::DispatchLoad() {
+  LocalFrame* frame = To<LocalFrame>(frame_.Get());
+  CHECK(!frame->IsProvisional());
   auto& local_frame_host = To<LocalFrame>(*frame_).GetLocalFrameHostRemote();
   local_frame_host.DispatchLoad();
 }

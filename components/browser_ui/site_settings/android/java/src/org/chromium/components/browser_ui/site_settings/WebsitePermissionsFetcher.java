@@ -14,21 +14,23 @@ import androidx.annotation.Nullable;
 
 import org.chromium.base.Callback;
 import org.chromium.base.CommandLine;
+import org.chromium.components.browsing_data.content.BrowsingDataInfo;
 import org.chromium.components.content_settings.ContentSettingValues;
 import org.chromium.components.content_settings.ContentSettingsType;
-import org.chromium.components.permissions.PermissionsAndroidFeatureList;
-import org.chromium.components.permissions.PermissionsAndroidFeatureMap;
+import org.chromium.components.content_settings.SessionModel;
 import org.chromium.content_public.browser.BrowserContextHandle;
 import org.chromium.content_public.browser.ContentFeatureList;
 import org.chromium.content_public.browser.ContentFeatureMap;
 import org.chromium.content_public.browser.HostZoomMap;
 import org.chromium.content_public.common.ContentSwitches;
+import org.chromium.url.Origin;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -45,7 +47,8 @@ public class WebsitePermissionsFetcher {
         CHOSEN_OBJECT_INFO
     }
 
-    private BrowserContextHandle mBrowserContextHandle;
+    private final SiteSettingsDelegate mSiteSettingsDelegate;
+    private final BrowserContextHandle mBrowserContextHandle;
     private WebsitePreferenceBridge mWebsitePreferenceBridge;
 
     private SiteSettingsCategory mSiteSettingsCategory;
@@ -81,13 +84,16 @@ public class WebsitePermissionsFetcher {
             case ContentSettingsType.FEDERATED_IDENTITY_API:
             case ContentSettingsType.JAVASCRIPT:
             case ContentSettingsType.JAVASCRIPT_JIT:
+            case ContentSettingsType.JAVASCRIPT_OPTIMIZER:
             case ContentSettingsType.POPUPS:
             case ContentSettingsType.REQUEST_DESKTOP_SITE:
             case ContentSettingsType.SOUND:
                 return WebsitePermissionsType.CONTENT_SETTING_EXCEPTION;
             case ContentSettingsType.AR:
             case ContentSettingsType.CLIPBOARD_READ_WRITE:
+            case ContentSettingsType.FILE_SYSTEM_WRITE_GUARD:
             case ContentSettingsType.GEOLOCATION:
+            case ContentSettingsType.HAND_TRACKING:
             case ContentSettingsType.IDLE_DETECTION:
             case ContentSettingsType.MEDIASTREAM_CAMERA:
             case ContentSettingsType.MEDIASTREAM_MIC:
@@ -99,20 +105,10 @@ public class WebsitePermissionsFetcher {
             case ContentSettingsType.VR:
                 return WebsitePermissionsType.PERMISSION_INFO;
             case ContentSettingsType.STORAGE_ACCESS:
-                if (PermissionsAndroidFeatureMap.isEnabled(
-                        PermissionsAndroidFeatureList.PERMISSION_STORAGE_ACCESS)) {
-                    return WebsitePermissionsType.EMBEDDED_PERMISSION;
-                }
-                return null;
+                return WebsitePermissionsType.EMBEDDED_PERMISSION;
             case ContentSettingsType.BLUETOOTH_GUARD:
             case ContentSettingsType.USB_GUARD:
                 return WebsitePermissionsType.CHOSEN_OBJECT_INFO;
-            case ContentSettingsType.MIDI:
-                if (PermissionsAndroidFeatureMap.isEnabled(
-                        PermissionsAndroidFeatureList.BLOCK_MIDI_BY_DEFAULT)) {
-                    return WebsitePermissionsType.PERMISSION_INFO;
-                }
-                return null;
             default:
                 return null;
         }
@@ -144,14 +140,21 @@ public class WebsitePermissionsFetcher {
 
     private final boolean mFetchSiteImportantInfo;
 
-    public WebsitePermissionsFetcher(BrowserContextHandle browserContextHandle) {
-        this(browserContextHandle, false);
+    /**
+     * @param siteSettingsDelegate to help fetching websites information.
+     */
+    public WebsitePermissionsFetcher(SiteSettingsDelegate siteSettingsDelegate) {
+        this(siteSettingsDelegate, false);
     }
 
-    /** @param fetchSiteImportantInfo if the fetcher should query whether each site is 'important'. */
+    /**
+     * @param siteSettingsDelegate to help fetching websites information.
+     * @param fetchSiteImportantInfo if the fetcher should query whether each site is 'important'.
+     */
     public WebsitePermissionsFetcher(
-            BrowserContextHandle browserContextHandle, boolean fetchSiteImportantInfo) {
-        mBrowserContextHandle = browserContextHandle;
+            SiteSettingsDelegate siteSettingsDelegate, boolean fetchSiteImportantInfo) {
+        mSiteSettingsDelegate = siteSettingsDelegate;
+        mBrowserContextHandle = siteSettingsDelegate.getBrowserContextHandle();
         mFetchSiteImportantInfo = fetchSiteImportantInfo;
         mWebsitePreferenceBridge = new WebsitePreferenceBridge();
     }
@@ -184,17 +187,13 @@ public class WebsitePermissionsFetcher {
      * Fetches all preferences within a specific category and populates them with First Party Sets
      * info.
      *
-     * @param siteSettingsDelegate Delegate needed for fetching First Party Sets info.
      * @param category A category to fetch.
      * @param callback The callback to run when the fetch is complete.
      */
-    public void fetchPreferencesForCategoryAndPopulateFpsInfo(
-            SiteSettingsDelegate siteSettingsDelegate,
-            SiteSettingsCategory category,
-            @NonNull WebsitePermissionsCallback callback) {
+    public void fetchPreferencesForCategoryAndPopulateRwsInfo(
+            SiteSettingsCategory category, @NonNull WebsitePermissionsCallback callback) {
         var fetcherInternal = new WebsitePermissionFetcherInternal();
-        fetcherInternal.fetchPreferencesForCategoryAndPopulateFpsInfo(
-                siteSettingsDelegate, category, callback);
+        fetcherInternal.fetchPreferencesForCategoryAndPopulateRwsInfo(category, callback);
     }
 
     /**
@@ -224,9 +223,12 @@ public class WebsitePermissionsFetcher {
 
         private void addAllFetchers(TaskQueue queue) {
             addFetcherForStorage(queue);
-            queue.add(new CookiesInfoFetcher());
+            queue.add(new FileEditingInfoFetcher());
+            if (!mSiteSettingsDelegate.isBrowsingDataModelFeatureEnabled()) {
+                queue.add(new CookiesInfoFetcher());
+            }
             for (@ContentSettingsType.EnumType int type = 0;
-                    type < ContentSettingsType.NUM_TYPES;
+                    type <= ContentSettingsType.MAX_VALUE;
                     type++) {
                 addFetcherForContentSettingsType(queue, type);
             }
@@ -269,28 +271,29 @@ public class WebsitePermissionsFetcher {
          * Fetches all preferences within a specific category and populates them with First Party
          * Sets info.
          *
-         * @param siteSettingsDelegate Delegate needed for fetching First Party Sets info.
          * @param category A category to fetch.
          * @param callback The callback to run when the fetch is complete.
          */
-        public void fetchPreferencesForCategoryAndPopulateFpsInfo(
-                SiteSettingsDelegate siteSettingsDelegate,
-                SiteSettingsCategory category,
-                @NonNull WebsitePermissionsCallback callback) {
+        public void fetchPreferencesForCategoryAndPopulateRwsInfo(
+                SiteSettingsCategory category, @NonNull WebsitePermissionsCallback callback) {
             TaskQueue queue = createFetchersForCategory(category);
-            queue.add(new FirstPartySetsInfoFetcher(siteSettingsDelegate));
+            queue.add(new RelatedWebsiteSetsInfoFetcher());
 
             queue.add(new PermissionsAvailableCallbackRunner(callback));
             queue.next();
         }
 
         private void addFetcherForStorage(TaskQueue queue) {
-            // Local storage info is per-origin.
-            queue.add(new LocalStorageInfoFetcher());
-            // Website storage is per-host.
-            queue.add(new WebStorageInfoFetcher());
-            // Shared Dictionary info is per {origin, top level site}.
-            queue.add(new SharedDictionaryInfoFetcher());
+            if (mSiteSettingsDelegate.isBrowsingDataModelFeatureEnabled()) {
+                queue.add(new BrowsingDataModelFetcher());
+            } else {
+                // Local storage info is per-origin.
+                queue.add(new LocalStorageInfoFetcher());
+                // Website storage is per-host.
+                queue.add(new WebStorageInfoFetcher());
+                // Shared Dictionary info is per {origin, top level site}.
+                queue.add(new SharedDictionaryInfoFetcher());
+            }
         }
 
         private void addFetcherForZoom(TaskQueue queue) {
@@ -448,7 +451,7 @@ public class WebsitePermissionsFetcher {
          * to be serialized, as we need to have all the origins in place prior to populating the
          * hosts.
          */
-        private abstract class Task {
+        private abstract static class Task {
             /** Override this method to implement a synchronous task. */
             void run() {}
 
@@ -466,7 +469,7 @@ public class WebsitePermissionsFetcher {
          * A queue used to store the sequence of tasks to run to fetch the website preferences. Each
          * task is run sequentially, and some of the tasks may run asynchronously.
          */
-        private class TaskQueue extends LinkedList<Task> {
+        private static class TaskQueue extends LinkedList<Task> {
             void next() {
                 if (!isEmpty()) removeFirst().runAsync(this);
             }
@@ -474,7 +477,6 @@ public class WebsitePermissionsFetcher {
 
         private class PermissionInfoFetcher extends Task {
             final @ContentSettingsType.EnumType int mType;
-            private boolean mIsEmbeddedPermission;
 
             public PermissionInfoFetcher(@ContentSettingsType.EnumType int type) {
                 mType = type;
@@ -552,6 +554,23 @@ public class WebsitePermissionsFetcher {
             }
         }
 
+        private class FileEditingInfoFetcher extends Task {
+            @Override
+            public void run() {
+                for (String origin : mSiteSettingsDelegate.getOriginsWithFileSystemAccessGrants()) {
+                    Website site = findOrCreateSite(origin, null);
+                    site.setPermissionInfo(
+                            new PermissionInfo(
+                                    ContentSettingsType.FILE_SYSTEM_WRITE_GUARD,
+                                    origin,
+                                    null,
+                                    /* isEmbargoed= */ false,
+                                    SessionModel.USER_SESSION));
+                    site.setFileEditingInfo(new FileEditingInfo(mSiteSettingsDelegate, origin));
+                }
+            }
+        }
+
         private class ZoomInfoFetcher extends Task {
             @Override
             public void run() {
@@ -581,7 +600,7 @@ public class WebsitePermissionsFetcher {
                                     if (address == null) continue;
                                     // Convert host to origin, in order to avoid duplication in the
                                     // UI.
-                                    // TODO(crbug.com/1342991): Use BrowsingDataModel to avoid this
+                                    // TODO(crbug.com/40231223): Use BrowsingDataModel to avoid this
                                     // conversion.
                                     String origin = WebsiteAddress.create(address).getOrigin();
                                     findOrCreateSite(origin, null).addStorageInfo(info);
@@ -634,59 +653,93 @@ public class WebsitePermissionsFetcher {
             }
         }
 
-        private class FirstPartySetsInfoFetcher extends Task {
-            final SiteSettingsDelegate mSiteSettingsDelegate;
-
-            public FirstPartySetsInfoFetcher(SiteSettingsDelegate siteSettingsDelegate) {
-                mSiteSettingsDelegate = siteSettingsDelegate;
-            }
-
-            private boolean canDealWithFirstPartySetsInfo() {
+        private class RelatedWebsiteSetsInfoFetcher extends Task {
+            private boolean canDealWithRelatedWebsiteSetsInfo() {
                 return mSiteSettingsDelegate != null
-                        && mSiteSettingsDelegate.isPrivacySandboxFirstPartySetsUIFeatureEnabled()
-                        && mSiteSettingsDelegate.isFirstPartySetsDataAccessEnabled();
+                        && mSiteSettingsDelegate.isPrivacySandboxFirstPartySetsUiFeatureEnabled()
+                        && mSiteSettingsDelegate.isRelatedWebsiteSetsDataAccessEnabled();
             }
 
             @Override
             public void run() {
-                if (canDealWithFirstPartySetsInfo()) {
-                    Map<String, Set<String>> fpsOwnerToMembers =
+                if (canDealWithRelatedWebsiteSetsInfo()) {
+                    Map<String, List<Website>> rwsOwnerToMembers =
                             buildOwnerToMembersMapFromFetchedSites();
 
-                    // For each {@link Website} sets its FirstPartySet info: the FPS Owner and the
-                    // number of members of that FPS.
+                    // For each {@link Website} sets its RelatedWebsiteSet info: the RWS Owner and
+                    // the
+                    // number of members of that RWS.
                     for (Website site : mSites.values()) {
-                        String fpsOwnerHostname =
-                                mSiteSettingsDelegate.getFirstPartySetOwner(
+                        String rwsOwnerHostname =
+                                mSiteSettingsDelegate.getRelatedWebsiteSetOwner(
                                         site.getAddress().getOrigin());
-                        if (fpsOwnerHostname == null) continue;
-                        int fpsMembersCount = fpsOwnerToMembers.get(fpsOwnerHostname).size();
-                        site.setFPSCookieInfo(new FPSCookieInfo(fpsOwnerHostname, fpsMembersCount));
+                        if (rwsOwnerHostname == null
+                                || rwsOwnerToMembers.get(rwsOwnerHostname) == null) continue;
+                        site.setRwsCookieInfo(
+                                new RwsCookieInfo(
+                                        rwsOwnerHostname, rwsOwnerToMembers.get(rwsOwnerHostname)));
                     }
                 }
             }
 
             /**
-             * Builds a {@link Map<String,  Set <String>>} of FPS Owner - Set of FPS Members from
+             * Builds a {@link Map<String, List <Website>>} of RWS Owner - Set of RWS Members from
              * the fetched websites.
              */
             @NonNull
-            private Map<String, Set<String>> buildOwnerToMembersMapFromFetchedSites() {
-                Map<String, Set<String>> fpsOwnerToMember = new HashMap<>();
+            private Map<String, List<Website>> buildOwnerToMembersMapFromFetchedSites() {
+                // set to avoid equals implementation for Website object
+                Set<String> domainAndRegistryToWebsite = new HashSet<>();
+                Map<String, List<Website>> rwsOwnerToMember = new HashMap<>();
+
                 for (Website site : mSites.values()) {
-                    String fpsMemberHostname = site.getAddress().getDomainAndRegistry();
-                    String fpsOwnerHostname =
-                            mSiteSettingsDelegate.getFirstPartySetOwner(
+                    String rwsMemberHostname = site.getAddress().getDomainAndRegistry();
+                    String rwsOwnerHostname =
+                            mSiteSettingsDelegate.getRelatedWebsiteSetOwner(
                                     site.getAddress().getOrigin());
-                    if (fpsOwnerHostname == null) continue;
-                    Set<String> members = fpsOwnerToMember.get(fpsOwnerHostname);
-                    if (members == null) {
-                        members = new HashSet<>();
+                    if (rwsOwnerHostname == null) continue;
+                    List<Website> members = rwsOwnerToMember.get(rwsOwnerHostname);
+                    if (!domainAndRegistryToWebsite.contains(rwsMemberHostname)) {
+                        if (members == null) {
+                            members = new ArrayList<>();
+                        }
+                        members.add(site);
+                        domainAndRegistryToWebsite.add(rwsMemberHostname);
+                        rwsOwnerToMember.put(rwsOwnerHostname, members);
                     }
-                    members.add(fpsMemberHostname);
-                    fpsOwnerToMember.put(fpsOwnerHostname, members);
                 }
-                return fpsOwnerToMember;
+
+                return rwsOwnerToMember;
+            }
+        }
+
+        private class BrowsingDataModelFetcher extends Task {
+            @Override
+            public void runAsync(final TaskQueue queue) {
+                mSiteSettingsDelegate.getBrowsingDataModel(
+                        (model) -> {
+                            Map<Origin, BrowsingDataInfo> result =
+                                    model.getBrowsingDataInfo(
+                                            mBrowserContextHandle, mFetchSiteImportantInfo);
+                            for (var entry : result.entrySet()) {
+                                Origin origin = entry.getKey();
+                                if (origin == null) continue;
+
+                                var website =
+                                        findOrCreateSite(origin.toString(), /* embedder= */ null);
+                                var info = entry.getValue();
+
+                                var cookieInfo = new CookiesInfo(info.getCookieCount());
+                                website.setCookiesInfo(cookieInfo);
+                                website.addStorageInfo(
+                                        new StorageInfo(
+                                                origin.getHost(),
+                                                /* type= */ 0,
+                                                info.getStorageSize()));
+                                website.setDomainImportant(info.isDomainImportant());
+                            }
+                            queue.next();
+                        });
             }
         }
 

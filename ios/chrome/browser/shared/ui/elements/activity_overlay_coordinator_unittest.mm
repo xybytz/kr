@@ -6,7 +6,7 @@
 
 #import "base/test/task_environment.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/ui/elements/activity_overlay_view_controller.h"
 #import "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
@@ -21,10 +21,9 @@ TEST_F(ActivityOverlayCoordinatorTest, StartAndStop) {
   __weak UIView* overlay_view;
   @autoreleasepool {
     UIViewController* base_view_controller = [[UIViewController alloc] init];
-    std::unique_ptr<TestChromeBrowserState> browser_state =
-        TestChromeBrowserState::Builder().Build();
+    std::unique_ptr<TestProfileIOS> profile = TestProfileIOS::Builder().Build();
     std::unique_ptr<Browser> browser =
-        std::make_unique<TestBrowser>(browser_state.get());
+        std::make_unique<TestBrowser>(profile.get());
     ActivityOverlayCoordinator* coordinator =
         [[ActivityOverlayCoordinator alloc]
             initWithBaseViewController:base_view_controller

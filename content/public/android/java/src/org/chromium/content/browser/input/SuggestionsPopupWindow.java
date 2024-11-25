@@ -221,7 +221,8 @@ public abstract class SuggestionsPopupWindow
     private void measureContent() {
         // Make the menu wide enough to fit its widest item.
         int width =
-                UiUtils.computeMaxWidthOfListAdapterItems(mSuggestionListView.getAdapter(), null);
+                UiUtils.computeListAdapterContentDimensions(mSuggestionListView.getAdapter(), null)[
+                        0];
         width += mContentView.getPaddingLeft() + mContentView.getPaddingRight();
 
         final int verticalMeasure =
@@ -278,7 +279,7 @@ public abstract class SuggestionsPopupWindow
         // multi-window mode, but we need to make sure we don't do it in single-window mode (in case
         // we're on an old version of Android).
         int statusBarHeight = 0;
-        if (mActivity != null && !ApiCompatibilityUtils.isInMultiWindowMode(mActivity)) {
+        if (mActivity != null && !mActivity.isInMultiWindowMode()) {
             Rect rect = new Rect();
             mActivity.getWindow().getDecorView().getWindowVisibleDisplayFrame(rect);
             statusBarHeight = rect.top;

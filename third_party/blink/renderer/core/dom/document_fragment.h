@@ -47,6 +47,7 @@ class CORE_EXPORT DocumentFragment : public ContainerNode {
                  ParserContentPolicy = kAllowScriptingContent);
   bool ParseXML(const String&,
                 Element* context_element,
+                ExceptionState& exception_state,
                 ParserContentPolicy = kAllowScriptingContent);
 
   bool CanContainRangeEndPoint() const final { return true; }

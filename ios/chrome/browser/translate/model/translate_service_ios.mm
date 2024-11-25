@@ -63,7 +63,6 @@ void TranslateServiceIOS::OnResourceRequestsAllowed() {
       translate::TranslateDownloadManager::GetInstance()->language_list();
   if (!language_list) {
     NOTREACHED();
-    return;
   }
 
   language_list->SetResourceRequestsAllowed(

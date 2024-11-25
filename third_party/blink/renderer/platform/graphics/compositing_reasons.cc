@@ -4,6 +4,8 @@
 
 #include "third_party/blink/renderer/platform/graphics/compositing_reasons.h"
 
+#include <array>
+
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
@@ -12,14 +14,15 @@ namespace blink {
 namespace {
 
 #define V(name) #name,
-constexpr const char* kShortNames[] = {FOR_EACH_COMPOSITING_REASON(V)};
+constexpr auto kShortNames =
+    std::to_array<const char* const>({FOR_EACH_COMPOSITING_REASON(V)});
 #undef V
 
 struct ReasonAndDescription {
   CompositingReasons reason;
   const char* description;
 };
-constexpr ReasonAndDescription kReasonDescriptionMap[] = {
+constexpr auto kReasonDescriptionMap = std::to_array<ReasonAndDescription>({
     {CompositingReason::k3DTransform, "Has a 3d transform."},
     {CompositingReason::k3DScale, "Has a 3d scale."},
     {CompositingReason::k3DRotate, "Has a 3d rotate."},
@@ -86,6 +89,9 @@ constexpr ReasonAndDescription kReasonDescriptionMap[] = {
     {CompositingReason::kViewTransitionPseudoElement,
      "This element is a part of a pseudo element tree representing the view "
      "transition."},
+    {CompositingReason::kViewTransitionElementDescendantWithClipPath,
+     "This element's ancestor is shared during view transition and it has a "
+     "clip-path"},
     {CompositingReason::kOverflowScrolling,
      "Is a scrollable overflow element using accelerated scrolling."},
     {CompositingReason::kElementCapture,
@@ -106,7 +112,7 @@ constexpr ReasonAndDescription kReasonDescriptionMap[] = {
     {CompositingReason::kDevToolsOverlay, "Is DevTools overlay."},
     {CompositingReason::kViewTransitionContent,
      "The layer containing the contents of a view transition element."},
-};
+});
 
 }  // anonymous namespace
 

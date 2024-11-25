@@ -13,10 +13,12 @@
 #import "ios/web/public/web_state.h"
 
 SafeBrowsingClientImpl::SafeBrowsingClientImpl(
+    PrefService* pref_service,
     safe_browsing::RealTimeUrlLookupService* lookup_service,
     safe_browsing::HashRealTimeService* hash_real_time_service,
     PrerenderService* prerender_service)
-    : lookup_service_(lookup_service),
+    : pref_service_(pref_service),
+      lookup_service_(lookup_service),
       hash_real_time_service_(hash_real_time_service),
       prerender_service_(prerender_service) {}
 
@@ -24,6 +26,10 @@ SafeBrowsingClientImpl::~SafeBrowsingClientImpl() = default;
 
 base::WeakPtr<SafeBrowsingClient> SafeBrowsingClientImpl::AsWeakPtr() {
   return weak_factory_.GetWeakPtr();
+}
+
+PrefService* SafeBrowsingClientImpl::GetPrefs() {
+  return pref_service_;
 }
 
 SafeBrowsingService* SafeBrowsingClientImpl::GetSafeBrowsingService() {
@@ -52,24 +58,15 @@ bool SafeBrowsingClientImpl::ShouldBlockUnsafeResource(
          prerender_service_->IsWebStatePrerendered(web_state);
 }
 
-void SafeBrowsingClientImpl::OnMainFrameUrlQueryCancellationDecided(
+bool SafeBrowsingClientImpl::OnMainFrameUrlQueryCancellationDecided(
     web::WebState* web_state,
     const GURL& url) {
   // When a prendered page is unsafe, cancel the prerender.
   if (prerender_service_ &&
       prerender_service_->IsWebStatePrerendered(web_state)) {
     prerender_service_->CancelPrerender();
-  }
-}
-
-bool SafeBrowsingClientImpl::OnSubFrameUrlQueryCancellationDecided(
-    web::WebState* web_state,
-    const GURL& url) {
-  // When a subframe in a prerendered page is unsafe, cancel the prerender.
-  if (prerender_service_ &&
-      prerender_service_->IsWebStatePrerendered(web_state)) {
-    prerender_service_->CancelPrerender();
     return false;
   }
+
   return true;
 }

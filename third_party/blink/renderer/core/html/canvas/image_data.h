@@ -47,6 +47,8 @@ namespace blink {
 
 class ExceptionState;
 class ImageBitmapOptions;
+class V8ImageDataStorageFormat;
+class V8PredefinedColorSpace;
 
 class CORE_EXPORT ImageData final : public ScriptWrappable,
                                     public ImageBitmapSource {
@@ -57,14 +59,14 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
   static ImageData* Create(unsigned width,
                            unsigned height,
                            ExceptionState& exception_state) {
-    return ValidateAndCreate(width, height, absl::nullopt, /*settings=*/nullptr,
+    return ValidateAndCreate(width, height, std::nullopt, /*settings=*/nullptr,
                              ValidateAndCreateParams(), exception_state);
   }
   static ImageData* Create(unsigned width,
                            unsigned height,
                            const ImageDataSettings* settings,
                            ExceptionState& exception_state) {
-    return ValidateAndCreate(width, height, absl::nullopt, settings,
+    return ValidateAndCreate(width, height, std::nullopt, settings,
                              ValidateAndCreateParams(), exception_state);
   }
 
@@ -73,7 +75,7 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
   static ImageData* Create(NotShared<DOMUint8ClampedArray> data,
                            unsigned width,
                            ExceptionState& exception_state) {
-    return ValidateAndCreate(width, absl::nullopt, data, nullptr,
+    return ValidateAndCreate(width, std::nullopt, data, nullptr,
                              ValidateAndCreateParams(), exception_state);
   }
   static ImageData* Create(NotShared<DOMUint8ClampedArray> data,
@@ -99,7 +101,7 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
                            ExceptionState& exception_state) {
     ValidateAndCreateParams params;
     params.require_canvas_floating_point = true;
-    return ValidateAndCreate(width, absl::nullopt, data, nullptr, params,
+    return ValidateAndCreate(width, std::nullopt, data, nullptr, params,
                              exception_state);
   }
   static ImageData* Create(NotShared<DOMUint16Array> data,
@@ -120,7 +122,7 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
                            ExceptionState& exception_state) {
     ValidateAndCreateParams params;
     params.require_canvas_floating_point = true;
-    return ValidateAndCreate(width, absl::nullopt, data, nullptr, params,
+    return ValidateAndCreate(width, std::nullopt, data, nullptr, params,
                              exception_state);
   }
   static ImageData* Create(NotShared<DOMFloat32Array> data,
@@ -157,8 +159,8 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
   };
   static ImageData* ValidateAndCreate(
       unsigned width,
-      absl::optional<unsigned> height,
-      absl::optional<NotShared<DOMArrayBufferView>> data,
+      std::optional<unsigned> height,
+      std::optional<NotShared<DOMArrayBufferView>> data,
       const ImageDataSettings* settings,
       ValidateAndCreateParams params,
       ExceptionState& exception_state);
@@ -179,8 +181,8 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
   gfx::Size Size() const { return size_; }
   int width() const { return size_.width(); }
   int height() const { return size_.height(); }
-  String colorSpace() const;
-  String storageFormat() const;
+  V8PredefinedColorSpace colorSpace() const;
+  V8ImageDataStorageFormat storageFormat() const;
 
   // TODO(https://crbug.com/1198606): Remove this.
   ImageDataSettings* getSettings() const;
@@ -196,10 +198,11 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
 
   // ImageBitmapSource implementation
   gfx::Size BitmapSourceSize() const override { return size_; }
-  ScriptPromise CreateImageBitmap(ScriptState*,
-                                  absl::optional<gfx::Rect> crop_rect,
-                                  const ImageBitmapOptions*,
-                                  ExceptionState&) override;
+  ScriptPromise<ImageBitmap> CreateImageBitmap(
+      ScriptState*,
+      std::optional<gfx::Rect> crop_rect,
+      const ImageBitmapOptions*,
+      ExceptionState&) override;
 
   void Trace(Visitor*) const override;
 

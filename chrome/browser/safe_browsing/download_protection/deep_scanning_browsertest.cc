@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "base/base64.h"
+#include "base/containers/span.h"
 #include "base/files/file_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
@@ -22,6 +23,7 @@
 #include "chrome/browser/download/download_core_service_factory.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_prefs.h"
+#include "chrome/browser/enterprise/connectors/analysis/content_analysis_features.h"
 #include "chrome/browser/enterprise/connectors/connectors_service.h"
 #include "chrome/browser/enterprise/connectors/reporting/realtime_reporting_client_factory.h"
 #include "chrome/browser/enterprise/connectors/test/deep_scanning_browsertest_base.h"
@@ -49,7 +51,9 @@
 #include "components/download/public/common/download_features.h"
 #include "components/enterprise/browser/identifiers/profile_id_service.h"
 #include "components/enterprise/common/proto/connectors.pb.h"
+#include "components/enterprise/obfuscation/core/utils.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_client.h"
+#include "components/policy/core/common/policy_pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/content/common/file_type_policies_test_util.h"
 #include "components/safe_browsing/core/browser/db/test_database_manager.h"
@@ -75,9 +79,16 @@ namespace {
 
 constexpr char kUserName[] = "test@chromium.org";
 
-// Extract the metadata proto from the raw request string. Returns true on
-// success.
-bool GetUploadMetadata(
+constexpr char kResumableUploadUrl[] =
+    "http://uploads.google.com?upload_id=ABC&upload_protocol=resumable";
+
+constexpr int64_t kSingleChunkObfuscationOverhead =
+    enterprise_obfuscation::kKeySize + enterprise_obfuscation::kNonceSize +
+    enterprise_obfuscation::kAuthTagSize;
+
+// Extract the metadata proto from the raw request string based on multipart
+// upload protocol. Returns true on success.
+bool GetMultipartUploadMetadata(
     const std::string& upload_request,
     enterprise_connectors::ContentAnalysisRequest* out_proto) {
   // The request is of the following format, see multipart_uploader.h for
@@ -105,6 +116,21 @@ bool GetUploadMetadata(
   return out_proto->ParseFromString(serialized_metadata);
 }
 
+// Extract the metadata proto from the raw request string based on resumable
+// upload protocol. Returns true on success.
+bool GetResumableUploadMetadata(
+    const std::string& upload_request,
+    enterprise_connectors::ContentAnalysisRequest* out_proto) {
+  // The request content is of the following format, see resumable_uploader.h
+  // for details: "metadata\r\n"
+  size_t boundary_end = upload_request.find("\r\n");
+  std::string encoded_metadata = upload_request.substr(0, boundary_end);
+
+  std::string serialized_metadata;
+  base::Base64Decode(encoded_metadata, &serialized_metadata);
+
+  return out_proto->ParseFromString(serialized_metadata);
+}
 }  // namespace
 
 class FakeBinaryFCMService : public BinaryFCMService {
@@ -134,10 +160,37 @@ class DownloadDeepScanningBrowserTestBase
   // |connectors_machine_scope| indicates whether the Connector prefs such as
   // OnFileDownloadedEnterpriseConnector and OnSecurityEventEnterpriseConnector
   // should be set at the machine or user scope.
+  // |is_consumer| indicates whether the content scan is a consumer or an
+  // enterprise scan.
+  // |is_resumable| indicates whether the metadata and content are transmitted
+  // by resumable upload protocol or multipart upload protocol. Resumable upload
+  // currently is only open to enterprise scans.
+  // |is_obfuscated| indicates whether the downloaded file has been obfuscated
+  // to prevent user access. Currently, this is done while waiting for an
+  // enterprise deep scan verdict.
   explicit DownloadDeepScanningBrowserTestBase(bool connectors_machine_scope,
-                                               bool is_consumer)
+                                               bool is_consumer,
+                                               bool is_resumable,
+                                               bool is_obfuscated)
       : is_consumer_(is_consumer),
-        connectors_machine_scope_(connectors_machine_scope) {}
+        is_resumable_(is_resumable),
+        is_obfuscated_(is_obfuscated),
+        connectors_machine_scope_(connectors_machine_scope) {
+    std::vector<base::test::FeatureRef> enabled_features;
+    std::vector<base::test::FeatureRef> disabled_features;
+
+    is_resumable_ ? enabled_features.push_back(
+                        enterprise_connectors::kResumableUploadEnabled)
+                  : disabled_features.push_back(
+                        enterprise_connectors::kResumableUploadEnabled);
+    is_obfuscated_ ? enabled_features.push_back(
+                         enterprise_obfuscation::kEnterpriseFileObfuscation)
+                   : disabled_features.push_back(
+                         enterprise_obfuscation::kEnterpriseFileObfuscation);
+
+    scoped_feature_list_.InitWithFeatures(std::move(enabled_features),
+                                          std::move(disabled_features));
+  }
 
   void OnDownloadCreated(content::DownloadManager* manager,
                          download::DownloadItem* item) override {
@@ -266,9 +319,7 @@ class DownloadDeepScanningBrowserTestBase
                       response.SerializeAsString());
   }
 
-  void ExpectContentAnalysisSynchronousResponse(
-      const enterprise_connectors::ContentAnalysisResponse& response,
-      const std::vector<std::string>& tags) {
+  void PrepareConnectorUrl(const std::vector<std::string>& tags) {
     if (is_consumer_) {
       connector_url_ =
           "https://safebrowsing.google.com/safebrowsing/uploads/consumer";
@@ -280,6 +331,41 @@ class DownloadDeepScanningBrowserTestBase
         connector_url_ += ("&tag=" + tag);
       }
     }
+  }
+
+  void ExpectContentAnalysisResumableMetadataResponse(
+      const std::vector<std::string>& tags) {
+    PrepareConnectorUrl(tags);
+
+    auto metadata_response_head = network::CreateURLResponseHead(net::HTTP_OK);
+    metadata_response_head->headers->AddHeader("X-Goog-Upload-Status",
+                                               "active");
+    metadata_response_head->headers->AddHeader("X-Goog-Upload-URL",
+                                               kResumableUploadUrl);
+    test_sb_factory_->test_safe_browsing_service()
+        ->GetTestUrlLoaderFactory()
+        ->AddResponse(GURL(connector_url_), std::move(metadata_response_head),
+                      "metadata_response",
+                      network::URLLoaderCompletionStatus(net::OK));
+  }
+
+  void ExpectContentAnalysisResumableContentResponse(
+      const enterprise_connectors::ContentAnalysisResponse& response) {
+    auto content_response_head = network::CreateURLResponseHead(net::HTTP_OK);
+    content_response_head->headers->AddHeader("X-Goog-Upload-Status", "final");
+
+    test_sb_factory_->test_safe_browsing_service()
+        ->GetTestUrlLoaderFactory()
+        ->AddResponse(GURL(kResumableUploadUrl),
+                      std::move(content_response_head),
+                      response.SerializeAsString(),
+                      network::URLLoaderCompletionStatus(net::OK));
+  }
+
+  void ExpectContentAnalysisMultipartResponse(
+      const enterprise_connectors::ContentAnalysisResponse& response,
+      const std::vector<std::string>& tags) {
+    PrepareConnectorUrl(tags);
 
     test_sb_factory_->test_safe_browsing_service()
         ->GetTestUrlLoaderFactory()
@@ -289,17 +375,7 @@ class DownloadDeepScanningBrowserTestBase
   void ExpectContentAnalysisUploadFailure(
       net::HttpStatusCode status_code,
       const std::vector<std::string>& tags) {
-    if (is_consumer_) {
-      connector_url_ =
-          "https://safebrowsing.google.com/safebrowsing/uploads/consumer";
-    } else {
-      connector_url_ =
-          "https://safebrowsing.google.com/safebrowsing/uploads/"
-          "scan?device_token=dm_token&connector=OnFileDownloaded";
-      for (const std::string& tag : tags) {
-        connector_url_ += ("&tag=" + tag);
-      }
-    }
+    PrepareConnectorUrl(tags);
 
     test_sb_factory_->test_safe_browsing_service()
         ->GetTestUrlLoaderFactory()
@@ -322,7 +398,8 @@ class DownloadDeepScanningBrowserTestBase
     return last_request_;
   }
 
-  const base::flat_set<download::DownloadItem*>& download_items() {
+  const base::flat_set<raw_ptr<download::DownloadItem, CtnExperimental>>&
+  download_items() {
     return download_items_;
   }
 
@@ -353,8 +430,8 @@ class DownloadDeepScanningBrowserTestBase
 
   template <typename T>
   void SendFcmMessage(const T& response) {
-    std::string encoded_proto;
-    base::Base64Encode(response.SerializeAsString(), &encoded_proto);
+    std::string encoded_proto =
+        base::Base64Encode(response.SerializeAsString());
     gcm::IncomingMessage gcm_message;
     gcm_message.data["proto"] = encoded_proto;
     binary_fcm_service()->OnMessage("app_id", gcm_message);
@@ -363,10 +440,16 @@ class DownloadDeepScanningBrowserTestBase
   void AuthorizeForDeepScanning() {
     static_cast<safe_browsing::CloudBinaryUploadService*>(
         CloudBinaryUploadServiceFactory::GetForProfile(browser()->profile()))
-        ->SetAuthForTesting("dm_token", /*authorized=*/true);
+        ->SetAuthForTesting(
+            "dm_token",
+            /*auth_check_result=*/BinaryUploadService::Result::SUCCESS);
   }
 
   bool connectors_machine_scope() const { return connectors_machine_scope_; }
+
+  bool is_resumable() const { return is_resumable_; }
+
+  bool is_obfuscated() const { return is_obfuscated_; }
 
   std::string GetProfileIdentifier() const {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -426,10 +509,11 @@ class DownloadDeepScanningBrowserTestBase
     EXPECT_TRUE(data_pipe_consumer.is_valid());
     std::string body;
     while (true) {
-      char buffer[1024];
-      uint32_t read_size = sizeof(buffer);
+      std::string buffer(1024, '\0');
+      size_t actually_read_bytes = 0;
       MojoResult result = data_pipe_consumer->ReadData(
-          buffer, &read_size, MOJO_READ_DATA_FLAG_NONE);
+          MOJO_READ_DATA_FLAG_NONE, base::as_writable_byte_span(buffer),
+          actually_read_bytes);
       if (result == MOJO_RESULT_SHOULD_WAIT) {
         base::RunLoop().RunUntilIdle();
         continue;
@@ -437,50 +521,81 @@ class DownloadDeepScanningBrowserTestBase
       if (result != MOJO_RESULT_OK) {
         break;
       }
-      body.append(buffer, read_size);
+      body.append(std::string_view(buffer).substr(0, actually_read_bytes));
     }
 
     return body;
   }
 
-  void InterceptRequest(const network::ResourceRequest& request) {
-    if (is_consumer_) {
-      if (request.url == safe_browsing::CloudBinaryUploadService::GetUploadUrl(
-                             /*is_consumer_scan_eligible=*/true)) {
-        ASSERT_TRUE(
-            GetUploadMetadata(GetDataPipeUploadData(request), &last_request_));
-        if (waiting_for_upload_closure_) {
-          std::move(waiting_for_upload_closure_).Run();
-        }
-      }
-    } else {
-      if (request.url == safe_browsing::CloudBinaryUploadService::GetUploadUrl(
-                             /*is_consumer_scan_eligible=*/false)) {
-        ASSERT_TRUE(
-            GetUploadMetadata(GetDataPipeUploadData(request), &last_request_));
-        if (waiting_for_upload_closure_) {
-          std::move(waiting_for_upload_closure_).Run();
-        }
-      }
-
-      if (request.url == connector_url_) {
-        ASSERT_TRUE(
-            GetUploadMetadata(GetDataPipeUploadData(request), &last_request_));
-        if (waiting_for_upload_closure_) {
-          std::move(waiting_for_upload_closure_).Run();
-        }
-      }
+  bool MaybeHandleDownloadRequest(const network::ResourceRequest& request) {
+    if (request.url != PPAPIDownloadRequest::GetDownloadRequestUrl()) {
+      return false;
     }
+    if (waiting_for_metadata_closure_) {
+      std::move(waiting_for_metadata_closure_).Run();
+    }
+    return true;
+  }
 
-    if (request.url == PPAPIDownloadRequest::GetDownloadRequestUrl()) {
-      if (waiting_for_metadata_closure_) {
-        std::move(waiting_for_metadata_closure_).Run();
+  void HandleConsumerRequest(const network::ResourceRequest& request) {
+    if (request.url == safe_browsing::CloudBinaryUploadService::GetUploadUrl(
+                           /*is_consumer_scan_eligible=*/true)) {
+      ASSERT_TRUE(GetMultipartUploadMetadata(GetDataPipeUploadData(request),
+                                             &last_request_));
+      if (waiting_for_upload_closure_) {
+        std::move(waiting_for_upload_closure_).Run();
       }
     }
   }
 
+  void HandleEnterpriseRequest(const network::ResourceRequest& request) {
+    if (request.url == GURL(kResumableUploadUrl)) {
+      GetDataPipeUploadData(request);
+      if (waiting_for_upload_closure_) {
+        std::move(waiting_for_upload_closure_).Run();
+      }
+      return;
+    }
+
+    if (request.url == safe_browsing::CloudBinaryUploadService::GetUploadUrl(
+                           /*is_consumer_scan_eligible=*/false)) {
+      ASSERT_TRUE(GetMultipartUploadMetadata(GetDataPipeUploadData(request),
+                                             &last_request_));
+      if (waiting_for_upload_closure_) {
+        std::move(waiting_for_upload_closure_).Run();
+      }
+      return;
+    }
+
+    if (request.url == connector_url_) {
+      if (is_resumable_) {
+        ASSERT_TRUE(GetResumableUploadMetadata(network::GetUploadData(request),
+                                               &last_request_));
+      } else {
+        ASSERT_TRUE(GetMultipartUploadMetadata(GetDataPipeUploadData(request),
+                                               &last_request_));
+        if (waiting_for_upload_closure_) {
+          std::move(waiting_for_upload_closure_).Run();
+        }
+      }
+    }
+  }
+
+  void InterceptRequest(const network::ResourceRequest& request) {
+    if (MaybeHandleDownloadRequest(request)) {
+      return;
+    }
+    if (is_consumer_) {
+      HandleConsumerRequest(request);
+      return;
+    }
+    HandleEnterpriseRequest(request);
+  }
+
   base::test::ScopedFeatureList scoped_feature_list_;
   bool is_consumer_;
+  bool is_resumable_;
+  bool is_obfuscated_;
 
   std::unique_ptr<TestSafeBrowsingServiceFactory> test_sb_factory_;
   raw_ptr<FakeBinaryFCMService, DanglingUntriaged> binary_fcm_service_;
@@ -492,7 +607,8 @@ class DownloadDeepScanningBrowserTestBase
   base::OnceClosure waiting_for_upload_closure_;
   base::OnceClosure waiting_for_metadata_closure_;
 
-  base::flat_set<download::DownloadItem*> download_items_;
+  base::flat_set<raw_ptr<download::DownloadItem, CtnExperimental>>
+      download_items_;
 
   std::unique_ptr<policy::MockCloudPolicyClient> client_;
   std::unique_ptr<signin::IdentityTestEnvironment> identity_test_environment_;
@@ -507,19 +623,29 @@ class ConsumerDeepScanningBrowserTest
  public:
   ConsumerDeepScanningBrowserTest()
       : DownloadDeepScanningBrowserTestBase(/*connectors_machine_scope=*/true,
-                                            /*is_consumer=*/true) {}
+                                            /*is_consumer=*/true,
+                                            /*is_resumable=*/false,
+                                            /*is_obfuscated=*/false) {}
 };
 
 class DownloadDeepScanningBrowserTest
     : public DownloadDeepScanningBrowserTestBase,
-      public testing::WithParamInterface<bool> {
+      public testing::WithParamInterface<std::tuple<bool, bool, bool>> {
  public:
   DownloadDeepScanningBrowserTest()
-      : DownloadDeepScanningBrowserTestBase(GetParam(), /*is_consumer=*/false) {
-  }
+      : DownloadDeepScanningBrowserTestBase(
+            /*connectors_machine_scope=*/std::get<0>(GetParam()),
+            /*is_consumer=*/false,
+            /*is_resumable=*/std::get<1>(GetParam()),
+            /*is_obfuscated=*/std::get<2>(GetParam())) {}
 };
 
-INSTANTIATE_TEST_SUITE_P(, DownloadDeepScanningBrowserTest, testing::Bool());
+INSTANTIATE_TEST_SUITE_P(,
+                         DownloadDeepScanningBrowserTest,
+                         testing::Combine(
+                             /*connectors_machine_scope=*/testing::Bool(),
+                             /*is_resumable=*/testing::Bool(),
+                             /*is_obfuscated=*/testing::Bool()));
 
 IN_PROC_BROWSER_TEST_P(DownloadDeepScanningBrowserTest,
                        SafeDownloadHasCorrectDangerType) {
@@ -538,7 +664,12 @@ IN_PROC_BROWSER_TEST_P(DownloadDeepScanningBrowserTest,
   dlp_result->set_tag("dlp");
   dlp_result->set_status(
       enterprise_connectors::ContentAnalysisResponse::Result::SUCCESS);
-  ExpectContentAnalysisSynchronousResponse(sync_response, {"dlp", "malware"});
+  if (is_resumable()) {
+    ExpectContentAnalysisResumableMetadataResponse({"dlp", "malware"});
+    ExpectContentAnalysisResumableContentResponse(sync_response);
+  } else {
+    ExpectContentAnalysisMultipartResponse(sync_response, {"dlp", "malware"});
+  }
 
   GURL url = embedded_test_server()->GetURL(
       "/safe_browsing/download_protection/zipfile_two_archives.zip");
@@ -587,7 +718,12 @@ IN_PROC_BROWSER_TEST_P(DownloadDeepScanningBrowserTest, FailedScanFailsOpen) {
   dlp_result->set_tag("dlp");
   dlp_result->set_status(
       enterprise_connectors::ContentAnalysisResponse::Result::SUCCESS);
-  ExpectContentAnalysisSynchronousResponse(sync_response, {"dlp", "malware"});
+  if (is_resumable()) {
+    ExpectContentAnalysisResumableMetadataResponse({"dlp", "malware"});
+    ExpectContentAnalysisResumableContentResponse(sync_response);
+  } else {
+    ExpectContentAnalysisMultipartResponse(sync_response, {"dlp", "malware"});
+  }
 
   GURL url = embedded_test_server()->GetURL(
       "/safe_browsing/download_protection/zipfile_two_archives.zip");
@@ -636,7 +772,12 @@ IN_PROC_BROWSER_TEST_P(DownloadDeepScanningBrowserTest,
   dlp_result->set_tag("dlp");
   dlp_result->set_status(
       enterprise_connectors::ContentAnalysisResponse::Result::FAILURE);
-  ExpectContentAnalysisSynchronousResponse(sync_response, {"dlp", "malware"});
+  if (is_resumable()) {
+    ExpectContentAnalysisResumableMetadataResponse({"dlp", "malware"});
+    ExpectContentAnalysisResumableContentResponse(sync_response);
+  } else {
+    ExpectContentAnalysisMultipartResponse(sync_response, {"dlp", "malware"});
+  }
 
   GURL url = embedded_test_server()->GetURL(
       "/safe_browsing/download_protection/zipfile_two_archives.zip");
@@ -691,7 +832,12 @@ IN_PROC_BROWSER_TEST_P(DownloadDeepScanningBrowserTest,
       enterprise_connectors::ContentAnalysisResponse::Result::SUCCESS);
   auto* dlp_rule = dlp_result->add_triggered_rules();
   dlp_rule->set_action(enterprise_connectors::TriggeredRule::BLOCK);
-  ExpectContentAnalysisSynchronousResponse(sync_response, {"dlp", "malware"});
+  if (is_resumable()) {
+    ExpectContentAnalysisResumableMetadataResponse({"dlp", "malware"});
+    ExpectContentAnalysisResumableContentResponse(sync_response);
+  } else {
+    ExpectContentAnalysisMultipartResponse(sync_response, {"dlp", "malware"});
+  }
 
   GURL url = embedded_test_server()->GetURL(
       "/safe_browsing/download_protection/zipfile_two_archives.zip");
@@ -724,8 +870,16 @@ IN_PROC_BROWSER_TEST_P(DownloadDeepScanningBrowserTest,
   EXPECT_EQ(item->GetState(), download::DownloadItem::INTERRUPTED);
 }
 
+// Regardless of resumable or multipart upload protocol, when a file is password
+// protected and the `block_password_protected` setting is on, the file should
+// be blocked.
 IN_PROC_BROWSER_TEST_P(DownloadDeepScanningBrowserTest,
                        PasswordProtectedTxtFilesAreBlocked) {
+  // TODO(crbug.com/378490429): Add support for obfuscated password protected
+  // files.
+  if (is_obfuscated()) {
+    GTEST_SKIP() << "Encryption status cannot be detected in obfuscated files.";
+  }
   // This allows the blocking DM token reads happening on profile-Connector
   // triggers.
   base::ScopedAllowBlockingForTesting allow_blocking;
@@ -767,7 +921,12 @@ IN_PROC_BROWSER_TEST_P(DownloadDeepScanningBrowserTest, MultipleFCMResponses) {
 
   // No scan runs synchronously.
   enterprise_connectors::ContentAnalysisResponse sync_response;
-  ExpectContentAnalysisSynchronousResponse(sync_response, {"dlp", "malware"});
+  if (is_resumable()) {
+    ExpectContentAnalysisResumableMetadataResponse({"dlp", "malware"});
+    ExpectContentAnalysisResumableContentResponse(sync_response);
+  } else {
+    ExpectContentAnalysisMultipartResponse(sync_response, {"dlp", "malware"});
+  }
 
   GURL url = embedded_test_server()->GetURL(
       "/safe_browsing/download_protection/zipfile_two_archives.zip");
@@ -813,7 +972,7 @@ IN_PROC_BROWSER_TEST_P(DownloadDeepScanningBrowserTest, MultipleFCMResponses) {
       /*trigger*/
       extensions::SafeBrowsingPrivateEventRouter::kTriggerFileDownload,
       /*mimetypes*/ &zip_types,
-      /*size*/ 276,
+      /*size*/ is_obfuscated() ? 276 + kSingleChunkObfuscationOverhead : 276,
       /*result*/ EventResultToString(EventResult::WARNED),
       /*username*/ kUserName,
       /*profile_identifier*/ GetProfileIdentifier(),
@@ -885,7 +1044,12 @@ IN_PROC_BROWSER_TEST_P(DownloadDeepScanningBrowserTest,
   auto* malware_rule = malware_result->add_triggered_rules();
   malware_rule->set_action(enterprise_connectors::TriggeredRule::WARN);
   malware_rule->set_rule_name("uws");
-  ExpectContentAnalysisSynchronousResponse(sync_response, {"dlp", "malware"});
+  if (is_resumable()) {
+    ExpectContentAnalysisResumableMetadataResponse({"dlp", "malware"});
+    ExpectContentAnalysisResumableContentResponse(sync_response);
+  } else {
+    ExpectContentAnalysisMultipartResponse(sync_response, {"dlp", "malware"});
+  }
 
   WaitForDeepScanRequest();
 
@@ -914,7 +1078,7 @@ IN_PROC_BROWSER_TEST_P(DownloadDeepScanningBrowserTest,
       extensions::SafeBrowsingPrivateEventRouter::kTriggerFileDownload,
       /*dlp_verdict*/ *dlp_result,
       /*mimetypes*/ &zip_types,
-      /*size*/ 276,
+      /*size*/ is_obfuscated() ? 276 + kSingleChunkObfuscationOverhead : 276,
       /*result*/ EventResultToString(EventResult::WARNED),
       /*username*/ kUserName,
       /*profile_identifier*/ GetProfileIdentifier(),
@@ -943,16 +1107,19 @@ class DownloadRestrictionsDeepScanningBrowserTest
       public testing::WithParamInterface<bool> {
  public:
   DownloadRestrictionsDeepScanningBrowserTest()
-      : DownloadDeepScanningBrowserTestBase(GetParam(), /*is_consumer=*/false) {
-  }
+      : DownloadDeepScanningBrowserTestBase(
+            /*connectors_machine_scope=*/GetParam(),
+            /*is_consumer=*/false,
+            /*is_resumable=*/false,
+            /*is_obfuscated*/ false) {}
   ~DownloadRestrictionsDeepScanningBrowserTest() override = default;
 
   void SetUpOnMainThread() override {
     DownloadDeepScanningBrowserTestBase::SetUpOnMainThread();
 
     browser()->profile()->GetPrefs()->SetInteger(
-        prefs::kDownloadRestrictions,
-        static_cast<int>(DownloadPrefs::DownloadRestriction::DANGEROUS_FILES));
+        policy::policy_prefs::kDownloadRestrictions,
+        static_cast<int>(policy::DownloadRestriction::DANGEROUS_FILES));
     enterprise_connectors::test::SetAnalysisConnector(
         browser()->profile()->GetPrefs(),
         enterprise_connectors::FILE_DOWNLOADED,
@@ -1026,11 +1193,14 @@ IN_PROC_BROWSER_TEST_P(DownloadRestrictionsDeepScanningBrowserTest,
 
 class AllowlistedUrlDeepScanningBrowserTest
     : public DownloadDeepScanningBrowserTestBase,
-      public testing::WithParamInterface<bool> {
+      public testing::WithParamInterface<std::tuple<bool, bool, bool>> {
  public:
   AllowlistedUrlDeepScanningBrowserTest()
-      : DownloadDeepScanningBrowserTestBase(GetParam(), /*is_consumer=*/false) {
-  }
+      : DownloadDeepScanningBrowserTestBase(
+            /*connectors_machine_scope=*/std::get<0>(GetParam()),
+            /*is_consumer=*/false,
+            /*is_resumable=*/std::get<1>(GetParam()),
+            /*is_obfuscated=*/std::get<2>(GetParam())) {}
   ~AllowlistedUrlDeepScanningBrowserTest() override = default;
 
   void SetUpOnMainThread() override {
@@ -1045,7 +1215,10 @@ class AllowlistedUrlDeepScanningBrowserTest
 
 INSTANTIATE_TEST_SUITE_P(,
                          AllowlistedUrlDeepScanningBrowserTest,
-                         testing::Bool());
+                         testing::Combine(
+                             /*connectors_machine_scope=*/testing::Bool(),
+                             /*is_resumable=*/testing::Bool(),
+                             /*is_obfuscated*/ testing::Bool()));
 
 IN_PROC_BROWSER_TEST_P(AllowlistedUrlDeepScanningBrowserTest,
                        AllowlistedUrlStillDoesDlpAndMalware) {
@@ -1073,7 +1246,12 @@ IN_PROC_BROWSER_TEST_P(AllowlistedUrlDeepScanningBrowserTest,
   result->set_status(
       enterprise_connectors::ContentAnalysisResponse::Result::SUCCESS);
 
-  ExpectContentAnalysisSynchronousResponse(sync_response, {"dlp", "malware"});
+  if (is_resumable()) {
+    ExpectContentAnalysisResumableMetadataResponse({"dlp", "malware"});
+    ExpectContentAnalysisResumableContentResponse(sync_response);
+  } else {
+    ExpectContentAnalysisMultipartResponse(sync_response, {"dlp", "malware"});
+  }
 
   GURL url = embedded_test_server()->GetURL(
       "/safe_browsing/download_protection/zipfile_two_archives.zip");
@@ -1195,11 +1373,14 @@ IN_PROC_BROWSER_TEST_F(ConsumerDeepScanningBrowserTest, ErrorIndicatesFailure) {
 }
 
 class SavePackageDeepScanningBrowserTest
-    : public DownloadDeepScanningBrowserTestBase {
+    : public DownloadDeepScanningBrowserTestBase,
+      public testing::WithParamInterface<bool> {
  public:
   SavePackageDeepScanningBrowserTest()
       : DownloadDeepScanningBrowserTestBase(/*connectors_machine_scope=*/true,
-                                            /*is_consumer=*/false) {}
+                                            /*is_consumer=*/false,
+                                            /*is_resumable=*/GetParam(),
+                                            /*is_obfuscated=*/false) {}
 
   base::FilePath GetSaveDir() {
     return DownloadPrefs(browser()->profile()).DownloadPath();
@@ -1210,15 +1391,23 @@ class SavePackageDeepScanningBrowserTest
   }
 };
 
-IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest, Allowed) {
+INSTANTIATE_TEST_SUITE_P(, SavePackageDeepScanningBrowserTest, testing::Bool());
+
+IN_PROC_BROWSER_TEST_P(SavePackageDeepScanningBrowserTest, Allowed) {
   SetUpReporting();
 
   EXPECT_TRUE(ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL("/save_page/text.txt")));
 
   // No scan runs synchronously.
-  ExpectContentAnalysisSynchronousResponse(
-      enterprise_connectors::ContentAnalysisResponse(), {"dlp"});
+  if (is_resumable()) {
+    ExpectContentAnalysisResumableMetadataResponse({"dlp"});
+    ExpectContentAnalysisResumableContentResponse(
+        enterprise_connectors::ContentAnalysisResponse());
+  } else {
+    ExpectContentAnalysisMultipartResponse(
+        enterprise_connectors::ContentAnalysisResponse(), {"dlp"});
+  }
 
   base::RunLoop run_loop;
   content::SavePackageFinishedObserver observer(
@@ -1260,15 +1449,21 @@ IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest, Allowed) {
   EXPECT_FALSE(base::PathExists(extra_files_dir));
 }
 
-IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest, Blocked) {
+IN_PROC_BROWSER_TEST_P(SavePackageDeepScanningBrowserTest, Blocked) {
   SetUpReporting();
 
   GURL url = embedded_test_server()->GetURL("/save_page/text.txt");
   EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
 
   // No scan runs synchronously.
-  ExpectContentAnalysisSynchronousResponse(
-      enterprise_connectors::ContentAnalysisResponse(), {"dlp"});
+  if (is_resumable()) {
+    ExpectContentAnalysisResumableMetadataResponse({"dlp"});
+    ExpectContentAnalysisResumableContentResponse(
+        enterprise_connectors::ContentAnalysisResponse());
+  } else {
+    ExpectContentAnalysisMultipartResponse(
+        enterprise_connectors::ContentAnalysisResponse(), {"dlp"});
+  }
 
   base::RunLoop run_loop;
   content::SavePackageFinishedObserver observer(
@@ -1312,7 +1507,9 @@ IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest, Blocked) {
       /*result*/ EventResultToString(EventResult::BLOCKED),
       /*username*/ kUserName,
       /*profile_identifier*/ GetProfileIdentifier(),
-      /*scan_id*/ last_request().request_token());
+      /*scan_id*/ last_request().request_token(),
+      /*content_transfer_method*/ std::nullopt,
+      /*user_justification*/ std::nullopt);
 
   SendFcmMessage(response);
   run_loop.Run();
@@ -1329,15 +1526,21 @@ IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest, Blocked) {
   EXPECT_FALSE(base::PathExists(extra_files_dir));
 }
 
-IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest, KeepAfterWarning) {
+IN_PROC_BROWSER_TEST_P(SavePackageDeepScanningBrowserTest, KeepAfterWarning) {
   SetUpReporting();
 
   GURL url = embedded_test_server()->GetURL("/save_page/text.txt");
   EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
 
   // No scan runs synchronously.
-  ExpectContentAnalysisSynchronousResponse(
-      enterprise_connectors::ContentAnalysisResponse(), {"dlp"});
+  if (is_resumable()) {
+    ExpectContentAnalysisResumableMetadataResponse({"dlp"});
+    ExpectContentAnalysisResumableContentResponse(
+        enterprise_connectors::ContentAnalysisResponse());
+  } else {
+    ExpectContentAnalysisMultipartResponse(
+        enterprise_connectors::ContentAnalysisResponse(), {"dlp"});
+  }
 
   base::RunLoop save_package_run_loop;
   content::SavePackageFinishedObserver observer(
@@ -1383,7 +1586,9 @@ IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest, KeepAfterWarning) {
       /*result*/ EventResultToString(EventResult::WARNED),
       /*username*/ kUserName,
       /*profile_identifier*/ GetProfileIdentifier(),
-      /*scan_id*/ last_request().request_token());
+      /*scan_id*/ last_request().request_token(),
+      /*content_transfer_method*/ std::nullopt,
+      /*user_justification*/ std::nullopt);
 
   SendFcmMessage(response);
   validator_run_loop.Run();
@@ -1420,7 +1625,9 @@ IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest, KeepAfterWarning) {
       /*result*/ EventResultToString(EventResult::BYPASSED),
       /*username*/ kUserName,
       /*profile_identifier*/ GetProfileIdentifier(),
-      /*scan_id*/ last_request().request_token());
+      /*scan_id*/ last_request().request_token(),
+      /*content_transfer_method*/ std::nullopt,
+      /*user_justification*/ std::nullopt);
 
   DownloadItemModel model(item);
   DownloadCommands(model.GetWeakPtr()).ExecuteCommand(DownloadCommands::KEEP);
@@ -1436,7 +1643,7 @@ IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest, KeepAfterWarning) {
   EXPECT_FALSE(base::PathExists(extra_files_dir));
 }
 
-IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest,
+IN_PROC_BROWSER_TEST_P(SavePackageDeepScanningBrowserTest,
                        DiscardAfterWarning) {
   SetUpReporting();
 
@@ -1444,8 +1651,14 @@ IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest,
   EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
 
   // No scan runs synchronously.
-  ExpectContentAnalysisSynchronousResponse(
-      enterprise_connectors::ContentAnalysisResponse(), {"dlp"});
+  if (is_resumable()) {
+    ExpectContentAnalysisResumableMetadataResponse({"dlp"});
+    ExpectContentAnalysisResumableContentResponse(
+        enterprise_connectors::ContentAnalysisResponse());
+  } else {
+    ExpectContentAnalysisMultipartResponse(
+        enterprise_connectors::ContentAnalysisResponse(), {"dlp"});
+  }
 
   base::RunLoop save_package_run_loop;
   content::SavePackageFinishedObserver observer(
@@ -1491,7 +1704,9 @@ IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest,
       /*result*/ EventResultToString(EventResult::WARNED),
       /*username*/ kUserName,
       /*profile_identifier*/ GetProfileIdentifier(),
-      /*scan_id*/ last_request().request_token());
+      /*scan_id*/ last_request().request_token(),
+      /*content_transfer_method*/ std::nullopt,
+      /*user_justification*/ std::nullopt);
 
   SendFcmMessage(response);
   validator_run_loop.Run();
@@ -1521,15 +1736,21 @@ IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest,
   EXPECT_FALSE(base::PathExists(extra_files_dir));
 }
 
-IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest, OpenNow) {
+IN_PROC_BROWSER_TEST_P(SavePackageDeepScanningBrowserTest, OpenNow) {
   SetUpReporting();
 
   GURL url = embedded_test_server()->GetURL("/save_page/text.txt");
   EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
 
   // No scan runs synchronously.
-  ExpectContentAnalysisSynchronousResponse(
-      enterprise_connectors::ContentAnalysisResponse(), {"dlp"});
+  if (is_resumable()) {
+    ExpectContentAnalysisResumableMetadataResponse({"dlp"});
+    ExpectContentAnalysisResumableContentResponse(
+        enterprise_connectors::ContentAnalysisResponse());
+  } else {
+    ExpectContentAnalysisMultipartResponse(
+        enterprise_connectors::ContentAnalysisResponse(), {"dlp"});
+  }
 
   base::RunLoop save_package_run_loop;
   content::SavePackageFinishedObserver observer(
@@ -1593,7 +1814,9 @@ IN_PROC_BROWSER_TEST_F(SavePackageDeepScanningBrowserTest, OpenNow) {
       /*result*/ EventResultToString(EventResult::BLOCKED),
       /*username*/ kUserName,
       /*profile_identifier*/ GetProfileIdentifier(),
-      /*scan_id*/ last_request().request_token());
+      /*scan_id*/ last_request().request_token(),
+      /*content_transfer_method*/ std::nullopt,
+      /*user_justification*/ std::nullopt);
 
   SendFcmMessage(response);
   validator_run_loop.Run();

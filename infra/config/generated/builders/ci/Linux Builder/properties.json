@@ -22,11 +22,13 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "apply_configs": [
-                  "use_clang_coverage"
+                  "use_clang_coverage",
+                  "chromium_with_telemetry_dependencies"
                 ],
                 "config": "chromium"
               }
@@ -48,7 +50,8 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "apply_configs": [
@@ -85,7 +88,7 @@
           "group": "tryserver.chromium.linux"
         },
         {
-          "builder": "linux-mbi-mode-per-render-process-host-rel",
+          "builder": "linux-full-remote-rel",
           "group": "tryserver.chromium.linux"
         },
         {
@@ -96,14 +99,25 @@
           "builder": "linux_chromium_compile_rel_ng",
           "group": "tryserver.chromium.linux"
         }
-      ]
+      ],
+      "retry_failed_shards": true,
+      "targets_spec_directory": "src/infra/config/generated/builders/ci/Linux Builder/targets"
     }
   },
   "$build/reclient": {
     "instance": "rbe-chromium-trusted",
-    "jobs": 500,
     "metrics_project": "chromium-reclient-metrics",
     "scandeps_server": true
+  },
+  "$build/siso": {
+    "configs": [
+      "builder"
+    ],
+    "enable_cloud_profiler": true,
+    "enable_cloud_trace": true,
+    "experiments": [],
+    "project": "rbe-chromium-trusted",
+    "remote_jobs": 500
   },
   "$recipe_engine/resultdb/test_presentation": {
     "column_keys": [],
@@ -113,6 +127,9 @@
     ]
   },
   "builder_group": "chromium.linux",
+  "gardener_rotations": [
+    "chromium"
+  ],
   "recipe": "chromium",
   "sheriff_rotations": [
     "chromium"

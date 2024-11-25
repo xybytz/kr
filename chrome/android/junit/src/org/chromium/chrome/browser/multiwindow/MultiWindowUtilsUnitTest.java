@@ -10,6 +10,11 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import static org.chromium.chrome.browser.multiwindow.MultiWindowUtils.HISTOGRAM_DESKTOP_WINDOW_COUNT_EXISTING_INSTANCE_SUFFIX;
+import static org.chromium.chrome.browser.multiwindow.MultiWindowUtils.HISTOGRAM_DESKTOP_WINDOW_COUNT_NEW_INSTANCE_SUFFIX;
+import static org.chromium.chrome.browser.multiwindow.MultiWindowUtils.HISTOGRAM_NUM_ACTIVITIES_DESKTOP_WINDOW;
+import static org.chromium.chrome.browser.multiwindow.MultiWindowUtils.HISTOGRAM_NUM_INSTANCES_DESKTOP_WINDOW;
+
 import android.app.Activity;
 import android.content.Context;
 import android.os.Build.VERSION_CODES;
@@ -27,11 +32,17 @@ import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.base.test.util.HistogramWatcher;
+import org.chromium.chrome.browser.homepage.HomepageManager;
+import org.chromium.chrome.browser.multiwindow.MultiWindowUtils.InstanceAllocationType;
 import org.chromium.chrome.browser.multiwindow.MultiWindowUtilsUnitTest.ShadowMultiInstanceManagerApi31;
-import org.chromium.chrome.browser.partnercustomizations.PartnerBrowserCustomizations;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.test.AutomotiveContextWrapperTestRule;
+import org.chromium.components.browser_ui.desktop_windowing.AppHeaderState;
+import org.chromium.components.browser_ui.desktop_windowing.DesktopWindowStateManager;
+import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.url.GURL;
 
 /** Unit tests for {@link MultiWindowUtils}. */
 @RunWith(BaseRobolectricTestRunner.class)
@@ -43,6 +54,7 @@ public class MultiWindowUtilsUnitTest {
     @Implements(MultiInstanceManagerApi31.class)
     public static class ShadowMultiInstanceManagerApi31 {
         private static SparseIntArray sWindowIdsOfRunningTabbedActivities;
+        private static int sRunningTabbedActivityCount;
 
         public static void updateWindowIdsOfRunningTabbedActivities(int windowId, boolean remove) {
             if (sWindowIdsOfRunningTabbedActivities == null) {
@@ -55,13 +67,23 @@ public class MultiWindowUtilsUnitTest {
             }
         }
 
+        public static void updateRunningTabbedActivityCount(int count) {
+            sRunningTabbedActivityCount = count;
+        }
+
         public static void reset() {
             sWindowIdsOfRunningTabbedActivities = null;
+            sRunningTabbedActivityCount = 0;
         }
 
         @Implementation
         public static SparseIntArray getWindowIdsOfRunningTabbedActivities() {
             return sWindowIdsOfRunningTabbedActivities;
+        }
+
+        @Implementation
+        public static int getRunningTabbedActivityCount() {
+            return sRunningTabbedActivityCount;
         }
     }
 
@@ -78,6 +100,8 @@ public class MultiWindowUtilsUnitTest {
     private static final String URL_1 = "url1";
     private static final String URL_2 = "url2";
     private static final String URL_3 = "url3";
+    private static final GURL NTP_GURL = new GURL(UrlConstants.NTP_URL);
+    private static final GURL TEST_GURL = new GURL("https://youtube.com/");
 
     private MultiWindowUtils mUtils;
     private boolean mIsInMultiWindowMode;
@@ -90,6 +114,9 @@ public class MultiWindowUtilsUnitTest {
     @Mock TabModelSelector mTabModelSelector;
     @Mock TabModel mNormalTabModel;
     @Mock TabModel mIncognitoTabModel;
+    @Mock HomepageManager mHomepageManager;
+    @Mock DesktopWindowStateManager mDesktopWindowStateManager;
+    @Mock AppHeaderState mAppHeaderState;
 
     @Before
     public void setUp() {
@@ -135,11 +162,19 @@ public class MultiWindowUtilsUnitTest {
                         return super.isOpenInOtherWindowSupported(activity);
                     }
                 };
+
+        when(mHomepageManager.isHomepageEnabled()).thenReturn(true);
+        when(mHomepageManager.getHomepageGurl()).thenReturn(NTP_GURL);
+        HomepageManager.setInstanceForTesting(mHomepageManager);
+
+        when(mDesktopWindowStateManager.getAppHeaderState()).thenReturn(mAppHeaderState);
+        when(mAppHeaderState.isInDesktopWindow()).thenReturn(false);
     }
 
     @After
     public void tearDown() {
         ShadowMultiInstanceManagerApi31.reset();
+        mOverrideOpenInNewWindowSupported = false;
     }
 
     @Test
@@ -215,27 +250,32 @@ public class MultiWindowUtilsUnitTest {
     }
 
     @Test
-    public void testIsMoveOtherWindowSupported_HasOneTabWithPartnerHomePageDisabled_ReturnsTrue() {
-        PartnerBrowserCustomizations partnerBrowserCustomizations =
-                mock(PartnerBrowserCustomizations.class);
-        when(partnerBrowserCustomizations.isHomepageProviderAvailableAndEnabled())
-                .thenReturn(false);
-        PartnerBrowserCustomizations.setInstanceForTesting(partnerBrowserCustomizations);
+    public void testIsMoveOtherWindowSupported_HasOneTabWithHomePageDisabled_ReturnsTrue() {
+        when(mHomepageManager.isHomepageEnabled()).thenReturn(false);
         when(mTabModelSelector.getTotalTabCount()).thenReturn(1);
-        assertFalse(
-                "Should return true when called for last tab with no partner customization.",
+        mOverrideOpenInNewWindowSupported = true;
+        assertTrue(
+                "Should return true when called for last tab with homepage disabled.",
                 mUtils.isMoveToOtherWindowSupported(null, mTabModelSelector));
     }
 
     @Test
-    public void testIsMoveOtherWindowSupported_HasOneTabWithPartnerHomePage_ReturnsFalse() {
-        PartnerBrowserCustomizations partnerBrowserCustomizations =
-                mock(PartnerBrowserCustomizations.class);
-        when(partnerBrowserCustomizations.isHomepageProviderAvailableAndEnabled()).thenReturn(true);
-        PartnerBrowserCustomizations.setInstanceForTesting(partnerBrowserCustomizations);
+    public void testIsMoveOtherWindowSupported_HasOneTabWithHomePageEnabledAsNtp_ReturnsTrue() {
+        mOverrideOpenInNewWindowSupported = true;
+        when(mTabModelSelector.getTotalTabCount()).thenReturn(1);
+        assertTrue(
+                "Should return true when called for last tab with homepage enabled as NTP.",
+                mUtils.isMoveToOtherWindowSupported(null, mTabModelSelector));
+    }
+
+    @Test
+    public void
+            testIsMoveOtherWindowSupported_HasOneTabWithHomePageEnabledAsCustomUrl_ReturnsFalse() {
+        when(mHomepageManager.getHomepageGurl()).thenReturn(TEST_GURL);
+        when(mHomepageManager.isHomepageEnabled()).thenReturn(true);
         when(mTabModelSelector.getTotalTabCount()).thenReturn(1);
         assertFalse(
-                "Should return false when called for last tab with partner customization.",
+                "Should return false when called for last tab with homepage set as a custom url.",
                 mUtils.isMoveToOtherWindowSupported(null, mTabModelSelector));
     }
 
@@ -249,23 +289,26 @@ public class MultiWindowUtilsUnitTest {
     }
 
     @Test
-    public void testHasAtMostOneTabWithHomepageEnabled_ReturnsTrue() {
-        PartnerBrowserCustomizations partnerBrowserCustomizations =
-                mock(PartnerBrowserCustomizations.class);
-        when(partnerBrowserCustomizations.isHomepageProviderAvailableAndEnabled()).thenReturn(true);
-        PartnerBrowserCustomizations.setInstanceForTesting(partnerBrowserCustomizations);
+    public void testHasAtMostOneTabWithHomepageEnabled_OneTab_HasCustomHomepage() {
+        when(mHomepageManager.shouldCloseAppWithZeroTabs()).thenReturn(true);
         when(mTabModelSelector.getTotalTabCount()).thenReturn(1);
         assertTrue(
-                "Should return true for last tab with partner homepage.",
+                "Should return true with one tab and custom homepage.",
                 mUtils.hasAtMostOneTabWithHomepageEnabled(mTabModelSelector));
     }
 
     @Test
-    public void testHasAtMostOneTabWithHomepageEnabled_WithMoreThanOneTab_ReturnsFalse() {
-        PartnerBrowserCustomizations partnerBrowserCustomizations =
-                mock(PartnerBrowserCustomizations.class);
-        when(partnerBrowserCustomizations.isHomepageProviderAvailableAndEnabled()).thenReturn(true);
-        PartnerBrowserCustomizations.setInstanceForTesting(partnerBrowserCustomizations);
+    public void testHasAtMostOneTabWithHomepageEnabled_OneTab_NoCustomHomepage() {
+        when(mHomepageManager.shouldCloseAppWithZeroTabs()).thenReturn(false);
+        when(mTabModelSelector.getTotalTabCount()).thenReturn(1);
+        assertFalse(
+                "Should return false with one tab and no custom homepage.",
+                mUtils.hasAtMostOneTabWithHomepageEnabled(mTabModelSelector));
+    }
+
+    @Test
+    public void testHasAtMostOneTabWithHomepageEnabled_WithMoreThanOneTab_HasCustomHomepage() {
+        when(mHomepageManager.shouldCloseAppWithZeroTabs()).thenReturn(true);
         when(mTabModelSelector.getTotalTabCount()).thenReturn(2);
         assertFalse(
                 "Should return false for multiple tabs.",
@@ -273,15 +316,11 @@ public class MultiWindowUtilsUnitTest {
     }
 
     @Test
-    public void testHasAtMostOneTabWithHomepageEnabled_WithHomepageDisabled_ReturnsFalse() {
-        PartnerBrowserCustomizations partnerBrowserCustomizations =
-                mock(PartnerBrowserCustomizations.class);
-        when(partnerBrowserCustomizations.isHomepageProviderAvailableAndEnabled())
-                .thenReturn(false);
-        PartnerBrowserCustomizations.setInstanceForTesting(partnerBrowserCustomizations);
-        when(mTabModelSelector.getTotalTabCount()).thenReturn(1);
+    public void testHasAtMostOneTabWithHomepageEnabled_WithMoreThanOneTab_NoCustomHomepage() {
+        when(mHomepageManager.shouldCloseAppWithZeroTabs()).thenReturn(false);
+        when(mTabModelSelector.getTotalTabCount()).thenReturn(2);
         assertFalse(
-                "Should return false for homepage disabled.",
+                "Should return false for multiple tabs.",
                 mUtils.hasAtMostOneTabWithHomepageEnabled(mTabModelSelector));
     }
 
@@ -411,6 +450,172 @@ public class MultiWindowUtilsUnitTest {
                         + " number of instances are open.",
                 MultiWindowUtils.INVALID_INSTANCE_ID,
                 instanceId);
+    }
+
+    @Test
+    @Config(sdk = 31)
+    public void testRecordDesktopWindowCount_OnlyOnColdStart() {
+        when(mAppHeaderState.isInDesktopWindow()).thenReturn(true);
+
+        // Simulate persistence of 2 instances, running of 1.
+        writeInstanceInfo(
+                INSTANCE_ID_0, URL_1, /* tabCount= */ 3, /* incognitoTabCount= */ 2, TASK_ID_5);
+        writeInstanceInfo(
+                INSTANCE_ID_1, URL_2, /* tabCount= */ 0, /* incognitoTabCount= */ 0, TASK_ID_6);
+        int runningActivityCount = 1;
+        ShadowMultiInstanceManagerApi31.updateRunningTabbedActivityCount(runningActivityCount);
+
+        var watcher =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecord(
+                                HISTOGRAM_NUM_ACTIVITIES_DESKTOP_WINDOW, runningActivityCount)
+                        .expectIntRecord(HISTOGRAM_NUM_INSTANCES_DESKTOP_WINDOW, 2)
+                        .build();
+
+        // Assume that the histograms are attempted to be recorded on a cold start of the app.
+        MultiWindowUtils.maybeRecordDesktopWindowCountHistograms(
+                mDesktopWindowStateManager,
+                InstanceAllocationType.NEW_INSTANCE_NEW_TASK,
+                /* isColdStart= */ true);
+
+        // Assume that the histograms are attempted to be recorded on a subsequent warm start.
+        MultiWindowUtils.maybeRecordDesktopWindowCountHistograms(
+                mDesktopWindowStateManager,
+                InstanceAllocationType.NEW_INSTANCE_NEW_TASK,
+                /* isColdStart= */ false);
+
+        // Each histogram should be emitted only once.
+        watcher.assertExpected();
+    }
+
+    @Test
+    @Config(sdk = 31)
+    public void testRecordDesktopWindowCount_ColdStartOfExistingInstance() {
+        when(mAppHeaderState.isInDesktopWindow()).thenReturn(true);
+
+        // Simulate persistence of 2 instances, running of 1.
+        writeInstanceInfo(
+                INSTANCE_ID_0, URL_1, /* tabCount= */ 3, /* incognitoTabCount= */ 2, TASK_ID_5);
+        writeInstanceInfo(
+                INSTANCE_ID_1, URL_2, /* tabCount= */ 0, /* incognitoTabCount= */ 0, TASK_ID_6);
+        int runningActivityCount = 1;
+        ShadowMultiInstanceManagerApi31.updateRunningTabbedActivityCount(runningActivityCount);
+
+        int[] instanceAllocationTypes =
+                new int[] {
+                    InstanceAllocationType.DEFAULT,
+                    InstanceAllocationType.EXISTING_INSTANCE_MAPPED_TASK,
+                    InstanceAllocationType.EXISTING_INSTANCE_UNMAPPED_TASK,
+                    InstanceAllocationType.EXISTING_INSTANCE_NEW_TASK
+                };
+
+        // Assume that the histograms are attempted to be recorded on a cold start of an existing
+        // instance, for different instance allocation types.
+        for (int type : instanceAllocationTypes) {
+            var watcher =
+                    HistogramWatcher.newBuilder()
+                            .expectIntRecord(
+                                    HISTOGRAM_NUM_ACTIVITIES_DESKTOP_WINDOW, runningActivityCount)
+                            .expectIntRecord(
+                                    HISTOGRAM_NUM_ACTIVITIES_DESKTOP_WINDOW
+                                            + HISTOGRAM_DESKTOP_WINDOW_COUNT_EXISTING_INSTANCE_SUFFIX,
+                                    runningActivityCount)
+                            .expectNoRecords(
+                                    HISTOGRAM_NUM_ACTIVITIES_DESKTOP_WINDOW
+                                            + HISTOGRAM_DESKTOP_WINDOW_COUNT_NEW_INSTANCE_SUFFIX)
+                            .expectIntRecord(HISTOGRAM_NUM_INSTANCES_DESKTOP_WINDOW, 2)
+                            .expectIntRecord(
+                                    HISTOGRAM_NUM_INSTANCES_DESKTOP_WINDOW
+                                            + HISTOGRAM_DESKTOP_WINDOW_COUNT_EXISTING_INSTANCE_SUFFIX,
+                                    2)
+                            .expectNoRecords(
+                                    HISTOGRAM_NUM_INSTANCES_DESKTOP_WINDOW
+                                            + HISTOGRAM_DESKTOP_WINDOW_COUNT_NEW_INSTANCE_SUFFIX)
+                            .build();
+            MultiWindowUtils.maybeRecordDesktopWindowCountHistograms(
+                    mDesktopWindowStateManager, type, /* isColdStart= */ true);
+            watcher.assertExpected();
+        }
+    }
+
+    @Test
+    @Config(sdk = 31)
+    public void testRecordDesktopWindowCount_ColdStartOfNewInstance() {
+        when(mAppHeaderState.isInDesktopWindow()).thenReturn(true);
+
+        // Simulate persistence of 2 instances, running of 1.
+        writeInstanceInfo(
+                INSTANCE_ID_0, URL_1, /* tabCount= */ 3, /* incognitoTabCount= */ 2, TASK_ID_5);
+        writeInstanceInfo(
+                INSTANCE_ID_1, URL_2, /* tabCount= */ 0, /* incognitoTabCount= */ 0, TASK_ID_6);
+        int runningActivityCount = 1;
+        ShadowMultiInstanceManagerApi31.updateRunningTabbedActivityCount(runningActivityCount);
+
+        int[] instanceAllocationTypes =
+                new int[] {
+                    InstanceAllocationType.NEW_INSTANCE_NEW_TASK,
+                    InstanceAllocationType.PREFER_NEW_INSTANCE_NEW_TASK
+                };
+
+        // Assume that the histograms are attempted to be recorded on a cold start of a new
+        // instance, for different instance allocation types.
+        for (int type : instanceAllocationTypes) {
+            var watcher =
+                    HistogramWatcher.newBuilder()
+                            .expectIntRecord(
+                                    HISTOGRAM_NUM_ACTIVITIES_DESKTOP_WINDOW, runningActivityCount)
+                            .expectIntRecord(
+                                    HISTOGRAM_NUM_ACTIVITIES_DESKTOP_WINDOW
+                                            + HISTOGRAM_DESKTOP_WINDOW_COUNT_NEW_INSTANCE_SUFFIX,
+                                    runningActivityCount)
+                            .expectNoRecords(
+                                    HISTOGRAM_NUM_ACTIVITIES_DESKTOP_WINDOW
+                                            + HISTOGRAM_DESKTOP_WINDOW_COUNT_EXISTING_INSTANCE_SUFFIX)
+                            .expectIntRecord(HISTOGRAM_NUM_INSTANCES_DESKTOP_WINDOW, 2)
+                            .expectIntRecord(
+                                    HISTOGRAM_NUM_INSTANCES_DESKTOP_WINDOW
+                                            + HISTOGRAM_DESKTOP_WINDOW_COUNT_NEW_INSTANCE_SUFFIX,
+                                    2)
+                            .expectNoRecords(
+                                    HISTOGRAM_NUM_INSTANCES_DESKTOP_WINDOW
+                                            + HISTOGRAM_DESKTOP_WINDOW_COUNT_EXISTING_INSTANCE_SUFFIX)
+                            .build();
+            MultiWindowUtils.maybeRecordDesktopWindowCountHistograms(
+                    mDesktopWindowStateManager, type, /* isColdStart= */ true);
+            watcher.assertExpected();
+        }
+    }
+
+    @Test
+    @Config(sdk = 31)
+    public void testRecordDesktopWindowCount_NotInDesktopWindow() {
+        var watcher =
+                HistogramWatcher.newBuilder()
+                        .expectNoRecords(HISTOGRAM_NUM_ACTIVITIES_DESKTOP_WINDOW)
+                        .expectNoRecords(
+                                HISTOGRAM_NUM_ACTIVITIES_DESKTOP_WINDOW
+                                        + HISTOGRAM_DESKTOP_WINDOW_COUNT_EXISTING_INSTANCE_SUFFIX)
+                        .expectNoRecords(
+                                HISTOGRAM_NUM_ACTIVITIES_DESKTOP_WINDOW
+                                        + HISTOGRAM_DESKTOP_WINDOW_COUNT_NEW_INSTANCE_SUFFIX)
+                        .expectNoRecords(HISTOGRAM_NUM_INSTANCES_DESKTOP_WINDOW)
+                        .expectNoRecords(
+                                HISTOGRAM_NUM_INSTANCES_DESKTOP_WINDOW
+                                        + HISTOGRAM_DESKTOP_WINDOW_COUNT_EXISTING_INSTANCE_SUFFIX)
+                        .expectNoRecords(
+                                HISTOGRAM_NUM_INSTANCES_DESKTOP_WINDOW
+                                        + HISTOGRAM_DESKTOP_WINDOW_COUNT_NEW_INSTANCE_SUFFIX)
+                        .build();
+
+        // Assume that the histograms are attempted to be recorded on a cold start of the app, not
+        // in a desktop window.
+        MultiWindowUtils.maybeRecordDesktopWindowCountHistograms(
+                mDesktopWindowStateManager,
+                InstanceAllocationType.NEW_INSTANCE_NEW_TASK,
+                /* isColdStart= */ true);
+
+        // Histograms should not be emitted.
+        watcher.assertExpected();
     }
 
     private void writeInstanceInfo(

@@ -46,7 +46,8 @@ void GetExtensionId(v8::Local<v8::Name> property_name,
                     const v8::PropertyCallbackInfo<v8::Value>& info) {
   v8::Isolate* isolate = info.GetIsolate();
   v8::HandleScope handle_scope(isolate);
-  v8::Local<v8::Context> context = info.Holder()->GetCreationContextChecked();
+  v8::Local<v8::Context> context =
+      info.Holder()->GetCreationContextChecked(isolate);
 
   ScriptContext* script_context = GetScriptContextFromV8Context(context);
   // This could potentially be invoked after the script context is removed
@@ -63,7 +64,8 @@ void GetDynamicId(v8::Local<v8::Name> property_name,
                   const v8::PropertyCallbackInfo<v8::Value>& info) {
   v8::Isolate* isolate = info.GetIsolate();
   v8::HandleScope handle_scope(isolate);
-  v8::Local<v8::Context> context = info.Holder()->GetCreationContextChecked();
+  v8::Local<v8::Context> context =
+      info.Holder()->GetCreationContextChecked(isolate);
 
   ScriptContext* script_context = GetScriptContextFromV8Context(context);
   // This could potentially be invoked after the script context is removed
@@ -73,6 +75,13 @@ void GetDynamicId(v8::Local<v8::Name> property_name,
     info.GetReturnValue().Set(
         gin::StringToSymbol(isolate, script_context->extension()->guid()));
   }
+}
+
+void EmptySetter(v8::Local<v8::Name> name,
+                 v8::Local<v8::Value> value,
+                 const v8::PropertyCallbackInfo<void>& info) {
+  // Empty setter is required to keep the native data property in "accessor"
+  // state even in case the value is updated by user code.
 }
 
 constexpr char kGetManifest[] = "runtime.getManifest";
@@ -91,7 +100,8 @@ void GetBackgroundPageCallback(
     const v8::FunctionCallbackInfo<v8::Value>& info) {
   v8::Isolate* isolate = info.GetIsolate();
   v8::HandleScope handle_scope(isolate);
-  v8::Local<v8::Context> context = info.Holder()->GetCreationContextChecked();
+  v8::Local<v8::Context> context =
+      info.This()->GetCreationContextChecked(isolate);
 
   // Custom callbacks are called with the arguments of the callback function and
   // the response from the API. Since the custom callback here handles all the
@@ -254,12 +264,12 @@ void RuntimeHooksDelegate::InitializeTemplate(
     v8::Isolate* isolate,
     v8::Local<v8::ObjectTemplate> object_template,
     const APITypeReferenceMap& type_refs) {
-  object_template->SetAccessor(gin::StringToSymbol(isolate, "id"),
-                               &GetExtensionId);
+  object_template->SetNativeDataProperty(gin::StringToSymbol(isolate, "id"),
+                                         &GetExtensionId, &EmptySetter);
   if (base::FeatureList::IsEnabled(
           extensions_features::kExtensionDynamicURLRedirection)) {
-    object_template->SetAccessor(gin::StringToSymbol(isolate, "dynamicId"),
-                                 &GetDynamicId);
+    object_template->SetNativeDataProperty(
+        gin::StringToSymbol(isolate, "dynamicId"), &GetDynamicId, &EmptySetter);
   }
 }
 
@@ -504,8 +514,6 @@ RequestResult RuntimeHooksDelegate::HandleGetPackageDirectoryEntryCallback(
              ->Require("fileEntryBindingUtil")
              .ToLocal(&file_entry_binding_util)) {
       NOTREACHED();
-      // Abort, and consider the request handled.
-      return RequestResult(RequestResult::HANDLED);
     }
 
     v8::Local<v8::Value> get_bind_directory_entry_callback_value;
@@ -514,13 +522,10 @@ RequestResult RuntimeHooksDelegate::HandleGetPackageDirectoryEntryCallback(
                                    isolate, "getBindDirectoryEntryCallback"))
              .ToLocal(&get_bind_directory_entry_callback_value)) {
       NOTREACHED();
-      return RequestResult(RequestResult::THROWN);
     }
 
     if (!get_bind_directory_entry_callback_value->IsFunction()) {
       NOTREACHED();
-      // Abort, and consider the request handled.
-      return RequestResult(RequestResult::HANDLED);
     }
 
     v8::Local<v8::Function> get_bind_directory_entry_callback =
@@ -534,13 +539,10 @@ RequestResult RuntimeHooksDelegate::HandleGetPackageDirectoryEntryCallback(
   v8::Local<v8::Value> callback;
   if (!maybe_custom_callback.ToLocal(&callback)) {
     NOTREACHED();
-    return RequestResult(RequestResult::THROWN);
   }
 
   if (!callback->IsFunction()) {
     NOTREACHED();
-    // Abort, and consider the request handled.
-    return RequestResult(RequestResult::HANDLED);
   }
 
   RequestResult result(RequestResult::NOT_HANDLED);

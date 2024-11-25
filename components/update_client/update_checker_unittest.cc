@@ -2,11 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "components/update_client/update_checker.h"
 
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -37,7 +43,6 @@
 #include "components/update_client/update_engine.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace update_client {
@@ -60,11 +65,10 @@ class UpdateCheckerTest : public testing::TestWithParam<bool> {
   void SetUp() override;
   void TearDown() override;
 
-  void UpdateCheckComplete(
-      const absl::optional<ProtocolParser::Results>& results,
-      ErrorCategory error_category,
-      int error,
-      int retry_after_sec);
+  void UpdateCheckComplete(std::optional<ProtocolParser::Results> results,
+                           ErrorCategory error_category,
+                           int error,
+                           int retry_after_sec);
 
  protected:
   void Quit();
@@ -76,20 +80,18 @@ class UpdateCheckerTest : public testing::TestWithParam<bool> {
       const std::string& brand,
       const std::string& install_data_index,
       bool allow_updates_on_metered_connection) const;
-  absl::optional<base::Value::Dict> ParseRequest(int request_number);
+  std::optional<base::Value::Dict> ParseRequest(int request_number);
   base::Value GetFirstAppAsValue(const base::Value::Dict& request);
   base::Value::Dict GetFirstAppAsDict(const base::Value::Dict& request);
 
   std::unique_ptr<TestingPrefServiceSimple> pref_;
-  std::unique_ptr<PersistedData> metadata_;
   scoped_refptr<TestConfigurator> config_;
-  raw_ptr<TestActivityDataService> activity_data_service_;
 
   std::unique_ptr<UpdateChecker> update_checker_;
 
   std::unique_ptr<URLLoaderPostInterceptor> post_interceptor_;
 
-  absl::optional<ProtocolParser::Results> results_;
+  std::optional<ProtocolParser::Results> results_;
   ErrorCategory error_category_ = ErrorCategory::kNone;
   int error_ = 0;
   int retry_after_sec_ = 0;
@@ -120,11 +122,6 @@ void UpdateCheckerTest::SetUp() {
   pref_ = std::make_unique<TestingPrefServiceSimple>();
   RegisterPersistedDataPrefs(pref_->registry());
   config_ = base::MakeRefCounted<TestConfigurator>(pref_.get());
-
-  auto activity_data_service = std::make_unique<TestActivityDataService>();
-  activity_data_service_ = activity_data_service.get();
-  metadata_ =
-      CreatePersistedData(pref_.get(), std::move(activity_data_service));
 
   post_interceptor_ = std::make_unique<URLLoaderPostInterceptor>(
       config_->test_url_loader_factory());
@@ -164,7 +161,7 @@ void UpdateCheckerTest::Quit() {
 }
 
 void UpdateCheckerTest::UpdateCheckComplete(
-    const absl::optional<ProtocolParser::Results>& results,
+    std::optional<ProtocolParser::Results> results,
     ErrorCategory error_category,
     int error,
     int retry_after_sec) {
@@ -176,12 +173,10 @@ void UpdateCheckerTest::UpdateCheckComplete(
 }
 
 scoped_refptr<UpdateContext> UpdateCheckerTest::MakeMockUpdateContext() const {
-  CrxCache::Options options(temp_dir_.GetPath());
   return base::MakeRefCounted<UpdateContext>(
-      config_, base::MakeRefCounted<CrxCache>(options), false, false,
-      std::vector<std::string>(), UpdateClient::CrxStateChangeCallback(),
-      UpdateEngine::NotifyObserversCallback(), UpdateEngine::Callback(),
-      nullptr,
+      config_, base::MakeRefCounted<CrxCache>(temp_dir_.GetPath()), false,
+      false, std::vector<std::string>(), UpdateClient::CrxStateChangeCallback(),
+      UpdateEngine::Callback(), nullptr,
       /*is_update_check_only=*/false);
 }
 
@@ -217,14 +212,14 @@ std::unique_ptr<Component> UpdateCheckerTest::MakeComponent(
   return component;
 }
 
-absl::optional<base::Value::Dict> UpdateCheckerTest::ParseRequest(
+std::optional<base::Value::Dict> UpdateCheckerTest::ParseRequest(
     int request_number) {
   const std::string& request =
       post_interceptor_->GetRequestBody(request_number);
-  absl::optional<base::Value> request_val = base::JSONReader::Read(request);
+  std::optional<base::Value> request_val = base::JSONReader::Read(request);
 
   if (!request_val || !request_val->is_dict()) {
-    return absl::nullopt;
+    return std::nullopt;
   }
 
   return std::move(request_val.value()).TakeDict();
@@ -256,11 +251,11 @@ TEST_P(UpdateCheckerTest, UpdateCheckSuccess) {
                                   {"updatepolicy", "1"}};
   }));
 
-  metadata_->SetCohort(kUpdateItemId, "id3");
-  metadata_->SetCohortHint(kUpdateItemId, "hint2");
-  metadata_->SetCohortName(kUpdateItemId, "name1");
+  config_->GetPersistedData()->SetCohort(kUpdateItemId, "id3");
+  config_->GetPersistedData()->SetCohortHint(kUpdateItemId, "hint2");
+  config_->GetPersistedData()->SetCohortName(kUpdateItemId, "name1");
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] =
       MakeComponent("TEST", "foobar_install_data_index", true);
@@ -280,7 +275,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckSuccess) {
       << post_interceptor_->GetRequestsAsString();
 
   // Check the request.
-  absl::optional<base::Value::Dict> root = ParseRequest(0);
+  std::optional<base::Value::Dict> root = ParseRequest(0);
   ASSERT_TRUE(root);
 
   const auto* request = root->FindDict("request");
@@ -408,13 +403,12 @@ TEST_P(UpdateCheckerTest, UpdateCheckSuccess) {
   const auto extra_request_headers =
       std::get<1>(post_interceptor_->GetRequests()[0]);
   EXPECT_TRUE(extra_request_headers.HasHeader("X-Goog-Update-Interactivity"));
-  std::string header;
-  extra_request_headers.GetHeader("X-Goog-Update-Interactivity", &header);
-  EXPECT_STREQ(is_foreground_ ? "fg" : "bg", header.c_str());
-  extra_request_headers.GetHeader("X-Goog-Update-Updater", &header);
-  EXPECT_STREQ("fake_prodid-30.0", header.c_str());
-  extra_request_headers.GetHeader("X-Goog-Update-AppId", &header);
-  EXPECT_STREQ("jebgalgnebhfojomionfpkfelancnnkf", header.c_str());
+  EXPECT_EQ(extra_request_headers.GetHeader("X-Goog-Update-Interactivity"),
+            is_foreground_ ? "fg" : "bg");
+  EXPECT_EQ(extra_request_headers.GetHeader("X-Goog-Update-Updater"),
+            "fake_prodid-30.0");
+  EXPECT_EQ(extra_request_headers.GetHeader("X-Goog-Update-AppId"),
+            "jebgalgnebhfojomionfpkfelancnnkf");
 }
 
 // Tests that an invalid "ap" is not serialized.
@@ -423,7 +417,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckInvalidAp) {
       std::make_unique<PartialMatch>("updatecheck"),
       GetTestFilePath("updatecheck_reply_1.json")));
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent("TEST");
 
@@ -438,7 +432,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckInvalidAp) {
 
   RunThreads();
 
-  absl::optional<base::Value::Dict> root = ParseRequest(0);
+  std::optional<base::Value::Dict> root = ParseRequest(0);
   ASSERT_TRUE(root);
 
   const base::Value app_as_val = GetFirstAppAsValue(root.value());
@@ -468,7 +462,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckSuccessNoBrand) {
       std::make_unique<PartialMatch>("updatecheck"),
       GetTestFilePath("updatecheck_reply_1.json")));
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent("TOOLONG");
 
@@ -479,7 +473,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckSuccessNoBrand) {
 
   RunThreads();
 
-  absl::optional<base::Value::Dict> root = ParseRequest(0);
+  std::optional<base::Value::Dict> root = ParseRequest(0);
   ASSERT_TRUE(root);
 
   const base::Value app_as_val = GetFirstAppAsValue(root.value());
@@ -513,7 +507,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckFallback) {
       std::make_unique<PartialMatch>("updatecheck"),
       GetTestFilePath("updatecheck_reply_1.json")));
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent("TOOLONG");
 
@@ -534,7 +528,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckError) {
   EXPECT_TRUE(post_interceptor_->ExpectRequest(
       std::make_unique<PartialMatch>("updatecheck"), net::HTTP_FORBIDDEN));
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent();
 
@@ -561,7 +555,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckDownloadPreference) {
 
   config_->SetDownloadPreference(std::string("cacheable"));
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent();
 
@@ -572,7 +566,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckDownloadPreference) {
   RunThreads();
 
   // The request must contain dlpref="cacheable".
-  absl::optional<base::Value::Dict> root = ParseRequest(0);
+  std::optional<base::Value::Dict> root = ParseRequest(0);
   ASSERT_TRUE(root);
   EXPECT_EQ("cacheable",
             CHECK_DEREF(root->FindDict("request")->FindString("dlpref")));
@@ -587,7 +581,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckCupError) {
       GetTestFilePath("updatecheck_reply_1.json")));
 
   config_->SetEnabledCupSigning(true);
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent("TEST");
 
@@ -604,7 +598,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckCupError) {
       << post_interceptor_->GetRequestsAsString();
 
   // Check the request.
-  absl::optional<base::Value::Dict> root = ParseRequest(0);
+  std::optional<base::Value::Dict> root = ParseRequest(0);
   ASSERT_TRUE(root);
   const base::Value app_as_val = GetFirstAppAsValue(root.value());
   const base::Value::Dict app = GetFirstAppAsDict(root.value());
@@ -635,7 +629,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckCupError) {
 TEST_P(UpdateCheckerTest, UpdateCheckRequiresEncryptionError) {
   config_->SetUpdateCheckUrl(GURL("http:\\foo\bar"));
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent();
 
@@ -664,19 +658,19 @@ TEST_P(UpdateCheckerTest, UpdateCheckLastRollCall) {
       std::make_unique<PartialMatch>("updatecheck"),
       GetTestFilePath(filename)));
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent();
 
   // Do two update-checks.
-  activity_data_service_->SetDaysSinceLastRollCall(kUpdateItemId, 5);
+  config_->GetActivityDataService()->SetDaysSinceLastRollCall(kUpdateItemId, 5);
   update_checker_->CheckForUpdates(
       update_context_, {{"extra", "params"}},
       base::BindOnce(&UpdateCheckerTest::UpdateCheckComplete,
                      base::Unretained(this)));
   RunThreads();
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
   update_checker_->CheckForUpdates(
       update_context_, {{"extra", "params"}},
       base::BindOnce(&UpdateCheckerTest::UpdateCheckComplete,
@@ -688,11 +682,11 @@ TEST_P(UpdateCheckerTest, UpdateCheckLastRollCall) {
   ASSERT_EQ(2, post_interceptor_->GetCount())
       << post_interceptor_->GetRequestsAsString();
 
-  absl::optional<base::Value::Dict> root1 = ParseRequest(0);
+  std::optional<base::Value::Dict> root1 = ParseRequest(0);
   ASSERT_TRUE(root1);
   const base::Value app1 = GetFirstAppAsValue(root1.value());
   EXPECT_EQ(5, app1.GetDict().FindByDottedPath("ping.r")->GetInt());
-  absl::optional<base::Value::Dict> root2 = ParseRequest(1);
+  std::optional<base::Value::Dict> root2 = ParseRequest(1);
   ASSERT_TRUE(root2);
   const base::Value app2 = GetFirstAppAsValue(root2.value());
   EXPECT_EQ(3383, app2.GetDict().FindByDottedPath("ping.rd")->GetInt());
@@ -712,12 +706,12 @@ TEST_P(UpdateCheckerTest, UpdateCheckLastActive) {
       std::make_unique<PartialMatch>("updatecheck"),
       GetTestFilePath(filename)));
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent();
 
-  activity_data_service_->SetActiveBit(kUpdateItemId, true);
-  activity_data_service_->SetDaysSinceLastActive(kUpdateItemId, 10);
+  config_->GetActivityDataService()->SetActiveBit(kUpdateItemId, true);
+  config_->GetActivityDataService()->SetDaysSinceLastActive(kUpdateItemId, 10);
   update_checker_->CheckForUpdates(
       update_context_, {{"extra", "params"}},
       base::BindOnce(&UpdateCheckerTest::UpdateCheckComplete,
@@ -725,10 +719,10 @@ TEST_P(UpdateCheckerTest, UpdateCheckLastActive) {
   RunThreads();
 
   // The active bit should be reset.
-  EXPECT_FALSE(activity_data_service_->GetActiveBit(kUpdateItemId));
+  EXPECT_FALSE(config_->GetActivityDataService()->GetActiveBit(kUpdateItemId));
 
-  activity_data_service_->SetActiveBit(kUpdateItemId, true);
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  config_->GetActivityDataService()->SetActiveBit(kUpdateItemId, true);
+  update_checker_ = UpdateChecker::Create(config_);
   update_checker_->CheckForUpdates(
       update_context_, {{"extra", "params"}},
       base::BindOnce(&UpdateCheckerTest::UpdateCheckComplete,
@@ -736,16 +730,16 @@ TEST_P(UpdateCheckerTest, UpdateCheckLastActive) {
   RunThreads();
 
   // The active bit should be reset.
-  EXPECT_FALSE(activity_data_service_->GetActiveBit(kUpdateItemId));
+  EXPECT_FALSE(config_->GetActivityDataService()->GetActiveBit(kUpdateItemId));
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
   update_checker_->CheckForUpdates(
       update_context_, {{"extra", "params"}},
       base::BindOnce(&UpdateCheckerTest::UpdateCheckComplete,
                      base::Unretained(this)));
   RunThreads();
 
-  EXPECT_FALSE(activity_data_service_->GetActiveBit(kUpdateItemId));
+  EXPECT_FALSE(config_->GetActivityDataService()->GetActiveBit(kUpdateItemId));
 
   EXPECT_EQ(3, post_interceptor_->GetHitCount())
       << post_interceptor_->GetRequestsAsString();
@@ -753,14 +747,14 @@ TEST_P(UpdateCheckerTest, UpdateCheckLastActive) {
       << post_interceptor_->GetRequestsAsString();
 
   {
-    absl::optional<base::Value::Dict> root = ParseRequest(0);
+    std::optional<base::Value::Dict> root = ParseRequest(0);
     ASSERT_TRUE(root);
     const base::Value app = GetFirstAppAsValue(root.value());
     EXPECT_EQ(10, app.GetDict().FindIntByDottedPath("ping.a").value());
     EXPECT_EQ(-2, app.GetDict().FindIntByDottedPath("ping.r").value());
   }
   {
-    absl::optional<base::Value::Dict> root = ParseRequest(1);
+    std::optional<base::Value::Dict> root = ParseRequest(1);
     ASSERT_TRUE(root);
     const base::Value app = GetFirstAppAsValue(root.value());
     EXPECT_EQ(3383, app.GetDict().FindByDottedPath("ping.ad")->GetInt());
@@ -769,7 +763,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckLastActive) {
         app.GetDict().FindByDottedPath("ping.ping_freshness")->is_string());
   }
   {
-    absl::optional<base::Value::Dict> root = ParseRequest(2);
+    std::optional<base::Value::Dict> root = ParseRequest(2);
     ASSERT_TRUE(root);
     const base::Value app = GetFirstAppAsValue(root.value());
     EXPECT_EQ(3383, app.GetDict().FindByDottedPath("ping.rd")->GetInt());
@@ -779,7 +773,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckLastActive) {
 }
 
 TEST_P(UpdateCheckerTest, UpdateCheckInstallSource) {
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent();
 
@@ -871,7 +865,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckInstallSource) {
 }
 
 TEST_P(UpdateCheckerTest, ComponentDisabled) {
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent();
 
@@ -1016,7 +1010,7 @@ TEST_P(UpdateCheckerTest, ComponentDisabled) {
 }
 
 TEST_P(UpdateCheckerTest, UpdateCheckUpdateDisabled) {
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent();
 
@@ -1080,7 +1074,7 @@ TEST_P(UpdateCheckerTest, UpdateCheckUpdateDisabled) {
 }
 
 TEST_P(UpdateCheckerTest, UpdateDisabledByMeteredConnection) {
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] =
       MakeComponent("TEST", "foobar_install_data_index", false);
@@ -1146,7 +1140,7 @@ TEST_P(UpdateCheckerTest, UpdateDisabledByMeteredConnection) {
 }
 
 TEST_P(UpdateCheckerTest, SameVersionUpdateAllowed) {
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent();
 
@@ -1204,7 +1198,7 @@ TEST_P(UpdateCheckerTest, NoUpdateActionRun) {
   EXPECT_TRUE(post_interceptor_->ExpectRequest(
       std::make_unique<PartialMatch>("updatecheck"),
       GetTestFilePath("updatecheck_reply_noupdate.json")));
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent();
 
@@ -1241,7 +1235,7 @@ TEST_P(UpdateCheckerTest, UpdatePauseResume) {
       post_interceptor_.get()));
   post_interceptor_->Pause();
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent("TEST");
 
@@ -1254,7 +1248,7 @@ TEST_P(UpdateCheckerTest, UpdatePauseResume) {
                      base::Unretained(this)));
   RunThreads();
 
-  absl::optional<base::Value::Dict> root = ParseRequest(0);
+  std::optional<base::Value::Dict> root = ParseRequest(0);
   ASSERT_TRUE(root);
   const base::Value app_as_val = GetFirstAppAsValue(root.value());
   const base::Value::Dict app = GetFirstAppAsDict(root.value());
@@ -1286,7 +1280,7 @@ TEST_P(UpdateCheckerTest, UpdateResetUpdateChecker) {
 
   update_context_->components[kUpdateItemId] = MakeComponent();
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
   update_checker_->CheckForUpdates(
       update_context_, {},
       base::BindOnce(&UpdateCheckerTest::UpdateCheckComplete,
@@ -1301,7 +1295,7 @@ TEST_P(UpdateCheckerTest, ParseErrorProtocolVersionMismatch) {
       std::make_unique<PartialMatch>("updatecheck"),
       GetTestFilePath("updatecheck_reply_parse_error.json")));
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent();
 
@@ -1329,7 +1323,7 @@ TEST_P(UpdateCheckerTest, ParseErrorAppStatusErrorUnknownApplication) {
       std::make_unique<PartialMatch>("updatecheck"),
       GetTestFilePath("updatecheck_reply_unknownapp.json")));
 
-  update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+  update_checker_ = UpdateChecker::Create(config_);
 
   update_context_->components[kUpdateItemId] = MakeComponent();
 
@@ -1353,12 +1347,12 @@ TEST_P(UpdateCheckerTest, ParseErrorAppStatusErrorUnknownApplication) {
 }
 
 TEST_P(UpdateCheckerTest, DomainJoined) {
-  for (const auto is_managed : std::initializer_list<absl::optional<bool>>{
-           absl::nullopt, false, true}) {
+  for (const auto& is_managed :
+       std::initializer_list<std::optional<bool>>{std::nullopt, false, true}) {
     EXPECT_TRUE(post_interceptor_->ExpectRequest(
         std::make_unique<PartialMatch>("updatecheck"),
         GetTestFilePath("updatecheck_reply_noupdate.json")));
-    update_checker_ = UpdateChecker::Create(config_, metadata_.get());
+    update_checker_ = UpdateChecker::Create(config_);
 
     update_context_->components[kUpdateItemId] = MakeComponent();
 
@@ -1370,7 +1364,7 @@ TEST_P(UpdateCheckerTest, DomainJoined) {
     RunThreads();
 
     ASSERT_EQ(post_interceptor_->GetCount(), 1);
-    absl::optional<base::Value::Dict> root = ParseRequest(0);
+    std::optional<base::Value::Dict> root = ParseRequest(0);
     ASSERT_TRUE(root);
     post_interceptor_->Reset();
 

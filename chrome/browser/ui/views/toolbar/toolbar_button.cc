@@ -15,7 +15,6 @@
 #include "base/memory/raw_ptr.h"
 #include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
@@ -35,6 +34,7 @@
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/models/image_model.h"
 #include "ui/base/models/menu_model.h"
+#include "ui/base/mojom/menu_source_type.mojom-forward.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/color/color_provider.h"
 #include "ui/compositor/paint_recorder.h"
@@ -44,7 +44,6 @@
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/text_utils.h"
-#include "ui/views/action_view_interface.h"
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/animation/ink_drop_mask.h"
@@ -123,13 +122,12 @@ ToolbarButton::ToolbarButton(PressedCallback callback,
   // allocate the property once and modify the value.
   SetProperty(views::kInternalPaddingKey, gfx::Insets());
 
-  if (features::IsChromeRefresh2023() &&
-      base::FeatureList::IsEnabled(features::kChromeRefresh2023TopChromeFont)) {
-    label()->SetTextStyle(views::style::STYLE_BODY_4_EMPHASIS);
-  }
-
   SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
   views::FocusRing::Get(this)->SetOutsetFocusRingDisabled(true);
+
+  if (model_) {
+    GetViewAccessibility().SetHasPopup(ax::mojom::HasPopup::kMenu);
+  }
 }
 
 ToolbarButton::~ToolbarButton() = default;
@@ -201,28 +199,20 @@ void ToolbarButton::UpdateColorsAndInsets() {
   }
 
   // Apply new border with target insets.
-
   std::optional<SkColor> border_color =
       highlight_color_animation_.GetBorderColor();
-  if (!GetBorder() || target_insets != GetInsets() ||
-      last_border_color_ != border_color ||
-      last_paint_insets_ != paint_insets) {
-    if (ShouldPaintBorder() && border_color) {
-      int border_thickness_dp = GetText().empty()
-                                    ? kBorderThicknessDpWithoutLabel
-                                    : kBorderThicknessDpWithLabel;
-      // Create a border with insets totalling |target_insets|, split into
-      // painted insets (matching the background) and internal padding to
-      // position child views correctly.
-      std::unique_ptr<views::Border> border = views::CreateRoundedRectBorder(
-          border_thickness_dp, highlight_radius, paint_insets, *border_color);
-      const gfx::Insets extra_insets = target_insets - border->GetInsets();
-      SetBorder(views::CreatePaddedBorder(std::move(border), extra_insets));
-    } else {
-      SetBorder(views::CreateEmptyBorder(target_insets));
-    }
-    last_border_color_ = border_color;
-    last_paint_insets_ = paint_insets;
+  if (ShouldPaintBorder() && border_color) {
+    int border_thickness_dp = GetText().empty() ? kBorderThicknessDpWithoutLabel
+                                                : kBorderThicknessDpWithLabel;
+    // Create a border with insets totalling |target_insets|, split into
+    // painted insets (matching the background) and internal padding to
+    // position child views correctly.
+    std::unique_ptr<views::Border> border = views::CreateRoundedRectBorder(
+        border_thickness_dp, highlight_radius, paint_insets, *border_color);
+    const gfx::Insets extra_insets = target_insets - border->GetInsets();
+    SetBorder(views::CreatePaddedBorder(std::move(border), extra_insets));
+  } else {
+    SetBorder(views::CreateEmptyBorder(target_insets));
   }
 
   // Update spacing on the outer-side of the label to match the current
@@ -244,7 +234,7 @@ SkColor ToolbarButton::GetForegroundColor(ButtonState state) const {
     case ButtonState::STATE_NORMAL:
       return color_provider->GetColor(kColorToolbarButtonIcon);
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 
@@ -269,8 +259,7 @@ int ToolbarButton::GetIconSize() const {
     return kDefaultTouchableIconSize;
   }
 
-  return features::IsChromeRefresh2023() ? kDefaultIconSizeChromeRefresh
-                                         : kDefaultIconSize;
+  return kDefaultIconSizeChromeRefresh;
 }
 
 bool ToolbarButton::ShouldPaintBorder() const {
@@ -278,7 +267,7 @@ bool ToolbarButton::ShouldPaintBorder() const {
 }
 
 bool ToolbarButton::ShouldBlendHighlightColor() const {
-  return !features::IsChromeRefresh2023();
+  return false;
 }
 
 bool ToolbarButton::ShouldDirectlyUseHighlightAsBackground() const {
@@ -388,7 +377,7 @@ const gfx::Insets ToolbarButton::GetTargetInsets() const {
 }
 
 const gfx::Size ToolbarButton::GetTargetSize() const {
-  const gfx::Size current_preferred_size = CalculatePreferredSize();
+  const gfx::Size current_preferred_size = CalculatePreferredSize({});
   const gfx::Insets current_insets = GetInsets();
   const gfx::Size target_contents_size =
       current_preferred_size - current_insets.size();
@@ -492,23 +481,14 @@ void ToolbarButton::OnGestureEvent(ui::GestureEvent* event) {
   LabelButton::OnGestureEvent(event);
 }
 
-void ToolbarButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  Button::GetAccessibleNodeData(node_data);
-  if (model_)
-    node_data->SetHasPopup(ax::mojom::HasPopup::kMenu);
-}
-
 std::u16string ToolbarButton::GetTooltipText(const gfx::Point& p) const {
-  // Suppress tooltip when IPH is showing.
-  // TODO(crbug.com/1419653): Investigate if we should suppress tooltip for all
-  // Buttons rather than just ToolbarButtons when IPH is on.
-  return has_in_product_help_promo_ ? std::u16string()
-                                    : views::LabelButton::GetTooltipText(p);
+  return GetCachedTooltipText();
 }
 
-void ToolbarButton::ShowContextMenuForViewImpl(View* source,
-                                               const gfx::Point& point,
-                                               ui::MenuSourceType source_type) {
+void ToolbarButton::ShowContextMenuForViewImpl(
+    View* source,
+    const gfx::Point& point,
+    ui::mojom::MenuSourceType source_type) {
   if (!GetEnabled())
     return;
 
@@ -516,11 +496,28 @@ void ToolbarButton::ShowContextMenuForViewImpl(View* source,
   ShowDropDownMenu(source_type);
 }
 
+std::u16string ToolbarButton::GetAlternativeAccessibleName() const {
+  if (!suppressed_tooltip_text_.empty()) {
+    return suppressed_tooltip_text_;
+  }
+
+  return Button::GetAlternativeAccessibleName();
+}
+
 void ToolbarButton::AfterPropertyChange(const void* key, int64_t old_value) {
   View::AfterPropertyChange(key, old_value);
   if (key == user_education::kHasInProductHelpPromoKey) {
     has_in_product_help_promo_ =
         GetProperty(user_education::kHasInProductHelpPromoKey);
+
+    // Suppress tooltip when IPH is showing.
+    // TODO(crbug.com/40258442): Investigate if we should suppress tooltip for
+    // all Buttons rather than just ToolbarButtons when IPH is on.
+    if (has_in_product_help_promo_) {
+      suppressed_tooltip_text_ = GetCachedTooltipText();
+    } else {
+      suppressed_tooltip_text_ = std::u16string();
+    }
     UpdateIcon();
   }
 }
@@ -533,13 +530,13 @@ bool ToolbarButton::ShouldShowInkdropAfterIphInteraction() {
   return true;
 }
 
-void ToolbarButton::ShowDropDownMenu(ui::MenuSourceType source_type) {
+void ToolbarButton::ShowDropDownMenu(ui::mojom::MenuSourceType source_type) {
   if (!ShouldShowMenu())
     return;
 
   gfx::Rect menu_anchor_bounds = GetAnchorBoundsInScreen();
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   // A window won't overlap between displays on ChromeOS.
   // Use the left bound of the display on which
   // the menu button exists.
@@ -605,8 +602,8 @@ namespace {
 
 // The default duration does not work well for dark mode where the animation has
 // to make a big contrast difference.
-// TODO(crbug.com/967317): This needs to be consistent with the duration of the
-// border animation in ToolbarIconContainerView.
+// TODO(crbug.com/40629276): This needs to be consistent with the duration of
+// the border animation in ToolbarIconContainerView.
 constexpr base::TimeDelta kHighlightAnimationDuration = base::Milliseconds(300);
 
 SkColor FadeWithAnimation(SkColor color, const gfx::Animation& animation) {

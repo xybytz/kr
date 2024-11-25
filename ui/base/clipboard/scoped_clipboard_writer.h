@@ -9,7 +9,6 @@
 
 #include "base/component_export.h"
 #include "base/containers/flat_map.h"
-#include "build/chromeos_buildflags.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
@@ -32,7 +31,7 @@ class COMPONENT_EXPORT(UI_BASE_CLIPBOARD) ScopedClipboardWriter {
  public:
   // Create an instance that is a simple wrapper around the clipboard of the
   // given buffer with an optional parameter indicating the source of the data.
-  // TODO(crbug.com/1103193): change its references to use
+  // TODO(crbug.com/40704495): change its references to use
   // DataTransferEndpoint, if possible.
   explicit ScopedClipboardWriter(
       ClipboardBuffer buffer,
@@ -54,9 +53,7 @@ class COMPONENT_EXPORT(UI_BASE_CLIPBOARD) ScopedClipboardWriter {
   // Adds HTML to the clipboard. The url parameter is optional, but especially
   // useful if the HTML fragment contains relative links.
   // The `content_type` refers to the sanitization of the markup.
-  void WriteHTML(const std::u16string& markup,
-                 const std::string& source_url,
-                 ClipboardContentType content_type);
+  void WriteHTML(const std::u16string& markup, const std::string& source_url);
 
   // Adds SVG to the clipboard.
   void WriteSvg(const std::u16string& text);
@@ -93,13 +90,11 @@ class COMPONENT_EXPORT(UI_BASE_CLIPBOARD) ScopedClipboardWriter {
 
   void WriteImage(const SkBitmap& bitmap);
 
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  // Used by clipboard unit tests to write an encoded clipboard source DTE.
-  void WriteEncodedDataTransferEndpointForTesting(const std::string& json);
-#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
-
   // Mark the data to be written as confidential.
   void MarkAsConfidential();
+
+  // Data is copied from an incognito window.
+  void MarkAsOffTheRecord();
 
   // Removes all objects that would be written to the clipboard.
   void Reset();
@@ -118,7 +113,10 @@ class COMPONENT_EXPORT(UI_BASE_CLIPBOARD) ScopedClipboardWriter {
   // The type is set at construction, and can be changed before committing.
   const ClipboardBuffer buffer_;
 
-  bool confidential_ = false;
+  // Contains the `Clipboard::PrivacyTypes` based on whether the content was
+  // marked as confidential or off the record. e.g. password is considered as
+  // confidential that should be concealed.
+  uint32_t privacy_types_ = 0;
 
   // The source of the data written in ScopedClipboardWriter, nullptr means it's
   // not set, or the source of the data can't be represented by

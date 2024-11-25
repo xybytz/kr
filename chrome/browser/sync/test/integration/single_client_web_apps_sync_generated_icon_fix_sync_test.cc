@@ -20,7 +20,6 @@
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
 #include "chrome/common/chrome_features.h"
-#include "components/sync/base/features.h"
 #include "content/public/test/browser_test.h"
 
 namespace web_app {
@@ -68,14 +67,6 @@ class SingleClientWebAppsSyncGeneratedIconFixSyncTest
 
   void SetUpOnMainThread() override {
     SyncTest::SetUpOnMainThread();
-    ASSERT_TRUE(SetupClients());
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-    // Apps sync is controlled by a dedicated preference on Lacros,
-    // corresponding to the Apps toggle in OS Sync settings.
-    if (base::FeatureList::IsEnabled(syncer::kSyncChromeOSAppsToggleSharing)) {
-      GetSyncService(0)->GetUserSettings()->SetAppsSyncEnabledByOs(true);
-    }
-#endif
     ASSERT_TRUE(SetupSync());
     embedded_test_server()->RegisterRequestHandler(base::BindLambdaForTesting(
         [this](const net::test_server::HttpRequest& request)
@@ -121,7 +112,8 @@ IN_PROC_BROWSER_TEST_P(SingleClientWebAppsSyncGeneratedIconFixSyncTest,
   sync_pb::EntitySpecifics specifics;
   sync_pb::WebAppSpecifics& web_app_specifics = *specifics.mutable_web_app();
   web_app_specifics.set_start_url(start_url.spec());
-  web_app_specifics.set_user_display_mode(sync_pb::WebAppSpecifics::STANDALONE);
+  web_app_specifics.set_user_display_mode_default(
+      sync_pb::WebAppSpecifics::STANDALONE);
   web_app_specifics.set_name("Basic web app");
   GetFakeServer()->InjectEntity(
       syncer::PersistentUniqueClientEntity::CreateFromSpecificsForTesting(

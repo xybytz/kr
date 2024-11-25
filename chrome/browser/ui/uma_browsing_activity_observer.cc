@@ -6,13 +6,11 @@
 
 #include <algorithm>
 
-#include "base/check_is_test.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
-#include "build/build_config.h"
 #include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
@@ -32,7 +30,6 @@
 #include "content/public/browser/web_contents_user_data.h"
 #include "ui/gfx/range/range.h"
 
-namespace chrome {
 namespace {
 
 UMABrowsingActivityObserver* g_uma_browsing_activity_observer_instance =
@@ -61,19 +58,6 @@ void UMABrowsingActivityObserver::OnNavigationEntryCommitted(
   // Track whether the page loaded is a search results page (SRP). Track
   // the non-SRP navigations as well so there is a control.
   base::RecordAction(base::UserMetricsAction("NavEntryCommitted"));
-
-  // If the user is allowed to do searches in this profile (e.g., it's a
-  // regular profile, not something like a "system" profile), then record if
-  // this navigation appeared to go the default search engine.
-  auto* turl_service = TemplateURLServiceFactory::GetForProfile(
-      Profile::FromBrowserContext(web_contents->GetBrowserContext()));
-  if (turl_service) {
-    CHECK(load_details.entry);
-    if (turl_service->IsSearchResultsPageFromDefaultSearchProvider(
-            load_details.entry->GetURL())) {
-      base::RecordAction(base::UserMetricsAction("NavEntryCommitted.SRP"));
-    }
-  }
 
   if (!load_details.is_navigation_to_different_page()) {
     // Don't log for subframes or other trivial types.
@@ -198,13 +182,10 @@ UMABrowsingActivityObserver::TabHelper::~TabHelper() = default;
 
 void UMABrowsingActivityObserver::TabHelper::NavigationEntryCommitted(
     const content::LoadCommittedDetails& load_details) {
-  // This is null in unit tests.
+  // This is null in unit tests. Crash reports suggest it's possible for it to
+  // be null in production. See https://crbug.com/1510023 and
+  // https://crbug.com/1523758
   if (!g_uma_browsing_activity_observer_instance) {
-    // Crash reports suggest this could also be null on Windows. See
-    // https://crbug.com/1510023
-#if !BUILDFLAG(IS_WIN)
-    CHECK_IS_TEST();
-#endif
     return;
   }
 
@@ -213,5 +194,3 @@ void UMABrowsingActivityObserver::TabHelper::NavigationEntryCommitted(
 }
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(UMABrowsingActivityObserver::TabHelper);
-
-}  // namespace chrome

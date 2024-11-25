@@ -78,25 +78,24 @@ bool WebKioskBrowserControllerBase::CanUserUninstall() const {
 }
 
 bool WebKioskBrowserControllerBase::IsInstalled() const {
-  return registrar().IsInstalled(app_id());
+  return registrar().IsInstallState(
+      app_id(), {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                 web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                 web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION});
 }
 
 void WebKioskBrowserControllerBase::OnTabInserted(
     content::WebContents* contents) {
   AppBrowserController::OnTabInserted(contents);
-  web_app::SetAppPrefsForWebContents(contents);
-
-  // If a `WebContents` is inserted into an app browser (e.g. after
-  // installation), it is "appy". Note that if and when it's moved back into a
-  // tabbed browser window (e.g. via "Open in Chrome" menu item), it is still
-  // considered "appy".
-  web_app::WebAppTabHelper::FromWebContents(contents)->set_acting_as_app(true);
+  web_app::WebAppTabHelper::FromWebContents(contents)->SetIsInAppWindow(
+      app_id());
 }
 
 void WebKioskBrowserControllerBase::OnTabRemoved(
     content::WebContents* contents) {
   AppBrowserController::OnTabRemoved(contents);
-  web_app::ClearAppPrefsForWebContents(contents);
+  web_app::WebAppTabHelper::FromWebContents(contents)->SetIsInAppWindow(
+      /*window_app_id=*/std::nullopt);
 }
 
 web_app::WebAppRegistrar& WebKioskBrowserControllerBase::registrar() const {

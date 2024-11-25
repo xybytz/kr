@@ -1,6 +1,7 @@
 <?xml version="1.0" ?>
 <!DOCTYPE translationbundle>
 <translationbundle lang="hu">
+<translation id="102916930470544692">Azonosítókulcs</translation>
 <translation id="1220509181886849806">Mentett jelszót szeretne használni?</translation>
 <translation id="1435940442311036198">Azonosítókulcs használata másik eszközön</translation>
 <translation id="1717486229951421299">Az érintéssel kitöltendő hitelesítő adatok listája félmagasságban megnyitva.</translation>
@@ -12,7 +13,6 @@
 <translation id="4553044860350038560">További azonosítókulcsok</translation>
 <translation id="4598345735110653698">Azonosítókulcsok kezelése</translation>
 <translation id="4722735765955348426">A(z) <ph name="USERNAME" /> felhasználónévhez tartozó jelszó</translation>
-<translation id="4907224763885298217">Képernyőzár használata</translation>
 <translation id="5012523644916800014">Jelszavak és azonosítókulcsok kezelése</translation>
 <translation id="5441504010984421144">Az érintéssel kitöltendő hitelesítő adatok listája teljes magasságban megnyitva.</translation>
 <translation id="5591247451101092906">Mentett jelszót vagy azonosítókulcsot szeretne használni?</translation>

@@ -4,10 +4,10 @@
 
 source_set("cells") {
   sources = [
-    "whats_new_table_view_fake_header_item.h",
-    "whats_new_table_view_fake_header_item.mm",
     "whats_new_table_view_item.h",
     "whats_new_table_view_item.mm",
+    "whats_new_table_view_subtitle_item.h",
+    "whats_new_table_view_subtitle_item.mm",
   ]
 
   deps = [
@@ -16,8 +16,7 @@ source_set("cells") {
     "//ios/chrome/browser/shared/ui/table_view:styler",
     "//ios/chrome/browser/shared/ui/table_view/cells",
     "//ios/chrome/browser/shared/ui/util",
-    "//ios/chrome/browser/ui/whats_new/resources:hero_image_background_color",
-    "//ios/chrome/browser/ui/whats_new/resources:whats_new_icon_tile",
+    "//ios/chrome/browser/ui/whats_new/resources",
     "//ios/chrome/common/ui/colors",
     "//ios/chrome/common/ui/table_view:cells_constants",
     "//ios/chrome/common/ui/util",

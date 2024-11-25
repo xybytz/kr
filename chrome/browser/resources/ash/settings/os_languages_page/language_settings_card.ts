@@ -7,21 +7,21 @@
  * 'language-settings-card' is the card element containing language settings.
  */
 
-import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
+import 'chrome://resources/ash/common/cr_elements/cr_link_row/cr_link_row.js';
 import '../os_settings_page/settings_card.js';
 import '../settings_shared.css.js';
 
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {isRevampWayfindingEnabled} from '../common/load_time_booleans.js';
 import {RouteOriginMixin} from '../common/route_origin_mixin.js';
-import {PrefsState} from '../common/types.js';
+import type {PrefsState} from '../common/types.js';
 import {Router, routes} from '../router.js';
 
 import {getTemplate} from './language_settings_card.html.js';
 import {ACCESSIBILITY_COMMON_IME_ID} from './languages.js';
-import {LanguageHelper, LanguagesModel} from './languages_types.js';
+import type {LanguageHelper, LanguagesModel} from './languages_types.js';
 
 const LanguageSettingsCardElementBase =
     RouteOriginMixin(I18nMixin(PolymerElement));

@@ -51,7 +51,7 @@ constexpr char16_t kMostRelevantLanguagesDivider16[] =
 
 base::Value CreateInputMethodsEntry(
     const input_method::InputMethodDescriptor& method,
-    const std::string selected,
+    const std::string& selected,
     input_method::InputMethodUtil* util) {
   const std::string& ime_id = method.id();
   auto input_method =
@@ -477,7 +477,6 @@ std::string FindMostRelevantLocale(
 
       if (!available_locale) {
         NOTREACHED();
-        continue;
       }
 
       if (*available_locale == most_relevant)

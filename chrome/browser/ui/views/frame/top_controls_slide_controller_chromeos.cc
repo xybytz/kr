@@ -9,16 +9,17 @@
 #include "base/auto_reset.h"
 #include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
+#include "cc/input/browser_controls_offset_tags_info.h"
 #include "cc/input/browser_controls_state.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/search.h"
-#include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/top_container_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_view_views.h"
 #include "chrome/common/url_constants.h"
 #include "components/permissions/permission_request_manager.h"
+#include "components/security_state/content/security_state_tab_helper.h"
 #include "content/public/browser/focused_node_details.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -40,16 +41,9 @@
 namespace {
 
 bool IsSpokenFeedbackEnabled() {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
   auto* accessibility_manager = ash::AccessibilityManager::Get();
   return accessibility_manager &&
          accessibility_manager->IsSpokenFeedbackEnabled();
-#else
-  // TODO(https://crbug.com/1165746): Enable accessibility (a11y) support for
-  // Lacros.
-  NOTIMPLEMENTED() << "Enable accessibility support for Lacros.";
-  return false;
-#endif
 }
 
 // Based on the current status of |contents|, returns the browser top controls
@@ -292,7 +286,6 @@ TopControlsSlideControllerChromeOS::TopControlsSlideControllerChromeOS(
 
   browser_view_->browser()->tab_strip_model()->AddObserver(this);
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
   auto* accessibility_manager = ash::AccessibilityManager::Get();
   if (accessibility_manager) {
     accessibility_status_subscription_ =
@@ -300,7 +293,6 @@ TopControlsSlideControllerChromeOS::TopControlsSlideControllerChromeOS(
             &TopControlsSlideControllerChromeOS::OnAccessibilityStatusChanged,
             base::Unretained(this)));
   }
-#endif
 
   OnEnabledStateChanged(CanEnable(std::nullopt));
 }
@@ -592,7 +584,7 @@ void TopControlsSlideControllerChromeOS::UpdateBrowserControlsStateShown(
   const cc::BrowserControlsState current_state =
       cc::BrowserControlsState::kShown;
   web_contents->UpdateBrowserControlsState(constraints_state, current_state,
-                                           animate);
+                                           animate, std::nullopt);
 }
 
 bool TopControlsSlideControllerChromeOS::CanEnable(
@@ -601,7 +593,6 @@ bool TopControlsSlideControllerChromeOS::CanEnable(
          !(fullscreen_state.value_or(browser_view_->IsFullscreen()));
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
 void TopControlsSlideControllerChromeOS::OnAccessibilityStatusChanged(
     const ash::AccessibilityStatusEventDetails& event_details) {
   if (event_details.notification_type !=
@@ -611,7 +602,6 @@ void TopControlsSlideControllerChromeOS::OnAccessibilityStatusChanged(
 
   UpdateBrowserControlsStateShown(/*web_contents=*/nullptr, /*animate=*/true);
 }
-#endif
 
 void TopControlsSlideControllerChromeOS::OnEnabledStateChanged(bool new_state) {
   if (new_state == is_enabled_)
@@ -753,14 +743,14 @@ void TopControlsSlideControllerChromeOS::OnBeginSliding() {
   root_bounds.set_height(new_height);
   root_view->SetBoundsRect(root_bounds);
   // Changing the bounds will have triggered an InvalidateLayout() on
-  // NativeViewHost. InvalidateLayout() results in Layout() being called later,
+  // NativeViewHost. InvalidateLayout() results in layout being performed later,
   // after transforms are set. NativeViewHostAura calculates the bounds of the
   // window using transforms. By calling LayoutRootViewIfNecessary() we force
   // the layout now, before any transforms are installed. To do otherwise
   // results in NativeViewHost positioning the WebContents at the wrong
   // location.
-  // TODO(https://crbug.com/950981): this is rather fragile, and the code should
-  // deal with Layout() being called during the slide.
+  // TODO(crbug.com/40622302): this is rather fragile, and the code should
+  // deal with layout being performed during the slide.
   root_view->GetWidget()->LayoutRootViewIfNecessary();
 
   // We don't want anything to show outside the browser window's bounds.
@@ -827,7 +817,7 @@ void TopControlsSlideControllerChromeOS::OnEndSliding() {
     // This can happen when setting the shown ratio directly from one terminal
     // value to the opposite. The height of the root view doesn't change, but
     // the browser view must be re-laid out.
-    browser_view_->Layout();
+    browser_view_->DeprecatedLayoutImmediately();
   }
 
   // If the top controls are fully hidden, then the top container is laid out

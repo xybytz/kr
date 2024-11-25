@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/342213636): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "content/browser/cache_storage/cache_storage_cache.h"
 
 #include <stddef.h>
@@ -108,7 +113,6 @@ network::mojom::FetchResponseType ProtoResponseTypeToFetchResponseType(
       return network::mojom::FetchResponseType::kOpaqueRedirect;
   }
   NOTREACHED();
-  return network::mojom::FetchResponseType::kOpaque;
 }
 
 proto::CacheResponse::ResponseType FetchResponseTypeToProtoResponseType(
@@ -128,7 +132,6 @@ proto::CacheResponse::ResponseType FetchResponseTypeToProtoResponseType(
       return proto::CacheResponse::OPAQUE_REDIRECT_TYPE;
   }
   NOTREACHED();
-  return proto::CacheResponse::OPAQUE_TYPE;
 }
 
 // Assert that ConnectionInfo does not change since we cast it to
@@ -909,12 +912,9 @@ void CacheStorageCache::BatchDidGetBucketSpaceRemaining(
         Delete(std::move(operation), completion_callback);
         break;
       case blink::mojom::OperationType::kUndefined:
-        NOTREACHED();
         // TODO(nhiroki): This should return "TypeError".
         // http://crbug.com/425505
-        completion_callback.Run(MakeErrorStorage(
-            ErrorStorageType::kBatchDidGetUsageAndQuotaUndefinedOp));
-        break;
+        NOTREACHED();
     }
   }
 }

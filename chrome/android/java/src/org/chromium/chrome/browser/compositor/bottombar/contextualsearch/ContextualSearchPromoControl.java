@@ -20,13 +20,12 @@ import org.chromium.chrome.browser.compositor.bottombar.OverlayPanel;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanelAnimation;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanelInflater;
 import org.chromium.chrome.browser.compositor.bottombar.contextualsearch.ContextualSearchPanel.ContextualSearchPromoHost;
-import org.chromium.chrome.browser.contextualsearch.ContextualSearchManager;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchSettingsFragment;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchUma;
 import org.chromium.chrome.browser.layouts.animation.CompositorAnimator;
-import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
+import org.chromium.chrome.browser.settings.SettingsNavigationFactory;
 import org.chromium.chrome.browser.ui.theme.ChromeSemanticColorUtils;
-import org.chromium.components.browser_ui.settings.SettingsLauncher;
+import org.chromium.components.browser_ui.settings.SettingsNavigation;
 import org.chromium.ui.base.LocalizationUtils;
 import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
@@ -140,12 +139,6 @@ public class ContextualSearchPromoControl extends OverlayPanelInflater {
      */
     void onContextualSearchPrefChanged(boolean isEnabled) {
         if (!mIsVisible || !mOverlayPanel.isShowing()) return;
-
-        if (isEnabled) {
-            mHost.onPromoOptIn();
-        } else {
-            mHost.onPromoOptOut();
-        }
 
         collapse();
     }
@@ -324,17 +317,17 @@ public class ContextualSearchPromoControl extends OverlayPanelInflater {
         View view = getView();
 
         // "Allow" button.
-        Button allowButton = (Button) view.findViewById(R.id.contextual_search_allow_button);
+        Button allowButton = view.findViewById(R.id.contextual_search_allow_button);
         allowButton.setOnClickListener(
                 v -> ContextualSearchPromoControl.this.handlePromoChoice(true));
 
         // "No thanks" button.
-        Button noThanksButton = (Button) view.findViewById(R.id.contextual_search_no_thanks_button);
+        Button noThanksButton = view.findViewById(R.id.contextual_search_no_thanks_button);
         noThanksButton.setOnClickListener(
                 v -> ContextualSearchPromoControl.this.handlePromoChoice(false));
 
         // Fill in text with link to Settings.
-        TextView promoText = (TextView) view.findViewById(R.id.contextual_search_promo_text);
+        TextView promoText = view.findViewById(R.id.contextual_search_promo_text);
 
         NoUnderlineClickableSpan settingsLink =
                 new NoUnderlineClickableSpan(
@@ -368,7 +361,7 @@ public class ContextualSearchPromoControl extends OverlayPanelInflater {
     private void handlePromoChoice(boolean hasEnabled) {
         if (!mHasHandledChoice) {
             mHasHandledChoice = true;
-            ContextualSearchManager.setContextualSearchPromoCardSelection(hasEnabled);
+            mHost.setContextualSearchPromoCardSelection(hasEnabled);
             ContextualSearchUma.logPromoCardChoice(hasEnabled);
         }
     }
@@ -380,8 +373,9 @@ public class ContextualSearchPromoControl extends OverlayPanelInflater {
                         new Runnable() {
                             @Override
                             public void run() {
-                                SettingsLauncher settingsLauncher = new SettingsLauncherImpl();
-                                settingsLauncher.launchSettingsActivity(
+                                SettingsNavigation settingsNavigation =
+                                        SettingsNavigationFactory.createSettingsNavigation();
+                                settingsNavigation.startSettings(
                                         getContext(), ContextualSearchSettingsFragment.class);
                             }
                         });
@@ -426,7 +420,7 @@ public class ContextualSearchPromoControl extends OverlayPanelInflater {
         // The Promo can only be interacted when the View is being displayed.
         mWasInteractive = true;
 
-        ContextualSearchManager.onPromoShown();
+        mHost.onPromoShown();
 
         updatePromoHeight();
     }

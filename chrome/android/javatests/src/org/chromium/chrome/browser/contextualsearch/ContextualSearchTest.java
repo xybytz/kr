@@ -10,8 +10,10 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
@@ -20,7 +22,6 @@ import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.profiles.ProfileProvider;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
 
 /** Mock touch events with Contextual Search to test behavior of its panel and manager. */
@@ -28,17 +29,18 @@ import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 @Batch(Batch.PER_CLASS)
 public class ContextualSearchTest extends ContextualSearchInstrumentationBase {
+
+    @Mock ContextualSearchManager.Natives mContextualSearchManagerJniMock;
+
     @Override
     @Before
     public void setUp() throws Exception {
         super.setUp();
 
-        // TODO(donnd): Fix and move this into ContextualSearchInstrumentationBase.
-        // Likely cause of the problem is JniMocker.
         MockitoAnnotations.initMocks(this);
-        mocker.mock(ContextualSearchManagerJni.TEST_HOOKS, mContextualSearchManagerJniMock);
+        ContextualSearchManagerJni.setInstanceForTesting(mContextualSearchManagerJniMock);
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     ChromeActivity activity = (ChromeActivity) mManager.getActivity();
                     mPanel =

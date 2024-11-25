@@ -33,14 +33,18 @@ class StatefulSSLHostStateDelegate;
 // The set of valid states of the user-controllable HTTPS-First Mode setting.
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
-// Must be kept in sync with the HttpsFirstModeSetting enum located in
-// chrome/browser/resources/settings/privacy_page/security_page.js.
+// Must be kept in sync with the HttpsFirstModeSetting enums located in
+// chrome/browser/resources/settings/privacy_page/security_page.ts and enums.xml
+// LINT.IfChange
 enum class HttpsFirstModeSetting {
   kDisabled = 0,
-  kEnabledIncognito = 1,
+  // DEPRECATED: A separate Incognito setting never shipped.
+  // kEnabledIncognito = 1,
   kEnabledFull = 2,
-  kMaxValue = kEnabledFull,
+  kEnabledBalanced = 3,
+  kMaxValue = kEnabledBalanced,
 };
+// LINT.ThenChange(/tools/metrics/histograms/metadata/security/enums.xml)
 
 // A `KeyedService` that tracks changes to the HTTPS-First Mode pref for each
 // profile. This is currently used for:
@@ -54,11 +58,6 @@ class HttpsFirstModeService
       public safe_browsing::AdvancedProtectionStatusManager::
           StatusChangedObserver {
  public:
-  // Reset user prefs if they were accidentally enabled previously. See
-  // crbug.com/1475747 for details. Only has as effect if
-  // kHttpsFirstModeV2ForTypicallySecureUsers is not enabled.
-  static void FixTypicallySecureUserPrefs(Profile* profile);
-
   explicit HttpsFirstModeService(Profile* profile, base::Clock* clock);
   ~HttpsFirstModeService() override;
 
@@ -78,12 +77,13 @@ class HttpsFirstModeService
   // Records an HTTPS-Upgrade fallback event if the Typically Secure heuristic
   // isn't yet enabled and evicts old fallback events.
   void RecordHttpsUpgradeFallbackEvent();
-  // Updates HTTPS-Upgrade fallback events and enables HTTPS-First Mode
+  // Updates HTTPS-Upgrade fallback events and enables HTTPS-First Balanced Mode
   // if the user typically visits secure sites.
-  // This will almost always be a no-op in browser tests because it checks that
-  // the clock is sufficiently advanced, and tests can't change the clock before
-  // getting here. Therefore, browser tests need to call this method explicitly.
-  void CheckUserIsTypicallySecureAndMaybeEnableHttpsFirstMode();
+  // The first invocation of this method will almost always be a no-op in
+  // browser tests because the method checks that the clock is sufficiently
+  // advanced, and tests can't change the clock before getting here. Therefore,
+  // browser tests need to call this method explicitly.
+  void CheckUserIsTypicallySecureAndMaybeEnableHttpsFirstBalancedMode();
 
   // Gets the list of engaged sites from Site Engagement service and determines
   // whether HTTPS-First Mode should be enabled on each site. Calls
@@ -127,6 +127,14 @@ class HttpsFirstModeService
       base::OnceClosure done_callback,
       const std::vector<site_engagement::mojom::SiteEngagementDetails>&
           details);
+
+  // If true, will not clear the HTTP allowlist when the HFM pref changes next
+  // time. Will be set to false again upon pref change.
+  // The HFM pref can be changed by the UI setting or the Typically Secure User
+  // heuristic. We only need to clear the allowlist if the UI setting is. The
+  // pref observer has no way of knowing how the pref was changed, so we use
+  // this bool to tell it to clear or keep the allowlist.
+  bool keep_http_allowlist_on_next_pref_change_ = false;
 
   raw_ptr<Profile> profile_;
   PrefChangeRegistrar pref_change_registrar_;

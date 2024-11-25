@@ -144,14 +144,15 @@ std::u16string ShareFileDownloadTabHelper::GetFileNameSuggestion() {
   // fail use the default filename "document".
   std::string content_disposition;
   if (response_headers_) {
-    response_headers_->GetNormalizedHeader("content-disposition",
-                                           &content_disposition);
+    content_disposition =
+        response_headers_->GetNormalizedHeader("content-disposition")
+            .value_or(std::string());
   }
   std::string default_file_name =
       l10n_util::GetStringUTF8(IDS_IOS_OPEN_IN_FILE_DEFAULT_TITLE);
   web::NavigationItem* item =
       web_state_->GetNavigationManager()->GetLastCommittedItem();
-  const GURL& last_committed_url = item ? item->GetURL() : GURL::EmptyGURL();
+  const GURL& last_committed_url = item ? item->GetURL() : GURL();
   std::u16string file_name =
       net::GetSuggestedFilename(last_committed_url, content_disposition,
                                 "",  // referrer-charset

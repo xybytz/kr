@@ -10,6 +10,7 @@ import static org.chromium.chrome.browser.keyboard_accessory.bar_component.Keybo
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.DISABLE_ANIMATIONS_FOR_TESTING;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.HAS_SUGGESTIONS;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.OBFUSCATED_CHILD_AT_CALLBACK;
+import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.ON_TOUCH_EVENT_CALLBACK;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SHEET_OPENER_ITEM;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SHOW_SWIPING_IPH;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SKIP_CLOSING_ANIMATION;
@@ -35,7 +36,7 @@ import org.chromium.chrome.browser.keyboard_accessory.data.Provider;
 import org.chromium.chrome.browser.keyboard_accessory.sheet_component.AccessorySheetCoordinator;
 import org.chromium.components.autofill.AutofillDelegate;
 import org.chromium.components.autofill.AutofillSuggestion;
-import org.chromium.components.autofill.PopupItemId;
+import org.chromium.components.autofill.SuggestionType;
 import org.chromium.components.feature_engagement.FeatureConstants;
 import org.chromium.ui.modelutil.PropertyKey;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -44,8 +45,7 @@ import org.chromium.ui.modelutil.PropertyObservable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.function.Predicate;
-import java.util.stream.StreamSupport;
+import java.util.Optional;
 
 /**
  * This is the second part of the controller of the keyboard accessory component. It is responsible
@@ -62,6 +62,7 @@ class KeyboardAccessoryMediator
     private final BarVisibilityDelegate mBarVisibilityDelegate;
     private final AccessorySheetCoordinator.SheetVisibilityDelegate mSheetVisibilityDelegate;
     private final TabSwitchingDelegate mTabSwitcher;
+    private Optional<Boolean> mHasFilteredTouchEvent = Optional.empty();
 
     KeyboardAccessoryMediator(
             PropertyModel model,
@@ -76,6 +77,7 @@ class KeyboardAccessoryMediator
 
         // Add mediator as observer so it can use model changes as signal for accessory visibility.
         mModel.set(OBFUSCATED_CHILD_AT_CALLBACK, this::onSuggestionObfuscatedAt);
+        mModel.set(ON_TOUCH_EVENT_CALLBACK, this::onTouchEvent);
         mModel.set(SHEET_OPENER_ITEM, new SheetOpenerBarItem(sheetOpenerCallbacks));
         mModel.set(ANIMATION_LISTENER, mBarVisibilityDelegate::onBarFadeInAnimationEnd);
         mModel.get(BAR_ITEMS).add(mModel.get(SHEET_OPENER_ITEM));
@@ -86,12 +88,13 @@ class KeyboardAccessoryMediator
      * Creates an observer object that refreshes the accessory bar items when a connected provider
      * notifies it about new {@link AutofillSuggestion}s. It ensures the delegate receives
      * interactions with the view representing a suggestion.
+     *
      * @param delegate A {@link AutofillDelegate}.
      * @return A {@link Provider.Observer} accepting only {@link AutofillSuggestion}s.
      */
-    Provider.Observer<AutofillSuggestion[]> createAutofillSuggestionsObserver(
+    Provider.Observer<List<AutofillSuggestion>> createAutofillSuggestionsObserver(
             AutofillDelegate delegate) {
-        return (@AccessoryAction int typeId, AutofillSuggestion[] suggestions) -> {
+        return (@AccessoryAction int typeId, List<AutofillSuggestion> suggestions) -> {
             assert typeId == AccessoryAction.AUTOFILL_SUGGESTION
                     : "Autofill suggestions observer received wrong data: " + typeId;
             List<BarItem> retainedItems = collectItemsToRetain(AccessoryAction.AUTOFILL_SUGGESTION);
@@ -141,37 +144,40 @@ class KeyboardAccessoryMediator
     /**
      * Next to the regular suggestion that we always want to show, there is a number of special
      * suggestions which we want to suppress (e.g. replaced entry points, old warnings, separators).
+     *
      * @param suggestion This {@link AutofillSuggestion} will be checked for usefulness.
      * @return True iff the suggestion should be displayed.
      */
     private boolean shouldShowSuggestion(AutofillSuggestion suggestion) {
-        switch (suggestion.getPopupItemId()) {
-            case PopupItemId.INSECURE_CONTEXT_PAYMENT_DISABLED_MESSAGE:
+        switch (suggestion.getSuggestionType()) {
+            case SuggestionType.INSECURE_CONTEXT_PAYMENT_DISABLED_MESSAGE:
                 // The insecure context warning has a replacement in the fallback sheet.
-            case PopupItemId.SEPARATOR:
-            case PopupItemId.CLEAR_FORM:
-            case PopupItemId.ALL_SAVED_PASSWORDS_ENTRY:
-            case PopupItemId.GENERATE_PASSWORD_ENTRY:
-            case PopupItemId.SHOW_ACCOUNT_CARDS:
-            case PopupItemId.AUTOFILL_OPTIONS:
+            case SuggestionType.TITLE:
+            case SuggestionType.SEPARATOR:
+            case SuggestionType.UNDO_OR_CLEAR:
+            case SuggestionType.ALL_SAVED_PASSWORDS_ENTRY:
+            case SuggestionType.GENERATE_PASSWORD_ENTRY:
+            case SuggestionType.SHOW_ACCOUNT_CARDS:
+            case SuggestionType.MANAGE_ADDRESS:
+            case SuggestionType.MANAGE_CREDIT_CARD:
+            case SuggestionType.MANAGE_IBAN:
+            case SuggestionType.MANAGE_PLUS_ADDRESS:
                 return false;
-            case PopupItemId.AUTOCOMPLETE_ENTRY:
-            case PopupItemId.PASSWORD_ENTRY:
-            case PopupItemId.DATALIST_ENTRY:
-            case PopupItemId.SCAN_CREDIT_CARD:
-            case PopupItemId.USERNAME_ENTRY:
-            case PopupItemId.ACCOUNT_STORAGE_PASSWORD_ENTRY:
-            case PopupItemId.ACCOUNT_STORAGE_USERNAME_ENTRY:
+            case SuggestionType.AUTOCOMPLETE_ENTRY:
+            case SuggestionType.PASSWORD_ENTRY:
+            case SuggestionType.DATALIST_ENTRY:
+            case SuggestionType.SCAN_CREDIT_CARD:
+            case SuggestionType.ACCOUNT_STORAGE_PASSWORD_ENTRY:
                 return true;
         }
         return true; // If it's not a special id, show the regular suggestion!
     }
 
     private List<AutofillBarItem> toBarItems(
-            AutofillSuggestion[] suggestions, AutofillDelegate delegate) {
-        List<AutofillBarItem> barItems = new ArrayList<>(suggestions.length);
-        for (int position = 0; position < suggestions.length; ++position) {
-            AutofillSuggestion suggestion = suggestions[position];
+            List<AutofillSuggestion> suggestions, AutofillDelegate delegate) {
+        List<AutofillBarItem> barItems = new ArrayList<>(suggestions.size());
+        for (int position = 0; position < suggestions.size(); ++position) {
+            AutofillSuggestion suggestion = suggestions.get(position);
             if (!shouldShowSuggestion(suggestion)) continue;
             barItems.add(new AutofillBarItem(suggestion, createAutofillAction(delegate, position)));
         }
@@ -188,7 +194,7 @@ class KeyboardAccessoryMediator
                 skippedFirstPasswordItem = true;
                 continue;
             }
-            barItem.setFeatureForIPH(getFeatureBySuggestionId(barItem.getSuggestion()));
+            barItem.setFeatureForIph(getFeatureBySuggestionId(barItem.getSuggestion()));
             break; // Only set IPH for one suggestions in the bar.
         }
 
@@ -246,6 +252,12 @@ class KeyboardAccessoryMediator
     void dismiss() {
         mTabSwitcher.closeActiveTab();
         mModel.set(VISIBLE, false);
+        if (!mHasFilteredTouchEvent.orElse(true)) {
+            // Log the metric if the accessory received touch events, but none of them were
+            // filtered.
+            ManualFillingMetricsRecorder.recordHasFilteredTouchEvents(false);
+        }
+        mHasFilteredTouchEvent = Optional.empty();
     }
 
     @Override
@@ -288,6 +300,18 @@ class KeyboardAccessoryMediator
         mModel.set(SHOW_SWIPING_IPH, indexOfLast <= mModel.get(BAR_ITEMS).size() - 2);
     }
 
+    private void onTouchEvent(boolean eventFiltered) {
+        if (!eventFiltered) {
+            mHasFilteredTouchEvent = Optional.of(mHasFilteredTouchEvent.orElse(false));
+            return;
+        }
+        if (!mHasFilteredTouchEvent.orElse(false)) {
+            // Log the metric if none of the previous touch events were filtered.
+            ManualFillingMetricsRecorder.recordHasFilteredTouchEvents(true);
+        }
+        mHasFilteredTouchEvent = Optional.of(true);
+    }
+
     /**
      * @return True if neither suggestions nor tabs are available.
      */
@@ -321,8 +345,8 @@ class KeyboardAccessoryMediator
     private static String getFeatureBySuggestionId(AutofillSuggestion suggestion) {
         // If the suggestion has an explicit IPH feature defined, prefer that over the default IPH
         // features.
-        if (suggestion.getFeatureForIPH() != null && !suggestion.getFeatureForIPH().isEmpty()) {
-            return suggestion.getFeatureForIPH();
+        if (suggestion.getFeatureForIph() != null && !suggestion.getFeatureForIph().isEmpty()) {
+            return suggestion.getFeatureForIph();
         }
         if (containsPasswordInfo(suggestion)) {
             return FeatureConstants.KEYBOARD_ACCESSORY_PASSWORD_FILLING_FEATURE;
@@ -337,16 +361,15 @@ class KeyboardAccessoryMediator
     }
 
     private static boolean containsPasswordInfo(AutofillSuggestion suggestion) {
-        return suggestion.getPopupItemId() == PopupItemId.USERNAME_ENTRY
-                || suggestion.getPopupItemId() == PopupItemId.PASSWORD_ENTRY;
+        return suggestion.getSuggestionType() == SuggestionType.PASSWORD_ENTRY;
     }
 
     private static boolean containsCreditCardInfo(AutofillSuggestion suggestion) {
-        return suggestion.getPopupItemId() == PopupItemId.CREDIT_CARD_ENTRY;
+        return suggestion.getSuggestionType() == SuggestionType.CREDIT_CARD_ENTRY;
     }
 
     private static boolean containsAddressInfo(AutofillSuggestion suggestion) {
-        return suggestion.getPopupItemId() == PopupItemId.ADDRESS_ENTRY;
+        return suggestion.getSuggestionType() == SuggestionType.ADDRESS_ENTRY;
     }
 
     private @StringRes int getCaptionId(@AccessoryAction int actionType) {
@@ -371,14 +394,13 @@ class KeyboardAccessoryMediator
     }
 
     private @StringRes int getCaptionIdForCredManEntry() {
-        Predicate<BarItem> hasWebAuthnCredential =
-                barItem ->
-                        barItem.getViewType() == BarItem.Type.SUGGESTION
-                                && ((AutofillBarItem) barItem).getSuggestion().getPopupItemId()
-                                        == PopupItemId.WEBAUTHN_CREDENTIAL;
-        return StreamSupport.stream(mModel.get(BAR_ITEMS).spliterator(), true)
-                        .anyMatch(hasWebAuthnCredential)
-                ? R.string.more_passkeys
-                : R.string.select_passkey;
+        for (var barItem : mModel.get(BAR_ITEMS)) {
+            if (barItem.getViewType() == BarItem.Type.SUGGESTION
+                    && ((AutofillBarItem) barItem).getSuggestion().getSuggestionType()
+                            == SuggestionType.WEBAUTHN_CREDENTIAL) {
+                return R.string.more_passkeys;
+            }
+        }
+        return R.string.select_passkey;
     }
 }

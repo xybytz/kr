@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -13,7 +18,6 @@
 #include "base/containers/span.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/numerics/safe_math.h"
-#include "base/strings/string_piece.h"
 #include "components/webcrypto/algorithms/aes.h"
 #include "components/webcrypto/algorithms/util.h"
 #include "components/webcrypto/blink_key_handle.h"
@@ -96,7 +100,7 @@ absl::uint128 GetCounter(base::span<const uint8_t, 16> counter_block,
   if (counter_length_remainder_bits != 0) {
     ret &= ~(0xFF << counter_length_remainder_bits);
   }
-  for (uint8_t b : suffix.subspan(1)) {
+  for (uint8_t b : suffix.subspan<1>()) {
     ret = (ret << 8) | b;
   }
   return ret;

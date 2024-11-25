@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import './strings.m.js';
+import '/strings.m.js';
 import 'chrome://resources/js/action_link.js';
 // <if expr="is_ios">
 import 'chrome://resources/js/ios/web_ui.js';
@@ -10,16 +10,16 @@ import 'chrome://resources/js/ios/web_ui.js';
 
 import './status_box.js';
 import './policy_table.js';
+import './policy_promotion.js';
 
 import {addWebUiListener, sendWithPromise} from 'chrome://resources/js/cr.js';
 import {FocusOutlineManager} from 'chrome://resources/js/focus_outline_manager.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {getRequiredElement} from 'chrome://resources/js/util.js';
 
-import {Policy} from './policy_row.js';
-import {PolicyTableElement, PolicyTableModel} from './policy_table.js';
-import {Status, StatusBoxElement} from './status_box.js';
-
+import type {Policy} from './policy_row.js';
+import type {PolicyTableElement, PolicyTableModel} from './policy_table.js';
+import type {Status, StatusBoxElement} from './status_box.js';
 export interface PolicyNamesResponse {
   [id: string]: {name: string, policyNames: NonNullable<string[]>};
 }
@@ -63,6 +63,35 @@ export class Page {
     this.mainSection = getRequiredElement('main-section');
 
     const policyElement = getRequiredElement('policy-ui');
+
+    sendWithPromise('shouldShowPromotion').then((shouldShowPromo: boolean) => {
+      if (!shouldShowPromo) {
+        return;
+      }
+      const promotionSection =
+          document.createElement('promotion-banner-section-container') as
+          HTMLElement;
+      policyElement.insertBefore(
+          promotionSection, getRequiredElement('status-section'));
+
+      const promotionDismissButton =
+          promotionSection.shadowRoot!.getElementById(
+              'promotion-dismiss-button');
+
+      promotionDismissButton?.addEventListener('click', () => {
+        chrome.send('setBannerDismissed');
+        promotionSection.remove();
+      });
+
+      const promotionRedirectButton =
+          promotionSection.shadowRoot!.getElementById(
+              'promotion-redirect-button');
+
+      promotionRedirectButton?.addEventListener('click', () => {
+        chrome.send('recordBannerRedirected');
+      });
+    });
+
     // Add or remove header shadow based on scroll position.
     policyElement.addEventListener('scroll', () => {
       document.getElementsByTagName('header')[0]!.classList.toggle(
@@ -85,8 +114,7 @@ export class Page {
         getRequiredElement('reload-policies') as HTMLButtonElement;
     reloadPoliciesButton.onclick = () => {
       reloadPoliciesButton!.disabled = true;
-      getRequiredElement('screen-reader-message').textContent =
-          loadTimeData.getString('reloadingPolicies');
+      this.createToast(loadTimeData.getString('reloadingPolicies'));
       sendWithPromise('reloadPolicies');
     };
 
@@ -126,20 +154,17 @@ export class Page {
     uploadReportButton.style.display = 'none';
     uploadReportButton.onclick = () => {
       uploadReportButton.disabled = true;
-      getRequiredElement('screen-reader-message').textContent =
-          loadTimeData.getString('reportUploading');
+      this.createToast(loadTimeData.getString('reportUploading'));
       sendWithPromise('uploadReport').then(() => {
         uploadReportButton.disabled = false;
-        getRequiredElement('screen-reader-message').textContent =
-            loadTimeData.getString('reportUploaded');
+        this.createToast(loadTimeData.getString('reportUploaded'));
       });
     };
     // </if>
 
     getRequiredElement('copy-policies').onclick = () => {
       sendWithPromise('copyPoliciesJSON');
-      getRequiredElement('screen-reader-message').textContent =
-          loadTimeData.getString('copyPoliciesDone');
+      this.createToast(loadTimeData.getString('copyPoliciesDone'));
     };
 
     getRequiredElement('show-unset').onchange = () => {
@@ -205,11 +230,30 @@ export class Page {
 
     // <if expr="not is_chromeos">
     this.updateReportButton(
-      !!policyValues['chrome']?.policies['CloudReportingEnabled']?.value ||
-      !!policyValues['chrome']?.policies['CloudProfileReportingEnabled']?.value,
+        !!policyValues['chrome']?.policies['CloudReportingEnabled']?.value ||
+            !!policyValues['chrome']
+                  ?.policies['CloudProfileReportingEnabled']
+                  ?.value,
     );
     // </if>
     this.reloadPoliciesDone();
+  }
+
+  /**
+   * Creates a toast notification with 2 second timeout at bottom of the page.
+   * The notification is also announced to screen readers.
+   */
+  createToast(content: string): void {
+    const toast = document.createElement('div');
+    toast.textContent = content;
+    toast.classList.add('toast');
+    toast.setAttribute('role', 'alert');
+    const container = getRequiredElement('toast-container');
+    container.appendChild(toast);
+
+    setTimeout(() => {
+      container.removeChild(toast);
+    }, 2000);
   }
 
   // Triggers the download of the policies as a JSON file.
@@ -236,8 +280,7 @@ export class Page {
         'click', {bubbles: true, cancelable: true, view: window}));
 
     document.body.removeChild(link);
-    getRequiredElement('screen-reader-message').textContent =
-        loadTimeData.getString('exportPoliciesDone');
+    this.createToast(loadTimeData.getString('exportPoliciesDone'));
   }
 
   createOrUpdatePolicyTable(dataModel: PolicyTableModel) {
@@ -245,8 +288,9 @@ export class Page {
     if (!this.policyTables[id]) {
       this.policyTables[id] = document.createElement('policy-table');
       this.mainSection!.appendChild(this.policyTables[id]!);
+      this.policyTables[id]!.addEventListeners();
     }
-    this.policyTables[id]!.update(dataModel);
+    this.policyTables[id]!.updateDataModel(dataModel);
   }
 
   /**
@@ -287,8 +331,7 @@ export class Page {
         getRequiredElement('reload-policies') as HTMLButtonElement;
     if (reloadButton!.disabled) {
       reloadButton!.disabled = false;
-      getRequiredElement('screen-reader-message').textContent =
-          loadTimeData.getString('reloadPoliciesDone');
+      this.createToast(loadTimeData.getString('reloadPoliciesDone'));
     }
   }
 

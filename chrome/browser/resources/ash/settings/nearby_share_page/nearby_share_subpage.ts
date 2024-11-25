@@ -8,11 +8,11 @@
  * Nearby Share feature.
  */
 
-import 'chrome://resources/cr_components/settings_prefs/prefs.js';
-import 'chrome://resources/cr_elements/cr_shared_style.css.js';
-import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
+import '/shared/settings/prefs/prefs.js';
+import 'chrome://resources/ash/common/cr_elements/cr_shared_style.css.js';
+import 'chrome://resources/ash/common/cr_elements/cr_link_row/cr_link_row.js';
 import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
-import '/shared/settings/controls/settings_toggle_button.js';
+import '../controls/settings_toggle_button.js';
 import '../settings_shared.css.js';
 import './nearby_share_contact_visibility_dialog.js';
 import './nearby_share_device_name_dialog.js';
@@ -20,10 +20,10 @@ import './nearby_share_data_usage_dialog.js';
 import './nearby_share_receive_dialog.js';
 
 import {getContactManager} from '/shared/nearby_contact_manager.js';
-import {ReceiveObserverReceiver, ShareTarget, TransferMetadata} from '/shared/nearby_share.mojom-webui.js';
-import {NearbySettings} from '/shared/nearby_share_settings_mixin.js';
-import {PrefsMixin} from 'chrome://resources/cr_components/settings_prefs/prefs_mixin.js';
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import type {ReceiveObserverReceiver, ShareTarget, TransferMetadata} from '/shared/nearby_share.mojom-webui.js';
+import type {NearbySettings} from '/shared/nearby_share_settings_mixin.js';
+import {PrefsMixin} from '/shared/settings/prefs/prefs_mixin.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
 import {assertNotReached} from 'chrome://resources/js/assert.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {DataUsage, FastInitiationNotificationState, Visibility} from 'chrome://resources/mojo/chromeos/ash/services/nearby/public/mojom/nearby_share_settings.mojom-webui.js';
@@ -32,10 +32,11 @@ import {flush, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/pol
 import {DeepLinkingMixin} from '../common/deep_linking_mixin.js';
 import {RouteObserverMixin} from '../common/route_observer_mixin.js';
 import {Setting} from '../mojom-webui/setting.mojom-webui.js';
-import {Route, Router, routes} from '../router.js';
+import type {Route} from '../router.js';
+import {Router, routes} from '../router.js';
 
 import {NearbyAccountManagerBrowserProxyImpl} from './nearby_account_manager_browser_proxy.js';
-import {NearbyShareReceiveDialogElement} from './nearby_share_receive_dialog.js';
+import type {NearbyShareReceiveDialogElement} from './nearby_share_receive_dialog.js';
 import {observeReceiveManager} from './nearby_share_receive_manager.js';
 import {getTemplate} from './nearby_share_subpage.html.js';
 import {dataUsageStringToEnum} from './types.js';
@@ -128,25 +129,70 @@ export class SettingsNearbyShareSubpageElement extends
         computed: `computeShouldShowFastInititationNotificationToggle_(
                 settings.isFastInitiationHardwareSupported)`,
       },
+
+      isDeviceVisible_: {
+        type: Boolean,
+        value: true,  // Correctly populated on settings load.
+      },
+
+      selectedVisibilityLabel_: {
+        type: String,
+        value: '',  // Populated on settings load.
+      },
+
+      isEveryoneModeOnlyForTenMinutes_: {
+        type: Boolean,
+        value: true,
+      },
+
+      yourDevicesLabel_: {
+        type: String,
+        value: 'Your devices',
+      },
+
+      contactsLabel_: {
+        type: String,
+        value: 'Contacts',
+      },
+
+      everyoneLabel_: {
+        type: String,
+        value: 'Everyone',
+      },
+
+      yourDevicesSublabel_: {
+        type: String,
+        computed: 'getYourDevicesVisibilitySublabel_(profileLabel_)',
+      },
     };
   }
 
   static get observers() {
-    return ['enabledChange_(settings.enabled)'];
+    return [
+      'enabledChange_(settings.enabled)',
+      'setSettingsVisibilityMenu_(settings.visibility)',
+    ];
   }
 
   isSettingsRetreived: boolean;
+  settings: NearbySettings;
+  private isDeviceVisible_: boolean;
+  private isEveryoneModeOnlyForTenMinutes_: boolean;
   private inHighVisibility_: boolean;
   private manageContactsUrl_: string;
   private profileLabel_: string;
   private profileName_: string;
   private receiveObserver_: ReceiveObserverReceiver|null;
-  private settings: NearbySettings;
+  private selectedVisibilityLabel_: string;
   private shouldShowFastInititationNotificationToggle_: boolean;
   private showDataUsageDialog_: boolean;
   private showDeviceNameDialog_: boolean;
   private showReceiveDialog_: boolean;
   private showVisibilityDialog_: boolean;
+  private yourDevicesLabel_: string;
+  private yourDevicesSublabel_: string;
+  private contactsLabel_: string;
+  private everyoneLabel_: string;
 
   constructor() {
     super();
@@ -321,7 +367,7 @@ export class SettingsNearbyShareSubpageElement extends
 
   private getHighVisibilityToggleText_(inHighVisibility: boolean): TrustedHTML
       |string {
-    // TODO(crbug.com/1154830): Add logic to show how much time the user
+    // TODO(crbug.com/40159645): Add logic to show how much time the user
     // actually has left.
     return inHighVisibility ?
         this.i18n('nearbyShareHighVisibilityOn', 5) :
@@ -452,6 +498,21 @@ export class SettingsNearbyShareSubpageElement extends
   private computeShouldShowFastInititationNotificationToggle_(
       isHardwareSupported: boolean): boolean {
     return isHardwareSupported;
+  }
+
+  private setVisibility_(visibility: Visibility): void {
+    this.set('settings.visibility', visibility);
+  }
+
+  private getVisibilityByLabel_(visibilityString: string): Visibility {
+    switch (visibilityString) {
+      case this.yourDevicesLabel_:
+        return Visibility.kYourDevices;
+      case this.contactsLabel_:
+        return Visibility.kAllContacts;
+      default:
+        return Visibility.kUnknown;
+    }
   }
 }
 

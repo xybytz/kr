@@ -54,8 +54,8 @@ namespace {
 // HistoryBackend to work.
 class HistoryBackendDBTest : public HistoryBackendDBBaseTest {
  public:
-  HistoryBackendDBTest() {}
-  ~HistoryBackendDBTest() override {}
+  HistoryBackendDBTest() = default;
+  ~HistoryBackendDBTest() override = default;
 };
 
 TEST_F(HistoryBackendDBTest, ClearBrowsingData_Downloads) {
@@ -591,8 +591,8 @@ TEST_F(HistoryBackendDBTest, MigrateHashHttpMethodAndGenerateGuids) {
       url_insert_query += base::StringPrintf("(%" PRId64 ", 0, 'url')",
                                              static_cast<int64_t>(download_id));
     }
-    ASSERT_TRUE(db.Execute(download_insert_query.c_str()));
-    ASSERT_TRUE(db.Execute(url_insert_query.c_str()));
+    ASSERT_TRUE(db.Execute(download_insert_query));
+    ASSERT_TRUE(db.Execute(url_insert_query));
   }
 
   CreateBackendAndDatabase();
@@ -3041,6 +3041,57 @@ TEST_F(HistoryBackendDBTest, MigrateRemoveTypedUrlMetadataTable) {
     sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     EXPECT_FALSE(db.DoesTableExist(kTypedUrlMetadataTable));
+  }
+}
+
+TEST_F(HistoryBackendDBTest, MigrateVisitsAddAppId) {
+  ASSERT_NO_FATAL_FAILURE(CreateDBVersion(68));
+
+  const VisitID visit_id = 1;
+  const URLID url_id = 2;
+  const base::Time visit_time(base::Time::Now());
+  const ui::PageTransition transition = ui::PAGE_TRANSITION_TYPED;
+  const base::TimeDelta visit_duration(base::Seconds(45));
+
+  const char kInsertStatement[] =
+      "INSERT INTO visits "
+      "(id, url, visit_time, transition, visit_duration) "
+      "VALUES (?, ?, ?, ?, ?)";
+
+  // Open the old version of the DB and make sure the new column doesn't exist
+  // yet.
+  {
+    sql::Database db;
+    ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
+    ASSERT_FALSE(db.DoesColumnExist("visits", "app_id"));
+
+    // Add entry to visits.
+    sql::Statement s(db.GetUniqueStatement(kInsertStatement));
+    s.BindInt64(0, visit_id);
+    s.BindInt64(1, url_id);
+    s.BindInt64(2, visit_time.ToDeltaSinceWindowsEpoch().InMicroseconds());
+    s.BindInt64(3, transition);
+    s.BindInt64(4, visit_duration.InMicroseconds());
+    ASSERT_TRUE(s.Run());
+  }
+
+  // Re-open the db, triggering migration.
+  CreateBackendAndDatabase();
+
+  // The version should have been updated.
+  ASSERT_GE(HistoryDatabase::GetCurrentVersion(), 69);
+
+  VisitRow visit_row;
+  db_->GetRowForVisit(visit_id, &visit_row);
+  EXPECT_FALSE(visit_row.app_id);
+
+  DeleteBackend();
+
+  // Open the db manually again and make sure the new columns exist.
+  {
+    sql::Database db;
+    ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
+    EXPECT_TRUE(db.DoesColumnExist("visits", "app_id"));
   }
 }
 

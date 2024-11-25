@@ -10,6 +10,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/first_party_sets/first_party_sets_policy_service.h"
+#include "chrome/browser/privacy_sandbox/privacy_sandbox_countries.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -17,6 +18,7 @@
 #include "components/privacy_sandbox/privacy_sandbox_prefs.h"
 #include "components/privacy_sandbox/privacy_sandbox_settings.h"
 #include "components/profile_metrics/browser_profile_type.h"
+#include "components/user_education/common/product_messaging_controller.h"
 #include "content/public/browser/interest_group_manager.h"
 #include "net/base/schemeful_site.h"
 
@@ -46,6 +48,27 @@ class PrivacySandboxService : public KeyedService {
     kM1NoticeRestricted = 4,
     kMaxValue = kM1NoticeRestricted,
   };
+
+  // A list of the client surfaces we show consents / notices on.
+  // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.privacy_sandbox
+  enum class SurfaceType {
+    kDesktop = 0,
+    kBrApp = 1,
+    kAGACCT = 2,
+    kMaxValue = kAGACCT,
+  };
+
+  // Account sign in user groups
+  // LINT.IfChange(PrimaryAccountUserGroups)
+  enum class PrimaryAccountUserGroups {
+    kNotSet = 0,
+    kSignedOut = 1,
+    kSignedInCapabilityFalse = 2,
+    kSignedInCapabilityTrue = 3,
+    kSignedInCapabilityUnknown = 4,
+    kMaxValue = kSignedInCapabilityUnknown,
+  };
+  // LINT.ThenChange(//tools/metrics/histograms/enums.xml:PrivacySandboxPrimaryAccountUserGroups)
 
   // An exhaustive list of actions related to showing & interacting with the
   // prompt. Includes actions which do not impact consent / notice state.
@@ -91,7 +114,10 @@ class PrivacySandboxService : public KeyedService {
     kRestrictedNoticeClosedNoInteraction = 19,
     kRestrictedNoticeMoreButtonClicked = 20,
 
-    kMaxValue = kRestrictedNoticeMoreButtonClicked,
+    // Privacy policy interactions
+    kPrivacyPolicyLinkClicked = 21,
+
+    kMaxValue = kPrivacyPolicyLinkClicked,
   };
 
   // If during the trials a previous consent decision was made, or the notice
@@ -140,14 +166,15 @@ class PrivacySandboxService : public KeyedService {
   // state of the Privacy Sandbox settings, and the current location of the
   // user, to determine the appropriate type. This is expected to be called by
   // UI code locations determining whether a prompt should be shown on startup.
-  virtual PromptType GetRequiredPromptType() = 0;
+  virtual PromptType GetRequiredPromptType(SurfaceType surface_type) = 0;
 
   // Informs the service that |action| occurred with the prompt. This allows
   // the service to record this information in preferences such that future
   // calls to GetRequiredPromptType() are correct. This is expected to be
   // called appropriately by all locations showing the prompt. Metrics shared
   // between platforms will also be recorded.
-  virtual void PromptActionOccurred(PromptAction action) = 0;
+  virtual void PromptActionOccurred(PromptAction action,
+                                    SurfaceType surface_type) = 0;
 
   // Functions for coordinating the display of the Privacy Sandbox prompts
   // across multiple browser windows. Only relevant for Desktop.
@@ -161,6 +188,20 @@ class PrivacySandboxService : public KeyedService {
 
   // Returns whether a Privacy Sandbox prompt is currently open for |browser|.
   virtual bool IsPromptOpenForBrowser(Browser* browser) = 0;
+
+  // The following methods call directly into the product messaging controller.
+  virtual bool IsNoticeQueued() = 0;
+  virtual bool IsHoldingHandle() = 0;
+  // If the notice is in the queue, it will unqueue it. Otherwise, if the handle
+  // is being held, it will release the handle.
+  virtual void MaybeUnqueueNotice() = 0;
+  // If a prompt is required and we are not already in the queue or holding the
+  // handle, will add the notice to the product messaging controller queue.
+  virtual void MaybeQueueNotice() = 0;
+  // Triggered by product messaging code when our turn in queue has arrived.
+  // Moves the handle to temporary location to hold it.
+  virtual void HoldQueueHandle(user_education::RequiredNoticePriorityHandle
+                                   messaging_priority_handle) = 0;
 #endif  // !BUILDFLAG(IS_ANDROID)
 
   // If set to true, this treats the testing environment as that of a branded
@@ -177,40 +218,40 @@ class PrivacySandboxService : public KeyedService {
   virtual bool IsRestrictedNoticeEnabled() = 0;
 
   // Toggles the RelatedWebsiteSets preference.
-  virtual void SetFirstPartySetsDataAccessEnabled(bool enabled) = 0;
+  virtual void SetRelatedWebsiteSetsDataAccessEnabled(bool enabled) = 0;
 
   // Returns whether the RelatedWebsiteSets preference is enabled.
-  virtual bool IsFirstPartySetsDataAccessEnabled() const = 0;
+  virtual bool IsRelatedWebsiteSetsDataAccessEnabled() const = 0;
 
   // Returns whether the RelatedWebsiteSets preference is managed.
-  virtual bool IsFirstPartySetsDataAccessManaged() const = 0;
+  virtual bool IsRelatedWebsiteSetsDataAccessManaged() const = 0;
 
   // DEPRECATED - Do not use in new code. It will be replaced with queries to
-  // the First-Party Sets that are in the browser-process.
+  // the Related Website Sets that are in the browser-process.
   // Virtual for mocking in tests.
   virtual base::flat_map<net::SchemefulSite, net::SchemefulSite>
-  GetSampleFirstPartySets() const = 0;
+  GetSampleRelatedWebsiteSets() const = 0;
 
-  // Returns the owner domain of the first party set that `site_url` is a member
-  // of, or std::nullopt if `site_url` is not recognised as a member of an FPS.
-  // Encapsulates logic about whether FPS information should be shown, if it
-  // should not, std::nullopt is always returned.
-  // Virtual for mocking in tests.
-  virtual std::optional<net::SchemefulSite> GetFirstPartySetOwner(
+  // Returns the owner domain of the related website set that `site_url` is a
+  // member of, or std::nullopt if `site_url` is not recognised as a member of
+  // an RWS. Encapsulates logic about whether RWS information should be shown,
+  // if it should not, std::nullopt is always returned. Virtual for mocking in
+  // tests.
+  virtual std::optional<net::SchemefulSite> GetRelatedWebsiteSetOwner(
       const GURL& site_url) const = 0;
 
-  // Same as GetFirstPartySetOwner but returns a formatted string.
-  virtual std::optional<std::u16string> GetFirstPartySetOwnerForDisplay(
+  // Same as GetRelatedWebsiteSetOwner but returns a formatted string.
+  virtual std::optional<std::u16string> GetRelatedWebsiteSetOwnerForDisplay(
       const GURL& site_url) const = 0;
 
-  // Returns true if `site`'s membership in an FPS is being managed by policy or
-  // if FirstPartySets preference is managed. Virtual for mocking in tests.
+  // Returns true if `site`'s membership in an RWS is being managed by policy or
+  // if RelatedWebsiteSets preference is managed. Virtual for mocking in tests.
   //
-  // Note: Enterprises can use the First-Party Set Overrides policy to either
-  // add or remove a site from a First-Party Set. This method returns true only
-  // if `site` is being added into a First-Party Set since there's no UI use for
-  // whether `site` is being removed by an enterprise yet.
-  virtual bool IsPartOfManagedFirstPartySet(
+  // Note: Enterprises can use the Related Website Set Overrides policy to
+  // either add or remove a site from a Related Website Set. This method returns
+  // true only if `site` is being added into a Related Website Set since there's
+  // no UI use for whether `site` is being removed by an enterprise yet.
+  virtual bool IsPartOfManagedRelatedWebsiteSet(
       const net::SchemefulSite& site) const = 0;
 
   // Returns the set of eTLD + 1's on which the user was joined to a FLEDGE
@@ -261,10 +302,16 @@ class PrivacySandboxService : public KeyedService {
   virtual void SetTopicAllowed(privacy_sandbox::CanonicalTopic topic,
                                bool allowed) = 0;
 
+  // Determines whether the Topics API step should be shown in the Privacy
+  // Guide.
+  virtual bool PrivacySandboxPrivacyGuideShouldShowAdTopicsCard() = 0;
+
   // Inform the service that the user changed the Topics toggle in settings,
   // so that the current topics consent information can be updated.
-  // TODO (crbug.com/1378703): Determine whether changes to the preference,
-  // such as by policy or extensions, should also call here.
+  // This is not fired for changes to the preference for policy or extensions,
+  // and so consent information only represents direct user actions. Note that
+  // extensions and policy can only _disable_ topics, and so cannot bypass the
+  // need for user consent where required.
   // Virtual for mocking in tests.
   virtual void TopicsToggleChanged(bool new_value) const = 0;
 
@@ -276,11 +323,14 @@ class PrivacySandboxService : public KeyedService {
 
   // Functions which returns the details of the currently recorded Topics
   // consent.
-  // TODO (crbug.com/1378703): Display the output of these functions in WebUI.
   virtual privacy_sandbox::TopicsConsentUpdateSource
   TopicsConsentLastUpdateSource() const = 0;
   virtual base::Time TopicsConsentLastUpdateTime() const = 0;
   virtual std::string TopicsConsentLastUpdateText() const = 0;
+
+  // Temporary flag signifying not to requeue if the prompt has been suppressed.
+  // TODO(crbug.com/370804492): When we add DMA notice to queue, remove this.
+  bool suppress_queue = false;
 };
 
 #endif  // CHROME_BROWSER_PRIVACY_SANDBOX_PRIVACY_SANDBOX_SERVICE_H_

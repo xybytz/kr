@@ -65,10 +65,6 @@ Study::Platform ClientFilterableState::GetCurrentPlatform() {
 #endif
 }
 
-// TODO(b/957197): Improve how we handle OS versions.
-// Add os_version.h and os_version_<platform>.cc that handle retrieving and
-// parsing OS versions. Then get rid of all the platform-dependent code here.
-//
 // static
 base::Version ClientFilterableState::GetOSVersion() {
   base::Version ret;
@@ -87,6 +83,15 @@ base::Version ClientFilterableState::GetOSVersion() {
 #endif
 
   return ret;
+}
+
+std::string ClientFilterableState::GetHardwareClass() {
+  // TODO(crbug.com/40708998): Expand to other platforms.
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_ANDROID)
+  return base::SysInfo::HardwareModelName();
+#else
+  return "";
+#endif
 }
 
 }  // namespace variations

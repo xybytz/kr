@@ -15,7 +15,6 @@ namespace quick_pair {
 class FakeBluetoothAdapter
     : public testing::NiceMock<device::MockBluetoothAdapter> {
  public:
-  void NotifyPoweredChanged(bool powered);
 
   void SetBluetoothIsPowered(bool powered);
 
@@ -44,6 +43,7 @@ class FakeBluetoothAdapter
       device::BluetoothRemoteGattCharacteristic* characteristic);
 
   void NotifyConfirmPasskey(uint32_t passkey, device::BluetoothDevice* device);
+  void NotifyDisplayPasskey(device::BluetoothDevice* device, uint32_t passkey);
 
   void NotifyDevicePairedChanged(device::BluetoothDevice* device,
                                  bool new_paired_status);

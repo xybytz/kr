@@ -11,6 +11,7 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "base/base_export.h"
 
@@ -53,6 +54,10 @@ BASE_EXPORT bool WasLaunchedAsHiddenLoginItem();
 // Remove the quarantine xattr from the given file. Returns false if there was
 // an error, or true otherwise.
 BASE_EXPORT bool RemoveQuarantineAttribute(const FilePath& file_path);
+
+// Sets the tags on a given file or folder.
+BASE_EXPORT void SetFileTags(const FilePath& file_path,
+                             const std::vector<std::string>& file_tags);
 
 // The following two functions return the version of the macOS currently
 // running. MacOSVersion() returns the full trio of version numbers, packed into
@@ -99,14 +104,20 @@ enum class SystemSettingsPane {
   // Network > Proxies
   kNetwork_Proxies,
 
+  // Notifications; optionally pass a bundle identifier as `id_param` to
+  // directly open the notification settings page for the given app.
+  kNotifications,
+
   // Printers & Scanners
   kPrintersScanners,
+
+  // Privacy & Security
+  kPrivacySecurity,
 
   // Privacy & Security > Accessibility
   kPrivacySecurity_Accessibility,
 
   // Privacy & Security > Bluetooth
-  // Available on macOS 11 and later.
   kPrivacySecurity_Bluetooth,
 
   // Privacy & Security > Camera
@@ -130,8 +141,10 @@ enum class SystemSettingsPane {
 
 // Opens the specified System Settings pane. If the specified subpane does not
 // exist on the release of macOS that is running, the parent pane will open
-// instead.
-BASE_EXPORT void OpenSystemSettingsPane(SystemSettingsPane pane);
+// instead. For some panes, `id_param` can be used to specify a subpane. See the
+// various SystemSettingsPane values for details.
+BASE_EXPORT void OpenSystemSettingsPane(SystemSettingsPane pane,
+                                        const std::string& id_param = "");
 
 // ------- For testing --------
 

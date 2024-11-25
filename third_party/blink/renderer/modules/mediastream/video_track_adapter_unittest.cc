@@ -343,7 +343,7 @@ class VideoTrackAdapterFixtureTest : public ::testing::Test {
   // frame. Returns the number of delivered and dropped frames.
   std::tuple<int, int> GenerateAndCountFrames(
       int num_frames,
-      absl::optional<double> target_frame_rate,
+      std::optional<double> target_frame_rate,
       base::RepeatingCallback<base::TimeDelta(int)> index_to_timestamp) {
     const gfx::Size resolution(10, 10);
     // Any capture format will work. Frames will generated at the
@@ -353,7 +353,7 @@ class VideoTrackAdapterFixtureTest : public ::testing::Test {
     CreateAdapter(stream_format);
 
     VideoTrackAdapterSettings adapter_settings(
-        /*target_size=*/absl::nullopt,
+        /*target_size=*/std::nullopt,
         /*min_aspect_ratio=*/0.0000,
         /*max_aspect_ratio=*/resolution.width(), target_frame_rate);
     ConfigureTrack(adapter_settings);
@@ -399,7 +399,7 @@ class VideoTrackAdapterFixtureTest : public ::testing::Test {
   // frames.
   std::tuple<int, int> GenerateAndCountFrames(
       int num_frames,
-      absl::optional<double> target_frame_rate,
+      std::optional<double> target_frame_rate,
       double actual_input_frame_rate) {
     auto index_to_timestamp =
         base::BindLambdaForTesting([actual_input_frame_rate](int i) {
@@ -476,7 +476,8 @@ TEST_F(VideoTrackAdapterFixtureTest, DeliverFrame_GpuMemoryBuffer) {
         // We should get the original frame as-is here.
         EXPECT_EQ(frame->storage_type(),
                   media::VideoFrame::STORAGE_GPU_MEMORY_BUFFER);
-        EXPECT_EQ(frame->GetGpuMemoryBuffer(), gmb_frame->GetGpuMemoryBuffer());
+        EXPECT_EQ(frame->GetGpuMemoryBufferForTesting(),
+                  gmb_frame->GetGpuMemoryBufferForTesting());
         EXPECT_EQ(frame->coded_size(), kCodedSize);
         EXPECT_EQ(frame->visible_rect(), kVisibleRect);
         EXPECT_EQ(frame->natural_size(), kNaturalSize);
@@ -495,7 +496,8 @@ TEST_F(VideoTrackAdapterFixtureTest, DeliverFrame_GpuMemoryBuffer) {
         // |kDesiredSize| exposed as natural size of the wrapped frame.
         EXPECT_EQ(frame->storage_type(),
                   media::VideoFrame::STORAGE_GPU_MEMORY_BUFFER);
-        EXPECT_EQ(frame->GetGpuMemoryBuffer(), gmb_frame->GetGpuMemoryBuffer());
+        EXPECT_EQ(frame->GetGpuMemoryBufferForTesting(),
+                  gmb_frame->GetGpuMemoryBufferForTesting());
         EXPECT_EQ(frame->coded_size(), kCodedSize);
         EXPECT_EQ(frame->visible_rect(), kVisibleRect);
         EXPECT_EQ(frame->natural_size(), kDesiredSize);
@@ -585,7 +587,7 @@ TEST_F(VideoTrackAdapterFixtureTest,
 
   // We don't provide a target size for the initial track.
   VideoTrackAdapterSettings adapter_settings(
-      /*target_size=*/absl::nullopt,
+      /*target_size=*/std::nullopt,
       /*min_aspect_ratio=*/0.0000,
       /*max_aspect_ratio=*/640.0000, kFrameRate);
   ConfigureTrack(adapter_settings);
@@ -699,7 +701,7 @@ TEST_F(VideoTrackAdapterFixtureTest, FrameRateReductionSlightMismatch) {
 TEST_F(VideoTrackAdapterFixtureTest, DoNotDropFramesIfNoTargetFrameRate) {
   const int kNumFrames = 100;
   auto [num_delivered, num_dropped] =
-      GenerateAndCountFrames(kNumFrames, /*target_frame_rate=*/absl::nullopt,
+      GenerateAndCountFrames(kNumFrames, /*target_frame_rate=*/std::nullopt,
                              /*actual_input_frame_rate=*/10.0);
   EXPECT_EQ(num_delivered, kNumFrames);
   EXPECT_EQ(num_dropped, 0);

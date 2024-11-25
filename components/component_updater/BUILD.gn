@@ -34,14 +34,13 @@ static_library("component_updater") {
     "timer_update_scheduler.cc",
     "timer_update_scheduler.h",
     "update_scheduler.h",
-    "url_param_filter_remover.cc",
-    "url_param_filter_remover.h",
   ]
 
   public_deps = [ ":component_updater_paths" ]
 
   deps = [
     "//base",
+    "//build:branding_buildflags",
     "//build:chromeos_buildflags",
     "//components/crx_file",
     "//components/prefs",
@@ -81,6 +80,7 @@ source_set("unit_tests") {
     ":component_updater",
     "//base",
     "//base/test:test_support",
+    "//build:branding_buildflags",
     "//components/crx_file",
     "//components/prefs:test_support",
     "//components/update_client:test_support",

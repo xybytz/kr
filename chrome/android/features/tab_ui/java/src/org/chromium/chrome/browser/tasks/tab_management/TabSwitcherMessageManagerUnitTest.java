@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.tasks.tab_management;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
@@ -14,6 +15,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import android.app.Activity;
+import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
 import androidx.test.ext.junit.rules.ActivityScenarioRule;
@@ -30,22 +32,27 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 
-import org.chromium.base.supplier.LazyOneshotSupplier;
 import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.chrome.browser.back_press.BackPressManager;
+import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.multiwindow.MultiWindowModeStateDispatcher;
 import org.chromium.chrome.browser.price_tracking.PriceTrackingFeatures;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.MockTab;
+import org.chromium.chrome.browser.tab_ui.OnTabSelectingListener;
+import org.chromium.chrome.browser.tab_ui.TabContentManager;
+import org.chromium.chrome.browser.tabmodel.TabCreator;
+import org.chromium.chrome.browser.tabmodel.TabGroupModelFilter;
 import org.chromium.chrome.browser.tabmodel.TabModel;
-import org.chromium.chrome.browser.tabmodel.TabModelFilter;
 import org.chromium.chrome.browser.tabmodel.TabModelObserver;
 import org.chromium.chrome.browser.tasks.tab_management.PriceMessageService.PriceWelcomeMessageReviewActionProvider;
 import org.chromium.chrome.browser.tasks.tab_management.TabListCoordinator.TabListMode;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorCoordinator.TabListEditorController;
 import org.chromium.chrome.browser.tasks.tab_management.TabSwitcherMessageManager.MessageUpdateObserver;
+import org.chromium.chrome.browser.ui.edge_to_edge.EdgeToEdgeController;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.ui.base.TestActivity;
@@ -66,7 +73,7 @@ public class TabSwitcherMessageManagerUnitTest {
     @Mock private Tracker mTracker;
     @Mock private Profile mProfile;
     @Mock private TabModel mTabModel;
-    @Mock private TabModelFilter mTabModelFilter;
+    @Mock private TabGroupModelFilter mTabGroupModelFilter;
     @Mock private ActivityLifecycleDispatcher mActivityLifecycleDispatcher;
     @Mock private MultiWindowModeStateDispatcher mMultiWindowModeStateDispatcher;
     @Mock private SnackbarManager mSnackbarManager;
@@ -76,16 +83,23 @@ public class TabSwitcherMessageManagerUnitTest {
     @Mock private PriceWelcomeMessageReviewActionProvider mPriceWelcomeMessageReviewActionProvider;
     @Mock private PriceMessageService mPriceMessageService;
     @Mock private MessageUpdateObserver mMessageUpdateObserver;
-
+    @Mock private BrowserControlsStateProvider mBrowserControlsStateProvider;
+    @Mock private TabContentManager mTabContentManager;
+    @Mock private ViewGroup mRootView;
+    @Mock private TabCreator mRegularTabCreator;
+    @Mock private BackPressManager mBackPressManager;
+    @Mock private OnTabSelectingListener mOnTabSelectingListener;
+    @Mock private EdgeToEdgeController mEdgeToEdgeController;
     @Captor private ArgumentCaptor<TabModelObserver> mTabModelObserverCaptor;
 
     @Captor
     private ArgumentCaptor<MultiWindowModeStateDispatcher.MultiWindowModeObserver>
             mMultiWindowModeObserverCaptor;
 
-    private final ObservableSupplierImpl<TabModelFilter> mCurrentTabModelFilterSupplier =
+    private final ObservableSupplierImpl<TabGroupModelFilter> mCurrentTabGroupModelFilterSupplier =
             new ObservableSupplierImpl<>();
-
+    private ObservableSupplierImpl<EdgeToEdgeController> mEdgeToEdgeSupplier =
+            new ObservableSupplierImpl<>();
     private TabSwitcherMessageManager mMessageManager;
     private MockTab mTab1;
     private MockTab mTab2;
@@ -103,9 +117,10 @@ public class TabSwitcherMessageManagerUnitTest {
         doReturn(true)
                 .when(mMultiWindowModeStateDispatcher)
                 .addObserver(mMultiWindowModeObserverCaptor.capture());
-        doNothing().when(mTabModelFilter).addObserver(mTabModelObserverCaptor.capture());
-        doReturn(mTabModel).when(mTabModelFilter).getTabModel();
-        mCurrentTabModelFilterSupplier.set(mTabModelFilter);
+        doNothing().when(mTabGroupModelFilter).addObserver(mTabModelObserverCaptor.capture());
+        doReturn(mTabModel).when(mTabGroupModelFilter).getTabModel();
+        doReturn(mProfile).when(mTabModel).getProfile();
+        mCurrentTabGroupModelFilterSupplier.set(mTabGroupModelFilter);
 
         mActivityScenarioRule.getScenario().onActivity(this::onActivityReady);
     }
@@ -113,32 +128,42 @@ public class TabSwitcherMessageManagerUnitTest {
     private void onActivityReady(Activity activity) {
         FrameLayout container = new FrameLayout(activity);
         activity.setContentView(container);
+
         mMessageManager =
                 new TabSwitcherMessageManager(
                         activity,
                         mActivityLifecycleDispatcher,
-                        mCurrentTabModelFilterSupplier,
-                        container,
+                        mCurrentTabGroupModelFilterSupplier,
                         mMultiWindowModeStateDispatcher,
                         mSnackbarManager,
                         mModalDialogManager,
-                        mTabListCoordinator,
-                        LazyOneshotSupplier.fromValue(mTabListEditorController),
-                        mPriceWelcomeMessageReviewActionProvider,
-                        TabListMode.GRID);
+                        mBrowserControlsStateProvider,
+                        mTabContentManager,
+                        TabListMode.GRID,
+                        mRootView,
+                        mRegularTabCreator,
+                        mBackPressManager,
+                        /* desktopWindowStateManager= */ null,
+                        mEdgeToEdgeSupplier);
+        mMessageManager.registerMessages(mTabListCoordinator);
+        mMessageManager.bind(
+                mTabListCoordinator,
+                container,
+                mPriceWelcomeMessageReviewActionProvider,
+                mOnTabSelectingListener);
         mMessageManager.addObserver(mMessageUpdateObserver);
 
         mMessageManager.setPriceMessageServiceForTesting(mPriceMessageService);
-        mMessageManager.initWithNative(mProfile);
+        mMessageManager.initWithNative(mProfile, TabListMode.GRID);
 
-        assertTrue(mCurrentTabModelFilterSupplier.hasObservers());
+        assertTrue(mCurrentTabGroupModelFilterSupplier.hasObservers());
     }
 
     @After
     public void tearDown() {
         mMessageManager.removeObserver(mMessageUpdateObserver);
         mMessageManager.destroy();
-        assertFalse(mCurrentTabModelFilterSupplier.hasObservers());
+        assertFalse(mCurrentTabGroupModelFilterSupplier.hasObservers());
     }
 
     @Test
@@ -146,18 +171,23 @@ public class TabSwitcherMessageManagerUnitTest {
     public void testBeforeReset() {
         mMessageManager.beforeReset();
         verify(mPriceMessageService).invalidateMessage();
+        verify(mTabGroupModelFilter).removeObserver(any());
     }
 
     @Test
     @SmallTest
     public void testAfterReset() {
+        verify(mTabGroupModelFilter).addObserver(any());
+
         mMessageManager.afterReset(0);
         verify(mMessageUpdateObserver).onRemoveAllAppendedMessage();
         verify(mMessageUpdateObserver, never()).onAppendedMessage();
+        verify(mTabGroupModelFilter, times(2)).addObserver(any());
 
         mMessageManager.afterReset(1);
         verify(mMessageUpdateObserver, times(2)).onRemoveAllAppendedMessage();
         verify(mMessageUpdateObserver).onAppendedMessage();
+        verify(mTabGroupModelFilter, times(3)).addObserver(any());
     }
 
     @Test
@@ -165,12 +195,13 @@ public class TabSwitcherMessageManagerUnitTest {
     public void removeMessageItemsWhenCloseLastTab() {
         // Mock that mTab1 is not the only tab in the current tab model and it will be closed.
         doReturn(2).when(mTabModel).getCount();
-        mTabModelObserverCaptor.getValue().willCloseTab(mTab1, false, true);
+        mTabModelObserverCaptor.getValue().willCloseTab(mTab1, true);
         verify(mTabListCoordinator, never()).removeSpecialListItem(anyInt(), anyInt());
 
         // Mock that mTab1 is the only tab in the current tab model and it will be closed.
         doReturn(1).when(mTabModel).getCount();
-        mTabModelObserverCaptor.getValue().willCloseTab(mTab1, false, true);
+        mTabModelObserverCaptor.getValue().willCloseTab(mTab1, true);
+
         verify(mTabListCoordinator)
                 .removeSpecialListItem(
                         TabProperties.UiType.MESSAGE, MessageService.MessageType.ALL);
@@ -178,10 +209,6 @@ public class TabSwitcherMessageManagerUnitTest {
                 .removeSpecialListItem(
                         TabProperties.UiType.LARGE_MESSAGE,
                         MessageService.MessageType.INCOGNITO_REAUTH_PROMO_MESSAGE);
-        verify(mTabListCoordinator)
-                .removeSpecialListItem(
-                        TabProperties.UiType.LARGE_MESSAGE,
-                        MessageService.MessageType.TAB_SUGGESTION);
         verify(mMessageUpdateObserver).onRemoveAllAppendedMessage();
     }
 
@@ -212,10 +239,6 @@ public class TabSwitcherMessageManagerUnitTest {
                 .removeSpecialListItem(
                         TabProperties.UiType.LARGE_MESSAGE,
                         MessageService.MessageType.INCOGNITO_REAUTH_PROMO_MESSAGE);
-        verify(mTabListCoordinator)
-                .removeSpecialListItem(
-                        TabProperties.UiType.LARGE_MESSAGE,
-                        MessageService.MessageType.TAB_SUGGESTION);
         verify(mMessageUpdateObserver).onRemoveAllAppendedMessage();
     }
 
@@ -232,17 +255,17 @@ public class TabSwitcherMessageManagerUnitTest {
     public void removePriceWelcomeMessageWhenCloseBindingTab() {
         doReturn(1).when(mTabModel).getCount();
         doReturn(TAB1_ID).when(mPriceMessageService).getBindingTabId();
-        mTabModelObserverCaptor.getValue().willCloseTab(mTab1, false, true);
+        mTabModelObserverCaptor.getValue().willCloseTab(mTab1, true);
         verify(mMessageUpdateObserver, never()).onRemovePriceWelcomeMessage();
 
         doReturn(2).when(mTabModel).getCount();
         doReturn(TAB2_ID).when(mPriceMessageService).getBindingTabId();
-        mTabModelObserverCaptor.getValue().willCloseTab(mTab1, false, true);
+        mTabModelObserverCaptor.getValue().willCloseTab(mTab1, true);
         verify(mMessageUpdateObserver, never()).onRemovePriceWelcomeMessage();
 
         doReturn(2).when(mTabModel).getCount();
         doReturn(TAB1_ID).when(mPriceMessageService).getBindingTabId();
-        mTabModelObserverCaptor.getValue().willCloseTab(mTab1, false, true);
+        mTabModelObserverCaptor.getValue().willCloseTab(mTab1, true);
         verify(mMessageUpdateObserver).onRemovePriceWelcomeMessage();
     }
 
@@ -271,5 +294,28 @@ public class TabSwitcherMessageManagerUnitTest {
         doReturn(TAB1_ID).when(mPriceMessageService).getBindingTabId();
         mTabModelObserverCaptor.getValue().tabClosureCommitted(mTab1);
         verify(mPriceMessageService).invalidateMessage();
+    }
+
+    @Test
+    @SmallTest
+    public void dismissHandlerSkipWhenUnbound() {
+        @MessageService.MessageType
+        int messageType = MessageService.MessageType.INCOGNITO_REAUTH_PROMO_MESSAGE;
+        mMessageManager.dismissHandler(messageType);
+        verify(mTabListCoordinator)
+                .removeSpecialListItem(TabProperties.UiType.LARGE_MESSAGE, messageType);
+        verify(mMessageUpdateObserver).onRemovedMessage();
+
+        mMessageManager.unbind(mTabListCoordinator);
+        verify(mTabListCoordinator, times(2))
+                .removeSpecialListItem(TabProperties.UiType.LARGE_MESSAGE, messageType);
+        verify(mMessageUpdateObserver).onRemovedMessage();
+        verify(mMessageUpdateObserver).onRemoveAllAppendedMessage();
+
+        mMessageManager.dismissHandler(messageType);
+        // Not called again and doesn't crash.
+        verify(mTabListCoordinator, times(2))
+                .removeSpecialListItem(TabProperties.UiType.LARGE_MESSAGE, messageType);
+        verify(mMessageUpdateObserver).onRemovedMessage();
     }
 }

@@ -72,7 +72,7 @@ class TestBrowsingHistoryDriver : public history::BrowsingHistoryDriver {
 class TwoClientHistorySyncTest : public SyncTest {
  public:
   TwoClientHistorySyncTest() : SyncTest(TWO_CLIENT) {
-    // TODO(crbug.com/1394910): Use HTTPS URLs in tests to avoid having to
+    // TODO(crbug.com/40248833): Use HTTPS URLs in tests to avoid having to
     // disable this feature.
     features_.InitAndDisableFeature(features::kHttpsUpgrades);
   }
@@ -261,7 +261,8 @@ IN_PROC_BROWSER_TEST_F(TwoClientHistorySyncTest, SyncsTimeRangeDeletion) {
       WebHistoryServiceFactory::GetForProfile(GetProfile(0));
   base::CancelableTaskTracker task_tracker;
   history_service->DeleteLocalAndRemoteHistoryBetween(
-      web_history_service, begin, end, base::DoNothing(), &task_tracker);
+      web_history_service, begin, end, history::kNoAppIdFilter,
+      base::DoNothing(), &task_tracker);
 
   // Wait for the deletion to apply to the second client: The second URL should
   // be gone, but the first and third should remain.

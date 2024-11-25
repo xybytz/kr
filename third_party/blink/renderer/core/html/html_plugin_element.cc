@@ -72,7 +72,7 @@ namespace blink {
 namespace {
 
 String GetMIMETypeFromURL(const KURL& url) {
-  String filename = url.LastPathComponent();
+  String filename = url.LastPathComponent().ToString();
   int extension_pos = filename.ReverseFind('.');
   if (extension_pos >= 0) {
     String extension = filename.Substring(extension_pos + 1);
@@ -116,7 +116,7 @@ void PluginParameters::MapDataParamToSrc() {
     return;
   }
 
-  auto* data = base::ranges::find_if(
+  auto data = base::ranges::find_if(
       names_, [](auto name) { return EqualIgnoringASCIICase(name, "data"); });
 
   if (data != names_.end()) {
@@ -294,16 +294,7 @@ bool HTMLPlugInElement::ShouldAccelerate() const {
 }
 
 ParsedPermissionsPolicy HTMLPlugInElement::ConstructContainerPolicy() const {
-  // Plugin elements (<object> and <embed>) are not allowed to enable the
-  // fullscreen feature. Add an empty allowlist for the fullscreen feature so
-  // that the nested browsing context is unable to use the API, regardless of
-  // origin.
-  // https://fullscreen.spec.whatwg.org/#model
-  ParsedPermissionsPolicy container_policy;
-  ParsedPermissionsPolicyDeclaration allowlist(
-      mojom::blink::PermissionsPolicyFeature::kFullscreen);
-  container_policy.push_back(allowlist);
-  return container_policy;
+  return GetLegacyFramePolicies();
 }
 
 void HTMLPlugInElement::DetachLayoutTree(bool performing_reattach) {
@@ -425,9 +416,9 @@ ScriptValue HTMLPlugInElement::AnonymousNamedGetter(const AtomicString& name) {
     return ScriptValue();
   }
 
-  v8::Local<v8::Context> context =
-      GetExecutionContext()->GetIsolate()->GetCurrentContext();
-  ScriptState* script_state = ScriptState::From(context);
+  v8::Isolate* isolate = GetExecutionContext()->GetIsolate();
+  v8::Local<v8::Context> context = isolate->GetCurrentContext();
+  ScriptState* script_state = ScriptState::From(isolate, context);
   if (!script_state->World().IsMainWorld()) {
     if (script_state->World().IsIsolatedWorld()) {
       UseCounter::Count(GetExecutionContext(),
@@ -467,9 +458,9 @@ NamedPropertySetterResult HTMLPlugInElement::AnonymousNamedSetter(
     return NamedPropertySetterResult::kDidNotIntercept;
   }
 
-  v8::Local<v8::Context> context =
-      GetExecutionContext()->GetIsolate()->GetCurrentContext();
-  ScriptState* script_state = ScriptState::From(context);
+  v8::Isolate* isolate = GetExecutionContext()->GetIsolate();
+  v8::Local<v8::Context> context = isolate->GetCurrentContext();
+  ScriptState* script_state = ScriptState::From(isolate, context);
   if (!script_state->World().IsMainWorld()) {
     // The plugin system cannot deal with multiple worlds, so block any
     // non-main world access.
@@ -486,7 +477,6 @@ NamedPropertySetterResult HTMLPlugInElement::AnonymousNamedSetter(
       V8AtomicString(script_state->GetIsolate(), name);
   v8::Local<v8::Object> this_wrapper =
       ToV8Traits<HTMLPlugInElement>::ToV8(script_state, this)
-          .ToLocalChecked()
           .As<v8::Object>();
   bool instance_has_property;
   bool holder_has_property;
@@ -635,7 +625,8 @@ void HTMLPlugInElement::DisconnectContentFrame() {
 }
 
 bool HTMLPlugInElement::IsFocusableStyle(UpdateBehavior update_behavior) const {
-  if (HTMLFrameOwnerElement::SupportsFocus(update_behavior) &&
+  if (HTMLFrameOwnerElement::SupportsFocus(update_behavior) !=
+          FocusableState::kNotFocusable &&
       HTMLFrameOwnerElement::IsFocusableStyle(update_behavior)) {
     return true;
   }
@@ -834,6 +825,12 @@ bool HTMLPlugInElement::AllowedToLoadObject(const KURL& url,
   if (url.IsEmpty() && mime_type.empty())
     return false;
 
+  // If present, `url` must contain a valid non-empty URL potentially surrounded
+  // by spaces.
+  if (!url.IsEmpty() && !url.IsValid()) {
+    return false;
+  }
+
   LocalFrame* frame = GetDocument().GetFrame();
   Settings* settings = frame->GetSettings();
   if (!settings)
@@ -937,9 +934,11 @@ const ComputedStyle* HTMLPlugInElement::CustomStyleForLayoutObject(
       OriginalStyleForLayoutObject(style_recalc_context);
   if (IsImageType() && !GetLayoutObject() && style &&
       LayoutObjectIsNeeded(*style)) {
-    if (!image_loader_)
+    if (!image_loader_) {
       image_loader_ = MakeGarbageCollected<HTMLImageLoader>(this);
-    image_loader_->UpdateFromElement();
+    }
+    image_loader_->UpdateFromElement(ImageLoader::kUpdateNormal,
+                                     /* force_blocking */ true);
   }
   return style;
 }

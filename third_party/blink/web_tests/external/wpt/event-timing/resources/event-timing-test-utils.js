@@ -1,24 +1,44 @@
-// Clicks on the element with the given ID. It adds an event handler to the element which
-// ensures that the events have a duration of at least |delay|. Calls |callback| during
-// event handler if |callback| is provided.
-async function clickOnElementAndDelay(id, delay, callback) {
-  const element = document.getElementById(id);
-  const pointerdownHandler = () => {
-    mainThreadBusy(delay);
-    if (callback) {
-      callback();
-    }
-    element.removeEventListener("pointerdown", pointerdownHandler);
+function mainThreadBusy(ms) {
+  const target = performance.now() + ms;
+  while (performance.now() < target);
+}
+
+async function wait() {
+  return new Promise(resolve => step_timeout(resolve, 0));
+}
+
+async function raf() {
+  return new Promise(resolve => requestAnimationFrame(resolve));
+}
+
+async function afterNextPaint() {
+  await raf();
+  await wait();
+}
+
+async function blockNextEventListener(target, eventType, duration = 120) {
+  return new Promise(resolve => {
+    target.addEventListener(eventType, () => {
+      mainThreadBusy(duration);
+      resolve();
+    }, { once: true });
+  });
+}
+
+async function clickAndBlockMain(id, options = {}) {
+  options = {
+    eventType: "pointerdown",
+    duration: 120,
+    ...options
   };
+  const element = document.getElementById(id);
 
-  element.addEventListener("pointerdown", pointerdownHandler);
-  await click(element);
+  await Promise.all([
+    blockNextEventListener(element, options.eventType, options.duration),
+    click(element),
+  ]);
 }
 
-function mainThreadBusy(duration) {
-  const now = performance.now();
-  while (performance.now() < now + duration);
-}
 
 // This method should receive an entry of type 'event'. |isFirst| is true only when we want
 // to check that the event also happens to correspond to the first event. In this case, the
@@ -58,27 +78,7 @@ function verifyClickEvent(entry, targetId, isFirst=false, minDuration=104, event
   verifyEvent(entry, event, targetId, isFirst, minDuration);
 }
 
-function wait() {
-  return new Promise((resolve, reject) => {
-    step_timeout(() => {
-      resolve();
-    }, 0);
-  });
-}
 
-function clickAndBlockMain(id) {
-  return new Promise((resolve, reject) => {
-    clickOnElementAndDelay(id, 120, resolve);
-  });
-}
-
-function waitForTick() {
-  return new Promise(resolve => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(resolve);
-    });
-  });
-}
   // Add a PerformanceObserver and observe with a durationThreshold of |dur|. This test will
   // attempt to check that the duration is appropriately checked by:
   // * Asserting that entries received have a duration which is the smallest multiple of 8
@@ -115,7 +115,7 @@ async function testDuration(t, id, numEntries, dur, slowDur) {
   const clicksPromise = new Promise(async resolve => {
     for (let index = 0; index < numEntries; index++) {
       // Add some click events that has at least slowDur for duration.
-      await clickOnElementAndDelay(id, slowDur);
+      await clickAndBlockMain(id, { duration: slowDur });
     }
     resolve();
   });
@@ -154,11 +154,11 @@ async function testDuration(t, id, numEntries, dur, slowDur) {
       // These clicks are expected to be ignored, unless the test has some extra delays.
       // In that case, the test will verify the event duration to ensure the event duration is
       // greater than the duration threshold
-      await clickOnElementAndDelay(id, processingDelay);
+      await clickAndBlockMain(id, { duration: processingDelay });
     }
     // Send click with event duration equals to or greater than |durThreshold|, so the
     // observer promise can be resolved
-    await clickOnElementAndDelay(id, durThreshold);
+    await clickAndBlockMain(id, { duration: durThreshold });
     return observerPromise;
   }
 
@@ -269,7 +269,7 @@ async function testEventType(t, eventType, looseCount=false) {
   // Trigger two 'fast' events of the type.
   await applyAction(eventType, target);
   await applyAction(eventType, target);
-  await waitForTick();
+  await afterNextPaint();
   await new Promise(t.step_func(resolve => {
     testCounts(t, resolve, looseCount, eventType, initialCount + 2);
   }));
@@ -313,7 +313,7 @@ async function testEventType(t, eventType, looseCount=false) {
   // Cause a slow event.
   await applyAction(eventType, target);
 
-  await waitForTick();
+  await afterNextPaint();
 
   await observerPromise;
 }
@@ -357,6 +357,13 @@ async function pointerdown(target) {
     .send();
 }
 
+async function pointerup(target) {
+  const actions = new test_driver.Actions();
+  return actions.addPointer("mousePointer", "mouse")
+    .pointerMove(0, 0, { origin: target })
+    .pointerUp()
+    .send();
+}
 async function auxPointerdown(target) {
   const actions = new test_driver.Actions();
   return actions.addPointer("mousePointer", "mouse")
@@ -369,6 +376,32 @@ async function auxPointerdown(target) {
 // function.
 async function pressKey(target, key) {
   await test_driver.send_keys(target, key);
+}
+
+async function flingAndTapInTarget(target) {
+  const actions = new test_driver.Actions();
+  return actions.addPointer("pointer1", "touch")
+        .pointerMove(0, 0, {origin: target})
+        .pointerDown()
+        .pointerMove(0, -50, {origin: target})
+        .pointerMove(0, -50, {origin: target})
+        .pointerUp()
+        .pause(60)
+        .pointerMove(0, 0, {origin: target})
+        .pointerDown()
+        .pointerUp()
+        .send();
+}
+
+async function textSelectionInTarget(target) {
+  const actions = new test_driver.Actions();
+  return actions.addPointer("pointer1", "mouse")
+        .pointerMove(0, 0, {origin: target})
+        .pointerDown({button: actions.ButtonType.LEFT})
+        .pointerMove(20, 60, {origin: target})
+        .pointerMove(20, 120, {origin: target})
+        .pointerUp()
+        .send();
 }
 
 // The testdriver.js, testdriver-vendor.js need to be included to use this
@@ -409,11 +442,59 @@ async function createPerformanceObserverPromise(observeTypes, callback, readyToR
   });
 }
 
+const ENTER_KEY = '\uE007';
+const SPACE_KEY = '\uE00D';
+
+async function blockPointerDownEventListener(target, duration, count) {
+  return new Promise(resolve => {
+    target.addEventListener("pointerdown", () => {
+      event_count++;
+      mainThreadBusy(duration);
+      if (event_count == count)
+        resolve();
+    });
+  });
+}
+
+async function blockCapturePointerDownEventListener(target, duration) {
+  return new Promise(resolve => {
+    target.addEventListener("pointerdown", (e) => {
+      mainThreadBusy(duration);
+      target.setPointerCapture(e.pointerId);
+      resolve();
+    });
+  });
+}
+
+async function flingTapAndBlockMain(target, duration) {
+  return Promise.all([
+    blockPointerDownEventListener(target, duration, 2),
+    blockNextEventListener(target, "pointercancel", duration),
+    blockNextEventListener(target, "scroll", duration),
+    flingAndTapInTarget(target),
+  ]);
+}
+
+async function textSelectionAndBlockMain(target, duration) {
+  return Promise.all([
+    blockCapturePointerDownEventListener(target, "pointerdown", duration),
+    blockNextEventListener(target, "pointermove", duration),
+    blockNextEventListener(target, "scroll", duration),
+    blockNextEventListener(target, "pointerup", 10),
+    textSelectionInTarget(target),
+    // afterNextPaint(),
+  ]);
+}
+
 // The testdriver.js, testdriver-vendor.js need to be included to use this
 // function.
-async function interactAndObserve(interactionType, target, observerPromise) {
+async function interactAndObserve(interactionType, target, observerPromise, key = '') {
   let interactionPromise;
   switch (interactionType) {
+    case 'key': {
+      addListeners(target, ['keydown', 'keyup']);
+      interactionPromise = pressKey(target, key);
+    }
     case 'tap': {
       addListeners(target, ['pointerdown', 'pointerup']);
       interactionPromise = tap(target);
@@ -441,6 +522,29 @@ async function interactAndObserve(interactionType, target, observerPromise) {
       addListeners(target,
         ['mousedown', 'pointerdown', 'contextmenu']);
       interactionPromise = Promise.all([auxPointerdown(target), pointerdown(target)]);
+      break;
+    }
+    case 'orphan-pointerup': {
+      addListeners(target, ['pointerup']);
+      interactionPromise = pointerup(target);
+      break;
+    }
+    case 'space-key-simulated-click': {
+      addListeners(target, ['keydown', 'click']);
+      interactionPromise = interact('key', target, SPACE_KEY);
+      break;
+    }
+    case 'enter-key-simulated-click': {
+      addListeners(target, ['keydown', 'click']);
+      interactionPromise = interact('key', target, ENTER_KEY);
+      break;
+    }
+    case 'fling-tap': {
+      interactionPromise = flingTapAndBlockMain(target, 30);
+      break;
+    }
+    case 'selection-scroll': {
+      interactionPromise = textSelectionAndBlockMain(target, 30);
       break;
     }
   }

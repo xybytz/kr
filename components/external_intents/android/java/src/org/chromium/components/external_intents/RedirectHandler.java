@@ -63,7 +63,7 @@ public class RedirectHandler {
     }
 
     /** Captures the state of the initial navigation in a Navigation Chain. */
-    public class InitialNavigationState {
+    public static class InitialNavigationState {
         public final boolean isRendererInitiated;
         public final boolean isFromReload;
         public final boolean isFromTyping;
@@ -91,8 +91,7 @@ public class RedirectHandler {
         final boolean mHasUserStartedNonInitialNavigation;
         boolean mIsOnFirstLoadInChain = true;
         boolean mShouldNotOverrideUrlLoadingOnCurrentNavigationChain;
-        boolean mShouldNotBlockOverrideUrlLoadingOnCurrentNavigationChain;
-        // TODO(https://crbug.com/1286053): Plumb through the user activation time from blink.
+        // TODO(crbug.com/40815393): Plumb through the user activation time from blink.
         final long mNavigationChainStartTime = currentRealtime();
         boolean mUsedBackOrForward;
         boolean mPerformedHiddenCrossFrameNavigation;
@@ -183,18 +182,10 @@ public class RedirectHandler {
     }
 
     /**
-     * Will cause shouldNotBlockUrlLoadingOverrideOnCurrentRedirectionChain() to return true until
-     * a new user-initiated navigation occurs.
-     */
-    public void setShouldNotBlockUrlLoadingOverrideOnCurrentRedirectionChain() {
-        mNavigationChainState.mShouldNotBlockOverrideUrlLoadingOnCurrentNavigationChain = true;
-    }
-
-    /**
      * @return true if the task for the Activity was created by the most recent external intent
-     *         navigation to the current tab. Note that this doesn't include cold Activity starts
-     *         that re-use an existing task (eg. Chrome was killed by Android without its task being
-     *         swiped away or timed out).
+     *     navigation to the current tab. Note that this doesn't include cold Activity starts that
+     *     re-use an existing task (eg. Chrome was killed by Android without its task being swiped
+     *     away or timed out).
      */
     public boolean wasTaskStartedByExternalIntent() {
         return mIntentState != null && mIntentState.mExternalIntentStartedTask;
@@ -234,7 +225,7 @@ public class RedirectHandler {
         boolean isSameNavigationChain = isRedirect || (isRendererInitiated && !hasUserGesture);
 
         if (mNavigationChainState != null && isSameNavigationChain) {
-            updateNavigationChainState(pageTransType);
+            updateNavigationChainState();
         } else {
             resetNavigationChainState(
                     pageTransType,
@@ -247,7 +238,7 @@ public class RedirectHandler {
         if (isBackOrForward) mNavigationChainState.mUsedBackOrForward = true;
     }
 
-    private void updateNavigationChainState(int pageTransType) {
+    private void updateNavigationChainState() {
         mNavigationChainState.mIsOnFirstLoadInChain = false;
     }
 
@@ -313,17 +304,8 @@ public class RedirectHandler {
     }
 
     /**
-     * @return whether we should continue allowing navigation handling in the current redirection
-     * chain.
+     * @return whether on navigation or not.
      */
-    public boolean getAndClearShouldNotBlockOverrideUrlLoadingOnCurrentRedirectionChain() {
-        boolean value =
-                mNavigationChainState.mShouldNotBlockOverrideUrlLoadingOnCurrentNavigationChain;
-        mNavigationChainState.mShouldNotBlockOverrideUrlLoadingOnCurrentNavigationChain = false;
-        return value;
-    }
-
-    /** @return whether on navigation or not. */
     public boolean isOnNavigation() {
         return mNavigationChainState != null;
     }

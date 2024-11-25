@@ -28,7 +28,8 @@ class ToolbarIconContainerView : public views::View,
     virtual void OnHighlightChanged() = 0;
   };
 
-  explicit ToolbarIconContainerView(bool uses_highlight);
+  explicit ToolbarIconContainerView(bool uses_highlight,
+                                    bool use_default_target_layout = true);
   ToolbarIconContainerView(const ToolbarIconContainerView&) = delete;
   ToolbarIconContainerView& operator=(const ToolbarIconContainerView&) = delete;
   ~ToolbarIconContainerView() override;
@@ -111,7 +112,7 @@ class ToolbarIconContainerView : public views::View,
   // Points to the child buttons that we know are currently highlighted.
   // TODO(pbos): Consider observing buttons leaving our hierarchy and removing
   // them from this set.
-  std::set<const views::Button*> highlighted_buttons_;
+  std::set<raw_ptr<const views::Button, SetExperimental>> highlighted_buttons_;
 
   RoundRectBorder border_{this};
 

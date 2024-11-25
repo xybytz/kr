@@ -7,6 +7,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/thread_annotations.h"
 #include "content/public/test/browser_test.h"
+#include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/url_loader_monitor.h"
@@ -117,7 +118,6 @@ std::string ToString(TrialType trial_type) {
       return "OnlyIssuanceNeedsTrial";
     default:
       NOTREACHED();
-      return "";
   }
 }
 
@@ -270,7 +270,6 @@ std::string ToString(Op op) {
       return "Redemption";
     default:
       NOTREACHED();
-      return "";
   }
 }
 

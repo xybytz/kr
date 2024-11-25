@@ -14,7 +14,10 @@ import org.jni_zero.NativeMethods;
 import org.chromium.base.Callback;
 import org.chromium.base.ObserverList;
 import org.chromium.components.signin.base.AccountInfo;
+import org.chromium.components.signin.base.CoreAccountId;
 import org.chromium.components.signin.base.CoreAccountInfo;
+
+import java.util.List;
 
 /** IdentityManager provides access to native IdentityManager's public API to java components. */
 public class IdentityManager {
@@ -39,10 +42,6 @@ public class IdentityManager {
         /** Called after an account is updated. */
         default void onExtendedAccountInfoUpdated(AccountInfo accountInfo) {}
     }
-
-    /** A simple callback for getAccessToken. */
-    public interface GetAccessTokenCallback
-            extends ProfileOAuth2TokenServiceDelegate.GetAccessTokenCallback {}
 
     private long mNativeIdentityManager;
     private final ProfileOAuth2TokenServiceDelegate mProfileOAuth2TokenServiceDelegate;
@@ -155,11 +154,14 @@ public class IdentityManager {
     }
 
     /**
-     * Refreshes extended {@link AccountInfo} with image for the given list of {@link
-     * CoreAccountInfo} if the existing ones are stale.
+     * Refreshes extended {@link AccountInfo} with image for all accounts with a refresh token or
+     * the given list of {@link CoreAccountInfo} if the existing ones are stale.
      */
-    public void refreshAccountInfoIfStale() {
-        IdentityManagerJni.get().refreshAccountInfoIfStale(mNativeIdentityManager);
+    public void refreshAccountInfoIfStale(List<CoreAccountInfo> accountInfos) {
+        for (CoreAccountInfo accountInfo : accountInfos) {
+            IdentityManagerJni.get()
+                    .refreshAccountInfoIfStale(mNativeIdentityManager, accountInfo.getId());
+        }
     }
 
     /** Returns true if the primary account can be cleared/removed from the browser. */
@@ -175,7 +177,7 @@ public class IdentityManager {
     public void invalidateAccessToken(String accessToken) {
         assert mProfileOAuth2TokenServiceDelegate != null;
 
-        // TODO(crbug.com/934688) The following should call a JNI method instead.
+        // TODO(crbug.com/40615112) The following should call a JNI method instead.
         mProfileOAuth2TokenServiceDelegate.invalidateAccessToken(accessToken);
     }
 
@@ -193,7 +195,8 @@ public class IdentityManager {
 
         CoreAccountInfo[] getAccountsWithRefreshTokens(long nativeIdentityManager);
 
-        void refreshAccountInfoIfStale(long nativeIdentityManager);
+        // TODO(crbug.com/40284908): Remove the accountId parameter.
+        void refreshAccountInfoIfStale(long nativeIdentityManager, CoreAccountId accountId);
 
         boolean isClearPrimaryAccountAllowed(long nativeIdentityManager);
     }

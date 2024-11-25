@@ -4,6 +4,8 @@
 
 #import "ios/web/web_state/web_state_impl_realized_web_state.h"
 
+#import <string_view>
+
 #import "base/check.h"
 #import "base/compiler_specific.h"
 #import "base/functional/bind.h"
@@ -75,7 +77,7 @@ class WebStateImpl::RealizedWebState::PendingSession {
   // The WebStateStorage is only needed to implement SerializeToProto() while
   // the navigation history restoration is in progress for the legacy session
   // serialization logic.
-  // TODO(crbug.com/1383087): Remove it once the feature has launched.
+  // TODO(crbug.com/40245950): Remove it once the feature has launched.
   const proto::WebStateStorage storage_;
   const std::u16string page_title_;
   const GURL page_visible_url_;
@@ -272,15 +274,22 @@ void WebStateImpl::RealizedWebState::OnNavigationStarted(
   // confusion about the origin of a dialog.
   ClearDialogs();
 
-  // Navigation manager loads internal URLs to restore session history and
-  // create back-forward entries for WebUI. Do not trigger external callbacks.
-  if ([CRWErrorPageHelper isErrorPageFileURL:context->GetUrl()] ||
-      wk_navigation_util::IsRestoreSessionUrl(context->GetUrl())) {
+  // Navigation manager loads internal URLs to create back-forward entries for
+  // WebUI. Do not trigger external callbacks.
+  if ([CRWErrorPageHelper isErrorPageFileURL:context->GetUrl()]) {
     return;
   }
 
-  for (auto& observer : observers())
+  base::WeakPtr<NavigationContextImpl> weak_context = context->GetWeakPtr();
+  for (auto& observer : observers()) {
+    // Observers might cancel this navigation, destroying the context. Guard
+    // against that by checking if the context is still alive.
+    if (!weak_context && base::FeatureList::IsEnabled(
+                             features::kDetectDestroyedNavigationContexts)) {
+      break;
+    }
     observer.DidStartNavigation(owner_, context);
+  }
 }
 
 void WebStateImpl::RealizedWebState::OnNavigationRedirected(
@@ -291,10 +300,9 @@ void WebStateImpl::RealizedWebState::OnNavigationRedirected(
 
 void WebStateImpl::RealizedWebState::OnNavigationFinished(
     NavigationContextImpl* context) {
-  // Navigation manager loads internal URLs to restore session history and
-  // create back-forward entries for WebUI. Do not trigger external callbacks.
-  if ([CRWErrorPageHelper isErrorPageFileURL:context->GetUrl()] ||
-      wk_navigation_util::IsRestoreSessionUrl(context->GetUrl())) {
+  // Navigation manager loads internal URLs to create back-forward entries for
+  // WebUI. Do not trigger external callbacks.
+  if ([CRWErrorPageHelper isErrorPageFileURL:context->GetUrl()]) {
     return;
   }
 
@@ -347,11 +355,6 @@ void WebStateImpl::RealizedWebState::SetIsLoading(bool is_loading) {
 
 void WebStateImpl::RealizedWebState::OnPageLoaded(const GURL& url,
                                                   bool load_success) {
-  // Navigation manager loads internal URLs to restore session history and
-  // create back-forward entries for WebUI. Do not trigger external callbacks.
-  if (wk_navigation_util::IsWKInternalUrl(url))
-    return;
-
   PageLoadCompletionStatus load_completion_status =
       load_success ? PageLoadCompletionStatus::SUCCESS
                    : PageLoadCompletionStatus::FAILURE;
@@ -387,7 +390,7 @@ bool WebStateImpl::RealizedWebState::HasWebUI() const {
 
 void WebStateImpl::RealizedWebState::HandleWebUIMessage(
     const GURL& source_url,
-    base::StringPiece message,
+    std::string_view message,
     const base::Value::List& args) {
   if (!HasWebUI()) {
     return;
@@ -664,11 +667,6 @@ void WebStateImpl::RealizedWebState::OpenURL(
 }
 
 void WebStateImpl::RealizedWebState::Stop() {
-  if (navigation_manager_->IsRestoreSessionInProgress()) {
-    // Do not interrupt session restoration process. For embedder session
-    // restoration is opaque and WebState acts like it's idle.
-    return;
-  }
   [web_controller_ stopLoading];
 }
 
@@ -692,7 +690,7 @@ bool WebStateImpl::RealizedWebState::ContentIsHTML() const {
 }
 
 const std::u16string& WebStateImpl::RealizedWebState::GetTitle() const {
-  if (UNLIKELY(restored_session_)) {
+  if (restored_session_) [[unlikely]] {
     return restored_session_->page_title();
   }
 
@@ -705,9 +703,6 @@ bool WebStateImpl::RealizedWebState::IsLoading() const {
 }
 
 double WebStateImpl::RealizedWebState::GetLoadingProgress() const {
-  if (navigation_manager_->IsRestoreSessionInProgress())
-    return 0.0;
-
   return [web_controller_ loadingProgress];
 }
 
@@ -728,7 +723,7 @@ bool WebStateImpl::RealizedWebState::IsWebPageInFullscreenMode() const {
 }
 
 const FaviconStatus& WebStateImpl::RealizedWebState::GetFaviconStatus() const {
-  if (UNLIKELY(restored_session_)) {
+  if (restored_session_) [[unlikely]] {
     return restored_session_->favicon_status();
   }
 
@@ -739,7 +734,7 @@ const FaviconStatus& WebStateImpl::RealizedWebState::GetFaviconStatus() const {
 
 void WebStateImpl::RealizedWebState::SetFaviconStatus(
     const FaviconStatus& favicon_status) {
-  if (UNLIKELY(restored_session_)) {
+  if (restored_session_) [[unlikely]] {
     restored_session_->set_favicon_status(favicon_status);
     return;
   }
@@ -754,7 +749,7 @@ int WebStateImpl::RealizedWebState::GetNavigationItemCount() const {
 }
 
 const GURL& WebStateImpl::RealizedWebState::GetVisibleURL() const {
-  if (UNLIKELY(restored_session_)) {
+  if (restored_session_) [[unlikely]] {
     return restored_session_->page_visible_url();
   }
 
@@ -763,7 +758,7 @@ const GURL& WebStateImpl::RealizedWebState::GetVisibleURL() const {
 }
 
 const GURL& WebStateImpl::RealizedWebState::GetLastCommittedURL() const {
-  if (UNLIKELY(restored_session_)) {
+  if (restored_session_) [[unlikely]] {
     return restored_session_->page_visible_url();
   }
 
@@ -774,7 +769,6 @@ const GURL& WebStateImpl::RealizedWebState::GetLastCommittedURL() const {
 std::optional<GURL>
 WebStateImpl::RealizedWebState::GetLastCommittedURLIfTrusted() const {
   NavigationItemImpl* item = navigation_manager_->GetLastCommittedItemImpl();
-
   if (!item || item->IsUntrusted()) {
     return std::nullopt;
   }
@@ -867,15 +861,6 @@ bool WebStateImpl::RealizedWebState::SetSessionStateData(NSData* data) {
 }
 
 NSData* WebStateImpl::RealizedWebState::SessionStateData() const {
-  // Don't mix safe and unsafe session restoration -- if a webState still
-  // has unrestored targetUrl pages, leave it that way.
-  for (int i = 0; i < navigation_manager_->GetItemCount(); i++) {
-    NavigationItem* item = navigation_manager_->GetItemAtIndex(i);
-    if (wk_navigation_util::IsRestoreSessionUrl(item->GetURL())) {
-      return nil;
-    }
-  }
-
   return [web_controller_ sessionStateData];
 }
 
@@ -899,6 +884,12 @@ void WebStateImpl::RealizedWebState::OnStateChangedForPermission(
     Permission permission) {
   for (auto& observer : observers()) {
     observer.PermissionStateChanged(owner_, permission);
+  }
+}
+
+void WebStateImpl::RealizedWebState::OnUnderPageBackgroundColorChanged() {
+  for (auto& observer : observers()) {
+    observer.UnderPageBackgroundColorChanged(owner_);
   }
 }
 
@@ -965,13 +956,10 @@ void WebStateImpl::RealizedWebState::Reload() {
 
 void WebStateImpl::RealizedWebState::OnNavigationItemCommitted(
     NavigationItem* item) {
-  if (wk_navigation_util::IsWKInternalUrl(item->GetURL()))
-    return;
-
   // A committed navigation item indicates that NavigationManager has a new
   // valid session history so should invalidate the cached restored session
   // history.
-  if (UNLIKELY(restored_session_)) {
+  if (restored_session_) [[unlikely]] {
     item->SetFaviconStatus(restored_session_->favicon_status());
     item->SetTitle(restored_session_->page_title());
     restored_session_.reset();
@@ -989,8 +977,9 @@ void WebStateImpl::RealizedWebState::SetWebStateUserAgent(
 
 id<CRWWebViewNavigationProxy>
 WebStateImpl::RealizedWebState::GetWebViewNavigationProxy() const {
-  if (UNLIKELY(web_view_for_testing_))
+  if (web_view_for_testing_) [[unlikely]] {
     return web_view_for_testing_;
+  }
 
   return [web_controller_ webViewNavigationProxy];
 }

@@ -9,7 +9,7 @@
 #include "base/metrics/user_metrics_action.h"
 #include "chrome/browser/android/android_theme_resources.h"
 #include "chrome/browser/android/resource_mapper.h"
-#include "chrome/browser/safe_browsing/android/safe_browsing_settings_launcher_android.h"
+#include "chrome/browser/safe_browsing/android/safe_browsing_settings_navigation_android.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/messages/android/message_dispatcher_bridge.h"
 #include "components/safe_browsing/core/browser/tailored_security_service/tailored_security_outcome.h"
@@ -56,36 +56,20 @@ TailoredSecurityConsentedModalAndroid::TailoredSecurityConsentedModalAndroid(
   if (is_enable_message_) {
     title = l10n_util::GetStringUTF16(
         IDS_TAILORED_SECURITY_CONSENTED_ENABLE_MESSAGE_TITLE);
-    if (base::FeatureList::IsEnabled(
-            safe_browsing::kTailoredSecurityUpdatedMessages)) {
-      description = l10n_util::GetStringUTF16(
-          IDS_TAILORED_SECURITY_CONSENTED_ENABLE_MESSAGE_DESCRIPTION_UPDATED);
-      icon_resource_id =
-          ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_MESSAGE_SHIELD_BLUE);
-      // Need to disable tint here because it removes a shade of blue from the
-      // shield which distorts the image.
-      message_->DisableIconTint();
-    } else {
-      description = l10n_util::GetStringUTF16(
-          IDS_TAILORED_SECURITY_CONSENTED_ENABLE_MESSAGE_DESCRIPTION);
-      icon_resource_id =
-          ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_MESSAGE_SAFETY_CHECK);
-    }
+    description = l10n_util::GetStringUTF16(
+        IDS_TAILORED_SECURITY_CONSENTED_ENABLE_MESSAGE_DESCRIPTION);
+    icon_resource_id =
+        ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_MESSAGE_SHIELD_BLUE);
+    // Need to disable tint here because it removes a shade of blue from the
+    // shield which distorts the image.
+    message_->DisableIconTint();
   } else {
     title = l10n_util::GetStringUTF16(
         IDS_TAILORED_SECURITY_CONSENTED_DISABLE_MESSAGE_TITLE);
-    if (base::FeatureList::IsEnabled(
-            safe_browsing::kTailoredSecurityUpdatedMessages)) {
-      description = l10n_util::GetStringUTF16(
-          IDS_TAILORED_SECURITY_CONSENTED_DISABLE_MESSAGE_DESCRIPTION_UPDATED);
-      icon_resource_id =
-          ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_MESSAGE_SHIELD_GRAY);
-    } else {
-      description = l10n_util::GetStringUTF16(
-          IDS_TAILORED_SECURITY_CONSENTED_DISABLE_MESSAGE_DESCRIPTION);
-      icon_resource_id =
-          ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_MESSAGE_SHIELD);
-    }
+    description = l10n_util::GetStringUTF16(
+        IDS_TAILORED_SECURITY_CONSENTED_DISABLE_MESSAGE_DESCRIPTION);
+    icon_resource_id =
+        ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_MESSAGE_SHIELD_GRAY);
     message_->DisableIconTint();
   }
   message_->SetTitle(title);

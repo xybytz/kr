@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -367,7 +372,7 @@ class ChildStatusCollectorTest : public testing::Test {
   }
 
   void AddChildUser(const AccountId& account_id) {
-    AddUserWithTypeAndAffiliation(account_id, user_manager::USER_TYPE_CHILD,
+    AddUserWithTypeAndAffiliation(account_id, user_manager::UserType::kChild,
                                   false);
     GetFakeUserManager()->set_current_user_child(true);
   }

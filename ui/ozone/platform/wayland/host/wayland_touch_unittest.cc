@@ -79,19 +79,6 @@ class WaylandTouchTest : public WaylandTestSimple {
 
     auto* touch_event = event->AsTouchEvent();
     EXPECT_EQ(event_type, touch_event->type());
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-    // These checks rely on the Exo-only protocol zcr_touch_stylus_v2 [1]
-    // at //t_p/wayland-protocols/unstable/stylus/stylus-unstable-v2.xml
-    auto compare_float = [](float a, float b) -> bool {
-      constexpr float kEpsilon = std::numeric_limits<float>::epsilon();
-      return std::isnan(a) ? std::isnan(b) : fabs(a - b) < kEpsilon;
-    };
-
-    EXPECT_EQ(pointer_type, touch_event->pointer_details().pointer_type);
-    EXPECT_TRUE(compare_float(force, touch_event->pointer_details().force));
-    EXPECT_TRUE(compare_float(tilt_x, touch_event->pointer_details().tilt_x));
-    EXPECT_TRUE(compare_float(tilt_y, touch_event->pointer_details().tilt_y));
-#endif
   }
 };
 
@@ -111,7 +98,7 @@ TEST_F(WaylandTouchTest, TouchPressAndMotion) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_PRESSED, event.get());
+  CheckEventType(ui::EventType::kTouchPressed, event.get());
 
   PostToServerAndWait([](wl::TestWaylandServerThread* server) {
     auto* const touch = server->seat()->touch()->resource();
@@ -121,7 +108,7 @@ TEST_F(WaylandTouchTest, TouchPressAndMotion) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_MOVED, event.get());
+  CheckEventType(ui::EventType::kTouchMoved, event.get());
 
   PostToServerAndWait([](wl::TestWaylandServerThread* server) {
     auto* const touch = server->seat()->touch()->resource();
@@ -131,7 +118,7 @@ TEST_F(WaylandTouchTest, TouchPressAndMotion) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_RELEASED, event.get());
+  CheckEventType(ui::EventType::kTouchReleased, event.get());
 }
 
 // Tests that touch events with stylus pen work.
@@ -155,7 +142,8 @@ TEST_F(WaylandTouchTest, TouchPressAndMotionWithStylus) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_PRESSED, event.get(), ui::EventPointerType::kPen);
+  CheckEventType(ui::EventType::kTouchPressed, event.get(),
+                 ui::EventPointerType::kPen);
 
   PostToServerAndWait([](wl::TestWaylandServerThread* server) {
     auto* const touch = server->seat()->touch()->resource();
@@ -165,7 +153,8 @@ TEST_F(WaylandTouchTest, TouchPressAndMotionWithStylus) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_MOVED, event.get(), ui::EventPointerType::kPen);
+  CheckEventType(ui::EventType::kTouchMoved, event.get(),
+                 ui::EventPointerType::kPen);
 
   PostToServerAndWait([](wl::TestWaylandServerThread* server) {
     auto* const touch = server->seat()->touch()->resource();
@@ -175,7 +164,7 @@ TEST_F(WaylandTouchTest, TouchPressAndMotionWithStylus) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_RELEASED, event.get(),
+  CheckEventType(ui::EventType::kTouchReleased, event.get(),
                  ui::EventPointerType::kPen);
 }
 
@@ -206,8 +195,9 @@ TEST_F(WaylandTouchTest, TouchPressAndMotionWithStylus2) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_PRESSED, event.get(), ui::EventPointerType::kPen,
-                 1.0f /* force */, -45.0f /* tilt_x */, 45.0f /* tilt_y */);
+  CheckEventType(ui::EventType::kTouchPressed, event.get(),
+                 ui::EventPointerType::kPen, 1.0f /* force */,
+                 -45.0f /* tilt_x */, 45.0f /* tilt_y */);
 
   PostToServerAndWait([](wl::TestWaylandServerThread* server) {
     auto* const touch = server->seat()->touch()->resource();
@@ -217,8 +207,9 @@ TEST_F(WaylandTouchTest, TouchPressAndMotionWithStylus2) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_MOVED, event.get(), ui::EventPointerType::kPen,
-                 1.0f /* force */, -45.0f /* tilt_x */, 45.0f /* tilt_y */);
+  CheckEventType(ui::EventType::kTouchMoved, event.get(),
+                 ui::EventPointerType::kPen, 1.0f /* force */,
+                 -45.0f /* tilt_x */, 45.0f /* tilt_y */);
 
   PostToServerAndWait([](wl::TestWaylandServerThread* server) {
     auto* const touch = server->seat()->touch()->resource();
@@ -228,8 +219,9 @@ TEST_F(WaylandTouchTest, TouchPressAndMotionWithStylus2) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_RELEASED, event.get(), ui::EventPointerType::kPen,
-                 1.0f /* force */, -45.0f /* tilt_x */, 45.0f /* tilt_y */);
+  CheckEventType(ui::EventType::kTouchReleased, event.get(),
+                 ui::EventPointerType::kPen, 1.0f /* force */,
+                 -45.0f /* tilt_x */, 45.0f /* tilt_y */);
 }
 
 // Tests that touch focus is correctly set and released.
@@ -391,7 +383,7 @@ TEST_F(WaylandTouchTest, KeyboardFlagsSet) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_PRESSED, event.get());
+  CheckEventType(ui::EventType::kTouchPressed, event.get());
   EXPECT_TRUE(event->flags() & ui::EF_CONTROL_DOWN);
 
   PostToServerAndWait([](wl::TestWaylandServerThread* server) {
@@ -402,7 +394,7 @@ TEST_F(WaylandTouchTest, KeyboardFlagsSet) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_MOVED, event.get());
+  CheckEventType(ui::EventType::kTouchMoved, event.get());
   EXPECT_TRUE(event->flags() & ui::EF_CONTROL_DOWN);
 
   PostToServerAndWait([](wl::TestWaylandServerThread* server) {
@@ -413,7 +405,7 @@ TEST_F(WaylandTouchTest, KeyboardFlagsSet) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_RELEASED, event.get());
+  CheckEventType(ui::EventType::kTouchReleased, event.get());
   EXPECT_TRUE(event->flags() & ui::EF_CONTROL_DOWN);
 
   // Release 'control' key.
@@ -437,7 +429,7 @@ TEST_F(WaylandTouchTest, KeyboardFlagsSet) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_PRESSED, event.get());
+  CheckEventType(ui::EventType::kTouchPressed, event.get());
   EXPECT_FALSE(event->flags() & ui::EF_CONTROL_DOWN);
 
   PostToServerAndWait([](wl::TestWaylandServerThread* server) {
@@ -448,7 +440,7 @@ TEST_F(WaylandTouchTest, KeyboardFlagsSet) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_MOVED, event.get());
+  CheckEventType(ui::EventType::kTouchMoved, event.get());
   EXPECT_FALSE(event->flags() & ui::EF_CONTROL_DOWN);
 
   PostToServerAndWait([](wl::TestWaylandServerThread* server) {
@@ -459,7 +451,7 @@ TEST_F(WaylandTouchTest, KeyboardFlagsSet) {
     wl_touch_send_frame(touch);
   });
 
-  CheckEventType(ui::ET_TOUCH_RELEASED, event.get());
+  CheckEventType(ui::EventType::kTouchReleased, event.get());
   EXPECT_FALSE(event->flags() & ui::EF_CONTROL_DOWN);
 }
 

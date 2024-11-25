@@ -38,6 +38,7 @@ class MockTermsOfServiceDelegateNonStrict
                     bool is_location_service_enabled));
   MOCK_METHOD0(OnTermsRejected, void());
   MOCK_METHOD0(OnTermsRetryClicked, void());
+  MOCK_METHOD1(OnTermsLoadResult, void(bool success));
 };
 
 using MockTermsOfServiceDelegate =
@@ -113,12 +114,11 @@ class ArcSupportHostTest : public BrowserWithTestWindowTest {
 
   // BrowserWithTestWindowTest:
   TestingProfile::TestingFactories GetTestingFactories() override {
-    TestingProfile::TestingFactories factories = {
-        {ConsentAuditorFactory::GetInstance(),
-         base::BindRepeating(&BuildFakeConsentAuditor)}};
-    IdentityTestEnvironmentProfileAdaptor::
-        AppendIdentityTestEnvironmentFactories(&factories);
-    return factories;
+    return IdentityTestEnvironmentProfileAdaptor::
+        GetIdentityTestEnvironmentFactoriesWithAppendedFactories(
+            {TestingProfile::TestingFactory{
+                ConsentAuditorFactory::GetInstance(),
+                base::BindRepeating(&BuildFakeConsentAuditor)}});
   }
 
  private:
@@ -240,6 +240,16 @@ TEST_F(ArcSupportHostTest, RunNetworkTestsOnError) {
 
   EXPECT_CALL(*error_delegate, OnRunNetworkTestsClicked());
   fake_arc_support()->ClickRunNetworkTestsButton();
+}
+
+TEST_F(ArcSupportHostTest, TosLoadResult) {
+  MockTermsOfServiceDelegate* tos_delegate = CreateMockTermsOfServiceDelegate();
+  support_host()->SetTermsOfServiceDelegate(tos_delegate);
+
+  support_host()->ShowTermsOfService();
+
+  EXPECT_CALL(*tos_delegate, OnTermsLoadResult(true));
+  fake_arc_support()->TosLoadResult(true);
 }
 
 }  // namespace

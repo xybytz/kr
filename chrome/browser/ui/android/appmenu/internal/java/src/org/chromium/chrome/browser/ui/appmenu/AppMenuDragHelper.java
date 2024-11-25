@@ -58,6 +58,7 @@ class AppMenuDragHelper {
     private volatile float mLastTouchY;
     private final int mItemRowHeight;
     private boolean mIsSingleTapCanceled;
+    private boolean mMoved;
     private int mMenuButtonScreenCenterY;
 
     // These are used in a function locally, but defined here to avoid heap allocation on every
@@ -120,6 +121,7 @@ class AppMenuDragHelper {
         mDragScrollOffsetRounded = 0;
         mDragScrollingVelocity = 0.0f;
         mIsSingleTapCanceled = false;
+        mMoved = false;
 
         if (startDragging) mDragScrolling.start();
     }
@@ -172,9 +174,13 @@ class AppMenuDragHelper {
             return true;
         }
 
+        if (eventActionMasked == MotionEvent.ACTION_MOVE) {
+            mMoved = true;
+        }
+
         mIsSingleTapCanceled |= timeSinceDown > mTapTimeout;
         mIsSingleTapCanceled |= !pointInView(button, event.getX(), event.getY(), mScaledTouchSlop);
-        if (!mIsSingleTapCanceled && eventActionMasked == MotionEvent.ACTION_UP) {
+        if (eventActionMasked == MotionEvent.ACTION_UP && (!mMoved || !mIsSingleTapCanceled)) {
             RecordUserAction.record("MobileUsingMenuBySwButtonTap");
             finishDragging();
         }
@@ -182,7 +188,6 @@ class AppMenuDragHelper {
         // After this line, drag scrolling is happening.
         if (!mDragScrolling.isRunning()) return false;
 
-        boolean didPerformClick = false;
         @ItemAction int itemAction = ItemAction.CLEAR_HIGHLIGHT_ALL;
         switch (eventActionMasked) {
             case MotionEvent.ACTION_DOWN:
@@ -195,7 +200,7 @@ class AppMenuDragHelper {
             default:
                 break;
         }
-        didPerformClick = menuItemAction(roundedRawX, roundedRawY, itemAction);
+        boolean didPerformClick = menuItemAction(roundedRawX, roundedRawY, itemAction);
 
         if (eventActionMasked == MotionEvent.ACTION_UP && !didPerformClick) {
             RecordUserAction.record("MobileUsingMenuBySwButtonDragging");

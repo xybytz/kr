@@ -92,7 +92,6 @@ std::shared_ptr<const bssl::ParsedCertificate> FindLastCertWithUnknownIssuer(
     last = last_issuer;
   }
   NOTREACHED();
-  return nullptr;
 }
 
 // Uses |fetcher| to fetch issuers from |uri|. If the fetch succeeds, the
@@ -239,7 +238,6 @@ android::CertVerifyStatusAndroid TryVerifyWithAIAFetching(
   }
 
   NOTREACHED();
-  return android::CERT_VERIFY_STATUS_ANDROID_NO_TRUSTED_ROOT;
 }
 
 // Returns true if the certificate verification call was successful (regardless
@@ -286,8 +284,6 @@ bool VerifyFromAndroidTrustManager(
       break;
     default:
       NOTREACHED();
-      verify_result->cert_status |= CERT_STATUS_INVALID;
-      break;
   }
 
   // Save the verified chain.
@@ -352,14 +348,13 @@ CertVerifyProcAndroid::CertVerifyProcAndroid(
 
 CertVerifyProcAndroid::~CertVerifyProcAndroid() = default;
 
-int CertVerifyProcAndroid::VerifyInternal(
-    X509Certificate* cert,
-    const std::string& hostname,
-    const std::string& ocsp_response,
-    const std::string& sct_list,
-    int flags,
-    CertVerifyResult* verify_result,
-    const NetLogWithSource& net_log) {
+int CertVerifyProcAndroid::VerifyInternal(X509Certificate* cert,
+                                          const std::string& hostname,
+                                          const std::string& ocsp_response,
+                                          const std::string& sct_list,
+                                          int flags,
+                                          CertVerifyResult* verify_result,
+                                          const NetLogWithSource& net_log) {
   std::vector<std::string> cert_bytes;
   GetChainDEREncodedBytes(cert, &cert_bytes);
   if (!VerifyFromAndroidTrustManager(cert_bytes, hostname, flags,

@@ -29,6 +29,7 @@
 #include "base/ranges/algorithm.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
@@ -38,18 +39,17 @@
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/autocomplete_provider_client.h"
 #include "components/omnibox/browser/autocomplete_provider_listener.h"
+#include "components/omnibox/browser/document_suggestions_service.h"
 #include "components/omnibox/browser/in_memory_url_index_types.h"
 #include "components/omnibox/browser/omnibox_feature_configs.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
-#include "components/omnibox/browser/omnibox_prefs.h"
 #include "components/omnibox/browser/remote_suggestions_service.h"
-#include "components/omnibox/browser/search_provider.h"
+#include "components/omnibox/browser/search_suggestion_parser.h"
 #include "components/omnibox/common/omnibox_features.h"
-#include "components/pref_registry/pref_registry_syncable.h"
-#include "components/prefs/pref_service.h"
 #include "components/search/search.h"
 #include "components/search_engines/search_engine_type.h"
 #include "components/search_engines/template_url_service.h"
+#include "components/signin/public/identity_manager/tribool.h"
 #include "components/strings/grit/components_strings.h"
 #include "net/base/url_util.h"
 #include "services/network/public/cpp/simple_url_loader.h"
@@ -75,7 +75,7 @@ enum class DocumentProviderAllowedReason : int {
   kUnknown = 1,
   kFeatureDisabled = 2,
   kSuggestSettingDisabled = 3,
-  kDriveSettingDisabled = 4,
+  kDriveSettingDisabledObsolete = 4,
   kOffTheRecord = 5,
   kNotLoggedIn = 6,
   kNotSyncing = 7,
@@ -87,10 +87,9 @@ enum class DocumentProviderAllowedReason : int {
   kMaxValue = kInputLooksLikeUrl
 };
 
-void LogOmniboxDocumentRequest(RemoteRequestHistogramValue request_value) {
+void LogOmniboxDocumentRequest(RemoteRequestEvent request_event) {
   base::UmaHistogramEnumeration("Omnibox.DocumentSuggest.Requests",
-                                request_value,
-                                RemoteRequestHistogramValue::kMaxValue);
+                                request_event);
 }
 
 void LogTotalTime(base::TimeTicks start_time, bool interrupted) {
@@ -128,24 +127,26 @@ constexpr char kPresentationMimetype[] =
     "application/vnd.google-apps.presentation";
 
 // Returns mappings from MIME types to overridden icons.
-AutocompleteMatch::DocumentType GetIconForMIMEType(
-    const base::StringPiece& mimetype) {
-  constexpr auto kIconMap = base::MakeFixedFlatMap<
-      base::StringPiece, AutocompleteMatch::DocumentType>({
-      {kDocumentMimetype, AutocompleteMatch::DocumentType::DRIVE_DOCS},
-      {kFormMimetype, AutocompleteMatch::DocumentType::DRIVE_FORMS},
-      {kSpreadsheetMimetype, AutocompleteMatch::DocumentType::DRIVE_SHEETS},
-      {kPresentationMimetype, AutocompleteMatch::DocumentType::DRIVE_SLIDES},
-      {"image/jpeg", AutocompleteMatch::DocumentType::DRIVE_IMAGE},
-      {"image/png", AutocompleteMatch::DocumentType::DRIVE_IMAGE},
-      {"image/gif", AutocompleteMatch::DocumentType::DRIVE_IMAGE},
-      {"application/pdf", AutocompleteMatch::DocumentType::DRIVE_PDF},
-      {"video/mp4", AutocompleteMatch::DocumentType::DRIVE_VIDEO},
-      {"application/vnd.google-apps.folder",
-       AutocompleteMatch::DocumentType::DRIVE_FOLDER},
-  });
+AutocompleteMatch::DocumentType GetIconForMIMEType(std::string_view mimetype) {
+  constexpr auto kIconMap =
+      base::MakeFixedFlatMap<std::string_view, AutocompleteMatch::DocumentType>(
+          {
+              {kDocumentMimetype, AutocompleteMatch::DocumentType::DRIVE_DOCS},
+              {kFormMimetype, AutocompleteMatch::DocumentType::DRIVE_FORMS},
+              {kSpreadsheetMimetype,
+               AutocompleteMatch::DocumentType::DRIVE_SHEETS},
+              {kPresentationMimetype,
+               AutocompleteMatch::DocumentType::DRIVE_SLIDES},
+              {"image/jpeg", AutocompleteMatch::DocumentType::DRIVE_IMAGE},
+              {"image/png", AutocompleteMatch::DocumentType::DRIVE_IMAGE},
+              {"image/gif", AutocompleteMatch::DocumentType::DRIVE_IMAGE},
+              {"application/pdf", AutocompleteMatch::DocumentType::DRIVE_PDF},
+              {"video/mp4", AutocompleteMatch::DocumentType::DRIVE_VIDEO},
+              {"application/vnd.google-apps.folder",
+               AutocompleteMatch::DocumentType::DRIVE_FOLDER},
+          });
 
-  const auto* it = kIconMap.find(mimetype);
+  const auto it = kIconMap.find(mimetype);
   return it != kIconMap.end() ? it->second
                               : AutocompleteMatch::DocumentType::DRIVE_OTHER;
 }
@@ -162,8 +163,8 @@ std::vector<T> Concat(std::vector<T>& v1, const std::vector<T>& v2) {
 // be `nullptr` if the value at `field_path` is not found or is not a string.
 std::vector<const std::string*> ExtractResultList(
     const base::Value::Dict& result,
-    const base::StringPiece& list_path,
-    const base::StringPiece& field_path) {
+    std::string_view list_path,
+    std::string_view field_path) {
   const base::Value::List* list = result.FindListByDottedPath(list_path);
   if (!list) {
     return {};
@@ -221,7 +222,7 @@ bool IsCompletelyMatchedInTitleOrOwner(const std::u16string& input,
     // 'owner:...' as an operator. Ignore this rare edge case for simplicity.
     if (input_word != u"owner" &&
         base::ranges::none_of(
-            title_and_owner_words, [&](std::u16string title_word) {
+            title_and_owner_words, [&](const std::u16string& title_word) {
               return base::StartsWith(title_word, input_word,
                                       base::CompareCase::INSENSITIVE_ASCII);
             })) {
@@ -320,10 +321,10 @@ bool ValidHostPrefix(const std::string& host) {
 
 // If `value[key]`, returns it. Otherwise, returns `fallback`.
 std::string FindStringKeyOrFallback(const base::Value::Dict& value,
-                                    base::StringPiece key,
+                                    std::string_view key,
                                     std::string fallback = "") {
   auto* ptr = value.FindString(key);
-  return ptr ? *ptr : fallback;
+  return ptr ? *ptr : std::move(fallback);
 }
 
 }  // namespace
@@ -333,12 +334,6 @@ DocumentProvider* DocumentProvider::Create(
     AutocompleteProviderClient* client,
     AutocompleteProviderListener* listener) {
   return new DocumentProvider(client, listener);
-}
-
-// static
-void DocumentProvider::RegisterProfilePrefs(
-    user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterBooleanPref(omnibox::kDocumentSuggestEnabled, true);
 }
 
 bool DocumentProvider::IsDocumentProviderAllowed(
@@ -356,15 +351,6 @@ bool DocumentProvider::IsDocumentProviderAllowed(
     base::UmaHistogramEnumeration(
         "Omnibox.DocumentSuggest.ProviderAllowed",
         DocumentProviderAllowedReason::kSuggestSettingDisabled);
-    return false;
-  }
-
-  // Client-side toggle must be enabled.
-  if (!base::FeatureList::IsEnabled(omnibox::kDocumentProviderNoSetting) &&
-      !client_->GetPrefs()->GetBoolean(omnibox::kDocumentSuggestEnabled)) {
-    base::UmaHistogramEnumeration(
-        "Omnibox.DocumentSuggest.ProviderAllowed",
-        DocumentProviderAllowedReason::kDriveSettingDisabled);
     return false;
   }
 
@@ -488,10 +474,13 @@ void DocumentProvider::Start(const AutocompleteInput& input,
 }
 
 void DocumentProvider::Run() {
+  // DocumentSuggestionsServiceFactory does not create a service instance for
+  // OTR profiles. We should not get this far for those profiles.
+  DCHECK(!client_->IsOffTheRecord());
   time_run_invoked_ = base::TimeTicks::Now();
   client_->GetRemoteSuggestionsService(/*create_if_necessary=*/true)
       ->CreateDocumentSuggestionsRequest(
-          input_.text(), client_->IsOffTheRecord(),
+          input_.text(), /*is_off_the_record=*/false,
           base::BindOnce(
               &DocumentProvider::OnDocumentSuggestionsLoaderAvailable,
               weak_ptr_factory_.GetWeakPtr()),
@@ -514,7 +503,7 @@ void DocumentProvider::Stop(bool clear_cached_results,
     loader_.reset();
     LogRequestTime(time_request_sent_, true);
     time_request_sent_ = base::TimeTicks();
-    LogOmniboxDocumentRequest(RemoteRequestHistogramValue::kRequestInvalidated);
+    LogOmniboxDocumentRequest(RemoteRequestEvent::kRequestInvalidated);
   }
 
   // If `Run()` has been invoked, log its duration. It's possible `Stop()` is
@@ -565,10 +554,20 @@ void DocumentProvider::OnURLLoadComplete(
   DCHECK_EQ(loader_.get(), source);
 
   LogRequestTime(time_request_sent_, false);
-  LogOmniboxDocumentRequest(
-      RemoteRequestHistogramValue::kRemoteResponseReceived);
+  LogOmniboxDocumentRequest(RemoteRequestEvent::kResponseReceived);
   base::UmaHistogramSparse("Omnibox.DocumentSuggest.HttpResponseCode",
                            response_code);
+
+  // Also log the response code sliced by the enterprise account capability.
+  const auto& account_is_subject_to_enterprise_policies =
+      signin::TriboolToString(
+          client_->GetDocumentSuggestionsService()
+              ->account_is_subject_to_enterprise_policies());
+  base::UmaHistogramSparse(
+      base::StringPrintf("Omnibox.DocumentSuggest.HttpResponseCode."
+                         "IsSubjectToEnterprisePolicies.%s",
+                         account_is_subject_to_enterprise_policies),
+      response_code);
 
   // The following are codes that we believe indicate non-transient failures,
   // based on experience working with the owners of the API. Since they are
@@ -591,7 +590,7 @@ void DocumentProvider::OnURLLoadComplete(
 }
 
 bool DocumentProvider::UpdateResults(const std::string& json_data) {
-  absl::optional<base::Value> response =
+  std::optional<base::Value> response =
       base::JSONReader::Read(json_data, base::JSON_ALLOW_TRAILING_COMMAS);
   if (!response)
     return false;
@@ -621,7 +620,7 @@ void DocumentProvider::OnDocumentSuggestionsLoaderAvailable(
     std::unique_ptr<network::SimpleURLLoader> loader) {
   time_request_sent_ = base::TimeTicks::Now();
   loader_ = std::move(loader);
-  LogOmniboxDocumentRequest(RemoteRequestHistogramValue::kRequestSent);
+  LogOmniboxDocumentRequest(RemoteRequestEvent::kRequestSent);
 }
 
 // static
@@ -687,7 +686,7 @@ std::u16string DocumentProvider::GetMatchDescription(
                      base::UTF8ToUTF16(owner), mime_desc);
   }
   return owner.empty()
-             ? mime_desc
+             ? std::move(mime_desc)
              : l10n_util::GetStringFUTF16(
                    IDS_DRIVE_SUGGESTION_DESCRIPTION_TEMPLATE_WITHOUT_DATE,
                    base::UTF8ToUTF16(owner), mime_desc);
@@ -837,6 +836,12 @@ void DocumentProvider::SetCachedMatchesScoresTo0() {
 }
 
 void DocumentProvider::DemoteMatchesBeyondMax() {
+  // Allow all matches to retain their scores if unlimited matches param is
+  // enabled.
+  if (OmniboxFieldTrial::IsMlUrlScoringUnlimitedNumCandidatesEnabled()) {
+    return;
+  }
+
   for (size_t i = provider_max_matches_; i < matches_.size(); ++i)
     matches_[i].relevance = 0;
 }

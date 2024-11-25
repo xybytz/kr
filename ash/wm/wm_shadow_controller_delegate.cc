@@ -6,17 +6,16 @@
 
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
-#include "ash/wm/desks/desks_util.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/overview/overview_item.h"
 #include "ash/wm/overview/overview_session.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/window_state.h"
 #include "chromeos/ui/base/window_properties.h"
-#include "chromeos/ui/frame/frame_utils.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/base/class_property.h"
+#include "ui/base/mojom/window_show_state.mojom.h"
 #include "ui/color/color_provider_source_observer.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/shadow_controller.h"
@@ -92,8 +91,7 @@ bool WmShadowControllerDelegate::ShouldShowShadowForWindow(
     // Windows in overview that are not moving out of the active desk should not
     // have shadows.
     auto* overview_item = overview_session->GetOverviewItemForWindow(window);
-    if (desks_util::BelongsToActiveDesk(const_cast<aura::Window*>(window)) &&
-        overview_item && !overview_item->is_moving_to_another_desk()) {
+    if (overview_item && !overview_item->is_moving_to_another_desk()) {
       return false;
     }
   }
@@ -110,20 +108,14 @@ bool WmShadowControllerDelegate::ShouldShowShadowForWindow(
 
   // Hide the shadow if it's not being dragged and it's a maximized/fullscreen
   // window.
-  ui::WindowShowState show_state =
+  ui::mojom::WindowShowState show_state =
       window->GetProperty(aura::client::kShowStateKey);
-  if (show_state == ui::SHOW_STATE_FULLSCREEN ||
-      show_state == ui::SHOW_STATE_MAXIMIZED) {
+  if (show_state == ui::mojom::WindowShowState::kFullscreen ||
+      show_state == ui::mojom::WindowShowState::kMaximized) {
     return false;
   }
 
   return ::wm::GetShadowElevationConvertDefault(window) > 0;
-}
-
-bool WmShadowControllerDelegate::ShouldHaveRoundedShadowForWindow(
-    const aura::Window* window) {
-  // Apply rounded corner to shadow, if the `window` has rounded corners.
-  return chromeos::ShouldWindowHaveRoundedCorners(window);
 }
 
 bool WmShadowControllerDelegate::ShouldUpdateShadowOnWindowPropertyChange(

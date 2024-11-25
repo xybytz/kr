@@ -106,7 +106,7 @@ void NotificationOverflowView::AddIcon(
     overflow_icon_->SetVisible(true);
     image_views_.at(kMaxOverflowIcons)->SetVisible(false);
   }
-  Layout();
+  DeprecatedLayoutImmediately();
 }
 
 void NotificationOverflowView::RemoveIcon(const std::string& notification_id) {
@@ -116,11 +116,11 @@ void NotificationOverflowView::RemoveIcon(const std::string& notification_id) {
     RemoveChildViewT(*it);
     image_views_.erase(it);
     MaybeRemoveOverflowIcon();
-    Layout();
+    DeprecatedLayoutImmediately();
   }
 }
 
-void NotificationOverflowView::Layout() {
+void NotificationOverflowView::Layout(PassKey) {
   separator_->SetBoundsRect(
       gfx::Rect(width(), separator_->GetPreferredSize().height()));
 
@@ -139,7 +139,8 @@ void NotificationOverflowView::Layout() {
   }
 }
 
-gfx::Size NotificationOverflowView::CalculatePreferredSize() const {
+gfx::Size NotificationOverflowView::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
   // This view is the last element in a MenuItemView, which means it has extra
   // padding on the bottom due to the corner radius of the root MenuItemView. If
   // the corner radius changes, |kOverflowSeparatorToIconPadding| must be

@@ -27,7 +27,7 @@ import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
 import org.chromium.content_shell_apk.ContentShellActivityTestRule;
 import org.chromium.media.MediaSwitches;
-import org.chromium.ui.test.util.UiRestriction;
+import org.chromium.ui.base.DeviceFormFactor;
 
 import java.util.concurrent.TimeoutException;
 
@@ -128,7 +128,7 @@ public class VideoFullscreenOrientationLockTest {
 
     @Test
     @MediumTest
-    @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE})
+    @Restriction({DeviceFormFactor.PHONE})
     public void testEnterExitFullscreenWithControlsButton() throws Exception {
         // Start playback to guarantee it's properly loaded.
         Assert.assertTrue(DOMUtils.isMediaPaused(mActivityTestRule.getWebContents(), VIDEO_ID));
@@ -144,33 +144,26 @@ public class VideoFullscreenOrientationLockTest {
 
         // Leave fullscreen by clicking back on the button.
         // Use a loop to retry due to fullscreen re-layout.
-        int i = 0;
-        AssertionError lastException = null;
-        while (i < 10) {
+        Exception lastException = null;
+        for (int i = 0; i < 10; ++i) {
             Thread.sleep(100);
-            ++i;
-
             if (!clickFullscreenButton()) {
                 continue;
             }
-            AssertionError exception = null;
             try {
                 waitForContentsFullscreenState(false);
                 waitUntilUnlocked();
-            } catch (AssertionError e) {
-                exception = e;
+                return;
+            } catch (CriteriaHelper.TimeoutException e) {
+                lastException = e;
             }
-            lastException = exception;
-            if (lastException == null) break;
         }
-        if (lastException != null) throw lastException;
-        // Ensure clickFullscreenButton doesn't fail repeatedly.
-        Assert.assertTrue(i < 10);
+        throw lastException;
     }
 
     @Test
     @MediumTest
-    @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE})
+    @Restriction({DeviceFormFactor.PHONE})
     @DisabledTest(message = "https://crbug.com/1105614")
     public void testEnterExitFullscreenWithAPI() throws Exception {
         // Start playback to guarantee it's properly loaded.
@@ -193,7 +186,7 @@ public class VideoFullscreenOrientationLockTest {
 
     @Test
     @MediumTest
-    @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE})
+    @Restriction({DeviceFormFactor.PHONE})
     @DisabledTest(message = "crbug.com/1228632")
     public void testExitFullscreenByRemovingVideo() throws Exception {
         // Start playback to guarantee it's properly loaded.
@@ -217,7 +210,7 @@ public class VideoFullscreenOrientationLockTest {
 
     @Test
     @MediumTest
-    @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE})
+    @Restriction({DeviceFormFactor.PHONE})
     @DisabledTest(message = "crbug.com/1228632")
     public void testExitFullscreenWithNavigation() throws Exception {
         // Start playback to guarantee it's properly loaded.

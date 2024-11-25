@@ -13,6 +13,7 @@
 #include "components/global_media_controls/public/constants.h"
 #include "components/global_media_controls/public/media_item_manager.h"
 #include "components/global_media_controls/public/media_session_item_producer.h"
+#include "components/global_media_controls/public/views/media_item_ui_detailed_view.h"
 #include "components/global_media_controls/public/views/media_item_ui_view.h"
 #include "services/media_session/public/cpp/media_session_service.h"
 #include "ui/views/view.h"
@@ -109,11 +110,6 @@ void QuickSettingsMediaViewController::OnMediaItemUIClicked(
       GlobalMediaControlsEntryPoint::kQuickSettingsMiniPlayer);
 }
 
-void QuickSettingsMediaViewController::OnMediaItemUIDestroyed(
-    const std::string& id) {
-  media_item_ui_observer_set_.StopObserving(id);
-}
-
 void QuickSettingsMediaViewController::OnMediaItemUIShowDevices(
     const std::string& id) {
   tray_controller_->ShowMediaControlsDetailedView(
@@ -125,7 +121,7 @@ void QuickSettingsMediaViewController::OnMediaItemUIShowDevices(
 
 std::unique_ptr<views::View> QuickSettingsMediaViewController::CreateView() {
   auto media_view = std::make_unique<QuickSettingsMediaView>(this);
-  media_view_ = media_view.get();
+  media_view_ = media_view->AsWeakPtr();
   media_item_manager_->SetDialogDelegate(this);
   return std::move(media_view);
 }
@@ -135,10 +131,12 @@ void QuickSettingsMediaViewController::SetShowMediaView(bool show_media_view) {
 }
 
 void QuickSettingsMediaViewController::UpdateMediaItemOrder() {
+  CHECK(media_view_);
   media_view_->UpdateItemOrder(media_item_manager_->GetActiveItemIds());
 }
 
 int QuickSettingsMediaViewController::GetMediaViewHeight() {
+  CHECK(media_view_);
   return media_view_->GetMediaViewHeight();
 }
 

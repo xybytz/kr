@@ -252,7 +252,7 @@ IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest,
   form.icon_url = embedded_test_server()->GetURL("/icon.png");
   form.display_name = u"Peter Pan";
   form.federation_origin =
-      url::Origin::Create(GURL("https://google.com/federation"));
+      url::SchemeHostPort(GURL("https://google.com/federation"));
   local_credentials.push_back(
       std::make_unique<password_manager::PasswordForm>(form));
 
@@ -290,7 +290,7 @@ IN_PROC_BROWSER_TEST_F(
   form.icon_url = icon_url;
   form.display_name = u"Peter Pan";
   form.federation_origin =
-      url::Origin::Create(GURL("https://google.com/federation"));
+      url::SchemeHostPort(GURL("https://google.com/federation"));
   local_credentials.push_back(
       std::make_unique<password_manager::PasswordForm>(form));
 
@@ -485,9 +485,9 @@ IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest, EscCancelsAutoSigninPrompt) {
 IN_PROC_BROWSER_TEST_F(PasswordDialogViewTest, PopupCredentialsLeakedPrompt) {
   CredentialLeakType leak_type = CredentialLeakFlags::kPasswordSaved |
                                  CredentialLeakFlags::kPasswordUsedOnOtherSites;
-  GURL origin("https://example.com");
-  std::u16string username(u"Eve");
-  controller()->OnCredentialLeak(leak_type, origin, username);
+  controller()->OnCredentialLeak(password_manager::LeakedPasswordDetails(
+      leak_type, GURL("https://example.com"), u"Eve", u"qwerty",
+      /*in_account_store=*/false));
   ASSERT_TRUE(controller()->current_credential_leak_prompt());
   EXPECT_EQ(password_manager::ui::INACTIVE_STATE, controller()->GetState());
   CredentialLeakDialogView* dialog =
@@ -554,12 +554,14 @@ void PasswordDialogViewTest::ShowUi(const std::string& name) {
   }
 
   GURL origin("https://example.com");
-  std::u16string username(u"Eve");
   if (name == "CredentialLeak") {
     CredentialLeakType leak_type =
         CredentialLeakFlags::kPasswordSaved |
         CredentialLeakFlags::kPasswordUsedOnOtherSites;
-    controller()->OnCredentialLeak(leak_type, origin, username);
+
+    controller()->OnCredentialLeak(password_manager::LeakedPasswordDetails(
+        leak_type, origin, u"Eve", u"qwerty",
+        /*in_account_store=*/false));
     return;
   }
 
@@ -578,7 +580,7 @@ void PasswordDialogViewTest::ShowUi(const std::string& name) {
     form.icon_url = GURL("https://google.com/icon.png");
     form.display_name = u"Peter";
     form.federation_origin =
-        url::Origin::Create(GURL("https://google.com/federation"));
+        url::SchemeHostPort(GURL("https://google.com/federation"));
     local_credentials.push_back(
         std::make_unique<password_manager::PasswordForm>(form));
     controller()->OnAutoSignin(std::move(local_credentials),
@@ -594,19 +596,19 @@ void PasswordDialogViewTest::ShowUi(const std::string& name) {
       form.display_name = u"Tinkerbell";
       form.username_value = u"tinkerbell@pan.test";
       form.federation_origin =
-          url::Origin::Create(GURL("https://google.com/neverland"));
+          url::SchemeHostPort(GURL("https://google.com/neverland"));
       local_credentials.push_back(
           std::make_unique<password_manager::PasswordForm>(form));
       form.display_name = u"James Hook";
       form.username_value = u"james@pan.test";
       form.federation_origin =
-          url::Origin::Create(GURL("https://google.com/jollyroger"));
+          url::SchemeHostPort(GURL("https://google.com/jollyroger"));
       local_credentials.push_back(
           std::make_unique<password_manager::PasswordForm>(form));
       form.display_name = u"Wendy Darling";
       form.username_value = u"wendy@pan.test";
       form.federation_origin =
-          url::Origin::Create(GURL("https://google.com/london"));
+          url::SchemeHostPort(GURL("https://google.com/london"));
       local_credentials.push_back(
           std::make_unique<password_manager::PasswordForm>(form));
     }

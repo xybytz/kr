@@ -31,7 +31,6 @@ import org.robolectric.annotation.Resetter;
 import org.robolectric.shadows.ShadowSystemClock;
 
 import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.base.metrics.UmaRecorderHolder;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.browser.fonts.FontPreloaderUnitTest.ShadowResourcesCompat;
 
@@ -96,7 +95,6 @@ public class FontPreloaderUnitTest {
     public void setUp() {
         MockitoAnnotations.initMocks(this);
         SystemClock.setCurrentTimeMillis(INITIAL_TIME);
-        UmaRecorderHolder.resetForTesting();
         ShadowResourcesCompat.reset();
         when(mContext.getApplicationContext()).thenReturn(mContext);
         mFontPreloader = new FontPreloader(FONTS);
@@ -258,7 +256,7 @@ public class FontPreloaderUnitTest {
     }
 
     @Test
-    public void testHistogramRecordedForOnlyFirstActivity_BeforeCCTInflation() {
+    public void testHistogramRecordedForOnlyFirstActivity_BeforeCctInflation() {
         SystemClock.setCurrentTimeMillis(INITIAL_TIME + 1);
         fakeLoadAllFonts();
         SystemClock.setCurrentTimeMillis(INITIAL_TIME + 11);
@@ -271,7 +269,7 @@ public class FontPreloaderUnitTest {
     }
 
     @Test
-    public void testHistogramRecordedForOnlyFirstActivity_AfterCCTInflation() {
+    public void testHistogramRecordedForOnlyFirstActivity_AfterCctInflation() {
         SystemClock.setCurrentTimeMillis(INITIAL_TIME + 32);
         mFontPreloader.onPostInflationStartupCustomTabActivity();
         SystemClock.setCurrentTimeMillis(INITIAL_TIME + 64);
@@ -422,7 +420,7 @@ public class FontPreloaderUnitTest {
     }
 
     @Test
-    public void testHistogramRecordedForOnlyFirstActivity_BeforeCCTDraw() {
+    public void testHistogramRecordedForOnlyFirstActivity_BeforeCctDraw() {
         SystemClock.setCurrentTimeMillis(INITIAL_TIME + 100);
         fakeLoadAllFonts();
         SystemClock.setCurrentTimeMillis(INITIAL_TIME + 200);
@@ -435,7 +433,7 @@ public class FontPreloaderUnitTest {
     }
 
     @Test
-    public void testHistogramRecordedForOnlyFirstActivity_AfterCCTDraw() {
+    public void testHistogramRecordedForOnlyFirstActivity_AfterCctDraw() {
         SystemClock.setCurrentTimeMillis(INITIAL_TIME + 111);
         mFontPreloader.onFirstDrawCustomTabActivity();
         SystemClock.setCurrentTimeMillis(INITIAL_TIME + 222);

@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <mfidl.h>
 
 #include <ks.h>
@@ -953,7 +958,7 @@ class StubKsTopologyInfo final : public StubDeviceInterface<IKsTopologyInfo> {
       *object = AddReference(new StubVideoProcAmp(device_id()));
       return S_OK;
     }
-    NOTREACHED_NORETURN();
+    NOTREACHED();
   }
   IFACEMETHODIMP get_Category(DWORD index, GUID* category) override {
     return E_NOTIMPL;
@@ -983,7 +988,7 @@ class StubKsTopologyInfo final : public StubDeviceInterface<IKsTopologyInfo> {
                          : KSNODETYPE_DEV_SPECIFIC;
         return S_OK;
     }
-    NOTREACHED_NORETURN();
+    NOTREACHED();
   }
   IFACEMETHODIMP get_NumCategories(DWORD* num_categories) override {
     return E_NOTIMPL;
@@ -1445,7 +1450,7 @@ TEST_P(VideoCaptureDeviceFactoryMFWinTest, GetDevicesInfo) {
   EXPECT_TRUE(it->descriptor.control_support().zoom);
 }
 
-TEST_P(VideoCaptureDeviceFactoryMFWinTest, GetDevicesInfo_IncludeIRCameras) {
+TEST_P(VideoCaptureDeviceFactoryMFWinTest, GetDevicesInfoIncludeIRCameras) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndEnableFeature(kIncludeIRCamerasInDeviceEnumeration);
 

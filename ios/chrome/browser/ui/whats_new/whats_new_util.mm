@@ -6,34 +6,16 @@
 
 #import "base/apple/foundation_util.h"
 #import "base/ios/ios_util.h"
-#import "ios/chrome/browser/promos_manager/constants.h"
-#import "ios/chrome/browser/promos_manager/features.h"
-#import "ios/chrome/browser/promos_manager/promos_manager.h"
+#import "ios/chrome/browser/promos_manager/model/constants.h"
+#import "ios/chrome/browser/promos_manager/model/features.h"
+#import "ios/chrome/browser/promos_manager/model/promos_manager.h"
 #import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/ui/whats_new/constants.h"
-
-namespace {
-
-// Clean up user defaults.
-// TODO(crbug.com/1462404): Safe to remove in M123+.
-void CleanUpWhatsNewUserDefaults() {
-  NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
-
-  [defaults removeObjectForKey:kWhatsNewM116PromoRegistrationKey];
-  [defaults removeObjectForKey:kWhatsNewPromoRegistrationKey];
-  [defaults removeObjectForKey:kWhatsNewDaysAfterFre];
-  [defaults removeObjectForKey:kWhatsNewLaunchesAfterFre];
-  [defaults removeObjectForKey:kWhatsNewM116DaysAfterFre];
-  [defaults removeObjectForKey:kWhatsNewM116LaunchesAfterFre];
-}
-
-}  // namespace
 
 // For users who have already viewed What's New M116, the ensures that the promo
 // is not triggered again until the next version of What's New.
 // Note that we no longer write userDefault.
 bool WasWhatsNewUsed() {
-  CleanUpWhatsNewUserDefaults();
 
   return [[NSUserDefaults standardUserDefaults]
       boolForKey:kWhatsNewM116UsageEntryKey];
@@ -73,6 +55,26 @@ const char* WhatsNewTypeToString(WhatsNewType type) {
       return "BottomOmnibox";
     case WhatsNewType::kESB:
       return "ESB";
+    case WhatsNewType::kPWMWidget:
+      return "PWMWidget";
+    case WhatsNewType::kPinnedTabs:
+      return "PinnedTabs";
+    case WhatsNewType::kInactiveTabs:
+      return "InactiveTabs";
+    case WhatsNewType::kPackageTracking:
+      return "PackageTracking";
+    case WhatsNewType::kPasswordSharing:
+      return "PasswordSharing";
+    case WhatsNewType::kCustomizableOverflowMenu:
+      return "CustomizableOverflowMenu";
+    case WhatsNewType::kDockingBling:
+      return "DockingBling";
+    case WhatsNewType::kPriceTracking:
+      return "PriceTracking";
+    case WhatsNewType::kPriceHistory:
+      return "PriceHistory";
+    case WhatsNewType::kOtherBuyingOptions:
+      return "OtherBuyingOptions";
     case WhatsNewType::kError:
       return nil;
   };

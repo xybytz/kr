@@ -5,21 +5,20 @@
 #ifndef IOS_CHROME_BROWSER_AUTOCOMPLETE_MODEL_ZERO_SUGGEST_CACHE_SERVICE_FACTORY_H_
 #define IOS_CHROME_BROWSER_AUTOCOMPLETE_MODEL_ZERO_SUGGEST_CACHE_SERVICE_FACTORY_H_
 
-#include "memory.h"
+#import <memory>
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "components/omnibox/browser/zero_suggest_cache_service.h"
 
-class ChromeBrowserState;
-class ZeroSuggestCacheService;
+class ProfileIOS;
 
 namespace ios {
 // Singleton that owns all ZeroSuggestCacheServices and associates them with
-// ChromeBrowserState
+// profiles.
 class ZeroSuggestCacheServiceFactory : public BrowserStateKeyedServiceFactory {
  public:
-  static ZeroSuggestCacheService* GetForBrowserState(
-      ChromeBrowserState* browser_state);
+  static ZeroSuggestCacheService* GetForProfile(ProfileIOS* profile);
   static ZeroSuggestCacheServiceFactory* GetInstance();
   // Returns the default factory used to build ZeroSuggestCacheService. Can be
   // registered with SetTestingFactory to use real instances during testing.

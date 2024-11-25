@@ -5,21 +5,20 @@
 #ifndef IOS_CHROME_BROWSER_AUTOCOMPLETE_MODEL_AUTOCOMPLETE_CLASSIFIER_FACTORY_H_
 #define IOS_CHROME_BROWSER_AUTOCOMPLETE_MODEL_AUTOCOMPLETE_CLASSIFIER_FACTORY_H_
 
-#include <memory>
+#import <memory>
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
 class AutocompleteClassifier;
-class ChromeBrowserState;
+class ProfileIOS;
 
 namespace ios {
 // Singleton that owns all AutocompleteClassifiers and associates them with
-// ChromeBrowserState.
+// profiles.
 class AutocompleteClassifierFactory : public BrowserStateKeyedServiceFactory {
  public:
-  static AutocompleteClassifier* GetForBrowserState(
-      ChromeBrowserState* browser_state);
+  static AutocompleteClassifier* GetForProfile(ProfileIOS* profile);
   static AutocompleteClassifierFactory* GetInstance();
 
   // Returns the default factory used to build AutocompleteClassifiers. Can be

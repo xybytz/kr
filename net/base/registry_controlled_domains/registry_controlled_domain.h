@@ -115,10 +115,12 @@
 
 #include <stddef.h>
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
 
+#include "base/containers/span.h"
 #include "net/base/net_export.h"
 
 class GURL;
@@ -193,6 +195,12 @@ NET_EXPORT std::string GetDomainAndRegistry(const url::Origin& origin,
 NET_EXPORT std::string GetDomainAndRegistry(std::string_view host,
                                             PrivateRegistryFilter filter);
 
+// Same as above, but returns a StringPiece that is backed by the supplied
+// url::Origin.
+NET_EXPORT std::string_view GetDomainAndRegistryAsStringPiece(
+    const url::Origin& origin,
+    PrivateRegistryFilter filter);
+
 // These convenience functions return true if the two GURLs or Origins both have
 // hosts and one of the following is true:
 // * The hosts are identical.
@@ -249,6 +257,14 @@ NET_EXPORT bool HostHasRegistryControlledDomain(
     UnknownRegistryFilter unknown_filter,
     PrivateRegistryFilter private_filter);
 
+// Returns true if the given host name is a registry identifier. The name should
+// be already canonicalized, and not an IP address. This returns true for
+// registries specified by wildcard rules as well as non-wildcard rules. For
+// example, if there is a wildcard rule of "foo.bar", then "a.foo.bar" is
+// considered a registry identifier.
+NET_EXPORT bool HostIsRegistryIdentifier(std::string_view canon_host,
+                                         PrivateRegistryFilter private_filter);
+
 // Like GetRegistryLength, but takes a previously-canonicalized host instead of
 // a GURL. Prefer the GURL version or HasRegistryControlledDomain to eliminate
 // the possibility of bugs with non-canonical hosts.
@@ -300,8 +316,7 @@ NET_EXPORT_PRIVATE void ResetFindDomainGraphForTesting();
 
 // Used for unit tests, so that a frozen list of domains is used.
 NET_EXPORT_PRIVATE void SetFindDomainGraphForTesting(
-    const unsigned char* domains,
-    size_t length);
+    base::span<const uint8_t> domains);
 
 }  // namespace net::registry_controlled_domains
 

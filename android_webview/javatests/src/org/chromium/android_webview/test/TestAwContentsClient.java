@@ -446,10 +446,8 @@ public class TestAwContentsClient extends NullContentsClient {
         }
 
         /**
-         * Need to mock the action of uploading files when a user selects files.
-         * This sets up plumbing to provide files to the showFileChooser callback.
-         *
-         * @param files
+         * Need to mock the action of uploading files when a user selects files. This sets up
+         * plumbing to provide files to the showFileChooser callback.
          */
         public void setChosenFilesToUpload(@NonNull String[] files) {
             mFilesUploaded = files;
@@ -571,9 +569,11 @@ public class TestAwContentsClient extends NullContentsClient {
     public static class ShouldOverrideUrlLoadingHelper extends CallbackHelper {
         private String mShouldOverrideUrlLoadingUrl;
         private boolean mShouldOverrideUrlLoadingReturnValue;
+        private String mUrlToOverride;
         private boolean mIsRedirect;
         private boolean mHasUserGesture;
         private boolean mIsOutermostMainFrame;
+        private HashMap<String, String> mRequestHeaders;
 
         void setShouldOverrideUrlLoadingUrl(String url) {
             mShouldOverrideUrlLoadingUrl = url;
@@ -583,12 +583,21 @@ public class TestAwContentsClient extends NullContentsClient {
             mShouldOverrideUrlLoadingReturnValue = value;
         }
 
+        void setUrlToOverride(String urlToOverride) {
+            mUrlToOverride = urlToOverride;
+        }
+
         public String getShouldOverrideUrlLoadingUrl() {
             assert getCallCount() > 0;
             return mShouldOverrideUrlLoadingUrl;
         }
 
-        public boolean getShouldOverrideUrlLoadingReturnValue() {
+        public boolean getShouldOverrideUrlLoadingReturnValue(AwWebResourceRequest request) {
+            if (mUrlToOverride != null && !request.url.equals(mUrlToOverride)) {
+                // If `mUrlToOverride` is set, only override requests with a matching URL.
+                return false;
+            }
+
             return mShouldOverrideUrlLoadingReturnValue;
         }
 
@@ -604,15 +613,21 @@ public class TestAwContentsClient extends NullContentsClient {
             return mIsOutermostMainFrame;
         }
 
+        public HashMap<String, String> requestHeaders() {
+            return mRequestHeaders;
+        }
+
         public void notifyCalled(
                 String url,
                 boolean isRedirect,
                 boolean hasUserGesture,
-                boolean isOutermostMainFrame) {
+                boolean isOutermostMainFrame,
+                HashMap<String, String> requestHeaders) {
             mShouldOverrideUrlLoadingUrl = url;
             mIsRedirect = isRedirect;
             mHasUserGesture = hasUserGesture;
             mIsOutermostMainFrame = isOutermostMainFrame;
+            mRequestHeaders = requestHeaders;
             notifyCalled();
         }
     }
@@ -622,12 +637,13 @@ public class TestAwContentsClient extends NullContentsClient {
         if (TRACE) Log.i(TAG, "shouldOverrideUrlLoading " + request.url);
         super.shouldOverrideUrlLoading(request);
         boolean returnValue =
-                mShouldOverrideUrlLoadingHelper.getShouldOverrideUrlLoadingReturnValue();
+                mShouldOverrideUrlLoadingHelper.getShouldOverrideUrlLoadingReturnValue(request);
         mShouldOverrideUrlLoadingHelper.notifyCalled(
                 request.url,
                 request.isRedirect,
                 request.hasUserGesture,
-                request.isOutermostMainFrame);
+                request.isOutermostMainFrame,
+                request.requestHeaders);
         return returnValue;
     }
 
@@ -668,6 +684,10 @@ public class TestAwContentsClient extends NullContentsClient {
         public List<String> getUrls() {
             assert getCallCount() > 0;
             return mShouldInterceptRequestUrls;
+        }
+
+        public void clearUrls() {
+            mShouldInterceptRequestUrls.clear();
         }
 
         public WebResourceResponseInfo getReturnValue(String url) {

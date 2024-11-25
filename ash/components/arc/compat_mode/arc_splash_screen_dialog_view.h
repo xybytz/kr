@@ -35,8 +35,9 @@ namespace arc {
 class ArcSplashScreenDialogView : public views::BubbleDialogDelegateView,
                                   public views::ViewObserver,
                                   public wm::ActivationChangeObserver {
+  METADATA_HEADER(ArcSplashScreenDialogView, views::BubbleDialogDelegateView)
+
  public:
-  METADATA_HEADER(ArcSplashScreenDialogView);
   // TestApi is used for tests to get internal implementation details.
   class TestApi {
    public:
@@ -63,7 +64,8 @@ class ArcSplashScreenDialogView : public views::BubbleDialogDelegateView,
   static void Show(aura::Window* parent, bool is_for_unresizable);
 
   // views::View:
-  gfx::Size CalculatePreferredSize() const override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
   void AddedToWidget() override;
   void OnThemeChanged() override;
 

@@ -10,16 +10,11 @@
 #include <vector>
 
 #include "base/functional/bind.h"
-#include "chrome/browser/extensions/api/document_scan/document_scan_api_handler.h"
-#include "chrome/browser/extensions/chrome_extension_function_details.h"
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ash/crosapi/crosapi_ash.h"
 #include "chrome/browser/ash/crosapi/crosapi_manager.h"
 #include "chrome/browser/ash/crosapi/document_scan_ash.h"
-#elif BUILDFLAG(IS_CHROMEOS_LACROS)
-#include "chromeos/lacros/lacros_service.h"
-#endif
+#include "chrome/browser/extensions/api/document_scan/document_scan_api_handler.h"
+#include "chrome/browser/extensions/chrome_extension_function_details.h"
 
 namespace extensions {
 
@@ -39,8 +34,9 @@ ExtensionFunction::ResponseAction DocumentScanScanFunction::Run() {
   auto params = api::document_scan::Scan::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
 
-  if (!user_gesture())
+  if (!user_gesture()) {
     return RespondNow(Error(kUserGestureRequiredError));
+  }
 
   std::vector<std::string> mime_types;
   if (params->options.mime_types) {
@@ -83,7 +79,7 @@ ExtensionFunction::ResponseAction DocumentScanGetScannerListFunction::Run() {
   DocumentScanAPIHandler::Get(browser_context())
       ->GetScannerList(
           ChromeExtensionFunctionDetails(this).GetNativeWindowForUI(),
-          extension_, std::move(params->filter),
+          extension_, user_gesture(), std::move(params->filter),
           base::BindOnce(
               &DocumentScanGetScannerListFunction::OnScannerListReceived,
               this));
@@ -198,7 +194,7 @@ ExtensionFunction::ResponseAction DocumentScanStartScanFunction::Run() {
   DocumentScanAPIHandler::Get(browser_context())
       ->StartScan(
           ChromeExtensionFunctionDetails(this).GetNativeWindowForUI(),
-          extension_, std::move(params->scanner_handle),
+          extension_, user_gesture(), std::move(params->scanner_handle),
           std::move(params->options),
           base::BindOnce(&DocumentScanStartScanFunction::OnResponseReceived,
                          this));

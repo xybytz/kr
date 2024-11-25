@@ -43,9 +43,9 @@ class COMPONENT_EXPORT(CHROMEOS_UI_FRAME) FrameCaptionButtonContainerView
       public FrameSizeButtonDelegate,
       public views::AnimationDelegateViews,
       public views::WidgetObserver {
- public:
-  METADATA_HEADER(FrameCaptionButtonContainerView);
+  METADATA_HEADER(FrameCaptionButtonContainerView, views::BoxLayoutView)
 
+ public:
   // `frame` is the views::Widget that the caption buttons act on.
   // `custom_button` is an optional caption button. It is placed as the
   // left-most caption button (in LTR mode).
@@ -164,7 +164,7 @@ class COMPONENT_EXPORT(CHROMEOS_UI_FRAME) FrameCaptionButtonContainerView
   void ClearOnSizeButtonPressedCallback();
 
   // views::View:
-  void Layout() override;
+  void Layout(PassKey) override;
   void ChildPreferredSizeChanged(View* child) override;
   void ChildVisibilityChanged(View* child) override;
 
@@ -234,7 +234,9 @@ class COMPONENT_EXPORT(CHROMEOS_UI_FRAME) FrameCaptionButtonContainerView
 
   // Mapping of the image needed to paint a button for each of the values of
   // CaptionButtonIcon.
-  std::map<views::CaptionButtonIcon, const gfx::VectorIcon*> button_icon_map_;
+  std::map<views::CaptionButtonIcon,
+           raw_ptr<const gfx::VectorIcon, CtnExperimental>>
+      button_icon_map_;
 
   // Animation that affects the visibility of |size_button_| and the position of
   // buttons to the left of it. Usually this is just the minimize button but it

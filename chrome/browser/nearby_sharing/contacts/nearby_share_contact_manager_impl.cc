@@ -89,10 +89,10 @@ std::string ComputeHash(
   std::unique_ptr<crypto::SecureHash> hasher =
       crypto::SecureHash::Create(crypto::SecureHash::Algorithm::SHA256);
   for (const std::string& serialized_contact : serialized_contacts_set) {
-    hasher->Update(serialized_contact.data(), serialized_contact.size());
+    hasher->Update(base::as_byte_span(serialized_contact));
   }
   std::vector<uint8_t> hash(hasher->GetHashLength());
-  hasher->Finish(hash.data(), hash.size());
+  hasher->Finish(hash);
 
   return base::HexEncode(hash);
 }
@@ -117,7 +117,6 @@ nearby_share::mojom::ContactIdentifierPtr ProtoToMojo(
       break;
   }
   NOTREACHED();
-  return nullptr;
 }
 
 nearby_share::mojom::ContactRecordPtr ProtoToMojo(
@@ -215,7 +214,8 @@ NearbyShareContactManagerImpl::NearbyShareContactManagerImpl(
               pref_service_,
               base::BindRepeating(&NearbyShareContactManagerImpl::
                                       OnPeriodicContactsUploadRequested,
-                                  base::Unretained(this)))),
+                                  base::Unretained(this)),
+              Feature::NS)),
       contact_download_and_upload_scheduler_(
           ash::nearby::NearbySchedulerFactory::CreatePeriodicScheduler(
               kContactDownloadPeriod,
@@ -225,7 +225,8 @@ NearbyShareContactManagerImpl::NearbyShareContactManagerImpl(
               pref_service_,
               base::BindRepeating(
                   &NearbyShareContactManagerImpl::OnContactsDownloadRequested,
-                  base::Unretained(this)))) {}
+                  base::Unretained(this)),
+              Feature::NS)) {}
 
 NearbyShareContactManagerImpl::~NearbyShareContactManagerImpl() = default;
 

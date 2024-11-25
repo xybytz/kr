@@ -41,6 +41,7 @@ import org.chromium.android_webview.test.util.VideoTestUtil;
 import org.chromium.android_webview.test.util.VideoTestWebServer;
 import org.chromium.base.Callback;
 import org.chromium.base.FileUtils;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
@@ -50,10 +51,11 @@ import org.chromium.base.test.util.RequiresRestart;
 import org.chromium.base.test.util.TestFileUtil;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.components.embedder_support.util.WebResourceResponseInfo;
+import org.chromium.content_public.browser.ContentFeatureList;
+import org.chromium.content_public.browser.ContentFeatureMap;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.content_public.browser.test.util.HistoryUtils;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.common.ContentSwitches;
 import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.net.test.EmbeddedTestServer;
@@ -67,6 +69,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.net.URLEncoder;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -120,6 +123,7 @@ public class AwSettingsTest {
             mContext = containerView.getContext();
             mContentViewClient = contentViewClient;
             mAwSettings = mActivityTestRule.getAwSettingsOnUiThread(mAwContents);
+            mAwSettings.setAllowFileAccess(true);
             if (requiresJsEnabled) {
                 mAwSettings.setJavaScriptEnabled(true);
             }
@@ -1627,7 +1631,7 @@ public class AwSettingsTest {
             final WebContents webContents = mAwContents.getWebContents();
             final CallbackHelper onTitleUpdatedHelper = new CallbackHelper();
             final WebContentsObserver observer =
-                    TestThreadUtils.runOnUiThreadBlocking(
+                    ThreadUtils.runOnUiThreadBlocking(
                             () ->
                                     new WebContentsObserver(webContents) {
                                         @Override
@@ -1668,7 +1672,7 @@ public class AwSettingsTest {
                         getTitleOnUiThread());
             }
 
-            TestThreadUtils.runOnUiThreadBlocking(() -> webContents.removeObserver(observer));
+            ThreadUtils.runOnUiThreadBlocking(() -> webContents.removeObserver(observer));
         }
 
         private String getData() {
@@ -1679,7 +1683,7 @@ public class AwSettingsTest {
     }
 
     public static int calcDisplayWidthDp(Context context) {
-        return TestThreadUtils.runOnUiThreadBlockingNoException(
+        return ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     DisplayAndroid displayAndroid = DisplayAndroid.getNonMultiDisplay(context);
                     return DisplayUtil.pxToDp(displayAndroid, displayAndroid.getDisplayWidth());
@@ -2244,6 +2248,7 @@ public class AwSettingsTest {
         final AwContents awContents = testContainerView.getAwContents();
         AwSettings settings = mActivityTestRule.getAwSettingsOnUiThread(awContents);
         settings.setJavaScriptEnabled(true);
+        settings.setAllowFileAccess(true);
         settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setAllowFileAccessFromFileURLs(false);
         mActivityTestRule.loadUrlSync(
@@ -2772,6 +2777,7 @@ public class AwSettingsTest {
         final AwContents awContents = testContainer.getAwContents();
         final AwSettings awSettings = mActivityTestRule.getAwSettingsOnUiThread(awContents);
         awSettings.setJavaScriptEnabled(true);
+        awSettings.setAllowFileAccess(true);
         ImagePageGenerator generator = new ImagePageGenerator(0, false);
 
         String fileName = null;
@@ -3693,6 +3699,21 @@ public class AwSettingsTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
+    @CommandLineFlags.Add({"enable-features=DIPS"})
+    public void testDipsSettingsForWebView() {
+        Map<String, String> mapDipsTtl =
+                ContentFeatureMap.getInstance()
+                        .getFieldTrialParamsForFeature(ContentFeatureList.DIPS_TTL);
+        Assert.assertTrue(mapDipsTtl.size() > 0);
+
+        String expectedTtl = "30d";
+        String gotDipsTtl = mapDipsTtl.get("interaction_ttl");
+        Assert.assertEquals(expectedTtl, gotDipsTtl);
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"AndroidWebView", "Preferences"})
     public void testUpdatingUserAgentWhileLoadingCausesReload() throws Throwable {
         final TestAwContentsClient contentClient = new TestAwContentsClient();
         final AwTestContainerView testContainerView =
@@ -3957,7 +3978,6 @@ public class AwSettingsTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
-    @CommandLineFlags.Add({"enable-features=WebViewXRequestedWithHeaderManifestAllowList"})
     public void testXRequestedWithAllowListSetByManifest() throws Throwable {
         final Set<String> allowList = Set.of("https://*.example.com", "https://*.google.com");
         try (var a = ManifestMetadataUtil.setXRequestedWithAllowListScopedForTesting(allowList)) {
@@ -4013,7 +4033,7 @@ public class AwSettingsTest {
         }
     }
 
-    /**
+    /*
      * Verifies the following statements about a setting:
      *  - initially, the setting has a default value;
      *  - the setting can be switched to an alternate value and back;
@@ -4022,7 +4042,6 @@ public class AwSettingsTest {
      *
      * @param helper0 Test helper for the first ContentView
      * @param helper1 Test helper for the second ContentView
-     * @throws Throwable
      */
     private void runPerViewSettingsTest(
             AwSettingsTestHelper<?> helper0, AwSettingsTestHelper<?> helper1) throws Throwable {
@@ -4094,7 +4113,7 @@ public class AwSettingsTest {
         }
     }
 
-    /**
+    /*
      * Verifies the number of resource requests made to the content provider.
      * @param resource Resource name
      * @param expectedCount Expected resource requests count

@@ -23,10 +23,6 @@ namespace bookmarks {
 class BookmarkNode;
 }
 
-namespace test {
-class AppMenuControllerTest;
-}
-
 // C++ controller for the bookmark menu; one per AppController (which
 // means there is only one).  When bookmarks are changed, this class
 // takes care of updating Cocoa bookmark menus.  This is not named
@@ -51,31 +47,25 @@ class BookmarkMenuBridge : public bookmarks::BookmarkModelObserver {
   ~BookmarkMenuBridge() override;
 
   // bookmarks::BookmarkModelObserver:
-  void BookmarkModelLoaded(bookmarks::BookmarkModel* model,
-                           bool ids_reassigned) override;
-  void BookmarkModelBeingDeleted(bookmarks::BookmarkModel* model) override;
-  void BookmarkNodeMoved(bookmarks::BookmarkModel* model,
-                         const bookmarks::BookmarkNode* old_parent,
+  void BookmarkModelLoaded(bool ids_reassigned) override;
+  void BookmarkModelBeingDeleted() override;
+  void BookmarkNodeMoved(const bookmarks::BookmarkNode* old_parent,
                          size_t old_index,
                          const bookmarks::BookmarkNode* new_parent,
                          size_t new_index) override;
-  void BookmarkNodeAdded(bookmarks::BookmarkModel* model,
-                         const bookmarks::BookmarkNode* parent,
+  void BookmarkNodeAdded(const bookmarks::BookmarkNode* parent,
                          size_t index,
                          bool added_by_user) override;
-  void BookmarkNodeRemoved(bookmarks::BookmarkModel* model,
-                           const bookmarks::BookmarkNode* parent,
+  void BookmarkNodeRemoved(const bookmarks::BookmarkNode* parent,
                            size_t old_index,
                            const bookmarks::BookmarkNode* node,
-                           const std::set<GURL>& removed_urls) override;
-  void BookmarkAllUserNodesRemoved(bookmarks::BookmarkModel* model,
-                                   const std::set<GURL>& removed_urls) override;
-  void BookmarkNodeChanged(bookmarks::BookmarkModel* model,
-                           const bookmarks::BookmarkNode* node) override;
-  void BookmarkNodeFaviconChanged(bookmarks::BookmarkModel* model,
-                                  const bookmarks::BookmarkNode* node) override;
+                           const std::set<GURL>& removed_urls,
+                           const base::Location& location) override;
+  void BookmarkAllUserNodesRemoved(const std::set<GURL>& removed_urls,
+                                   const base::Location& location) override;
+  void BookmarkNodeChanged(const bookmarks::BookmarkNode* node) override;
+  void BookmarkNodeFaviconChanged(const bookmarks::BookmarkNode* node) override;
   void BookmarkNodeChildrenReordered(
-      bookmarks::BookmarkModel* model,
       const bookmarks::BookmarkNode* node) override;
 
   // Rebuilds the main bookmark menu, if it has been marked invalid. Or builds
@@ -108,9 +98,12 @@ class BookmarkMenuBridge : public bookmarks::BookmarkModelObserver {
   // an NSMenuItem in this menu, returns the invalid GUID.
   base::Uuid TagToGUID(int64_t tag) const;
 
+  // Returns the NSMenuItem for a given BookmarkNode, exposed publicly for
+  // testing.
+  NSMenuItem* MenuItemForNodeForTest(const bookmarks::BookmarkNode* node);
+
  private:
   friend class BookmarkMenuBridgeTest;
-  friend class test::AppMenuControllerTest;
 
   void BuildRootMenu(bool recurse);
 

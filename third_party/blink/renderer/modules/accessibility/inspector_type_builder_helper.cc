@@ -56,7 +56,6 @@ String IgnoredReasonName(AXIgnoredReason reason) {
       return "uninteresting";
   }
   NOTREACHED();
-  return "";
 }
 
 std::unique_ptr<AXProperty> CreateProperty(IgnoredReason reason) {

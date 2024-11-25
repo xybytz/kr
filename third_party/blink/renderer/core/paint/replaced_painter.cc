@@ -4,8 +4,9 @@
 
 #include "third_party/blink/renderer/core/paint/replaced_painter.h"
 
+#include <optional>
+
 #include "base/metrics/histogram_macros.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/highlight/highlight_style_utils.h"
@@ -47,7 +48,7 @@ class ScopedReplacedContentPaintState : public ScopedPaintState {
                                   const LayoutReplaced& replaced);
 
  private:
-  absl::optional<MobileFriendlinessChecker::IgnoreBeyondViewportScope>
+  std::optional<MobileFriendlinessChecker::IgnoreBeyondViewportScope>
       mf_ignore_scope_;
 };
 
@@ -164,8 +165,9 @@ void ReplacedPainter::Paint(const PaintInfo& paint_info) {
 
   if (local_paint_info.phase != PaintPhase::kForeground &&
       local_paint_info.phase != PaintPhase::kSelectionDragImage &&
-      !layout_replaced_.CanHaveChildren())
+      (!layout_replaced_.CanHaveChildren() || layout_replaced_.IsCanvas())) {
     return;
+  }
 
   if (local_paint_info.phase == PaintPhase::kSelectionDragImage &&
       !layout_replaced_.IsSelected())
@@ -188,8 +190,7 @@ void ReplacedPainter::Paint(const PaintInfo& paint_info) {
     DCHECK(scrollable_area);
     if (!scrollable_area->HasLayerForScrollCorner()) {
       ScrollableAreaPainter(*scrollable_area)
-          .PaintResizer(local_paint_info.context,
-                        ToRoundedVector2d(paint_offset),
+          .PaintResizer(local_paint_info.context, paint_offset,
                         local_paint_info.GetCullRect());
     }
     // Otherwise the resizer will be painted by the scroll corner layer.
@@ -204,7 +205,7 @@ void ReplacedPainter::Paint(const PaintInfo& paint_info) {
   if (!draw_selection_tint)
     return;
 
-  absl::optional<SelectionBoundsRecorder> selection_recorder;
+  std::optional<SelectionBoundsRecorder> selection_recorder;
   const FrameSelection& frame_selection =
       layout_replaced_.GetFrame()->Selection();
   SelectionState selection_state = layout_replaced_.GetSelectionState();
@@ -233,7 +234,8 @@ void ReplacedPainter::Paint(const PaintInfo& paint_info) {
                              selection_painting_int_rect);
     Color selection_bg = HighlightStyleUtils::HighlightBackgroundColor(
         layout_replaced_.GetDocument(), layout_replaced_.StyleRef(),
-        layout_replaced_.GetNode(), absl::nullopt, kPseudoIdSelection);
+        layout_replaced_.GetNode(), std::nullopt, kPseudoIdSelection,
+        SearchTextIsActiveMatch::kNo);
     local_paint_info.context.FillRect(
         selection_painting_int_rect, selection_bg,
         PaintAutoDarkMode(layout_replaced_.StyleRef(),
@@ -258,8 +260,9 @@ bool ReplacedPainter::ShouldPaint(const ScopedPaintState& paint_state) const {
   // But if it's an SVG root, there can be children, so we'll check visibility
   // later.
   if (!layout_replaced_.IsSVGRoot() &&
-      layout_replaced_.StyleRef().Visibility() != EVisibility::kVisible)
+      layout_replaced_.StyleRef().Visibility() != EVisibility::kVisible) {
     return false;
+  }
 
   PhysicalRect local_rect = layout_replaced_.VisualOverflowRect();
   local_rect.Unite(layout_replaced_.LocalSelectionVisualRect());
@@ -313,7 +316,7 @@ void ReplacedPainter::PaintBoxDecorationBackground(
 
   PhysicalRect paint_rect;
   const DisplayItemClient* background_client = nullptr;
-  absl::optional<ScopedBoxContentsPaintState> contents_paint_state;
+  std::optional<ScopedBoxContentsPaintState> contents_paint_state;
   bool painting_background_in_contents_space =
       paint_info.IsPaintingBackgroundInContentsSpace();
   gfx::Rect visual_rect;
@@ -373,7 +376,7 @@ void ReplacedPainter::PaintBoxDecorationBackgroundWithRect(
     const DisplayItemClient& background_client) {
   const ComputedStyle& style = layout_replaced_.StyleRef();
 
-  absl::optional<DisplayItemCacheSkipper> cache_skipper;
+  std::optional<DisplayItemCacheSkipper> cache_skipper;
   if (RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled() &&
       BoxPainterBase::ShouldSkipPaintUnderInvalidationChecking(
           layout_replaced_)) {

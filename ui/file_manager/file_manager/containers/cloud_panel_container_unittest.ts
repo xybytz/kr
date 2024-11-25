@@ -43,6 +43,10 @@ const PREFERENCES = {
   officeFileMovedGoogleDrive: 0,
   driveFsBulkPinningAvailable: true,
   driveFsBulkPinningEnabled: true,
+  localUserFilesAllowed: true,
+  defaultLocation: chrome.fileManagerPrivate.DefaultLocation.MY_FILES,
+  skyVaultMigrationDestination:
+      chrome.fileManagerPrivate.CloudProvider.NOT_SPECIFIED,
 };
 
 export function setUp() {

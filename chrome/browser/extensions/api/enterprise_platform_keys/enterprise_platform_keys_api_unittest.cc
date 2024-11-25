@@ -5,6 +5,8 @@
 #include "chrome/browser/extensions/api/enterprise_platform_keys/enterprise_platform_keys_api.h"
 
 #include <optional>
+#include <string>
+#include <string_view>
 #include <utility>
 
 #include "base/containers/span.h"
@@ -12,14 +14,11 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/strings/string_piece.h"
 #include "base/values.h"
 #include "chrome/browser/ash/attestation/mock_tpm_challenge_key.h"
-#include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/ash/platform_keys/key_permissions/fake_user_private_token_kpm_service.h"
 #include "chrome/browser/ash/platform_keys/key_permissions/mock_key_permissions_manager.h"
 #include "chrome/browser/ash/platform_keys/key_permissions/user_private_token_kpm_service_factory.h"
-#include "chrome/browser/extensions/api/enterprise_platform_keys_private/enterprise_platform_keys_private_api.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/common/extensions/api/enterprise_platform_keys.h"
 #include "chrome/common/pref_names.h"
@@ -29,7 +28,6 @@
 #include "chromeos/ash/components/dbus/constants/attestation_constants.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
-#include "components/user_manager/scoped_user_manager.h"
 #include "extensions/browser/api_test_utils.h"
 #include "extensions/browser/extension_function_dispatcher.h"
 #include "extensions/common/extension_builder.h"
@@ -43,7 +41,8 @@ using testing::NiceMock;
 namespace extensions {
 namespace {
 
-const char kUserEmail[] = "test@google.com";
+constexpr char kUserEmail[] = "test@google.com";
+constexpr char kChallengeResponse[] = "response";
 
 void FakeRunCheckNotRegister(::attestation::VerifiedAccessFlow flow_type,
                              Profile* profile,
@@ -56,15 +55,12 @@ void FakeRunCheckNotRegister(::attestation::VerifiedAccessFlow flow_type,
   EXPECT_FALSE(register_key);
   std::move(callback).Run(
       ash::attestation::TpmChallengeKeyResult::MakeChallengeResponse(
-          "response"));
+          kChallengeResponse));
 }
 
 class EPKChallengeKeyTestBase : public BrowserWithTestWindowTest {
  protected:
-  EPKChallengeKeyTestBase()
-      : extension_(ExtensionBuilder("Test").Build()),
-        fake_user_manager_(new ash::FakeChromeUserManager()),
-        user_manager_enabler_(base::WrapUnique(fake_user_manager_.get())) {
+  EPKChallengeKeyTestBase() : extension_(ExtensionBuilder("Test").Build()) {
     stub_install_attributes_.SetCloudManaged("google.com", "device_id");
   }
 
@@ -114,9 +110,9 @@ class EPKChallengeKeyTestBase : public BrowserWithTestWindowTest {
 
   void LogIn(const std::string& email) override {
     const AccountId account_id = AccountId::FromUserEmail(email);
-    fake_user_manager_->AddUserWithAffiliation(account_id,
-                                               /*is_affiliated=*/true);
-    fake_user_manager_->UserLoggedIn(
+    user_manager()->AddUserWithAffiliation(account_id,
+                                           /*is_affiliated=*/true);
+    user_manager()->UserLoggedIn(
         account_id,
         user_manager::FakeUserManager::GetFakeUsernameHash(account_id),
         /*browser_restart=*/false,
@@ -138,8 +134,8 @@ class EPKChallengeKeyTestBase : public BrowserWithTestWindowTest {
         signin::ConsentLevel::kSync);
   }
 
-  // Like api_test_utils::RunFunctionAndReturnError but with an
-  // explicit list of args.
+  // Like api_test_utils::RunFunctionAndReturnError but with an explicit list of
+  // args.
   std::string RunFunctionAndReturnError(
       ExtensionFunction* function,
       base::Value::List args,
@@ -153,8 +149,8 @@ class EPKChallengeKeyTestBase : public BrowserWithTestWindowTest {
     return function->GetError();
   }
 
-  // Like api_test_utils::RunFunctionAndReturnSingleResult but
-  // with an explicit list of args.
+  // Like api_test_utils::RunFunctionAndReturnSingleResult but with an explicit
+  // list of args.
   base::Value RunFunctionAndReturnSingleResult(
       ExtensionFunction* function,
       base::Value::List args,
@@ -178,10 +174,6 @@ class EPKChallengeKeyTestBase : public BrowserWithTestWindowTest {
 
   scoped_refptr<const extensions::Extension> extension_;
   ash::StubInstallAttributes stub_install_attributes_;
-  // fake_user_manager_ is owned by user_manager_enabler_.
-  raw_ptr<ash::FakeChromeUserManager, DanglingUntriaged> fake_user_manager_ =
-      nullptr;
-  user_manager::ScopedUserManager user_manager_enabler_;
   ash::platform_keys::MockKeyPermissionsManager key_permissions_manager_;
   raw_ptr<PrefService, DanglingUntriaged> prefs_ = nullptr;
   raw_ptr<ash::attestation::MockTpmChallengeKey, DanglingUntriaged>
@@ -208,7 +200,7 @@ class EPKChallengeMachineKeyTest : public EPKChallengeKeyTestBase {
 
   base::Value::List CreateArgsInternal(
       std::optional<base::Value> register_key) {
-    static constexpr base::StringPiece kData = "challenge";
+    static constexpr std::string_view kData = "challenge";
     base::Value::List args;
     args.Append(base::Value(base::as_bytes(base::make_span(kData))));
     if (register_key) {
@@ -242,7 +234,7 @@ TEST_F(EPKChallengeMachineKeyTest, Success) {
 
   ASSERT_TRUE(value.is_blob());
   std::string response(value.GetBlob().begin(), value.GetBlob().end());
-  EXPECT_EQ("response", response);
+  EXPECT_EQ(response, kChallengeResponse);
 }
 
 TEST_F(EPKChallengeMachineKeyTest, BadChallengeThenErrorMessageReturned) {
@@ -291,14 +283,13 @@ class EPKChallengeUserKeyTest : public EPKChallengeKeyTestBase {
   base::Value::List CreateArgsNoRegister() { return CreateArgsInternal(false); }
 
   base::Value::List CreateArgsInternal(bool register_key) {
-    static constexpr base::StringPiece kData = "challenge";
+    static constexpr std::string_view kData = "challenge";
     base::Value::List args;
     args.Append(base::Value(base::as_bytes(base::make_span(kData))));
     args.Append(register_key);
     return args;
   }
 
-  EPKPChallengeKey impl_;
   scoped_refptr<EnterprisePlatformKeysChallengeUserKeyFunction> func_;
 };
 
@@ -314,7 +305,7 @@ TEST_F(EPKChallengeUserKeyTest, Success) {
 
   ASSERT_TRUE(value.is_blob());
   std::string response(value.GetBlob().begin(), value.GetBlob().end());
-  EXPECT_EQ("response", response);
+  EXPECT_EQ(response, kChallengeResponse);
 }
 
 TEST_F(EPKChallengeUserKeyTest, BadChallengeThenErrorMessageReturned) {
@@ -429,7 +420,7 @@ TEST_P(EPKChallengeKeyTest, Success) {
 
   ASSERT_TRUE(value.is_blob());
   std::string response(value.GetBlob().begin(), value.GetBlob().end());
-  EXPECT_EQ("response", response);
+  EXPECT_EQ(response, kChallengeResponse);
 }
 
 // This test ensures challengeKey cannot be called by extensions not on the

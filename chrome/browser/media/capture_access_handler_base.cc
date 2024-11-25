@@ -15,8 +15,12 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "extensions/common/extension.h"
+#include "extensions/buildflags/buildflags.h"
 #include "ui/gfx/native_widget_types.h"
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "extensions/common/extension.h"
+#endif
 
 #if defined(USE_AURA)
 #include "ui/aura/window.h"
@@ -227,7 +231,7 @@ void CaptureAccessHandlerBase::UpdateTarget(
   if (target.type == content::DesktopMediaID::TYPE_WINDOW) {
     // If this is the Chrome window, then any tab in this window could be
     // captured.
-    // TODO(crbug.com/856276): Implement this for MacOS.
+    // TODO(crbug.com/41396679): Implement this for MacOS.
 #if defined(USE_AURA)
     it->target_window = content::DesktopMediaID::GetNativeWindowById(target);
 #endif
@@ -284,7 +288,7 @@ bool CaptureAccessHandlerBase::MatchesSession(const Session& session,
     }
 #else
       // Unable to determine the window.
-      // TODO(crbug.com/856276): Implement this for MacOS.
+      // TODO(crbug.com/41396679): Implement this for MacOS.
       return false;
 #endif  // defined(USE_AURA)
 
@@ -300,7 +304,7 @@ bool CaptureAccessHandlerBase::MatchesSession(const Session& session,
       return target_web_contents == web_contents->GetOutermostWebContents();
   }
 
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 void CaptureAccessHandlerBase::UpdateVideoScreenCaptureStatus(
@@ -319,6 +323,7 @@ void CaptureAccessHandlerBase::UpdateVideoScreenCaptureStatus(
   }
 }
 
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 bool CaptureAccessHandlerBase::IsExtensionAllowedForScreenCapture(
     const extensions::Extension* extension) {
   if (!extension)
@@ -326,7 +331,7 @@ bool CaptureAccessHandlerBase::IsExtensionAllowedForScreenCapture(
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   std::string hash = base::SHA1HashString(extension->id());
-  std::string hex_hash = base::HexEncode(hash.c_str(), hash.length());
+  std::string hex_hash = base::HexEncode(hash);
 
   // crbug.com/446688
   return hex_hash == "4F25792AF1AA7483936DE29C07806F203C7170A0" ||
@@ -337,6 +342,7 @@ bool CaptureAccessHandlerBase::IsExtensionAllowedForScreenCapture(
   return false;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
 bool CaptureAccessHandlerBase::IsBuiltInFeedbackUI(const GURL& origin) {
   return origin.spec() == chrome::kChromeUIFeedbackURL;

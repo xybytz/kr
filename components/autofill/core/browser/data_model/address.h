@@ -10,7 +10,9 @@
 
 #include "base/compiler_specific.h"
 #include "components/autofill/core/browser/country_type.h"
+#include "components/autofill/core/browser/data_model/autofill_i18n_api.h"
 #include "components/autofill/core/browser/data_model/autofill_structured_address.h"
+#include "components/autofill/core/browser/data_model/autofill_structured_address_component_store.h"
 #include "components/autofill/core/browser/data_model/form_group.h"
 #include "components/autofill/core/browser/geo/alternative_state_name_map.h"
 
@@ -31,9 +33,11 @@ class Address : public FormGroup {
   void SetRawInfoWithVerificationStatus(FieldType type,
                                         const std::u16string& value,
                                         VerificationStatus status) override;
-  void GetMatchingTypes(const std::u16string& text,
-                        const std::string& locale,
-                        FieldTypeSet* matching_types) const override;
+  void GetMatchingTypesWithProfileSources(
+      const std::u16string& text,
+      const std::string& locale,
+      FieldTypeSet* matching_types,
+      PossibleProfileValueSources* profile_value_sources) const override;
 
   // Derives all missing tokens in the structured representation of the address
   // either parsing missing tokens from their assigned parent or by formatting
@@ -54,15 +58,27 @@ class Address : public FormGroup {
 
   // For structured addresses, returns true if |this| is mergeable with |newer|.
   bool IsStructuredAddressMergeable(const Address& newer) const;
+  // Like `IsStructuredAddressMergeable()`, but only for the subtree
+  // corresponding to `type`.
+  bool IsStructuredAddressMergeableForType(FieldType type,
+                                           const Address& other) const;
 
-  // Returns a constant reference to |structured_address_|.
-  const AddressComponent& GetStructuredAddress() const;
+  // Returns a constant reference to the structured address' root node (i.e.
+  // ADDRESS_HOME_ADDRESS) from the nodes store.
+  const AddressComponent& GetRoot() const;
 
   // Returns the structured address country code.
   AddressCountryCode GetAddressCountryCode() const;
 
   // Returns whether the structured address uses the legacy address hierarchy.
   bool IsLegacyAddress() const { return is_legacy_address_; }
+
+  // Returns true if the given `field_type` is part of Autofill's address
+  // model for `GetAddressCountryCode()` and is accessible via settings. Note
+  // that a field can also be settings accessible via a different field that is
+  // at a higher level in the address hierarchy tree. The function returns true
+  // in this case as well.
+  bool IsAddressFieldSettingAccessible(FieldType field_type) const;
 
  private:
   // FormGroup:
@@ -83,9 +99,12 @@ class Address : public FormGroup {
   void SetAddressCountryCode(const std::u16string& country_code,
                              VerificationStatus status);
 
-  // This data structure holds the address information if the structured address
-  // feature is enabled.
-  std::unique_ptr<AddressComponent> structured_address_;
+  // Returns a pointer to the structured address' root node (i.e.
+  // ADDRESS_HOME_ADDRESS) from the nodes store.
+  AddressComponent* Root();
+
+  // This data structure holds the structured address information.
+  AddressComponentsStore address_component_store_;
 
   // Whether the structured address uses the legacy hierarchy.
   bool is_legacy_address_ = true;

@@ -12,11 +12,13 @@ import androidx.annotation.IntDef;
 import org.junit.Assert;
 
 import org.chromium.base.Log;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.browser.ZoomController;
 import org.chromium.chrome.browser.tab.SadTab;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.Tab.LoadUrlResult;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
@@ -24,7 +26,6 @@ import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.test.RenderFrameHostTestExt;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.WebContentsUtils;
 
 import java.lang.annotation.Retention;
@@ -225,7 +226,7 @@ public abstract class XrTestFramework {
                     "Polling timed out",
                     timeoutMs,
                     POLL_CHECK_INTERVAL_LONG_MS);
-        } catch (AssertionError e) {
+        } catch (CriteriaHelper.TimeoutException e) {
             Log.d(TAG, "pollJavaScriptBoolean() timed out: " + e.toString());
             return false;
         }
@@ -267,7 +268,7 @@ public abstract class XrTestFramework {
                     "Polling timed out",
                     timeoutMs,
                     POLL_CHECK_INTERVAL_LONG_MS);
-        } catch (AssertionError e) {
+        } catch (CriteriaHelper.TimeoutException e) {
             Log.d(TAG, "pollJavaScriptBooleanInFrame() timed out: " + e.toString());
             return false;
         }
@@ -458,7 +459,7 @@ public abstract class XrTestFramework {
     private static String runJavaScriptInFrameInternal(
             String js, int timeout, final WebContents webContents, boolean failOnTimeout) {
         RenderFrameHostTestExt rfh =
-                TestThreadUtils.runOnUiThreadBlockingNoException(
+                ThreadUtils.runOnUiThreadBlocking(
                         () ->
                                 new RenderFrameHostTestExt(
                                         WebContentsUtils.getFocusedFrame(webContents)));
@@ -466,7 +467,7 @@ public abstract class XrTestFramework {
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<String> result = new AtomicReference<String>();
         // The JS execution needs to be started on the UI thread to avoid hitting a DCHECK.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     rfh.executeJavaScript(
                             js,
@@ -516,11 +517,12 @@ public abstract class XrTestFramework {
      * @param timeoutSec The timeout of the page load in seconds.
      * @return The return value of ChromeActivityTestRule.loadUrl().
      */
-    public int loadFileAndAwaitInitialization(String url, int timeoutSec) {
-        int result = mRule.loadUrl(getUrlForFile(url), timeoutSec);
+    public LoadUrlResult loadFileAndAwaitInitialization(String url, int timeoutSec) {
+        LoadUrlResult result = mRule.loadUrl(getUrlForFile(url), timeoutSec);
         Assert.assertEquals(
-                "Page did not load correctly. Load result enum: " + String.valueOf(result),
-                result,
+                "Page did not load correctly. Load result enum: "
+                        + String.valueOf(result.tabLoadStatus),
+                result.tabLoadStatus,
                 Tab.TabLoadStatus.DEFAULT_PAGE_LOAD);
         if (!pollJavaScriptBoolean(
                 "isInitializationComplete()", POLL_TIMEOUT_LONG_MS, mRule.getWebContents())) {
@@ -539,8 +541,7 @@ public abstract class XrTestFramework {
         // It is possible, particularly with multiple sessions and navigations within a single test,
         // for the page to get zoomed in on navigation. So, ensure that we are always zoomed out
         // enough to see all page content after we do a page load.
-        TestThreadUtils.runOnUiThreadBlockingNoException(
-                () -> ZoomController.zoomReset(mRule.getWebContents()));
+        ThreadUtils.runOnUiThreadBlocking(() -> ZoomController.zoomReset(mRule.getWebContents()));
         return result;
     }
 
@@ -676,7 +677,7 @@ public abstract class XrTestFramework {
 
     public void simulateRendererKilled() {
         final Tab tab = getRule().getActivity().getActivityTab();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> ChromeTabUtils.simulateRendererKilledForTesting(tab));
 
         CriteriaHelper.pollUiThread(
@@ -684,7 +685,7 @@ public abstract class XrTestFramework {
     }
 
     public void openIncognitoTab(final String url) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mRule.getActivity()
                             .getTabCreator(/* incognito= */ true)

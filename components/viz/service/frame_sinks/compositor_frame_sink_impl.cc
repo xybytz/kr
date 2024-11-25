@@ -98,7 +98,7 @@ class BundleClientProxy : public mojom::CompositorFrameSinkClient {
 CompositorFrameSinkImpl::CompositorFrameSinkImpl(
     FrameSinkManagerImpl* frame_sink_manager,
     const FrameSinkId& frame_sink_id,
-    absl::optional<FrameSinkBundleId> bundle_id,
+    std::optional<FrameSinkBundleId> bundle_id,
     mojo::PendingReceiver<mojom::CompositorFrameSink> receiver,
     mojo::PendingRemote<mojom::CompositorFrameSinkClient> client)
     : compositor_frame_sink_client_(std::move(client)),
@@ -144,7 +144,7 @@ void CompositorFrameSinkImpl::SetAutoNeedsBeginFrame() {
 void CompositorFrameSinkImpl::SubmitCompositorFrame(
     const LocalSurfaceId& local_surface_id,
     CompositorFrame frame,
-    absl::optional<HitTestRegionList> hit_test_region_list,
+    std::optional<HitTestRegionList> hit_test_region_list,
     uint64_t submit_time) {
   // Non-root surface frames should not have display transform hint.
   DCHECK_EQ(gfx::OVERLAY_TRANSFORM_NONE, frame.metadata.display_transform_hint);
@@ -156,7 +156,7 @@ void CompositorFrameSinkImpl::SubmitCompositorFrame(
 void CompositorFrameSinkImpl::SubmitCompositorFrameSync(
     const LocalSurfaceId& local_surface_id,
     CompositorFrame frame,
-    absl::optional<HitTestRegionList> hit_test_region_list,
+    std::optional<HitTestRegionList> hit_test_region_list,
     uint64_t submit_time,
     SubmitCompositorFrameSyncCallback callback) {
   SubmitCompositorFrameInternal(local_surface_id, std::move(frame),
@@ -167,7 +167,7 @@ void CompositorFrameSinkImpl::SubmitCompositorFrameSync(
 void CompositorFrameSinkImpl::SubmitCompositorFrameInternal(
     const LocalSurfaceId& local_surface_id,
     CompositorFrame frame,
-    absl::optional<HitTestRegionList> hit_test_region_list,
+    std::optional<HitTestRegionList> hit_test_region_list,
     uint64_t submit_time,
     mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback callback) {
   const auto result = support_->MaybeSubmitCompositorFrame(
@@ -182,7 +182,6 @@ void CompositorFrameSinkImpl::SubmitCompositorFrameInternal(
               << " because " << reason;
   compositor_frame_sink_receiver_.ResetWithReason(static_cast<uint32_t>(result),
                                                   reason);
-  OnClientConnectionLost();
 }
 
 void CompositorFrameSinkImpl::DidNotProduceFrame(
@@ -197,7 +196,6 @@ void CompositorFrameSinkImpl::DidAllocateSharedBitmap(
     DLOG(ERROR) << "DidAllocateSharedBitmap failed for duplicate "
                 << "SharedBitmapId";
     compositor_frame_sink_receiver_.reset();
-    OnClientConnectionLost();
   }
 }
 
@@ -216,10 +214,8 @@ void CompositorFrameSinkImpl::BindLayerContext(
 }
 
 #if BUILDFLAG(IS_ANDROID)
-void CompositorFrameSinkImpl::SetThreadIds(
-    const std::vector<int32_t>& thread_ids) {
-  support_->SetThreadIds(/*from_untrusted_client=*/true,
-                         base::MakeFlatSet<base::PlatformThreadId>(thread_ids));
+void CompositorFrameSinkImpl::SetThreads(const std::vector<Thread>& threads) {
+  support_->SetThreads(/*from_untrusted_client=*/true, threads);
 }
 #endif
 

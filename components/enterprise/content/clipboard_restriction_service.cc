@@ -97,7 +97,7 @@ void ClipboardRestrictionService::UpdateSettings() {
   url_matcher::util::AddFilters(disable_url_matcher_.get(), false, &next_id_,
                                 *disable);
 
-  absl::optional<int> min_data_size = settings.FindInt(
+  std::optional<int> min_data_size = settings.FindInt(
       enterprise::content::kCopyPreventionSettingsMinDataSizeFieldName);
   DCHECK(min_data_size);
   DCHECK(min_data_size >= 0);
@@ -132,7 +132,9 @@ ClipboardRestrictionServiceFactory::GetBrowserContextToUse(
   return context;
 }
 
-KeyedService* ClipboardRestrictionServiceFactory::BuildServiceInstanceFor(
+std::unique_ptr<KeyedService>
+ClipboardRestrictionServiceFactory::BuildServiceInstanceForBrowserContext(
     content::BrowserContext* context) const {
-  return new ClipboardRestrictionService(user_prefs::UserPrefs::Get(context));
+  return std::make_unique<ClipboardRestrictionService>(
+      user_prefs::UserPrefs::Get(context));
 }

@@ -5,11 +5,11 @@
 enum ScriptInvokerType {
     "classic-script",
     "module-script",
-    "execute-script",
     "event-listener",
     "user-callback",
     "resolve-promise",
-    "reject-promise"
+    "reject-promise",
+    "user-entry-point"
 };
 
 enum ScriptWindowAttribution {
@@ -26,6 +26,8 @@ interface PerformanceScriptTiming : PerformanceEntry {
     readonly attribute DOMHighResTimeStamp forcedStyleAndLayoutDuration;
     readonly attribute DOMHighResTimeStamp pauseDuration;
     readonly attribute Window? window;
-    readonly attribute DOMString sourceLocation;
+    readonly attribute DOMString sourceURL;
+    readonly attribute DOMString sourceFunctionName;
+    readonly attribute long long sourceCharPosition;
     [CallWith=ScriptState, ImplementedAs=toJSONForBinding] object toJSON();
 };

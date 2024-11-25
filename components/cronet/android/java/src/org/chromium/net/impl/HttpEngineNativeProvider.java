@@ -11,6 +11,7 @@ import android.os.ext.SdkExtensions;
 
 import androidx.annotation.RequiresExtension;
 
+import org.chromium.base.metrics.ScopedSysTraceEvent;
 import org.chromium.net.CronetEngine;
 import org.chromium.net.CronetProvider;
 import org.chromium.net.ExperimentalCronetEngine;
@@ -31,7 +32,7 @@ public class HttpEngineNativeProvider extends CronetProvider {
      * namely access to the netlog and internal metrics. Additionally, support for experimental
      * features is not guaranteed (as with any other Cronet provider).
      */
-    // TODO(crbug/1499829): Move this to CronetProvider
+    // TODO(crbug.com/40287946): Move this to CronetProvider
     public static final String PROVIDER_NAME_HTTPENGINE_NATIVE = "HttpEngine-Native-Provider";
 
     static final int EXT_API_LEVEL = Build.VERSION_CODES.S;
@@ -44,8 +45,11 @@ public class HttpEngineNativeProvider extends CronetProvider {
     @Override
     @RequiresExtension(extension = EXT_API_LEVEL, version = EXT_VERSION)
     public CronetEngine.Builder createBuilder() {
-        return new ExperimentalCronetEngine.Builder(
-                new AndroidHttpEngineBuilderWrapper(new HttpEngine.Builder(mContext)));
+        try (var traceEvent =
+                ScopedSysTraceEvent.scoped("HttpEngineNativeProvider#createBuilder")) {
+            return new ExperimentalCronetEngine.Builder(
+                    new AndroidHttpEngineBuilderWrapper(new HttpEngine.Builder(mContext)));
+        }
     }
 
     @Override

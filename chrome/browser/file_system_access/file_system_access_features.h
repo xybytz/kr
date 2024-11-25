@@ -11,12 +11,6 @@ namespace features {
 
 // Alphabetical:
 
-#if BUILDFLAG(IS_WIN)
-BASE_DECLARE_FEATURE(kFileSystemAccessLocalUNCPathBlock);
-#endif
-
-// TODO(crbug.com/1467574): Remove `kFileSystemAccessPersistentPermissions`
-// flag after FSA Persistent Permissions feature launch.
 BASE_DECLARE_FEATURE(kFileSystemAccessPersistentPermissions);
 
 BASE_DECLARE_FEATURE(kFileSystemAccessSymbolicLinkCheck);

@@ -14,6 +14,7 @@
 #include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/no_destructor.h"
+#include "base/notreached.h"
 #include "base/path_service.h"
 #include "base/strings/pattern.h"
 #include "base/strings/stringprintf.h"
@@ -21,6 +22,7 @@
 #include "build/build_config.h"
 #include "cc/base/switches.h"
 #include "components/origin_trials/common/features.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/public/browser/browser_child_process_observer.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -52,6 +54,7 @@
 #include "content/web_test/browser/web_test_browser_main_parts.h"
 #include "content/web_test/browser/web_test_control_host.h"
 #include "content/web_test/browser/web_test_cookie_manager.h"
+#include "content/web_test/browser/web_test_device_posture_provider.h"
 #include "content/web_test/browser/web_test_fedcm_manager.h"
 #include "content/web_test/browser/web_test_origin_trial_throttle.h"
 #include "content/web_test/browser/web_test_permission_manager.h"
@@ -61,8 +64,8 @@
 #include "content/web_test/common/web_test_bluetooth_fake_adapter_setter.mojom.h"
 #include "content/web_test/common/web_test_string_util.h"
 #include "content/web_test/common/web_test_switches.h"
-#include "device/bluetooth/public/mojom/test/fake_bluetooth.mojom.h"
-#include "device/bluetooth/test/fake_bluetooth.h"
+#include "device/bluetooth/emulation/fake_bluetooth.h"
+#include "device/bluetooth/public/mojom/emulation/fake_bluetooth.mojom.h"
 #include "gpu/config/gpu_switches.h"
 #include "mojo/public/cpp/bindings/associated_receiver_set.h"
 #include "mojo/public/cpp/bindings/binder_map.h"
@@ -74,6 +77,7 @@
 #include "net/net_buildflags.h"
 #include "net/proxy_resolution/proxy_config_with_annotation.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
+#include "services/device/public/cpp/compute_pressure/buildflags.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "services/proxy_resolver/proxy_resolver_factory_impl.h"  // nogncheck
@@ -85,9 +89,14 @@
 #include "storage/browser/quota/quota_settings.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
+#include "third_party/blink/public/mojom/device_posture/device_posture_provider_automation.mojom.h"
 #include "ui/base/ui_base_switches.h"
 #include "url/origin.h"
 #include "url/url_constants.h"
+
+#if BUILDFLAG(ENABLE_COMPUTE_PRESSURE)
+#include "content/web_test/browser/web_test_pressure_manager.h"
+#endif
 
 #if BUILDFLAG(IS_WIN)
 #include "base/strings/utf_string_conversions.h"
@@ -141,6 +150,10 @@ class BoundsMatchVideoSizeOverlayWindow : public VideoOverlayWindow {
   void SetHangUpButtonVisibility(bool is_visible) override {}
   void SetNextSlideButtonVisibility(bool is_visible) override {}
   void SetPreviousSlideButtonVisibility(bool is_visible) override {}
+  void SetMediaPosition(const media_session::MediaPosition&) override {}
+  void SetSourceTitle(const std::u16string& source_title) override {}
+  void SetFaviconImages(
+      const std::vector<media_session::MediaImage>& images) override {}
   void SetSurfaceId(const viz::SurfaceId& surface_id) override {}
 
  private:
@@ -161,11 +174,10 @@ void CreateChildProcessCrashWatcher() {
         const ChildProcessData& data,
         const ChildProcessTerminationInfo& info) override {
       // Child processes should not crash in web tests.
-      LOG(ERROR) << "Child process crashed with\n"
-                    "   process_type: "
-                 << data.process_type << "\n"
-                 << "   name: " << data.name;
-      CHECK(false);
+      NOTREACHED() << "Child process crashed with\n"
+                      "   process_type: "
+                   << data.process_type << "\n"
+                   << "   name: " << data.name;
     }
   };
 
@@ -311,7 +323,7 @@ WebTestContentBrowserClient::GetNextFakeBluetoothChooser() {
 void WebTestContentBrowserClient::BrowserChildProcessHostCreated(
     BrowserChildProcessHost* host) {
   scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner =
-      content::GetUIThreadTaskRunner({});
+      GetUIThreadTaskRunner({});
   ui_task_runner->PostTask(FROM_HERE,
                            base::BindOnce(&CreateChildProcessCrashWatcher));
 }
@@ -321,7 +333,7 @@ void WebTestContentBrowserClient::ExposeInterfacesToRenderer(
     blink::AssociatedInterfaceRegistry* associated_registry,
     RenderProcessHost* render_process_host) {
   scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner =
-      content::GetUIThreadTaskRunner({});
+      GetUIThreadTaskRunner({});
   registry->AddInterface(base::BindRepeating(&MojoWebTestCounterImpl::Bind),
                          ui_task_runner);
   registry->AddInterface(base::BindRepeating(&MojoEcho::Bind), ui_task_runner);
@@ -545,12 +557,23 @@ void WebTestContentBrowserClient::RegisterBrowserInterfaceBindersForFrame(
   map->Add<blink::test::mojom::CookieManagerAutomation>(base::BindRepeating(
       &WebTestContentBrowserClient::BindCookieManagerAutomation,
       base::Unretained(this)));
+  map->Add<blink::test::mojom::DevicePostureProviderAutomation>(
+      base::BindRepeating(
+          &WebTestContentBrowserClient::BindDevicePostureProviderAutomation,
+          base::Unretained(this)));
   map->Add<blink::test::mojom::FederatedAuthRequestAutomation>(
       base::BindRepeating(&WebTestContentBrowserClient::BindFedCmAutomation,
                           base::Unretained(this)));
   map->Add<blink::test::mojom::WebSensorProviderAutomation>(base::BindRepeating(
       &WebTestContentBrowserClient::BindWebSensorProviderAutomation,
       base::Unretained(this)));
+
+#if BUILDFLAG(ENABLE_COMPUTE_PRESSURE)
+  map->Add<blink::test::mojom::WebPressureManagerAutomation>(
+      base::BindRepeating(
+          &WebTestContentBrowserClient::BindWebPressureManagerAutomation,
+          base::Unretained(this)));
+#endif  // BUILDFLAG(ENABLE_COMPUTE_PRESSURE)
 }
 
 bool WebTestContentBrowserClient::CanAcceptUntrustedExchangesIfNeeded() {
@@ -599,6 +622,16 @@ void WebTestContentBrowserClient::BindCookieManagerAutomation(
                        std::move(receiver));
 }
 
+void WebTestContentBrowserClient::BindDevicePostureProviderAutomation(
+    RenderFrameHost* render_frame_host,
+    mojo::PendingReceiver<blink::test::mojom::DevicePostureProviderAutomation>
+        receiver) {
+  device_posture_provider_managers_.Add(
+      std::make_unique<WebTestDevicePostureProvider>(
+          static_cast<RenderFrameHostImpl*>(render_frame_host)->GetWeakPtr()),
+      std::move(receiver));
+}
+
 void WebTestContentBrowserClient::BindFedCmAutomation(
     RenderFrameHost* render_frame_host,
     mojo::PendingReceiver<blink::test::mojom::FederatedAuthRequestAutomation>
@@ -618,12 +651,28 @@ void WebTestContentBrowserClient::BindWebSensorProviderAutomation(
   sensor_provider_manager_->Bind(std::move(receiver));
 }
 
+void WebTestContentBrowserClient::ResetWebSensorProviderAutomation() {
+  sensor_provider_manager_.reset();
+}
+
+#if BUILDFLAG(ENABLE_COMPUTE_PRESSURE)
+void WebTestContentBrowserClient::BindWebPressureManagerAutomation(
+    RenderFrameHost* render_frame_host,
+    mojo::PendingReceiver<blink::test::mojom::WebPressureManagerAutomation>
+        receiver) {
+  WebTestPressureManager::GetOrCreate(
+      WebContents::FromRenderFrameHost(render_frame_host))
+      ->Bind(std::move(receiver));
+}
+#endif  // BUILDFLAG(ENABLE_COMPUTE_PRESSURE)
+
 std::unique_ptr<LoginDelegate> WebTestContentBrowserClient::CreateLoginDelegate(
     const net::AuthChallengeInfo& auth_info,
     content::WebContents* web_contents,
     content::BrowserContext* browser_context,
     const content::GlobalRequestID& request_id,
-    bool is_request_for_primary_main_frame,
+    bool is_request_for_primary_main_frame_navigation,
+    bool is_request_for_navigation,
     const GURL& url,
     scoped_refptr<net::HttpResponseHeaders> response_headers,
     bool first_auth_attempt,
@@ -698,6 +747,7 @@ std::string WebTestContentBrowserClient::GetAcceptLangs(
 }
 
 bool WebTestContentBrowserClient::IsInterestGroupAPIAllowed(
+    content::BrowserContext* browser_context,
     content::RenderFrameHost* render_frame_host,
     InterestGroupApiOperation operation,
     const url::Origin& top_frame_origin,
@@ -708,8 +758,7 @@ bool WebTestContentBrowserClient::IsInterestGroupAPIAllowed(
 bool WebTestContentBrowserClient::IsPrivacySandboxReportingDestinationAttested(
     content::BrowserContext* browser_context,
     const url::Origin& destination_origin,
-    content::PrivacySandboxInvokingAPI invoking_api,
-    bool post_impression_reporting) {
+    content::PrivacySandboxInvokingAPI invoking_api) {
   return true;
 }
 

@@ -23,9 +23,9 @@ namespace ash {
 // A view section in the capture mode settings menu that consists of a menu item
 // with a switch (toggle button).
 class CaptureModeMenuToggleButton : public views::View {
- public:
-  METADATA_HEADER(CaptureModeMenuToggleButton);
+  METADATA_HEADER(CaptureModeMenuToggleButton, views::View)
 
+ public:
   CaptureModeMenuToggleButton(const gfx::VectorIcon& icon,
                               const std::u16string& label_text,
                               bool enabled,
@@ -50,4 +50,4 @@ class CaptureModeMenuToggleButton : public views::View {
 
 }  // namespace ash
 
-#endif  // ASH_CAPTURE_MODE_CAPTURE_MODE_CAMERA_PREVIEW_VIEW_H_
+#endif  // ASH_CAPTURE_MODE_CAPTURE_MODE_MENU_TOGGLE_BUTTON_H_

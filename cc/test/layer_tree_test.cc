@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/cfi_buildflags.h"
+#include "base/clang_profiling_buildflags.h"
 #include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/location.h"
@@ -214,11 +215,6 @@ class LayerTreeHostImplForTesting : public LayerTreeHostImpl {
     test_hooks_->WillSendBeginMainFrameOnThread(this);
   }
 
-  void DidSendBeginMainFrame(const viz::BeginFrameArgs& args) override {
-    LayerTreeHostImpl::DidSendBeginMainFrame(args);
-    test_hooks_->DidSendBeginMainFrameOnThread(this);
-  }
-
   void BeginMainFrameAborted(
       CommitEarlyOutReason reason,
       std::vector<std::unique_ptr<SwapPromise>> swap_promises,
@@ -242,7 +238,8 @@ class LayerTreeHostImplForTesting : public LayerTreeHostImpl {
     test_hooks_->ReadyToCommitOnThread(this);
   }
 
-  void BeginCommit(int source_frame_number, uint64_t trace_id) override {
+  void BeginCommit(int source_frame_number,
+                   BeginMainFrameTraceId trace_id) override {
     LayerTreeHostImpl::BeginCommit(source_frame_number, trace_id);
     test_hooks_->BeginCommitOnThread(this);
   }
@@ -387,12 +384,6 @@ class LayerTreeHostImplForTesting : public LayerTreeHostImpl {
     test_hooks_->DidRequestImplSideInvalidation(this);
   }
 
-  void DidReceiveCompositorFrameAck() override {
-    test_hooks_->WillReceiveCompositorFrameAckOnThread(this);
-    LayerTreeHostImpl::DidReceiveCompositorFrameAck();
-    test_hooks_->DidReceiveCompositorFrameAckOnThread(this);
-  }
-
   void DidPresentCompositorFrame(
       uint32_t presentation_token,
       const viz::FrameTimingDetails& details) override {
@@ -448,11 +439,9 @@ class LayerTreeHostClientForTesting : public LayerTreeHostClient,
   std::unique_ptr<BeginMainFrameMetrics> GetBeginMainFrameMetrics() override {
     return test_hooks_->GetBeginMainFrameMetrics();
   }
-  std::unique_ptr<WebVitalMetrics> GetWebVitalMetrics() override {
-    return nullptr;
-  }
-  void NotifyThroughputTrackerResults(CustomTrackerResults results) override {
-    test_hooks_->NotifyThroughputTrackerResults(std::move(results));
+  void NotifyCompositorMetricsTrackerResults(
+      CustomTrackerResults results) override {
+    test_hooks_->NotifyCompositorMetricsTrackerResults(std::move(results));
   }
 
   void UpdateLayerTreeHost() override { test_hooks_->UpdateLayerTreeHost(); }
@@ -496,10 +485,6 @@ class LayerTreeHostClientForTesting : public LayerTreeHostClient,
     test_hooks_->DidCommitAndDrawFrame();
   }
 
-  void DidReceiveCompositorFrameAck() override {
-    test_hooks_->DidReceiveCompositorFrameAck();
-  }
-
   void DidRunBeginMainFrame() override { test_hooks_->DidRunBeginMainFrame(); }
 
   void DidSubmitCompositorFrame() override {}
@@ -511,7 +496,9 @@ class LayerTreeHostClientForTesting : public LayerTreeHostClient,
   void BeginMainFrameNotExpectedUntil(base::TimeTicks time) override {}
   void DidPresentCompositorFrame(
       uint32_t frame_token,
-      const gfx::PresentationFeedback& feedback) override {}
+      const viz::FrameTimingDetails& frame_timing_details) override {
+    test_hooks_->DidPresentCompositorFrame(frame_token, frame_timing_details);
+  }
 
  private:
   explicit LayerTreeHostClientForTesting(TestHooks* test_hooks)
@@ -720,6 +707,12 @@ LayerTreeTest::LayerTreeTest(viz::RendererType renderer_type)
 #elif BUILDFLAG(IS_OZONE)
     // Ozone builds go through a slower path than regular Linux builds.
     timeout_seconds_ = 30;
+#elif BUILDFLAG(IS_MAC) && BUILDFLAG(USE_CLANG_COVERAGE)
+    // TODO(crbug.com/337055578) SkiaGraphiteDawn renderer is at least 20x
+    // slower than the other renderers with clang coverage. Investigate why.
+    if (renderer_type_ == viz::RendererType::kSkiaGraphiteDawn) {
+      timeout_seconds_ = 25;
+    }
 #endif
   }
 
@@ -1181,7 +1174,7 @@ void LayerTreeTest::RunTest(CompositorMode mode) {
   ASSERT_TRUE(image_worker_->Start());
 
   gpu_memory_buffer_manager_ =
-      std::make_unique<viz::TestGpuMemoryBufferManager>();
+      std::make_unique<gpu::TestGpuMemoryBufferManager>();
   task_graph_runner_ = std::make_unique<TestTaskGraphRunner>();
 
   if (mode == CompositorMode::THREADED) {

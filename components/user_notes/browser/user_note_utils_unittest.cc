@@ -11,6 +11,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "base/memory/raw_ptr.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "base/unguessable_token.h"
@@ -305,7 +306,7 @@ class UserNoteUtilsTest
       if (note_config.target_url == frame_config.url &&
           note_config.update_type != NoteUpdateType::ADDED) {
         const auto token_it = test_id_to_token_.find(note_config.test_id);
-        DCHECK(token_it != test_id_to_token_.end());
+        CHECK(token_it != test_id_to_token_.end());
 
         const auto note_entry_it =
             note_service_->model_map_.find(token_it->second);
@@ -339,7 +340,7 @@ class UserNoteUtilsTest
         /*min_note_version=*/1);
 
     const auto token_it = test_id_to_token_.find(note_config.test_id);
-    DCHECK(token_it != test_id_to_token_.end());
+    CHECK(token_it != test_id_to_token_.end());
 
     snapshot.AddEntry(GURL(note_config.target_url), token_it->second,
                       std::move(note_metadata));
@@ -349,7 +350,9 @@ class UserNoteUtilsTest
       token_to_test_id_;
   std::unordered_map<int, base::UnguessableToken> test_id_to_token_;
   std::unordered_map<content::RenderFrameHost*, FrameConfig> frame_to_config_;
-  std::unordered_map<FrameConfig, content::RenderFrameHost*, FrameConfigHash>
+  std::unordered_map<FrameConfig,
+                     raw_ptr<content::RenderFrameHost, CtnExperimental>,
+                     FrameConfigHash>
       config_to_frame_;
   std::vector<std::unique_ptr<content::WebContents>> web_contents_list_;
   std::unique_ptr<UserNoteService> note_service_;
@@ -711,7 +714,7 @@ TEST_P(UserNoteUtilsTest, CalculateNoteChanges) {
     content::RenderFrameHost* rfh = diff->document_.AsRenderFrameHostIfValid();
     // Find the frame config for this diff's frame.
     const auto config_it = frame_to_config_.find(rfh);
-    DCHECK(config_it != frame_to_config_.end());
+    CHECK(config_it != frame_to_config_.end());
     FrameConfig frame_config = config_it->second;
 
     // Make sure there is at most one diff per frame.

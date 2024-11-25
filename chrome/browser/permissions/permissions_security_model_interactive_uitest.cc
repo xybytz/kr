@@ -9,6 +9,7 @@
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/extensions/extension_action_test_helper.h"
@@ -25,6 +26,7 @@
 #include "components/permissions/permissions_client.h"
 #include "components/permissions/test/mock_permission_prompt_factory.h"
 #include "components/permissions/test/permission_request_observer.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/disallow_activation_reason.h"
 #include "content/public/browser/permission_controller.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -1521,7 +1523,8 @@ IN_PROC_BROWSER_TEST_F(PermissionRequestWithPrerendererTest,
   GURL prerender_url =
       embedded_test_server()->GetURL("/prerenderer_geolocation_test.html");
   prerender_helper().AddPrerender(prerender_url);
-  int host_id = prerender_helper().AddPrerender(prerender_url);
+  content::FrameTreeNodeId host_id =
+      prerender_helper().AddPrerender(prerender_url);
 
   content::RenderFrameHost* prerender_render_frame_host =
       prerender_helper().GetPrerenderedMainFrameHost(host_id);
@@ -1581,9 +1584,10 @@ IN_PROC_BROWSER_TEST_F(PermissionRequestWithPrerendererTest,
   content::EvalJsResult results =
       content::EvalJs(prerender_render_frame_host, "eventsSeen");
   std::vector<std::string> eventsSeen;
-  base::Value resultsList = results.ExtractList();
-  for (const auto& result : resultsList.GetList())
+  base::Value::List results_list = results.ExtractList();
+  for (const auto& result : results_list) {
     eventsSeen.push_back(result.GetString());
+  }
   EXPECT_THAT(eventsSeen, testing::ElementsAreArray(
                               {"accessGeolocation (prerendering: true)",
                                "prerenderingchange (prerendering: false)",
@@ -1730,7 +1734,7 @@ class PermissionRequestFromExtension : public extensions::ExtensionApiTest {
   void EnsurePopupActive() {
     auto test_util = ExtensionActionTestHelper::Create(browser());
     EXPECT_TRUE(test_util->HasPopup());
-    EXPECT_TRUE(test_util->WaitForPopup());
+    ASSERT_NO_FATAL_FAILURE(test_util->WaitForPopup());
     EXPECT_TRUE(test_util->HasPopup());
   }
 

@@ -8,6 +8,7 @@
 
 #import "base/apple/foundation_util.h"
 #import "base/containers/contains.h"
+#import "base/feature_list.h"
 #import "base/functional/bind.h"
 #import "base/ios/block_types.h"
 #import "base/ios/ios_util.h"
@@ -15,6 +16,7 @@
 #import "base/metrics/histogram_functions.h"
 #import "base/metrics/user_metrics.h"
 #import "base/metrics/user_metrics_action.h"
+#import "base/notreached.h"
 #import "base/strings/sys_string_conversions.h"
 #import "build/branding_buildflags.h"
 #import "ios/web/common/annotations_utils.h"
@@ -62,7 +64,7 @@
 #import "ios/web/web_state/web_view_internal_creation_util.h"
 #import "ios/web/web_view/content_type_util.h"
 #import "ios/web/web_view/wk_web_view_util.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "services/metrics/public/cpp/ukm_builders.h"
 #import "url/gurl.h"
 
@@ -71,14 +73,17 @@ using web::NavigationManagerImpl;
 using web::WebState;
 using web::WebStateImpl;
 
-using web::wk_navigation_util::IsRestoreSessionUrl;
-using web::wk_navigation_util::IsWKInternalUrl;
-
 namespace {
 char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
+
+// Disables logic to update CRWWebController's `_currentURLLoadWasTriggered`
+// when setting a WKWebView's interaction state.
+BASE_FEATURE(kIOSSessionRestoreLoadTriggerKillSwitch,
+             "IOSSessionRestoreLoadTriggerKillSwitch",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 }  // namespace
 
-// TODO(crbug.com/1174560): Allow usage of iOS15 interactionState on iOS 14 SDK
+// TODO(crbug.com/40746865): Allow usage of iOS15 interactionState on iOS 14 SDK
 // based builds.
 #if !defined(__IPHONE_15_0) || __IPHONE_OS_VERSION_MAX_ALLOWED < __IPHONE_15_0
 @interface WKWebView (Additions)
@@ -109,7 +114,7 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
   BOOL _currentURLLoadWasTrigerred;
   BOOL _isBeingDestroyed;  // YES if in the process of closing.
   // The actual URL of the document object (i.e., the last committed URL).
-  // TODO(crbug.com/549616): Remove this in favor of just updating the
+  // TODO(crbug.com/41213672): Remove this in favor of just updating the
   // navigation manager and treating that as authoritative.
   GURL _documentURL;
   // Actions to execute once the page load is complete.
@@ -183,7 +188,7 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
 // -------------------
 // The associated NavigationManagerImpl.
 @property(nonatomic, readonly) NavigationManagerImpl* navigationManagerImpl;
-// TODO(crbug.com/692871): Remove these functions and replace with more
+// TODO(crbug.com/40506829): Remove these functions and replace with more
 // appropriate NavigationItem getters.
 // Returns the navigation item for the current page.
 @property(nonatomic, readonly) web::NavigationItemImpl* currentNavItem;
@@ -200,12 +205,6 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
 // may be called multiple times and thus must be idempotent.
 - (void)loadCompleteWithSuccess:(BOOL)loadSuccess
                      forContext:(web::NavigationContextImpl*)context;
-// Calls the zoom-preparation UIScrollViewDelegate callbacks on the web view.
-// This is called before `-applyWebViewScrollZoomScaleFromScrollState:`.
-- (void)prepareToApplyWebViewScrollZoomScale;
-// Calls the zoom-completion UIScrollViewDelegate callbacks on the web view.
-// This is called after `-applyWebViewScrollZoomScaleFromScrollState:`.
-- (void)finishApplyingWebViewScrollZoomScale;
 // Finds all the scrollviews in the view hierarchy and makes sure they do not
 // interfere with scroll to top when tapping the statusbar.
 - (void)optOutScrollsToTopForSubviews;
@@ -399,6 +398,8 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
         @"title" : @"webViewTitleDidChange",
         @"cameraCaptureState" : @"webViewCameraCaptureStateDidChange",
         @"microphoneCaptureState" : @"webViewMicrophoneCaptureStateDidChange",
+        @"underPageBackgroundColor" :
+            @"webViewUnderPageBackgroundColorDidChange",
       }];
 
   if (web::GetWebClient()->EnableFullscreenAPI()) {
@@ -424,6 +425,10 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
         [[CRWTouchTrackingRecognizer alloc] initWithTouchTrackingDelegate:self];
   }
   return _touchTrackingRecognizer;
+}
+
+- (BOOL)isCover {
+  return _containerView.cover;
 }
 
 #pragma mark Navigation and Session Information
@@ -480,7 +485,7 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
   _webStateImpl = nullptr;
 
   DCHECK(!self.webView);
-  // TODO(crbug.com/662860): Don't set the delegate to nil.
+  // TODO(crbug.com/41284914): Don't set the delegate to nil.
   [_containerView setDelegate:nil];
   _touchTrackingRecognizer.touchTrackingDelegate = nil;
   [[_webViewProxy scrollViewProxy] removeObserver:self];
@@ -498,19 +503,15 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
 }
 
 - (GURL)currentURL {
-  // The web view URL is the current URL only if it is neither a placeholder URL
-  // (used to hold WKBackForwardListItem for WebUI) nor a restore_session.html
-  // (used to replay session history in WKWebView).
-  // TODO(crbug.com/738020): Investigate if this method is still needed and if
+  // TODO(crbug.com/40528091): Investigate if this method is still needed and if
   // it can be implemented using NavigationManager API after removal of legacy
   // navigation stack.
-  if (self.webView && !IsWKInternalUrl(self.webView.URL)) {
+  if (self.webView) {
     return _documentURL;
   }
 
   web::NavigationItem* item =
-      self.navigationManagerImpl
-          ->GetLastCommittedItemInCurrentOrRestoredSession();
+      self.navigationManagerImpl->GetLastCommittedItem();
   if (item) {
     // This special case is added for any app specific URLs that have been
     // rewritten to about:// URLs.
@@ -520,12 +521,12 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
     }
     return item->GetVirtualURL();
   }
-  return GURL::EmptyGURL();
+  return GURL();
 }
 
 - (void)reloadWithRendererInitiatedNavigation:(BOOL)rendererInitiated {
   // Clear last user interaction.
-  // TODO(crbug.com/546337): Move to after the load commits, in the subclass
+  // TODO(crbug.com/41211432): Move to after the load commits, in the subclass
   // implementation. This will be inaccurate if the reload fails or is
   // cancelled.
   _userInteractionState.SetLastUserInteraction(nullptr);
@@ -585,7 +586,7 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
   } else if (!_currentURLLoadWasTrigerred) {
     [self ensureContainerViewCreated];
 
-    // TODO(crbug.com/796608): end the practice of calling `loadCurrentURL`
+    // TODO(crbug.com/41361784): end the practice of calling `loadCurrentURL`
     // when it is possible there is no current URL. If the call performs
     // necessary initialization, break that out.
     [self loadCurrentURLWithRendererInitiatedNavigation:NO];
@@ -662,7 +663,17 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
                  navigationItem:(web::NavigationItem*)item
        navigationInitiationType:(web::NavigationInitiationType)type
                  hasUserGesture:(BOOL)hasUserGesture {
-  WKNavigation* navigation = [self.webView goToBackForwardListItem:wk_item];
+  WKNavigation* navigation;
+  // Where possible, call `goBack` or `goForward` since WebKit has logic
+  // specific to those functions for skipping over maliciously-added items. See
+  // crbug.com/40072465 for an example.
+  if (wk_item == self.webView.backForwardList.backItem) {
+    navigation = [self.webView goBack];
+  } else if (wk_item == self.webView.backForwardList.forwardItem) {
+    navigation = [self.webView goForward];
+  } else {
+    navigation = [self.webView goToBackForwardListItem:wk_item];
+  }
 
   GURL URL = net::GURLWithNSURL(wk_item.URL);
 
@@ -679,9 +690,9 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
               ui::PageTransition::PAGE_TRANSITION_FORWARD_BACK),
           type == web::NavigationInitiationType::RENDERER_INITIATED);
   context->SetNavigationItemUniqueID(item->GetUniqueID());
-  if (!navigation) {
-    // goToBackForwardListItem: returns nil for same-document back forward
-    // navigations.
+  bool isSameDocument = web::GURLByRemovingRefFromGURL(URL) ==
+                        web::GURLByRemovingRefFromGURL(_documentURL);
+  if (isSameDocument) {
     context->SetIsSameDocument(true);
   } else {
     self.navigationHandler.navigationState = web::WKNavigationState::REQUESTED;
@@ -770,17 +781,16 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
     }
   }
 
-  if (@available(iOS 15, *)) {
-    [self.webView requestMediaPlaybackStateWithCompletionHandler:^(
-                      WKMediaPlaybackState mediaPlaybackState) {
-      if (mediaPlaybackState == WKMediaPlaybackStateNone)
-        return;
+  [self.webView requestMediaPlaybackStateWithCompletionHandler:^(
+                    WKMediaPlaybackState mediaPlaybackState) {
+    if (mediaPlaybackState == WKMediaPlaybackStateNone) {
+      return;
+    }
 
-      // Completion handler is needed to avoid a crash when called.
-      [self.webView closeAllMediaPresentationsWithCompletionHandler:^{
-      }];
+    // Completion handler is needed to avoid a crash when called.
+    [self.webView closeAllMediaPresentationsWithCompletionHandler:^{
     }];
-  }
+  }];
 }
 
 - (void)removeWebViewFromViewHierarchyForShutdown:(BOOL)shutdown {
@@ -792,40 +802,40 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
 }
 
 - (BOOL)setSessionStateData:(NSData*)data {
-  if (@available(iOS 15, *)) {
-    NSData* interactionState = data;
+  NSData* interactionState = data;
 
-    // Old versions of chrome wrapped interactionState in a keyed unarchiver.
-    // This step was unnecessary. Rather than migrate all blobs over, simply
-    // check for an unarchiver here. NSKeyed data will start with 'bplist00',
-    // which differs from the header of a WebKit session coding (0x00000002).
-    // This logic can be removed after this change has gone live for a while.
-    constexpr char kArchiveHeader[] = "bplist00";
-    if (data.length > strlen(kArchiveHeader) &&
-        memcmp(data.bytes, kArchiveHeader, strlen(kArchiveHeader)) == 0) {
-      NSError* error = nil;
-      NSKeyedUnarchiver* unarchiver =
-          [[NSKeyedUnarchiver alloc] initForReadingFromData:data error:&error];
-      if (!unarchiver || error) {
-        DLOG(WARNING) << "Error creating unarchiver for session state data: "
-                      << base::SysNSStringToUTF8([error description]);
-        return NO;
-      }
-      unarchiver.requiresSecureCoding = NO;
-      interactionState =
-          [unarchiver decodeObjectForKey:NSKeyedArchiveRootObjectKey];
-      if (!interactionState) {
-        DLOG(WARNING) << "Error decoding interactionState.";
-        return NO;
-      }
+  // Old versions of chrome wrapped interactionState in a keyed unarchiver.
+  // This step was unnecessary. Rather than migrate all blobs over, simply
+  // check for an unarchiver here. NSKeyed data will start with 'bplist00',
+  // which differs from the header of a WebKit session coding (0x00000002).
+  // This logic can be removed after this change has gone live for a while.
+  constexpr char kArchiveHeader[] = "bplist00";
+  if (data.length > strlen(kArchiveHeader) &&
+      memcmp(data.bytes, kArchiveHeader, strlen(kArchiveHeader)) == 0) {
+    NSError* error = nil;
+    NSKeyedUnarchiver* unarchiver =
+        [[NSKeyedUnarchiver alloc] initForReadingFromData:data error:&error];
+    if (!unarchiver || error) {
+      DLOG(WARNING) << "Error creating unarchiver for session state data: "
+                    << base::SysNSStringToUTF8([error description]);
+      return NO;
     }
-    [self ensureWebViewCreated];
-    DCHECK_EQ(self.webView.backForwardList.currentItem, nil);
-    self.navigationHandler.blockUniversalLinksOnNextDecidePolicy = true;
-    [self.webView setInteractionState:interactionState];
-    return YES;
+    unarchiver.requiresSecureCoding = NO;
+    interactionState =
+        [unarchiver decodeObjectForKey:NSKeyedArchiveRootObjectKey];
+    if (!interactionState) {
+      DLOG(WARNING) << "Error decoding interactionState.";
+      return NO;
+    }
   }
-  return NO;
+  [self ensureWebViewCreated];
+  DCHECK_EQ(self.webView.backForwardList.currentItem, nil);
+  self.navigationHandler.blockUniversalLinksOnNextDecidePolicy = true;
+  [self.webView setInteractionState:interactionState];
+  if (!base::FeatureList::IsEnabled(kIOSSessionRestoreLoadTriggerKillSwitch)) {
+    _currentURLLoadWasTrigerred = YES;
+  }
+  return YES;
 }
 
 - (web::PermissionState)stateForPermission:(web::Permission)permission {
@@ -883,10 +893,12 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
 }
 
 - (NSData*)sessionStateData {
-  if (@available(iOS 15, *)) {
-    return self.webView.interactionState;
-  }
-  return nil;
+  return self.webView.interactionState;
+}
+
+- (void)handleViewportFit:(BOOL)isCover {
+  _containerView.cover = isCover;
+  [_containerView layoutSubviews];
 }
 
 - (void)handleNavigationHashChange {
@@ -919,11 +931,18 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
                                   currentURL:self.currentURL];
 }
 
-- (void)downloadCurrentPageWithRequest:(NSURLRequest*)request
-                       destinationPath:(NSString*)destination
-                              delegate:(id<CRWWebViewDownloadDelegate>)delegate
-                               handler:
-                                   (void (^)(id<CRWWebViewDownload>))handler {
+- (void)downloadCurrentPageToDestinationPath:(NSString*)destination
+                                    delegate:
+                                        (id<CRWWebViewDownloadDelegate>)delegate
+                                     handler:(void (^)(id<CRWWebViewDownload>))
+                                                 handler {
+  const NavigationManagerImpl* navigationManager = self.navigationManagerImpl;
+  GURL url = navigationManager->GetLastCommittedItem()
+                 ? navigationManager->GetLastCommittedItem()->GetURL()
+                 : [self currentURL];
+
+  NSURLRequest* request = [NSURLRequest requestWithURL:net::NSURLWithGURL(url)];
+
   CRWWebViewDownload* download =
       [[CRWWebViewDownload alloc] initWithPath:destination
                                        request:request
@@ -1066,8 +1085,8 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
     _userInteractionState.SetUserInteractionRegisteredSinceLastUrlChange(false);
   }
   if (context && !context->IsLoadingErrorPage() &&
-      !context->IsLoadingHtmlString() && !IsWKInternalUrl(newURL) &&
-      !newURL.SchemeIs(url::kAboutScheme) && self.webView) {
+      !context->IsLoadingHtmlString() && !newURL.SchemeIs(url::kAboutScheme) &&
+      self.webView) {
     // On iOS13, WebKit started changing the URL visible webView.URL when
     // opening a new tab and then writing to it, e.g.
     // window.open('javascript:document.write(1)').  This URL is never commited,
@@ -1087,20 +1106,11 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
     GURL documentOrigin = newURL.DeprecatedGetOriginAsURL();
     web::NavigationItem* committedItem =
         self.webStateImpl->GetNavigationManager()->GetLastCommittedItem();
-    GURL committedURL =
-        committedItem ? committedItem->GetURL() : GURL::EmptyGURL();
+    GURL committedURL = committedItem ? committedItem->GetURL() : GURL();
     GURL committedOrigin = committedURL.DeprecatedGetOriginAsURL();
 
     DCHECK_EQ(documentOrigin, committedOrigin)
         << "Old and new URL detection system have a mismatch";
-
-    ukm::SourceId sourceID = ukm::ConvertToSourceId(
-        context->GetNavigationId(), ukm::SourceIdType::NAVIGATION_ID);
-    if (sourceID != ukm::kInvalidSourceId) {
-      ukm::builders::IOS_URLMismatchInLegacyAndSlimNavigationManager(sourceID)
-          .SetHasMismatch(documentOrigin != committedOrigin)
-          .Record(ukm::UkmRecorder::Get());
-    }
   }
 }
 
@@ -1169,13 +1179,10 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
     }
   }
 
-  // Restore allowsBackForwardNavigationGestures once restoration is complete.
-  if (!self.navigationManagerImpl->IsRestoreSessionInProgress()) {
-    if (_webView.allowsBackForwardNavigationGestures !=
-        _allowsBackForwardNavigationGestures) {
-      _webView.allowsBackForwardNavigationGestures =
-          _allowsBackForwardNavigationGestures;
-    }
+  if (_webView.allowsBackForwardNavigationGestures !=
+      _allowsBackForwardNavigationGestures) {
+    _webView.allowsBackForwardNavigationGestures =
+        _allowsBackForwardNavigationGestures;
   }
 
   BOOL success = !context || !context->GetError();
@@ -1259,50 +1266,6 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
       ->SetWebViewScrollViewIsDragging(self.webState, false);
 }
 
-#pragma mark - Page State
-
-- (void)surfaceSizeChanged {
-  // When rotating, the available zoom scale range may change, zoomScale's
-  // percentage into this range should remain constant.  However, there are
-  // two known bugs with respect to adjusting the zoomScale on rotation:
-  // - WKWebView sometimes erroneously resets the scroll view's zoom scale to
-  // an incorrect value ( rdar://20100815 ).
-  // - After zooming occurs in a UIWebView that's displaying a page with a hard-
-  // coded viewport width, the zoom will not be updated upon rotation
-  // ( crbug.com/485055 ).
-}
-
-- (void)prepareToApplyWebViewScrollZoomScale {
-  id webView = self.webView;
-  if (![webView respondsToSelector:@selector(viewForZoomingInScrollView:)]) {
-    return;
-  }
-
-  UIView* contentView = [webView viewForZoomingInScrollView:self.webScrollView];
-
-  if ([webView respondsToSelector:@selector(scrollViewWillBeginZooming:
-                                                              withView:)]) {
-    [webView scrollViewWillBeginZooming:self.webScrollView
-                               withView:contentView];
-  }
-}
-
-- (void)finishApplyingWebViewScrollZoomScale {
-  id webView = self.webView;
-  if ([webView respondsToSelector:@selector
-               (scrollViewDidEndZooming:withView:atScale:)] &&
-      [webView respondsToSelector:@selector(viewForZoomingInScrollView:)]) {
-    // This correctly sets the content's frame in the scroll view to
-    // fit the web page and upscales the content so that it isn't
-    // blurry.
-    UIView* contentView =
-        [webView viewForZoomingInScrollView:self.webScrollView];
-    [webView scrollViewDidEndZooming:self.webScrollView
-                            withView:contentView
-                             atScale:self.webScrollView.zoomScale];
-  }
-}
-
 #pragma mark - Fullscreen
 
 - (void)optOutScrollsToTopForSubviews {
@@ -1317,7 +1280,6 @@ char const kFullScreenStateHistogram[] = "IOS.Fullscreen.State";
   }
 }
 
-#if defined(__IPHONE_16_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_16_0
 CrFullscreenState CrFullscreenStateFromWKFullscreenState(
     WKFullscreenState state) API_AVAILABLE(ios(16.0)) {
   switch (state) {
@@ -1331,10 +1293,8 @@ CrFullscreenState CrFullscreenStateFromWKFullscreenState(
       return CrFullscreenState::kNotInFullScreen;
     default:
       NOTREACHED();
-      return CrFullscreenState::kNotInFullScreen;
   }
 }
-#endif  // defined (__IPHONE_16_0)
 
 #pragma mark - Security Helpers
 
@@ -1423,11 +1383,6 @@ CrFullscreenState CrFullscreenStateFromWKFullscreenState(
     [self.webView setAutoresizingMask:UIViewAutoresizingFlexibleWidth |
                                       UIViewAutoresizingFlexibleHeight];
 
-    if (web::GetWebClient()->EnableLongPressUIContextMenu()) {
-      self.contextMenuController =
-          [[CRWContextMenuController alloc] initWithWebView:self.webView
-                                                   webState:self.webStateImpl];
-    }
 
     // WKWebViews with invalid or empty frames have exhibited rendering bugs, so
     // resize the view to match the container view upon creation.
@@ -1468,22 +1423,22 @@ CrFullscreenState CrFullscreenStateFromWKFullscreenState(
   if (!self.webView || [_containerView webViewContentView])
     return;
 
-#if defined(__IPHONE_16_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_16_0
+  CrFullscreenState fullScreenState = CrFullscreenState::kNotInFullScreen;
   if (@available(iOS 16.0, *)) {
-    CRWWebViewContentView* webViewContentView = [[CRWWebViewContentView alloc]
-        initWithWebView:self.webView
-             scrollView:self.webScrollView
-        fullscreenState:CrFullscreenStateFromWKFullscreenState(
-                            self.webView.fullscreenState)];
-    [_containerView displayWebViewContentView:webViewContentView];
-    return;
+    fullScreenState =
+        CrFullscreenStateFromWKFullscreenState(self.webView.fullscreenState);
   }
-#endif  // defined(__IPHONE_16_0)
+  CRWWebViewContentView* webViewContentView =
+      [[CRWWebViewContentView alloc] initWithWebView:self.webView
+                                          scrollView:self.webScrollView
+                                     fullscreenState:fullScreenState];
 
-  CRWWebViewContentView* webViewContentView = [[CRWWebViewContentView alloc]
-      initWithWebView:self.webView
-           scrollView:self.webScrollView
-      fullscreenState:CrFullscreenState::kNotInFullScreen];
+  if (web::GetWebClient()->EnableLongPressUIContextMenu()) {
+    self.contextMenuController =
+        [[CRWContextMenuController alloc] initWithWebView:self.webView
+                                                 webState:self.webStateImpl
+                                            containerView:webViewContentView];
+  }
 
   [_containerView displayWebViewContentView:webViewContentView];
 }
@@ -1642,8 +1597,12 @@ CrFullscreenState CrFullscreenStateFromWKFullscreenState(
   self.webStateImpl->OnStateChangedForPermission(web::PermissionMicrophone);
 }
 
+// Called when WKWebView underPageBackgroundColor property has changed.
+- (void)webViewUnderPageBackgroundColorDidChange {
+  self.webStateImpl->OnUnderPageBackgroundColorChanged();
+}
+
 - (void)fullscreenStateDidChange {
-#if defined(__IPHONE_16_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_16_0
   if (@available(iOS 16.0, *)) {
     CrFullscreenState fullScreenState =
         CrFullscreenStateFromWKFullscreenState(self.webView.fullscreenState);
@@ -1654,7 +1613,6 @@ CrFullscreenState CrFullscreenStateFromWKFullscreenState(
         fullScreenState == CrFullscreenState::kInFullscreen;
     base::UmaHistogramEnumeration(kFullScreenStateHistogram, fullScreenState);
   }
-#endif  // defined (__IPHONE_16_0)
 }
 
 #pragma mark - CRWWebViewHandlerDelegate
@@ -1722,7 +1680,7 @@ CrFullscreenState CrFullscreenStateFromWKFullscreenState(
                                             webView:self.webView];
   newContext->SetHasCommitted(!isSameDocumentNavigation);
   self.webStateImpl->OnNavigationFinished(newContext.get());
-  // TODO(crbug.com/792515): It is OK, but very brittle, to call
+  // TODO(crbug.com/41359661): It is OK, but very brittle, to call
   // `didFinishNavigation:` here because the gating condition is mutually
   // exclusive with the condition below. Refactor this method after
   // deprecating self.navigationHandler.pendingNavigationInfo.
@@ -1742,7 +1700,7 @@ CrFullscreenState CrFullscreenStateFromWKFullscreenState(
       if (!_documentURL.host().empty() &&
           (base::Contains(newURL.username(), _documentURL.host()) ||
            base::Contains(newURL.password(), _documentURL.host()))) {
-        CHECK(false);
+        NOTREACHED();
       }
     }
   }

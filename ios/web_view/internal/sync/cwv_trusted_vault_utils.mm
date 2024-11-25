@@ -5,6 +5,7 @@
 #import "ios/web_view/public/cwv_trusted_vault_utils.h"
 
 #import "components/trusted_vault/trusted_vault_histograms.h"
+#import "components/trusted_vault/trusted_vault_server_constants.h"
 
 namespace {
 trusted_vault::TrustedVaultDeviceRegistrationStateForUMA
@@ -26,7 +27,7 @@ CWVConvertTrustedVaultState(CWVTrustedVaultState state) {
       return trusted_vault::TrustedVaultDeviceRegistrationStateForUMA::
           kAttemptingRegistrationWithExistingKeyPair;
     case CWVTrustedVaultStateAttemptingRegistrationWithPersistentAuthError:
-      // TODO(crbug.com/1418027): remove CWV version of this bucket.
+      // TODO(crbug.com/40257503): remove CWV version of this bucket.
       return trusted_vault::TrustedVaultDeviceRegistrationStateForUMA::
           kDeprecatedAttemptingRegistrationWithPersistentAuthError;
     case CWVTrustedVaultStateAlreadyRegisteredV1:
@@ -40,17 +41,19 @@ CWVConvertTrustedVaultState(CWVTrustedVaultState state) {
 
 + (void)logTrustedVaultDidUpdateState:(CWVTrustedVaultState)state {
   trusted_vault::RecordTrustedVaultDeviceRegistrationState(
+      trusted_vault::SecurityDomainId::kChromeSync,
       CWVConvertTrustedVaultState(state));
 }
 
 + (void)logTrustedVaultDidReceiveHTTPStatusCode:(NSInteger)statusCode {
   trusted_vault::RecordTrustedVaultURLFetchResponse(
-      statusCode, /*net_error=*/0,
-      trusted_vault::TrustedVaultURLFetchReasonForUMA::kUnspecified);
+      trusted_vault::SecurityDomainId::kChromeSync,
+      trusted_vault::TrustedVaultURLFetchReasonForUMA::kUnspecified, statusCode,
+      /*net_error=*/0);
 }
 
 + (void)logTrustedVaultDidFailKeyDistribution:(NSError*)error {
-  // TODO(crbug.com/1266130): Check to see if any UMA logging needs to occur.
+  // TODO(crbug.com/40204010): Check to see if any UMA logging needs to occur.
 }
 
 @end

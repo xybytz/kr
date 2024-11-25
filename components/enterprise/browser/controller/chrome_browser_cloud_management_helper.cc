@@ -42,7 +42,7 @@ ChromeBrowserCloudManagementRegistrar::ChromeBrowserCloudManagementRegistrar(
       url_loader_factory_(url_loader_factory) {}
 
 ChromeBrowserCloudManagementRegistrar::
-    ~ChromeBrowserCloudManagementRegistrar() {}
+    ~ChromeBrowserCloudManagementRegistrar() = default;
 
 void ChromeBrowserCloudManagementRegistrar::
     RegisterForCloudManagementWithEnrollmentToken(
@@ -195,6 +195,10 @@ void MachineLevelUserCloudPolicyFetcher::TryToFetchPolicy() {
   std::string client_id = BrowserDMTokenStorage::Get()->RetrieveClientId();
   if (dm_token.is_valid() && !client_id.empty())
     SetupRegistrationAndFetchPolicy(dm_token, client_id);
+}
+
+std::string_view MachineLevelUserCloudPolicyFetcher::name() const {
+  return "MachineLevelUserCloudPolicyFetcher";
 }
 
 }  // namespace policy

@@ -9,7 +9,7 @@
 #include "components/no_state_prefetch/common/no_state_prefetch_url_loader_throttle.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
-#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
+#include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 
 namespace prerender {
@@ -46,8 +46,8 @@ NoStatePrefetchHelper::MaybeCreateThrottle(
   if (!helper)
     return nullptr;
 
-  mojo::PendingRemote<mojom::PrerenderCanceler> canceler;
-  render_frame->GetBrowserInterfaceBroker()->GetInterface(
+  mojo::PendingRemote<mojom::NoStatePrefetchCanceler> canceler;
+  render_frame->GetBrowserInterfaceBroker().GetInterface(
       canceler.InitWithNewPipeAndPassReceiver());
 
   auto throttle =
@@ -92,10 +92,10 @@ void NoStatePrefetchHelper::OnThrottleDestroyed() {
 void NoStatePrefetchHelper::SendPrefetchFinished() {
   DCHECK(prefetch_count_ == 0 && prefetch_finished_);
 
-  mojo::Remote<mojom::PrerenderCanceler> canceler;
-  render_frame()->GetBrowserInterfaceBroker()->GetInterface(
+  mojo::Remote<mojom::NoStatePrefetchCanceler> canceler;
+  render_frame()->GetBrowserInterfaceBroker().GetInterface(
       canceler.BindNewPipeAndPassReceiver());
-  canceler->CancelPrerenderForNoStatePrefetch();
+  canceler->CancelNoStatePrefetchAfterSubresourcesDiscovered();
 }
 
 }  // namespace prerender

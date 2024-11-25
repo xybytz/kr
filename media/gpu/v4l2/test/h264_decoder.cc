@@ -482,8 +482,10 @@ VideoDecoder::Result H264Decoder::SubmitSlice() {
   std::vector<uint8_t> slice_data(
       sizeof(V4L2_STATELESS_H264_START_CODE_ANNEX_B) - 1);
   slice_data[2] = V4L2_STATELESS_H264_START_CODE_ANNEX_B;
-  slice_data.insert(slice_data.end(), curr_slice_hdr_->nalu_data,
-                    curr_slice_hdr_->nalu_data + curr_slice_hdr_->nalu_size);
+  slice_data.insert(slice_data.end(), (curr_slice_hdr_->nalu_data).get(),
+                    (curr_slice_hdr_->nalu_data +
+                     base::checked_cast<size_t>(curr_slice_hdr_->nalu_size))
+                        .get());
 
   scoped_refptr<MmappedBuffer> OUTPUT_buffer = OUTPUT_queue_->GetBuffer(0);
   OUTPUT_buffer->mmapped_planes()[0].CopyIn(&slice_data[0], slice_data.size());
@@ -728,6 +730,8 @@ void H264Decoder::FinishPicture(H264SliceMetadata picture, const int sps_id) {
     CreateCAPTUREQueue(kNumberOfBuffersInCaptureQueue);
   }
 
+  v4l2_ioctl_->WaitForRequestCompletion(OUTPUT_queue_);
+
   uint32_t CAPTURE_id;
   v4l2_ioctl_->DQBuf(CAPTURE_queue_, &CAPTURE_id);
 
@@ -909,7 +913,7 @@ std::unique_ptr<H264Decoder> H264Decoder::Create(
   const H264SPS* sps = parser->GetSPS(sps_id);
   CHECK(sps);
 
-  absl::optional<gfx::Size> coded_size = sps->GetCodedSize();
+  std::optional<gfx::Size> coded_size = sps->GetCodedSize();
   CHECK(coded_size);
 
   auto v4l2_ioctl = std::make_unique<V4L2IoctlShim>(kDriverCodecFourcc);
@@ -949,7 +953,8 @@ VideoDecoder::Result H264Decoder::DecodeNextFrame(const int frame_number,
                                                   std::vector<uint8_t>& y_plane,
                                                   std::vector<uint8_t>& u_plane,
                                                   std::vector<uint8_t>& v_plane,
-                                                  gfx::Size& size) {
+                                                  gfx::Size& size,
+                                                  BitDepth& bit_depth) {
   // If this is the start of the Decoder, initialize Decoder state.
   if (!parser_) {
     InitializeDecoderLogic();
@@ -980,8 +985,9 @@ VideoDecoder::Result H264Decoder::DecodeNextFrame(const int frame_number,
     LOG(INFO) << "Non-zero visible rect origin.";
   }
 
-  ConvertToYUV(y_plane, u_plane, v_plane, size, buffer->mmapped_planes(),
-               CAPTURE_queue_->resolution(), CAPTURE_queue_->fourcc());
+  bit_depth =
+      ConvertToYUV(y_plane, u_plane, v_plane, size, buffer->mmapped_planes(),
+                   CAPTURE_queue_->resolution(), CAPTURE_queue_->fourcc());
 
   slice_ready_queue_.pop();
   return VideoDecoder::kOk;

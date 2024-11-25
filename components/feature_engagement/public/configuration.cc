@@ -7,7 +7,6 @@
 #include <string>
 
 #include "base/notreached.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace feature_engagement {
 namespace {
@@ -22,7 +21,6 @@ std::ostream& operator<<(std::ostream& os, const SessionRateImpact::Type type) {
     default:
       // All cases should be covered.
       NOTREACHED();
-      return os;
   }
 }
 
@@ -37,7 +35,6 @@ std::ostream& operator<<(std::ostream& os, BlockedBy::Type type) {
     default:
       // All cases should be covered.
       NOTREACHED();
-      return os;
   }
 }
 
@@ -50,7 +47,6 @@ std::ostream& operator<<(std::ostream& os, Blocking::Type type) {
     default:
       // All cases should be covered.
       NOTREACHED();
-      return os;
   }
 }
 
@@ -82,7 +78,6 @@ bool Comparator::MeetsCriteria(uint32_t v) const {
     default:
       // All cases should be covered.
       NOTREACHED();
-      return false;
   }
 }
 
@@ -105,7 +100,6 @@ std::ostream& operator<<(std::ostream& os, const Comparator& comparator) {
     default:
       // All cases should be covered.
       NOTREACHED();
-      return os;
   }
 }
 

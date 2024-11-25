@@ -63,7 +63,9 @@ class RichHoverButton : public HoverButton {
 
   void SetSubtitleMultiline(bool is_multiline);
 
+  views::Label* title() { return title_; }
   views::Label* secondary_label() { return secondary_label_; }
+  views::Label* subtitle() { return subtitle_; }
 
   const views::Label* GetTitleViewForTesting() const;
   const views::Label* GetSubTitleViewForTesting() const;
@@ -72,8 +74,8 @@ class RichHoverButton : public HoverButton {
   // HoverButton:
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
   views::View* GetTooltipHandlerForPoint(const gfx::Point& point) override;
-  gfx::Size CalculatePreferredSize() const override;
-  int GetHeightForWidth(int w) const override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
 
  private:
   void UpdateAccessibleName();

@@ -2,15 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "services/network/web_transport.h"
 
 #include "base/auto_reset.h"
+#include "base/containers/span.h"
 #include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/notreached.h"
 #include "base/strings/string_util.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
+#include "mojo/public/cpp/system/data_pipe.h"
 #include "net/base/io_buffer.h"
 #include "net/third_party/quiche/src/quiche/common/platform/api/quiche_mem_slice.h"
 #include "net/third_party/quiche/src/quiche/quic/core/quic_session.h"
@@ -39,6 +46,19 @@ net::WebTransportParameters CreateParameters(
 
 base::TimeDelta ToTimeDelta(absl::Duration duration) {
   return base::Microseconds(absl::ToInt64Microseconds(duration));
+}
+
+mojom::WebTransportStatsPtr StatsToMojom(
+    const webtransport::SessionStats& stats) {
+  mojom::WebTransportStatsPtr result = mojom::WebTransportStats::New();
+  result->timestamp = base::Time::Now();
+  result->min_rtt = ToTimeDelta(stats.min_rtt);
+  result->smoothed_rtt = ToTimeDelta(stats.smoothed_rtt);
+  result->rtt_variation = ToTimeDelta(stats.rtt_variation);
+  result->estimated_send_rate_bps = stats.estimated_send_rate_bps;
+  result->datagrams_expired_outgoing = stats.datagram_stats.expired_outgoing;
+  result->datagrams_lost_outgoing = stats.datagram_stats.lost_outgoing;
+  return result;
 }
 
 }  // namespace
@@ -222,10 +242,9 @@ class WebTransport::Stream final {
   void Send() {
     MaySendFin();
     while (readable_ && outgoing_ && outgoing_->CanWrite()) {
-      const void* data = nullptr;
-      uint32_t available = 0;
-      MojoResult result = readable_->BeginReadData(
-          &data, &available, MOJO_BEGIN_READ_DATA_FLAG_NONE);
+      base::span<const uint8_t> data;
+      MojoResult result =
+          readable_->BeginReadData(MOJO_BEGIN_READ_DATA_FLAG_NONE, data);
       if (result == MOJO_RESULT_SHOULD_WAIT) {
         readable_watcher_.Arm();
         return;
@@ -237,19 +256,17 @@ class WebTransport::Stream final {
       }
       DCHECK_EQ(result, MOJO_RESULT_OK);
 
-      bool send_result = outgoing_->Write(
-          absl::string_view(reinterpret_cast<const char*>(data), available));
+      bool send_result = outgoing_->Write(base::as_string_view(data));
       if (!send_result) {
         // TODO(yhirano): Handle this failure.
         readable_->EndReadData(0);
         return;
       }
-      readable_->EndReadData(available);
+      readable_->EndReadData(data.size());
     }
   }
 
   void OnWritable(MojoResult result, const mojo::HandleSignalsState& state) {
-    DCHECK_EQ(result, MOJO_RESULT_OK);
     Receive();
   }
 
@@ -272,10 +289,10 @@ class WebTransport::Stream final {
     while (incoming_) {
       quic::WebTransportStream::ReadResult read_result;
       if (incoming_->ReadableBytes() > 0) {
-        void* buffer = nullptr;
-        uint32_t available = 0;
-        MojoResult result = writable_->BeginWriteData(
-            &buffer, &available, MOJO_BEGIN_WRITE_DATA_FLAG_NONE);
+        base::span<uint8_t> buffer;
+        MojoResult result =
+            writable_->BeginWriteData(mojo::DataPipeProducerHandle::kNoSizeHint,
+                                      MOJO_BEGIN_WRITE_DATA_FLAG_NONE, buffer);
         if (result == MOJO_RESULT_SHOULD_WAIT) {
           writable_watcher_.Arm();
           return;
@@ -290,8 +307,8 @@ class WebTransport::Stream final {
         }
         DCHECK_EQ(result, MOJO_RESULT_OK);
 
-        read_result = incoming_->Read(
-            absl::Span<char>(reinterpret_cast<char*>(buffer), available));
+        base::span<char> chars = base::as_writable_chars(buffer);
+        read_result = incoming_->Read(absl::MakeSpan(chars));
         writable_->EndWriteData(read_result.bytes_read);
       } else {
         // Even if ReadableBytes() == 0, we may need to read the FIN at the end
@@ -417,8 +434,7 @@ void WebTransport::SendDatagram(base::span<const uint8_t> data,
   datagram_callbacks_.emplace(std::move(callback));
 
   CHECK(transport_->session());
-  transport_->session()->SendOrQueueDatagram(absl::string_view(
-      reinterpret_cast<const char*>(data.data()), data.size()));
+  transport_->session()->SendOrQueueDatagram(base::as_string_view(data));
 }
 
 void WebTransport::CreateStream(
@@ -440,7 +456,7 @@ void WebTransport::CreateStream(
   if (writable) {
     // Bidirectional
     if (!session->CanOpenNextOutgoingBidirectionalStream()) {
-      // TODO(crbug.com/104236): Instead of rejecting the creation request, we
+      // TODO(crbug.com/40114825): Instead of rejecting the creation request, we
       // should wait in this case.
       std::move(callback).Run(false, 0);
       return;
@@ -458,7 +474,7 @@ void WebTransport::CreateStream(
 
   // Unidirectional
   if (!session->CanOpenNextOutgoingUnidirectionalStream()) {
-    // TODO(crbug.com/104236): Instead of rejecting the creation request, we
+    // TODO(crbug.com/40114825): Instead of rejecting the creation request, we
     // should wait in this case.
     std::move(callback).Run(false, 0);
     return;
@@ -532,10 +548,10 @@ void WebTransport::Close(mojom::WebTransportCloseInfoPtr close_info) {
   handshake_client_.reset();
   client_.reset();
 
-  absl::optional<net::WebTransportCloseInfo> close_info_to_pass;
+  std::optional<net::WebTransportCloseInfo> close_info_to_pass;
   if (close_info) {
     close_info_to_pass =
-        absl::make_optional<net::WebTransportCloseInfo>(close_info->code, "");
+        std::make_optional<net::WebTransportCloseInfo>(close_info->code, "");
 
     // As described at
     // https://w3c.github.io/webtransport/#dom-webtransport-close,
@@ -562,7 +578,8 @@ void WebTransport::OnConnected(
 
   handshake_client_->OnConnectionEstablished(
       receiver_.BindNewPipeAndPassRemote(),
-      client_.BindNewPipeAndPassReceiver(), std::move(response_headers));
+      client_.BindNewPipeAndPassReceiver(), std::move(response_headers),
+      StatsToMojom(transport_->session()->GetSessionStats()));
 
   handshake_client_.reset();
   // We set the disconnect handler for `receiver_`, not `client_`, in order
@@ -587,7 +604,7 @@ void WebTransport::OnConnectionFailed(const net::WebTransportError& error) {
 }
 
 void WebTransport::OnClosed(
-    const absl::optional<net::WebTransportCloseInfo>& close_info) {
+    const std::optional<net::WebTransportCloseInfo>& close_info) {
   if (torn_down_) {
     return;
   }
@@ -601,7 +618,11 @@ void WebTransport::OnClosed(
       close_info_to_pass = mojom::WebTransportCloseInfo::New(
           close_info->code, close_info->reason);
     }
-    client_->OnClosed(std::move(close_info_to_pass));
+    mojom::WebTransportStatsPtr final_stats;
+    if (transport_ != nullptr && transport_->session() != nullptr) {
+      final_stats = StatsToMojom(transport_->session()->GetSessionStats());
+    }
+    client_->OnClosed(std::move(close_info_to_pass), std::move(final_stats));
   }
 
   TearDown();
@@ -725,7 +746,7 @@ void WebTransport::OnCanCreateNewOutgoingUnidirectionalStream() {
 }
 
 void WebTransport::OnDatagramProcessed(
-    absl::optional<quic::MessageStatus> status) {
+    std::optional<quic::MessageStatus> status) {
   DCHECK(!datagram_callbacks_.empty());
 
   std::move(datagram_callbacks_.front())
@@ -742,15 +763,7 @@ void WebTransport::GetStats(GetStatsCallback callback) {
   }
 
   webtransport::SessionStats stats = session->GetSessionStats();
-  mojom::WebTransportStatsPtr result = mojom::WebTransportStats::New();
-  result->timestamp = base::Time::Now();
-  result->min_rtt = ToTimeDelta(stats.min_rtt);
-  result->smoothed_rtt = ToTimeDelta(stats.smoothed_rtt);
-  result->rtt_variation = ToTimeDelta(stats.rtt_variation);
-  result->estimated_send_rate_bps = stats.estimated_send_rate_bps;
-  result->datagrams_expired_outgoing = stats.datagram_stats.expired_outgoing;
-  result->datagrams_lost_outgoing = stats.datagram_stats.lost_outgoing;
-  std::move(callback).Run(std::move(result));
+  std::move(callback).Run(StatsToMojom(stats));
 }
 
 void WebTransport::TearDown() {

@@ -36,6 +36,7 @@ import org.mockito.quality.Strictness;
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ContextUtils;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.util.ApplicationTestUtils;
@@ -43,7 +44,6 @@ import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.base.test.util.PackageManagerWrapper;
 import org.chromium.base.test.util.RequiresRestart;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
@@ -59,7 +59,6 @@ import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ChromeApplicationTestUtils;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.network.mojom.ReferrerPolicy;
 import org.chromium.ui.mojom.WindowOpenDisposition;
 import org.chromium.url.GURL;
@@ -80,8 +79,6 @@ public final class TabbedActivityLaunchCauseMetricsTest {
 
     @ClassRule
     public static final ChromeBrowserTestRule sBrowserTestRule = new ChromeBrowserTestRule();
-
-    @Rule public final JniMocker mJniMocker = new JniMocker();
 
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule().strictness(Strictness.STRICT_STUBS);
 
@@ -138,7 +135,7 @@ public final class TabbedActivityLaunchCauseMetricsTest {
                         }
                     }
                 };
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> ApplicationStatus.registerStateListenerForAllActivities(listener));
 
         final int mainCount =
@@ -157,7 +154,7 @@ public final class TabbedActivityLaunchCauseMetricsTest {
         Assert.assertEquals(
                 mainCount,
                 histogramCountForValue(LaunchCauseMetrics.LaunchCause.MAIN_LAUNCHER_ICON));
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> ApplicationStatus.unregisterActivityStateListener(listener));
     }
 
@@ -279,7 +276,7 @@ public final class TabbedActivityLaunchCauseMetricsTest {
     @MediumTest
     public void testServiceWorkerTabLaunch() throws Throwable {
         final int count = 1 + histogramCountForValue(LaunchCauseMetrics.LaunchCause.NOTIFICATION);
-        mJniMocker.mock(ServiceTabLauncherJni.TEST_HOOKS, mServiceTabLauncherJni);
+        ServiceTabLauncherJni.setInstanceForTesting(mServiceTabLauncherJni);
         mActivityTestRule.setActivity(
                 ApplicationTestUtils.waitForActivityWithClass(
                         ChromeTabbedActivity.class,

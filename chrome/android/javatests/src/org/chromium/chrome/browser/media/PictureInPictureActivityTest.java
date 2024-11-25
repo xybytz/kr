@@ -37,11 +37,12 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.JniMocker;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -51,7 +52,6 @@ import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ActivityTestUtils;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.overlay_window.PlaybackState;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.WebContentsUtils;
 import org.chromium.media_session.mojom.MediaSessionAction;
 import org.chromium.ui.test.util.DeviceRestriction;
@@ -69,8 +69,6 @@ import java.util.concurrent.TimeoutException;
 public class PictureInPictureActivityTest {
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
-
-    @Rule public JniMocker mMocker = new JniMocker();
 
     private static final long NATIVE_OVERLAY = 100L;
     private static final long PIP_TIMEOUT_MILLISECONDS = 10000L;
@@ -105,7 +103,7 @@ public class PictureInPictureActivityTest {
         MockitoAnnotations.initMocks(this);
         mActivityTestRule.startMainActivityOnBlankPage();
         mTab = mActivityTestRule.getActivity().getActivityTab();
-        mMocker.mock(PictureInPictureActivityJni.TEST_HOOKS, mNativeMock);
+        PictureInPictureActivityJni.setInstanceForTesting(mNativeMock);
         mOriginalHelper = PictureInPictureActivity.setLaunchIntoPipHelper(mLaunchIntoPipHelper);
     }
 
@@ -145,6 +143,7 @@ public class PictureInPictureActivityTest {
 
     @Test
     @MediumTest
+    @DisabledTest(message = "b/353025645")
     @MinAndroidSdkLevel(Build.VERSION_CODES.O)
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     public void testMakeEnterPictureInPictureWithBadSourceRect() throws Throwable {
@@ -179,13 +178,12 @@ public class PictureInPictureActivityTest {
         // Resize to some reasonable size, and verify that native is told about it.
         final int reasonableSize = 10;
         View view = activity.getViewForTesting();
-        TestThreadUtils.runOnUiThreadBlocking(
-                () -> view.layout(0, 0, reasonableSize, reasonableSize));
+        ThreadUtils.runOnUiThreadBlocking(() -> view.layout(0, 0, reasonableSize, reasonableSize));
         verify(mNativeMock, times(1))
                 .onViewSizeChanged(NATIVE_OVERLAY, reasonableSize, reasonableSize);
         // An unreasonably large size should not generate a resize event.
         final int unreasonableSize = activity.getWindowAndroid().getDisplay().getDisplayWidth();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> view.layout(0, 0, unreasonableSize, unreasonableSize));
         verify(mNativeMock, times(0)).onViewSizeChanged(anyInt(), anyInt(), anyInt());
         testExitOn(activity, () -> activity.close());
@@ -269,6 +267,7 @@ public class PictureInPictureActivityTest {
 
     @Test
     @MediumTest
+    @DisabledTest(message = "b/353357051")
     @MinAndroidSdkLevel(Build.VERSION_CODES.O)
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
     public void testActionsInSync() throws Throwable {
@@ -323,7 +322,7 @@ public class PictureInPictureActivityTest {
     }
 
     private void testExitOn(Activity activity, Runnable runnable) throws Throwable {
-        TestThreadUtils.runOnUiThreadBlocking(() -> runnable.run());
+        ThreadUtils.runOnUiThreadBlocking(() -> runnable.run());
 
         CriteriaHelper.pollUiThread(
                 () -> {
@@ -342,7 +341,7 @@ public class PictureInPictureActivityTest {
                         new Callable<Void>() {
                             @Override
                             public Void call() throws TimeoutException {
-                                TestThreadUtils.runOnUiThreadBlocking(
+                                ThreadUtils.runOnUiThreadBlocking(
                                         () ->
                                                 PictureInPictureActivity.createActivity(
                                                         NATIVE_OVERLAY,

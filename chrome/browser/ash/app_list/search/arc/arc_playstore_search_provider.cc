@@ -43,7 +43,7 @@ bool CanSkipSearchResult(content::BrowserContext* context,
     return true;
   }
 
-  // TODO(crbug/763562): Remove this once we have a fix in Phonesky.
+  // TODO(crbug.com/41343677): Remove this once we have a fix in Phonesky.
   // Don't show installed Android apps.
   const ArcAppListPrefs* arc_prefs = ArcAppListPrefs::Get(context);
   return arc_prefs && arc_prefs->GetPackage(result.package_name.value());
@@ -80,7 +80,7 @@ ArcPlayStoreSearchProvider::ArcPlayStoreSearchProvider(
     int max_results,
     Profile* profile,
     AppListControllerDelegate* list_controller)
-    : SearchProvider(ControlCategory::kPlayStore),
+    : SearchProvider(SearchCategory::kPlayStore),
       max_results_(max_results),
       profile_(profile),
       list_controller_(list_controller) {

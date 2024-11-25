@@ -39,10 +39,10 @@ import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.Tab.LoadUrlResult;
 import org.chromium.chrome.browser.tab.TabHidingType;
 import org.chromium.chrome.browser.tab.TabSelectionType;
 import org.chromium.chrome.browser.tab.TabUtils;
-import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarFeatures;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
 import org.chromium.components.messages.DismissReason;
 import org.chromium.components.messages.MessageBannerProperties;
@@ -97,9 +97,10 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
      * Conditions under which the Reader Mode prompt was dismissed in conjunction with the
      * accessibility setting.
      *
-     * Note: These values are persisted to logs. Entries should not be renumbered and numeric values
-     * should never be reused.
+     * <p>Note: These values are persisted to logs. Entries should not be renumbered and numeric
+     * values should never be reused.
      */
+    // LINT.IfChange(MessageDismissalCondition)
     @IntDef({
         MessageDismissalCondition.ACCEPTED_WITH_ACCESSIBILITY_SETTING_SELECTED,
         MessageDismissalCondition.ACCEPTED_WITH_ACCESSIBILITY_SETTING_DESELECTED,
@@ -116,6 +117,8 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
         // Number of entries
         int NUM_ENTRIES = 4;
     }
+
+    // LINT.ThenChange(/tools/metrics/histograms/metadata/accessibility/enums.xml:ReaderModeMessageDismissalCondition)
 
     /** The key to access this object from a {@Tab}. */
     public static final Class<ReaderModeManager> USER_DATA_KEY = ReaderModeManager.class;
@@ -213,7 +216,7 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
     }
 
     @Override
-    public void onLoadUrl(Tab tab, LoadUrlParams params, int loadType) {
+    public void onLoadUrl(Tab tab, LoadUrlParams params, LoadUrlResult loadUrlResult) {
         // If a distiller URL was loaded and this is a custom tab, add a navigation
         // handler to bring any navigations back to the main chrome activity.
         Activity activity = TabUtils.getActivity(tab);
@@ -512,8 +515,9 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
     void tryShowingPrompt() {
         if (mTab == null || mTab.getWebContents() == null) return;
 
-        // If a reader mode button will be shown on the toolbar then don't show a message.
-        if (AdaptiveToolbarFeatures.isReaderModePageActionEnabled() && !mTab.isCustomTab()) return;
+        // This prompt should only be shown on incognito or custom tabs, in other cases we'll show a
+        // toolbar button (contextual page action) instead.
+        if (!mTab.isCustomTab() && !mTab.isIncognito()) return;
 
         // Test if the user is requesting the desktop site. Ignore this if distiller is set to
         // ALWAYS_TRUE.
@@ -626,8 +630,6 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
         WebContents webContents = mTab.getWebContents();
         if (webContents == null) return;
 
-        GURL url = webContents.getLastCommittedUrl();
-
         onStartedReaderMode();
 
         FullscreenManager fullscreenManager = getFullscreenManager();
@@ -691,7 +693,7 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
         customTabsIntent.intent.setClassName(activity, CustomTabActivity.class.getName());
 
         // Customize items on menu as Reader Mode UI to show 'Find in page' and 'Preference' only.
-        CustomTabIntentDataProvider.addReaderModeUIExtras(customTabsIntent.intent);
+        CustomTabIntentDataProvider.addReaderModeUiExtras(customTabsIntent.intent);
 
         // Add the parent ID as an intent extra for back button functionality.
         customTabsIntent.intent.putExtra(EXTRA_READER_MODE_PARENT, mTab.getId());
@@ -699,7 +701,7 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
         // Use Incognito CCT if the source page is in Incognito mode.
         if (mTab.isIncognito()) {
             IncognitoCustomTabIntentDataProvider.addIncognitoExtrasForChromeFeatures(
-                    customTabsIntent.intent, IntentHandler.IncognitoCCTCallerId.READER_MODE);
+                    customTabsIntent.intent, IntentHandler.IncognitoCctCallerId.READER_MODE);
         }
 
         customTabsIntent.launchUrl(activity, Uri.parse(distillerUrl));
@@ -775,15 +777,6 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
                         ReaderModeManager.EXTRA_READER_MODE_PARENT,
                         Tab.INVALID_TAB_ID);
         return readerParentId != Tab.INVALID_TAB_ID;
-    }
-
-    /**
-     * Determine if a reader mode UI should be shown for the current tab and URL. Used when the
-     * contextual page action UI is enabled to replicate the rate limiting of the messages UI.
-     * @return True if the CPA UI should be suppressed.
-     */
-    public boolean isReaderModeUiRateLimited() {
-        return mMessageShown || sMutedSites.contains(urlToHash(mDistillerUrl));
     }
 
     /**

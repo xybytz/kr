@@ -26,6 +26,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_track.h"
@@ -74,6 +75,7 @@ using testing::_;
 using testing::Invoke;
 using testing::NiceMock;
 using testing::Ref;
+using testing::Return;
 using testing::SaveArg;
 using testing::WithArg;
 
@@ -91,7 +93,7 @@ class MockPeerConnectionTracker : public PeerConnectionTracker {
  public:
   MockPeerConnectionTracker()
       : PeerConnectionTracker(
-            mojo::Remote<mojom::blink::PeerConnectionTrackerHost>(),
+            mojo::PendingRemote<mojom::blink::PeerConnectionTrackerHost>(),
             blink::scheduler::GetSingleThreadTaskRunnerForTesting(),
             base::PassKey<MockPeerConnectionTracker>()) {}
 
@@ -258,7 +260,7 @@ class RTCPeerConnectionHandlerTest : public SimTest {
     DummyExceptionStateForTesting exception_state;
     EXPECT_TRUE(pc_handler_->InitializeForTest(
         webrtc::PeerConnectionInterface::RTCConfiguration(),
-        mock_tracker_.Get(), exception_state));
+        mock_tracker_.Get(), exception_state, /*rtp_transport=*/nullptr));
     mock_peer_connection_ = pc_handler_->native_peer_connection();
     ASSERT_TRUE(mock_peer_connection_);
     EXPECT_CALL(*mock_peer_connection_, Close());
@@ -541,7 +543,7 @@ class RTCPeerConnectionHandlerTest : public SimTest {
     waitable_event->Signal();
   }
 
- public:
+ protected:
   ScopedTestingPlatformSupport<AudioCapturerSourceTestingPlatformSupport>
       webrtc_audio_device_platform_support_;
   Persistent<MockRTCPeerConnectionHandlerClient> mock_client_;
@@ -936,6 +938,8 @@ TEST_F(RTCPeerConnectionHandlerTest, OnIceCandidate) {
 
 TEST_F(RTCPeerConnectionHandlerTest, OnRenegotiationNeeded) {
   testing::InSequence sequence;
+  EXPECT_CALL(*mock_peer_connection_, ShouldFireNegotiationNeededEvent)
+      .WillOnce(Return(true));
   EXPECT_CALL(*mock_tracker_.Get(),
               TrackOnRenegotiationNeeded(pc_handler_.get()));
   EXPECT_CALL(*mock_client_.Get(), NegotiationNeeded());
@@ -1052,6 +1056,33 @@ TEST_F(RTCPeerConnectionHandlerTest,
   EXPECT_CALL(*mock_client_, DidChangeSessionDescriptions(_, _, _, _))
       .WillOnce(testing::Invoke([&] { pc_handler_.reset(); }));
   observer->OnIceCandidate(native_candidate.get());
+}
+
+TEST_F(RTCPeerConnectionHandlerTest,
+       OnIceCandidateAfterClientGarbageCollectionDoesNothing) {
+  testing::InSequence sequence;
+  EXPECT_CALL(*mock_tracker_.Get(),
+              TrackAddIceCandidate(pc_handler_.get(), _,
+                                   PeerConnectionTracker::kSourceLocal, true))
+      .Times(0);
+
+  std::unique_ptr<webrtc::IceCandidateInterface> native_candidate(
+      mock_dependency_factory_->CreateIceCandidate("sdpMid", 1, kDummySdp));
+  mock_client_ = nullptr;
+  WebHeap::CollectAllGarbageForTesting();
+  pc_handler_->observer()->OnIceCandidate(native_candidate.get());
+  RunMessageLoopsUntilIdle();
+}
+
+TEST_F(RTCPeerConnectionHandlerTest,
+       OnIceCandidateAfterClientGarbageCollectionFails) {
+  DummyExceptionStateForTesting exception_state;
+  auto pc_handler = CreateRTCPeerConnectionHandlerUnderTest();
+  mock_client_ = nullptr;
+  WebHeap::CollectAllGarbageForTesting();
+  EXPECT_FALSE(pc_handler->Initialize(
+      /*context=*/nullptr, webrtc::PeerConnectionInterface::RTCConfiguration(),
+      /*frame=*/nullptr, exception_state, /*rtp_transport=*/nullptr));
 }
 
 }  // namespace blink

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <cstddef>
 #include <utility>
 #include <vector>
 
@@ -274,7 +275,10 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessTest,
 #if BUILDFLAG(ENABLE_PDF)
 class ChromeSitePerProcessGuestViewPDFTest : public ChromeSitePerProcessTest {
  public:
-  ChromeSitePerProcessGuestViewPDFTest() : test_guest_view_manager_(nullptr) {}
+  ChromeSitePerProcessGuestViewPDFTest() : test_guest_view_manager_(nullptr) {
+    feature_list()->Reset();
+    feature_list()->InitAndDisableFeature(chrome_pdf::features::kPdfOopif);
+  }
 
   ChromeSitePerProcessGuestViewPDFTest(
       const ChromeSitePerProcessGuestViewPDFTest&) = delete;
@@ -290,6 +294,11 @@ class ChromeSitePerProcessGuestViewPDFTest : public ChromeSitePerProcessTest {
                                   ->CreateGuestViewManagerDelegate());
   }
 
+  void TearDownOnMainThread() override {
+    test_guest_view_manager_ = nullptr;
+    ChromeSitePerProcessTest::TearDownOnMainThread();
+  }
+
  protected:
   guest_view::TestGuestViewManager* test_guest_view_manager() const {
     return test_guest_view_manager_;
@@ -297,8 +306,7 @@ class ChromeSitePerProcessGuestViewPDFTest : public ChromeSitePerProcessTest {
 
  private:
   guest_view::TestGuestViewManagerFactory factory_;
-  raw_ptr<guest_view::TestGuestViewManager, DanglingUntriaged>
-      test_guest_view_manager_;
+  raw_ptr<guest_view::TestGuestViewManager> test_guest_view_manager_;
 };
 
 // This test verifies that when navigating an OOPIF to a page with <embed>-ed
@@ -352,10 +360,21 @@ class ChromeSitePerProcessOopifPDFTest : public ChromeSitePerProcessTest {
 
   ~ChromeSitePerProcessOopifPDFTest() override = default;
 
+  // Return value could be nullptr.
   pdf::PdfViewerStreamManager* GetPdfViewerStreamManager() {
     return pdf::PdfViewerStreamManager::FromWebContents(
         browser()->tab_strip_model()->GetActiveWebContents());
   }
+
+  // Return value is always non-nullptr. This should only be called after a PDF
+  // navigation occurs in the active `content::WebContents`.
+  pdf::TestPdfViewerStreamManager* GetTestPdfViewerStreamManager() {
+    return factory_.GetTestPdfViewerStreamManager(
+        browser()->tab_strip_model()->GetActiveWebContents());
+  }
+
+ private:
+  pdf::TestPdfViewerStreamManagerFactory factory_;
 };
 
 // This test verifies that when navigating an OOPIF to a page with <embed>-ed
@@ -372,9 +391,6 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessOopifPDFTest,
 
   content::WebContents* active_web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
-  auto* test_pdf_viewer_stream_manager =
-      pdf::TestPdfViewerStreamManager::CreateForWebContents(
-          active_web_contents);
 
   // Navigate subframe to a cross-site page with an embedded PDF.
   GURL frame_url =
@@ -384,14 +400,19 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessOopifPDFTest,
   EXPECT_TRUE(NavigateIframeToURL(active_web_contents, "test", frame_url));
 
   // Wait until the PDF is fully loaded.
-  test_pdf_viewer_stream_manager->WaitUntilPdfLoaded();
+  content::RenderFrameHost* subframe_main_host =
+      ChildFrameAt(active_web_contents->GetPrimaryMainFrame(), 0);
+  ASSERT_TRUE(subframe_main_host);
+  content::RenderFrameHost* embedder_host = ChildFrameAt(subframe_main_host, 0);
+  ASSERT_TRUE(embedder_host);
+  ASSERT_TRUE(
+      GetTestPdfViewerStreamManager()->WaitUntilPdfLoaded(embedder_host));
 
   // The primary main frame shouldn't be the PDF embedder and shouldn't have a
   // PDF stream.
   auto* primary_main_frame = active_web_contents->GetPrimaryMainFrame();
   ASSERT_FALSE(
-      test_pdf_viewer_stream_manager->GetStreamContainer(primary_main_frame));
-  EXPECT_TRUE(GetPdfViewerStreamManager());
+      GetTestPdfViewerStreamManager()->GetStreamContainer(primary_main_frame));
 
   // Now detach the frame and observe that the stream manager is destroyed.
   EXPECT_TRUE(
@@ -399,6 +420,38 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessOopifPDFTest,
              "document.body.removeChild(document.querySelector('iframe'));"));
 
   EXPECT_FALSE(GetPdfViewerStreamManager());
+}
+
+// Check that navigating to a PDF and then trying to access localStorage or
+// sessionStorage in the context of the PDF document fails gracefully and
+// doesn't lead to a renderer kill. PDF documents don't access these interfaces
+// directly, but the access could still happen via DevTools.  See
+// https://crbug.com/357014503.
+IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessOopifPDFTest,
+                       AccessStorageInPDFDocument) {
+  GURL pdf_url = embedded_test_server()->GetURL("/pdf/test.pdf");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), pdf_url));
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_EQ(pdf_url, web_contents->GetLastCommittedURL());
+  ASSERT_TRUE(GetTestPdfViewerStreamManager()->WaitUntilPdfLoaded(
+      web_contents->GetPrimaryMainFrame()));
+
+  // The PDF document should be in the grandchild frame, embedded in the PDF
+  // viewer extension frame.
+  content::RenderFrameHost* pdf_extension_frame =
+      content::ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
+  ASSERT_TRUE(pdf_extension_frame);
+  content::RenderFrameHost* pdf_frame =
+      content::ChildFrameAt(pdf_extension_frame, 0);
+  ASSERT_TRUE(pdf_frame);
+  EXPECT_TRUE(pdf_frame->GetProcess()->IsPdf());
+
+  // When accessed from the PDF document, both localStorage and sessionStorage
+  // should be null. These accesses shouldn't lead to a renderer kill.
+  EXPECT_EQ(nullptr, content::EvalJs(pdf_frame, "window.localStorage"));
+  EXPECT_EQ(nullptr, content::EvalJs(pdf_frame, "window.sessionStorage"));
+  EXPECT_TRUE(pdf_frame->IsRenderFrameLive());
 }
 #endif  // BUILDFLAG(ENABLE_PDF)
 
@@ -600,7 +653,8 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessTest,
       "c.com", "/server-redirect?" + dest_url.spec()));
   browser()->OpenURL(content::OpenURLParams(redirect_url, content::Referrer(),
                                             WindowOpenDisposition::CURRENT_TAB,
-                                            ui::PAGE_TRANSITION_TYPED, false));
+                                            ui::PAGE_TRANSITION_TYPED, false),
+                     /*navigation_handle_callback=*/{});
   javascript_dialogs::AppModalDialogController* alert =
       ui_test_utils::WaitForAppModalDialog();
   EXPECT_TRUE(alert->is_before_unload_dialog());
@@ -683,6 +737,9 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessTest,
   content::TestNavigationManager manager(opener_contents, b_url);
   EXPECT_TRUE(
       ExecJs(popup_contents, "opener.location='" + b_url.spec() + "';"));
+  // Since the pending RPH for b.com will be checked, we need to wait for it
+  // to be created.
+  manager.WaitForSpeculativeRenderFrameHostCreation();
 
   // Close the popup.  This should *not* kill the b.com process, as it still
   // has a pending navigation in the opener window.
@@ -1198,7 +1255,7 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessTest,
   EXPECT_NE(popup, web_contents);
 }
 
-// TODO(crbug.com/1021895): Flaky.
+// TODO(crbug.com/40106376): Flaky.
 // Tests that a cross-site iframe runs its beforeunload handler when closing a
 // tab.  See https://crbug.com/853021.
 IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessTest,
@@ -1418,14 +1475,14 @@ class ChromeSitePerProcessTestWithVerifiedUserActivation
     feature_list()->Reset();
     feature_list()->InitWithFeatures(
         /*enabled_features=*/{features::kBrowserVerifiedUserActivationMouse},
-        // TODO(crbug.com/1394910): Use HTTPS URLs in tests to avoid having to
+        // TODO(crbug.com/40248833): Use HTTPS URLs in tests to avoid having to
         // disable this feature.
         /*disabled_features=*/{features::kHttpsUpgrades});
   }
 };
 
 // Test mouse down activation notification with browser verification.
-// TODO(crbug.com/1303596): Flaky on Mac.
+// TODO(crbug.com/40826005): Flaky on Mac.
 #if BUILDFLAG(IS_MAC)
 #define MAYBE_UserActivationBrowserVerificationSameOriginSite \
   DISABLED_UserActivationBrowserVerificationSameOriginSite

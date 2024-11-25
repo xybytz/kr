@@ -2,12 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/ui/webui/nearby_share/nearby_share_dialog_ui.h"
 
 #include <string>
 
 #include "base/strings/string_split.h"
-#include "chrome/browser/nearby_sharing/common/nearby_share_features.h"
 #include "chrome/browser/nearby_sharing/contacts/nearby_share_contact_manager.h"
 #include "chrome/browser/nearby_sharing/file_attachment.h"
 #include "chrome/browser/nearby_sharing/nearby_per_session_discovery_manager.h"
@@ -31,7 +35,6 @@
 #include "chrome/grit/nearby_share_dialog_resources_map.h"
 #include "chrome/grit/theme_resources.h"
 #include "chromeos/components/sharesheet/constants.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
@@ -106,12 +109,7 @@ NearbyShareDialogUI::NearbyShareDialogUI(content::WebUI* web_ui)
       // Required by polymer.
       "polymer-html-literal polymer-template-event-attribute-policy;");
 
-  html_source->AddBoolean(
-      "isOnePageOnboardingEnabled",
-      base::FeatureList::IsEnabled(features::kNearbySharingOnePageOnboarding));
   RegisterNearbySharedStrings(html_source);
-  html_source->AddBoolean("isJellyEnabled",
-                          chromeos::features::IsJellyEnabled());
   html_source->UseStringsJs();
 
   // Register callback to handle "cancel-button-event" from nearby_*.html files.
@@ -129,10 +127,6 @@ NearbyShareDialogUI::NearbyShareDialogUI(content::WebUI* web_ui)
 
   const GURL& url = web_ui->GetWebContents()->GetVisibleURL();
   SetAttachmentFromQueryParameter(url);
-
-  html_source->AddBoolean(
-      "isSelfShareEnabled",
-      base::FeatureList::IsEnabled(features::kNearbySharingSelfShare));
 }
 
 NearbyShareDialogUI::~NearbyShareDialogUI() = default;
@@ -180,7 +174,7 @@ void NearbyShareDialogUI::BindInterface(
 
 bool NearbyShareDialogUI::HandleKeyboardEvent(
     content::WebContents* source,
-    const content::NativeWebKeyboardEvent& event) {
+    const input::NativeWebKeyboardEvent& event) {
   if (!web_view_) {
     return false;
   }

@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "media/base/audio_parameters.h"
 
 #include <stddef.h>
@@ -12,7 +17,7 @@
 
 namespace media {
 
-TEST(AudioParameters, Constructor_Default) {
+TEST(AudioParameters, ConstructorDefault) {
   AudioParameters::Format expected_format = AudioParameters::AUDIO_PCM_LINEAR;
   int expected_channels = 0;
   ChannelLayout expected_channel_layout = CHANNEL_LAYOUT_NONE;
@@ -33,7 +38,7 @@ TEST(AudioParameters, Constructor_Default) {
   EXPECT_EQ(expected_mic_positions, params.mic_positions());
 }
 
-TEST(AudioParameters, Constructor_ParameterValues) {
+TEST(AudioParameters, ConstructorParameterValues) {
   AudioParameters::Format expected_format =
       AudioParameters::AUDIO_PCM_LOW_LATENCY;
   int expected_channels = 6;
@@ -54,7 +59,7 @@ TEST(AudioParameters, Constructor_ParameterValues) {
   EXPECT_FALSE(params.RequireEncapsulation());
 }
 
-TEST(AudioParameters, Constructor_ParameterValuesPlusHardwareCapabilities) {
+TEST(AudioParameters, ConstructorParameterValuesPlusHardwareCapabilities) {
   AudioParameters::Format expected_format =
       AudioParameters::AUDIO_PCM_LOW_LATENCY;
   int expected_channels = 6;
@@ -63,6 +68,7 @@ TEST(AudioParameters, Constructor_ParameterValuesPlusHardwareCapabilities) {
   int expected_samples = 880;
 
   AudioParameters::HardwareCapabilities hardware_capabilities(0, true);
+  hardware_capabilities.require_audio_offload = true;
   AudioParameters params(
       expected_format,
       ChannelLayoutConfig::FromLayout<expected_channel_layout>(), expected_rate,
@@ -74,6 +80,7 @@ TEST(AudioParameters, Constructor_ParameterValuesPlusHardwareCapabilities) {
   EXPECT_EQ(expected_rate, params.sample_rate());
   EXPECT_EQ(expected_samples, params.frames_per_buffer());
   EXPECT_TRUE(params.RequireEncapsulation());
+  EXPECT_TRUE(params.RequireOffload());
 }
 
 TEST(AudioParameters, GetBytesPerBuffer) {
@@ -145,7 +152,7 @@ TEST(AudioParameters, Compare) {
   }
 }
 
-TEST(AudioParameters, Constructor_ValidChannelCounts) {
+TEST(AudioParameters, ConstructorValidChannelCounts) {
   int expected_channels = 8;
   ChannelLayout expected_layout = CHANNEL_LAYOUT_DISCRETE;
   ChannelLayoutConfig channel_layout_config(CHANNEL_LAYOUT_DISCRETE,
@@ -158,7 +165,7 @@ TEST(AudioParameters, Constructor_ValidChannelCounts) {
   EXPECT_TRUE(params.IsValid());
 }
 
-TEST(AudioParameters, Constructor_ValidChannelCountsFor514Downmix) {
+TEST(AudioParameters, ConstructorValidChannelCountsFor514Downmix) {
   int expected_channels = 7;
   constexpr ChannelLayout expected_layout = CHANNEL_LAYOUT_5_1_4_DOWNMIX;
   ChannelLayoutConfig channel_layout_config(expected_layout, expected_channels);
@@ -177,7 +184,7 @@ TEST(AudioParameters, Constructor_ValidChannelCountsFor514Downmix) {
   EXPECT_TRUE(params.IsValid());
 }
 
-TEST(AudioParameters, Constructor_CopyChannelLayoutConfig) {
+TEST(AudioParameters, ConstructorCopyChannelLayoutConfig) {
   int expected_channels = 8;
   ChannelLayout expected_layout = CHANNEL_LAYOUT_DISCRETE;
   ChannelLayoutConfig channel_layout_config(CHANNEL_LAYOUT_DISCRETE,
@@ -201,13 +208,13 @@ TEST(AudioParameters, ShouldCheckDiscreteWithNoChannels) {
       "");
 }
 
-TEST(AudioParameters, ChannelLayoutConfig_Guess) {
+TEST(AudioParameters, ChannelLayoutConfigGuess) {
   ChannelLayoutConfig channel_layout_config = ChannelLayoutConfig::Guess(2);
   EXPECT_EQ(CHANNEL_LAYOUT_STEREO, channel_layout_config.channel_layout());
   EXPECT_EQ(2, channel_layout_config.channels());
 }
 
-TEST(AudioParameters, ChannelLayoutConfig_GuessUnsupported) {
+TEST(AudioParameters, ChannelLayoutConfigGuessUnsupported) {
   ChannelLayoutConfig channel_layout_config = ChannelLayoutConfig::Guess(100);
   EXPECT_EQ(CHANNEL_LAYOUT_UNSUPPORTED, channel_layout_config.channel_layout());
   EXPECT_EQ(0, channel_layout_config.channels());

@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include <string_view>
 #include <utility>
 
 #include "base/base_switches.h"
@@ -30,7 +31,6 @@
 #include "chromecast/base/chromecast_switches.h"
 #include "chromecast/base/pref_names.h"
 #include "chromecast/browser/application_media_info_manager.h"
-#include "chromecast/browser/browser_buildflags.h"
 #include "chromecast/browser/cast_browser_context.h"
 #include "chromecast/browser/cast_browser_main_parts.h"
 #include "chromecast/browser/cast_browser_process.h"
@@ -150,14 +150,11 @@ CastContentBrowserClient::CastContentBrowserClient(
           std::make_unique<CastNetworkContexts>(GetCorsExemptHeadersList())),
       cast_feature_list_creator_(cast_feature_list_creator) {
   std::vector<const base::Feature*> extra_enable_features = {
-    &::media::kInternalMediaSession,
-    &features::kNetworkServiceInProcess,
-#if BUILDFLAG(IS_ANDROID) && BUILDFLAG(ENABLE_VIDEO_CAPTURE_SERVICE)
-    &features::kMojoVideoCapture,
-#endif
+      &::media::kInternalMediaSession,
+      &features::kNetworkServiceInProcess,
 #if BUILDFLAG(USE_V4L2_CODEC)
-    // Enable accelerated video decode if v4l2 codec is supported.
-    &::media::kVaapiVideoDecodeLinux,
+      // Enable accelerated video decode if v4l2 codec is supported.
+      &::media::kAcceleratedVideoDecodeLinux,
 #endif  // BUILDFLAG(USE_V4L2_CODEC)
   };
 
@@ -284,7 +281,7 @@ CastContentBrowserClient::CreateAudioManager(
       base::BindRepeating(&CastContentBrowserClient::GetCmaBackendFactory,
                           base::Unretained(this)),
       content::GetUIThreadTaskRunner({}), GetMediaTaskRunner(),
-      BUILDFLAG(ENABLE_CAST_AUDIO_MANAGER_MIXER));
+      /* use_mixer= */ false);
 #elif BUILDFLAG(IS_ANDROID)
   if (base::FeatureList::IsEnabled(kEnableChromeAudioManagerAndroid)) {
     LOG(INFO) << "Use AudioManagerAndroid instead of CastAudioManagerAndroid.";
@@ -303,7 +300,7 @@ CastContentBrowserClient::CreateAudioManager(
       base::BindRepeating(&CastContentBrowserClient::GetCmaBackendFactory,
                           base::Unretained(this)),
       content::GetUIThreadTaskRunner({}), GetMediaTaskRunner(),
-      BUILDFLAG(ENABLE_CAST_AUDIO_MANAGER_MIXER));
+      /* use_mixer= */ false);
 #endif
 }
 
@@ -331,7 +328,6 @@ media::MediaCapsImpl* CastContentBrowserClient::media_caps() {
 scoped_refptr<device::BluetoothAdapterCast>
 CastContentBrowserClient::CreateBluetoothAdapter() {
   NOTREACHED() << "Bluetooth Adapter is not supported!";
-  return nullptr;
 }
 #endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_FUCHSIA)
 
@@ -555,6 +551,7 @@ void CastContentBrowserClient::AllowCertificateError(
 
 base::OnceClosure CastContentBrowserClient::SelectClientCertificate(
     content::BrowserContext* browser_context,
+    int process_id,
     content::WebContents* web_contents,
     net::SSLCertRequestInfo* cert_request_info,
     net::ClientCertIdentityList client_certs,
@@ -692,7 +689,7 @@ bool CastContentBrowserClient::IsBufferingEnabled() {
 
 std::optional<service_manager::Manifest>
 CastContentBrowserClient::GetServiceManifestOverlay(
-    base::StringPiece service_name) {
+    std::string_view service_name) {
   if (service_name == ServiceManagerContext::kBrowserServiceName) {
     return GetCastContentBrowserOverlayManifest();
   }
@@ -718,7 +715,7 @@ void CastContentBrowserClient::GetAdditionalMappedFilesForChildProcess(
       base::GlobalDescriptors::GetInstance()->GetRegion(kAndroidPakDescriptor));
 #endif  // BUILDFLAG(IS_ANDROID)
 #if !BUILDFLAG(IS_FUCHSIA)
-  // TODO(crbug.com/753619): Complete crash reporting integration on Fuchsia.
+  // TODO(crbug.com/40534193): Complete crash reporting integration on Fuchsia.
   int crash_signal_fd = GetCrashSignalFD(command_line);
   if (crash_signal_fd >= 0) {
     mappings->Share(kCrashDumpSignal, crash_signal_fd);
@@ -820,10 +817,6 @@ CastContentBrowserClient::CreateThrottlesForNavigation(
   return throttles;
 }
 
-void CastContentBrowserClient::RegisterNonNetworkNavigationURLLoaderFactories(
-    int frame_tree_node_id,
-    NonNetworkURLLoaderFactoryMap* factories) {}
-
 void CastContentBrowserClient::RegisterNonNetworkSubresourceURLLoaderFactories(
     int render_process_id,
     int render_frame_id,
@@ -880,34 +873,6 @@ CastContentBrowserClient::ShouldOverridePrivateNetworkRequestPolicy(
   // media can be streamed from a local media server.
   return content::ContentBrowserClient::PrivateNetworkRequestPolicyOverride::
       kForceAllow;
-}
-
-std::vector<std::unique_ptr<blink::URLLoaderThrottle>>
-CastContentBrowserClient::CreateURLLoaderThrottles(
-    const network::ResourceRequest& request,
-    content::BrowserContext* browser_context,
-    const base::RepeatingCallback<content::WebContents*()>& wc_getter,
-    content::NavigationUIData* navigation_ui_data,
-    int frame_tree_node_id,
-    absl::optional<int64_t> navigation_id) {
-  std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles;
-  if (frame_tree_node_id == content::RenderFrameHost::kNoFrameTreeNodeId) {
-    // No support for service workers.
-    return throttles;
-  }
-
-  auto* cast_web_contents = CastWebContents::FromWebContents(wc_getter.Run());
-
-  // |cast_web_contents| may be nullptr in browser tests.
-  if (cast_web_contents) {
-    auto rules =
-        cast_web_contents->url_rewrite_rules_manager()->GetCachedRules();
-    if (rules) {
-      throttles.emplace_back(std::make_unique<url_rewrite::URLLoaderThrottle>(
-          rules, base::BindRepeating(&IsCorsExemptHeader)));
-    }
-  }
-  return throttles;
 }
 
 std::string CastContentBrowserClient::GetUserAgent() {

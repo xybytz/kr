@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <memory>
+#include "build/build_config.h"
 
 #include "ash/accessibility/ui/accessibility_cursor_ring_layer.h"
 #include "ash/accessibility/ui/accessibility_focus_ring_controller_impl.h"
@@ -183,13 +184,13 @@ IN_PROC_BROWSER_TEST_F(AccessibilityHighlightsBrowserTest,
   PrefService* prefs = GetProfile()->GetPrefs();
   prefs->SetBoolean(prefs::kAccessibilityCaretHighlightEnabled, true);
 
-  // Will wait for the omnibox to be shown. Note in Lacros this might take
-  // a little time.
+  // Will wait for the omnibox to be shown.
   const gfx::Rect omnibox_bounds =
       utils_->GetBoundsForNodeInRootByClassName("OmniboxViewViews");
 
   // Jump to the omnibox.
-  generator_->PressAndReleaseKey(ui::KeyboardCode::VKEY_L, ui::EF_CONTROL_DOWN);
+  generator_->PressAndReleaseKeyAndModifierKeys(ui::KeyboardCode::VKEY_L,
+                                                ui::EF_CONTROL_DOWN);
   WaitForFocusRingsChanged();
   AccessibilityCursorRingLayer* caret_layer =
       controller->caret_layer_for_testing();
@@ -205,8 +206,6 @@ IN_PROC_BROWSER_TEST_F(AccessibilityHighlightsBrowserTest,
   generator_->PressAndReleaseKey(ui::KeyboardCode::VKEY_K);
   gfx::Rect new_bounds = caret_layer->layer()->GetTargetBounds();
   if (new_bounds == bounds) {
-    // In Ash this happens immediately, while in Lacros it takes some
-    // time for focus ring changes to propagate.
     WaitForFocusRingsChanged();
     new_bounds = caret_layer->layer()->GetTargetBounds();
   }

@@ -11,13 +11,13 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.cached_flags.BooleanCachedFieldTrialParameter;
 import org.chromium.base.shared_preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.preferences.ChromeSharedPreferences;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.profiles.ProfileKeyedMap;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.components.cached_flags.BooleanCachedFieldTrialParameter;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -27,12 +27,12 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Service to expose ShoppingPersistedTabData with price drop information. TODO(crbug.com/1501138):
+ * Service to expose ShoppingPersistedTabData with price drop information. TODO(crbug.com/40941391):
  * This service should be moved out of current folder when we finish the ShoppingPersistedTabData
  * refactor that will move it out of current folder.
  */
 public class ShoppingPersistedTabDataService {
-    private static final BooleanCachedFieldTrialParameter
+    public static final BooleanCachedFieldTrialParameter
             SKIP_SHOPPING_PERSISTED_TAB_DATA_DELAYED_INITIALIZATION =
                     ChromeFeatureList.newBooleanCachedFieldTrialParameter(
                             ChromeFeatureList.PRICE_CHANGE_MODULE,
@@ -95,12 +95,12 @@ public class ShoppingPersistedTabDataService {
                     new ProfileKeyedMap<>(ProfileKeyedMap.NO_REQUIRED_CLEANUP_ACTION);
         }
         return sProfileToPriceDropService.getForProfile(
-                profile, ShoppingPersistedTabDataService::new);
+                profile, (unused) -> new ShoppingPersistedTabDataService());
     }
 
     /**
      * Initialize the service by passing in the tabs that could have price drop.
-     * TODO(crbug.com/1501138): This method could be part of the constructor once
+     * TODO(crbug.com/40941391): This method could be part of the constructor once
      * ShoppingPersistedTabData is in a separate target.
      *
      * @param tabs the tabs that could have price drop.

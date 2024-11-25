@@ -15,8 +15,18 @@
 #include "base/values.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_utils.h"
+#include "components/enterprise/buildflags/buildflags.h"
 #include "components/enterprise/common/proto/connectors.pb.h"
+#include "components/enterprise/connectors/core/reporting_test_utils.h"
+#include "components/enterprise/data_controls/core/browser/verdict.h"
+#include "components/safe_browsing/core/common/proto/realtimeapi.pb.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
+#include "components/signin/public/identity_manager/identity_test_environment.h"
+#include "extensions/buildflags/buildflags.h"
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "chrome/common/extensions/api/enterprise_reporting_private.h"
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
 namespace policy {
 class MockCloudPolicyClient;
@@ -64,7 +74,30 @@ class EventReportValidator {
       const std::string& expected_result,
       const std::string& expected_profile_username,
       const std::string& expected_profile_identifier,
-      const std::string& expected_scan_id);
+      const std::string& expected_scan_id,
+      const std::optional<std::string>& expected_content_transfer_method,
+      const std::optional<std::u16string>& expected_user_justification);
+
+  void ExpectDataControlsSensitiveDataEvent(
+      const std::string& expected_url,
+      const std::string& expected_tab_url,
+      const std::string& expected_source,
+      const std::string& expected_destination,
+      const std::set<std::string>* expected_mimetypes,
+      const std::string& expected_trigger,
+      const data_controls::Verdict::TriggeredRules& triggered_rules,
+      const std::string& expected_result,
+      const std::string& expected_profile_username,
+      const std::string& expected_profile_identifier,
+      int64_t expected_content_size);
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+  void ExpectDataMaskingEvent(
+      const std::string& expected_profile_username,
+      const std::string& expected_profile_identifier,
+      extensions::api::enterprise_reporting_private::DataMaskingEvent
+          expected_event);
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
   void ExpectSensitiveDataEvents(
       const std::string& expected_url,
@@ -80,7 +113,9 @@ class EventReportValidator {
       const std::vector<std::string>& expected_results,
       const std::string& expected_profile_username,
       const std::string& expected_profile_identifier,
-      const std::vector<std::string>& expected_scan_ids);
+      const std::vector<std::string>& expected_scan_ids,
+      const std::optional<std::string>& expected_content_transfer_method,
+      const std::optional<std::u16string>& expected_user_justification);
 
   void ExpectDangerousDeepScanningResultAndSensitiveDataEvent(
       const std::string& expected_url,
@@ -97,7 +132,8 @@ class EventReportValidator {
       const std::string& expected_result,
       const std::string& expected_profile_username,
       const std::string& expected_profile_identifier,
-      const std::string& expected_scan_id);
+      const std::string& expected_scan_id,
+      const std::optional<std::string>& expected_content_transfer_method);
 
   void ExpectSensitiveDataEventAndDangerousDeepScanningResult(
       const std::string& expected_url,
@@ -116,19 +152,21 @@ class EventReportValidator {
       const std::string& expected_profile_identifier,
       const std::string& expected_scan_id);
 
-  void ExpectUnscannedFileEvent(const std::string& expected_url,
-                                const std::string& expected_tab_url,
-                                const std::string& expected_source,
-                                const std::string& expected_destination,
-                                const std::string& expected_filename,
-                                const std::string& expected_sha256,
-                                const std::string& expected_trigger,
-                                const std::string& expected_reason,
-                                const std::set<std::string>* expected_mimetypes,
-                                int64_t expected_content_size,
-                                const std::string& expected_result,
-                                const std::string& expected_profile_username,
-                                const std::string& expected_profile_identifier);
+  void ExpectUnscannedFileEvent(
+      const std::string& expected_url,
+      const std::string& expected_tab_url,
+      const std::string& expected_source,
+      const std::string& expected_destination,
+      const std::string& expected_filename,
+      const std::string& expected_sha256,
+      const std::string& expected_trigger,
+      const std::string& expected_reason,
+      const std::set<std::string>* expected_mimetypes,
+      std::optional<int64_t> expected_content_size,
+      const std::string& expected_result,
+      const std::string& expected_profile_username,
+      const std::string& expected_profile_identifier,
+      const std::optional<std::string>& expected_content_transfer_method);
 
   void ExpectUnscannedFileEvents(
       const std::string& expected_url,
@@ -143,7 +181,8 @@ class EventReportValidator {
       int64_t expected_content_size,
       const std::string& expected_result,
       const std::string& expected_profile_username,
-      const std::string& expected_profile_identifier);
+      const std::string& expected_profile_identifier,
+      const std::optional<std::string>& expected_content_transfer_method);
 
   void ExpectDangerousDownloadEvent(
       const std::string& expected_url,
@@ -172,6 +211,13 @@ class EventReportValidator {
       const std::string& expected_profile_username,
       const std::string& expected_profile_identifier);
 
+  void ExpectURLFilteringInterstitialEvent(
+      const std::string& expected_url,
+      const std::string& expected_event_result,
+      const std::string& expected_profile_username,
+      const std::string& expected_profile_identifier,
+      safe_browsing::RTLookupResponse expected_rt_lookup_response);
+
   void ExpectNoReport();
 
   // Closure to run once all expected events are validated.
@@ -187,6 +233,10 @@ class EventReportValidator {
   void ValidateDlpRule(
       const base::Value::Dict* value,
       const ContentAnalysisResponse::Result::TriggeredRule& expected_rule);
+  void ValidateRTLookupResponse(const base::Value::Dict* value);
+  void ValidateThreatInfo(
+      const base::Value::Dict* value,
+      const safe_browsing::RTLookupResponse::ThreatInfo& expected_threat_info);
   void ValidateFilenameMappedAttributes(const base::Value::Dict* value);
   void ValidateField(const base::Value::Dict* value,
                      const std::string& field_key,
@@ -200,6 +250,10 @@ class EventReportValidator {
   void ValidateField(const base::Value::Dict* value,
                      const std::string& field_key,
                      const std::optional<bool>& expected_value);
+  void ValidateDataControlsAttributes(const base::Value::Dict* event);
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+  void ValidateDataMaskingAttributes(const base::Value::Dict* event);
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
   raw_ptr<policy::MockCloudPolicyClient> client_;
 
@@ -211,6 +265,8 @@ class EventReportValidator {
   std::optional<std::string> trigger_ = std::nullopt;
   std::optional<std::string> threat_type_ = std::nullopt;
   std::optional<std::string> unscanned_reason_ = std::nullopt;
+  std::optional<std::string> content_transfer_method_ = std::nullopt;
+  std::optional<std::u16string> user_justification_ = std::nullopt;
   std::optional<int64_t> content_size_ = std::nullopt;
   raw_ptr<const std::set<std::string>> mimetypes_ = nullptr;
   std::string username_;
@@ -220,6 +276,20 @@ class EventReportValidator {
   std::optional<std::u16string> login_user_name_ = std::nullopt;
   std::optional<std::vector<std::pair<std::string, std::u16string>>>
       password_breach_identities_ = std::nullopt;
+  std::optional<std::string> url_filtering_event_result_ = std::nullopt;
+  std::optional<safe_browsing::RTLookupResponse> rt_lookup_response_ =
+      std::nullopt;
+  std::optional<std::string> data_controls_result_ = std::nullopt;
+  data_controls::Verdict::TriggeredRules data_controls_triggered_rules_;
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+  // `DataMaskingEvent`'s copy constructor is deleted, so to keep
+  // `EventReportValidator` copyable a lazy builder is used to store its
+  // expected value.
+  base::RepeatingCallback<
+      extensions::api::enterprise_reporting_private::DataMaskingEvent()>
+      expected_data_masking_rules_builder_;
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
   // When multiple files generate events, we don't necessarily know in which
   // order they will be reported. As such, we use maps to ensure all of them
@@ -232,20 +302,29 @@ class EventReportValidator {
   base::RepeatingClosure done_closure_;
 };
 
+// Helper class to set up tests to use `EventReportValidator`.
+class EventReportValidatorHelper {
+ public:
+  explicit EventReportValidatorHelper(Profile* profile,
+                                      bool browser_test = false);
+  ~EventReportValidatorHelper();
+
+  EventReportValidator CreateValidator();
+
+ private:
+  raw_ptr<Profile> profile_;
+  std::unique_ptr<policy::MockCloudPolicyClient> client_;
+  signin::IdentityTestEnvironment identity_test_environment_;
+};
+
+#if BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS)
 // Helper functions that set Connector policies for testing.
 void SetAnalysisConnector(PrefService* prefs,
                           AnalysisConnector connector,
                           const std::string& pref_value,
                           bool machine_scope = true);
-void SetOnSecurityEventReporting(
-    PrefService* prefs,
-    bool enabled,
-    const std::set<std::string>& enabled_event_names = std::set<std::string>(),
-    const std::map<std::string, std::vector<std::string>>&
-        enabled_opt_in_events =
-            std::map<std::string, std::vector<std::string>>(),
-    bool machine_scope = true);
 void ClearAnalysisConnector(PrefService* prefs, AnalysisConnector connector);
+#endif  // BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS)
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
 // Helper function to set the profile DM token. It installs a

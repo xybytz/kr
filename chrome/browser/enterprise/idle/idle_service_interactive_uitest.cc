@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <memory>
 
 #include "base/memory/raw_ptr.h"
@@ -76,7 +81,8 @@ class MockIdleTimeProvider : public ui::IdleTimeProvider {
 
 class BrowserCloseWaiter : public BrowserListObserver {
  public:
-  explicit BrowserCloseWaiter(std::set<Browser*> browsers) {
+  explicit BrowserCloseWaiter(
+      std::set<raw_ptr<Browser, SetExperimental>> browsers) {
     BrowserList::AddObserver(this);
     waiting_browsers_ = std::move(browsers);
   }
@@ -94,7 +100,7 @@ class BrowserCloseWaiter : public BrowserListObserver {
 
  private:
   base::RunLoop run_loop_;
-  std::set<Browser*> waiting_browsers_;
+  std::set<raw_ptr<Browser, SetExperimental>> waiting_browsers_;
 };
 
 }  // namespace
@@ -116,6 +122,7 @@ class IdleServiceTest : public InProcessBrowserTest {
   void SetUpInProcessBrowserTestFixture() override {
     task_runner_ = base::MakeRefCounted<base::TestMockTimeTaskRunner>();
     polling_service().SetTaskRunnerForTest(task_runner_);
+    polling_service().SetPollIntervalForTest(base::Seconds(1));
 
     auto time_provider =
         std::make_unique<testing::NiceMock<MockIdleTimeProvider>>();
@@ -370,7 +377,7 @@ IN_PROC_BROWSER_TEST_F(IdleServiceTest, TenMinutes) {
   EXPECT_TRUE(ProfilePicker::IsOpen());
 }
 
-// TODO(crbug.com/1344609): Test flaky on Mac.
+// TODO(crbug.com/40853067): Test flaky on Mac.
 #if BUILDFLAG(IS_MAC)
 #define MAYBE_MultiProfile DISABLED_MultiProfile
 #else
@@ -445,7 +452,7 @@ IN_PROC_BROWSER_TEST_F(IdleServiceTest, MAYBE_MultiProfile) {
   EXPECT_TRUE(ProfilePicker::IsOpen());
 }
 
-// TODO(crbug.com/1444657): Flaky on MacOS
+// TODO(crbug.com/40064501): Flaky on MacOS
 #if BUILDFLAG(IS_MAC)
 #define MAYBE_MultiProfileWithDifferentThresholds \
   DISABLED_MultiProfileWithDifferentThresholds
@@ -750,7 +757,7 @@ IN_PROC_BROWSER_TEST_F(IdleServiceTest, ShowBubbleImmediately) {
 
 // It should be possible to focus the bubble with the "focus dialog" hotkey
 // combination (Alt+Shift+A).
-// TODO(https://crbug.com/1350659): Probably flaky on macOS.
+// TODO(crbug.com/40856612): Probably flaky on macOS.
 #if BUILDFLAG(IS_MAC)
 #define MAYBE_CanFocusBubbleWithFocusDialogHotkey \
   DISABLED_CanFocusBubbleWithFocusDialogHotkey
@@ -804,7 +811,7 @@ IN_PROC_BROWSER_TEST_F(IdleServiceTest,
 
 // It should be possible to focus the bubble with the "rotate pane focus" (F6)
 // hotkey.
-// TODO(crbug.com/1343849): Probably flaky on macOS.
+// TODO(crbug.com/40852599): Probably flaky on macOS.
 #if BUILDFLAG(IS_MAC)
 #define MAYBE_CanFocusBubbleWithRotatePaneFocusHotkey \
   DISABLED_CanFocusBubbleWithRotatePaneFocusHotkey

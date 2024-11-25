@@ -44,69 +44,57 @@ TEST(HttpAuthNegotiateAndroidTest, GenerateAuthToken) {
   DummySpnegoAuthenticator::RemoveTestAccounts();
 }
 
-TEST(HttpAuthNegotiateAndroidTest, ParseChallenge_FirstRound) {
+TEST(HttpAuthNegotiateAndroidTest, ParseChallengeFirstRound) {
   // The first round should just consist of an unadorned "Negotiate" header.
   MockAllowHttpAuthPreferences prefs;
   prefs.set_auth_android_negotiate_account_type(
       "org.chromium.test.DummySpnegoAuthenticator");
   HttpAuthNegotiateAndroid auth(&prefs);
-  std::string challenge_text = "Negotiate";
-  HttpAuthChallengeTokenizer challenge(challenge_text.begin(),
-                                       challenge_text.end());
+  HttpAuthChallengeTokenizer challenge("Negotiate");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_ACCEPT,
             auth.ParseChallenge(&challenge));
 }
 
-TEST(HttpAuthNegotiateAndroidTest, ParseChallenge_UnexpectedTokenFirstRound) {
+TEST(HttpAuthNegotiateAndroidTest, ParseChallengeUnexpectedTokenFirstRound) {
   // If the first round challenge has an additional authentication token, it
   // should be treated as an invalid challenge from the server.
   MockAllowHttpAuthPreferences prefs;
   prefs.set_auth_android_negotiate_account_type(
       "org.chromium.test.DummySpnegoAuthenticator");
   HttpAuthNegotiateAndroid auth(&prefs);
-  std::string challenge_text = "Negotiate Zm9vYmFy";
-  HttpAuthChallengeTokenizer challenge(challenge_text.begin(),
-                                       challenge_text.end());
+  HttpAuthChallengeTokenizer challenge("Negotiate Zm9vYmFy");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_INVALID,
             auth.ParseChallenge(&challenge));
 }
 
-TEST(HttpAuthNegotiateAndroidTest, ParseChallenge_TwoRounds) {
+TEST(HttpAuthNegotiateAndroidTest, ParseChallengeTwoRounds) {
   // The first round should just have "Negotiate", and the second round should
   // have a valid base64 token associated with it.
   MockAllowHttpAuthPreferences prefs;
   prefs.set_auth_android_negotiate_account_type(
       "org.chromium.test.DummySpnegoAuthenticator");
   HttpAuthNegotiateAndroid auth(&prefs);
-  std::string first_challenge_text = "Negotiate";
-  HttpAuthChallengeTokenizer first_challenge(first_challenge_text.begin(),
-                                             first_challenge_text.end());
+  HttpAuthChallengeTokenizer first_challenge("Negotiate");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_ACCEPT,
             auth.ParseChallenge(&first_challenge));
 
-  std::string second_challenge_text = "Negotiate Zm9vYmFy";
-  HttpAuthChallengeTokenizer second_challenge(second_challenge_text.begin(),
-                                              second_challenge_text.end());
+  HttpAuthChallengeTokenizer second_challenge("Negotiate Zm9vYmFy");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_ACCEPT,
             auth.ParseChallenge(&second_challenge));
 }
 
-TEST(HttpAuthNegotiateAndroidTest, ParseChallenge_MissingTokenSecondRound) {
+TEST(HttpAuthNegotiateAndroidTest, ParseChallengeMissingTokenSecondRound) {
   // If a later-round challenge is simply "Negotiate", it should be treated as
   // an authentication challenge rejection from the server or proxy.
   MockAllowHttpAuthPreferences prefs;
   prefs.set_auth_android_negotiate_account_type(
       "org.chromium.test.DummySpnegoAuthenticator");
   HttpAuthNegotiateAndroid auth(&prefs);
-  std::string first_challenge_text = "Negotiate";
-  HttpAuthChallengeTokenizer first_challenge(first_challenge_text.begin(),
-                                             first_challenge_text.end());
+  HttpAuthChallengeTokenizer first_challenge("Negotiate");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_ACCEPT,
             auth.ParseChallenge(&first_challenge));
 
-  std::string second_challenge_text = "Negotiate";
-  HttpAuthChallengeTokenizer second_challenge(second_challenge_text.begin(),
-                                              second_challenge_text.end());
+  HttpAuthChallengeTokenizer second_challenge("Negotiate");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_REJECT,
             auth.ParseChallenge(&second_challenge));
 }

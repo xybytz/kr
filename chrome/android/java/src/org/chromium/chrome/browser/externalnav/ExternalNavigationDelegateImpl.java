@@ -20,9 +20,12 @@ import org.chromium.base.PackageManagerUtils;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.ChromeTabbedActivity2;
 import org.chromium.chrome.browser.IntentHandler;
+import org.chromium.chrome.browser.password_manager.CctPasswordSavingMetricsRecorderBridge;
+import org.chromium.chrome.browser.safe_browsing.SafeBrowsingBridge;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabObserver;
+import org.chromium.chrome.browser.tabmodel.TabClosureParams;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorSupplier;
 import org.chromium.components.external_intents.ExternalNavigationDelegate;
@@ -128,7 +131,11 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
     public void closeTab() {
         if (!hasValidTab()) return;
         if (!mTabModelSelectorSupplier.hasValue()) return;
-        mTabModelSelectorSupplier.get().closeTab(mTab);
+        mTabModelSelectorSupplier
+                .get()
+                .tryCloseTab(
+                        TabClosureParams.closeTab(mTab).allowUndo(false).build(),
+                        /* allowDialog= */ false);
     }
 
     @Override
@@ -227,5 +234,38 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
     @Override
     public String getSelfScheme() {
         return IntentHandler.GOOGLECHROME_SCHEME;
+    }
+
+    @Override
+    public boolean shouldDisableAllExternalIntents() {
+        return false;
+    }
+
+    @Override
+    public boolean shouldReturnAsActivityResult(GURL url) {
+        return false;
+    }
+
+    @Override
+    public void returnAsActivityResult(GURL url) {
+        throw new UnsupportedOperationException("Returning as activity result is not supported.");
+    }
+
+    @Override
+    public void maybeRecordExternalNavigationSchemeHistogram(GURL url) {}
+
+    @Override
+    public void notifyCctPasswordSavingRecorderOfExternalNavigation() {
+        CctPasswordSavingMetricsRecorderBridge cctSavingMetricsRecorder =
+                CctPasswordSavingMetricsRecorderBridge.KEY.retrieveDataFromHost(
+                        getWindowAndroid().getUnownedUserDataHost());
+        if (cctSavingMetricsRecorder != null) {
+            cctSavingMetricsRecorder.onExternalNavigation();
+        }
+    }
+
+    @Override
+    public void reportIntentToSafeBrowsing(Intent intent) {
+        SafeBrowsingBridge.reportIntent(mTab.getWebContents(), intent);
     }
 }

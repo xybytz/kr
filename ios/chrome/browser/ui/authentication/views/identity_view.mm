@@ -249,7 +249,6 @@ constexpr CGFloat kHorizontalAvatarLeadingMargin = 16.;
       return &kConsistencyStyle;
   }
   NOTREACHED();
-  return nullptr;
 }
 
 // Updates the current view according the style.

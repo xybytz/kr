@@ -4,34 +4,33 @@
 
 #include "chrome/browser/ui/views/compose/chrome_compose_dialog_controller.h"
 
+#include "base/functional/callback.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/views/bubble/webui_bubble_dialog_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "components/compose/core/browser/compose_client.h"
+#include "components/compose/core/browser/compose_features.h"
+#include "components/compose/core/browser/compose_metrics.h"
+#include "components/compose/core/browser/config.h"
 #include "ui/views/bubble/bubble_border.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
-
-// Default size from Figma spec. The size of the view will follow the requested
-// size of the WebUI, once these are connected.
-namespace {
-
-const char kComposeURL[] = "chrome://compose/";
-
-}
 
 namespace chrome {
 
 std::unique_ptr<compose::ComposeDialogController> ShowComposeDialog(
     content::WebContents& web_contents,
-    const gfx::RectF& element_bounds_in_screen) {
+    const gfx::RectF& element_bounds_in_screen,
+    compose::ComposeClient::FieldIdentifier field_ids) {
   // The Compose dialog is not anchored to any particular View. Pass the
   // BrowserView so that it still knows about the Browser window, which is
   // needed to access the correct ColorProvider for theming.
   views::View* anchor_view = BrowserView::GetBrowserViewForBrowser(
       chrome::FindBrowserWithTab(&web_contents));
   auto controller =
-      std::make_unique<ChromeComposeDialogController>(&web_contents);
+      std::make_unique<ChromeComposeDialogController>(&web_contents, field_ids);
   controller->ShowComposeDialog(anchor_view, element_bounds_in_screen);
   return controller;
 }
@@ -47,14 +46,17 @@ void ChromeComposeDialogController::ShowComposeDialog(
     views::View* anchor_view,
     const gfx::RectF& element_bounds_in_screen) {
   if (!web_contents_) {
+    compose::LogOpenComposeDialogResult(
+        compose::OpenComposeDialogResult::kNoWebContents);
     return;
   }
 
   Profile* profile =
       Profile::FromBrowserContext(web_contents_->GetBrowserContext());
-  auto bubble_wrapper = std::make_unique<BubbleContentsWrapperT<ComposeUI>>(
-      GURL(kComposeURL), profile, IDS_COMPOSE_DIALOG_TITLE);
-  bubble_wrapper->ReloadWebContents();
+  auto bubble_wrapper =
+      std::make_unique<WebUIContentsWrapperT<ComposeUntrustedUI>>(
+          GURL(chrome::kChromeUIUntrustedComposeUrl), profile,
+          IDS_COMPOSE_DIALOG_TITLE);
 
   // This WebUI needs to know the calling BrowserContents so that the compose
   // request/result can be properly associated with the triggering form.
@@ -73,13 +75,25 @@ void ChromeComposeDialogController::ShowComposeDialog(
   bubble_ = compose_dialog_view->GetWeakPtr();
   views::BubbleDialogDelegateView::CreateBubble(std::move(compose_dialog_view));
   if (bubble_) {
+    compose::LogOpenComposeDialogResult(
+        compose::OpenComposeDialogResult::kSuccess);
     // This must be called after CreateBubble, as that resets the
     // |adjust_if_offscreen| field to the platform-dependent default.
     bubble_->set_adjust_if_offscreen(true);
+
+    if (base::FeatureList::IsEnabled(
+            compose::features::kEnableComposeSavedStateNotification)) {
+      if (bubble_->GetWidget()) {
+        widget_observation_.Observe(bubble_->GetWidget());
+      }
+    }
+  } else {
+    compose::LogOpenComposeDialogResult(
+        compose::OpenComposeDialogResult::kFailedCreatingComposeDialogView);
   }
 }
 
-BubbleContentsWrapperT<ComposeUI>*
+WebUIContentsWrapperT<ComposeUntrustedUI>*
 ChromeComposeDialogController::GetBubbleWrapper() const {
   if (bubble_) {
     return bubble_->bubble_wrapper();
@@ -87,7 +101,9 @@ ChromeComposeDialogController::GetBubbleWrapper() const {
   return nullptr;
 }
 
-void ChromeComposeDialogController::ShowUI() {
+void ChromeComposeDialogController::ShowUI(
+    base::OnceClosure focus_lost_callback) {
+  focus_lost_callback_ = std::move(focus_lost_callback);
   if (bubble_) {
     bubble_->ShowUI();
   }
@@ -95,6 +111,9 @@ void ChromeComposeDialogController::ShowUI() {
 
 // TODO(b/300939629): Flesh out implementation and cover other closing paths.
 void ChromeComposeDialogController::Close() {
+  // This will no-op if there is no observation.
+  widget_observation_.Reset();
+  focus_lost_callback_.Reset();
   auto* wrapper = GetBubbleWrapper();
   if (wrapper) {
     wrapper->CloseUI();
@@ -105,6 +124,33 @@ bool ChromeComposeDialogController::IsDialogShowing() {
   return bubble_ && !bubble_->GetWidget()->IsClosed();
 }
 
+void ChromeComposeDialogController::OnWidgetDestroying(views::Widget* widget) {
+  if (focus_lost_callback_) {
+    const compose::Config& config = compose::GetComposeConfig();
+    // TODO(b/328730979): Add slight delay so that focus lost callback can be
+    // called after all focus-related events have been processed.
+    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&ChromeComposeDialogController::OnAfterWidgetDestroyed,
+                       weak_ptr_factory_.GetWeakPtr()),
+        config.focus_lost_delay);
+  }
+  // This will no-op if there is no observation.
+  widget_observation_.Reset();
+}
+
+const compose::ComposeClient::FieldIdentifier&
+ChromeComposeDialogController::GetFieldIds() {
+  return field_ids_;
+}
+
+void ChromeComposeDialogController::OnAfterWidgetDestroyed() {
+  if (focus_lost_callback_) {
+    std::move(focus_lost_callback_).Run();
+  }
+}
+
 ChromeComposeDialogController::ChromeComposeDialogController(
-    content::WebContents* web_contents)
-    : web_contents_(web_contents->GetWeakPtr()) {}
+    content::WebContents* web_contents,
+    compose::ComposeClient::FieldIdentifier field_ids)
+    : web_contents_(web_contents->GetWeakPtr()), field_ids_(field_ids) {}

@@ -5,28 +5,28 @@
 import './accelerator_edit_dialog.js';
 import './bottom_nav_content.js';
 import './shortcuts_page.js';
-import '../strings.m.js';
+import '/strings.m.js';
 import './search/search_box.js';
 import '../css/shortcut_customization_shared.css.js';
 import 'chrome://resources/ash/common/navigation_view_panel.js';
 import 'chrome://resources/ash/common/page_toolbar.js';
 import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
-import 'chrome://resources/cr_elements/policy/cr_policy_indicator.js';
+import 'chrome://resources/ash/common/cr_elements/policy/cr_policy_indicator.js';
 
+import {CrDialogElement} from 'chrome://resources/ash/common/cr_elements/cr_dialog/cr_dialog.js';
+import {CrToolbarSearchFieldElement} from 'chrome://resources/ash/common/cr_elements/cr_toolbar/cr_toolbar_search_field.js';
+import {FindShortcutMixin} from 'chrome://resources/ash/common/cr_elements/find_shortcut_mixin.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
 import {loadTimeData} from 'chrome://resources/ash/common/load_time_data.m.js';
 import {NavigationViewPanelElement} from 'chrome://resources/ash/common/navigation_view_panel.js';
 import {strictQuery} from 'chrome://resources/ash/common/typescript_utils/strict_query.js';
 import {ColorChangeUpdater} from 'chrome://resources/cr_components/color_change_listener/colors_css_updater.js';
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
-import {CrToolbarSearchFieldElement} from 'chrome://resources/cr_elements/cr_toolbar/cr_toolbar_search_field.js';
-import {FindShortcutMixin} from 'chrome://resources/cr_elements/find_shortcut_mixin.js';
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {PolymerElementProperties} from 'chrome://resources/polymer/v3_0/polymer/interfaces.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {AcceleratorsUpdatedObserverInterface, AcceleratorsUpdatedObserverReceiver, PolicyUpdatedObserverInterface, PolicyUpdatedObserverReceiver, UserAction} from '../mojom-webui/ash/webui/shortcut_customization_ui/mojom/shortcut_customization.mojom-webui.js';
+import {AcceleratorsUpdatedObserverInterface, AcceleratorsUpdatedObserverReceiver, PolicyUpdatedObserverInterface, PolicyUpdatedObserverReceiver, UserAction} from '../mojom-webui/shortcut_customization.mojom-webui.js';
 
 import {AcceleratorEditDialogElement} from './accelerator_edit_dialog.js';
 import {RequestUpdateAcceleratorEvent} from './accelerator_edit_view.js';
@@ -57,8 +57,6 @@ declare global {
     // onAcceleratorsUpdated() the other is by onRequestUpdateAccelerators().
     // This is used to prevent the onAcceleratorsUpdated() to update the
     // dialog when accelerator update is in progress.
-    // TODO(longbowei): Revisit this and consider refactoring on how we manage
-    // updates within the app.
     'accelerator-update-in-progress': CustomEvent<void>;
   }
 }
@@ -194,9 +192,9 @@ export class ShortcutCustomizationAppElement extends
     this.shortcutProvider.getAccelerators().then(
         ({config}) => this.onAcceleratorConfigFetched(config));
 
-    // Fetch the hasLauncherButton value.
-    this.shortcutProvider.hasLauncherButton().then(({hasLauncherButton}) => {
-      this.acceleratorlookupManager.setHasLauncherButton(hasLauncherButton);
+    // Fetch the MetaKey value to display.
+    this.shortcutProvider.getMetaKeyToDisplay().then(({metaKey}) => {
+      this.acceleratorlookupManager.setMetaKeyToDisplay(metaKey);
     });
   }
 
@@ -240,9 +238,9 @@ export class ShortcutCustomizationAppElement extends
       this.updateDialogAccelerators(this.dialogSource, this.dialogAction);
     }
 
-    // Update the hasLauncherButton value every time accelerators are updated.
-    this.shortcutProvider.hasLauncherButton().then(({hasLauncherButton}) => {
-      this.acceleratorlookupManager.setHasLauncherButton(hasLauncherButton);
+    // Update the getMetaKeyDisplay value every time accelerators are updated.
+    this.shortcutProvider.getMetaKeyToDisplay().then(({metaKey}) => {
+      this.acceleratorlookupManager.setMetaKeyToDisplay(metaKey);
     });
   }
 
@@ -325,7 +323,6 @@ export class ShortcutCustomizationAppElement extends
 
   protected onConfirmRestoreButtonClicked(): void {
     this.shortcutProvider.restoreAllDefaults().then(({result}) => {
-      // TODO(jimmyxgong): Explore error state with restore all.
       if (result.result === AcceleratorConfigResult.kSuccess) {
         this.shortcutProvider.recordUserAction(UserAction.kResetAll);
         strictQuery('#restoreDialog', this.shadowRoot, CrDialogElement).close();

@@ -304,8 +304,10 @@ class ExportNotifierTest(LoggingTestCase):
             PullRequest(
                 title='title1',
                 number=1234,
-                body='description\nWPT-Export-Revision: hash\nChange-Id: decafbad',
+                body=
+                'description\nWPT-Export-Revision: hash\nChange-Id: decafbad',
                 state='open',
+                node_id='PR_1',
                 labels=[''])
         ]
         self.notifier.wpt_github.check_runs = [
@@ -354,9 +356,9 @@ class ExportNotifierTest(LoggingTestCase):
         expected = self.generate_notifier_comment(1234, checks_results, 'hash',
                                                   2)
 
-        exit_code = self.notifier.main()
-
-        self.assertFalse(exit_code)
+        pr_by_change_id = self.notifier.main()
+        self.assertEqual(set(pr_by_change_id), {'decafbad'})
+        self.assertEqual(pr_by_change_id['decafbad'].pr_number, 1234)
         self.assertEqual(self.notifier.wpt_github.calls, [
             'recent_failing_chromium_exports',
             'get_pr_branch',

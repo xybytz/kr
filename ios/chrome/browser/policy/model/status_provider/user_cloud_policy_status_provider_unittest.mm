@@ -5,6 +5,7 @@
 #import "ios/chrome/browser/policy/model/status_provider/user_cloud_policy_status_provider.h"
 
 #import "base/containers/flat_set.h"
+#import "base/memory/raw_ptr.h"
 #import "base/scoped_observation.h"
 #import "base/task/single_thread_task_runner.h"
 #import "base/test/task_environment.h"
@@ -22,7 +23,6 @@
 #import "components/signin/public/base/consent_level.h"
 #import "components/signin/public/identity_manager/account_capabilities_test_mutator.h"
 #import "components/signin/public/identity_manager/identity_test_environment.h"
-#import "components/signin/public/identity_manager/identity_test_utils.h"
 #import "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/policy/model/browser_policy_connector_ios.h"
 #import "ios/chrome/browser/shared/model/prefs/browser_prefs.h"
@@ -81,7 +81,6 @@ class UserCloudPolicyStatusProviderTest
   MOCK_METHOD0(GetDeviceAffiliationIds, base::flat_set<std::string>());
 
   void SetPrimaryAccountAsFlex() {
-    EnableAccountCapabilitiesFetches(identity_manager());
     AccountInfo account = identity_test_env_.MakePrimaryAccountAvailable(
         kTestUsername, signin::ConsentLevel::kSignin);
 
@@ -123,7 +122,7 @@ class UserCloudPolicyStatusProviderTest
   signin::IdentityTestEnvironment identity_test_env_;
   std::unique_ptr<policy::MockUserCloudPolicyStore> user_store_;
   std::unique_ptr<policy::CloudPolicyCore> user_core_;
-  policy::MockCloudPolicyClient* user_client_;
+  raw_ptr<policy::MockCloudPolicyClient> user_client_;
   std::unique_ptr<UserCloudPolicyStatusProvider> status_provider_;
 };
 

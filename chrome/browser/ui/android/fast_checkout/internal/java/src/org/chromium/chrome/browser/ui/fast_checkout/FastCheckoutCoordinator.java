@@ -18,6 +18,8 @@ import org.chromium.chrome.browser.ui.fast_checkout.home_screen.HomeScreenCoordi
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.ui.modelutil.PropertyModel;
 
+import java.util.List;
+
 class FastCheckoutCoordinator implements FastCheckoutComponent {
     private FastCheckoutMediator mMediator = new FastCheckoutMediator();
     private PropertyModel mModel = FastCheckoutProperties.createDefaultModel();
@@ -39,15 +41,12 @@ class FastCheckoutCoordinator implements FastCheckoutComponent {
         mContent = new FastCheckoutSheetContent(mMediator, rootView);
 
         View homeScreenView = rootView.findViewById(R.id.fast_checkout_home_screen_sheet);
-        HomeScreenCoordinator homeScreenCoordinator =
-                new HomeScreenCoordinator(context, homeScreenView, mModel);
+        new HomeScreenCoordinator(context, homeScreenView, mModel);
 
         // The detail screen can display the Autofill profile or the credit
         // card selection.
         View detailScreenView = rootView.findViewById(R.id.fast_checkout_detail_screen_sheet);
-        DetailScreenCoordinator detailScreenCoordinator =
-                new DetailScreenCoordinator(
-                        context, detailScreenView, mModel, mBottomSheetController);
+        new DetailScreenCoordinator(context, detailScreenView, mModel, mBottomSheetController);
 
         ViewFlipper viewFlipperView =
                 (ViewFlipper) rootView.findViewById(R.id.fast_checkout_bottom_sheet_view_flipper);
@@ -90,7 +89,7 @@ class FastCheckoutCoordinator implements FastCheckoutComponent {
 
     @Override
     public void showOptions(
-            FastCheckoutAutofillProfile[] profiles, FastCheckoutCreditCard[] creditCards) {
+            List<FastCheckoutAutofillProfile> profiles, List<FastCheckoutCreditCard> creditCards) {
         mMediator.showOptions(profiles, creditCards);
     }
 

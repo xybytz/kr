@@ -50,7 +50,7 @@ bool LoadD3DXLibrary(const base::FilePath& module_path,
 bool InitializeStaticEGLInternalFromLibrary(GLImplementation implementation) {
 #if BUILDFLAG(USE_STATIC_ANGLE)
   NOTREACHED();
-#endif
+#else
 
   base::FilePath module_path;
   if (!base::PathService::Get(base::DIR_MODULE, &module_path))
@@ -99,6 +99,7 @@ bool InitializeStaticEGLInternalFromLibrary(GLImplementation implementation) {
   AddGLNativeLibrary(gles_library);
 
   return true;
+#endif
 }
 
 bool InitializeStaticEGLInternal(GLImplementationParts implementation) {
@@ -172,8 +173,6 @@ bool InitializeStaticGLBindings(GLImplementationParts implementation) {
     default:
       NOTREACHED();
   }
-
-  return false;
 }
 
 void ShutdownGLPlatform(GLDisplay* display) {

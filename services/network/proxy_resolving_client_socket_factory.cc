@@ -55,7 +55,7 @@ ProxyResolvingClientSocketFactory::ProxyResolvingClientSocketFactory(
 
     // Disable H2 negotiation via ALPN.
     //
-    // TODO(https://crbug.com/1505550): Should this be allowed for proxies, but
+    // TODO(crbug.com/40946183): Should this be allowed for proxies, but
     // not for direct connections?
     session_params.enable_http2 = false;
 
@@ -66,6 +66,12 @@ ProxyResolvingClientSocketFactory::ProxyResolvingClientSocketFactory(
     // Note that ProxyResolvingClientSocket does not use QUIC, so enabling QUIC
     // won't do anything here.
   }
+
+  // Disable early data. When early data is enabled, replay protection is not
+  // enabled until partway through the connection, so callers are expected to
+  // call `ConfirmHandshake` before performing replay-sensitive operations.
+  // These sockets bypass the HTTP-specific logic that handles this.
+  session_params.enable_early_data = false;
 
   // TODO(mmenke): Is a new HttpNetworkSession still needed?
   // ProxyResolvingClientSocket doesn't use socket pools, just the

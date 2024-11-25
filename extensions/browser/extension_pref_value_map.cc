@@ -12,6 +12,7 @@
 #include "base/values.h"
 #include "components/prefs/pref_value_map.h"
 #include "extensions/common/api/types.h"
+#include "extensions/common/extension_id.h"
 
 struct ExtensionPrefValueMap::ExtensionEntry {
   // Installation time of the extension.
@@ -66,7 +67,7 @@ void ExtensionPrefValueMap::RemoveExtensionPref(const std::string& ext_id,
 }
 
 bool ExtensionPrefValueMap::CanExtensionControlPref(
-    const std::string& extension_id,
+    const extensions::ExtensionId& extension_id,
     const std::string& pref_key,
     bool incognito) const {
   auto ext = entries_.find(extension_id);
@@ -75,7 +76,6 @@ bool ExtensionPrefValueMap::CanExtensionControlPref(
                  << " is not registered but accesses pref " << pref_key
                  << " (incognito: " << incognito << ")."
                  << " http://crbug.com/454513";
-    return false;
   }
 
   if (incognito && !ext->second->incognito_enabled)
@@ -105,7 +105,7 @@ void ExtensionPrefValueMap::ClearAllIncognitoSessionOnlyPreferences() {
 }
 
 bool ExtensionPrefValueMap::DoesExtensionControlPref(
-    const std::string& extension_id,
+    const extensions::ExtensionId& extension_id,
     const std::string& pref_key,
     bool* from_incognito) const {
   bool incognito = (from_incognito != nullptr);
@@ -191,7 +191,6 @@ PrefValueMap* ExtensionPrefValueMap::GetExtensionPrefValueMap(
       break;
   }
   NOTREACHED();
-  return nullptr;
 }
 
 const PrefValueMap* ExtensionPrefValueMap::GetExtensionPrefValueMap(
@@ -212,7 +211,6 @@ const PrefValueMap* ExtensionPrefValueMap::GetExtensionPrefValueMap(
       break;
   }
   NOTREACHED();
-  return nullptr;
 }
 
 void ExtensionPrefValueMap::GetExtensionControlledKeys(

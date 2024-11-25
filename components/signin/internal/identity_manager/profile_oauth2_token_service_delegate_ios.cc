@@ -106,7 +106,7 @@ SSOAccessTokenFetcher::SSOAccessTokenFetcher(
   DCHECK(provider_);
 }
 
-SSOAccessTokenFetcher::~SSOAccessTokenFetcher() {}
+SSOAccessTokenFetcher::~SSOAccessTokenFetcher() = default;
 
 void SSOAccessTokenFetcher::Start(const std::string& client_id,
                                   const std::string& client_secret_unused,
@@ -163,10 +163,10 @@ ProfileOAuth2TokenServiceIOSDelegate::~ProfileOAuth2TokenServiceIOSDelegate() {
 void ProfileOAuth2TokenServiceIOSDelegate::Shutdown() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   accounts_.clear();
-  ClearAuthError(absl::nullopt);
+  ClearAuthError(std::nullopt);
 }
 
-void ProfileOAuth2TokenServiceIOSDelegate::LoadCredentials(
+void ProfileOAuth2TokenServiceIOSDelegate::LoadCredentialsInternal(
     const CoreAccountId& primary_account_id,
     bool is_syncing) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -176,17 +176,9 @@ void ProfileOAuth2TokenServiceIOSDelegate::LoadCredentials(
   set_load_credentials_state(
       signin::LoadCredentialsState::LOAD_CREDENTIALS_IN_PROGRESS);
 
-  if (primary_account_id.empty()) {
-    // On startup, always fire refresh token loaded even if there is nothing
-    // to load (not authenticated).
-    set_load_credentials_state(
-        signin::LoadCredentialsState::LOAD_CREDENTIALS_FINISHED_WITH_SUCCESS);
-    FireRefreshTokensLoaded();
-    return;
-  }
-
   ReloadCredentials(primary_account_id);
-  if (RefreshTokenIsAvailable(primary_account_id)) {
+  if (primary_account_id.empty() ||
+      RefreshTokenIsAvailable(primary_account_id)) {
     set_load_credentials_state(
         signin::LoadCredentialsState::LOAD_CREDENTIALS_FINISHED_WITH_SUCCESS);
   } else {
@@ -217,7 +209,7 @@ void ProfileOAuth2TokenServiceIOSDelegate::ReloadCredentials(
 
   // Get the list of new account ids.
   std::set<CoreAccountId> new_account_ids;
-  for (const auto& new_account : provider_->GetAllAccounts()) {
+  for (const auto& new_account : provider_->GetAccountsForProfile()) {
     DCHECK(!new_account.gaia.empty());
     DCHECK(!new_account.email.empty());
 
@@ -264,7 +256,7 @@ void ProfileOAuth2TokenServiceIOSDelegate::ReloadCredentials(
   }
 }
 
-void ProfileOAuth2TokenServiceIOSDelegate::UpdateCredentials(
+void ProfileOAuth2TokenServiceIOSDelegate::UpdateCredentialsInternal(
     const CoreAccountId& account_id,
     const std::string& refresh_token) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -272,7 +264,8 @@ void ProfileOAuth2TokenServiceIOSDelegate::UpdateCredentials(
                   "authentication.";
 }
 
-void ProfileOAuth2TokenServiceIOSDelegate::RevokeAllCredentials() {
+void ProfileOAuth2TokenServiceIOSDelegate::RevokeAllCredentialsInternal(
+    signin_metrics::SourceForRefreshTokenOperation source) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   ScopedBatchChange batch(this);
@@ -286,7 +279,7 @@ void ProfileOAuth2TokenServiceIOSDelegate::RevokeAllCredentials() {
 
 void ProfileOAuth2TokenServiceIOSDelegate::
     ReloadAllAccountsFromSystemWithPrimaryAccount(
-        const absl::optional<CoreAccountId>& primary_account_id) {
+        const std::optional<CoreAccountId>& primary_account_id) {
   ReloadCredentials(primary_account_id.value_or(CoreAccountId()));
 }
 
@@ -311,6 +304,28 @@ std::vector<CoreAccountId> ProfileOAuth2TokenServiceIOSDelegate::GetAccounts()
     const {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   return std::vector<CoreAccountId>(accounts_.begin(), accounts_.end());
+}
+
+std::vector<AccountInfo>
+ProfileOAuth2TokenServiceIOSDelegate::GetAccountsOnDevice() const {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+
+  // TODO(crbug.com/368409110): Cache these accounts somewhere, maybe in a
+  // separate AccountTrackerService instance.
+  std::vector<AccountInfo> account_infos;
+  for (const auto& account : provider_->GetAccountsOnDevice()) {
+    CHECK(!account.gaia.empty());
+    CHECK(!account.email.empty());
+    AccountInfo account_info;
+    account_info.account_id = CoreAccountId::FromGaiaId(account.gaia);
+    account_info.gaia = account.gaia;
+    account_info.email = account.email;
+    account_info.hosted_domain = account.hosted_domain;
+    // TODO(crbug.com/368409110): Find a way to determine the full AccountInfo
+    // for these accounts, not only the "core" fields.
+    account_infos.push_back(std::move(account_info));
+  }
+  return account_infos;
 }
 
 bool ProfileOAuth2TokenServiceIOSDelegate::RefreshTokenIsAvailable(

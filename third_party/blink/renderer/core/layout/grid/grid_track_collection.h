@@ -8,7 +8,7 @@
 #include "base/check_op.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
-#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
 
 namespace blink {
 
@@ -240,7 +240,7 @@ class CORE_EXPORT GridLayoutTrackCollection : public GridTrackCollectionBase {
   GridTrackSizingDirection track_direction_;
 
   // Baselines are only created when there are items with baseline alignment.
-  absl::optional<Baselines> baselines_;
+  std::optional<Baselines> baselines_;
 
   // Initially we only know some of the set sizes - others will be indefinite.
   // To represent this we store a vector of the last indefinite indices for each
@@ -319,7 +319,7 @@ struct CORE_EXPORT GridSet {
           const GridTrackSize& track_definition,
           bool is_available_size_indefinite);
 
-  double FlexFactor() const;
+  float FlexFactor() const;
   LayoutUnit BaseSize() const;
   LayoutUnit GrowthLimit() const;
 
@@ -394,7 +394,9 @@ class CORE_EXPORT GridSizingTrackCollection final
   typedef SetIteratorBase<true> ConstSetIterator;
 
   GridSizingTrackCollection() = delete;
+  GridSizingTrackCollection(GridSizingTrackCollection&&) = default;
   GridSizingTrackCollection(const GridSizingTrackCollection&) = delete;
+  GridSizingTrackCollection& operator=(GridSizingTrackCollection&&) = default;
   GridSizingTrackCollection& operator=(const GridSizingTrackCollection&) =
       delete;
 
@@ -445,6 +447,7 @@ class CORE_EXPORT GridSizingTrackCollection final
  private:
   friend class GridLayoutAlgorithmTest;
   friend class GridTrackCollectionTest;
+  friend class MasonryLayoutAlgorithmTest;
 
   // These methods are internal implementations also used in testing.
   void BuildSets(const NGGridTrackList& explicit_track_list,

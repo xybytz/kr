@@ -13,6 +13,9 @@ class ChromeAccountManagerService;
 @protocol ConsistencyAccountChooserConsumer;
 @class ConsistencyAccountChooserMediator;
 @protocol SystemIdentity;
+namespace signin {
+class IdentityManager;
+}  // namespace signin
 
 // Mediator for ConsistencyAccountChooserCoordinator.
 @interface ConsistencyAccountChooserMediator
@@ -21,12 +24,13 @@ class ChromeAccountManagerService;
 @property(nonatomic, strong) id<ConsistencyAccountChooserConsumer> consumer;
 @property(nonatomic, strong) id<SystemIdentity> selectedIdentity;
 
-// See -[SigninPromoViewMediator initWithBrowserState:].
+// See -[SigninPromoViewMediator initWithProfile:].
 - (instancetype)init NS_UNAVAILABLE;
 
-- (instancetype)initWithSelectedIdentity:(id<SystemIdentity>)selectedIdentity
-                   accountManagerService:
-                       (ChromeAccountManagerService*)accountManagerService
+- (instancetype)
+    initWithSelectedIdentity:(id<SystemIdentity>)selectedIdentity
+             identityManager:(signin::IdentityManager*)identityManager
+       accountManagerService:(ChromeAccountManagerService*)accountManagerService
     NS_DESIGNATED_INITIALIZER;
 
 // Disconnect the mediator.

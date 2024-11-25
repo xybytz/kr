@@ -7,6 +7,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.eq;
@@ -188,21 +189,19 @@ public class MiniPlayerLayoutUnitTest {
 
     @Test
     public void testFadeInWithoutAnimation() {
-        View container = mLayout.findViewById(R.id.mini_player_container);
-        assertEquals(0f, container.getAlpha(), /* delta= */ 0f);
+        assertEquals(0f, mLayout.getAlpha(), /* delta= */ 0f);
 
         mLayout.enableAnimations(false);
         mLayout.changeOpacity(0f, 1f);
 
         assertNull(mLayout.getAnimatorForTesting());
-        assertEquals(1f, container.getAlpha(), /* delta= */ 0f);
-        verify(mMediator).onFullOpacityReached();
+        assertEquals(1f, mLayout.getAlpha(), /* delta= */ 0f);
+        verify(mMediator).onFullOpacityReached(any(View.class));
     }
 
     @Test
     public void testFadeInWithAnimation() {
-        View container = mLayout.findViewById(R.id.mini_player_container);
-        assertEquals(0f, container.getAlpha(), /* delta= */ 0f);
+        assertEquals(0f, mLayout.getAlpha(), /* delta= */ 0f);
 
         mLayout.enableAnimations(true);
         mLayout.changeOpacity(0f, 1f);
@@ -212,8 +211,8 @@ public class MiniPlayerLayoutUnitTest {
         assertEquals(300L, animator.getDuration());
 
         animator.end();
-        assertEquals(1f, container.getAlpha(), /* delta= */ 0f);
-        verify(mMediator).onFullOpacityReached();
+        assertEquals(1f, mLayout.getAlpha(), /* delta= */ 0f);
+        verify(mMediator).onFullOpacityReached(any(View.class));
     }
 
     @Test
@@ -223,14 +222,13 @@ public class MiniPlayerLayoutUnitTest {
         mLayout.changeOpacity(0f, 1f);
 
         // Ensure we're starting with full opacity.
-        View container = mLayout.findViewById(R.id.mini_player_container);
-        assertEquals(1f, container.getAlpha(), /* delta= */ 0f);
+        assertEquals(1f, mLayout.getAlpha(), /* delta= */ 0f);
 
         // Fade out.
         mLayout.changeOpacity(1f, 0f);
 
         assertNull(mLayout.getAnimatorForTesting());
-        assertEquals(0f, container.getAlpha(), /* delta= */ 0f);
+        assertEquals(0f, mLayout.getAlpha(), /* delta= */ 0f);
         verify(mMediator).onZeroOpacityReached();
     }
 
@@ -241,8 +239,7 @@ public class MiniPlayerLayoutUnitTest {
         mLayout.changeOpacity(0f, 1f);
 
         // Ensure we're starting with full opacity.
-        View container = mLayout.findViewById(R.id.mini_player_container);
-        assertEquals(1f, container.getAlpha(), /* delta= */ 0f);
+        assertEquals(1f, mLayout.getAlpha(), /* delta= */ 0f);
 
         // Fade out.
         mLayout.enableAnimations(true);
@@ -253,7 +250,7 @@ public class MiniPlayerLayoutUnitTest {
         assertEquals(300L, animator.getDuration());
 
         animator.end();
-        assertEquals(0f, container.getAlpha(), /* delta= */ 0f);
+        assertEquals(0f, mLayout.getAlpha(), /* delta= */ 0f);
         verify(mMediator).onZeroOpacityReached();
     }
 
@@ -263,12 +260,12 @@ public class MiniPlayerLayoutUnitTest {
 
         // 0 -> 1
         mLayout.changeOpacity(0f, 1f);
-        verify(mMediator).onFullOpacityReached();
+        verify(mMediator).onFullOpacityReached(any(View.class));
         reset(mMediator);
 
         // 0 -> 1 again has no effect.
         mLayout.changeOpacity(0f, 1f);
-        verify(mMediator, never()).onFullOpacityReached();
+        verify(mMediator, never()).onFullOpacityReached(any(View.class));
 
         // 1 -> 0
         mLayout.changeOpacity(1f, 0f);

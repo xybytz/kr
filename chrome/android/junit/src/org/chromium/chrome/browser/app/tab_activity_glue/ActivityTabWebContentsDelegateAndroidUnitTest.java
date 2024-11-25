@@ -14,7 +14,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
@@ -25,14 +24,13 @@ import org.robolectric.annotation.Implements;
 
 import org.chromium.base.supplier.Supplier;
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.base.test.util.Features.DisableFeatures;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.chrome.browser.app.tab_activity_glue.ActivityTabWebContentsDelegateAndroidUnitTest.ShadowWebContentsDarkModeController;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.night_mode.WebContentsDarkModeController;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.content_public.browser.BrowserContextHandle;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.shadows.ShadowColorUtils;
@@ -53,11 +51,10 @@ public class ActivityTabWebContentsDelegateAndroidUnitTest {
 
         @Implementation
         public static boolean isEnabledForUrl(BrowserContextHandle browserContextHandle, GURL url) {
-            return sGlobalSettingsEnabled && (!url.equals(sBlockedUrl));
+            return sGlobalSettingsEnabled && !url.equals(sBlockedUrl);
         }
     }
 
-    @Rule public TestRule mFeatureProcessor = new Features.JUnitProcessor();
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
 
     @Mock Activity mActivity;

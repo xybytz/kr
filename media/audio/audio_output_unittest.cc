@@ -29,6 +29,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(IS_ANDROID)
+#include "media/audio/android/aaudio_stream_wrapper.h"
 #include "media/audio/android/audio_manager_android.h"
 #endif
 
@@ -47,9 +48,9 @@ class AudioOutputTest : public testing::TestWithParam<bool> {
     if (should_use_aaudio_) {
       features_.InitAndEnableFeature(features::kUseAAudioDriver);
 
-      aaudio_is_supported_ =
-          reinterpret_cast<AudioManagerAndroid*>(audio_manager_.get())
-              ->IsUsingAAudioForTesting();
+      if (__builtin_available(android AAUDIO_MIN_API, *)) {
+        aaudio_is_supported_ = true;
+      }
     }
 #endif
     base::RunLoop().RunUntilIdle();
@@ -61,8 +62,10 @@ class AudioOutputTest : public testing::TestWithParam<bool> {
   }
 
   void CreateWithDefaultParameters() {
-    stream_params_ =
-        audio_manager_device_info_->GetDefaultOutputStreamParameters();
+    std::string default_device_id =
+        audio_manager_device_info_->GetDefaultOutputDeviceID();
+    stream_params_ = audio_manager_device_info_->GetOutputStreamParameters(
+        default_device_id);
     stream_ = audio_manager_->MakeAudioOutputStream(
         stream_params_, std::string(), AudioManager::LogCallback());
   }
@@ -139,7 +142,7 @@ TEST_P(AudioOutputTest, StopTwice) {
 
 // This test produces actual audio for .25 seconds on the default device.
 #if BUILDFLAG(IS_IOS)
-// TODO(crbug.com/1489278): audio output unit startup fails with partition
+// TODO(crbug.com/40283968): audio output unit startup fails with partition
 // alloc.
 #define MAYBE_Play200HzTone DISABLED_Play200HzTone
 #else
@@ -151,8 +154,10 @@ TEST_P(AudioOutputTest, MAYBE_Play200HzTone) {
 
   ABORT_AUDIO_TEST_IF_NOT(audio_manager_device_info_->HasAudioOutputDevices());
 
+  std::string default_device_id =
+      audio_manager_device_info_->GetDefaultOutputDeviceID();
   stream_params_ =
-      audio_manager_device_info_->GetDefaultOutputStreamParameters();
+      audio_manager_device_info_->GetOutputStreamParameters(default_device_id);
   stream_ = audio_manager_->MakeAudioOutputStream(stream_params_, std::string(),
                                                   AudioManager::LogCallback());
   ASSERT_TRUE(stream_);

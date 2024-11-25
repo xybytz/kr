@@ -16,10 +16,12 @@
 #include "chrome/browser/web_applications/locks/all_apps_lock.h"
 #include "chrome/browser/web_applications/web_app_command_scheduler.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_registrar.h"
 #include "chrome/browser/web_applications/web_app_ui_manager.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
 #include "chrome/common/chrome_features.h"
 #include "components/services/app_service/public/cpp/app_launch_util.h"
+#include "content/public/browser/network_service_instance.h"
 #include "content/public/browser/web_contents.h"
 
 namespace web_app {
@@ -30,7 +32,9 @@ bool g_skip_startup_for_testing_ = false;
 
 WebAppRunOnOsLoginManager::WebAppRunOnOsLoginManager(Profile* profile)
     : profile_(profile) {}
-WebAppRunOnOsLoginManager::~WebAppRunOnOsLoginManager() = default;
+WebAppRunOnOsLoginManager::~WebAppRunOnOsLoginManager() {
+  content::GetNetworkConnectionTracker()->RemoveNetworkConnectionObserver(this);
+}
 
 void WebAppRunOnOsLoginManager::SetProvider(base::PassKey<WebAppProvider>,
                                             WebAppProvider& provider) {
@@ -46,11 +50,19 @@ void WebAppRunOnOsLoginManager::Start() {
     return;
   }
 
-  provider_->scheduler().ScheduleCallback(
-      "WebAppRunOnOsLoginManager::RunAppsOnOsLogin", AllAppsLockDescription(),
-      base::BindOnce(&WebAppRunOnOsLoginManager::RunAppsOnOsLogin,
-                     GetWeakPtr()),
-      /*on_complete=*/base::DoNothing());
+  network::mojom::ConnectionType connection_type;
+  // `GetConnectionType` will execute either synchronously (and return true and
+  // store the value in the `connection_type`) or asynchronously (and return
+  // false and call `OnInitialConnectionTypeReceived` once it is done).
+  const bool call_was_synchronous =
+      content::GetNetworkConnectionTracker()->GetConnectionType(
+          &connection_type,
+          base::BindOnce(
+              &WebAppRunOnOsLoginManager::OnInitialConnectionTypeReceived,
+              GetWeakPtr()));
+  if (call_was_synchronous) {
+    OnInitialConnectionTypeReceived(connection_type);
+  }
 }
 
 void WebAppRunOnOsLoginManager::RunAppsOnOsLogin(
@@ -77,7 +89,7 @@ void WebAppRunOnOsLoginManager::RunAppsOnOsLogin(
       continue;
     }
 
-    // TODO(crbug.com/1091964): Implement Run on OS Login mode selection and
+    // TODO(crbug.com/40698043): Implement Run on OS Login mode selection and
     // launch app appropriately.
     // For ROOL on ChromeOS, we only have managed web apps which need to be run
     // as standalone windows, never as tabs
@@ -96,6 +108,44 @@ void WebAppRunOnOsLoginManager::RunAppsOnOsLogin(
   }
 }
 
+void WebAppRunOnOsLoginManager::OnInitialConnectionTypeReceived(
+    network::mojom::ConnectionType type) {
+  CHECK(!scheduled_run_on_os_login_command_);
+
+  // If there is a connection, schedule ROOL and stop listening to the network
+  // status.
+  if (type != network::mojom::ConnectionType::CONNECTION_NONE) {
+    RunOsLoginAppsAndMaybeUnregisterObserver();
+    return;
+  }
+  // Otherwise, start listening to the network status and wait until the network
+  // connection is restored.
+  content::GetNetworkConnectionTracker()->AddNetworkConnectionObserver(this);
+}
+
+void WebAppRunOnOsLoginManager::OnConnectionChanged(
+    network::mojom::ConnectionType type) {
+  CHECK(!scheduled_run_on_os_login_command_);
+
+  // If there is a connection, schedule ROOL and stop listening to the network
+  // status. Otherwise, keep listening.
+  if (type != network::mojom::ConnectionType::CONNECTION_NONE) {
+    RunOsLoginAppsAndMaybeUnregisterObserver();
+  }
+}
+
+void WebAppRunOnOsLoginManager::RunOsLoginAppsAndMaybeUnregisterObserver() {
+  CHECK(!scheduled_run_on_os_login_command_);
+
+  content::GetNetworkConnectionTracker()->RemoveNetworkConnectionObserver(this);
+  scheduled_run_on_os_login_command_ = true;
+  provider_->scheduler().ScheduleCallback(
+      "WebAppRunOnOsLoginManager::RunAppsOnOsLogin", AllAppsLockDescription(),
+      base::BindOnce(&WebAppRunOnOsLoginManager::RunAppsOnOsLogin,
+                     GetWeakPtr()),
+      /*on_complete=*/std::move(completed_closure_));
+}
+
 base::WeakPtr<WebAppRunOnOsLoginManager>
 WebAppRunOnOsLoginManager::GetWeakPtr() {
   return weak_ptr_factory_.GetWeakPtr();
@@ -111,7 +161,12 @@ void WebAppRunOnOsLoginManager::RunAppsOnOsLoginForTesting() {
       "WebAppRunOnOsLoginManager::RunAppsOnOsLogin", AllAppsLockDescription(),
       base::BindOnce(&WebAppRunOnOsLoginManager::RunAppsOnOsLogin,
                      GetWeakPtr()),
-      /*on_complete=*/base::DoNothing());
+      /*on_complete=*/std::move(completed_closure_));
+}
+
+void WebAppRunOnOsLoginManager::SetCompletedClosureForTesting(
+    base::OnceClosure completed_closure) {
+  completed_closure_ = std::move(completed_closure);
 }
 
 }  // namespace web_app

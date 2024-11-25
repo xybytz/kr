@@ -4,69 +4,33 @@
 
 package org.chromium.chrome.browser.readaloud.player.expanded;
 
-import android.content.Context;
-import android.view.LayoutInflater;
 import android.view.View;
-import android.widget.TextView;
 
 import androidx.annotation.Nullable;
-import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Log;
 import org.chromium.base.supplier.ObservableSupplierImpl;
-import org.chromium.chrome.browser.readaloud.player.Colors;
 import org.chromium.chrome.browser.readaloud.player.R;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetContent;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 
 /** Base class for menu bottom sheets. */
-class MenuSheetContent implements BottomSheetContent {
+abstract class MenuSheetContent implements BottomSheetContent {
     private static final String TAG = "ReadAloudMenu";
     private final BottomSheetController mBottomSheetController;
     protected final BottomSheetContent mParent;
     private boolean mOpeningSubmenu;
-    protected final Menu mMenu;
 
     /**
      * Constructor.
      *
-     * @param context Context.
-     * @param titleStringId Resource ID of string to show at the top.
+     * @param parent BottomSheetContent to be restored when this sheet hides.
+     * @param bottomSheetController BottomSheetController managing this sheet.
      */
-    MenuSheetContent(
-            Context context,
-            BottomSheetContent parent,
-            BottomSheetController bottomSheetController,
-            int titleStringId) {
-        this(
-                context,
-                parent,
-                bottomSheetController,
-                titleStringId,
-                (Menu) LayoutInflater.from(context).inflate(R.layout.readaloud_menu, null));
-        ((TextView) mMenu.findViewById(R.id.readaloud_menu_title))
-                .setText(context.getResources().getString(titleStringId));
-    }
-
-    @VisibleForTesting
-    MenuSheetContent(
-            Context context,
-            BottomSheetContent parent,
-            BottomSheetController bottomSheetController,
-            int titleStringId,
-            Menu menu) {
+    MenuSheetContent(BottomSheetContent parent, BottomSheetController bottomSheetController) {
         mParent = parent;
         mBottomSheetController = bottomSheetController;
-        mMenu = menu;
-        mMenu.findViewById(R.id.readaloud_menu_back)
-                .setOnClickListener(
-                        (view) -> {
-                            onBackPressed();
-                        });
         mOpeningSubmenu = false;
-
-        // Apply dynamic background color.
-        Colors.setBottomSheetContentBackground(mMenu);
     }
 
     // TODO(b/306426853) Replace this with a BottomSheetObserver.
@@ -75,7 +39,7 @@ class MenuSheetContent implements BottomSheetContent {
             // If this sheet is closing for any reason besides showing a child menu, bring back the
             // parent.
             if (!mOpeningSubmenu) {
-                mBottomSheetController.requestShowContent(mParent, /* animate= */ true);
+                mBottomSheetController.requestShowContent(mParent, /* animate= */ false);
             }
         }
     }
@@ -85,7 +49,6 @@ class MenuSheetContent implements BottomSheetContent {
             mOpeningSubmenu = true;
         }
         mBottomSheetController.hideContent(this, /* animate= */ false);
-        mBottomSheetController.requestShowContent(sheet, /* animate= */ true);
         mOpeningSubmenu = false;
     }
 
@@ -94,19 +57,9 @@ class MenuSheetContent implements BottomSheetContent {
     }
 
     @Override
-    public View getContentView() {
-        return mMenu;
-    }
-
-    @Override
     @Nullable
     public View getToolbarView() {
         return null;
-    }
-
-    @Override
-    public int getVerticalScrollOffset() {
-        return 0;
     }
 
     @Override
@@ -167,13 +120,6 @@ class MenuSheetContent implements BottomSheetContent {
     @Override
     public void onBackPressed() {
         openSheet(mParent);
-    }
-
-    @Override
-    public int getSheetContentDescriptionStringId() {
-        // "Read Aloud player."
-        // Automatically appended: "Swipe down to close."
-        return R.string.readaloud_player_name;
     }
 
     @Override

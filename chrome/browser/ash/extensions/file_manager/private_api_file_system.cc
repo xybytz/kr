@@ -13,6 +13,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -46,7 +47,6 @@
 #include "chrome/browser/ash/drive/file_system_util.h"
 #include "chrome/browser/ash/extensions/file_manager/event_router.h"
 #include "chrome/browser/ash/extensions/file_manager/event_router_factory.h"
-#include "chrome/browser/ash/extensions/file_manager/file_stream_md5_digester.h"
 #include "chrome/browser/ash/extensions/file_manager/private_api_util.h"
 #include "chrome/browser/ash/extensions/file_manager/search_by_pattern.h"
 #include "chrome/browser/ash/extensions/file_manager/select_file_dialog_extension_user_data.h"
@@ -70,6 +70,7 @@
 #include "chrome/browser/ash/policy/dlp/dlp_files_controller_ash.h"
 #include "chrome/browser/ash/policy/dlp/files_policy_notification_manager.h"
 #include "chrome/browser/ash/policy/dlp/files_policy_notification_manager_factory.h"
+#include "chrome/browser/ash/policy/skyvault/policy_utils.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_file_destination.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_rules_manager.h"
@@ -84,7 +85,7 @@
 #include "chromeos/ash/components/disks/disk_mount_manager.h"
 #include "components/drive/event_logger.h"
 #include "components/drive/file_system_core_util.h"
-#include "components/enterprise/data_controls/component.h"
+#include "components/enterprise/data_controls/core/browser/component.h"
 #include "components/prefs/pref_service.h"
 #include "components/storage_monitor/storage_info.h"
 #include "components/storage_monitor/storage_monitor.h"
@@ -129,7 +130,7 @@ namespace {
 using file_manager::Volume;
 using file_manager::VolumeManager;
 
-std::string Redact(const base::StringPiece s) {
+std::string Redact(std::string_view s) {
   return LOG_IS_ON(INFO) ? base::StrCat({"'", s, "'"}) : "(redacted)";
 }
 
@@ -166,36 +167,10 @@ size_t GetFileNameMaxLengthAsync(const std::string& path) {
   return stat.f_namemax;
 }
 
-bool GetFileExtendedAttribute(const base::FilePath& path,
-                              const char* name,
-                              std::vector<char>* value) {
-  ssize_t len = getxattr(path.value().c_str(), name, nullptr, 0);
-  if (len < 0) {
-    PLOG_IF(ERROR, errno != ENODATA) << "getxattr: " << path;
-    return false;
-  }
-  value->resize(len);
-  if (getxattr(path.value().c_str(), name, value->data(), len) != len) {
-    PLOG(ERROR) << "getxattr: " << path;
-    return false;
-  }
-  return true;
-}
-
 // Converts a status code to a bool value and calls the |callback| with it.
 void StatusCallbackToResponseCallback(base::OnceCallback<void(bool)> callback,
                                       base::File::Error result) {
   std::move(callback).Run(result == base::File::FILE_OK);
-}
-
-// Calls a response callback (on the UI thread) with a file content hash
-// computed on the IO thread.
-void ComputeChecksumRespondOnUIThread(
-    base::OnceCallback<void(std::string)> callback,
-    std::string hash) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  content::GetUIThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback), std::move(hash)));
 }
 
 ash::disks::FormatFileSystemType ApiFormatFileSystemToChromeEnum(
@@ -212,35 +187,33 @@ ash::disks::FormatFileSystemType ApiFormatFileSystemToChromeEnum(
   }
   NOTREACHED() << "Unknown format filesystem "
                << base::to_underlying(filesystem);
-  return ash::disks::FormatFileSystemType::kUnknown;
 }
 
-std::optional<file_manager::io_task::OperationType> IOTaskTypeToChromeEnum(
-    api::file_manager_private::IOTaskType type) {
+std::optional<file_manager::io_task::OperationType> IoTaskTypeToChromeEnum(
+    api::file_manager_private::IoTaskType type) {
   switch (type) {
-    case api::file_manager_private::IOTaskType::kCopy:
+    case api::file_manager_private::IoTaskType::kCopy:
       return file_manager::io_task::OperationType::kCopy;
-    case api::file_manager_private::IOTaskType::kDelete:
+    case api::file_manager_private::IoTaskType::kDelete:
       return file_manager::io_task::OperationType::kDelete;
-    case api::file_manager_private::IOTaskType::kEmptyTrash:
+    case api::file_manager_private::IoTaskType::kEmptyTrash:
       return file_manager::io_task::OperationType::kEmptyTrash;
-    case api::file_manager_private::IOTaskType::kExtract:
+    case api::file_manager_private::IoTaskType::kExtract:
       return file_manager::io_task::OperationType::kExtract;
-    case api::file_manager_private::IOTaskType::kMove:
+    case api::file_manager_private::IoTaskType::kMove:
       return file_manager::io_task::OperationType::kMove;
-    case api::file_manager_private::IOTaskType::kRestore:
+    case api::file_manager_private::IoTaskType::kRestore:
       return file_manager::io_task::OperationType::kRestore;
-    case api::file_manager_private::IOTaskType::kRestoreToDestination:
+    case api::file_manager_private::IoTaskType::kRestoreToDestination:
       return file_manager::io_task::OperationType::kRestoreToDestination;
-    case api::file_manager_private::IOTaskType::kTrash:
+    case api::file_manager_private::IoTaskType::kTrash:
       return file_manager::io_task::OperationType::kTrash;
-    case api::file_manager_private::IOTaskType::kZip:
+    case api::file_manager_private::IoTaskType::kZip:
       return file_manager::io_task::OperationType::kZip;
-    case api::file_manager_private::IOTaskType::kNone:
+    case api::file_manager_private::IoTaskType::kNone:
       return {};
   }
   NOTREACHED() << "Unknown I/O task type " << base::to_underlying(type);
-  return {};
 }
 
 extensions::api::file_manager_private::DlpLevel DlpRulesManagerLevelToApiEnum(
@@ -257,10 +230,8 @@ extensions::api::file_manager_private::DlpLevel DlpRulesManagerLevelToApiEnum(
       return DlpLevel::kReport;
     case policy::DlpRulesManager::Level::kNotSet:
       NOTREACHED() << "DLP level not set.";
-      return DlpLevel::kNone;
   }
   NOTREACHED() << "Unknown DLP level.";
-  return {};
 }
 
 extensions::api::file_manager_private::VolumeType
@@ -282,10 +253,8 @@ DlpRulesManagerComponentToApiEnum(data_controls::Component component) {
       return VolumeType::kProvided;
     case Component::kUnknownComponent:
       NOTREACHED() << "DLP component not set.";
-      return {};
   }
   NOTREACHED() << "Unknown component type.";
-  return {};
 }
 
 policy::FilesDialogType ApiPolicyDialogTypeToChromeEnum(
@@ -299,7 +268,6 @@ policy::FilesDialogType ApiPolicyDialogTypeToChromeEnum(
       return policy::FilesDialogType::kError;
   }
   NOTREACHED() << "Unknown policy dialog type " << base::to_underlying(type);
-  return policy::FilesDialogType::kUnknown;
 }
 
 std::optional<policy::Policy> ApiPolicyErrorTypeToChromeEnum(
@@ -315,7 +283,6 @@ std::optional<policy::Policy> ApiPolicyErrorTypeToChromeEnum(
       NOTREACHED() << "Unexpected policy type " << base::to_underlying(type);
   }
   NOTREACHED() << "Unknown policy error type " << base::to_underlying(type);
-  return std::nullopt;
 }
 
 // Handles a callback from the LocalImageSearchService. The job of this function
@@ -592,7 +559,7 @@ FileManagerPrivateGetSizeStatsFunction::Run() {
   }
 
   // For fusebox volumes, get the underlying (aka regular) volume.
-  const auto fusebox = base::StringPiece(file_manager::util::kFuseBox);
+  const auto fusebox = std::string_view(file_manager::util::kFuseBox);
   if (base::StartsWith(volume->file_system_type(), fusebox)) {
     std::string volume_id = params->volume_id;
 
@@ -630,9 +597,9 @@ FileManagerPrivateGetSizeStatsFunction::Run() {
             this));
   } else if (volume->type() == file_manager::VOLUME_TYPE_DOCUMENTS_PROVIDER) {
     std::string authority;
-    std::string root_document_id;
+    std::string root_id;
     if (!arc::ParseDocumentsProviderPath(volume->mount_path(), &authority,
-                                         &root_document_id)) {
+                                         &root_id)) {
       return RespondNow(Error("File path was invalid"));
     }
 
@@ -642,7 +609,7 @@ FileManagerPrivateGetSizeStatsFunction::Run() {
     if (!root_map) {
       return RespondNow(Error("File not found"));
     }
-    auto* root = root_map->Lookup(authority, root_document_id);
+    auto* root = root_map->Lookup(authority, root_id);
     if (!root) {
       return RespondNow(Error("File not found"));
     }
@@ -1288,167 +1255,6 @@ void FileManagerPrivateInternalResolveIsolatedEntriesFunction::
                            ResolveIsolatedEntries::Results::Create(entries)));
 }
 
-FileManagerPrivateInternalComputeChecksumFunction::
-    FileManagerPrivateInternalComputeChecksumFunction()
-    : digester_(base::MakeRefCounted<drive::util::FileStreamMd5Digester>()) {}
-
-FileManagerPrivateInternalComputeChecksumFunction::
-    ~FileManagerPrivateInternalComputeChecksumFunction() = default;
-
-ExtensionFunction::ResponseAction
-FileManagerPrivateInternalComputeChecksumFunction::Run() {
-  using drive::util::FileStreamMd5Digester;
-  using extensions::api::file_manager_private_internal::ComputeChecksum::Params;
-  const std::optional<Params> params = Params::Create(args());
-  EXTENSION_FUNCTION_VALIDATE(params);
-
-  if (params->url.empty()) {
-    return RespondNow(Error("File URL must be provided."));
-  }
-
-  scoped_refptr<storage::FileSystemContext> file_system_context =
-      file_manager::util::GetFileSystemContextForRenderFrameHost(
-          Profile::FromBrowserContext(browser_context()), render_frame_host());
-
-  FileSystemURL file_system_url(
-      file_system_context->CrackURLInFirstPartyContext(GURL(params->url)));
-  if (!file_system_url.is_valid()) {
-    return RespondNow(Error("File URL was invalid"));
-  }
-
-  std::unique_ptr<storage::FileStreamReader> reader =
-      file_system_context->CreateFileStreamReader(
-          file_system_url, 0, storage::kMaximumLength, base::Time());
-
-  FileStreamMd5Digester::ResultCallback result_callback = base::BindOnce(
-      &ComputeChecksumRespondOnUIThread,
-      base::BindOnce(
-          &FileManagerPrivateInternalComputeChecksumFunction::RespondWith,
-          this));
-  content::GetIOThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce(&FileStreamMd5Digester::GetMd5Digest, digester_,
-                                std::move(reader), std::move(result_callback)));
-
-  return RespondLater();
-}
-
-void FileManagerPrivateInternalComputeChecksumFunction::RespondWith(
-    std::string hash) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  Respond(WithArguments(std::move(hash)));
-}
-
-FileManagerPrivateSearchFilesByHashesFunction::
-    FileManagerPrivateSearchFilesByHashesFunction() = default;
-
-ExtensionFunction::ResponseAction
-FileManagerPrivateSearchFilesByHashesFunction::Run() {
-  using api::file_manager_private::SearchFilesByHashes::Params;
-  const std::optional<Params> params = Params::Create(args());
-  EXTENSION_FUNCTION_VALIDATE(params);
-
-  // TODO(hirono): Check the volume ID and fail the function for volumes other
-  // than Drive.
-
-  Profile* const profile = Profile::FromBrowserContext(browser_context());
-  drive::EventLogger* const logger = file_manager::util::GetLogger(profile);
-  if (logger) {
-    logger->Log(logging::LOGGING_INFO,
-                "%s[%s] called. (volume id: %s, number of hashes: %zd)", name(),
-                request_uuid().AsLowercaseString().c_str(),
-                params->volume_id.c_str(), params->hash_list.size());
-  }
-  set_log_on_completion(true);
-
-  drive::DriveIntegrationService* integration_service =
-      drive::util::GetIntegrationServiceByProfile(profile);
-  if (!integration_service) {
-    // |integration_service| is NULL if Drive is disabled or not mounted.
-    return RespondNow(Error("Drive not available"));
-  }
-
-  std::set<std::string> hashes(params->hash_list.begin(),
-                               params->hash_list.end());
-
-  // DriveFs doesn't provide dedicated backup solution yet, so for now just walk
-  // the files and check MD5 extended attribute.
-  base::ThreadPool::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-      base::BindOnce(
-          &FileManagerPrivateSearchFilesByHashesFunction::SearchByAttribute,
-          this, hashes,
-          integration_service->GetMountPointPath().Append(
-              drive::util::kDriveMyDriveRootDirName),
-          base::FilePath("/").Append(drive::util::kDriveMyDriveRootDirName)),
-      base::BindOnce(
-          &FileManagerPrivateSearchFilesByHashesFunction::OnSearchByAttribute,
-          this, hashes));
-
-  return RespondLater();
-}
-
-std::vector<drive::HashAndFilePath>
-FileManagerPrivateSearchFilesByHashesFunction::SearchByAttribute(
-    const std::set<std::string>& hashes,
-    const base::FilePath& dir,
-    const base::FilePath& prefix) {
-  std::vector<drive::HashAndFilePath> results;
-
-  if (hashes.empty()) {
-    return results;
-  }
-
-  std::set<std::string> remaining = hashes;
-  std::vector<char> attribute;
-  base::FileEnumerator enumerator(dir, true, base::FileEnumerator::FILES);
-  for (base::FilePath path = enumerator.Next(); !path.empty();
-       path = enumerator.Next()) {
-    if (GetFileExtendedAttribute(path, "user.drive.md5", &attribute)) {
-      std::string md5(attribute.begin(), attribute.end());
-
-      if (remaining.erase(md5)) {
-        base::FilePath drive_path = prefix;
-        bool success = dir.AppendRelativePath(path, &drive_path);
-        DCHECK(success);
-        results.push_back({md5, drive_path});
-        if (remaining.empty()) {
-          break;
-        }
-      }
-    }
-  }
-
-  return results;
-}
-
-void FileManagerPrivateSearchFilesByHashesFunction::OnSearchByAttribute(
-    const std::set<std::string>& hashes,
-    const std::vector<drive::HashAndFilePath>& results) {
-  OnSearchByHashes(hashes, drive::FileError::FILE_ERROR_OK, results);
-}
-
-void FileManagerPrivateSearchFilesByHashesFunction::OnSearchByHashes(
-    const std::set<std::string>& hashes,
-    drive::FileError error,
-    const std::vector<drive::HashAndFilePath>& search_results) {
-  if (error != drive::FileError::FILE_ERROR_OK) {
-    Respond(Error(drive::FileErrorToString(error)));
-    return;
-  }
-
-  base::Value::Dict result;
-  for (const auto& hash : hashes) {
-    result.EnsureList(hash);
-  }
-
-  for (const auto& hashAndPath : search_results) {
-    base::Value::List* list = result.FindList(hashAndPath.hash);
-    DCHECK(list);
-    list->Append(hashAndPath.path.value());
-  }
-  Respond(WithArguments(std::move(result)));
-}
-
 FileManagerPrivateInternalSearchFilesFunction::
     FileManagerPrivateInternalSearchFilesFunction() = default;
 
@@ -1514,13 +1320,13 @@ void FileManagerPrivateInternalSearchFilesFunction::RunFileSearchByName(
     ash::RecentSource::FileType file_type,
     size_t max_results,
     OnResultsReadyCallback callback) {
-  // If trash is enabled for the given profile, generate all trash paths that
-  // are to be excluded when searching for matching files.
+  // If trash is enabled for the given profile and by local user files policy,
+  // generate all trash paths that are to be excluded when searching for
+  // matching files.
   std::vector<base::FilePath> excluded_paths;
-  if (file_manager::trash::IsTrashEnabledForProfile((profile))) {
+  if (file_manager::trash::IsTrashEnabledForProfile(profile)) {
     auto enabled_trash_locations =
-        file_manager::trash::GenerateEnabledTrashLocationsForProfile(
-            profile, /*base_path=*/base::FilePath());
+        file_manager::trash::GenerateEnabledTrashLocationsForProfile(profile);
     for (const auto& it : enabled_trash_locations) {
       excluded_paths.emplace_back(
           it.first.Append(it.second.relative_folder_path));
@@ -1623,7 +1429,7 @@ FileManagerPrivateInternalGetDirectorySizeFunction::Run() {
   }
 
   const base::FilePath root_path = file_manager::util::GetLocalPathFromURL(
-      render_frame_host(), profile, GURL(params->url));
+      file_system_context, GURL(params->url));
   if (root_path.empty()) {
     return RespondNow(
         Error("Failed to get a local path from the entry's url."));
@@ -1689,7 +1495,7 @@ FileManagerPrivateInternalStartIOTaskFunction::Run() {
     source_urls.push_back(std::move(cracked_url));
   }
 
-  auto type = IOTaskTypeToChromeEnum(params->type);
+  auto type = IoTaskTypeToChromeEnum(params->type);
   if (!type) {
     return RespondNow(Error("Invalid I/O task type given."));
   }
@@ -1738,8 +1544,7 @@ FileManagerPrivateInternalStartIOTaskFunction::Run() {
         task = std::make_unique<file_manager::io_task::EmptyTrashIOTask>(
             blink::StorageKey::CreateFirstParty(
                 render_frame_host()->GetLastCommittedOrigin()),
-            profile, file_system_context,
-            /*base_path=*/base::FilePath(), show_notification);
+            profile, file_system_context, show_notification);
       }
       break;
     case file_manager::io_task::OperationType::kRestore:
@@ -1951,8 +1756,8 @@ FileManagerPrivateInternalParseTrashInfoFilesFunction::Run() {
     trash_info_paths.push_back(cracked_url.path());
   }
 
-  validator_ = std::make_unique<file_manager::trash::TrashInfoValidator>(
-      profile, /*base_path=*/base::FilePath());
+  validator_ =
+      std::make_unique<file_manager::trash::TrashInfoValidator>(profile);
 
   auto barrier_callback =
       base::BarrierCallback<file_manager::trash::ParsedTrashInfoDataOrError>(

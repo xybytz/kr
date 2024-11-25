@@ -19,17 +19,17 @@
 namespace mojo {
 namespace {
 
-// A wrapper around absl::optional<std::u16string> so a custom StructTraits
+// A wrapper around std::optional<std::u16string> so a custom StructTraits
 // specialization can enforce maximum string length.
 struct TruncatedString16 {
-  absl::optional<std::u16string> string;
+  std::optional<std::u16string> string;
 };
 
-absl::optional<std::string> ConvertOptionalString16(
+std::optional<std::string> ConvertOptionalString16(
     const TruncatedString16& string) {
   return string.string.has_value()
-             ? absl::make_optional(base::UTF16ToUTF8(string.string.value()))
-             : absl::nullopt;
+             ? std::make_optional(base::UTF16ToUTF8(string.string.value()))
+             : std::nullopt;
 }
 
 }  // namespace
@@ -114,7 +114,7 @@ bool StructTraits<blink::mojom::ManifestRelatedApplicationDataView,
     return false;
   out->platform = std::move(string.string);
 
-  absl::optional<GURL> url;
+  std::optional<GURL> url;
   if (!data.ReadUrl(&url))
     return false;
   out->url = std::move(url).value_or(GURL());
@@ -252,18 +252,20 @@ bool UnionTraits<blink::mojom::HomeTabUnionDataView,
     Read(blink::mojom::HomeTabUnionDataView data,
          blink::Manifest::TabStrip::HomeTab* out) {
   switch (data.tag()) {
-    case blink::mojom::HomeTabUnionDataView::Tag::kVisibility:
+    case blink::mojom::HomeTabUnionDataView::Tag::kVisibility: {
       ::blink::mojom::TabStripMemberVisibility visibility;
       if (!data.ReadVisibility(&visibility))
         return false;
       *out = visibility;
       return true;
-    case blink::mojom::HomeTabUnionDataView::Tag::kParams:
+    }
+    case blink::mojom::HomeTabUnionDataView::Tag::kParams: {
       ::blink::Manifest::HomeTabParams params;
       if (!data.ReadParams(&params))
         return false;
       *out = params;
       return true;
+    }
   }
   return false;
 }

@@ -176,6 +176,12 @@ class AutocompleteProvider
     TYPE_HISTORY_CLUSTER_PROVIDER = 1 << 18,
     TYPE_CALCULATOR = 1 << 19,
     TYPE_FEATURED_SEARCH = 1 << 20,
+    TYPE_HISTORY_EMBEDDINGS = 1 << 21,
+    // When adding a value here, also update:
+    // - omnibox_event.proto
+    // - `AutocompleteProvider::AsOmniboxEventProviderType`
+    // - `AutocompleteProvider::TypeToString`
+    // - `AutocompleteClassifier::DefaultOmniboxProviders`
   };
 
   explicit AutocompleteProvider(Type type);
@@ -320,10 +326,6 @@ class AutocompleteProvider
 
   typedef std::multimap<char16_t, std::u16string> WordMap;
 
-  // Uses the keyword entry mode in `input` to decide if the user is currently
-  // in keyword mode.
-  static bool InKeywordMode(const AutocompleteInput& input);
-
   // Trims "http:" or "https:" and up to two subsequent slashes from |url|. If
   // |trim_https| is true, trims "https:", otherwise trims "http:". Returns the
   // number of characters that were trimmed.
@@ -372,10 +374,10 @@ class AutocompleteProvider
 
   ACMatches matches_;
   // A map of suggestion group IDs to suggestion group information.
-  // `omnibox::BuildDefaultGroups()` will generate static groups. Providers can
-  // set this to create dynamic groups; e.g. the `ZeroSuggestProvider` does this
-  // based on groups received from the server.
-  omnibox::GroupConfigMap suggestion_groups_map_{};
+  // `omnibox::BuildDefaultGroupsForInput(AutocompleteInput)` will generate
+  // static groups. Providers can set this to create dynamic groups; e.g. the
+  // `ZeroSuggestProvider` does this based on groups received from the server.
+  omnibox::GroupConfigMap suggestion_groups_map_;
   bool done_{true};
 
   Type type_;

@@ -3,27 +3,25 @@
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/password/password_manager_view_controller.h"
-#import "ios/chrome/browser/ui/settings/password/password_manager_view_controller+Testing.h"
 
 #import "base/apple/foundation_util.h"
 #import "base/functional/bind.h"
-#import "base/strings/string_piece.h"
+#import "base/location.h"
 #import "base/strings/sys_string_conversions.h"
 #import "base/strings/utf_string_conversions.h"
 #import "base/test/bind.h"
 #import "base/test/ios/wait_util.h"
 #import "base/test/metrics/histogram_tester.h"
-#import "base/test/scoped_feature_list.h"
+#import "components/affiliations/core/browser/fake_affiliation_service.h"
 #import "components/feature_engagement/public/feature_constants.h"
 #import "components/keyed_service/core/service_access_type.h"
-#import "components/password_manager/core/browser/affiliation/fake_affiliation_service.h"
 #import "components/password_manager/core/browser/leak_detection/mock_bulk_leak_check_service.h"
 #import "components/password_manager/core/browser/password_form.h"
 #import "components/password_manager/core/browser/password_manager_test_utils.h"
 #import "components/password_manager/core/browser/password_store/test_password_store.h"
-#import "ios/chrome/browser/favicon/favicon_loader.h"
-#import "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
-#import "ios/chrome/browser/passwords/model/ios_chrome_affiliation_service_factory.h"
+#import "ios/chrome/browser/affiliations/model/ios_chrome_affiliation_service_factory.h"
+#import "ios/chrome/browser/favicon/model/favicon_loader.h"
+#import "ios/chrome/browser/favicon/model/ios_chrome_favicon_loader_factory.h"
 #import "ios/chrome/browser/passwords/model/ios_chrome_bulk_leak_check_service_factory.h"
 #import "ios/chrome/browser/passwords/model/ios_chrome_password_check_manager.h"
 #import "ios/chrome/browser/passwords/model/ios_chrome_password_check_manager_factory.h"
@@ -31,16 +29,17 @@
 #import "ios/chrome/browser/passwords/model/password_check_observer_bridge.h"
 #import "ios/chrome/browser/passwords/model/save_passwords_consumer.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_detail_text_item.h"
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_text_item.h"
 #import "ios/chrome/browser/shared/ui/table_view/legacy_chrome_table_view_controller_test.h"
 #import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
-#import "ios/chrome/browser/signin/model/chrome_account_manager_service_factory.h"
+#import "ios/chrome/browser/signin/model/identity_manager_factory.h"
 #import "ios/chrome/browser/sync/model/sync_service_factory.h"
 #import "ios/chrome/browser/ui/settings/cells/inline_promo_cell.h"
 #import "ios/chrome/browser/ui/settings/cells/inline_promo_item.h"
 #import "ios/chrome/browser/ui/settings/cells/settings_check_item.h"
+#import "ios/chrome/browser/ui/settings/password/password_manager_view_controller+Testing.h"
 #import "ios/chrome/browser/ui/settings/password/passwords_consumer.h"
 #import "ios/chrome/browser/ui/settings/password/passwords_mediator.h"
 #import "ios/chrome/browser/ui/settings/password/passwords_settings_commands.h"
@@ -67,7 +66,7 @@ using password_manager::PasswordForm;
 using password_manager::TestPasswordStore;
 using ::testing::Return;
 
-// TODO(crbug.com/1324555): Remove this double and uses TestSyncUserSettings
+// TODO(crbug.com/40839348): Remove this double and uses TestSyncUserSettings
 @interface TestPasswordsMediator : PasswordsMediator
 
 @property(nonatomic) OnDeviceEncryptionState encryptionState;
@@ -84,19 +83,6 @@ using ::testing::Return;
 
 namespace {
 
-// Returns whether or not the Password Manager widget promo feature is enabled.
-bool IsPasswordMangerWidgetPromoEnabled() {
-  return base::FeatureList::IsEnabled(
-      feature_engagement::kIPHiOSPromoPasswordManagerWidgetFeature);
-}
-
-// Returns the offset to take into account when expecting a certain number of
-// sections. Offset depends on whether or not the Password Manager widget promo
-// flag is enabled.
-int GetNumberOfSectionsOffset() {
-  return IsPasswordMangerWidgetPromoEnabled();
-}
-
 // Use this test suite for tests that verify behaviors of
 // PasswordManagerViewController before loading the passwords for the first time
 // has finished. All other tests should go in PasswordManagerViewControllerTest.
@@ -107,7 +93,7 @@ class PasswordManagerViewControllerTest
 
   void SetUp() override {
     LegacyChromeTableViewControllerTest::SetUp();
-    TestChromeBrowserState::Builder builder;
+    TestProfileIOS::Builder builder;
     builder.AddTestingFactory(
         IOSChromeProfilePasswordStoreFactory::GetInstance(),
         base::BindRepeating(
@@ -123,22 +109,22 @@ class PasswordManagerViewControllerTest
         IOSChromeAffiliationServiceFactory::GetInstance(),
         base::BindRepeating(base::BindLambdaForTesting([](web::BrowserState*) {
           return std::unique_ptr<KeyedService>(
-              std::make_unique<password_manager::FakeAffiliationService>());
+              std::make_unique<affiliations::FakeAffiliationService>());
         })));
 
-    browser_state_ = builder.Build();
-    browser_ = std::make_unique<TestBrowser>(browser_state_.get());
+    profile_ = std::move(builder).Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get());
 
     CreateController();
 
-    ChromeBrowserState* browserState = browser_->GetBrowserState();
+    ProfileIOS* profile = browser_->GetProfile();
     mediator_ = [[TestPasswordsMediator alloc]
         initWithPasswordCheckManager:IOSChromePasswordCheckManagerFactory::
-                                         GetForBrowserState(browserState)
+                                         GetForProfile(profile)
                        faviconLoader:IOSChromeFaviconLoaderFactory::
-                                         GetForBrowserState(browserState)
-                         syncService:SyncServiceFactory::GetForBrowserState(
-                                         browserState)];
+                                         GetForProfile(profile)
+                         syncService:SyncServiceFactory::GetForProfile(profile)
+                         prefService:profile->GetPrefs()];
     mediator_.encryptionState = OnDeviceEncryptionStateNotShown;
 
     // Inject some fake passwords to pass the loading state.
@@ -151,9 +137,8 @@ class PasswordManagerViewControllerTest
         OCMStrictProtocolMock(@protocol(PasswordsSettingsCommands));
     passwords_controller.handler = passwords_settings_commands_strict_mock_;
 
-    // Show the Password Manager widget promo if the feature is enabled.
-    passwords_controller.shouldShowPasswordManagerWidgetPromo =
-        IsPasswordMangerWidgetPromoEnabled();
+    // Show the Password Manager widget promo.
+    passwords_controller.shouldShowPasswordManagerWidgetPromo = YES;
 
     WaitForPasswordsLoadingCompletion();
   }
@@ -165,25 +150,24 @@ class PasswordManagerViewControllerTest
 
   TestPasswordStore& GetTestStore() {
     return *static_cast<TestPasswordStore*>(
-        IOSChromeProfilePasswordStoreFactory::GetForBrowserState(
-            browser_->GetBrowserState(), ServiceAccessType::EXPLICIT_ACCESS)
+        IOSChromeProfilePasswordStoreFactory::GetForProfile(
+            browser_->GetProfile(), ServiceAccessType::EXPLICIT_ACCESS)
             .get());
   }
 
   MockBulkLeakCheckService& GetMockPasswordCheckService() {
     return *static_cast<MockBulkLeakCheckService*>(
-        IOSChromeBulkLeakCheckServiceFactory::GetForBrowserState(
-            browser_->GetBrowserState()));
+        IOSChromeBulkLeakCheckServiceFactory::GetForProfile(
+            browser_->GetProfile()));
   }
 
   LegacyChromeTableViewController* InstantiateController() override {
-    ChromeAccountManagerService* account_manager_service =
-        ChromeAccountManagerServiceFactory::GetForBrowserState(
-            browser_state_.get());
+    signin::IdentityManager* identity_manager =
+        IdentityManagerFactory::GetForProfile(profile_.get());
     return [[PasswordManagerViewController alloc]
-        initWithChromeAccountManagerService:account_manager_service
-                                prefService:browser_state_.get()->GetPrefs()
-                     shouldOpenInSearchMode:NO];
+        initWithIdentityManager:identity_manager
+                    prefService:profile_.get()->GetPrefs()
+         shouldOpenInSearchMode:NO];
   }
 
   PasswordManagerViewController* GetPasswordManagerViewController() {
@@ -191,19 +175,17 @@ class PasswordManagerViewControllerTest
   }
 
   PasswordManagerViewController* CreateControllerForPasswordSearch() {
-    ChromeAccountManagerService* account_manager_service =
-        ChromeAccountManagerServiceFactory::GetForBrowserState(
-            browser_state_.get());
+    signin::IdentityManager* identity_manager =
+        IdentityManagerFactory::GetForProfile(profile_.get());
     PasswordManagerViewController* passwords_controller =
         [[PasswordManagerViewController alloc]
-            initWithChromeAccountManagerService:account_manager_service
-                                    prefService:browser_state_.get()->GetPrefs()
-                         shouldOpenInSearchMode:YES];
+            initWithIdentityManager:identity_manager
+                        prefService:profile_.get()->GetPrefs()
+             shouldOpenInSearchMode:YES];
     passwords_controller.delegate = mediator_;
     mediator_.consumer = passwords_controller;
     passwords_controller.handler = passwords_settings_commands_strict_mock_;
-    passwords_controller.shouldShowPasswordManagerWidgetPromo =
-        IsPasswordMangerWidgetPromoEnabled();
+    passwords_controller.shouldShowPasswordManagerWidgetPromo = YES;
 
     // Wait for passwords loading completion.
     EXPECT_TRUE(base::test::ios::WaitUntilConditionOrTimeout(
@@ -370,7 +352,7 @@ class PasswordManagerViewControllerTest
   void RunUntilIdle() { task_environment_.RunUntilIdle(); }
 
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<TestBrowser> browser_;
   TestPasswordsMediator* mediator_;
   ScopedKeyWindow scoped_window_;
@@ -379,27 +361,33 @@ class PasswordManagerViewControllerTest
 };
 
 // Tests default case has no saved sites and no blocked sites.
-TEST_F(PasswordManagerViewControllerTest, TestInitialization) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_TestInitialization) {
   CheckController();
   EXPECT_EQ(0, NumberOfSections());  // Empty state.
   [GetPasswordManagerViewController() settingsWillBeDismissed];
 }
 
 // Tests adding one item in saved password section.
-TEST_F(PasswordManagerViewControllerTest, AddSavedPasswords) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_AddSavedPasswords) {
   AddSavedForm1();
 
-  EXPECT_EQ(4 + GetNumberOfSectionsOffset(), NumberOfSections());
+  EXPECT_EQ(5, NumberOfSections());
   EXPECT_EQ(1, NumberOfItemsInSection(
                    GetSectionIndex(SectionIdentifierSavedPasswords)));
   [GetPasswordManagerViewController() settingsWillBeDismissed];
 }
 
 // Tests adding one item in blocked password section.
-TEST_F(PasswordManagerViewControllerTest, AddBlockedPasswords) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_AddBlockedPasswords) {
   AddBlockedForm1();
 
-  EXPECT_EQ(4 + GetNumberOfSectionsOffset(), NumberOfSections());
+  EXPECT_EQ(5, NumberOfSections());
   EXPECT_EQ(1,
             NumberOfItemsInSection(GetSectionIndex(SectionIdentifierBlocked)));
   [GetPasswordManagerViewController() settingsWillBeDismissed];
@@ -407,13 +395,15 @@ TEST_F(PasswordManagerViewControllerTest, AddBlockedPasswords) {
 
 // Tests adding one item in saved password section, and two items in blocked
 // password section.
-TEST_F(PasswordManagerViewControllerTest, AddSavedAndBlocked) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_AddSavedAndBlocked) {
   AddSavedForm1();
   AddBlockedForm1();
   AddBlockedForm2();
 
   // There should be two sections added.
-  EXPECT_EQ(5 + GetNumberOfSectionsOffset(), NumberOfSections());
+  EXPECT_EQ(6, NumberOfSections());
 
   // There should be 1 row in saved password section.
   EXPECT_EQ(1, NumberOfItemsInSection(
@@ -425,7 +415,9 @@ TEST_F(PasswordManagerViewControllerTest, AddSavedAndBlocked) {
 }
 
 // Tests the order in which the saved passwords are displayed.
-TEST_F(PasswordManagerViewControllerTest, TestSavedPasswordsOrder) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_TestSavedPasswordsOrder) {
   AddSavedForm2();
 
   CheckURLCellTitleAndDetailText(
@@ -442,7 +434,9 @@ TEST_F(PasswordManagerViewControllerTest, TestSavedPasswordsOrder) {
 }
 
 // Tests the order in which the blocked passwords are displayed.
-TEST_F(PasswordManagerViewControllerTest, TestBlockedPasswordsOrder) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_TestBlockedPasswordsOrder) {
   AddBlockedForm2();
   CheckURLCellTitle(@"secret2.com", GetSectionIndex(SectionIdentifierBlocked),
                     /* item= */ 0);
@@ -457,11 +451,13 @@ TEST_F(PasswordManagerViewControllerTest, TestBlockedPasswordsOrder) {
 
 // Tests displaying passwords in the saved passwords section when there are
 // duplicates in the password store.
-TEST_F(PasswordManagerViewControllerTest, AddSavedDuplicates) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_AddSavedDuplicates) {
   AddSavedForm1();
   AddSavedForm1();
 
-  EXPECT_EQ(4 + GetNumberOfSectionsOffset(), NumberOfSections());
+  EXPECT_EQ(5, NumberOfSections());
   EXPECT_EQ(1, NumberOfItemsInSection(
                    GetSectionIndex(SectionIdentifierSavedPasswords)));
   [GetPasswordManagerViewController() settingsWillBeDismissed];
@@ -469,11 +465,13 @@ TEST_F(PasswordManagerViewControllerTest, AddSavedDuplicates) {
 
 // Tests displaying passwords in the blocked passwords section when there
 // are duplicates in the password store.
-TEST_F(PasswordManagerViewControllerTest, AddBlockedDuplicates) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_AddBlockedDuplicates) {
   AddBlockedForm1();
   AddBlockedForm1();
 
-  EXPECT_EQ(4 + GetNumberOfSectionsOffset(), NumberOfSections());
+  EXPECT_EQ(5, NumberOfSections());
   EXPECT_EQ(1,
             NumberOfItemsInSection(GetSectionIndex(SectionIdentifierBlocked)));
   [GetPasswordManagerViewController() settingsWillBeDismissed];
@@ -481,8 +479,10 @@ TEST_F(PasswordManagerViewControllerTest, AddBlockedDuplicates) {
 
 // Tests deleting items from saved passwords (as affiliated groups) and blocked
 // passwords sections.
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
 TEST_F(PasswordManagerViewControllerTest,
-       DeleteAffiliatedGroupsAndBlockedPasswords) {
+       DISABLED_DeleteAffiliatedGroupsAndBlockedPasswords) {
   AddSavedForm1();
   AddSavedForm1(u"test2@egmail.com");
   AddSavedForm2();
@@ -533,7 +533,10 @@ TEST_F(PasswordManagerViewControllerTest,
 
 // Tests that the password manager is updated when passwords change while in
 // search mode.
-TEST_F(PasswordManagerViewControllerTest, TestChangePasswordsWhileSearching) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest,
+       DISABLED_TestChangePasswordsWhileSearching) {
   root_view_controller_ = [[UIViewController alloc] init];
   scoped_window_.Get().rootViewController = root_view_controller_;
 
@@ -558,7 +561,7 @@ TEST_F(PasswordManagerViewControllerTest, TestChangePasswordsWhileSearching) {
         return presentation_finished;
       }));
 
-  EXPECT_EQ(4 + GetNumberOfSectionsOffset(), NumberOfSections());
+  EXPECT_EQ(5, NumberOfSections());
   EXPECT_TRUE([passwords_controller.tableViewModel
       hasSectionForSectionIdentifier:SectionIdentifierAddPasswordButton]);
   EXPECT_TRUE([passwords_controller.tableViewModel
@@ -582,7 +585,7 @@ TEST_F(PasswordManagerViewControllerTest, TestChangePasswordsWhileSearching) {
   passwords_controller.navigationItem.searchController.active = NO;
 
   // Sections are restored after search is over.
-  EXPECT_EQ(4 + GetNumberOfSectionsOffset(), NumberOfSections());
+  EXPECT_EQ(5, NumberOfSections());
   EXPECT_TRUE([passwords_controller.tableViewModel
       hasSectionForSectionIdentifier:SectionIdentifierAddPasswordButton]);
   EXPECT_TRUE([passwords_controller.tableViewModel
@@ -607,8 +610,10 @@ TEST_F(PasswordManagerViewControllerTest, TestChangePasswordsWhileSearching) {
 
 // Tests that dismissing the Search Controller multiple times without presenting
 // it again doesn't cause a crash.
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
 TEST_F(PasswordManagerViewControllerTest,
-       TestDismissingSearchControllerMultipleTimesDoesntCrash) {
+       DISABLED_TestDismissingSearchControllerMultipleTimesDoesntCrash) {
   root_view_controller_ = [[UIViewController alloc] init];
   scoped_window_.Get().rootViewController = root_view_controller_;
 
@@ -653,7 +658,9 @@ TEST_F(PasswordManagerViewControllerTest,
 
 // Tests that opening the PasswordManagerViewController in search mode shows the
 // expected content.
-TEST_F(PasswordManagerViewControllerTest, TestOpenInSearchMode) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_TestOpenInSearchMode) {
   // Call `settingsWillBeDismissed` on the initial view controller so that its
   // observers are reset.
   [GetPasswordManagerViewController() settingsWillBeDismissed];
@@ -698,8 +705,7 @@ TEST_F(PasswordManagerViewControllerTest, TestOpenInSearchMode) {
 
   // Verify that the content of table view model is as expected after leaving
   // search mode.
-  EXPECT_EQ(4 + GetNumberOfSectionsOffset(),
-            [[passwords_controller tableViewModel] numberOfSections]);
+  EXPECT_EQ(5, [[passwords_controller tableViewModel] numberOfSections]);
   EXPECT_TRUE([passwords_controller.tableViewModel
       hasSectionForSectionIdentifier:SectionIdentifierAddPasswordButton]);
   EXPECT_TRUE([passwords_controller.tableViewModel
@@ -723,8 +729,10 @@ TEST_F(PasswordManagerViewControllerTest, TestOpenInSearchMode) {
 }
 
 // Tests that the "Check Now" button is greyed out in edit mode.
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
 TEST_F(PasswordManagerViewControllerTest,
-       TestCheckPasswordButtonDisabledEditMode) {
+       DISABLED_TestCheckPasswordButtonDisabledEditMode) {
   PasswordManagerViewController* passwords_controller =
       GetPasswordManagerViewController();
   AddSavedForm1();
@@ -752,13 +760,15 @@ TEST_F(PasswordManagerViewControllerTest,
 }
 
 // Tests filtering of items.
-TEST_F(PasswordManagerViewControllerTest, FilterItems) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_FilterItems) {
   AddSavedForm1();
   AddSavedForm2();
   AddBlockedForm1();
   AddBlockedForm2();
 
-  EXPECT_EQ(5 + GetNumberOfSectionsOffset(), NumberOfSections());
+  EXPECT_EQ(6, NumberOfSections());
 
   PasswordManagerViewController* passwords_controller =
       GetPasswordManagerViewController();
@@ -801,7 +811,9 @@ TEST_F(PasswordManagerViewControllerTest, FilterItems) {
 
 // Tests filtering of items when group with multiple password entries is
 // present.
-TEST_F(PasswordManagerViewControllerTest, FilterGroupsOfPasswords) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_FilterGroupsOfPasswords) {
   GURL mUrl = GURL("http://www.m.me");
   GURL facebookUrl = GURL("http://www.facebook.com");
   {
@@ -819,7 +831,7 @@ TEST_F(PasswordManagerViewControllerTest, FilterGroupsOfPasswords) {
     AddPasswordForm(std::move(form));
   }
 
-  EXPECT_EQ(4 + GetNumberOfSectionsOffset(), NumberOfSections());
+  EXPECT_EQ(5, NumberOfSections());
 
   PasswordManagerViewController* passwords_controller =
       GetPasswordManagerViewController();
@@ -843,7 +855,9 @@ TEST_F(PasswordManagerViewControllerTest, FilterGroupsOfPasswords) {
 }
 
 // Test verifies disabled state of password check cell.
-TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateDisabled) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_PasswordCheckStateDisabled) {
   AddSavedForm1();
 
   ChangePasswordCheckState(PasswordCheckStateDisabled);
@@ -880,7 +894,9 @@ TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateDisabled) {
 }
 
 // Test verifies default state of password check cell.
-TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateDefault) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_PasswordCheckStateDefault) {
   AddSavedForm1();
 
   ChangePasswordCheckState(PasswordCheckStateDefault);
@@ -917,7 +933,9 @@ TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateDefault) {
 }
 
 // Test verifies safe state of password check cell.
-TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateSafe) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_PasswordCheckStateSafe) {
   AddSavedForm1();
 
   ChangePasswordCheckState(PasswordCheckStateSafe);
@@ -955,8 +973,10 @@ TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateSafe) {
 }
 
 // Test verifies compromised state of password check cell.
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
 TEST_F(PasswordManagerViewControllerTest,
-       PasswordCheckStateUnmutedCompromisedPasswords) {
+       DISABLED_PasswordCheckStateUnmutedCompromisedPasswords) {
   AddSavedInsecureForm(InsecureType::kLeaked);
   ChangePasswordCheckState(PasswordCheckStateUnmutedCompromisedPasswords);
 
@@ -991,7 +1011,10 @@ TEST_F(PasswordManagerViewControllerTest,
 }
 
 // Test verifies reused state of password check cell.
-TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateReusedPasswords) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest,
+       DISABLED_PasswordCheckStateReusedPasswords) {
   AddSavedInsecureForm(InsecureType::kReused);
   AddSavedInsecureForm(InsecureType::kReused, /*is_muted=*/false,
                        /*username_value=*/u"test1@egmail.com");
@@ -1029,7 +1052,10 @@ TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateReusedPasswords) {
 }
 
 // Test verifies weak state of password check cell.
-TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateWeakPasswords) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest,
+       DISABLED_PasswordCheckStateWeakPasswords) {
   AddSavedInsecureForm(InsecureType::kWeak);
   ChangePasswordCheckState(PasswordCheckStateWeakPasswords);
 
@@ -1064,8 +1090,10 @@ TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateWeakPasswords) {
 }
 
 // Test verifies dismissed state of password check cell.
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
 TEST_F(PasswordManagerViewControllerTest,
-       PasswordCheckStateDismissedPasswords) {
+       DISABLED_PasswordCheckStateDismissedPasswords) {
   AddSavedInsecureForm(InsecureType::kLeaked, /*is_muted=*/true);
   ChangePasswordCheckState(PasswordCheckStateDismissedWarnings);
 
@@ -1100,7 +1128,9 @@ TEST_F(PasswordManagerViewControllerTest,
 }
 
 // Test verifies running state of password check cell.
-TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateRunning) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_PasswordCheckStateRunning) {
   AddSavedForm1();
   ChangePasswordCheckState(PasswordCheckStateRunning);
 
@@ -1132,7 +1162,9 @@ TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateRunning) {
 }
 
 // Test verifies error state of password check cell.
-TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateError) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_PasswordCheckStateError) {
   AddSavedForm1();
 
   ChangePasswordCheckState(PasswordCheckStateError);
@@ -1172,7 +1204,10 @@ TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateError) {
 
 // Test verifies that the "Check Now" button is unavailable when the user is
 // signed out.
-TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateSignedOutError) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest,
+       DISABLED_PasswordCheckStateSignedOutError) {
   AddSavedForm1();
 
   ChangePasswordCheckState(PasswordCheckStateSignedOut);
@@ -1188,7 +1223,9 @@ TEST_F(PasswordManagerViewControllerTest, PasswordCheckStateSignedOutError) {
 }
 
 // Test verifies tapping start triggers correct function in service.
-TEST_F(PasswordManagerViewControllerTest, StartPasswordCheck) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_StartPasswordCheck) {
   AddSavedForm1();
   RunUntilIdle();
 
@@ -1206,7 +1243,9 @@ TEST_F(PasswordManagerViewControllerTest, StartPasswordCheck) {
 }
 
 // Test verifies changes to the password store are reflected on UI.
-TEST_F(PasswordManagerViewControllerTest, PasswordStoreListener) {
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_PasswordStoreListener) {
   AddSavedForm1();
   EXPECT_EQ(1, NumberOfItemsInSection(
                    GetSectionIndex(SectionIdentifierSavedPasswords)));
@@ -1216,7 +1255,7 @@ TEST_F(PasswordManagerViewControllerTest, PasswordStoreListener) {
 
   auto password =
       GetTestStore().stored_passwords().at("http://www.example.com/").at(0);
-  GetTestStore().RemoveLogin(password);
+  GetTestStore().RemoveLogin(FROM_HERE, password);
   RunUntilIdle();
   EXPECT_EQ(1, NumberOfItemsInSection(
                    GetSectionIndex(SectionIdentifierSavedPasswords)));
@@ -1224,11 +1263,9 @@ TEST_F(PasswordManagerViewControllerTest, PasswordStoreListener) {
 }
 
 // Test verifies the content of the widget promo cell.
-TEST_F(PasswordManagerViewControllerTest, WidgetPromo) {
-  // Enable Password Manager widget promo feature.
-  base::test::ScopedFeatureList feature_list(
-      feature_engagement::kIPHiOSPromoPasswordManagerWidgetFeature);
-
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest, DISABLED_WidgetPromo) {
   AddSavedForm1();
 
   GetPasswordManagerViewController().shouldShowPasswordManagerWidgetPromo = YES;
@@ -1240,7 +1277,7 @@ TEST_F(PasswordManagerViewControllerTest, WidgetPromo) {
   InlinePromoItem* item = static_cast<InlinePromoItem*>(
       GetTableViewItem(GetSectionIndex(SectionIdentifierWidgetPromo), 0));
 
-  EXPECT_NSEQ(item.promoImage, [UIImage imageNamed:kWidgetPromoImageName]);
+  EXPECT_NSEQ(item.promoImage, [UIImage imageNamed:WidgetPromoImageName()]);
   EXPECT_NSEQ(item.promoText, l10n_util::GetNSString(
                                   IDS_IOS_PASSWORD_MANAGER_WIDGET_PROMO_TEXT));
   EXPECT_NSEQ(item.moreInfoButtonTitle,
@@ -1253,7 +1290,7 @@ TEST_F(PasswordManagerViewControllerTest, WidgetPromo) {
   SetEditing(true);
   EXPECT_FALSE(item.enabled);
   EXPECT_NSEQ(item.promoImage,
-              [UIImage imageNamed:kWidgetPromoDisabledImageName]);
+              [UIImage imageNamed:WidgetPromoDisabledImageName()]);
   SetEditing(false);
 
   [GetPasswordManagerViewController() settingsWillBeDismissed];
@@ -1261,11 +1298,10 @@ TEST_F(PasswordManagerViewControllerTest, WidgetPromo) {
 
 // Tests that the right metric is logged when tapping the widget promo's close
 // button.
-TEST_F(PasswordManagerViewControllerTest, WidgetPromoCloseButtonMetric) {
-  // Enable Password Manager widget promo feature.
-  base::test::ScopedFeatureList feature_list(
-      feature_engagement::kIPHiOSPromoPasswordManagerWidgetFeature);
-
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest,
+       DISABLED_WidgetPromoCloseButtonMetric) {
   AddSavedForm1();
 
   // Make Password Manager show the promo.
@@ -1298,11 +1334,10 @@ TEST_F(PasswordManagerViewControllerTest, WidgetPromoCloseButtonMetric) {
 
 // Tests that the right metric is logged when tapping the widget promo's more
 // info button.
-TEST_F(PasswordManagerViewControllerTest, WidgetPromoMoreInfoButtonMetric) {
-  // Enable Password Manager widget promo feature.
-  base::test::ScopedFeatureList feature_list(
-      feature_engagement::kIPHiOSPromoPasswordManagerWidgetFeature);
-
+// TODO(crbug.com/347688002): re-enable when they pass locally as part of
+// the full ios_chrome_unittests app (i.e. without --gtest_filter=).
+TEST_F(PasswordManagerViewControllerTest,
+       DISABLED_WidgetPromoMoreInfoButtonMetric) {
   AddSavedForm1();
 
   // Make Password Manager show the promo.

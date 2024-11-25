@@ -5,6 +5,7 @@
 #import "ios/chrome/browser/shared/coordinator/default_browser_promo/non_modal_default_browser_promo_scheduler_scene_agent.h"
 
 #import "base/ios/ios_util.h"
+#import "base/memory/raw_ptr.h"
 #import "base/test/metrics/histogram_tester.h"
 #import "base/test/scoped_feature_list.h"
 #import "base/test/task_environment.h"
@@ -13,6 +14,8 @@
 #import "ios/chrome/app/application_delegate/fake_startup_information.h"
 #import "ios/chrome/browser/default_browser/model/utils.h"
 #import "ios/chrome/browser/default_browser/model/utils_test_support.h"
+#import "ios/chrome/browser/default_promo/ui_bundled/default_browser_promo_non_modal_commands.h"
+#import "ios/chrome/browser/default_promo/ui_bundled/default_browser_promo_non_modal_metrics_util.h"
 #import "ios/chrome/browser/infobars/model/infobar_ios.h"
 #import "ios/chrome/browser/infobars/model/infobar_manager_impl.h"
 #import "ios/chrome/browser/infobars/model/test/fake_infobar_ios.h"
@@ -26,13 +29,12 @@
 #import "ios/chrome/browser/shared/model/browser/browser_provider.h"
 #import "ios/chrome/browser/shared/model/browser/browser_provider_interface.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
 #import "ios/chrome/browser/shared/public/commands/application_commands.h"
 #import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
-#import "ios/chrome/browser/ui/default_promo/default_browser_promo_non_modal_commands.h"
-#import "ios/chrome/browser/ui/default_promo/default_browser_promo_non_modal_metrics_util.h"
+#import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/web/public/test/fakes/fake_navigation_manager.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
 #import "testing/gtest/include/gtest/gtest.h"
@@ -48,18 +50,15 @@ class NonModalDefaultBrowserPromoSchedulerSceneAgentTest : public PlatformTest {
   NonModalDefaultBrowserPromoSchedulerSceneAgentTest() {}
 
   void SetUp() override {
-    TestChromeBrowserState::Builder test_cbs_builder;
-    std::unique_ptr<TestChromeBrowserState> chrome_browser_state =
-        test_cbs_builder.Build();
+    TestProfileIOS::Builder builder;
+    std::unique_ptr<TestProfileIOS> profile = std::move(builder).Build();
 
     FakeStartupInformation* startup_information =
         [[FakeStartupInformation alloc] init];
     app_state_ =
         [[AppState alloc] initWithStartupInformation:startup_information];
-    app_state_.mainBrowserState = chrome_browser_state.get();
-    scene_state_ =
-        [[FakeSceneState alloc] initWithAppState:app_state_
-                                    browserState:chrome_browser_state.get()];
+    scene_state_ = [[FakeSceneState alloc] initWithAppState:app_state_
+                                                    profile:profile.get()];
     scene_state_.scene = static_cast<UIWindowScene*>(
         [[[UIApplication sharedApplication] connectedScenes] anyObject]);
 
@@ -75,9 +74,9 @@ class NonModalDefaultBrowserPromoSchedulerSceneAgentTest : public PlatformTest {
     test_web_state_->SetNavigationManager(
         std::make_unique<web::FakeNavigationManager>());
     InfoBarManagerImpl::CreateForWebState(test_web_state_);
-    browser_->GetWebStateList()->InsertWebState(0, std::move(web_state),
-                                                WebStateList::INSERT_ACTIVATE,
-                                                WebStateOpener());
+    browser_->GetWebStateList()->InsertWebState(
+        std::move(web_state),
+        WebStateList::InsertionParams::Automatic().Activate());
 
     ClearDefaultBrowserPromoData();
 
@@ -111,8 +110,9 @@ class NonModalDefaultBrowserPromoSchedulerSceneAgentTest : public PlatformTest {
   base::test::TaskEnvironment task_env_{
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
   base::test::ScopedFeatureList feature_list_;
-  web::FakeWebState* test_web_state_;
-  Browser* browser_;
+  IOSChromeScopedTestingLocalState scoped_testing_local_state_;
+  raw_ptr<web::FakeWebState> test_web_state_;
+  raw_ptr<Browser> browser_;
   FakeOverlayPresentationContext overlay_presentation_context_;
   id promo_commands_handler_;
   NonModalDefaultBrowserPromoSchedulerSceneAgent* scheduler_;
@@ -239,6 +239,32 @@ TEST_F(NonModalDefaultBrowserPromoSchedulerSceneAgentTest,
   EXPECT_EQ(UserInteractionWithNonModalPromoCount(), 1);
 }
 
+// Tests that if the user manages to trigger multiple interactions, the
+// interactions count is only incremented once.
+TEST_F(NonModalDefaultBrowserPromoSchedulerSceneAgentTest,
+       TestMultipleInteractionsOnlyIncrementsCountOnce) {
+  [scheduler_ logUserPastedInOmnibox];
+
+  // Finish loading the page.
+  test_web_state_->SetLoading(true);
+  test_web_state_->OnPageLoaded(web::PageLoadCompletionStatus::SUCCESS);
+  test_web_state_->SetLoading(false);
+
+  // Advance the timer by the post-load delay. This should trigger the promo.
+  [[promo_commands_handler_ expect] showDefaultBrowserNonModalPromo];
+  task_env_.FastForwardBy(base::Seconds(3));
+
+  [promo_commands_handler_ verify];
+
+  // Attempt to log the action 3 times.
+  [scheduler_ logUserPerformedPromoAction];
+  [scheduler_ logUserPerformedPromoAction];
+  [scheduler_ logUserPerformedPromoAction];
+
+  // Check that NSUserDefaults has been updated, incremented only by 1.
+  EXPECT_EQ(UserInteractionWithNonModalPromoCount(), 1);
+}
+
 // Tests that if the user switches to a different tab before the post-load timer
 // finishes, the promo does not show.
 TEST_F(NonModalDefaultBrowserPromoSchedulerSceneAgentTest,
@@ -254,7 +280,8 @@ TEST_F(NonModalDefaultBrowserPromoSchedulerSceneAgentTest,
   auto web_state = std::make_unique<web::FakeWebState>();
   test_web_state_ = web_state.get();
   browser_->GetWebStateList()->InsertWebState(
-      1, std::move(web_state), WebStateList::INSERT_ACTIVATE, WebStateOpener());
+      std::move(web_state),
+      WebStateList::InsertionParams::Automatic().Activate());
 
   // Advance the timer and the mock handler should not have any interactions.
   task_env_.FastForwardBy(base::Seconds(60));
@@ -504,7 +531,8 @@ TEST_F(NonModalDefaultBrowserPromoSchedulerSceneAgentTest,
   // showing.
   auto web_state = std::make_unique<web::FakeWebState>();
   browser_->GetWebStateList()->InsertWebState(
-      1, std::move(web_state), WebStateList::INSERT_ACTIVATE, WebStateOpener());
+      std::move(web_state),
+      WebStateList::InsertionParams::Automatic().Activate());
 
   // Activate the first page again.
   browser_->GetWebStateList()->ActivateWebStateAt(0);
@@ -519,4 +547,29 @@ TEST_F(NonModalDefaultBrowserPromoSchedulerSceneAgentTest,
   task_env_.FastForwardBy(base::Seconds(60));
 }
 
+// Tests that backgrounding the app will not record anything if promo couldn't
+// have been displayed. See b/326565601.
+TEST_F(NonModalDefaultBrowserPromoSchedulerSceneAgentTest,
+       TestBackgroundingDoesNotRecordIfCannotDisplayPromo) {
+  // Make sure the impression limit is met.
+  for (int i = 0; i < GetNonModalDefaultBrowserPromoImpressionLimit(); i++) {
+    LogUserInteractionWithNonModalPromo(i);
+  }
+
+  base::HistogramTester histogram_tester;
+  [scheduler_ logUserPastedInOmnibox];
+
+  // Background the app before page is finished loading.
+  test_web_state_->SetLoading(true);
+  [[promo_commands_handler_ expect]
+      dismissDefaultBrowserNonModalPromoAnimated:NO];
+  [scheduler_ sceneState:nil
+      transitionedToActivationLevel:SceneActivationLevelBackground];
+  [promo_commands_handler_ verify];
+
+  // Check that backgrounding did not record any metrics.
+  histogram_tester.ExpectUniqueSample(
+      "IOS.DefaultBrowserPromo.NonModal.VisitPastedLink",
+      NonModalPromoAction::kBackgroundCancel, 0);
+}
 }  // namespace

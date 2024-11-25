@@ -8,8 +8,7 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 import org.chromium.base.metrics.RecordHistogram;
-
-import java.util.Arrays;
+import org.chromium.chrome.browser.profiles.Profile;
 
 /** Requests information about important sites and other forms of browsing data. */
 public class ClearBrowsingDataFetcher
@@ -69,17 +68,18 @@ public class ClearBrowsingDataFetcher
             };
 
     /** Fetch important sites if the feature is enabled. */
-    public void fetchImportantSites() {
-        BrowsingDataBridge.fetchImportantSites(this);
+    public void fetchImportantSites(Profile profile) {
+        BrowsingDataBridge.getForProfile(profile).fetchImportantSites(this);
     }
 
     /**
      * Request information about other forms of browsing history if the history dialog hasn't been
      * shown yet.
      */
-    public void requestInfoAboutOtherFormsOfBrowsingHistory() {
+    public void requestInfoAboutOtherFormsOfBrowsingHistory(Profile profile) {
         if (!OtherFormsOfHistoryDialogFragment.wasDialogShown()) {
-            BrowsingDataBridge.getInstance().requestInfoAboutOtherFormsOfBrowsingHistory(this);
+            BrowsingDataBridge.getForProfile(profile)
+                    .requestInfoAboutOtherFormsOfBrowsingHistory(this);
         }
     }
 
@@ -125,7 +125,7 @@ public class ClearBrowsingDataFetcher
             String[] exampleOrigins,
             int[] importantReasons,
             boolean dialogDisabled) {
-        if (domains == null || dialogDisabled) return;
+        if (dialogDisabled) return;
         // mMaxImportantSites is a constant on the C++ side. While 0 is valid, use 1 as the minimum
         // because histogram code assumes a min >= 1; the underflow bucket will record the 0s.
         RecordHistogram.recordLinearCountHistogram(
@@ -134,9 +134,9 @@ public class ClearBrowsingDataFetcher
                 1,
                 mMaxImportantSites + 1,
                 mMaxImportantSites + 1);
-        mSortedImportantDomains = Arrays.copyOf(domains, domains.length);
-        mSortedImportantDomainReasons = Arrays.copyOf(importantReasons, importantReasons.length);
-        mSortedExampleOrigins = Arrays.copyOf(exampleOrigins, exampleOrigins.length);
+        mSortedImportantDomains = domains;
+        mSortedImportantDomainReasons = importantReasons;
+        mSortedExampleOrigins = exampleOrigins;
     }
 
     @Override

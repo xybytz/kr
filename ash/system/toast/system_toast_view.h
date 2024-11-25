@@ -7,17 +7,18 @@
 
 #include "ash/ash_export.h"
 #include "base/memory/raw_ptr.h"
+#include "ui/base/interaction/element_identifier.h"
 #include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/layout/flex_layout_view.h"
 
 namespace views {
+class Label;
 class LabelButton;
 }  // namespace views
 
 namespace ash {
 
-struct ToastData;
-class ScopedA11yOverrideWindowSetter;
 class SystemShadow;
 
 // The System Toast view. (go/toast-style-spec)
@@ -25,38 +26,35 @@ class SystemShadow;
 // toast data parameters. It will always have a body text, and may have a
 // leading icon and a trailing button.
 class ASH_EXPORT SystemToastView : public views::FlexLayoutView {
- public:
-  METADATA_HEADER(SystemToastView);
+  METADATA_HEADER(SystemToastView, views::FlexLayoutView)
 
-  explicit SystemToastView(const ToastData& toast_data);
+ public:
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kSystemToastViewElementId);
+
+  SystemToastView(const std::u16string& text,
+                  const std::u16string& dismiss_text = std::u16string(),
+                  base::RepeatingClosure dismiss_callback = base::DoNothing(),
+                  const gfx::VectorIcon* leading_icon = &gfx::kNoneIcon);
   SystemToastView(const SystemToastView&) = delete;
   SystemToastView& operator=(const SystemToastView&) = delete;
   ~SystemToastView() override;
 
-  bool is_dismiss_button_highlighted() const {
-    return is_dismiss_button_highlighted_;
-  }
+  views::LabelButton* dismiss_button() { return dismiss_button_; }
 
-  views::LabelButton* dismiss_button() const { return dismiss_button_; }
-
-  // Returns true if there's a button and it was highlighted for accessibility.
-  bool ToggleA11yFocus();
+  // Updates the toast label text.
+  void SetText(const std::u16string& text);
+  const std::u16string& GetText() const;
 
  private:
-  // Owned by the views hierarchy.
-  raw_ptr<views::LabelButton> dismiss_button_ = nullptr;
-
-  std::unique_ptr<SystemShadow> shadow_;
-
   // views::View:
   void AddedToWidget() override;
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
 
-  bool is_dismiss_button_highlighted_ = false;
+  // Owned by the views hierarchy.
+  raw_ptr<views::Label> label_ = nullptr;
+  raw_ptr<views::LabelButton> dismiss_button_ = nullptr;
 
-  // Updates the current a11y override window when the dismiss button is being
-  // highlighted.
-  std::unique_ptr<ScopedA11yOverrideWindowSetter> scoped_a11y_overrider_;
+  std::unique_ptr<SystemShadow> shadow_;
 };
 
 }  // namespace ash

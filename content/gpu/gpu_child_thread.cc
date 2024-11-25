@@ -9,7 +9,6 @@
 #include <memory>
 #include <utility>
 
-#include "base/allocator/allocator_extension.h"
 #include "base/command_line.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/functional/bind.h"
@@ -85,10 +84,12 @@ ChildThreadImpl::Options GetOptions(
 
 viz::VizMainImpl::ExternalDependencies CreateVizMainDependencies() {
   viz::VizMainImpl::ExternalDependencies deps;
-  if (!base::PowerMonitor::IsInitialized()) {
+  if (!base::PowerMonitor::GetInstance()->IsInitialized()) {
     deps.power_monitor_source =
         std::make_unique<base::PowerMonitorDeviceSource>();
   }
+
+#if BUILDFLAG(IS_ANDROID)
   if (GetContentClient()->gpu()) {
     deps.sync_point_manager = GetContentClient()->gpu()->GetSyncPointManager();
     deps.shared_image_manager =
@@ -97,6 +98,8 @@ viz::VizMainImpl::ExternalDependencies CreateVizMainDependencies() {
     deps.viz_compositor_thread_runner =
         GetContentClient()->gpu()->GetVizCompositorThreadRunner();
   }
+#endif
+
   auto* process = ChildProcess::current();
   deps.shutdown_event = process->GetShutDownEvent();
   deps.io_thread_task_runner = process->io_task_runner();
@@ -239,7 +242,6 @@ void GpuChildThread::OnMemoryPressure(
   if (level != base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL)
     return;
 
-  base::allocator::ReleaseFreeMemory();
   if (viz_main_.discardable_shared_memory_manager())
     viz_main_.discardable_shared_memory_manager()->ReleaseFreeMemory();
   SkGraphics::PurgeAllCaches();

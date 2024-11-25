@@ -7,7 +7,7 @@
 #import "ios/chrome/browser/shared/model/browser/browser.h"
 #import "ios/chrome/browser/shared/model/browser/browser_list.h"
 #import "ios/chrome/browser/shared/model/browser/browser_list_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_controller.h"
 #import "ios/chrome/test/app/tab_test_util.h"
 #import "ios/web/public/web_state.h"
@@ -18,13 +18,13 @@
   web::WebState* webState = chrome_test_util::GetCurrentWebState();
   if (!webState)
     return UIEdgeInsetsZero;
-  ChromeBrowserState* browserState =
-      ChromeBrowserState::FromBrowserState(webState->GetBrowserState());
+  ProfileIOS* profile =
+      ProfileIOS::FromBrowserState(webState->GetBrowserState());
   // TODO: (crbug.com/1063516): Retrieve Browser-scoped FullscreenController
   // in a better way.
   std::set<Browser*> browsers =
-      BrowserListFactory::GetForBrowserState(browserState)
-          ->AllRegularBrowsers();
+      BrowserListFactory::GetForProfile(profile)->BrowsersOfType(
+          BrowserList::BrowserType::kRegularAndInactive);
   // There is regular browser and inactive browser. More means multi-window.
   // NOTE: The inactive browser is always created even if the feature is
   // disabled, in order to ensure to restore all saved tabs.

@@ -34,7 +34,8 @@ import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.LooperMode;
 import org.robolectric.annotation.LooperMode.Mode;
@@ -43,7 +44,7 @@ import org.chromium.base.Callback;
 import org.chromium.base.shared_preferences.SharedPreferencesManager;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.HistogramWatcher;
-import org.chromium.base.test.util.JniMocker;
+import org.chromium.chrome.browser.device_reauth.BiometricStatus;
 import org.chromium.chrome.browser.device_reauth.ReauthenticatorBridge;
 import org.chromium.chrome.browser.incognito.reauth.IncognitoReauthManager;
 import org.chromium.chrome.browser.incognito.reauth.IncognitoReauthSettingUtils;
@@ -66,7 +67,7 @@ import org.chromium.components.user_prefs.UserPrefsJni;
 @Config(manifest = Config.NONE, sdk = VERSION_CODES.R)
 @LooperMode(Mode.PAUSED)
 public class IncognitoReauthPromoMessageServiceUnitTest {
-    @Rule public JniMocker mJniMocker = new JniMocker();
+    @Rule public final MockitoRule mMockitoRule = MockitoJUnit.rule();
 
     @Mock private Profile mProfileMock;
     @Mock private Context mContextMock;
@@ -81,14 +82,12 @@ public class IncognitoReauthPromoMessageServiceUnitTest {
 
     private SharedPreferencesManager mSharedPreferenceManager;
     private IncognitoReauthPromoMessageService mIncognitoReauthPromoMessageService;
-    private boolean mIsTabToGTSAnimationEnabled;
     private IncognitoReauthManager mIncognitoReauthManager;
     private PauseResumeWithNativeObserver mPauseResumeWithNativeObserver;
 
     @Before
     public void setUp() {
-        MockitoAnnotations.initMocks(this);
-        mJniMocker.mock(UserPrefsJni.TEST_HOOKS, mUserPrefsJniMock);
+        UserPrefsJni.setInstanceForTesting(mUserPrefsJniMock);
         when(mUserPrefsJniMock.get(mProfileMock)).thenReturn(mPrefServiceMock);
 
         IncognitoReauthManager.setIsIncognitoReauthFeatureAvailableForTesting(false);
@@ -105,7 +104,6 @@ public class IncognitoReauthPromoMessageServiceUnitTest {
                         mSharedPreferenceManager,
                         mIncognitoReauthManager,
                         mSnackbarManagerMock,
-                        () -> mIsTabToGTSAnimationEnabled,
                         mActivityLifecycleDispatcherMock);
         verify(mActivityLifecycleDispatcherMock, times(1))
                 .register(mLifecycleObserverArgumentCaptor.capture());
@@ -144,15 +142,12 @@ public class IncognitoReauthPromoMessageServiceUnitTest {
     @Test
     @SmallTest
     public void testDismissMessageWhenGTSEnabled_RecordsCorrectImpressionMetric() {
-        mIsTabToGTSAnimationEnabled = true;
         HistogramWatcher histogramWatcher =
                 HistogramWatcher.newSingleRecordWatcher(
                         "Android.IncognitoReauth.PromoImpressionAfterActionCount", 1);
 
         createIncognitoReauthPromoMessageService();
 
-        // Increasing the impression twice, records only one impression when GTS is enabled.
-        mIncognitoReauthPromoMessageService.increasePromoShowCountAndMayDisableIfCountExceeds();
         mIncognitoReauthPromoMessageService.increasePromoShowCountAndMayDisableIfCountExceeds();
         mIncognitoReauthPromoMessageService.dismiss();
 
@@ -282,43 +277,7 @@ public class IncognitoReauthPromoMessageServiceUnitTest {
 
     @Test
     @SmallTest
-    public void testPreparePromoMessage_Fails_AfterMaxShowCountReached_TabToGTSEnabled() {
-        mIsTabToGTSAnimationEnabled = true;
-        createIncognitoReauthPromoMessageService();
-        assert mIncognitoReauthPromoMessageService.mMaxPromoMessageCount == 10
-                : "When animation is enabled, then the max count should be set to 20, because of"
-                        + " double counting.";
-
-        when(mPrefServiceMock.getBoolean(Pref.INCOGNITO_REAUTHENTICATION_FOR_ANDROID))
-                .thenReturn(false);
-        IncognitoReauthManager.setIsIncognitoReauthFeatureAvailableForTesting(
-                /* isAvailable= */ true);
-        IncognitoReauthSettingUtils.setIsDeviceScreenLockEnabledForTesting(/* value= */ true);
-
-        // Mocking the maximum limit.
-        final int initialShowCount = mIncognitoReauthPromoMessageService.getPromoShowCount();
-
-        // When TabToGTS is enabled we call the preparePromoMessage twice for each promo.
-        final int maxShowCount = mIncognitoReauthPromoMessageService.mMaxPromoMessageCount * 2;
-        for (int i = initialShowCount; i < maxShowCount; ++i) {
-            assertTrue(
-                    "Promo message should have been prepared as the current count: "
-                            + i
-                            + ", is less than the max count: "
-                            + maxShowCount,
-                    mIncognitoReauthPromoMessageService.preparePromoMessage());
-            mIncognitoReauthPromoMessageService.increasePromoShowCountAndMayDisableIfCountExceeds();
-        }
-        assertFalse(
-                "We shouldn't prepare the message since the max limit was reached in the previous"
-                        + " step.",
-                mIncognitoReauthPromoMessageService.preparePromoMessage());
-    }
-
-    @Test
-    @SmallTest
-    public void testPreparePromoMessage_Fails_AfterMaxShowCountReached_TabToGTSDisabled() {
-        mIsTabToGTSAnimationEnabled = false;
+    public void testPreparePromoMessage_Fails_AfterMaxShowCountReached() {
         createIncognitoReauthPromoMessageService();
         assert mIncognitoReauthPromoMessageService.mMaxPromoMessageCount == 10
                 : "When animation is disabled, then the max count should be set to 10, as there's"
@@ -384,8 +343,8 @@ public class IncognitoReauthPromoMessageServiceUnitTest {
         doNothing().when(mMessageObserverMock).messageInvalidate(MessageType.FOR_TESTING);
         IncognitoReauthManager.setIsIncognitoReauthFeatureAvailableForTesting(
                 /* isAvailable= */ true);
-        when(mReauthenticatorBridgeMock.canUseAuthenticationWithBiometricOrScreenLock())
-                .thenReturn(true);
+        when(mReauthenticatorBridgeMock.getBiometricAvailabilityStatus())
+                .thenReturn(BiometricStatus.BIOMETRICS_AVAILABLE);
         doAnswer(
                         invocation -> {
                             Callback<Boolean> callback = invocation.getArgument(0);
@@ -407,8 +366,7 @@ public class IncognitoReauthPromoMessageServiceUnitTest {
         mIncognitoReauthPromoMessageService.review();
         IncognitoReauthPromoMessageService.setIsPromoEnabledForTesting(false);
 
-        verify(mReauthenticatorBridgeMock, times(1))
-                .canUseAuthenticationWithBiometricOrScreenLock();
+        verify(mReauthenticatorBridgeMock, times(1)).getBiometricAvailabilityStatus();
         verify(mReauthenticatorBridgeMock, times(1)).reauthenticate(notNull());
         verify(mPrefServiceMock, times(1))
                 .setBoolean(Pref.INCOGNITO_REAUTHENTICATION_FOR_ANDROID, true);

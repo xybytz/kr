@@ -81,7 +81,7 @@ class ScopeChangeController {
             implements ScopeObserver {
         private final Delegate mDelegate;
         private final ScopeKey mScopeKey;
-        // TODO(crbug.com/1340572): Replace GURL with Origin.
+        // TODO(crbug.com/40230391): Replace GURL with Origin.
         private GURL mLastVisitedUrl;
         private boolean mIsActive;
 
@@ -100,17 +100,13 @@ class ScopeChangeController {
         }
 
         @Override
-        public void wasShown() {
+        public void onVisibilityChanged(@Visibility int visibility) {
+            mIsActive = visibility == Visibility.VISIBLE;
             mDelegate.onScopeChange(
-                    new MessageScopeChange(mScopeKey.scopeType, mScopeKey, ChangeType.ACTIVE));
-            mIsActive = true;
-        }
-
-        @Override
-        public void wasHidden() {
-            mDelegate.onScopeChange(
-                    new MessageScopeChange(mScopeKey.scopeType, mScopeKey, ChangeType.INACTIVE));
-            mIsActive = false;
+                    new MessageScopeChange(
+                            mScopeKey.scopeType,
+                            mScopeKey,
+                            mIsActive ? ChangeType.ACTIVE : ChangeType.INACTIVE));
         }
 
         @Override
@@ -155,7 +151,7 @@ class ScopeChangeController {
         public void onTopLevelNativeWindowChanged(@Nullable WindowAndroid windowAndroid) {
             super.onTopLevelNativeWindowChanged(windowAndroid);
             // Dismiss the message if it is moved to another window.
-            // TODO(crbug.com/1205392): This is a temporary solution; remove this when
+            // TODO(crbug.com/40764577): This is a temporary solution; remove this when
             // tab-reparent is fully supported.
             destroy();
         }

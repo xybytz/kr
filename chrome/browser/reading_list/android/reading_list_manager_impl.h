@@ -20,18 +20,18 @@ class ReadingListModel;
 // list nodes as children. Only has one level of children.
 // 2. Talk to reading list model, and sync with the in memory bookmark tree.
 // 3. Talk to observers to report model change events.
-// TODO(crbug.com/1510550): Refactor this to be part of the bookmarks dir.
+// TODO(crbug.com/41483143): Refactor this to be part of the bookmarks dir.
 // - Better renamed to ReadingListAsBookmarkAdapter when moved.
 class ReadingListManagerImpl : public ReadingListManager,
                                public ReadingListModelObserver {
  public:
   using IdGenerationFunction = base::RepeatingCallback<int64_t(void)>;
 
+  // `reading_list_model` must not be null and must outlive `this`.
   ReadingListManagerImpl(ReadingListModel* reading_list_model,
                          const IdGenerationFunction& id_gen_func);
   ~ReadingListManagerImpl() override;
 
- private:
   // ReadingListModelObserver overrides.
   void ReadingListModelLoaded(const ReadingListModel* model) override;
   void ReadingListDidAddEntry(const ReadingListModel* model,
@@ -63,6 +63,7 @@ class ReadingListManagerImpl : public ReadingListManager,
   bool IsReadingListBookmark(
       const bookmarks::BookmarkNode* node) const override;
   void Delete(const GURL& url) override;
+  void DeleteAll() override;
   const bookmarks::BookmarkNode* GetRoot() const override;
   size_t size() const override;
   size_t unread_size() const override;
@@ -71,6 +72,7 @@ class ReadingListManagerImpl : public ReadingListManager,
   bool GetReadStatus(const bookmarks::BookmarkNode* node) override;
   bool IsLoaded() const override;
 
+ private:
   // Finds the child in the bookmark tree by URL. Returns nullptr if not found.
   // Not recursive since the reading list bookmark tree only has a folder root
   // node and one level of children.

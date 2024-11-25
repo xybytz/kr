@@ -15,7 +15,7 @@ import org.chromium.base.Callback;
 
 /**
  * Delegate that provides the toolbar with the info of the NTP for the current tab.
- * TODO(crbug.com/1127732): Consider moving this out of toolbar/ into its own target for omnibox as
+ * TODO(crbug.com/40148706): Consider moving this out of toolbar/ into its own target for omnibox as
  * well.
  */
 public interface NewTabPageDelegate {
@@ -98,7 +98,7 @@ public interface NewTabPageDelegate {
      * bar has focus and has completed the focus animation. 0 is when the URL bar is does not have
      * any focus.
      *
-     * @param percent The percentage of the URL bar focus animation.
+     * @param fraction The percentage of the URL bar focus animation.
      */
     default void setUrlFocusChangeAnimationPercent(float fraction) {}
 

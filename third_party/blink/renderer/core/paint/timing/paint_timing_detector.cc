@@ -83,7 +83,7 @@ void ReportImagePixelInaccuracy(HTMLImageElement* image_element) {
   float document_dpr = document.DevicePixelRatio();
 
   // Get the size attribute calculated width, if any
-  absl::optional<float> sizes_width = image_element->GetResourceWidth();
+  std::optional<float> sizes_width = image_element->GetResourceWidth();
   // Report offset in pixels between intrinsic and layout dimensions
   const float kDPRCap = 2.0;
   float capped_dpr = std::min(document_dpr, kDPRCap);
@@ -167,19 +167,15 @@ void PaintTimingDetector::NotifyPaintFinished() {
   if (window) {
     DOMWindowPerformance::performance(*window)->OnPaintFinished();
   }
-  if (Document* document = frame_view_->GetFrame().GetDocument()) {
-    document->OnPaintFinished();
-  }
 }
 
 // static
 bool PaintTimingDetector::NotifyBackgroundImagePaint(
     const Node& node,
     const Image& image,
-    const StyleFetchedImage& style_image,
+    const StyleImage& style_image,
     const PropertyTreeStateOrAlias& current_paint_chunk_properties,
     const gfx::Rect& image_border) {
-  DCHECK(style_image.CachedImage());
   LayoutObject* object = node.GetLayoutObject();
   if (!object) {
     return false;
@@ -189,8 +185,13 @@ bool PaintTimingDetector::NotifyBackgroundImagePaint(
     return false;
   }
 
+  PaintTimingDetector& paint_timing_detector =
+      frame_view->GetPaintTimingDetector();
+  if (paint_timing_detector.IsUnrelatedSoftNavigationPaint(node)) {
+    return false;
+  }
   ImagePaintTimingDetector& image_paint_timing_detector =
-      frame_view->GetPaintTimingDetector().GetImagePaintTimingDetector();
+      paint_timing_detector.GetImagePaintTimingDetector();
   if (!image_paint_timing_detector.IsRecordingLargestImagePaint()) {
     return false;
   }
@@ -206,7 +207,7 @@ bool PaintTimingDetector::NotifyBackgroundImagePaint(
 
   return image_paint_timing_detector.RecordImage(
       *object, image.Size(), *cached_image, current_paint_chunk_properties,
-      &style_image, image_border, style_image.IsLoadedAfterMouseover());
+      &style_image, image_border);
 }
 
 // static
@@ -223,16 +224,20 @@ bool PaintTimingDetector::NotifyImagePaint(
   if (!frame_view) {
     return false;
   }
+  PaintTimingDetector& paint_timing_detector =
+      frame_view->GetPaintTimingDetector();
   ImagePaintTimingDetector& image_paint_timing_detector =
-      frame_view->GetPaintTimingDetector().GetImagePaintTimingDetector();
+      paint_timing_detector.GetImagePaintTimingDetector();
   if (!image_paint_timing_detector.IsRecordingLargestImagePaint()) {
     return false;
   }
 
   Node* image_node = object.GetNode();
+  if (image_node &&
+      paint_timing_detector.IsUnrelatedSoftNavigationPaint(*image_node)) {
+    return false;
+  }
   HTMLImageElement* element = DynamicTo<HTMLImageElement>(image_node);
-  bool is_loaded_after_mouseover =
-      element && element->IsChangedShortlyAfterMouseover();
 
   if (element) {
     // This doesn't capture poster. That's probably fine.
@@ -241,7 +246,7 @@ bool PaintTimingDetector::NotifyImagePaint(
 
   return image_paint_timing_detector.RecordImage(
       object, intrinsic_size, media_timing, current_paint_chunk_properties,
-      nullptr, image_border, is_loaded_after_mouseover);
+      nullptr, image_border);
 }
 
 void PaintTimingDetector::NotifyImageFinished(const LayoutObject& object,
@@ -523,6 +528,11 @@ void PaintTimingDetector::ReportIgnoredContent() {
 const LargestContentfulPaintDetails&
 PaintTimingDetector::LatestLcpDetailsForTest() const {
   return largest_contentful_paint_calculator_->LatestLcpDetails();
+}
+
+bool PaintTimingDetector::IsUnrelatedSoftNavigationPaint(const Node& node) {
+  return (WasLCPRestarted() &&
+          !(IsSoftNavigationDetected() || node.IsModifiedBySoftNavigation()));
 }
 
 ScopedPaintTimingDetectorBlockPaintHook*

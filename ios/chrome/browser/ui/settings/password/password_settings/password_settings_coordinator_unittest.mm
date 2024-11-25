@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#import "ios/chrome/browser/ui/settings/password/password_settings/password_settings_coordinator.h"
+
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
@@ -9,26 +11,30 @@
 #import "base/test/bind.h"
 #import "base/test/ios/wait_util.h"
 #import "base/test/metrics/histogram_tester.h"
-#import "base/test/scoped_feature_list.h"
 #import "components/password_manager/core/browser/password_manager_test_utils.h"
 #import "components/password_manager/core/browser/password_store/test_password_store.h"
 #import "ios/chrome/browser/passwords/model/ios_chrome_profile_password_store_factory.h"
 #import "ios/chrome/browser/passwords/model/metrics/ios_password_manager_metrics.h"
 #import "ios/chrome/browser/shared/coordinator/scene/scene_state.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/public/commands/application_commands.h"
 #import "ios/chrome/browser/shared/public/commands/browser_commands.h"
-#import "ios/chrome/browser/shared/public/commands/browsing_data_commands.h"
 #import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
+#import "ios/chrome/browser/shared/public/commands/settings_commands.h"
 #import "ios/chrome/browser/shared/public/commands/snackbar_commands.h"
-#import "ios/chrome/browser/ui/settings/password/password_manager_ui_features.h"
-#import "ios/chrome/browser/ui/settings/password/password_settings/password_settings_coordinator.h"
+#import "ios/chrome/browser/signin/model/authentication_service.h"
+#import "ios/chrome/browser/signin/model/authentication_service_factory.h"
+#import "ios/chrome/browser/signin/model/fake_authentication_service_delegate.h"
+#import "ios/chrome/browser/signin/model/fake_system_identity.h"
+#import "ios/chrome/browser/signin/model/fake_system_identity_manager.h"
 #import "ios/chrome/browser/ui/settings/password/password_settings/password_settings_view_controller.h"
 #import "ios/chrome/browser/ui/settings/password/password_settings/scoped_password_settings_reauth_module_override.h"
 #import "ios/chrome/browser/ui/settings/password/reauthentication/reauthentication_view_controller.h"
 #import "ios/chrome/test/app/mock_reauthentication_module.h"
+#import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/chrome/test/scoped_key_window.h"
 #import "ios/testing/protocol_fake.h"
 #import "ios/web/public/test/web_task_environment.h"
@@ -45,29 +51,32 @@ class PasswordSettingsCoordinatorTest : public PlatformTest {
   void SetUp() override {
     PlatformTest::SetUp();
 
-    scoped_feature_list_.InitAndEnableFeature(
-        password_manager::features::kIOSPasswordAuthOnEntryV2);
+    FakeSystemIdentityManager::FromSystemIdentityManager(
+        GetApplicationContext()->GetSystemIdentityManager())
+        ->AddIdentity([FakeSystemIdentity fakeIdentity1]);
 
-    TestChromeBrowserState::Builder builder;
+    TestProfileIOS::Builder builder;
     // Add test password store. Used by the mediator.
     builder.AddTestingFactory(
         IOSChromeProfilePasswordStoreFactory::GetInstance(),
         base::BindRepeating(
             &password_manager::BuildPasswordStore<
                 web::BrowserState, password_manager::TestPasswordStore>));
+    builder.AddTestingFactory(
+        AuthenticationServiceFactory::GetInstance(),
+        AuthenticationServiceFactory::GetFactoryWithDelegate(
+            std::make_unique<FakeAuthenticationServiceDelegate>()));
 
     // Create scene state for reauthentication coordinator.
     scene_state_ = [[SceneState alloc] initWithAppState:nil];
     scene_state_.activationLevel = SceneActivationLevelForegroundActive;
 
-    browser_state_ = builder.Build();
-    browser_ =
-        std::make_unique<TestBrowser>(browser_state_.get(), scene_state_);
+    profile_ = std::move(builder).Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get(), scene_state_);
 
     NSArray<Protocol*>* command_protocols = @[
       @protocol(ApplicationCommands), @protocol(BrowserCommands),
-      @protocol(BrowsingDataCommands), @protocol(ApplicationSettingsCommands),
-      @protocol(SnackbarCommands)
+      @protocol(SettingsCommands), @protocol(SnackbarCommands)
     ];
     fake_command_endpoint_ =
         [[ProtocolFake alloc] initWithProtocols:command_protocols];
@@ -80,7 +89,7 @@ class PasswordSettingsCoordinatorTest : public PlatformTest {
     mock_reauth_module_ = [[MockReauthenticationModule alloc] init];
     // Delay auth result so auth doesn't pass right after starting coordinator.
     // Needed for verifying behavior when auth is required.
-    mock_reauth_module_.shouldReturnSynchronously = NO;
+    mock_reauth_module_.shouldSkipReAuth = NO;
     mock_reauth_module_.expectedResult = ReauthenticationResult::kSuccess;
     // Make coordinator use mock reauth module.
     scoped_reauth_override_ =
@@ -134,7 +143,9 @@ class PasswordSettingsCoordinatorTest : public PlatformTest {
   }
 
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<ChromeBrowserState> browser_state_;
+  // Needed for the initialization of authentication service.
+  IOSChromeScopedTestingLocalState scoped_testing_local_state_;
+  std::unique_ptr<ProfileIOS> profile_;
   std::unique_ptr<TestBrowser> browser_;
   SceneState* scene_state_;
   UIViewController* root_view_controller_;
@@ -142,7 +153,6 @@ class PasswordSettingsCoordinatorTest : public PlatformTest {
   MockReauthenticationModule* mock_reauth_module_ = nil;
   std::unique_ptr<ScopedPasswordSettingsReauthModuleOverride>
       scoped_reauth_override_;
-  base::test::ScopedFeatureList scoped_feature_list_;
   base::HistogramTester histogram_tester_;
   PasswordSettingsCoordinator* coordinator_ = nil;
   ProtocolFake* fake_command_endpoint_ = nil;

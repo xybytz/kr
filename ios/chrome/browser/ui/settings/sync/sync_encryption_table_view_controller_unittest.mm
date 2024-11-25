@@ -10,7 +10,7 @@
 #import "base/functional/bind.h"
 #import "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_text_item.h"
 #import "ios/chrome/browser/shared/ui/table_view/legacy_chrome_table_view_controller_test.h"
 #import "ios/chrome/browser/ui/settings/content_settings/content_settings_table_view_controller.h"
@@ -28,8 +28,8 @@ class SyncEncryptionTableViewControllerTest
   void SetUp() override {
     LegacyChromeTableViewControllerTest::SetUp();
 
-    browser_state_ = TestChromeBrowserState::Builder().Build();
-    browser_ = std::make_unique<TestBrowser>(browser_state_.get());
+    profile_ = TestProfileIOS::Builder().Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get());
 
     CreateController();
   }
@@ -50,7 +50,7 @@ class SyncEncryptionTableViewControllerTest
   }
 
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<TestBrowser> browser_;
 };
 

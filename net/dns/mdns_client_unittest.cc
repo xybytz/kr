@@ -720,7 +720,7 @@ TEST_F(MDnsTest, StopListening) {
   EXPECT_FALSE(test_client_->IsListening());
 }
 
-TEST_F(MDnsTest, StopListening_CacheCleanupScheduled) {
+TEST_F(MDnsTest, StopListeningCacheCleanupScheduled) {
   auto owned_clock = std::make_unique<base::SimpleTestClock>();
   base::SimpleTestClock* clock = owned_clock.get();
   test_clock_ = std::move(owned_clock);
@@ -1236,7 +1236,7 @@ TEST_F(MDnsTest, NsecConflictRemoval) {
   EXPECT_EQ(record1, record2);
 }
 
-// TODO(https://crbug.com/1274091): Flaky on fuchsia.
+// TODO(crbug.com/40807339): Flaky on fuchsia.
 #if BUILDFLAG(IS_FUCHSIA)
 #define MAYBE_RefreshQuery DISABLED_RefreshQuery
 #else

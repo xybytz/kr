@@ -12,6 +12,8 @@
 #include "components/autofill/core/browser/payments/credit_card_otp_authenticator.h"
 #include "components/autofill/core/browser/payments/credit_card_risk_based_authenticator.h"
 #include "components/autofill/core/browser/payments/full_card_request.h"
+#include "components/autofill/core/browser/payments/payments_autofill_client.h"
+#include "components/autofill/core/browser/payments/payments_request_details.h"
 
 #if !BUILDFLAG(IS_IOS)
 #include "components/autofill/core/browser/payments/credit_card_fido_authenticator.h"
@@ -66,9 +68,8 @@ class TestAuthenticationRequester
       const CreditCardRiskBasedAuthenticator::RiskBasedAuthenticationResponse&
           response) override;
   void OnVirtualCardRiskBasedAuthenticationResponseReceived(
-      AutofillClient::PaymentsRpcResult result,
-      payments::PaymentsNetworkInterface::UnmaskResponseDetails&
-          response_details) override;
+      payments::PaymentsAutofillClient::PaymentsRpcResult result,
+      const payments::UnmaskResponseDetails& response_details) override;
 
   base::WeakPtr<TestAuthenticationRequester> GetWeakPtr();
 
@@ -78,8 +79,7 @@ class TestAuthenticationRequester
 
   std::u16string number() { return number_; }
 
-  payments::PaymentsNetworkInterface::UnmaskResponseDetails response_details()
-      const {
+  payments::UnmaskResponseDetails response_details() const {
     return response_details_;
   }
 
@@ -108,7 +108,7 @@ class TestAuthenticationRequester
   std::u16string number_;
 
   // Unmask response returned from UnmaskCard request.
-  payments::PaymentsNetworkInterface::UnmaskResponseDetails response_details_;
+  payments::UnmaskResponseDetails response_details_;
 
   // Authentication response returned from CreditCardRiskBasedAuthenticator.
   CreditCardRiskBasedAuthenticator::RiskBasedAuthenticationResponse

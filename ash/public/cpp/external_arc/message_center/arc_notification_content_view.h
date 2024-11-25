@@ -14,6 +14,7 @@
 #include "base/memory/raw_ptr.h"
 #include "ui/aura/window_observer.h"
 #include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/gfx/geometry/rounded_corners_f.h"
 #include "ui/message_center/views/notification_background_painter.h"
 #include "ui/message_center/views/notification_control_buttons_view.h"
 #include "ui/views/controls/native/native_view_host.h"
@@ -45,9 +46,9 @@ class ArcNotificationContentView
       public ArcNotificationItem::Observer,
       public ArcNotificationSurfaceManager::Observer,
       public views::WidgetObserver {
- public:
-  METADATA_HEADER(ArcNotificationContentView);
+  METADATA_HEADER(ArcNotificationContentView, views::NativeViewHost)
 
+ public:
   static int GetNotificationContentViewWidth();
 
   ArcNotificationContentView(ArcNotificationItem* item,
@@ -68,11 +69,16 @@ class ArcNotificationContentView
 
   bool slide_in_progress() const { return slide_in_progress_; }
 
+  // views::NativeViewHost
+  void SetVisible(bool visible) override;
+
  private:
   friend class ArcNotificationViewTest;
   friend class ArcNotificationContentViewTest;
   FRIEND_TEST_ALL_PREFIXES(ArcNotificationContentViewTest,
                            ActivateWhenRemoteInputOpens);
+  FRIEND_TEST_ALL_PREFIXES(ArcNotificationContentViewTest,
+                           AccessibleProperties);
 
   class EventForwarder;
   class MouseEnterExitHandler;
@@ -90,17 +96,16 @@ class ArcNotificationContentView
   bool IsExpanded() const;
   void SetManuallyExpandedOrCollapsed(bool value);
   bool IsManuallyExpandedOrCollapsed() const;
+  void EnsureSurfaceAttached();
+  void EnsureSurfaceDetached();
 
   void ShowCopiedSurface();
   void HideCopiedSurface();
 
-  // Generates a mask using |top_radius_| and |bottom_radius_| and installs it.
-  void UpdateMask(bool force_update);
-
   // views::NativeViewHost
   void ViewHierarchyChanged(
       const views::ViewHierarchyChangedDetails& details) override;
-  void Layout() override;
+  void Layout(PassKey) override;
   void OnPaint(gfx::Canvas* canvas) override;
   void OnMouseEntered(const ui::MouseEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
@@ -108,7 +113,6 @@ class ArcNotificationContentView
   void OnBlur() override;
   void OnThemeChanged() override;
   views::FocusTraversable* GetFocusTraversable() override;
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnAccessibilityEvent(ax::mojom::Event event) override;
   void AddedToWidget() override;
   void RemovedFromWidget() override;
@@ -134,6 +138,12 @@ class ArcNotificationContentView
   // ArcNotificationSurfaceManager::Observer:
   void OnNotificationSurfaceAdded(ArcNotificationSurface* surface) override;
   void OnNotificationSurfaceRemoved(ArcNotificationSurface* surface) override;
+  void OnNotificationSurfaceAXTreeIdChanged(
+      ArcNotificationSurface* surface) override;
+
+  void UpdateAccessibleRole();
+  void UpdateAccessibleRoleDescription();
+  void UpdateAccessibleChildTreeId();
 
   // If |item_| is null, we may be about to be destroyed. In this case,
   // we have to be careful about what we do.
@@ -194,17 +204,10 @@ class ArcNotificationContentView
   // Widget which this view tree is currently attached to.
   raw_ptr<views::Widget> attached_widget_ = nullptr;
 
-  std::u16string accessible_name_;
-
   // If it's true, the surface gets active when attached to this view.
   bool activate_on_attach_ = false;
 
-  // Radiuses of rounded corners. These values are used in UpdateMask().
-  float top_radius_ = 0;
-  float bottom_radius_ = 0;
-
-  // Current insets of mask layer.
-  std::optional<gfx::Insets> mask_insets_;
+  gfx::RoundedCornersF contents_radii_;
 
   std::unique_ptr<ui::LayerTreeOwner> surface_copy_;
 };

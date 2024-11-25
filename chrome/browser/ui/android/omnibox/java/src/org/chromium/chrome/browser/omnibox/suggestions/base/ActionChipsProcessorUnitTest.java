@@ -9,7 +9,6 @@ import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -18,14 +17,12 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 
-import org.chromium.base.ContextUtils;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.HistogramWatcher;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.omnibox.OmniboxMetrics;
+import org.chromium.chrome.browser.omnibox.R;
 import org.chromium.chrome.browser.omnibox.suggestions.SuggestionHost;
 import org.chromium.components.browser_ui.widget.chips.ChipProperties;
-import org.chromium.components.omnibox.AutocompleteMatch;
 import org.chromium.components.omnibox.AutocompleteMatchBuilder;
 import org.chromium.components.omnibox.OmniboxSuggestionType;
 import org.chromium.components.omnibox.action.OmniboxAction;
@@ -43,28 +40,20 @@ public class ActionChipsProcessorUnitTest {
     private static final int MATCH_POS = 1234;
 
     public @Rule MockitoRule mMockitoRule = MockitoJUnit.rule();
-    public @Rule JniMocker mJniMocker = new JniMocker();
 
     private @Mock OmniboxActionJni mOmniboxActionJni;
     private @Mock SuggestionHost mSuggestionHost;
 
     private ActionChipsProcessor mProcessor;
-    private AutocompleteMatch mSuggestion;
     private PropertyModel mModel;
     private ModelList mActionModel;
 
     @Before
     public void setUp() {
-        mJniMocker.mock(OmniboxActionJni.TEST_HOOKS, mOmniboxActionJni);
+        OmniboxActionJni.setInstanceForTesting(mOmniboxActionJni);
 
-        mProcessor =
-                new ActionChipsProcessor(ContextUtils.getApplicationContext(), mSuggestionHost);
+        mProcessor = new ActionChipsProcessor(mSuggestionHost);
         mModel = new PropertyModel(ActionChipsProperties.ALL_UNIQUE_KEYS);
-    }
-
-    @After
-    public void tearDown() throws Exception {
-        mJniMocker.mock(OmniboxActionJni.TEST_HOOKS, null);
     }
 
     /**
@@ -73,12 +62,17 @@ public class ActionChipsProcessorUnitTest {
      * @param handle the native handle to associate the instance with. 0 indicates invalid action.
      */
     private OmniboxAction actionWithHandle(long handle) {
+        return actionWithHandleAndTextAppearance(handle, R.style.TextAppearance_ChipText);
+    }
+
+    private OmniboxAction actionWithHandleAndTextAppearance(long handle, int textAppearance) {
         return new OmniboxAction(
                 OmniboxActionId.ACTION_IN_SUGGEST,
                 handle,
                 "hint",
                 "accessibility hint",
-                OmniboxAction.DEFAULT_ICON) {
+                OmniboxAction.DEFAULT_ICON,
+                textAppearance) {
             @Override
             public void execute(OmniboxActionDelegate delegate) {}
         };
@@ -277,5 +271,21 @@ public class ActionChipsProcessorUnitTest {
         // Simulate new set of suggestions.
         mProcessor.onSuggestionsReceived();
         verifyNoFollowUpRecords();
+    }
+
+    @Test
+    public void chipTextAppearance() {
+        populateModelForActions(
+                actionWithHandleAndTextAppearance(1, R.style.TextAppearance_ChipText),
+                actionWithHandleAndTextAppearance(
+                        2, R.style.TextAppearance_TextMediumThick_Primary_Baseline));
+
+        ModelList chipModel = mModel.get(ActionChipsProperties.ACTION_CHIPS);
+        assertEquals(
+                R.style.TextAppearance_ChipText,
+                chipModel.get(0).model.get(ChipProperties.PRIMARY_TEXT_APPEARANCE));
+        assertEquals(
+                R.style.TextAppearance_TextMediumThick_Primary_Baseline,
+                chipModel.get(1).model.get(ChipProperties.PRIMARY_TEXT_APPEARANCE));
     }
 }

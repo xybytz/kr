@@ -13,11 +13,12 @@ import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {recordSettingChange} from '../metrics_recorder.js';
+import {Setting} from '../mojom-webui/setting.mojom-webui.js';
 
 import {getTemplate} from './add_input_methods_dialog.html.js';
-import {Item} from './add_items_dialog.js';
+import type {Item} from './add_items_dialog.js';
 import {ACCESSIBILITY_COMMON_IME_ID} from './languages.js';
-import {LanguageHelper, LanguagesModel} from './languages_types.js';
+import type {LanguageHelper, LanguagesModel} from './languages_types.js';
 
 class OsSettingsAddInputMethodsDialogElement extends PolymerElement {
   static get is() {
@@ -109,7 +110,7 @@ class OsSettingsAddInputMethodsDialogElement extends PolymerElement {
     e.detail.forEach(id => {
       this.languageHelper.addInputMethod(id);
     });
-    recordSettingChange();
+    recordSettingChange(Setting.kAddInputMethod);
   }
 }
 

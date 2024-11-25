@@ -19,6 +19,7 @@ import org.chromium.chrome.browser.omnibox.styles.OmniboxImageSupplier;
 import org.chromium.chrome.browser.omnibox.styles.SuggestionSpannable;
 import org.chromium.chrome.browser.omnibox.suggestions.SuggestionHost;
 import org.chromium.chrome.browser.omnibox.suggestions.base.BaseSuggestionViewProcessor;
+import org.chromium.components.omnibox.AutocompleteInput;
 import org.chromium.components.omnibox.AutocompleteMatch;
 import org.chromium.components.omnibox.OmniboxSuggestionType;
 import org.chromium.components.omnibox.suggestions.OmniboxSuggestionUiType;
@@ -27,6 +28,7 @@ import org.chromium.url.GURL;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /** A class that handles model and view creation for the basic omnibox suggestions. */
 public class BasicSuggestionProcessor extends BaseSuggestionViewProcessor {
@@ -53,7 +55,7 @@ public class BasicSuggestionProcessor extends BaseSuggestionViewProcessor {
             @NonNull Context context,
             @NonNull SuggestionHost suggestionHost,
             @NonNull UrlBarEditingTextStateProvider editingTextProvider,
-            @NonNull OmniboxImageSupplier imageSupplier,
+            @NonNull Optional<OmniboxImageSupplier> imageSupplier,
             @NonNull BookmarkState bookmarkState) {
         super(context, suggestionHost, imageSupplier);
 
@@ -62,7 +64,7 @@ public class BasicSuggestionProcessor extends BaseSuggestionViewProcessor {
     }
 
     @Override
-    public boolean doesProcessSuggestion(AutocompleteMatch suggestion, int position) {
+    public boolean doesProcessSuggestion(@NonNull AutocompleteMatch suggestion, int position) {
         return true;
     }
 
@@ -72,12 +74,12 @@ public class BasicSuggestionProcessor extends BaseSuggestionViewProcessor {
     }
 
     @Override
-    public PropertyModel createModel() {
+    public @NonNull PropertyModel createModel() {
         return new PropertyModel(SuggestionViewProperties.ALL_KEYS);
     }
 
     @Override
-    protected OmniboxDrawableState getFallbackIcon(AutocompleteMatch suggestion) {
+    protected @NonNull OmniboxDrawableState getFallbackIcon(@NonNull AutocompleteMatch suggestion) {
         int icon = 0;
 
         if (suggestion.isSearchSuggestion()) {
@@ -108,8 +110,12 @@ public class BasicSuggestionProcessor extends BaseSuggestionViewProcessor {
     }
 
     @Override
-    public void populateModel(AutocompleteMatch suggestion, PropertyModel model, int position) {
-        super.populateModel(suggestion, model, position);
+    public void populateModel(
+            @NonNull AutocompleteInput input,
+            @NonNull AutocompleteMatch suggestion,
+            @NonNull PropertyModel model,
+            int position) {
+        super.populateModel(input, suggestion, model, position);
         final boolean isSearchSuggestion = suggestion.isSearchSuggestion();
         SuggestionSpannable textLine2 = null;
         boolean urlHighlighted = false;
@@ -138,11 +144,12 @@ public class BasicSuggestionProcessor extends BaseSuggestionViewProcessor {
             fetchSuggestionFavicon(model, suggestion.getUrl());
         }
 
-        if (!mUrlBarEditingTextProvider
-                .getTextWithoutAutocomplete()
-                .trim()
-                .equalsIgnoreCase(suggestion.getDisplayText())) {
-            setTabSwitchOrRefineAction(model, suggestion, position);
+        if (suggestion.getType() != OmniboxSuggestionType.TILE_SUGGESTION
+                && !mUrlBarEditingTextProvider
+                        .getTextWithoutAutocomplete()
+                        .trim()
+                        .equalsIgnoreCase(suggestion.getDisplayText())) {
+            setTabSwitchOrRefineAction(model, input, suggestion, position);
         }
     }
 

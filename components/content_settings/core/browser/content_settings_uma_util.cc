@@ -3,9 +3,12 @@
 // found in the LICENSE file.
 
 #include "components/content_settings/core/browser/content_settings_uma_util.h"
+
 #include "base/containers/fixed_flat_map.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/notreached.h"
 #include "base/strings/strcat.h"
+#include "components/content_settings/core/common/content_settings.h"
 
 namespace {
 
@@ -13,6 +16,7 @@ namespace {
 // specified in the ContentType enum in enums.xml. Since these values are
 // used for histograms, please do not reuse the same value for a different
 // content setting. Always append to the end and increment.
+// LINT.IfChange(kHistogramValue)
 constexpr auto kHistogramValue = base::MakeFixedFlatMap<ContentSettingsType,
                                                         int>({
     // Cookies was previously logged to bucket 0, which is not a valid bucket
@@ -51,7 +55,8 @@ constexpr auto kHistogramValue = base::MakeFixedFlatMap<ContentSettingsType,
     {ContentSettingsType::SOUND, 36},
     {ContentSettingsType::CLIENT_HINTS, 37},
     {ContentSettingsType::SENSORS, 38},
-    {ContentSettingsType::ACCESSIBILITY_EVENTS, 39},
+    // ACCESSIBILITY_EVENTS deprecated in M131.
+    {ContentSettingsType::DEPRECATED_ACCESSIBILITY_EVENTS, 39},
     {ContentSettingsType::PAYMENT_HANDLER, 43},
     {ContentSettingsType::USB_GUARD, 44},
     {ContentSettingsType::BACKGROUND_FETCH, 45},
@@ -116,7 +121,7 @@ constexpr auto kHistogramValue = base::MakeFixedFlatMap<ContentSettingsType,
     {ContentSettingsType::MIDI, 102},
     {ContentSettingsType::ALL_SCREEN_CAPTURE, 103},
     {ContentSettingsType::COOKIE_CONTROLS_METADATA, 104},
-    {ContentSettingsType::TPCD_SUPPORT, 105},
+    {ContentSettingsType::TPCD_TRIAL, 105},
     {ContentSettingsType::AUTO_PICTURE_IN_PICTURE, 106},
     {ContentSettingsType::TPCD_METADATA_GRANTS, 107},
     {ContentSettingsType::FILE_SYSTEM_ACCESS_EXTENDED_PERMISSION, 108},
@@ -126,11 +131,28 @@ constexpr auto kHistogramValue = base::MakeFixedFlatMap<ContentSettingsType,
     {ContentSettingsType::SMART_CARD_GUARD, 112},
     {ContentSettingsType::SMART_CARD_DATA, 113},
     {ContentSettingsType::WEB_PRINTING, 114},
-    {ContentSettingsType::TOP_LEVEL_TPCD_SUPPORT, 115},
+    {ContentSettingsType::TOP_LEVEL_TPCD_TRIAL, 115},
+    {ContentSettingsType::AUTOMATIC_FULLSCREEN, 116},
+    {ContentSettingsType::SUB_APP_INSTALLATION_PROMPTS, 117},
+    {ContentSettingsType::SPEAKER_SELECTION, 118},
+    {ContentSettingsType::DIRECT_SOCKETS, 119},
+    {ContentSettingsType::KEYBOARD_LOCK, 120},
+    {ContentSettingsType::POINTER_LOCK, 121},
+    {ContentSettingsType::REVOKED_ABUSIVE_NOTIFICATION_PERMISSIONS, 122},
+    {ContentSettingsType::TRACKING_PROTECTION, 123},
+    {ContentSettingsType::TOP_LEVEL_TPCD_ORIGIN_TRIAL, 124},
+    {ContentSettingsType::DISPLAY_MEDIA_SYSTEM_AUDIO, 125},
+    {ContentSettingsType::JAVASCRIPT_OPTIMIZER, 126},
+    {ContentSettingsType::STORAGE_ACCESS_HEADER_ORIGIN_TRIAL, 127},
+    {ContentSettingsType::HAND_TRACKING, 128},
+    {ContentSettingsType::WEB_APP_INSTALLATION, 129},
+    {ContentSettingsType::DIRECT_SOCKETS_PRIVATE_NETWORK_ACCESS, 130},
+    {ContentSettingsType::LEGACY_COOKIE_SCOPE, 131},
 
     // As mentioned at the top, please don't forget to update ContentType in
     // enums.xml when you add entries here!
 });
+// LINT.ThenChange(//tools/metrics/histograms/enums.xml:ContentType)
 
 constexpr int kkHistogramValueMax =
     base::ranges::max_element(kHistogramValue,
@@ -139,36 +161,37 @@ constexpr int kkHistogramValueMax =
         ->second;
 
 std::string GetProviderNameForHistograms(
-    HostContentSettingsMap::ProviderType provider_type) {
+    content_settings::ProviderType provider_type) {
+  using ProviderType = content_settings::ProviderType;
+
   switch (provider_type) {
     // Update the `ContentAllProviderTypes` variants in
     // https://chromium.googlesource.com/chromium/src.git/+/HEAD/tools/metrics/histograms/metadata/content/histograms.xml
     // when new providers are added.
-    case HostContentSettingsMap::WEBUI_ALLOWLIST_PROVIDER:
+    case ProviderType::kWebuiAllowlistProvider:
       return "WebuiAllowlistProvider";
-    case HostContentSettingsMap::POLICY_PROVIDER:
+    case ProviderType::kPolicyProvider:
       return "PolicyProvider";
-    case HostContentSettingsMap::SUPERVISED_PROVIDER:
+    case ProviderType::kSupervisedProvider:
       return "SupervisedProvider";
-    case HostContentSettingsMap::CUSTOM_EXTENSION_PROVIDER:
+    case ProviderType::kCustomExtensionProvider:
       return "CustomExtensionProvider";
-    case HostContentSettingsMap::INSTALLED_WEBAPP_PROVIDER:
+    case ProviderType::kInstalledWebappProvider:
       return "InstalledWebappProvider";
-    case HostContentSettingsMap::NOTIFICATION_ANDROID_PROVIDER:
+    case ProviderType::kNotificationAndroidProvider:
       return "NotificationAndroidProvider";
-    case HostContentSettingsMap::ONE_TIME_PERMISSION_PROVIDER:
+    case ProviderType::kOneTimePermissionProvider:
       return "OneTimePermissionProvider";
-    case HostContentSettingsMap::PREF_PROVIDER:
+    case ProviderType::kPrefProvider:
       return "PrefProvider";
-    case HostContentSettingsMap::DEFAULT_PROVIDER:
+    case ProviderType::kDefaultProvider:
       return "DefaultProvider";
-    case HostContentSettingsMap::PROVIDER_FOR_TESTS:
+    case ProviderType::kProviderForTests:
       return "ProviderForTests";
-    case HostContentSettingsMap::OTHER_PROVIDER_FOR_TESTS:
+    case ProviderType::kOtherProviderForTests:
       return "OtherProviderForTests";
-    case HostContentSettingsMap::NUM_PROVIDER_TYPES:
+    case ProviderType::kNone:
       NOTREACHED();
-      return "Unknown";
   }
 }
 
@@ -184,21 +207,22 @@ void RecordContentSettingsHistogram(const std::string& name,
 }
 
 int ContentSettingTypeToHistogramValue(ContentSettingsType content_setting) {
-  static_assert(kHistogramValue.size() ==
-                    static_cast<size_t>(ContentSettingsType::NUM_TYPES),
-                "Update content settings histogram lookup");
+  static_assert(
+      kHistogramValue.size() ==
+          // DEFAULT is not in the histogram, so we want [0, kMaxValue]
+          1 + static_cast<size_t>(ContentSettingsType::kMaxValue),
+      "Update content settings histogram lookup");
 
-  auto* found = kHistogramValue.find(content_setting);
+  auto found = kHistogramValue.find(content_setting);
   if (found != kHistogramValue.end()) {
     DCHECK_NE(found->second, -1)
         << "Used for deprecated settings: " << static_cast<int>(found->first);
     return found->second;
   }
   NOTREACHED();
-  return -1;
 }
 
-void RecordActiveExpiryEvent(HostContentSettingsMap::ProviderType provider_type,
+void RecordActiveExpiryEvent(content_settings::ProviderType provider_type,
                              ContentSettingsType content_setting_type) {
   content_settings_uma_util::RecordContentSettingsHistogram(
       base::StrCat({"ContentSettings.ActiveExpiry.",

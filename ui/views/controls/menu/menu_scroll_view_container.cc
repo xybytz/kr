@@ -6,15 +6,13 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "cc/paint/paint_flags.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/variant.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "ui/accessibility/ax_enums.mojom.h"
@@ -30,6 +28,7 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/geometry/rounded_corners_f.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/bubble/bubble_border.h"
@@ -43,12 +42,24 @@
 #include "ui/views/view.h"
 #include "ui/views/view_class_properties.h"
 
+#if BUILDFLAG(IS_CHROMEOS)
+#include "chromeos/constants/chromeos_features.h"
+#endif  // BUILDFLAG(IS_CHROMEOS)
+
 namespace views {
 
 namespace {
 
 static constexpr float kBackgroundBlurSigma = 30.f;
 static constexpr float kBackgroundBlurQuality = 0.33f;
+
+bool ShouldApplyBackgroundBlur() {
+#if BUILDFLAG(IS_CHROMEOS)
+  return chromeos::features::IsSystemBlurEnabled();
+#else
+  return true;
+#endif
+}
 
 // MenuScrollButton ------------------------------------------------------------
 
@@ -68,7 +79,8 @@ class MenuScrollButton : public View {
   MenuScrollButton(const MenuScrollButton&) = delete;
   MenuScrollButton& operator=(const MenuScrollButton&) = delete;
 
-  gfx::Size CalculatePreferredSize() const override {
+  gfx::Size CalculatePreferredSize(
+      const SizeBounds& /*available_size*/) const override {
     return gfx::Size(MenuConfig::instance().scroll_arrow_height * 2 - 1,
                      pref_height_);
   }
@@ -188,12 +200,12 @@ class MenuScrollViewContainer::MenuScrollView : public View {
     View* child = GetContents();
     int old_y = child->y();
     int y = -std::max(
-        0, std::min(child->GetPreferredSize().height() - this->height(),
+        0, std::min(child->GetPreferredSize({}).height() - this->height(),
                     dy - child->y()));
     child->SetY(y);
 
     const int min_y = 0;
-    const int max_y = -(child->GetPreferredSize().height() - this->height());
+    const int max_y = -(child->GetPreferredSize({}).height() - this->height());
 
     if (old_y == min_y && old_y != y)
       owner_->DidScrollAwayFromTop();
@@ -214,7 +226,7 @@ class MenuScrollViewContainer::MenuScrollView : public View {
   raw_ptr<MenuScrollViewContainer> owner_;
 };
 
-BEGIN_METADATA(MenuScrollViewContainer, MenuScrollView, View)
+BEGIN_METADATA(MenuScrollViewContainer, MenuScrollView)
 END_METADATA
 
 // MenuScrollViewContainer ----------------------------------------------------
@@ -231,8 +243,10 @@ MenuScrollViewContainer::MenuScrollViewContainer(SubmenuView* content_view)
     background_view_->SetPaintToLayer();
     auto* background_layer = background_view_->layer();
     background_layer->SetFillsBoundsOpaquely(false);
-    background_layer->SetBackgroundBlur(kBackgroundBlurSigma);
-    background_layer->SetBackdropFilterQuality(kBackgroundBlurQuality);
+    if (ShouldApplyBackgroundBlur()) {
+      background_layer->SetBackgroundBlur(kBackgroundBlurSigma);
+      background_layer->SetBackdropFilterQuality(kBackgroundBlurQuality);
+    }
   }
 
   auto* layout =
@@ -259,6 +273,16 @@ MenuScrollViewContainer::MenuScrollViewContainer(SubmenuView* content_view)
   // code needs to know the final size of the menu.  Calling CreateBorder() is
   // the easiest way to do that.
   CreateBorder();
+
+  GetViewAccessibility().SetRole(ax::mojom::Role::kMenuBar);
+  GetViewAccessibility().SetIsVertical(true);
+  // On macOS, NSMenus are not supposed to have anything wrapped around them. To
+  // allow VoiceOver to recognize this as a menu and to read aloud the total
+  // number of items inside it, we ignore the MenuScrollViewContainer (which
+  // holds the menu itself: the SubmenuView).
+#if BUILDFLAG(IS_MAC)
+  GetViewAccessibility().SetIsIgnored(true);
+#endif
 }
 
 bool MenuScrollViewContainer::HasBubbleBorder() const {
@@ -284,7 +308,7 @@ gfx::RoundedCornersF MenuScrollViewContainer::GetRoundedCorners() const {
   if (!menu_controller)
     return gfx::RoundedCornersF(corner_radius_);
 
-  absl::optional<gfx::RoundedCornersF> rounded_corners =
+  std::optional<gfx::RoundedCornersF> rounded_corners =
       menu_controller->rounded_corners();
   if (rounded_corners.has_value())
     return rounded_corners.value();
@@ -296,23 +320,11 @@ gfx::Insets MenuScrollViewContainer::GetInsets() const {
   return View::GetInsets() + additional_insets_;
 }
 
-void MenuScrollViewContainer::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  // Get the name from the submenu view.
-  content_view_->GetAccessibleNodeData(node_data);
 
-  // On macOS, NSMenus are not supposed to have anything wrapped around them. To
-  // allow VoiceOver to recognize this as a menu and to read aloud the total
-  // number of items inside it, we ignore the MenuScrollViewContainer (which
-  // holds the menu itself: the SubmenuView).
-#if BUILDFLAG(IS_MAC)
-  node_data->role = ax::mojom::Role::kNone;
-#else
-  node_data->role = ax::mojom::Role::kMenuBar;
-#endif
-}
-
-gfx::Size MenuScrollViewContainer::CalculatePreferredSize() const {
-  gfx::Size prefsize = scroll_view_->GetContents()->GetPreferredSize();
+gfx::Size MenuScrollViewContainer::CalculatePreferredSize(
+    const SizeBounds& available_size) const {
+  gfx::Size prefsize =
+      scroll_view_->GetContents()->GetPreferredSize(available_size);
   const gfx::Insets insets = GetInsets();
   prefsize.Enlarge(insets.width(), insets.height());
   return prefsize;
@@ -358,8 +370,8 @@ void MenuScrollViewContainer::OnBoundsChanged(
   // offset is always reset to 0, so always hide the scroll-up control, and only
   // show the scroll-down control if it's going to be useful.
   scroll_up_button_->SetVisible(false);
-  scroll_down_button_->SetVisible(
-      scroll_view_->GetContents()->GetPreferredSize().height() > height());
+  scroll_down_button_->SetVisible(content_view_->GetPreferredSize({}).height() >
+                                  GetContentsBounds().height());
 
   const bool any_scroll_button_visible =
       scroll_up_button_->GetVisible() || scroll_down_button_->GetVisible();
@@ -441,7 +453,7 @@ void MenuScrollViewContainer::CreateDefaultBorder() {
 void MenuScrollViewContainer::CreateBubbleBorder() {
   BubbleBorder::Shadow shadow_type = BubbleBorder::STANDARD_SHADOW;
   ui::ColorId id = ui::kColorMenuBackground;
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   if (use_ash_system_ui_layout_) {
     shadow_type = BubbleBorder::CHROMEOS_SYSTEM_UI_SHADOW;
   }
@@ -505,7 +517,7 @@ void MenuScrollViewContainer::CreateBubbleBorder() {
         CreateThemedRoundedRectBackground(id, corner_radius_));
     background_view_->layer()->SetRoundedCornerRadius(GetRoundedCorners());
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
     background_view_->SetBorder(std::make_unique<HighlightBorder>(
         GetRoundedCorners(), HighlightBorder::Type::kHighlightBorderOnShadow));
 #endif

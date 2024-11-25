@@ -16,11 +16,12 @@
 #include "base/strings/strcat.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/updater/constants.h"
+#include "chrome/updater/util/util.h"
 #include "chrome/updater/win/installer/exit_code.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
-constexpr char tag_switch[] = "--tag=";
+constexpr char install_switch[] = "--install=";
 constexpr char enable_logging_switch[] = "--enable-logging";
 constexpr char logging_module_switch[] = "--vmodule=";
 
@@ -43,7 +44,7 @@ void ExpectSwitchValue(const std::wstring& cmd_line,
 }
 }  // namespace
 
-// Tests that `HandleRunElevated` returns `UNABLE_TO_ELEVATE_METAINSTALLER` when
+// Tests that `HandleRunElevated` returns `UNEXPECTED_ELEVATION_LOOP` when
 // not elevated and called with `kCmdLineExpectElevated` argument.
 TEST(InstallerTest, HandleRunElevated) {
   if (::IsUserAnAdmin()) {
@@ -58,7 +59,7 @@ TEST(InstallerTest, HandleRunElevated) {
 
   updater::ProcessExitResult exit_result =
       updater::HandleRunElevated(command_line);
-  EXPECT_EQ(exit_result.exit_code, updater::UNABLE_TO_ELEVATE_METAINSTALLER);
+  EXPECT_EQ(exit_result.exit_code, updater::UNEXPECTED_ELEVATION_LOOP);
   EXPECT_EQ(exit_result.windows_error, 0U);
 }
 
@@ -90,7 +91,7 @@ TEST(BuildInstallerCommandLineArgumentsTest, EnableLoggingSwitch) {
   std::wstring command_line_str(L"UpdaterSetup.exe");
   // Add a tag switch to bypass attempting to parse a tag.
   command_line_str = base::SysUTF8ToWide(
-      base::StrCat({"UpdaterSetup.exe ", tag_switch, "fake_tag"}));
+      base::StrCat({"UpdaterSetup.exe ", install_switch, "fake_tag"}));
   updater::ProcessExitResult exit_result =
       updater::BuildInstallerCommandLineArguments(command_line_str.c_str(),
                                                   cmd_line_args.get(),
@@ -102,8 +103,9 @@ TEST(BuildInstallerCommandLineArgumentsTest, EnableLoggingSwitch) {
   // Test that no --enable-logging switch is added if one is provided.
   cmd_line_args.clear();
   // Add a tag switch to bypass attempting to parse a tag.
-  command_line_str = base::SysUTF8ToWide(base::StrCat(
-      {"UpdaterSetup.exe ", tag_switch, "fake_tag ", enable_logging_switch}));
+  command_line_str =
+      base::SysUTF8ToWide(base::StrCat({"UpdaterSetup.exe ", install_switch,
+                                        "fake_tag ", enable_logging_switch}));
   exit_result = updater::BuildInstallerCommandLineArguments(
       command_line_str.c_str(), cmd_line_args.get(), cmd_line_args.capacity());
   EXPECT_EQ(exit_result.exit_code, updater::SUCCESS_EXIT_CODE);
@@ -117,7 +119,7 @@ TEST(BuildInstallerCommandLineArgumentsTest, LoggingModuleSwitch) {
   std::wstring command_line_str(L"UpdaterSetup.exe");
   // Add a tag switch to bypass attempting to parse a tag.
   command_line_str = base::SysUTF8ToWide(
-      base::StrCat({"UpdaterSetup.exe ", tag_switch, "fake_tag"}));
+      base::StrCat({"UpdaterSetup.exe ", install_switch, "fake_tag"}));
   updater::ProcessExitResult exit_result =
       updater::BuildInstallerCommandLineArguments(command_line_str.c_str(),
                                                   cmd_line_args.get(),
@@ -130,7 +132,7 @@ TEST(BuildInstallerCommandLineArgumentsTest, LoggingModuleSwitch) {
   cmd_line_args.clear();
   // Add a tag switch to bypass attempting to parse a tag.
   command_line_str = base::SysUTF8ToWide(
-      base::StrCat({"UpdaterSetup.exe ", tag_switch, "fake_tag ",
+      base::StrCat({"UpdaterSetup.exe ", install_switch, "fake_tag ",
                     logging_module_switch, "fake_module"}));
   exit_result = updater::BuildInstallerCommandLineArguments(
       command_line_str.c_str(), cmd_line_args.get(), cmd_line_args.capacity());
@@ -147,7 +149,7 @@ TEST(BuildInstallerCommandLineArgumentsTest, CommandStringOverflow) {
   std::wstring command_line_str(L"UpdaterSetup.exe");
   std::string long_tag(updater::kInstallerMaxCommandString + 1, 'A');
   command_line_str = base::SysUTF8ToWide(
-      base::StrCat({"UpdaterSetup.exe ", tag_switch, long_tag}));
+      base::StrCat({"UpdaterSetup.exe ", install_switch, long_tag}));
   updater::ProcessExitResult exit_result =
       updater::BuildInstallerCommandLineArguments(command_line_str.c_str(),
                                                   cmd_line_args.get(),
@@ -166,4 +168,24 @@ TEST(BuildInstallerCommandLineArgumentsTest, NoArguments) {
                                                   cmd_line_args.get(),
                                                   cmd_line_args.capacity());
   EXPECT_EQ(exit_result.exit_code, updater::INVALID_OPTION);
+}
+
+TEST(BuildInstallerCommandLineArgumentsTest, LegacyCommandLine) {
+  std::optional<base::CommandLine> cmd_line =
+      updater::CommandLineForLegacyFormat(
+          L"UpdaterSetup.exe /install "
+          L"\"appguid={8A69D345-D564-463C-AFF1-A69D9E530F96}&appname=Google%"
+          L"20Chrome&needsadmin=Prefers&lang=en\"");
+  ASSERT_TRUE(cmd_line.has_value());
+  updater::CommandString cmd_line_args;
+  updater::ProcessExitResult exit_result =
+      updater::BuildInstallerCommandLineArguments(
+          cmd_line->GetCommandLineString().c_str(), cmd_line_args.get(),
+          cmd_line_args.capacity());
+  EXPECT_EQ(exit_result.exit_code, updater::SUCCESS_EXIT_CODE);
+  const base::CommandLine command_line = base::CommandLine::FromString(
+      base::StrCat({L"exe.exe ", cmd_line_args.get()}));
+  EXPECT_EQ(command_line.GetSwitchValueASCII(updater::kInstallSwitch),
+            "appguid={8A69D345-D564-463C-AFF1-A69D9E530F96}&appname=Google%"
+            "20Chrome&needsadmin=Prefers&lang=en");
 }

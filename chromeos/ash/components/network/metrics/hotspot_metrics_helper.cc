@@ -144,6 +144,14 @@ HotspotMetricsHelper::GetSetEnabledMetricsResult(
       return HotspotMetricsSetEnabledResult::kAlreadyFulfilled;
     case HotspotControlResult::kAborted:
       return HotspotMetricsSetEnabledResult::kAborted;
+    case HotspotControlResult::kInvalid:
+      return HotspotMetricsSetEnabledResult::kInvalid;
+    case HotspotControlResult::kBusy:
+      return HotspotMetricsSetEnabledResult::kBusy;
+    case HotspotControlResult::kConcurrencyNotSupported:
+      return HotspotMetricsSetEnabledResult::kConcurrencyNotSupported;
+    case HotspotControlResult::kOperationFailure:
+      return HotspotMetricsSetEnabledResult::kOperationFailure;
     default:
       return HotspotMetricsSetEnabledResult::kUnknownFailure;
   }
@@ -176,6 +184,7 @@ HotspotMetricsHelper::GetCheckReadinessMetricsResult(
     case CheckReadinessResult::kUnknownResult:
       return HotspotMetricsCheckReadinessResult::kUnknownResult;
   }
+  NOTREACHED() << "Unknown check tethering readiness result.";
 }
 
 // static
@@ -204,6 +213,7 @@ HotspotMetricsHelper::GetSetConfigMetricsResult(
       }
       return HotspotMetricsSetConfigResult::kFailedUnknownShillError;
   }
+  NOTREACHED() << "Unknown set hotspot config result.";
 }
 
 // static
@@ -229,7 +239,22 @@ HotspotMetricsHelper::GetMetricsDisableReason(
       return HotspotMetricsDisableReason::kSuspended;
     case DisableReason::kRestart:
       return HotspotMetricsDisableReason::kRestart;
+    case DisableReason::kUpstreamNoInternet:
+      return HotspotMetricsDisableReason::kUpstreamNoInternet;
+    case DisableReason::kDownstreamLinkDisconnect:
+      return HotspotMetricsDisableReason::kDownstreamLinkDisconnect;
+    case DisableReason::kDownstreamNetworkDisconnect:
+      return HotspotMetricsDisableReason::kDownstreamNetworkDisconnect;
+    case DisableReason::kStartTimeout:
+      return HotspotMetricsDisableReason::kStartTimeout;
+    case DisableReason::kUpstreamNotAvailable:
+      return HotspotMetricsDisableReason::kUpstreamNotAvailable;
+    case DisableReason::kResourceBusy:
+      return HotspotMetricsDisableReason::kResourceBusy;
+    case DisableReason::kUnknownError:
+      return HotspotMetricsDisableReason::kUnknownError;
   }
+  NOTREACHED() << "Unknown hotspot disable reason.";
 }
 
 HotspotMetricsHelper::HotspotMetricsHelper() = default;

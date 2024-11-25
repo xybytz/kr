@@ -84,7 +84,6 @@ class SchemePageLoadMetricsObserverTest
       }
     }
     NOTREACHED();
-    return 0;
   }
 
   void CheckHistograms(int expected_count,

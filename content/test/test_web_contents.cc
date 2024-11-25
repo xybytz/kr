@@ -11,6 +11,7 @@
 #include "base/no_destructor.h"
 #include "content/browser/browser_url_handler_impl.h"
 #include "content/browser/display_cutout/display_cutout_host_impl.h"
+#include "content/browser/preloading/preload_pipeline_info.h"
 #include "content/browser/preloading/prerender/prerender_host.h"
 #include "content/browser/preloading/prerender/prerender_host_registry.h"
 #include "content/browser/renderer_host/cross_process_frame_connector.h"
@@ -206,6 +207,10 @@ void TestWebContents::SetMainFrameMimeType(const std::string& mime_type) {
   GetPrimaryPage().SetContentsMimeType(mime_type);
 }
 
+void TestWebContents::SetMainFrameSize(const gfx::Size& frame_size) {
+  GetPrimaryMainFrame()->FrameSizeChanged(frame_size);
+}
+
 const std::string& TestWebContents::GetContentsMimeType() {
   return GetPrimaryPage().GetContentsMimeType();
 }
@@ -236,6 +241,10 @@ void TestWebContents::TestDidFinishLoad(const GURL& url) {
 void TestWebContents::TestDidFailLoadWithError(const GURL& url,
                                                int error_code) {
   GetPrimaryMainFrame()->DidFailLoadWithError(url, error_code);
+}
+
+void TestWebContents::TestDidFirstVisuallyNonEmptyPaint() {
+  OnFirstVisuallyNonEmptyPaint(GetPrimaryPage());
 }
 
 bool TestWebContents::CrossProcessNavigationPending() {
@@ -307,7 +316,8 @@ void TestWebContents::TestSetIsLoading(bool value) {
           node->render_manager()->speculative_frame_host();
       if (speculative_frame_host)
         speculative_frame_host->ResetLoadingState();
-      node->ResetNavigationRequest(NavigationDiscardReason::kCancelled);
+      node->ResetNavigationRequest(
+          NavigationDiscardReason::kExplicitCancellation);
     }
   }
 }
@@ -397,7 +407,12 @@ void TestWebContents::ResetPauseSubresourceLoadingCalled() {
   pause_subresource_loading_called_ = false;
 }
 
-void TestWebContents::SetLastActiveTime(base::TimeTicks last_active_time) {
+void TestWebContents::SetLastActiveTimeTicks(
+    base::TimeTicks last_active_time_ticks) {
+  last_active_time_ticks_ = last_active_time_ticks;
+}
+
+void TestWebContents::SetLastActiveTime(base::Time last_active_time) {
   last_active_time_ = last_active_time;
 }
 
@@ -407,6 +422,22 @@ void TestWebContents::TestIncrementUsbActiveFrameCount() {
 
 void TestWebContents::TestDecrementUsbActiveFrameCount() {
   DecrementUsbActiveFrameCount();
+}
+
+void TestWebContents::TestIncrementHidActiveFrameCount() {
+  IncrementHidActiveFrameCount();
+}
+
+void TestWebContents::TestDecrementHidActiveFrameCount() {
+  DecrementHidActiveFrameCount();
+}
+
+void TestWebContents::TestIncrementSerialActiveFrameCount() {
+  IncrementSerialActiveFrameCount();
+}
+
+void TestWebContents::TestDecrementSerialActiveFrameCount() {
+  DecrementSerialActiveFrameCount();
 }
 
 void TestWebContents::TestIncrementBluetoothConnectedDeviceCount() {
@@ -437,7 +468,7 @@ TestWebContents::GetPictureInPictureOptions() const {
   return WebContentsImpl::GetPictureInPictureOptions();
 }
 
-int TestWebContents::AddPrerender(const GURL& url) {
+FrameTreeNodeId TestWebContents::AddPrerender(const GURL& url) {
   DCHECK(!base::FeatureList::IsEnabled(
       blink::features::kPrerender2MemoryControls));
 
@@ -447,17 +478,19 @@ int TestWebContents::AddPrerender(const GURL& url) {
       /*embedder_histogram_suffix=*/"",
       blink::mojom::SpeculationTargetHint::kNoHint, Referrer(),
       blink::mojom::SpeculationEagerness::kEager,
-      rfhi->GetLastCommittedOrigin(), rfhi->GetProcess()->GetID(), GetWeakPtr(),
-      rfhi->GetFrameToken(), rfhi->GetFrameTreeNodeId(),
-      rfhi->GetPageUkmSourceId(), ui::PAGE_TRANSITION_LINK,
-      /*url_match_predicate=*/std::nullopt,
-      /*prerender_navigation_handle_callback=*/std::nullopt));
+      /*no_vary_search_expected=*/std::nullopt, rfhi, GetWeakPtr(),
+      ui::PAGE_TRANSITION_LINK,
+      /*should_warm_up_compositor=*/false,
+      /*should_prepare_paint_tree=*/false,
+      /*url_match_predicate=*/{},
+      /*prerender_navigation_handle_callback=*/{},
+      base::MakeRefCounted<PreloadPipelineInfo>()));
 }
 
 TestRenderFrameHost* TestWebContents::AddPrerenderAndCommitNavigation(
     const GURL& url) {
-  int host_id = AddPrerender(url);
-  DCHECK_NE(RenderFrameHost::kNoFrameTreeNodeId, host_id);
+  FrameTreeNodeId host_id = AddPrerender(url);
+  DCHECK(host_id);
 
   PrerenderHost* host =
       GetPrerenderHostRegistry()->FindNonReservedHostById(host_id);
@@ -473,8 +506,8 @@ TestRenderFrameHost* TestWebContents::AddPrerenderAndCommitNavigation(
 
 std::unique_ptr<NavigationSimulator>
 TestWebContents::AddPrerenderAndStartNavigation(const GURL& url) {
-  int host_id = AddPrerender(url);
-  DCHECK_NE(RenderFrameHost::kNoFrameTreeNodeId, host_id);
+  FrameTreeNodeId host_id = AddPrerender(url);
+  DCHECK(host_id);
 
   PrerenderHost* host =
       GetPrerenderHostRegistry()->FindNonReservedHostById(host_id);
@@ -489,7 +522,7 @@ void TestWebContents::ActivatePrerenderedPage(const GURL& url) {
   PrerenderHostRegistry* registry = GetPrerenderHostRegistry();
   PrerenderHost* prerender_host = registry->FindHostByUrlForTesting(url);
   DCHECK(prerender_host);
-  int prerender_host_id = prerender_host->frame_tree_node_id();
+  FrameTreeNodeId prerender_host_id = prerender_host->frame_tree_node_id();
 
   // Activate the prerendered page.
   test::PrerenderHostObserver prerender_host_observer(*this, prerender_host_id);
@@ -513,7 +546,7 @@ void TestWebContents::ActivatePrerenderedPageFromAddressBar(const GURL& url) {
   PrerenderHostRegistry* registry = GetPrerenderHostRegistry();
   PrerenderHost* prerender_host = registry->FindHostByUrlForTesting(url);
   DCHECK(prerender_host);
-  int prerender_host_id = prerender_host->frame_tree_node_id();
+  FrameTreeNodeId prerender_host_id = prerender_host->frame_tree_node_id();
 
   // Activate the prerendered page by navigation initiated by the address bar.
   test::PrerenderHostObserver prerender_host_observer(*this, prerender_host_id);
@@ -550,6 +583,29 @@ bool TestWebContents::GetOverscrollNavigationEnabled() {
 void TestWebContents::SetSafeAreaInsetsHost(
     std::unique_ptr<SafeAreaInsetsHost> safe_area_insets_host) {
   safe_area_insets_host_ = std::move(safe_area_insets_host);
+}
+
+void TestWebContents::GetMediaCaptureRawDeviceIdsOpened(
+    blink::mojom::MediaStreamType type,
+    base::OnceCallback<void(std::vector<std::string>)> callback) {
+  CHECK(media_capture_raw_device_ids_opened_.contains(type));
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback),
+                                media_capture_raw_device_ids_opened_.at(type)));
+}
+
+void TestWebContents::SetMediaCaptureRawDeviceIdsOpened(
+    blink::mojom::MediaStreamType type,
+    std::vector<std::string> ids) {
+  media_capture_raw_device_ids_opened_[type] = std::move(ids);
+}
+
+void TestWebContents::OnIgnoredUIEvent() {
+  ignored_ui_event_called_ = true;
+}
+
+bool TestWebContents::GetIgnoredUIEventCalled() const {
+  return ignored_ui_event_called_;
 }
 
 }  // namespace content

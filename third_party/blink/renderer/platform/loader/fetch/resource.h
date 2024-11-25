@@ -25,13 +25,16 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_LOADER_FETCH_RESOURCE_H_
 
 #include <memory>
+#include <optional>
+
 #include "base/auto_reset.h"
+#include "base/containers/span.h"
 #include "base/functional/callback.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "mojo/public/cpp/base/big_buffer.h"
 #include "net/base/schemeful_site.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/abseil-cpp/absl/types/variant.h"
 #include "third_party/blink/public/mojom/loader/code_cache.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/scheduler/web_scoped_virtual_time_pauser.h"
 #include "third_party/blink/renderer/platform/allow_discouraged_type.h"
@@ -67,6 +70,7 @@ class Clock;
 
 namespace blink {
 
+class BackgroundResponseProcessorFactory;
 class BlobDataHandle;
 class FetchParameters;
 class ResourceFinishObserver;
@@ -156,7 +160,11 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
   void Trace(Visitor*) const override;
 
   virtual WTF::TextEncoding Encoding() const { return WTF::TextEncoding(); }
-  virtual void AppendData(const char*, size_t);
+  // If a BackgroundResponseProcessor consumed the body data on the background
+  // thread, this method is called with a SegmentedBuffer data. Otherwise, it is
+  // called with a span<const char> data several times.
+  virtual void AppendData(
+      absl::variant<SegmentedBuffer, base::span<const char>>);
   virtual void FinishAsError(const ResourceError&,
                              base::SingleThreadTaskRunner*);
 
@@ -191,13 +199,21 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
 
   void DidChangePriority(ResourceLoadPriority, int intra_priority_value);
 
+  void UpdateResourceWidth(const AtomicString& resource_width);
+
   // Returns two priorities:
   // - `first` is the priority with the fix of https://crbug.com/1369823.
   // - `second` is the priority without the fix, ignoring the priority from
   //   ImageLoader.
-  virtual std::pair<ResourcePriority, ResourcePriority>
-  PriorityFromObservers() {
-    return std::make_pair(ResourcePriority(), ResourcePriority());
+  std::pair<ResourcePriority, ResourcePriority> PriorityFromObservers() {
+    std::pair<ResourcePriority, ResourcePriority> result =
+        ComputePriorityFromObservers();
+    last_computed_priority_ = result.first;
+    return result;
+  }
+
+  const ResourcePriority& LastComputedPriority() const {
+    return last_computed_priority_;
   }
 
   // If this Resource is already finished when AddClient is called, the
@@ -219,6 +235,7 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
 
   ResourceStatus GetStatus() const { return status_; }
   void SetStatus(ResourceStatus status) { status_ = status; }
+  virtual ResourceStatus GetContentStatus() const { return status_; }
 
   size_t size() const { return EncodedSize() + DecodedSize() + OverheadSize(); }
 
@@ -294,12 +311,18 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
   // Returns true if |this| resource is matched with the given parameters.
   virtual void MatchPreload(const FetchParameters&);
 
-  bool CanReuseRedirectChain() const;
-  bool MustRevalidateDueToCacheHeaders(bool allow_stale) const;
-  bool ShouldRevalidateStaleResponse() const;
+  bool CanReuseRedirectChain(UseCounter& use_counter) const;
+  bool MustRevalidateDueToCacheHeaders(bool allow_stale,
+                                       UseCounter& use_counter) const;
+  bool ShouldRevalidateStaleResponse(UseCounter& use_counter) const;
   virtual bool CanUseCacheValidator() const;
-  base::TimeDelta FreshnessLifetime() const;
-  bool IsCacheValidator() const { return is_revalidating_; }
+  base::TimeDelta FreshnessLifetime(UseCounter& use_counter) const;
+  bool IsCacheValidator() const {
+    return revalidation_status_ == RevalidationStatus::kRevalidating;
+  }
+  bool HasSuccessfulRevalidation() const {
+    return revalidation_status_ == RevalidationStatus::kRevalidated;
+  }
   bool HasCacheControlNoStoreHeader() const;
   bool MustReloadDueToVaryHeader(const ResourceRequest& new_request) const;
 
@@ -322,9 +345,22 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
   const IntegrityMetadataSet& IntegrityMetadata() const {
     return options_.integrity_metadata;
   }
-  ResourceIntegrityDisposition IntegrityDisposition() const {
-    return integrity_disposition_;
+  bool PassedIntegrityChecks() const {
+    return integrity_disposition_ == ResourceIntegrityDisposition::kPassed;
   }
+
+  // Caching makes it possible for a resource that was requested with integrity
+  // metadata to be reused for a request that didn't itself require integrity
+  // checks. In that case, the integrity check can be skipped, as the integrity
+  // may not have been "meant" for this specific request. If the resource is
+  // being served from the preload cache however, we know any associated
+  // integrity metadata and checks were destined for this request, so we cannot
+  // skip the integrity check.
+  //
+  // TODO(375343417): This will also be the case for server-initiated integrity
+  // checks like `Identity-Digest`.
+  bool ForceIntegrityChecks() const { return IsLinkPreload(); }
+
   const SubresourceIntegrity::ReportInfo& IntegrityReportInfo() const {
     return integrity_report_info_;
   }
@@ -346,6 +382,10 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
   virtual void DidDownloadToBlob(scoped_refptr<BlobDataHandle>);
 
   base::TimeTicks LoadResponseEnd() const { return load_response_end_; }
+
+  base::TimeTicks MemoryCacheLastAccessed() const {
+    return memory_cache_last_accessed_;
+  }
 
   void SetEncodedDataLength(int64_t value) {
     response_.SetEncodedDataLength(value);
@@ -424,26 +464,29 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
 
   void SetIsPreloadedByEarlyHints() { is_preloaded_by_early_hints_ = true; }
 
-  bool IsPreloadedByEarlyHints() { return is_preloaded_by_early_hints_; }
+  bool IsPreloadedByEarlyHints() const { return is_preloaded_by_early_hints_; }
 
-  void SetIsLoadedFromMemoryCache() { is_loaded_from_memory_cache_ = true; }
+  virtual std::unique_ptr<BackgroundResponseProcessorFactory>
+  MaybeCreateBackgroundResponseProcessorFactory();
 
-  bool IsLoadedFromMemoryCache() { return is_loaded_from_memory_cache_; }
+  virtual bool HasClientsOrObservers() const {
+    return !clients_.empty() || !clients_awaiting_callback_.empty() ||
+           !finished_clients_.empty() || !finish_observers_.empty();
+  }
 
  protected:
   Resource(const ResourceRequestHead&,
            ResourceType,
            const ResourceLoaderOptions&);
 
-  virtual void NotifyDataReceived(const char* data, size_t size);
+  virtual std::pair<ResourcePriority, ResourcePriority>
+  ComputePriorityFromObservers() {
+    return std::make_pair(ResourcePriority(), ResourcePriority());
+  }
+  virtual void NotifyDataReceived(base::span<const char> data);
   virtual void NotifyFinished();
 
   void MarkClientFinished(ResourceClient*);
-
-  virtual bool HasClientsOrObservers() const {
-    return !clients_.empty() || !clients_awaiting_callback_.empty() ||
-           !finished_clients_.empty() || !finish_observers_.empty();
-  }
   virtual void DestroyDecodedDataForFailedRevalidation() {}
 
   void SetEncodedSize(size_t);
@@ -499,6 +542,8 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
 
  private:
   friend class ResourceLoader;
+  friend class MemoryCache;
+  FRIEND_TEST_ALL_PREFIXES(MemoryCacheStrongReferenceTest, ResourceTimeout);
 
   void RevalidationSucceeded(const ResourceResponse&);
   void RevalidationFailed();
@@ -513,12 +558,20 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
   void CheckResourceIntegrity();
   void TriggerNotificationForFinishObservers(base::SingleThreadTaskRunner*);
 
+  // Only call this from the MemoryCache. Calling it from anything else will
+  // upset the MemoryCache's LRU.
+  void UpdateMemoryCacheLastAccessedTime();
+
+  void AppendDataImpl(SegmentedBuffer&&);
+  void AppendDataImpl(base::span<const char>);
+
   ResourceType type_;
   ResourceStatus status_;
 
-  absl::optional<ResourceError> error_;
+  std::optional<ResourceError> error_;
 
   base::TimeTicks load_response_end_;
+  base::TimeTicks memory_cache_last_accessed_;
 
   size_t encoded_size_;
   size_t decoded_size_;
@@ -526,14 +579,21 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
   String cache_identifier_;
 
   bool link_preload_;
-  bool is_revalidating_;
   bool is_alive_;
   bool is_add_remove_client_prohibited_;
   bool is_revalidation_start_forbidden_ = false;
   bool is_unused_preload_ = false;
   bool stale_revalidation_started_ = false;
   bool is_preloaded_by_early_hints_ = false;
-  bool is_loaded_from_memory_cache_ = false;
+
+  enum class RevalidationStatus {
+    kNoRevalidatingOrFailed,  // not in revalidate procedure or
+                              // revalidate failed.
+    kRevalidating,            // in revalidate process, waiting for
+                              // network response
+    kRevalidated,             // revalidate success by 304 Not Modified
+  };
+  RevalidationStatus revalidation_status_;
 
   ResourceIntegrityDisposition integrity_disposition_;
   SubresourceIntegrity::ReportInfo integrity_report_info_;
@@ -547,6 +607,8 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
   HeapHashSet<WeakMember<ResourceFinishObserver>> finish_observers_;
 
   ResourceLoaderOptions options_;
+
+  ResourcePriority last_computed_priority_;
 
   base::Time response_timestamp_;
 

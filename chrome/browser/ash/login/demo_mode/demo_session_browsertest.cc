@@ -4,22 +4,23 @@
 
 #include "chrome/browser/ash/login/demo_mode/demo_session.h"
 
+#include <string_view>
+
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/strings/string_piece.h"
 #include "chrome/browser/ash/login/demo_mode/demo_setup_controller.h"
 #include "chrome/browser/ash/login/login_manager_test.h"
 #include "chrome/browser/ash/login/test/device_state_mixin.h"
 #include "chrome/browser/ash/login/test/login_manager_mixin.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
+#include "chrome/browser/ash/login/test/scoped_policy_update.h"
 #include "chrome/browser/ash/policy/core/device_local_account.h"
 #include "chrome/browser/ash/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_browser_main.h"
 #include "chrome/browser/chrome_browser_main_extra_parts.h"
-#include "chrome/browser/component_updater/fake_cros_component_manager.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/system_web_apps/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/browser.h"
@@ -29,6 +30,7 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
+#include "components/component_updater/ash/fake_component_manager_ash.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
@@ -207,7 +209,7 @@ IN_PROC_BROWSER_TEST_F(DemoSessionActiveDirectoryDeviceTest, NotDemoMode) {
 
 /* ============================ Demo Login Tests =============================*/
 
-// Extra parts for setting up the FakeCrOSComponentManager before the real one
+// Extra parts for setting up the FakeComponentManagerAsh before the real one
 // has been initialized on the browser
 class DemoLoginTestMainExtraParts : public ChromeBrowserMainExtraParts {
  public:
@@ -225,31 +227,31 @@ class DemoLoginTestMainExtraParts : public ChromeBrowserMainExtraParts {
   }
 
   void PostEarlyInitialization() override {
-    auto cros_component_manager =
-        base::MakeRefCounted<component_updater::FakeCrOSComponentManager>();
-    cros_component_manager->set_supported_components(
+    auto component_manager_ash =
+        base::MakeRefCounted<component_updater::FakeComponentManagerAsh>();
+    component_manager_ash->set_supported_components(
         {"demo-mode-app", kGrowthCampaignsComponentName});
-    cros_component_manager->ResetComponentState(
+    component_manager_ash->ResetComponentState(
         "demo-mode-app",
-        component_updater::FakeCrOSComponentManager::ComponentInfo(
-            component_updater::CrOSComponentManager::Error::NONE,
+        component_updater::FakeComponentManagerAsh::ComponentInfo(
+            component_updater::ComponentManagerAsh::Error::NONE,
             base::FilePath("/dev/null"),
             base::FilePath("/run/imageloader/demo-mode-app")));
-    cros_component_manager->ResetComponentState(
+    component_manager_ash->ResetComponentState(
         "growth-campaigns",
-        component_updater::FakeCrOSComponentManager::ComponentInfo(
-            component_updater::CrOSComponentManager::Error::NONE,
+        component_updater::FakeComponentManagerAsh::ComponentInfo(
+            component_updater::ComponentManagerAsh::Error::NONE,
             base::FilePath("/dev/null"), GetGrowthCampaignsPath()));
 
     platform_part_test_api_ =
         std::make_unique<BrowserProcessPlatformPartTestApi>(
             g_browser_process->platform_part());
-    platform_part_test_api_->InitializeCrosComponentManager(
-        std::move(cros_component_manager));
+    platform_part_test_api_->InitializeComponentManager(
+        std::move(component_manager_ash));
   }
 
   void PostMainMessageLoopRun() override {
-    platform_part_test_api_->ShutdownCrosComponentManager();
+    platform_part_test_api_->ShutdownComponentManager();
     platform_part_test_api_.reset();
   }
 
@@ -269,7 +271,7 @@ class DemoSessionLoginTest : public LoginManagerTest,
                              public chromeos::FakePowerManagerClient::Observer {
  public:
   DemoSessionLoginTest() {
-    login_manager_mixin_.set_should_launch_browser(true);
+    login_manager_mixin_.SetShouldLaunchBrowser(true);
     BrowserList::AddObserver(this);
   }
 
@@ -364,9 +366,7 @@ IN_PROC_BROWSER_TEST_F(DemoSessionLoginTest, SessionStartup) {
   login_manager_mixin_.WaitForActiveSession();
 }
 
-// TODO(b/1513575): Flaky.
-IN_PROC_BROWSER_TEST_F(DemoSessionLoginTest,
-                       DISABLED_DemoSWALaunchesOnSessionStartup) {
+IN_PROC_BROWSER_TEST_F(DemoSessionLoginTest, DemoSWALaunchesOnSessionStartup) {
   base::ScopedAllowBlockingForTesting scoped_allow_blocking;
 
   OpenBrowserAndInstallSystemAppForActiveProfile();
@@ -402,7 +402,7 @@ class DemoSessionLoginWithGrowthCampaignTest : public DemoSessionLoginTest {
         {});
   }
 
-  void CreateTestCampaignsFile(base::StringPiece data) {
+  void CreateTestCampaignsFile(std::string_view data) {
     auto campaigns_mounted_path = growth_campaigns_mounted_path();
     CHECK(base::CreateDirectory(campaigns_mounted_path));
 
@@ -459,9 +459,8 @@ IN_PROC_BROWSER_TEST_F(DemoSessionLoginWithGrowthCampaignTest,
       variations::IsInSyntheticTrialGroup("CrOSGrowthStudy1", "CampaignId3"));
 }
 
-// TODO(crbug.com/1513575): Flaky.
 IN_PROC_BROWSER_TEST_F(DemoSessionLoginWithGrowthCampaignTest,
-                       DISABLED_DemoSWALaunchesOnSessionStartupWithoutPayload) {
+                       DemoSWALaunchesOnSessionStartupWithoutPayload) {
   base::ScopedAllowBlockingForTesting scoped_allow_blocking;
 
   CreateTestCampaignsFile(R"({
@@ -488,8 +487,10 @@ IN_PROC_BROWSER_TEST_F(DemoSessionLoginWithGrowthCampaignTest,
   EXPECT_EQ(tab->GetController().GetVisibleEntry()->GetPageType(),
             content::PAGE_TYPE_NORMAL);
 
-  // False because campaign not used.
-  EXPECT_FALSE(variations::HasSyntheticTrial("CrOSGrowthStudy"));
+  // Campaign is active with empty payload. Empty payload means the demo app
+  // would be launched without params.
+  EXPECT_TRUE(
+      variations::IsInSyntheticTrialGroup("CrOSGrowthStudy", "CampaignId3"));
 }
 
 IN_PROC_BROWSER_TEST_F(DemoSessionLoginWithGrowthCampaignTest,
@@ -543,8 +544,7 @@ IN_PROC_BROWSER_TEST_F(DemoSessionLoginWithGrowthCampaignTest,
 }
 
 IN_PROC_BROWSER_TEST_F(DemoSessionLoginWithGrowthCampaignTest,
-                       // TODO(crbug.com/1516799): Re-enable this test
-                       DISABLED_DemoSWACampaignNoStudyId) {
+                       DemoSWACampaignNoStudyId) {
   base::ScopedAllowBlockingForTesting scoped_allow_blocking;
 
   CreateTestCampaignsFile(R"({

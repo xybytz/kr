@@ -4,8 +4,8 @@
 
 #include "chrome/browser/ui/global_media_controls/cast_media_notification_producer.h"
 
-#include "base/containers/contains.h"
-#include "base/containers/cxx20_erase.h"
+#include <map>
+
 #include "base/ranges/algorithm.h"
 #include "chrome/browser/feature_engagement/tracker_factory.h"
 #include "chrome/browser/media/router/media_router_feature.h"
@@ -27,13 +27,13 @@ namespace {
 // until the next time |OnRoutesUpdated()| is called.
 bool ShouldHideNotification(Profile* profile,
                             const media_router::MediaRoute& route) {
-  // TODO(crbug.com/1195382): Display multizone group route.
+  // TODO(crbug.com/40176012): Display multizone group route.
   if (route.is_connecting()) {
     return true;
   }
   // If the user changes the pref to show all Cast sessions, they won't be shown
   // until `OnRoutesUpdated()` is called again.
-  // TODO(crbug.com/726823): Ash currently considers Lacros routes non-local
+  // TODO(crbug.com/41321719): Ash currently considers Lacros routes non-local
   // and hides them if the pref is set to false.
   if (!route.is_local() &&
       !profile->GetPrefs()->GetBoolean(
@@ -162,7 +162,7 @@ void CastMediaNotificationProducer::OnRoutesUpdated(
     const std::vector<media_router::MediaRoute>& routes) {
   const bool had_items = HasActiveItems();
 
-  base::EraseIf(items_, [&routes](const auto& item) {
+  std::erase_if(items_, [&routes](const auto& item) {
     return !base::Contains(routes, item.first,
                            &media_router::MediaRoute::media_route_id);
   });

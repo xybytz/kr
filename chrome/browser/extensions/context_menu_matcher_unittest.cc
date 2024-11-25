@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/context_menu_matcher.h"
+
 #include <string>
 
 #include "base/functional/bind.h"
@@ -18,9 +19,10 @@
 #include "components/prefs/pref_service.h"
 #include "content/public/test/browser_task_environment.h"
 #include "extensions/browser/extension_registry.h"
+#include "extensions/common/extension_id.h"
 #include "extensions/common/utils/extension_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "ui/base/models/simple_menu_model.h"
+#include "ui/menus/simple_menu_model.h"
 
 namespace extensions {
 
@@ -57,7 +59,7 @@ class ContextMenuMatcherTest : public testing::Test {
                                            int webview_instance_id,
                                            const std::string& string_id,
                                            bool visible) {
-    const std::string& extension_id = MaybeGetExtensionId(extension);
+    const ExtensionId& extension_id = MaybeGetExtensionId(extension);
     MenuItem::Id id(false, MenuItem::ExtensionKey(
                                extension_id, webview_embedder_process_id,
                                webview_embedder_frame_id, webview_instance_id));

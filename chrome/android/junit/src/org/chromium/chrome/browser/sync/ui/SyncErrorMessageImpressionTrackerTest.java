@@ -12,7 +12,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
@@ -22,7 +21,6 @@ import org.chromium.base.FakeTimeTestRule;
 import org.chromium.base.TimeUtils;
 import org.chromium.base.shared_preferences.SharedPreferencesManager;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.Features;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.ChromeSharedPreferences;
 import org.chromium.chrome.browser.preferences.Pref;
@@ -33,8 +31,6 @@ import org.chromium.components.prefs.PrefService;
 @Config(manifest = Config.NONE)
 public class SyncErrorMessageImpressionTrackerTest {
     @Rule public FakeTimeTestRule mFakeTimeTestRule = new FakeTimeTestRule();
-
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
 
     @Mock private PrefService mPrefService;
 
@@ -53,7 +49,7 @@ public class SyncErrorMessageImpressionTrackerTest {
     }
 
     @Test
-    public void testNotEnoughTimeSinceLastSyncErrorUI() {
+    public void testNotEnoughTimeSinceLastSyncErrorUi() {
         final long timeOfFirstSyncMessage = TimeUtils.currentTimeMillis();
         mSharedPrefsManager.writeLong(
                 ChromePreferenceKeys.SYNC_ERROR_MESSAGE_SHOWN_AT_TIME, timeOfFirstSyncMessage);
@@ -73,7 +69,7 @@ public class SyncErrorMessageImpressionTrackerTest {
     }
 
     @Test
-    public void testNotEnoughTimeSinceLastPwmUI() {
+    public void testNotEnoughTimeSinceLastPwmUi() {
         final long timeOfFirstSyncMessage = TimeUtils.currentTimeMillis();
         mSharedPrefsManager.writeLong(
                 ChromePreferenceKeys.SYNC_ERROR_MESSAGE_SHOWN_AT_TIME, timeOfFirstSyncMessage);

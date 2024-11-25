@@ -122,6 +122,11 @@ class CalculatorGraph {
   // Initializes the graph from its proto description (using Initialize())
   // and crashes if something goes wrong.
   explicit CalculatorGraph(CalculatorGraphConfig config);
+
+  // Initializes the graph with shared GraphServices from an existing MP graph
+  // environment. It enables to run a CalculatorGraph within a Calculator.
+  explicit CalculatorGraph(CalculatorContext* cc);
+
   virtual ~CalculatorGraph();
 
   // Initializes the graph from a its proto description.
@@ -157,6 +162,9 @@ class CalculatorGraph {
   // object is destroyed, even if e.g. Cancel() or WaitUntilDone() have already
   // been called. After this object is destroyed so is packet_callback.
   // TODO: Rename to AddOutputStreamCallback.
+  //
+  // Note: use `SetErrorCallback` to subscribe for errors when using graph for
+  // async use cases.
   absl::Status ObserveOutputStream(
       const std::string& stream_name,
       std::function<absl::Status(const Packet&)> packet_callback,
@@ -314,8 +322,26 @@ class CalculatorGraph {
   }
   CounterFactory* GetCounterFactory() { return counter_factory_.get(); }
 
+  // Sets the error callback to receive graph execution errors when blocking
+  // calls like `WaitUntilIdle()`, `WaitUntilDone()` cannot be used.
+  //
+  // Useful for async graph use cases: e.g. user entering words and each
+  // word is sent to the graph while graph outputs are received and rendered
+  // asynchronously.
+  //
+  // NOTE:
+  // - Must be called before graph is initialized.
+  // - May be executed from multiple threads.
+  // - Errors are first processed by the graph, then the graph transitions into
+  //   the error state, and then finally the callback is invoked.
+  absl::Status SetErrorCallback(
+      std::function<void(const absl::Status&)> error_callback);
+
   // Callback when an error is encountered.
   // Adds the error to the vector of errors.
+  //
+  // Use `SetErrorCallback` to subscribe for errors when using graph for async
+  // use cases.
   void RecordError(const absl::Status& error) ABSL_LOCKS_EXCLUDED(error_mutex_);
 
   // Combines errors into a status. Returns true if the vector of errors is
@@ -402,12 +428,12 @@ class CalculatorGraph {
   absl::Status SetServiceObject(const GraphService<T>& service,
                                 std::shared_ptr<T> object) {
     // TODO: check that the graph has not been started!
-    return service_manager_.SetServiceObject(service, object);
+    return service_manager_->SetServiceObject(service, object);
   }
 
   template <typename T>
   std::shared_ptr<T> GetServiceObject(const GraphService<T>& service) {
-    return service_manager_.GetServiceObject(service);
+    return service_manager_->GetServiceObject(service);
   }
 
   // Disallows/disables default initialization of MediaPipe graph services.
@@ -448,10 +474,13 @@ class CalculatorGraph {
   // Only the Java API should call this directly.
   absl::Status SetServicePacket(const GraphServiceBase& service, Packet p) {
     // TODO: check that the graph has not been started!
-    return service_manager_.SetServicePacket(service, p);
+    return service_manager_->SetServicePacket(service, p);
   }
 
  private:
+  explicit CalculatorGraph(
+      std::shared_ptr<GraphServiceManager> service_manager);
+
   // GraphRunState is used as a parameter in the function CallStatusHandlers.
   enum class GraphRunState {
     // State of the graph before the run; see status_handler.h for details.
@@ -684,7 +713,7 @@ class CalculatorGraph {
   std::map<std::string, Packet> current_run_side_packets_;
 
   // Object to manage graph services.
-  GraphServiceManager service_manager_;
+  std::shared_ptr<GraphServiceManager> service_manager_;
 
   // Indicates whether service default initialization is allowed.
   bool allow_service_default_initialization_ = true;
@@ -692,6 +721,9 @@ class CalculatorGraph {
   // Vector of errors encountered while running graph. Always use RecordError()
   // to add an error to this vector.
   std::vector<absl::Status> errors_ ABSL_GUARDED_BY(error_mutex_);
+
+  // Optional error callback set by client.
+  std::function<void(const absl::Status&)> error_callback_;
 
   // True if the default executor uses the application thread.
   bool use_application_thread_ = false;

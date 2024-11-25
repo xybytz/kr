@@ -46,10 +46,6 @@ gpu::MailboxHolder SwapChainInfo::GetMailboxHolder() const {
   return gpu::MailboxHolder(shared_image->mailbox(), sync_token, GL_TEXTURE_2D);
 }
 
-bool OpenXrGraphicsBinding::Render() {
-  return true;
-}
-
 void OpenXrGraphicsBinding::PrepareViewConfigForRender(
     const XrSwapchain& color_swapchain,
     OpenXrViewConfiguration& view_config) {
@@ -89,8 +85,8 @@ void OpenXrGraphicsBinding::PrepareViewConfigForRender(
     // steps.
     if (ShouldFlipSubmittedImage()) {
       projection_view.subImage.imageRect.offset.y = 0;
-      projection_view.fov.angleUp = view.fov.angleDown;
-      projection_view.fov.angleDown = view.fov.angleUp;
+      projection_view.fov.angleUp = -view.fov.angleUp;
+      projection_view.fov.angleDown = -view.fov.angleDown;
     }
   }
 }

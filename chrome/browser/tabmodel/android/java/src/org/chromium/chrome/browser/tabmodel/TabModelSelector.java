@@ -36,14 +36,13 @@ public interface TabModelSelector {
     TabModel getModel(boolean incognito);
 
     /**
-     * Get the {@link TabModelFilterProvider} that provides {@link TabModelFilter}.
-     * @return  Never returns null. Returns a stub when real model is uninitialized.
+     * Get the {@link TabGroupModelFilterProvider} that provides {@link TabGroupModelFilter}.
+     *
+     * @return Never returns null. Returns a stub when real model is uninitialized.
      */
-    TabModelFilterProvider getTabModelFilterProvider();
+    TabGroupModelFilterProvider getTabGroupModelFilterProvider();
 
-    /**
-     * @return a list for the underlying models
-     */
+    /** Returns a list for the underlying models */
     List<TabModel> getModels();
 
     /** Returns the current tab model or a stub when real model is uninitialized. */
@@ -95,9 +94,29 @@ public interface TabModelSelector {
     TabModel getModelForTabId(int id);
 
     /**
+     * TODO(crbug.com/350654700): clean up usages and remove isIncognitoSelected.
+     *
      * @return If the incognito {@link TabModel} is current.
+     * @deprecated Use {@link #isIncognitoBrandedModelSelected()} or {@link
+     *     #isOffTheRecordModelSelected()}.
      */
+    @Deprecated
     boolean isIncognitoSelected();
+
+    /**
+     * @return If the current {@link TabModel} is Incognito branded.
+     * @see {@link Profile#isIncognitoBranded()}
+     */
+    boolean isIncognitoBrandedModelSelected();
+
+    /**
+     * @return If the current {@link TabModel} is off the record.
+     * @see {@link Profile#isOffTheRecord()}
+     */
+    boolean isOffTheRecordModelSelected();
+
+    /** Returns the {@link TabCreatorManager} to create tabs in this tab model selector. */
+    TabCreatorManager getTabCreatorManager();
 
     /**
      * Opens a new tab.
@@ -113,20 +132,17 @@ public interface TabModelSelector {
 
     /**
      * Searches through all children models for the specified Tab and closes the tab if it exists.
-     * @param tab the non-null tab to close
-     * @return true if the tab was found
+     * If the tab is pending closure it will be committed.
+     *
+     * <p>Note: this method should ONLY be used when either the tab model or closing state of the
+     * tab are hard to discern. Prefer to use {@code
+     * getModel(isIncognito).getTabRemover().closeTabs()}.
+     *
+     * @param tabClosureParams A {@link TabClosureParams} for a single tab.
+     * @param allowDialog Whether to show a tab removal dialog see {@link TabRemover}
+     * @return true if the tab was found and closed.
      */
-    boolean closeTab(Tab tab);
-
-    /** Close all tabs across all tab models */
-    void closeAllTabs();
-
-    /**
-     * Close all tabs across all tab models
-     * @param uponExit true iff the tabs are being closed upon application exit (after user presses
-     *                 the system back button)
-     */
-    void closeAllTabs(boolean uponExit);
+    boolean tryCloseTab(@NonNull TabClosureParams tabClosureParams, boolean allowDialog);
 
     /** Get total tab count across all tab models */
     int getTotalTabCount();

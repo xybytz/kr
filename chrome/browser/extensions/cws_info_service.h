@@ -30,7 +30,6 @@ class ExtensionPrefs;
 class ExtensionRegistry;
 class BatchGetStoreMetadatasResponse;
 
-BASE_DECLARE_FEATURE(kCWSInfoService);
 BASE_DECLARE_FEATURE(kCWSInfoFastCheck);
 
 // This is an interface class to allow for easy mocking.
@@ -127,14 +126,13 @@ class CWSInfoService : public CWSInfoServiceInterface, public KeyedService {
   int GetCheckIntervalForTesting() const;
   int GetFetchIntervalForTesting() const;
   base::Time GetCWSInfoTimestampForTesting() const;
+  base::Time GetCWSInfoFetchErrorTimestampForTesting() const;
   void SetMaxExtensionIdsPerRequestForTesting(int max);
+  static void SetSkipApiCheckForTesting(bool skip_api_key_check);
 
  protected:
   // Only used for testing to create a fake derived class.
   CWSInfoService();
-
-  // Returns true if the service can perform fetch operations, false otherwise.
-  bool CanFetchInfo() const;
 
   // This method schedules an info check after specified |seconds|.
   void ScheduleCheck(int seconds);

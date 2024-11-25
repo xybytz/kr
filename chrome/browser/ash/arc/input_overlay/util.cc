@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "ash/components/arc/arc_util.h"
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/window_properties.h"
 #include "base/notreached.h"
@@ -71,9 +72,6 @@ InputElement* GetInputBindingByBindingOption(Action* action,
     case BindingOption::kOriginal:
       input_binding = action->original_input();
       break;
-    case BindingOption::kPending:
-      input_binding = action->pending_input();
-      break;
     default:
       NOTREACHED();
   }
@@ -81,7 +79,7 @@ InputElement* GetInputBindingByBindingOption(Action* action,
 }
 
 std::string GetCurrentSystemVersion() {
-  return kSystemVersionAlphaV2;
+  return kSystemVersionAlphaV2Plus;
 }
 
 void ResetFocusTo(views::View* view) {
@@ -127,14 +125,6 @@ void UpdateFlagAndProperty(aura::Window* window,
     window->SetProperty(ash::kArcGameControlsFlagsKey,
                         UpdateFlag(flags, flag, turn_on));
   }
-}
-
-bool IsBeta() {
-  return ash::features::IsArcInputOverlayBetaEnabled();
-}
-
-bool IsGameDashboardFlagOn() {
-  return ash::features::IsGameDashboardEnabled();
 }
 
 }  // namespace arc::input_overlay

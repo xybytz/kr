@@ -15,6 +15,7 @@
 
 #include "base/check.h"
 #include "base/compiler_specific.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/raw_ptr_exclusion.h"
 
 template <class T>
@@ -156,6 +157,11 @@ scoped_refptr<T> MakeRefCounted(Args&&... args) {
 template <typename T>
 scoped_refptr<T> WrapRefCounted(T* t) {
   return scoped_refptr<T>(t);
+}
+
+template <typename T, base::RawPtrTraits Traits = base::RawPtrTraits::kEmpty>
+scoped_refptr<T> WrapRefCounted(const raw_ptr<T, Traits>& t) {
+  return scoped_refptr<T>(t.get());
 }
 
 }  // namespace base
@@ -339,8 +345,9 @@ class TRIVIAL_ABI scoped_refptr {
   }
 
  protected:
-  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
-  // #union, #addr-of, #global-scope
+  // RAW_PTR_EXCLUSION: scoped_refptr<> has its own UaF prevention mechanism.
+  // Given how widespread it is, we it'll likely a perf regression for no
+  // additional security benefit.
   RAW_PTR_EXCLUSION T* ptr_ = nullptr;
 
  private:

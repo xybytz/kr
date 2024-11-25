@@ -13,7 +13,7 @@
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/table_view/table_view_cells_constants.h"
 #import "ios/chrome/common/ui/util/text_view_util.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 
 namespace {
 
@@ -131,6 +131,9 @@ const CGFloat kHorizontalSpacingToAlignWithItems = 16.0;
 - (void)prepareForReuse {
   [super prepareForReuse];
   self.textView.text = nil;
+  self.textView.selectable = YES;
+  self.textView.linkTextAttributes =
+      @{NSForegroundColorAttributeName : [UIColor colorNamed:kBlueColor]};
   self.delegate = nil;
   self.urls = @[];
   self.forceIndents = NO;
@@ -139,12 +142,22 @@ const CGFloat kHorizontalSpacingToAlignWithItems = 16.0;
 #pragma mark - Properties
 
 - (void)setText:(NSString*)text withColor:(UIColor*)color {
+  [self setText:text withColor:color textAlignment:NSTextAlignmentNatural];
+}
+
+- (void)setText:(NSString*)text
+        withColor:(UIColor*)color
+    textAlignment:(NSTextAlignment)textAlignment {
   StringWithTags parsedString = ParseStringWithLinks(text);
+  NSMutableParagraphStyle* paragraphStyle =
+      [[NSMutableParagraphStyle alloc] init];
+  paragraphStyle.alignment = textAlignment;
 
   NSDictionary* textAttributes = @{
     NSFontAttributeName :
         [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote],
-    NSForegroundColorAttributeName : color
+    NSForegroundColorAttributeName : color,
+    NSParagraphStyleAttributeName : paragraphStyle
   };
 
   NSMutableAttributedString* attributedText =
@@ -179,6 +192,14 @@ const CGFloat kHorizontalSpacingToAlignWithItems = 16.0;
       forceIndents ? kHorizontalSpacingToAlignWithItems : HorizontalPadding();
   trailingConstraint_.constant =
       forceIndents ? -kHorizontalSpacingToAlignWithItems : -HorizontalPadding();
+}
+
+- (void)setLinkEnabled:(BOOL)enabled {
+  self.textView.selectable = enabled;
+  _textView.linkTextAttributes = @{
+    NSForegroundColorAttributeName :
+        [UIColor colorNamed:enabled ? kBlueColor : kDisabledTintColor]
+  };
 }
 
 #pragma mark - UITextViewDelegate

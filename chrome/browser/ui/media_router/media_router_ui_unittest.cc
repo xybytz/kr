@@ -14,16 +14,17 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/media/router/chrome_media_router_factory.h"
+#include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/media/router/providers/wired_display/wired_display_media_route_provider.h"
 #include "chrome/browser/sessions/session_tab_helper_factory.h"
 #include "chrome/browser/ui/media_router/cast_dialog_controller.h"
 #include "chrome/browser/ui/media_router/media_cast_mode.h"
+#include "chrome/browser/ui/webui/media_router/web_contents_display_observer.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "components/media_router/browser/media_router_factory.h"
 #include "components/media_router/browser/media_sinks_observer.h"
-#include "components/media_router/browser/presentation/presentation_service_delegate_impl.h"
 #include "components/media_router/browser/test/mock_media_router.h"
 #include "components/media_router/browser/test/test_helper.h"
 #include "components/media_router/common/media_source.h"
@@ -559,7 +560,22 @@ TEST_F(MediaRouterViewsUITest, DesktopMirroringFailsWhenDisallowedOnMac) {
       }));
   ui_->StartCasting(kSinkId, MediaCastMode::DESKTOP_MIRROR);
 }
+
 #endif
+
+TEST_F(MediaRouterViewsUITest, PermissionRejectedIssue) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      media_router::kShowCastPermissionRejectedError);
+
+  MockControllerObserver observer(ui_.get());
+  EXPECT_CALL(observer, OnModelUpdated(_))
+      .WillOnce(WithArg<0>(Invoke([](const CastDialogModel& model) {
+        EXPECT_TRUE(model.is_permission_rejected());
+        EXPECT_TRUE(model.media_sinks().empty());
+      })));
+  mock_router_->GetIssueManager()->AddPermissionRejectedIssue();
+}
 
 TEST_F(MediaRouterViewsUITest, SortedSinks) {
   NotifyUiOnSinksUpdated({{CreateCastSink("sink3", "B sink"), {}},

@@ -21,6 +21,7 @@ enum class KeepAliveOrigin {
   BROWSER_PROCESS_FUCHSIA,
   BROWSER_PROCESS_LACROS,
   SESSION_RESTORE,
+  HEADLESS_COMMAND,
 
   // c/b/apps
   APP_LAUNCH,
@@ -47,6 +48,9 @@ enum class KeepAliveOrigin {
 
   // c/b/extensions
   NATIVE_MESSAGING_HOST_ERROR_REPORT,
+
+  // c/b/glic
+  GLIC_LAUNCHER,
 
   // c/b/notifications
   NOTIFICATION,

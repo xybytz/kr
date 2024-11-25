@@ -31,7 +31,6 @@ import androidx.test.filters.SmallTest;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -44,16 +43,13 @@ import org.robolectric.shadows.ShadowLooper;
 
 import org.chromium.base.Callback;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.UiThreadTest;
-import org.chromium.base.test.util.JniMocker;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.chrome.browser.feed.test.R;
 import org.chromium.chrome.browser.feed.webfeed.WebFeedSnackbarController.FeedLauncher;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuHandler;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.browser_ui.widget.chips.ChipView;
 import org.chromium.components.embedder_support.util.ShadowUrlUtilities;
 import org.chromium.components.url_formatter.UrlFormatter;
@@ -76,13 +72,9 @@ import java.util.ArrayList;
 public final class WebFeedMainMenuItemTest {
     private static final GURL TEST_URL = JUnitTestGURLs.EXAMPLE_URL;
 
-    @Rule public JniMocker mJniMocker = new JniMocker();
-
     @Rule
     public ActivityScenarioRule<TestActivity> mActivityScenarioRule =
             new ActivityScenarioRule<>(TestActivity.class);
-
-    @Rule public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
 
     @Captor ArgumentCaptor<Intent> mIntentCaptor;
 
@@ -106,7 +98,7 @@ public final class WebFeedMainMenuItemTest {
         MockitoAnnotations.initMocks(this);
         // Print logs to stdout.
         ShadowLog.stream = System.out;
-        mJniMocker.mock(WebFeedBridge.getTestHooksForTesting(), mWebFeedBridgeJniMock);
+        WebFeedBridgeJni.setInstanceForTesting(mWebFeedBridgeJniMock);
 
         when(mWebFeedBridgeJniMock.isCormorantEnabledForLocale()).thenReturn(true);
 
@@ -140,14 +132,13 @@ public final class WebFeedMainMenuItemTest {
 
         mWebFeedMainMenuItem =
                 (WebFeedMainMenuItem)
-                        (LayoutInflater.from(mActivity)
-                                .inflate(R.layout.web_feed_main_menu_item, null));
+                        LayoutInflater.from(mActivity)
+                                .inflate(R.layout.web_feed_main_menu_item, null);
 
         LoadingView.setDisableAnimationForTest(true);
     }
 
     @Test
-    @UiThreadTest
     public void initialize_hasFavicon_displaysFavicon() {
         initializeWebFeedMainMenuItem();
         respondWithFeedMetadata(null);
@@ -160,7 +151,6 @@ public final class WebFeedMainMenuItemTest {
     }
 
     @Test
-    @UiThreadTest
     public void initialize_emptyUrl_removesIcon() {
         doReturn(GURL.emptyGURL()).when(mTab).getOriginalUrl();
         mWebFeedMainMenuItem.initialize(
@@ -179,7 +169,6 @@ public final class WebFeedMainMenuItemTest {
     }
 
     @Test
-    @UiThreadTest
     public void initialize_displaysCorrectTitle() {
         initializeWebFeedMainMenuItem();
         respondWithFeedMetadata(null);
@@ -192,7 +181,6 @@ public final class WebFeedMainMenuItemTest {
     }
 
     @Test
-    @UiThreadTest
     public void initialize_launchCreatorActivity() {
         initializeWebFeedMainMenuItem();
         respondWithFeedMetadata(
@@ -210,16 +198,11 @@ public final class WebFeedMainMenuItemTest {
         assertTrue(intent.hasExtra(CreatorIntentConstants.CREATOR_URL));
         assertNotNull(intent.getExtras().getString(CreatorIntentConstants.CREATOR_URL));
         assertTrue(intent.hasExtra(CreatorIntentConstants.CREATOR_ENTRY_POINT));
-        assertNotNull(intent.getExtras().getInt(CreatorIntentConstants.CREATOR_ENTRY_POINT));
         assertTrue(intent.hasExtra(CreatorIntentConstants.CREATOR_FOLLOWING));
-        assertNotNull(
-                intent.getExtras().getBoolean(CreatorIntentConstants.CREATOR_FOLLOWING, false));
         assertTrue(intent.hasExtra(CreatorIntentConstants.CREATOR_TAB_ID));
-        assertNotNull(intent.getExtras().getInt(CreatorIntentConstants.CREATOR_TAB_ID));
     }
 
     @Test
-    @UiThreadTest
     public void initialize_noMetadata_displaysFollowChip() {
         initializeWebFeedMainMenuItem();
         respondWithFeedMetadata(null);
@@ -228,7 +211,6 @@ public final class WebFeedMainMenuItemTest {
     }
 
     @Test
-    @UiThreadTest
     public void initialize_notFollowed_displaysFollowChip() {
         initializeWebFeedMainMenuItem();
         respondWithFeedMetadata(
@@ -238,7 +220,6 @@ public final class WebFeedMainMenuItemTest {
     }
 
     @Test
-    @UiThreadTest
     public void initialize_errorPage_displaysDisabledFollowChip() {
         doReturn(true).when(mTab).isShowingErrorPage();
         initializeWebFeedMainMenuItem();
@@ -249,7 +230,6 @@ public final class WebFeedMainMenuItemTest {
     }
 
     @Test
-    @UiThreadTest
     public void initialize_unknownFollowStatus_displaysFollowChip() {
         initializeWebFeedMainMenuItem();
         respondWithFeedMetadata(
@@ -259,7 +239,6 @@ public final class WebFeedMainMenuItemTest {
     }
 
     @Test
-    @UiThreadTest
     public void initialize_followed_displaysFollowingChip() {
         initializeWebFeedMainMenuItem();
         respondWithFeedMetadata(
@@ -269,7 +248,6 @@ public final class WebFeedMainMenuItemTest {
     }
 
     @Test
-    @UiThreadTest
     public void initialize_unfollowInProgress() {
         initializeWebFeedMainMenuItem();
         respondWithFeedMetadata(
@@ -283,7 +261,6 @@ public final class WebFeedMainMenuItemTest {
     }
 
     @Test
-    @UiThreadTest
     public void initialize_unfollowInProgress_succeeds() {
         initializeWebFeedMainMenuItem();
         respondWithFeedMetadata(
@@ -299,7 +276,6 @@ public final class WebFeedMainMenuItemTest {
     }
 
     @Test
-    @UiThreadTest
     public void initialize_unfollowInProgress_fails() {
         initializeWebFeedMainMenuItem();
         respondWithFeedMetadata(
@@ -315,7 +291,6 @@ public final class WebFeedMainMenuItemTest {
     }
 
     @Test
-    @UiThreadTest
     public void initialize_followInProgress_succeeds() {
         initializeWebFeedMainMenuItem();
         respondWithFeedMetadata(
@@ -335,7 +310,6 @@ public final class WebFeedMainMenuItemTest {
     }
 
     @Test
-    @UiThreadTest
     public void initialize_followInProgress_fails() {
         initializeWebFeedMainMenuItem();
         respondWithFeedMetadata(

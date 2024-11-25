@@ -75,23 +75,15 @@ UIImage* CustomSymbolTemplateWithPointSize(NSString* symbol_name,
 }
 
 UIImage* MakeSymbolMonochrome(UIImage* symbol) {
-#if defined(__IPHONE_16_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_16_0
-  if (@available(iOS 16, *)) {
-    return [symbol
-        imageByApplyingSymbolConfiguration:
-            [UIImageSymbolConfiguration configurationPreferringMonochrome]];
-  }
-#endif  // defined(__IPHONE_16_0)
-  return symbol;
+  return [symbol
+      imageByApplyingSymbolConfiguration:
+          [UIImageSymbolConfiguration configurationPreferringMonochrome]];
 }
 
 UIImage* MakeSymbolMulticolor(UIImage* symbol) {
-  if (@available(iOS 15, *)) {
-    return [symbol
-        imageByApplyingSymbolConfiguration:
-            [UIImageSymbolConfiguration configurationPreferringMulticolor]];
-  }
-  return [symbol imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+  return [symbol
+      imageByApplyingSymbolConfiguration:
+          [UIImageSymbolConfiguration configurationPreferringMulticolor]];
 }
 
 UIImage* SymbolWithPalette(UIImage* symbol, NSArray<UIColor*>* colors) {
@@ -113,6 +105,15 @@ UIImage* CustomSettingsRootSymbol(NSString* symbol_name) {
 UIImage* CustomSettingsRootMulticolorSymbol(NSString* symbol_name) {
   return MakeSymbolMulticolor(CustomSymbolWithPointSize(
       symbol_name, kSettingsRootSymbolImagePointSize));
+}
+
+UIImage* DefaultAccessorySymbolConfigurationWithRegularWeight(
+    NSString* symbol_name) {
+  return DefaultSymbolWithConfiguration(
+      symbol_name, [UIImageSymbolConfiguration
+                       configurationWithPointSize:kSymbolAccessoryPointSize
+                                           weight:UIImageSymbolWeightRegular
+                                            scale:UIImageSymbolScaleMedium]);
 }
 
 }  // extern "C"

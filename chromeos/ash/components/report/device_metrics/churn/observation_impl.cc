@@ -63,6 +63,11 @@ base::WeakPtr<ObservationImpl> ObservationImpl::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();
 }
 
+std::optional<FresnelImportDataRequest>
+ObservationImpl::GenerateImportRequestBodyForTesting() {
+  return GenerateImportRequestBody();
+}
+
 void ObservationImpl::CheckMembershipOprf() {
   PsmClientManager* psm_client_manager = GetParams()->GetPsmClientManager();
 
@@ -329,7 +334,7 @@ ObservationImpl::GenerateImportRequestBody() {
       GetParams()->GetChromeDeviceParams().market_segment;
 
   DeviceMetadata* device_metadata = import_request.mutable_device_metadata();
-  device_metadata->set_chromeos_version(utils::GetChromeMilestone());
+  device_metadata->set_chrome_milestone(utils::GetChromeMilestone());
   device_metadata->set_hardware_id(utils::GetFullHardwareClass());
   device_metadata->set_chromeos_channel(
       utils::GetChromeChannel(version_channel));
@@ -428,6 +433,38 @@ std::optional<FresnelImportData> ObservationImpl::GenerateObservationImportData(
     LOG(ERROR) << "Failed to generate observation import data for period = "
                << period;
     return std::nullopt;
+  }
+
+  // Finch flag is disabled by default.
+  if (base::FeatureList::IsEnabled(
+          features::kDeviceActiveClientChurnObservationNewDeviceMetadata)) {
+    std::optional<base::Time> first_active_week_ts =
+        utils::GetFirstActiveWeek();
+
+    if (!first_active_week_ts.has_value() ||
+        first_active_week_ts.value() == base::Time() ||
+        first_active_week_ts.value() == base::Time::UnixEpoch()) {
+      LOG(ERROR) << "Failed to retrieve first active week from VPD. "
+                    "Setting first active and last powerwash week to UNKNOWN.";
+      observation_metadata->set_first_active_week("UNKNOWN");
+      observation_metadata->set_last_powerwash_week("UNKNOWN");
+    } else {
+      int max_days_in_4_months = 31 * 4;
+      bool within_date_range = utils::IsFirstActiveUnderNDaysAgo(
+          active_ts, first_active_week_ts.value(), max_days_in_4_months);
+
+      // Privacy approved 4 months of first active week history.
+      // Reference b/316402479.
+      if (within_date_range) {
+        observation_metadata->set_first_active_week(
+            utils::ConvertTimeToISO8601String(first_active_week_ts.value()));
+
+        // Last powerwash week is read from preserved file and stored in
+        // |ReportControllerInitializer|.
+        observation_metadata->set_last_powerwash_week(
+            GetParams()->GetChromeDeviceParams().last_powerwash_week);
+      }
+    }
   }
 
   import_data.set_plaintext_id(psm_id.value().sensitive_id());

@@ -10,10 +10,10 @@
  */
 import 'chrome://resources/cr_elements/cr_actionable_row_style.css.js';
 import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_icon/cr_icon.js';
 import 'chrome://resources/cr_elements/cr_shared_style.css.js';
 import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
-import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 import '../settings_shared.css.js';
 
 import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
@@ -113,10 +113,10 @@ export class SettingsSafetyCheckChildElement extends
   managedIcon: string;
 
   /** @return The left hand icon for an icon status. */
-  private getStatusIcon_(): string|null {
+  private getStatusIcon_(): string {
     switch (this.iconStatus) {
       case SafetyCheckIconStatus.RUNNING:
-        return null;
+        return '';
       case SafetyCheckIconStatus.SAFE:
         return 'cr:check';
       case SafetyCheckIconStatus.INFO:
@@ -135,11 +135,8 @@ export class SettingsSafetyCheckChildElement extends
   }
 
   /** @return The left hand icon src for an icon status. */
-  private getStatusIconSrc_(): string|null {
-    if (this.iconStatus === SafetyCheckIconStatus.RUNNING) {
-      return 'chrome://resources/images/throbber_small.svg';
-    }
-    return null;
+  private shouldShowThrobber_(): boolean {
+    return this.iconStatus === SafetyCheckIconStatus.RUNNING;
   }
 
   /** @return The left hand icon class for an icon status. */
@@ -197,12 +194,12 @@ export class SettingsSafetyCheckChildElement extends
 
   /** @return The icon to show when the row is clickable. */
   private computeRowClickableIcon_(): string {
-    return this.external ? 'cr:open-in-new' : 'cr:arrow-right';
+    return this.external ? 'cr:open-in-new' : 'cr:chevron-right';
   }
 
   /** @return The subpage role description if the arrow right icon is used. */
   private getRoleDescription_(): string {
-    return this.rowClickableIcon_ === 'cr:arrow-right' ?
+    return this.rowClickableIcon_ === 'cr:chevron-right' ?
         this.i18n('subpageArrowRoleDescription') :
         '';
   }

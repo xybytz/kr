@@ -94,6 +94,9 @@ enum class ChallengeReplyError {
   TLS_CERT_EXPIRED,
   CRL_INVALID,
   CERT_REVOKED,
+  CRL_OK_FALLBACK_CRL,
+  FALLBACK_CRL_INVALID,
+  CERTS_REVOKED_BY_FALLBACK_CRL,
   SENDER_NONCE_MISMATCH,
   SIGNATURE_EMPTY,
   DIGEST_UNSUPPORTED,
@@ -139,7 +142,7 @@ enum class WriteState {
 std::string ReadyStateToString(ReadyState ready_state);
 std::string ChannelErrorToString(ChannelError channel_error);
 
-constexpr int kNumCastChannelFlags = 8;
+constexpr int kNumCastChannelFlags = 9;
 
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.

@@ -23,11 +23,16 @@ namespace arc::input_overlay {
 // TouchPoint indicates the touch point for each action and shows up in the edit
 // mode.
 class TouchPoint : public views::View {
+  METADATA_HEADER(TouchPoint, views::View)
+
  public:
-  METADATA_HEADER(TouchPoint);
   static TouchPoint* Show(views::View* parent,
                           ActionType action_type,
                           const gfx::Point& center_pos);
+
+  // Gets the overall edge length of the squared view of `action_type`.
+  static int GetEdgeLength(ActionType action_type);
+  // Gets the overall size of the squared view of `action_type`.
   static gfx::Size GetSize(ActionType action_type);
 
   // Draws TouchPoint of `action_type` on `canvas`. `ui_state` is related
@@ -59,7 +64,6 @@ class TouchPoint : public views::View {
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   bool OnKeyReleased(const ui::KeyEvent& event) override;
   void OnFocus() override;
-  void OnBlur() override;
 
  protected:
   void PaintBackground(gfx::Canvas* canvas, ActionType action_type);

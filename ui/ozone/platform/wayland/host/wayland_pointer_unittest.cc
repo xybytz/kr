@@ -10,7 +10,6 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
-#include "build/chromeos_buildflags.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
@@ -125,20 +124,6 @@ class WaylandPointerTest : public WaylandTestSimple {
 
     auto* mouse_event = event->AsMouseEvent();
     EXPECT_EQ(event_type, mouse_event->type());
-
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-    // These checks rely on the Exo-only protocol zcr_pointer_stylus_v2 [1]
-    // at //t_p/wayland-protocols/unstable/stylus/stylus-unstable-v2.xml
-    auto compare_float = [](float a, float b) -> bool {
-      constexpr float kEpsilon = std::numeric_limits<float>::epsilon();
-      return std::isnan(a) ? std::isnan(b) : fabs(a - b) < kEpsilon;
-    };
-
-    EXPECT_EQ(pointer_type, mouse_event->pointer_details().pointer_type);
-    EXPECT_TRUE(compare_float(force, mouse_event->pointer_details().force));
-    EXPECT_TRUE(compare_float(tilt_x, mouse_event->pointer_details().tilt_x));
-    EXPECT_TRUE(compare_float(tilt_y, mouse_event->pointer_details().tilt_y));
-#endif
   }
 };
 
@@ -178,7 +163,7 @@ TEST_F(WaylandPointerTest, Enter) {
   ASSERT_TRUE(event);
   ASSERT_TRUE(event->IsMouseEvent());
   auto* mouse_event = event->AsMouseEvent();
-  EXPECT_EQ(ET_MOUSE_ENTERED, mouse_event->type());
+  EXPECT_EQ(EventType::kMouseEntered, mouse_event->type());
   EXPECT_EQ(0, mouse_event->button_flags());
   EXPECT_EQ(0, mouse_event->changed_button_flags());
   EXPECT_EQ(gfx::PointF(0, 0), mouse_event->location_f());
@@ -247,7 +232,7 @@ TEST_F(WaylandPointerTest, Motion) {
   ASSERT_TRUE(event);
   ASSERT_TRUE(event->IsMouseEvent());
   auto* mouse_event = event->AsMouseEvent();
-  EXPECT_EQ(ET_MOUSE_MOVED, mouse_event->type());
+  EXPECT_EQ(EventType::kMouseMoved, mouse_event->type());
   EXPECT_EQ(0, mouse_event->button_flags());
   EXPECT_EQ(0, mouse_event->changed_button_flags());
   EXPECT_EQ(gfx::PointF(10.75, 20.375), mouse_event->location_f());
@@ -280,7 +265,7 @@ TEST_F(WaylandPointerTest, MotionDragged) {
   ASSERT_TRUE(event);
   ASSERT_TRUE(event->IsMouseEvent());
   auto* mouse_event = event->AsMouseEvent();
-  EXPECT_EQ(ET_MOUSE_DRAGGED, mouse_event->type());
+  EXPECT_EQ(EventType::kMouseDragged, mouse_event->type());
   EXPECT_EQ(EF_MIDDLE_MOUSE_BUTTON, mouse_event->button_flags());
   EXPECT_EQ(0, mouse_event->changed_button_flags());
   EXPECT_EQ(gfx::PointF(400, 500), mouse_event->location_f());
@@ -313,8 +298,9 @@ TEST_F(WaylandPointerTest, MotionDraggedWithStylus) {
     wl_pointer_send_frame(pointer);
   });
 
-  CheckEventType(ui::ET_MOUSE_PRESSED, event.get(), ui::EventPointerType::kPen,
-                 1.0f /* force */, -45.0f /* tilt_x */, 45.0f /* tilt_y */);
+  CheckEventType(ui::EventType::kMousePressed, event.get(),
+                 ui::EventPointerType::kPen, 1.0f /* force */,
+                 -45.0f /* tilt_x */, 45.0f /* tilt_y */);
 
   PostToServerAndWait([](wl::TestWaylandServerThread* server) {
     auto* const pointer = server->seat()->pointer()->resource();
@@ -327,7 +313,7 @@ TEST_F(WaylandPointerTest, MotionDraggedWithStylus) {
   ASSERT_TRUE(event);
   ASSERT_TRUE(event->IsMouseEvent());
   auto* mouse_event = event->AsMouseEvent();
-  EXPECT_EQ(ET_MOUSE_DRAGGED, mouse_event->type());
+  EXPECT_EQ(EventType::kMouseDragged, mouse_event->type());
   EXPECT_EQ(EF_LEFT_MOUSE_BUTTON, mouse_event->button_flags());
   EXPECT_EQ(0, mouse_event->changed_button_flags());
   EXPECT_EQ(gfx::PointF(400, 500), mouse_event->location_f());
@@ -496,11 +482,7 @@ TEST_F(WaylandPointerTest, SetBitmapAndScaleOnPointerFocus) {
     const gfx::Point hotspot_dip =
         gfx::ScaleToRoundedPoint(hotspot_px, 1 / scale);
 
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-    BitmapCursorFactory cursor_factory;
-#else
     WaylandCursorFactory cursor_factory(connection_.get());
-#endif
     auto cursor = cursor_factory.CreateImageCursor(
         mojom::CursorType::kCustom, dummy_cursor, hotspot_px, scale);
 
@@ -541,11 +523,7 @@ TEST_F(WaylandPointerTest, SetBitmapAndScaleOnPointerFocus) {
 
       auto* mock_pointer_surface =
           wl::MockSurface::FromResource(surface_resource);
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-      EXPECT_EQ(mock_pointer_surface->buffer_scale(), std::ceil(scale));
-#else
       EXPECT_EQ(mock_pointer_surface->buffer_scale(), std::ceil(scale - 0.2f));
-#endif
 
       // Update the focus.
       EXPECT_CALL(
@@ -608,7 +586,7 @@ TEST_F(WaylandPointerTest, FlingVertical) {
   ASSERT_TRUE(event3);
   ASSERT_TRUE(event3->IsScrollEvent());
   auto* scroll_event = event3->AsScrollEvent();
-  EXPECT_EQ(ET_SCROLL_FLING_START, scroll_event->type());
+  EXPECT_EQ(EventType::kScrollFlingStart, scroll_event->type());
   EXPECT_EQ(gfx::PointF(50, 75), scroll_event->location_f());
   EXPECT_EQ(0.0f, scroll_event->x_offset());
   EXPECT_EQ(0.0f, scroll_event->x_offset_ordinal());
@@ -659,7 +637,7 @@ TEST_F(WaylandPointerTest, FlingHorizontal) {
   ASSERT_TRUE(event3);
   ASSERT_TRUE(event3->IsScrollEvent());
   auto* scroll_event = event3->AsScrollEvent();
-  EXPECT_EQ(ET_SCROLL_FLING_START, scroll_event->type());
+  EXPECT_EQ(EventType::kScrollFlingStart, scroll_event->type());
   EXPECT_EQ(gfx::PointF(50, 75), scroll_event->location_f());
   EXPECT_EQ(0.0f, scroll_event->y_offset());
   EXPECT_EQ(0.0f, scroll_event->y_offset_ordinal());
@@ -698,17 +676,6 @@ TEST_F(WaylandPointerTest, FlingCancel) {
   // axis_stop event which should trigger FLING_START.
   SendAxisStopEvents();
 
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  // The third axis event, which simulates placing the finger on the touchpad
-  // again using offset 0, should trigger a FLING_CANCEL.
-  PostToServerAndWait([](wl::TestWaylandServerThread* server) {
-    auto* const pointer = server->seat()->pointer()->resource();
-    SendAxisEvents(pointer, server->GetNextTime(),
-                   WL_POINTER_AXIS_SOURCE_FINGER,
-                   WL_POINTER_AXIS_VERTICAL_SCROLL, 0);
-  });
-#endif
-
   // Another axis scroll event is added. In Linux, this must lead to a
   // FLING_CANCEL being triggered before a usual scroll event occurs because a
   // FLING_START was triggered beforehand.
@@ -725,17 +692,17 @@ TEST_F(WaylandPointerTest, FlingCancel) {
   // Two usual axis events should follow before the fling event.
   ASSERT_TRUE(event1);
   ASSERT_TRUE(event1->IsScrollEvent());
-  EXPECT_EQ(ET_SCROLL, event1->type());
+  EXPECT_EQ(EventType::kScroll, event1->type());
 
   ASSERT_TRUE(event2);
   ASSERT_TRUE(event2->IsScrollEvent());
-  EXPECT_EQ(ET_SCROLL, event2->type());
+  EXPECT_EQ(EventType::kScroll, event2->type());
 
   // The 3rd event will be fling start with vertical velocity.
   ASSERT_TRUE(event3);
   ASSERT_TRUE(event3->IsScrollEvent());
   auto* fling_start_event = event3->AsScrollEvent();
-  EXPECT_EQ(ET_SCROLL_FLING_START, fling_start_event->type());
+  EXPECT_EQ(EventType::kScrollFlingStart, fling_start_event->type());
   EXPECT_EQ(0.0f, fling_start_event->x_offset());
   EXPECT_GT(0.0f, fling_start_event->y_offset());
   EXPECT_EQ(0.0f, fling_start_event->x_offset_ordinal());
@@ -745,7 +712,7 @@ TEST_F(WaylandPointerTest, FlingCancel) {
   ASSERT_TRUE(event4);
   ASSERT_TRUE(event4->IsScrollEvent());
   auto* fling_cancel_event = event4->AsScrollEvent();
-  EXPECT_EQ(ET_SCROLL_FLING_CANCEL, fling_cancel_event->type());
+  EXPECT_EQ(EventType::kScrollFlingCancel, fling_cancel_event->type());
   EXPECT_EQ(gfx::PointF(50, 75), fling_cancel_event->location_f());
   EXPECT_EQ(0.0f, fling_cancel_event->x_offset());
   EXPECT_EQ(0.0f, fling_cancel_event->y_offset());
@@ -755,7 +722,7 @@ TEST_F(WaylandPointerTest, FlingCancel) {
   // The 5th event will be yet another axis event.
   ASSERT_TRUE(event5);
   ASSERT_TRUE(event5);
-  EXPECT_EQ(ET_SCROLL, event5->type());
+  EXPECT_EQ(EventType::kScroll, event5->type());
 }
 
 TEST_F(WaylandPointerTest, FlingDiagonal) {
@@ -797,7 +764,7 @@ TEST_F(WaylandPointerTest, FlingDiagonal) {
   ASSERT_TRUE(event3);
   ASSERT_TRUE(event3->IsScrollEvent());
   auto* scroll_event = event3->AsScrollEvent();
-  EXPECT_EQ(ET_SCROLL_FLING_START, scroll_event->type());
+  EXPECT_EQ(EventType::kScrollFlingStart, scroll_event->type());
   EXPECT_EQ(gfx::PointF(50, 75), scroll_event->location_f());
   // Check the offset direction. It should non-zero in both axes.
   EXPECT_GT(0.0f, scroll_event->x_offset());
@@ -831,7 +798,7 @@ TEST_F(WaylandPointerTest, FlingVelocityWithoutLeadingAxis) {
   ASSERT_TRUE(event);
   ASSERT_TRUE(event->IsScrollEvent());
   auto* scroll_event = event->AsScrollEvent();
-  EXPECT_EQ(ET_SCROLL_FLING_START, scroll_event->type());
+  EXPECT_EQ(EventType::kScrollFlingStart, scroll_event->type());
 
   // Check the offset direction. It should be zero in both axes.
   EXPECT_EQ(0.0f, scroll_event->x_offset());
@@ -872,7 +839,7 @@ TEST_F(WaylandPointerTest, FlingVelocityWithSingleLeadingAxis) {
   ASSERT_TRUE(event2);
   ASSERT_TRUE(event2->IsScrollEvent());
   auto* scroll_event2 = event2->AsScrollEvent();
-  EXPECT_EQ(ET_SCROLL_FLING_START, scroll_event2->type());
+  EXPECT_EQ(EventType::kScrollFlingStart, scroll_event2->type());
 
   // Check the offset direction. Horizontal axis should be negative. Vertical
   // axis should be positive.

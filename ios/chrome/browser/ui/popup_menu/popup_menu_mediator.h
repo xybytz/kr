@@ -7,16 +7,18 @@
 
 #import <UIKit/UIKit.h>
 
-#import "ios/chrome/browser/ui/browser_container/browser_container_consumer.h"
+#import "ios/chrome/browser/browser_container/ui_bundled/browser_container_consumer.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_action_handler_delegate.h"
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_ui_updating.h"
 
 namespace bookmarks {
 class BookmarkModel;
-}
+}  // namespace bookmarks
+
 namespace feature_engagement {
 class Tracker;
-}
+}  // namespace feature_engagement
+
 class BrowserPolicyConnectorIOS;
 class FollowBrowserAgent;
 @protocol LensCommands;
@@ -35,12 +37,10 @@ class WebStateList;
     : NSObject <BrowserContainerConsumer, PopupMenuActionHandlerDelegate>
 
 // Initializes the mediator with whether it `isIncognito`, a `readingListModel`
-// used to display the badge for the reading list entry, whether the mediator
-// should `triggerNewIncognitoTabTip`, and a `browserPolicyConnector` used to
-// check if the browser is managed by policy.
+// used to display the badge for the reading list entry, and a
+// `browserPolicyConnector` used to check if the browser is managed by policy.
 - (instancetype)initWithIsIncognito:(BOOL)isIncognito
                    readingListModel:(ReadingListModel*)readingListModel
-          triggerNewIncognitoTabTip:(BOOL)triggerNewIncognitoTabTip
              browserPolicyConnector:
                  (BrowserPolicyConnectorIOS*)browserPolicyConnector
     NS_DESIGNATED_INITIALIZER;

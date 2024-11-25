@@ -2,16 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {BackgroundGraphicsModeRestriction, CrCheckboxElement, NativeInitialSettings, NativeLayerImpl, PluginProxyImpl, PolicyObjectEntry, PrintPreviewAppElement, SerializedSettings} from 'chrome://print/print_preview.js';
+import type {CrCheckboxElement, NativeInitialSettings, PolicyObjectEntry, PrintPreviewAppElement, SerializedSettings} from 'chrome://print/print_preview.js';
+import {BackgroundGraphicsModeRestriction, NativeLayerImpl, PluginProxyImpl} from 'chrome://print/print_preview.js';
 // <if expr="is_chromeos">
-import {ColorModeRestriction, CrButtonElement, DuplexMode, DuplexModeRestriction, PrintPreviewPluralStringProxyImpl, PinModeRestriction} from 'chrome://print/print_preview.js';
+import type {CrButtonElement} from 'chrome://print/print_preview.js';
+import {ColorModeRestriction, DuplexMode, DuplexModeRestriction, PinModeRestriction, PrintPreviewPluralStringProxyImpl} from 'chrome://print/print_preview.js';
 // </if>
 
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {assertEquals, assertFalse} from 'chrome://webui-test/chai_assert.js';
-
 // <if expr="is_chromeos">
 import {TestPluralStringProxy} from 'chrome://webui-test/test_plural_string_proxy.js';
+
 // </if>
 
 // <if expr="is_chromeos">
@@ -575,7 +577,7 @@ suite('PolicyTest', function() {
       const checkbox =
           duplexSettingsSection.shadowRoot!.querySelector('cr-checkbox')!;
       const collapse =
-          duplexSettingsSection.shadowRoot!.querySelector('iron-collapse')!;
+          duplexSettingsSection.shadowRoot!.querySelector('cr-collapse')!;
       const select = duplexSettingsSection.shadowRoot!.querySelector('select')!;
       const expectedValue = subtestParams.expectedValue.toString();
       assertEquals(subtestParams.expectedChecked, checkbox.checked);
@@ -690,7 +692,7 @@ suite('PolicyTest', function() {
       const checkbox =
           pinSettingsSection.shadowRoot!.querySelector('cr-checkbox')!;
       const collapse =
-          pinSettingsSection.shadowRoot!.querySelector('iron-collapse')!;
+          pinSettingsSection.shadowRoot!.querySelector('cr-collapse')!;
       const input = pinSettingsSection.shadowRoot!.querySelector('cr-input')!;
       assertEquals(subtestParams.expectedCheckboxDisabled, checkbox.disabled);
       assertEquals(subtestParams.expectedChecked, checkbox.checked);
@@ -768,7 +770,7 @@ suite('PolicyTest', function() {
   // but is always available for Linux and ChromeOS.
   test('PrintPdfAsImageDefault', async () => {
     const tests = [
-      // <if expr="is_linux or chromeos_ash or chromeos_lacros">
+      // <if expr="is_linux or chromeos_ash">
       {
         // `availableAllowedMode` is irrelevant, option is always present.
         // No policy for default of "Print as image" option.

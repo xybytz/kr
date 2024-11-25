@@ -9,6 +9,7 @@
 #include <optional>
 
 #include "base/check_op.h"
+#include "base/command_line.h"
 #include "base/hash/hash.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/rand_util.h"
@@ -19,11 +20,12 @@
 #include "chrome/browser/navigation_predictor/navigation_predictor_keyed_service_factory.h"
 #include "chrome/browser/navigation_predictor/preloading_model_keyed_service.h"
 #include "chrome/browser/navigation_predictor/preloading_model_keyed_service_factory.h"
-#include "chrome/browser/preloading/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
 #include "chrome/browser/preloading/preloading_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/no_state_prefetch/browser/no_state_prefetch_manager.h"
+#include "components/variations/variations_switches.h"
 #include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/preloading_data.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/web_contents.h"
 #include "mojo/public/cpp/bindings/message.h"
@@ -38,20 +40,20 @@
 namespace {
 
 // The maximum number of clicks to track in a single navigation.
-size_t kMaxClicksTracked = 10;
+constexpr size_t kMaxClicksTracked = 10;
 
 bool IsPrerendering(content::RenderFrameHost& render_frame_host) {
   return render_frame_host.GetLifecycleState() ==
          content::RenderFrameHost::LifecycleState::kPrerendering;
 }
 
-int GetFontSizeFromPx(uint32_t font_size_px) {
+NavigationPredictor::FontSizeBucket GetFontSizeFromPx(uint32_t font_size_px) {
   if (font_size_px < 10) {
-    return 1;
+    return NavigationPredictor::kLessThanTen;
   } else if (font_size_px < 18) {
-    return 2;
+    return NavigationPredictor::kTenToSeventeen;
   } else {
-    return 3;
+    return NavigationPredictor::kEighteenOrGreater;
   }
 }
 
@@ -60,38 +62,133 @@ bool IsBoldFont(uint32_t font_weight) {
 }
 
 struct PathLengthDepthAndHash {
-  int64_t path_length;
-  int64_t path_depth;
-  uint32_t hash;
+  // `path_length` caps at 100.
+  uint8_t path_length;
+  // `path_depth` caps at 5.
+  uint8_t path_depth;
+  // 10-bucket hash.
+  uint8_t hash_bucket;
 };
 
 PathLengthDepthAndHash GetUrlPathLengthDepthAndHash(const GURL& target_url) {
-  base::StringPiece path = target_url.path_piece();
+  std::string_view path = target_url.path_piece();
   int64_t path_length = path.length();
   path_length = ukm::GetLinearBucketMin(path_length, 10);
   // Truncate at 100 characters.
   path_length = std::min(path_length, static_cast<int64_t>(100));
 
-  int64_t num_slashes = base::ranges::count(path, '/');
+  int num_slashes = base::ranges::count(path, '/');
   // Truncate at 5.
-  int64_t path_depth = std::min(num_slashes, static_cast<int64_t>(5));
+  int path_depth = std::min(num_slashes, 5);
 
   // 10-bucket hash of the URL's path.
   uint32_t hash = base::PersistentHash(path);
-  hash = hash % 10;
-  return {path_length, path_depth, hash};
+  uint8_t hash_bucket = hash % 10;
+
+  return {static_cast<uint8_t>(path_length), static_cast<uint8_t>(path_depth),
+          hash_bucket};
+}
+
+// Returns the minimum of the bucket that |value| belongs in, used for
+// |ratio_distance_root_top|.
+int GetLinearBucketForLinkLocation(int value) {
+  return ukm::GetLinearBucketMin(static_cast<int64_t>(value), 10);
+}
+
+// Returns the minimum of the bucket that |value| belongs in, used for
+// |ratio_area|.
+int GetLinearBucketForRatioArea(int value) {
+  return ukm::GetLinearBucketMin(static_cast<int64_t>(value), 5);
 }
 
 base::TimeDelta MLModelExecutionTimerStartDelay() {
-  static int timer_start_delay = base::GetFieldTrialParamByFeatureAsInt(
-      blink::features::kPreloadingHeuristicsMLModel, "timer_start_delay", 0);
-  return base::Milliseconds(timer_start_delay);
+  return base::Milliseconds(
+      blink::features::kPreloadingModelTimerStartDelay.Get());
 }
 
 base::TimeDelta MLModelExecutionTimerInterval() {
-  static int timer_interval = base::GetFieldTrialParamByFeatureAsInt(
-      blink::features::kPreloadingHeuristicsMLModel, "timer_interval", 100);
-  return base::Milliseconds(timer_interval);
+  return base::Milliseconds(
+      blink::features::kPreloadingModelTimerInterval.Get());
+}
+
+bool MLModelOneExecutionPerHover() {
+  return blink::features::kPreloadingModelOneExecutionPerHover.Get();
+}
+
+base::TimeDelta MLModelMaxHoverTime() {
+  return blink::features::kPreloadingModelMaxHoverTime.Get();
+}
+
+void RecordMetricsForModelTraining(
+    const PreloadingModelKeyedService::Inputs& inputs,
+    ukm::SourceId ukm_source,
+    std::optional<double> sampling_likelihood,
+    bool is_accurate) {
+  constexpr double kBucketSpacing = 1.3;
+
+  const int sampling_likelihood_per_million =
+      static_cast<int>(1'000'000 * sampling_likelihood.value_or(1.0));
+  const int sampling_amount_bucket = ukm::GetExponentialBucketMin(
+      1'000'000 - sampling_likelihood_per_million, kBucketSpacing);
+
+  ukm::builders::Preloading_NavigationPredictorModelTrainingData builder(
+      ukm_source);
+
+  builder.SetSamplingAmount(sampling_amount_bucket);
+  builder.SetIsAccurate(is_accurate);
+  builder.SetContainsImage(inputs.contains_image);
+  // Font size is already bucketed. See `FontSizeBucket`.
+  builder.SetFontSize(inputs.font_size);
+  builder.SetHasTextSibling(inputs.has_text_sibling);
+  builder.SetIsBold(inputs.is_bold);
+  builder.SetIsInIframe(inputs.is_in_iframe);
+  builder.SetIsURLIncrementedByOne(inputs.is_url_incremented_by_one);
+  builder.SetNavigationStartToLinkLoggedMs(ukm::GetExponentialBucketMin(
+      inputs.navigation_start_to_link_logged.InMilliseconds(), kBucketSpacing));
+  builder.SetPathDepth(inputs.path_depth);
+  // Path length is already bucketed.
+  DCHECK_EQ(
+      inputs.path_length,
+      ukm::GetLinearBucketMin(static_cast<int64_t>(inputs.path_length), 10));
+  builder.SetPathLength(inputs.path_length);
+  builder.SetPercentClickableArea(
+      GetLinearBucketForRatioArea(inputs.percent_clickable_area));
+  builder.SetPercentVerticalDistance(
+      GetLinearBucketForLinkLocation(inputs.percent_vertical_distance));
+  builder.SetSameHost(inputs.is_same_host);
+  builder.SetHoverDwellTimeMs(ukm::GetExponentialBucketMin(
+      inputs.hover_dwell_time.InMilliseconds(), kBucketSpacing));
+  builder.SetPointerHoveringOverCount(ukm::GetExponentialBucketMin(
+      inputs.pointer_hovering_over_count, kBucketSpacing));
+
+  builder.Record(ukm::UkmRecorder::Get());
+}
+
+bool MaySendTraffic() {
+  // TODO(b/290223353): Due to concerns about the amount of traffic this feature
+  // would create on desktop, we'll just enable for a random sample of clients.
+  // We should scale up the percentage of enabled clients.
+  // Note that NavigationPredictor has functionality, unrelated to sending
+  // requests, which continues to run regardless of this parameter.
+  static const bool may_send_traffic = [] {
+    // Use a fixed state for benchmarking.
+    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+            variations::switches::kEnableBenchmarking)) {
+#if BUILDFLAG(IS_ANDROID)
+      return true;
+#else
+      return false;
+#endif
+    }
+
+    int enabled_percent =
+        blink::features::kPredictorTrafficClientEnabledPercent.Get();
+
+    // This isn't user facing, so we'll just re-roll for each session.
+    return base::RandInt(0, 99) < enabled_percent;
+  }();
+
+  return may_send_traffic;
 }
 
 }  // namespace
@@ -99,8 +196,18 @@ base::TimeDelta MLModelExecutionTimerInterval() {
 NavigationPredictor::AnchorElementData::AnchorElementData(
     blink::mojom::AnchorElementMetricsPtr metrics,
     base::TimeTicks first_report_timestamp)
-    : metrics(std::move(metrics)),
+    : ratio_distance_root_top(metrics->ratio_distance_root_top),
+      ratio_area(static_cast<uint8_t>(metrics->ratio_area * 100)),
+      is_in_iframe(metrics->is_in_iframe),
+      contains_image(metrics->contains_image),
+      is_same_host(metrics->is_same_host),
+      is_url_incremented_by_one(metrics->is_url_incremented_by_one),
+      has_text_sibling(metrics->has_text_sibling),
+      is_bold_font(IsBoldFont(metrics->font_weight)),
+      font_size(GetFontSizeFromPx(metrics->font_size_px)),
+      target_url(metrics->target_url),
       first_report_timestamp(first_report_timestamp) {}
+
 NavigationPredictor::AnchorElementData::~AnchorElementData() = default;
 
 NavigationPredictor::NavigationPredictor(
@@ -130,17 +237,22 @@ void NavigationPredictor::Create(
     content::RenderFrameHost* render_frame_host,
     mojo::PendingReceiver<blink::mojom::AnchorElementMetricsHost> receiver) {
   CHECK(render_frame_host);
-  DCHECK(base::FeatureList::IsEnabled(blink::features::kNavigationPredictor));
-  DCHECK(!IsPrerendering(*render_frame_host));
+  CHECK(!IsPrerendering(*render_frame_host));
+
+  if (!base::FeatureList::IsEnabled(blink::features::kNavigationPredictor)) {
+    return;
+  }
 
   // Only valid for the main frame.
-  if (render_frame_host->GetParentOrOuterDocument())
+  if (render_frame_host->GetParentOrOuterDocument()) {
     return;
+  }
 
   content::WebContents* web_contents =
       content::WebContents::FromRenderFrameHost(render_frame_host);
-  if (!web_contents)
+  if (!web_contents) {
     return;
+  }
 
   DCHECK(web_contents->GetBrowserContext());
   if (web_contents->GetBrowserContext()->IsOffTheRecord()) {
@@ -150,18 +262,6 @@ void NavigationPredictor::Create(
   // The object is bound to the lifetime of the |render_frame_host| and the mojo
   // connection. See DocumentService for details.
   new NavigationPredictor(*render_frame_host, std::move(receiver));
-}
-
-int NavigationPredictor::GetBucketMinForPageMetrics(int value) const {
-  return ukm::GetExponentialBucketMin(value, 1.3);
-}
-
-int NavigationPredictor::GetLinearBucketForLinkLocation(int value) const {
-  return ukm::GetLinearBucketMin(static_cast<int64_t>(value), 10);
-}
-
-int NavigationPredictor::GetLinearBucketForRatioArea(int value) const {
-  return ukm::GetLinearBucketMin(static_cast<int64_t>(value), 5);
 }
 
 NavigationPredictorMetricsDocumentData&
@@ -176,7 +276,8 @@ NavigationPredictor::GetNavigationPredictorMetricsDocumentData() const {
 }
 
 void NavigationPredictor::ReportNewAnchorElements(
-    std::vector<blink::mojom::AnchorElementMetricsPtr> elements) {
+    std::vector<blink::mojom::AnchorElementMetricsPtr> elements,
+    const std::vector<uint32_t>& removed_elements) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(base::FeatureList::IsEnabled(blink::features::kNavigationPredictor));
   DCHECK(!IsPrerendering(render_frame_host()));
@@ -188,47 +289,67 @@ void NavigationPredictor::ReportNewAnchorElements(
       GetNavigationPredictorMetricsDocumentData().GetAnchorsData();
   const GURL document_url =
       render_frame_host().GetLastCommittedURL().GetWithoutRef();
+  if (!document_url.is_valid()) {
+    return;
+  }
   std::vector<GURL> new_predictions;
+  const base::TimeTicks now = NowTicks();
   for (auto& element : elements) {
     AnchorId anchor_id(element->anchor_id);
     if (anchors_.find(anchor_id) != anchors_.end()) {
       continue;
     }
 
-    data.number_of_anchors_++;
-    if (element->contains_image) {
-      data.number_of_anchors_contains_image_++;
-    }
-    if (element->is_url_incremented_by_one) {
-      data.number_of_anchors_url_incremented_++;
-    }
-    if (element->is_in_iframe) {
-      data.number_of_anchors_in_iframe_++;
-    }
-    if (element->is_same_host) {
-      data.number_of_anchors_same_host_++;
-    }
-    data.viewport_height_ = element->viewport_size.height();
-    data.viewport_width_ = element->viewport_size.width();
-    data.total_clickable_space_ += element->ratio_area * 100;
-    data.link_locations_.push_back(element->ratio_distance_top_to_visible_top);
+    auto [id_it, id_inserted] = tracked_anchor_id_to_index_.insert(
+        {anchor_id, tracked_anchor_id_to_index_.size()});
 
-    // Collect the target URL if it is new, without ref (# fragment).
-    GURL target_url = element->target_url.GetWithoutRef();
-    if (target_url != document_url) {
-      auto [it, inserted] =
-          predicted_urls_.insert(base::FastHash(target_url.spec()));
-      if (inserted) {
-        new_predictions.push_back(std::move(target_url));
+    // We may have seen this anchor before, but it was removed from the page, so
+    // we stopped tracking it. We'll start tracking it again, but not treat it
+    // as a new anchor.
+    if (id_inserted) {
+      data.number_of_anchors_++;
+      if (element->contains_image) {
+        data.number_of_anchors_contains_image_++;
+      }
+      if (element->is_url_incremented_by_one) {
+        data.number_of_anchors_url_incremented_++;
+      }
+      if (element->is_in_iframe) {
+        data.number_of_anchors_in_iframe_++;
+      }
+      if (element->is_same_host) {
+        data.number_of_anchors_same_host_++;
+      }
+      data.viewport_height_ = element->viewport_size.height();
+      data.viewport_width_ = element->viewport_size.width();
+      data.total_clickable_space_ += element->ratio_area * 100;
+      data.link_locations_.push_back(
+          element->ratio_distance_top_to_visible_top);
+
+      // Collect the target URL if it is new, without ref (# fragment).
+      GURL target_url = element->target_url.GetWithoutRef();
+      if (target_url != document_url) {
+        auto [url_it, url_inserted] =
+            predicted_urls_.insert(base::FastHash(target_url.spec()));
+        if (url_inserted) {
+          new_predictions.push_back(std::move(target_url));
+        }
       }
     }
 
     anchors_.emplace(std::piecewise_construct, std::forward_as_tuple(anchor_id),
-                     std::forward_as_tuple(std::move(element), NowTicks()));
-    tracked_anchor_id_to_index_[anchor_id] = tracked_anchor_id_to_index_.size();
+                     std::forward_as_tuple(std::move(element), now));
   }
 
-  if (!new_predictions.empty()) {
+  for (uint32_t removed_element : removed_elements) {
+    AnchorId anchor_id(removed_element);
+    // Stop tracking removed elements to conserve memory. We leave an entry in
+    // `tracked_anchor_id_to_index_` to detect if a removed element is re-added
+    // to the page.
+    anchors_.erase(anchor_id);
+  }
+
+  if (!new_predictions.empty() && MaySendTraffic()) {
     NavigationPredictorKeyedService* service =
         NavigationPredictorKeyedServiceFactory::GetForProfile(
             Profile::FromBrowserContext(
@@ -278,7 +399,7 @@ void NavigationPredictor::ProcessPointerEventUsingMLModel(
         return;
       }
       // Ignore anchors pointing to the same document.
-      if (IsTargetURLTheSameAsDocument(anchor.metrics)) {
+      if (IsTargetURLTheSameAsDocument(anchor)) {
         return;
       }
 
@@ -325,42 +446,56 @@ void NavigationPredictor::OnMLModelExecutionTimerFired() {
   AnchorElementData& anchor = it->second;
 
   PreloadingModelKeyedService::Inputs inputs;
-  inputs.contains_image = anchor.metrics->contains_image;
-  inputs.font_size = GetFontSizeFromPx(anchor.metrics->font_size_px);
-  inputs.has_text_sibling = anchor.metrics->has_text_sibling;
-  inputs.is_bold = IsBoldFont(anchor.metrics->font_weight);
-  inputs.is_in_iframe = anchor.metrics->is_in_iframe;
-  inputs.is_url_incremented_by_one = anchor.metrics->is_url_incremented_by_one;
+  inputs.contains_image = anchor.contains_image;
+  inputs.font_size = anchor.font_size;
+  inputs.has_text_sibling = anchor.has_text_sibling;
+  inputs.is_bold = anchor.is_bold_font;
+  inputs.is_in_iframe = anchor.is_in_iframe;
+  inputs.is_url_incremented_by_one = anchor.is_url_incremented_by_one;
   inputs.navigation_start_to_link_logged =
       anchor.first_report_timestamp - navigation_start_;
-  auto path_info = GetUrlPathLengthDepthAndHash(anchor.metrics->target_url);
+  auto path_info = GetUrlPathLengthDepthAndHash(anchor.target_url);
   inputs.path_length = path_info.path_length;
   inputs.path_depth = path_info.path_depth;
-  // Convert the ratio area and ratio distance from [0,1] to [0,100].
-  inputs.percent_clickable_area =
-      static_cast<int>(anchor.metrics->ratio_area * 100);
-
+  inputs.percent_clickable_area = anchor.ratio_area;
   inputs.percent_vertical_distance =
-      static_cast<int>(anchor.metrics->ratio_distance_root_top * 100);
+      static_cast<int>(anchor.ratio_distance_root_top * 100);
 
-  inputs.is_same_origin = anchor.metrics->is_same_host;
+  inputs.is_same_host = anchor.is_same_host;
   auto to_timedelta = [this](std::optional<base::TimeTicks> ts) {
     return ts.has_value() ? NowTicks() - ts.value() : base::TimeDelta();
   };
-  inputs.entered_viewport_to_left_viewport =
-      to_timedelta(anchor.entered_viewport_timestamp);
+  // TODO(329691634): Using the real viewport entry time for
+  // `entered_viewport_to_left_viewport` produces low quality results.
+  // We could remove it from the model, if we can't get this to be useful.
+  inputs.entered_viewport_to_left_viewport = base::TimeDelta();
   inputs.hover_dwell_time = to_timedelta(anchor.pointer_over_timestamp);
   inputs.pointer_hovering_over_count = anchor.pointer_hovering_over_count;
   if (model_score_callback_) {
     std::move(model_score_callback_).Run(inputs);
   }
+
+  content::PreloadingData* preloading_data =
+      content::PreloadingData::GetOrCreateForWebContents(
+          content::WebContents::FromRenderFrameHost(&render_frame_host()));
+  preloading_data->OnPreloadingHeuristicsModelInput(
+      anchor.target_url,
+      base::BindOnce(&RecordMetricsForModelTraining, inputs,
+                     render_frame_host().GetPageUkmSourceId()));
   model_service->Score(
       &scoring_model_task_tracker_, inputs,
       base::BindOnce(&NavigationPredictor::OnPreloadingHeuristicsModelDone,
-                     weak_ptr_factory_.GetWeakPtr(),
-                     anchor.metrics->target_url));
+                     weak_ptr_factory_.GetWeakPtr(), anchor.target_url));
 
-  if (!ml_model_execution_timer_.IsRunning()) {
+  // TODO(crbug.com/40278151): In its current form, the model does not seem to
+  // ever increase in confidence when dwelling on an anchor, which makes
+  // repeated executions wasteful. So we only do one execution per mouse over.
+  // As we iterate on the model, multiple executions may become useful, but we
+  // need to take care to not produce a large amount of redundant predictions
+  // (as seen in crbug.com/338200075 ).
+  if (!MLModelOneExecutionPerHover() &&
+      inputs.hover_dwell_time < MLModelMaxHoverTime() &&
+      !ml_model_execution_timer_.IsRunning()) {
     ml_model_execution_timer_.Start(
         FROM_HERE, MLModelExecutionTimerInterval(),
         base::BindOnce(&NavigationPredictor::OnMLModelExecutionTimerFired,
@@ -404,8 +539,9 @@ void NavigationPredictor::ReportAnchorElementClick(
   navigation_start_to_click_ = click->navigation_start_to_click;
 
   clicked_count_++;
-  if (clicked_count_ > kMaxClicksTracked)
+  if (clicked_count_ > kMaxClicksTracked) {
     return;
+  }
 
   if (!ukm_recorder_) {
     return;
@@ -431,7 +567,8 @@ void NavigationPredictor::ReportAnchorElementClick(
         navigation_predictor_metrics_data.GetUserInteractionsData();
     auto user_interaction_it = user_interactions.find(index_it->second);
     if (user_interaction_it != user_interactions.end()) {
-      auto& user_interaction = user_interactions[index_it->second];
+      auto& user_interaction = user_interaction_it->second;
+
       // navigation_start_to_click_ is set to click->navigation_start_to_click
       // and should always have a value.
       CHECK(navigation_start_to_click_.has_value());
@@ -470,7 +607,7 @@ void NavigationPredictor::ReportAnchorElementClick(
   auto it = anchors_.find(anchor_id);
   if (it != anchors_.end()) {
     page_link_click.href_unchanged_ =
-        (it->second.metrics->target_url == click->target_url);
+        (it->second.target_url == click->target_url);
   }
   navigation_start_to_click_ = click->navigation_start_to_click;
   // navigation_start_to_click_ is set to click->navigation_start_to_click and
@@ -502,6 +639,37 @@ void NavigationPredictor::ReportAnchorElementsLeftViewport(
     user_interaction.max_time_in_viewport = std::max(
         user_interaction.max_time_in_viewport.value_or(base::TimeDelta()),
         element->time_in_viewport);
+    user_interaction.percent_vertical_position.reset();
+    user_interaction.percent_distance_from_pointer_down.reset();
+  }
+}
+
+void NavigationPredictor::ReportAnchorElementsPositionUpdate(
+    std::vector<blink::mojom::AnchorElementPositionUpdatePtr> elements) {
+  if (!base::FeatureList::IsEnabled(
+          blink::features::kNavigationPredictorNewViewportFeatures)) {
+    ReportBadMessageAndDeleteThis(
+        "ReportAnchorElementsPositionUpdate should only be called with "
+        "kNavigationPredictorNewViewportFeatures enabled.");
+    return;
+  }
+
+  auto& user_interactions =
+      GetNavigationPredictorMetricsDocumentData().GetUserInteractionsData();
+  for (const auto& element : elements) {
+    auto index_it =
+        tracked_anchor_id_to_index_.find(AnchorId(element->anchor_id));
+    if (index_it == tracked_anchor_id_to_index_.end()) {
+      continue;
+    }
+    auto& user_interaction = user_interactions[index_it->second];
+    user_interaction.percent_vertical_position =
+        base::saturated_cast<int>(element->vertical_position_ratio * 100);
+    if (element->distance_from_pointer_down_ratio.has_value()) {
+      user_interaction.percent_distance_from_pointer_down =
+          base::saturated_cast<int>(
+              element->distance_from_pointer_down_ratio.value() * 100);
+    }
   }
 }
 
@@ -631,7 +799,7 @@ void NavigationPredictor::ReportAnchorElementsEnteredViewport(
       // zero width/height, etc.
       continue;
     }
-    const auto& anchor = anchor_it->second.metrics;
+    const AnchorElementData& anchor = anchor_it->second;
     // Collect the target URL if it is new, without ref (# fragment).
     if (IsTargetURLTheSameAsDocument(anchor)) {
       // Ignore anchors pointing to the same document.
@@ -644,28 +812,27 @@ void NavigationPredictor::ReportAnchorElementsEnteredViewport(
 
     NavigationPredictorMetricsDocumentData::AnchorElementMetricsData metrics;
 
-    metrics.is_in_iframe_ = anchor->is_in_iframe;
-    metrics.is_url_incremented_by_one_ = anchor->is_url_incremented_by_one;
-    metrics.contains_image_ = anchor->contains_image;
-    metrics.is_same_origin_ = anchor->is_same_host;
-    metrics.has_text_sibling_ = anchor->has_text_sibling;
-    metrics.is_bold_ = IsBoldFont(anchor->font_weight);
+    metrics.is_in_iframe_ = anchor.is_in_iframe;
+    metrics.is_url_incremented_by_one_ = anchor.is_url_incremented_by_one;
+    metrics.contains_image_ = anchor.contains_image;
+    metrics.is_same_host_ = anchor.is_same_host;
+    metrics.has_text_sibling_ = anchor.has_text_sibling;
+    metrics.is_bold_ = anchor.is_bold_font;
     metrics.navigation_start_to_link_logged =
         element->navigation_start_to_entered_viewport;
 
-    metrics.font_size_ = GetFontSizeFromPx(anchor->font_size_px);
-    auto path_info = GetUrlPathLengthDepthAndHash(anchor->target_url);
+    metrics.font_size_bucket_ = anchor.font_size;
+    auto path_info = GetUrlPathLengthDepthAndHash(anchor.target_url);
     metrics.path_length_ = path_info.path_length;
     metrics.path_depth_ = path_info.path_depth;
-    metrics.bucketed_path_hash_ = path_info.hash;
+    metrics.bucketed_path_hash_ = path_info.hash_bucket;
 
-    // Convert the ratio area and ratio distance from [0,1] to [0,100].
-    int percent_ratio_area = static_cast<int>(anchor->ratio_area * 100);
+    int percent_ratio_area = anchor.ratio_area;
     metrics.percent_clickable_area_ =
         GetLinearBucketForRatioArea(percent_ratio_area);
 
     int percent_ratio_distance_root_top =
-        static_cast<int>(anchor->ratio_distance_root_top * 100);
+        static_cast<int>(anchor.ratio_distance_root_top * 100);
     metrics.percent_vertical_distance_ =
         GetLinearBucketForLinkLocation(percent_ratio_distance_root_top);
 
@@ -675,7 +842,7 @@ void NavigationPredictor::ReportAnchorElementsEnteredViewport(
 }
 
 bool NavigationPredictor::IsTargetURLTheSameAsDocument(
-    const blink::mojom::AnchorElementMetricsPtr& anchor) {
+    const AnchorElementData& anchor) {
   return render_frame_host().GetLastCommittedURL().EqualsIgnoringRef(
-      anchor->target_url);
+      anchor.target_url);
 }

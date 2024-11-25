@@ -5,7 +5,7 @@
 // clang-format off
 import 'chrome://settings/lazy_load.js';
 
-import {SettingsSafetyHubModuleElement} from 'chrome://settings/lazy_load.js';
+import type {SettingsSafetyHubModuleElement} from 'chrome://settings/lazy_load.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
@@ -144,7 +144,7 @@ suite('SafetyHubModule', function() {
     flush();
 
     // Check that the tooltip is not visible.
-    let tooltip = testElement.shadowRoot!.querySelector('paper-tooltip');
+    let tooltip = testElement.shadowRoot!.querySelector('cr-tooltip');
     assertTrue(!!tooltip);
     assertFalse(isVisible(tooltip));
 
@@ -155,7 +155,7 @@ suite('SafetyHubModule', function() {
     button.focus();
 
     // Check that the tooltip gets visible with the correct text.
-    tooltip = testElement.shadowRoot!.querySelector('paper-tooltip');
+    tooltip = testElement.shadowRoot!.querySelector('cr-tooltip');
     assertTrue(!!tooltip);
     await waitUntilVisible(tooltip);
     assertTrue(isVisible(tooltip));

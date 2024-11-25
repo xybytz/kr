@@ -33,6 +33,8 @@
 #include "chrome/browser/ui/tab_contents/core_tab_helper.h"
 #include "chrome/browser/ui/tab_modal_confirm_dialog.h"
 #include "chrome/browser/ui/tab_modal_confirm_dialog_delegate.h"
+#include "chrome/browser/ui/tabs/public/tab_interface.h"
+#include "chrome/browser/ui/user_education/browser_user_education_interface.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
@@ -80,12 +82,6 @@ enum class NewTabPageConcretePage {
   kMaxValue = kOffTheRecordNtp,
 };
 
-bool IsCacheableNTP(content::WebContents* contents) {
-  content::NavigationEntry* entry =
-      contents->GetController().GetLastCommittedEntry();
-  return search::NavEntryIsInstantNTP(contents, entry);
-}
-
 // Returns true if |contents| are rendered inside an Instant process.
 bool InInstantProcess(const InstantService* instant_service,
                       content::WebContents* contents) {
@@ -106,13 +102,6 @@ void RecordNewTabLoadTime(content::WebContents* contents) {
   if (core_tab_helper->new_tab_start_time().is_null())
     return;
 
-  if (IsCacheableNTP(contents)) {
-    if (google_util::IsGoogleDomainUrl(
-            contents->GetController().GetLastCommittedEntry()->GetURL(),
-            google_util::ALLOW_SUBDOMAIN,
-            google_util::DISALLOW_NON_STANDARD_PORTS)) {
-    }
-  }
   core_tab_helper->set_new_tab_start_time(base::TimeTicks());
 }
 
@@ -322,19 +311,19 @@ bool SearchTabHelper::IsInputInProgress() const {
 
 void SearchTabHelper::CloseNTPCustomizeChromeFeaturePromo() {
   const base::Feature& customize_chrome_feature =
-      features::IsChromeRefresh2023() && features::IsChromeWebuiRefresh2023()
-          ? feature_engagement::kIPHDesktopCustomizeChromeRefreshFeature
-          : feature_engagement::kIPHDesktopCustomizeChromeFeature;
+      feature_engagement::kIPHDesktopCustomizeChromeRefreshFeature;
   if (web_contents()->GetController().GetVisibleEntry()->GetURL() ==
       GURL(chrome::kChromeUINewTabPageURL)) {
     return;
   }
-  Browser* const browser = chrome::FindBrowserWithTab(web_contents());
-  if (browser && browser->window() &&
-      browser->tab_strip_model()->GetActiveWebContents() == web_contents()) {
-    browser->window()->CloseFeaturePromo(
-        customize_chrome_feature,
-        user_education::EndFeaturePromoReason::kAbortPromo);
+  auto* const tab = tabs::TabInterface::MaybeGetFromContents(web_contents());
+  if (!tab || !tab->IsInForeground()) {
+    return;
+  }
+  if (auto* const interface =
+          BrowserUserEducationInterface::MaybeGetForWebContentsInTab(
+              web_contents())) {
+    interface->AbortFeaturePromo(customize_chrome_feature);
   }
 }
 

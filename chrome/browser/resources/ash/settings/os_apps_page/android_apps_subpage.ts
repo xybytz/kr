@@ -7,25 +7,27 @@
  * 'android-apps-subpage' is the settings subpage for managing android apps.
  */
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.js';
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
-import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
+import 'chrome://resources/ash/common/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/ash/common/cr_elements/cr_link_row/cr_link_row.js';
 import '../settings_shared.css.js';
 
-import {PrefsMixin} from 'chrome://resources/cr_components/settings_prefs/prefs_mixin.js';
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {PrefsMixin} from '/shared/settings/prefs/prefs_mixin.js';
+import type {CrDialogElement} from 'chrome://resources/ash/common/cr_elements/cr_dialog/cr_dialog.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
 import {focusWithoutInk} from 'chrome://resources/js/focus_without_ink.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {castExists} from '../assert_extras.js';
 import {DeepLinkingMixin} from '../common/deep_linking_mixin.js';
 import {isRevampWayfindingEnabled} from '../common/load_time_booleans.js';
-import {RouteObserverMixin} from '../common/route_observer_mixin.js';
+import {RouteOriginMixin} from '../common/route_origin_mixin.js';
 import {Setting} from '../mojom-webui/setting.mojom-webui.js';
-import {Route, Router, routes} from '../router.js';
+import type {Route} from '../router.js';
+import {Router, routes} from '../router.js';
 
-import {AndroidAppsBrowserProxyImpl, AndroidAppsInfo} from './android_apps_browser_proxy.js';
+import type {AndroidAppsInfo} from './android_apps_browser_proxy.js';
+import {AndroidAppsBrowserProxyImpl} from './android_apps_browser_proxy.js';
 import {getTemplate} from './android_apps_subpage.html.js';
 
 export interface SettingsAndroidAppsSubpageElement {
@@ -37,7 +39,7 @@ export interface SettingsAndroidAppsSubpageElement {
 const GOOGLE_PLAY_STORE_URL = 'https://play.google.com/store/';
 
 const SettingsAndroidAppsSubpageElementBase =
-    DeepLinkingMixin(RouteObserverMixin(PrefsMixin(I18nMixin(PolymerElement))));
+    DeepLinkingMixin(RouteOriginMixin(PrefsMixin(I18nMixin(PolymerElement))));
 
 export class SettingsAndroidAppsSubpageElement extends
     SettingsAndroidAppsSubpageElementBase {
@@ -100,9 +102,26 @@ export class SettingsAndroidAppsSubpageElement extends
   private playStoreEnabled_: boolean;
   private isRevampWayfindingEnabled_: boolean;
 
-  override currentRouteChanged(route: Route): void {
+  constructor() {
+    super();
+
+    /** RouteOriginMixin override */
+    this.route = routes.ANDROID_APPS_DETAILS;
+  }
+
+  override ready(): void {
+    super.ready();
+
+    this.addFocusConfig(
+        routes.ANDROID_APPS_DETAILS_ARC_VM_SHARED_USB_DEVICES,
+        '#manageArcvmShareUsbDevices');
+  }
+
+  override currentRouteChanged(newRoute: Route, oldRoute?: Route): void {
+    super.currentRouteChanged(newRoute, oldRoute);
+
     // Does not apply to this page.
-    if (route !== routes.ANDROID_APPS_DETAILS) {
+    if (newRoute !== this.route) {
       return;
     }
 

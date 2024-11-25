@@ -141,7 +141,7 @@ public class WebsiteAddress implements Comparable<WebsiteAddress>, Serializable 
             mDomainAndRegistry =
                     UrlUtilities.getDomainAndRegistry(
                             (mOrigin != null) ? mOrigin : UrlConstants.HTTP_URL_PREFIX + mHost,
-                            false);
+                            /* includePrivateRegistries= */ true);
             if (mDomainAndRegistry == null || mDomainAndRegistry.isEmpty()) {
                 mDomainAndRegistry = mHost;
             }
@@ -213,6 +213,6 @@ public class WebsiteAddress implements Comparable<WebsiteAddress>, Serializable 
     }
 
     private static String trimTrailingBackslash(String origin) {
-        return (origin.endsWith("/")) ? origin.substring(0, origin.length() - 1) : origin;
+        return origin.endsWith("/") ? origin.substring(0, origin.length() - 1) : origin;
     }
 }

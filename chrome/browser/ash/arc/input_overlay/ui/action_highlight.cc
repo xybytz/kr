@@ -80,7 +80,8 @@ int ActionHighlight::GetOverallRadius() const {
   return GetCircleRadius() + kCircleStrokeThickness;
 }
 
-gfx::Size ActionHighlight::CalculatePreferredSize() const {
+gfx::Size ActionHighlight::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
   const int side = 2 * GetOverallRadius();
   return gfx::Size(side, side);
 }
@@ -113,7 +114,7 @@ void ActionHighlight::VisibilityChanged(views::View* starting_from,
   }
 }
 
-BEGIN_METADATA(ActionHighlight, views::View)
+BEGIN_METADATA(ActionHighlight)
 END_METADATA
 
 }  // namespace arc::input_overlay

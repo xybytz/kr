@@ -7,7 +7,6 @@ package org.chromium.chrome.browser.ui.quickactionsearchwidget;
 import static org.mockito.Mockito.verify;
 
 import android.app.Activity;
-import android.appwidget.AppWidgetManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -16,48 +15,53 @@ import android.content.res.Resources;
 import android.net.Uri;
 import android.util.Size;
 import android.view.View;
-import android.widget.FrameLayout;
 import android.widget.RemoteViews;
 
 import androidx.annotation.LayoutRes;
-import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.SmallTest;
 import androidx.test.platform.app.InstrumentationRegistry;
 
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 
 import org.chromium.base.IntentUtils;
 import org.chromium.base.test.BaseActivityTestRule;
 import org.chromium.base.test.util.ApplicationTestUtils;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.RequiresRestart;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
-import org.chromium.chrome.browser.searchwidget.SearchActivity;
+import org.chromium.chrome.browser.searchwidget.SearchActivityClientImpl;
 import org.chromium.chrome.browser.ui.quickactionsearchwidget.QuickActionSearchWidgetProviderDelegate.WidgetButtonSettings;
 import org.chromium.chrome.browser.ui.quickactionsearchwidget.QuickActionSearchWidgetProviderDelegate.WidgetVariant;
+import org.chromium.chrome.browser.ui.searchactivityutils.SearchActivityClient;
+import org.chromium.chrome.browser.ui.searchactivityutils.SearchActivityExtras.IntentOrigin;
 import org.chromium.chrome.browser.ui.searchactivityutils.SearchActivityPreferencesManager.SearchActivityPreferences;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.chrome.test.util.ChromeApplicationTestUtils;
 import org.chromium.components.embedder_support.util.UrlConstants;
+import org.chromium.url.GURL;
 
 import java.util.Locale;
 
 /** Tests for the QuickActionSearchWidgetProviderDelegate. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add(ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE)
+@Batch(Batch.PER_CLASS)
 public class QuickActionSearchWidgetProviderDelegateTest {
     @Rule
     public BaseActivityTestRule<Activity> mActivityTestRule =
             new BaseActivityTestRule<>(Activity.class);
+
+    public @Rule MockitoRule mMockitoRule = MockitoJUnit.rule();
 
     private View mWidgetView;
     private View mDinoWidgetView;
@@ -68,24 +72,22 @@ public class QuickActionSearchWidgetProviderDelegateTest {
     private int mSmallWidgetMinHeightDp;
     private int mMediumWidgetMinHeightDp;
     private int mDinoWidgetEdgeSizeDp;
+    private SearchActivityClient mClient;
 
     @Mock RemoteViews mMockRemoteViews;
 
     @Before
     public void setUp() {
-        MockitoAnnotations.initMocks(this);
-        ChromeApplicationTestUtils.setUp(ApplicationProvider.getApplicationContext());
         mContext =
                 InstrumentationRegistry.getInstrumentation()
                         .getTargetContext()
                         .getApplicationContext();
 
-        ComponentName searchActivityComponent = new ComponentName(mContext, SearchActivity.class);
+        mClient = new SearchActivityClientImpl(mContext, IntentOrigin.QUICK_ACTION_SEARCH_WIDGET);
 
         mDelegate =
                 new QuickActionSearchWidgetProviderDelegate(
                         mContext,
-                        searchActivityComponent,
                         IntentHandler.createTrustedOpenNewTabIntent(
                                 mContext, /* incognito= */ true),
                         createDinoIntent(mContext));
@@ -111,11 +113,6 @@ public class QuickActionSearchWidgetProviderDelegateTest {
                 (int) (res.getDimension(R.dimen.quick_action_search_widget_dino_size) / density);
 
         setUpViews();
-    }
-
-    @After
-    public void tearDown() {
-        ChromeApplicationTestUtils.tearDown(ApplicationProvider.getApplicationContext());
     }
 
     @Test
@@ -181,24 +178,27 @@ public class QuickActionSearchWidgetProviderDelegateTest {
     }
 
     private void setUpViews() {
-        FrameLayout parentView = new FrameLayout(mContext);
-
-        AppWidgetManager widgetManager = AppWidgetManager.getInstance(mContext);
         SearchActivityPreferences prefs =
-                new SearchActivityPreferences("EngineName", "http://engine", true, true, true);
-
-        Resources res = mContext.getResources();
-        float density = res.getDisplayMetrics().density;
+                new SearchActivityPreferences(
+                        "EngineName", new GURL("http://engine"), true, true, true);
 
         mWidgetView =
                 mDelegate
                         .createSearchWidgetRemoteViews(
-                                mContext, prefs, mDefaultWidgetWidthDp, mMediumWidgetMinHeightDp)
+                                mContext,
+                                mClient,
+                                prefs,
+                                mDefaultWidgetWidthDp,
+                                mMediumWidgetMinHeightDp)
                         .apply(mContext, null);
         mDinoWidgetView =
                 mDelegate
                         .createDinoWidgetRemoteViews(
-                                mContext, prefs, mDinoWidgetEdgeSizeDp, mDinoWidgetEdgeSizeDp)
+                                mContext,
+                                mClient,
+                                prefs,
+                                mDinoWidgetEdgeSizeDp,
+                                mDinoWidgetEdgeSizeDp)
                         .apply(mContext, null);
     }
 
@@ -344,7 +344,7 @@ public class QuickActionSearchWidgetProviderDelegateTest {
 
     @Test
     @SmallTest
-    public void getElementSizeInDP_noMargins() {
+    public void getElementSizeInDp_noMargins() {
         Resources res = mContext.getResources();
 
         // Convert a simple dimension into DP.
@@ -361,7 +361,7 @@ public class QuickActionSearchWidgetProviderDelegateTest {
 
     @Test
     @SmallTest
-    public void getElementSizeInDP_withMargins() {
+    public void getElementSizeInDp_withMargins() {
         Resources res = mContext.getResources();
 
         // Convert a single dimension + surrounding margins into DP.
@@ -552,7 +552,6 @@ public class QuickActionSearchWidgetProviderDelegateTest {
         //   scale factor = target size / reference size
         // a scale factor of 1.0 means the area will host the widget as it was designed
         // without any scaling.
-        Resources r = mContext.getResources();
         Assert.assertEquals(
                 1.f,
                 mDelegate.computeScaleFactorForDinoWidget(
@@ -617,9 +616,9 @@ public class QuickActionSearchWidgetProviderDelegateTest {
 
     @Test
     @SmallTest
+    @RequiresRestart("Failing 1st try, crbug.com/379168927")
     public void resizeDinoWidgetToFillTargetCellArea_repositionContent() {
         final Resources r = mContext.getResources();
-        final float density = r.getDisplayMetrics().density;
 
         // Again, apply half the size of what the widget was designed for.
         final int areaWidthDp = mDinoWidgetEdgeSizeDp / 2;
@@ -646,13 +645,12 @@ public class QuickActionSearchWidgetProviderDelegateTest {
 
     @Test
     @SmallTest
-    public void resizeDinoWidgetToFillTargetCellArea_repositionContentRTL() {
+    public void resizeDinoWidgetToFillTargetCellArea_repositionContentRtl() {
         final Configuration c = new Configuration(mContext.getResources().getConfiguration());
         c.setLayoutDirection(Locale.forLanguageTag("ar")); // arabic
 
         final Resources r = mContext.getResources();
         r.updateConfiguration(c, null);
-        final float density = r.getDisplayMetrics().density;
 
         // Again, apply half the size of what the widget was designed for.
         final int areaWidthDp = mDinoWidgetEdgeSizeDp / 4;

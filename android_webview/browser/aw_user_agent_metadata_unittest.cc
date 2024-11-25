@@ -45,7 +45,7 @@ class AwUserAgentMetadataTest : public testing::Test {
     EXPECT_EQ(expect.mobile, actual.mobile);
     EXPECT_EQ(expect.bitness, actual.bitness);
     EXPECT_EQ(expect.wow64, actual.wow64);
-    EXPECT_EQ(expect.form_factor, actual.form_factor);
+    EXPECT_EQ(expect.form_factors, actual.form_factors);
   }
 
   std::string RoundTripBitness(std::string_view input) {
@@ -60,14 +60,14 @@ class AwUserAgentMetadataTest : public testing::Test {
   raw_ptr<JNIEnv> env_;
 };
 
-TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObject_Metadata_Empty) {
+TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObjectMetadataEmpty) {
   blink::UserAgentMetadata ua_metadata;
   verifyUaMetadata(ua_metadata,
                    FromJavaAwUserAgentMetadata(
                        env(), ToJavaAwUserAgentMetadata(env(), ua_metadata)));
 }
 
-TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObject_Metadata_Full) {
+TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObjectMetadataFull) {
   blink::UserAgentMetadata ua_metadata = {
       .brand_version_list = {{"b1", "mv1"}, {"b2", "mv2"}},
       .brand_full_version_list = {{"b1", "fv1"}, {"b2", "fv2"}},
@@ -79,14 +79,13 @@ TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObject_Metadata_Full) {
       .mobile = true,
       .bitness = "64",
       .wow64 = false,
-      .form_factor = {"Desktop", "Mobile"}};
+      .form_factors = {"Desktop", "Mobile"}};
   verifyUaMetadata(ua_metadata,
                    FromJavaAwUserAgentMetadata(
                        env(), ToJavaAwUserAgentMetadata(env(), ua_metadata)));
 }
 
-TEST_F(AwUserAgentMetadataTest,
-       TestJavaObjectCppObject_Metadata_PartFullBrand) {
+TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObjectMetadataPartFullBrand) {
   blink::UserAgentMetadata ua_metadata = {
       .brand_version_list = {{"b1", "mv1"}, {"b2", "mv2"}},
       .brand_full_version_list = {{"b1", "fv1"}},
@@ -98,14 +97,14 @@ TEST_F(AwUserAgentMetadataTest,
       .mobile = true,
       .bitness = "64",
       .wow64 = false,
-      .form_factor = {"Desktop"}};
+      .form_factors = {"Desktop"}};
   verifyUaMetadata(ua_metadata,
                    FromJavaAwUserAgentMetadata(
                        env(), ToJavaAwUserAgentMetadata(env(), ua_metadata)));
 }
 
 TEST_F(AwUserAgentMetadataTest,
-       TestJavaObjectCppObject_Metadata_NoFullBrandList) {
+       TestJavaObjectCppObjectMetadataNoFullBrandList) {
   blink::UserAgentMetadata ua_metadata = {
       .brand_version_list = {{"b1", "mv1"}, {"b2", "mv2"}},
       .brand_full_version_list = {},
@@ -117,13 +116,13 @@ TEST_F(AwUserAgentMetadataTest,
       .mobile = true,
       .bitness = "64",
       .wow64 = false,
-      .form_factor = {}};
+      .form_factors = {}};
   verifyUaMetadata(ua_metadata,
                    FromJavaAwUserAgentMetadata(
                        env(), ToJavaAwUserAgentMetadata(env(), ua_metadata)));
 }
 
-TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObject_Metadata_NoBrandList) {
+TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObjectMetadataNoBrandList) {
   blink::UserAgentMetadata ua_metadata = {
       .brand_version_list = {},
       .brand_full_version_list = {},
@@ -135,13 +134,13 @@ TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObject_Metadata_NoBrandList) {
       .mobile = true,
       .bitness = "64",
       .wow64 = false,
-      .form_factor = {"Desktop"}};
+      .form_factors = {"Desktop"}};
   verifyUaMetadata(ua_metadata,
                    FromJavaAwUserAgentMetadata(
                        env(), ToJavaAwUserAgentMetadata(env(), ua_metadata)));
 }
 
-TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObject_Metadata_LowEntropy) {
+TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObjectMetadataLowEntropy) {
   blink::UserAgentMetadata ua_metadata = {
       .brand_version_list = {{"b1", "mv1"}, {"b2", "mv2"}},
       .brand_full_version_list = {},
@@ -153,13 +152,13 @@ TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObject_Metadata_LowEntropy) {
       .mobile = false,
       .bitness = "",
       .wow64 = false,
-      .form_factor = {"Desktop"}};
+      .form_factors = {"Desktop"}};
   verifyUaMetadata(ua_metadata,
                    FromJavaAwUserAgentMetadata(
                        env(), ToJavaAwUserAgentMetadata(env(), ua_metadata)));
 }
 
-TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObject_Default) {
+TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObjectDefault) {
   blink::UserAgentMetadata ua_metadata =
       AwClientHintsControllerDelegate::GetUserAgentMetadataOverrideBrand();
   verifyUaMetadata(ua_metadata,
@@ -167,7 +166,7 @@ TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObject_Default) {
                        env(), ToJavaAwUserAgentMetadata(env(), ua_metadata)));
 }
 
-TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObject_InvalidBrandVersion) {
+TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObjectInvalidBrandVersion) {
   blink::UserAgentMetadata ua_metadata;
   ua_metadata.brand_version_list = {{"b1", "mv1"}, {"b2", "mv2"}};
   ua_metadata.brand_full_version_list = {{"b3", "fv1"}, {"b2", "fv2"}};
@@ -183,15 +182,15 @@ TEST_F(AwUserAgentMetadataTest, TestJavaObjectCppObject_InvalidBrandVersion) {
             actual_metadata.brand_full_version_list);
 }
 
-TEST_F(AwUserAgentMetadataTest, TestBitnessParsing_InvalidValue_String) {
+TEST_F(AwUserAgentMetadataTest, TestBitnessParsingInvalidValueString) {
   EXPECT_EQ("", RoundTripBitness("foo"));
 }
 
-TEST_F(AwUserAgentMetadataTest, TestBitnessParsing_Default) {
+TEST_F(AwUserAgentMetadataTest, TestBitnessParsingDefault) {
   EXPECT_EQ("", RoundTripBitness("0"));
 }
 
-TEST_F(AwUserAgentMetadataTest, TestBitnessParsing_IntValue) {
+TEST_F(AwUserAgentMetadataTest, TestBitnessParsingIntValue) {
   EXPECT_EQ("8", RoundTripBitness("8"));
   EXPECT_EQ("16", RoundTripBitness("16"));
   EXPECT_EQ("32", RoundTripBitness("32"));

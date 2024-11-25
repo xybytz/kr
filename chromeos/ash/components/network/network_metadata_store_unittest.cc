@@ -12,6 +12,7 @@
 #include "base/command_line.h"
 #include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
+#include "base/test/gtest_util.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
@@ -306,7 +307,7 @@ class NetworkMetadataStoreTest : public ::testing::Test {
 
   base::test::SingleThreadTaskEnvironment task_environment_{
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
-  NetworkStateTestHelper helper_{false /* use_default_devices_and_services */};
+  NetworkStateTestHelper helper_{/*use_default_devices_and_services=*/false};
   std::unique_ptr<NetworkConfigurationHandler> network_configuration_handler_;
   std::unique_ptr<NetworkConnectionHandler> network_connection_handler_;
   raw_ptr<NetworkStateHandler> network_state_handler_;
@@ -402,7 +403,7 @@ TEST_F(NetworkMetadataStoreTest, ConfigurationUpdated) {
   metadata_store()->SetIsConfiguredBySync(kGuid);
   ASSERT_FALSE(metadata_store()->GetLastConnectedTimestamp(kGuid).is_zero());
   ASSERT_TRUE(metadata_store()->GetIsConfiguredBySync(kGuid));
-  ASSERT_EQ(0, metadata_observer()->GetNumberOfUpdates(kGuid));
+  ASSERT_EQ(1, metadata_observer()->GetNumberOfUpdates(kGuid));
 
   auto properties =
       base::Value::Dict()
@@ -416,7 +417,7 @@ TEST_F(NetworkMetadataStoreTest, ConfigurationUpdated) {
 
   ASSERT_TRUE(metadata_store()->GetLastConnectedTimestamp(kGuid).is_zero());
   ASSERT_FALSE(metadata_store()->GetIsConfiguredBySync(kGuid));
-  ASSERT_EQ(1, metadata_observer()->GetNumberOfUpdates(kGuid));
+  ASSERT_EQ(2, metadata_observer()->GetNumberOfUpdates(kGuid));
 }
 
 TEST_F(NetworkMetadataStoreTest, SharedConfigurationUpdatedByOtherUser) {
@@ -511,7 +512,7 @@ TEST_F(NetworkMetadataStoreTest, OwnOobeNetworks) {
   ASSERT_FALSE(metadata_store()->GetIsCreatedByUser(kGuid));
 
   UserManager()->SetIsCurrentUserNew(true);
-  UserManager()->set_is_current_user_owner(true);
+  UserManager()->SetOwnerId(primary_user_->GetAccountId());
   metadata_store()->LoggedInStateChanged();
   ASSERT_TRUE(metadata_store()->GetIsCreatedByUser(kGuid));
 }
@@ -526,7 +527,7 @@ TEST_F(NetworkMetadataStoreTest, OwnOobeNetworks_EnterpriseEnrolled) {
   ASSERT_FALSE(metadata_store()->GetIsCreatedByUser(kGuid));
 
   UserManager()->SetIsCurrentUserNew(true);
-  UserManager()->set_is_current_user_owner(true);
+  UserManager()->SetOwnerId(primary_user_->GetAccountId());
   metadata_store()->LoggedInStateChanged();
   ASSERT_FALSE(metadata_store()->GetIsCreatedByUser(kGuid));
 }
@@ -540,7 +541,7 @@ TEST_F(NetworkMetadataStoreTest, OwnOobeNetworks_NotOwner) {
   ASSERT_FALSE(metadata_store()->GetIsCreatedByUser(kGuid));
 
   UserManager()->SetIsCurrentUserNew(true);
-  UserManager()->set_is_current_user_owner(false);
+  UserManager()->ResetOwnerId();
   metadata_store()->LoggedInStateChanged();
   ASSERT_FALSE(metadata_store()->GetIsCreatedByUser(kGuid));
 }
@@ -554,7 +555,7 @@ TEST_F(NetworkMetadataStoreTest, OwnOobeNetworks_NotFirstLogin) {
   ASSERT_FALSE(metadata_store()->GetIsCreatedByUser(kGuid));
 
   UserManager()->SetIsCurrentUserNew(false);
-  UserManager()->set_is_current_user_owner(true);
+  UserManager()->SetOwnerId(primary_user_->GetAccountId());
   metadata_store()->LoggedInStateChanged();
   ASSERT_FALSE(metadata_store()->GetIsCreatedByUser(kGuid));
 }
@@ -681,28 +682,7 @@ TEST_F(NetworkMetadataStoreTest, LogHiddenNetworks) {
                            /*sample=*/false, /*expected_count=*/1);
 }
 
-TEST_F(NetworkMetadataStoreTest, EnableAndDisableTrafficCountersAutoReset) {
-  std::string service_path = ConfigureService(kConfigWifi0Connectable);
-  const base::Value* value =
-      metadata_store()->GetEnableTrafficCountersAutoReset(kGuid);
-  EXPECT_EQ(nullptr, value);
-
-  metadata_store()->SetEnableTrafficCountersAutoReset(kGuid, /*enable=*/true);
-  base::RunLoop().RunUntilIdle();
-
-  value = metadata_store()->GetEnableTrafficCountersAutoReset(kGuid);
-  ASSERT_TRUE(value && value->is_bool());
-  EXPECT_TRUE(value->GetBool());
-
-  metadata_store()->SetEnableTrafficCountersAutoReset(kGuid, /*enable=*/false);
-  base::RunLoop().RunUntilIdle();
-
-  value = metadata_store()->GetEnableTrafficCountersAutoReset(kGuid);
-  ASSERT_TRUE(value && value->is_bool());
-  EXPECT_FALSE(value->GetBool());
-}
-
-TEST_F(NetworkMetadataStoreTest, SetTrafficCountersAutoResetDay) {
+TEST_F(NetworkMetadataStoreTest, SetTrafficCountersResetDay) {
   std::string service_path = ConfigureService(kConfigWifi0Connectable);
   const base::Value* value =
       metadata_store()->GetDayOfTrafficCountersAutoReset(kGuid);
@@ -827,10 +807,8 @@ TEST_F(NetworkMetadataStoreTest, GetPreRevampCustomApnList) {
     base::test::ScopedFeatureList disabled_feature_list;
     disabled_feature_list.InitAndDisableFeature(ash::features::kApnRevamp);
     EXPECT_EQ(nullptr, metadata_store()->GetCustomApnList(kCellularkGuid));
-#if !BUILDFLAG(ENABLE_LOG_ERROR_NOT_REACHED)
-    EXPECT_DEATH(metadata_store()->GetPreRevampCustomApnList(kCellularkGuid),
-                 "");
-#endif  // !BUILDFLAG(ENABLE_LOG_ERROR_NOT_REACHED)
+    EXPECT_DCHECK_DEATH(
+        metadata_store()->GetPreRevampCustomApnList(kCellularkGuid));
   }
   {
     base::test::ScopedFeatureList enabled_feature_list;
@@ -872,10 +850,8 @@ TEST_F(NetworkMetadataStoreTest, GetPreRevampCustomApnList) {
     disabled_feature_list.InitAndDisableFeature(ash::features::kApnRevamp);
     EXPECT_EQ(expected_list_feature_disabled,
               *metadata_store()->GetCustomApnList(kCellularkGuid));
-#if !BUILDFLAG(ENABLE_LOG_ERROR_NOT_REACHED)
-    EXPECT_DEATH(metadata_store()->GetPreRevampCustomApnList(kCellularkGuid),
-                 "");
-#endif  // !BUILDFLAG(ENABLE_LOG_ERROR_NOT_REACHED)
+    EXPECT_DCHECK_DEATH(
+        metadata_store()->GetPreRevampCustomApnList(kCellularkGuid));
   }
 
   // Verify that values are returned correctly if the APN revamp flag is
@@ -891,9 +867,6 @@ TEST_F(NetworkMetadataStoreTest, GetPreRevampCustomApnList) {
 }
 
 TEST_F(NetworkMetadataStoreTest, UserTextMessageSuppressionState) {
-  base::test::ScopedFeatureList enabled_feature_list;
-  enabled_feature_list.InitAndEnableFeature(
-      ash::features::kSuppressTextMessages);
   base::HistogramTester histogram_tester;
   // Case: Suppression state should be Allow when user text message
   // suppression state has never been set.

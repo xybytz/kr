@@ -5,10 +5,12 @@
 #import "ios/chrome/browser/tab_insertion/model/tab_insertion_browser_agent.h"
 
 #import "build/blink_buildflags.h"
+#import "components/tab_groups/tab_group_id.h"
 #import "ios/chrome/browser/ntp/model/new_tab_page_tab_helper.h"
-#import "ios/chrome/browser/sessions/session_restoration_service.h"
-#import "ios/chrome/browser/sessions/session_restoration_service_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/sessions/model/session_restoration_service.h"
+#import "ios/chrome/browser/sessions/model/session_restoration_service_factory.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
+#import "ios/chrome/browser/shared/model/web_state_list/tab_group.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
 #import "ios/chrome/browser/url_loading/model/new_tab_animation_tab_helper.h"
@@ -58,30 +60,10 @@ web::WebState* TabInsertionBrowserAgent::InsertWebState(
   DCHECK(IsIndexValidForBrowser(browser_.get(), tab_insertion_params.index));
 
   WebStateList* const web_state_list = browser_->GetWebStateList();
-  ChromeBrowserState* const browser_state = browser_->GetBrowserState();
-
-  int insertion_index = WebStateList::kInvalidIndex;
-  int insertion_flags = WebStateList::INSERT_NO_FLAGS;
-  if (tab_insertion_params.index != TabInsertion::kPositionAutomatically) {
-    DCHECK_LE(tab_insertion_params.index, INT_MAX);
-    insertion_index = static_cast<int>(tab_insertion_params.index);
-    insertion_flags |= WebStateList::INSERT_FORCE_INDEX;
-  } else if (!ui::PageTransitionCoreTypeIs(web_load_params.transition_type,
-                                           ui::PAGE_TRANSITION_LINK)) {
-    insertion_index = web_state_list->count();
-    insertion_flags |= WebStateList::INSERT_FORCE_INDEX;
-  }
-
-  if (!tab_insertion_params.in_background) {
-    insertion_flags |= WebStateList::INSERT_ACTIVATE;
-  }
-
-  if (tab_insertion_params.inherit_opener) {
-    insertion_flags |= WebStateList::INSERT_INHERIT_OPENER;
-  }
+  ProfileIOS* const profile = browser_->GetProfile();
 
   std::unique_ptr<web::WebState> web_state;
-  web::WebState::CreateParams create_params(browser_state);
+  web::WebState::CreateParams create_params(profile);
   create_params.created_with_opener = tab_insertion_params.opened_by_dom;
 
   // Check whether the tab must be created as realized or not.
@@ -96,7 +78,7 @@ web::WebState* TabInsertionBrowserAgent::InsertWebState(
     // Ask the SessionRestorationService to create an unrealized WebState
     // that can be inserted into the WebStateList of `browser_`.
     web_state =
-        SessionRestorationServiceFactory::GetForBrowserState(browser_state)
+        SessionRestorationServiceFactory::GetForProfile(profile)
             ->CreateUnrealizedWebState(browser_.get(), std::move(storage));
   }
   DCHECK(web_state);
@@ -117,16 +99,42 @@ web::WebState* TabInsertionBrowserAgent::InsertWebState(
     web_state->GetNavigationManager()->LoadURLWithParams(web_load_params);
   }
 
+  WebStateList::InsertionParams params =
+      WebStateList::InsertionParams::Automatic();
+  if (tab_insertion_params.index != TabInsertion::kPositionAutomatically) {
+    params = WebStateList::InsertionParams::AtIndex(tab_insertion_params.index);
+  } else if (!ui::PageTransitionCoreTypeIs(web_load_params.transition_type,
+                                           ui::PAGE_TRANSITION_LINK)) {
+    params = WebStateList::InsertionParams::AtIndex(web_state_list->count());
+  }
+
+  bool should_activate =
+      !tab_insertion_params.in_background || web_state_list->empty();
+
+  params.Activate(should_activate)
+      .InheritOpener(tab_insertion_params.inherit_opener)
+      .WithOpener(WebStateOpener(tab_insertion_params.parent));
+  if (tab_insertion_params.insert_pinned) {
+    params.Pinned();
+  }
+  if (tab_insertion_params.insert_in_group && tab_insertion_params.tab_group) {
+    params.InGroup(tab_insertion_params.tab_group.get());
+  }
   web::WebState* web_state_ptr = web_state.get();
-  web_state_list->InsertWebState(insertion_index, std::move(web_state),
-                                 insertion_flags,
-                                 WebStateOpener(tab_insertion_params.parent));
+  web_state_list->InsertWebState(std::move(web_state), params);
+  if (tab_insertion_params.insert_in_group && !tab_insertion_params.tab_group) {
+    web_state_list->CreateGroup(
+        {web_state_list->GetIndexOfWebState(web_state_ptr)},
+        tab_groups::TabGroupVisualData{
+            u"", TabGroup::DefaultColorForNewTabGroup(web_state_list)},
+        tab_groups::TabGroupId::GenerateNew());
+  }
   return web_state_ptr;
 }
 
 web::WebState* TabInsertionBrowserAgent::InsertWebStateOpenedByDOM(
     web::WebState* parent) {
-  web::WebState::CreateParams create_params(browser_->GetBrowserState());
+  web::WebState::CreateParams create_params(browser_->GetProfile());
   create_params.created_with_opener = YES;
 #if BUILDFLAG(USE_BLINK)
   create_params.opener_web_state = parent;
@@ -137,8 +145,9 @@ web::WebState* TabInsertionBrowserAgent::InsertWebStateOpenedByDOM(
   web::WebState* web_state_ptr = web_state.get();
   WebStateList* web_state_list = browser_->GetWebStateList();
   web_state_list->InsertWebState(
-      web_state_list->count(), std::move(web_state),
-      WebStateList::INSERT_FORCE_INDEX | WebStateList::INSERT_ACTIVATE,
-      WebStateOpener(parent));
+      std::move(web_state),
+      WebStateList::InsertionParams::AtIndex(web_state_list->count())
+          .Activate()
+          .WithOpener(WebStateOpener(parent)));
   return web_state_ptr;
 }

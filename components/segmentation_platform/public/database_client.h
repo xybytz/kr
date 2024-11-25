@@ -6,9 +6,10 @@
 #define COMPONENTS_SEGMENTATION_PLATFORM_PUBLIC_DATABASE_CLIENT_H_
 
 #include <cstdint>
+#include <string>
+#include <string_view>
 
 #include "base/functional/callback_forward.h"
-#include "base/strings/string_piece.h"
 #include "base/time/time.h"
 #include "base/types/id_type.h"
 #include "components/segmentation_platform/public/model_provider.h"
@@ -47,8 +48,8 @@ class DatabaseClient {
   // metrics too) have to be registered in `DatabaseApiClients`.
   struct StructuredEvent {
     StructuredEvent();
-    StructuredEvent(base::StringPiece event_name,
-                    const std::map<base::StringPiece, uint64_t> values);
+    StructuredEvent(std::string_view event_name,
+                    const std::map<std::string, uint64_t> values);
     ~StructuredEvent();
 
     StructuredEvent(const StructuredEvent&) = delete;

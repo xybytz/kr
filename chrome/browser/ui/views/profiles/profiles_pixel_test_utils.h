@@ -10,6 +10,7 @@
 
 #include "base/scoped_environment_variable_override.h"
 #include "chrome/browser/signin/signin_browser_test_base.h"
+#include "components/signin/public/identity_manager/tribool.h"
 
 namespace base {
 class CommandLine;
@@ -34,14 +35,20 @@ struct PixelTestParam {
   bool use_dark_theme = false;
   bool use_right_to_left_language = false;
   bool use_small_window = false;
-  bool use_fre_style = false;
-  bool use_chrome_refresh_2023_style = false;
 };
 
 enum class AccountManagementStatus {
   kManaged = 0,
   kNonManaged,
 };
+
+// Returns an AccountInfo with all fields filled in, such that
+// AccountInfo::IsValid() is true.
+AccountInfo FillAccountInfo(
+    const CoreAccountInfo& core_info,
+    AccountManagementStatus management_status,
+    signin::Tribool
+        can_show_history_sync_opt_ins_without_minor_mode_restrictions);
 
 // Used to create a dummy account and sign it in, by default as a primary
 // account.
@@ -50,7 +57,10 @@ AccountInfo SignInWithAccount(
     AccountManagementStatus management_status =
         AccountManagementStatus::kNonManaged,
     std::optional<signin::ConsentLevel> consent_level =
-        signin::ConsentLevel::kSignin);
+        signin::ConsentLevel::kSignin,
+    signin::Tribool
+        can_show_history_sync_opt_ins_without_minor_mode_restrictions =
+            signin::Tribool::kTrue);
 
 // Sets up the parameters that are passed to the command line. For example,
 // to enable dark mode, we need to pass `kForceDarkMode` to the command line.
@@ -91,9 +101,13 @@ class ProfilesPixelTestBaseT : public SigninBrowserTestBaseT<T> {
       AccountManagementStatus management_status =
           AccountManagementStatus::kNonManaged,
       std::optional<signin::ConsentLevel> consent_level =
-          signin::ConsentLevel::kSignin) {
-    return ::SignInWithAccount(*this->identity_test_env(), management_status,
-                               consent_level);
+          signin::ConsentLevel::kSignin,
+      signin::Tribool
+          can_show_history_sync_opt_ins_without_minor_mode_restrictions =
+              signin::Tribool::kTrue) {
+    return ::SignInWithAccount(
+        *this->identity_test_env(), management_status, consent_level,
+        can_show_history_sync_opt_ins_without_minor_mode_restrictions);
   }
 
   // SigninBrowserTestBaseT overrides:

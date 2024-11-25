@@ -4,19 +4,25 @@
 
 #include "chrome/browser/web_applications/commands/install_from_sync_command.h"
 
+#include "base/memory/weak_ptr.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/test/bind.h"
-#include "chrome/browser/ui/web_applications/web_app_controller_browsertest.h"
+#include "base/test/test_future.h"
+#include "chrome/browser/ui/web_applications/web_app_browsertest_base.h"
 #include "chrome/browser/web_applications/mojom/user_display_mode.mojom.h"
+#include "chrome/browser/web_applications/proto/web_app_install_state.pb.h"
 #include "chrome/browser/web_applications/test/web_app_icon_test_utils.h"
 #include "chrome/browser/web_applications/web_app_command_manager.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_registrar.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
 #include "components/services/app_service/public/cpp/icon_info.h"
 #include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
+#include "content/public/test/test_utils.h"
 #include "content/public/test/web_contents_observer_test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -26,7 +32,7 @@
 namespace web_app {
 namespace {
 
-class InstallFromSyncCommandTest : public WebAppControllerBrowserTest {
+class InstallFromSyncCommandTest : public WebAppBrowserTestBase {
  public:
   InstallFromSyncCommandTest() = default;
   ~InstallFromSyncCommandTest() override = default;
@@ -57,9 +63,14 @@ IN_PROC_BROWSER_TEST_F(InstallFromSyncCommandTest, SimpleInstall) {
             loop.Quit();
           })));
   loop.Run();
-  EXPECT_TRUE(provider->registrar_unsafe().IsInstalled(id));
+  EXPECT_TRUE(provider->registrar_unsafe().IsInstallState(
+      id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+           proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+           proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
   EXPECT_EQ(AreAppsLocallyInstalledBySync(),
-            provider->registrar_unsafe().IsLocallyInstalled(id));
+            provider->registrar_unsafe().IsInstallState(
+                id, {proto::INSTALLED_WITHOUT_OS_INTEGRATION,
+                     proto::INSTALLED_WITH_OS_INTEGRATION}));
 
   SkColor icon_color =
       IconManagerReadAppIconPixel(provider->icon_manager(), id, 96);
@@ -116,9 +127,14 @@ IN_PROC_BROWSER_TEST_F(InstallFromSyncCommandTest, TwoInstalls) {
   loop.Run();
   // Check first install.
   {
-    EXPECT_TRUE(provider->registrar_unsafe().IsInstalled(id));
+    EXPECT_TRUE(provider->registrar_unsafe().IsInstallState(
+        id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+             proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+             proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
     EXPECT_EQ(AreAppsLocallyInstalledBySync(),
-              provider->registrar_unsafe().IsLocallyInstalled(id));
+              provider->registrar_unsafe().IsInstallState(
+                  id, {proto::INSTALLED_WITHOUT_OS_INTEGRATION,
+                       proto::INSTALLED_WITH_OS_INTEGRATION}));
 
     SkColor icon_color =
         IconManagerReadAppIconPixel(provider->icon_manager(), id, 96);
@@ -126,9 +142,14 @@ IN_PROC_BROWSER_TEST_F(InstallFromSyncCommandTest, TwoInstalls) {
   }
   // Check second install.
   {
-    EXPECT_TRUE(provider->registrar_unsafe().IsInstalled(other_id));
+    EXPECT_TRUE(provider->registrar_unsafe().IsInstallState(
+        other_id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                   proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                   proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
     EXPECT_EQ(AreAppsLocallyInstalledBySync(),
-              provider->registrar_unsafe().IsLocallyInstalled(other_id));
+              provider->registrar_unsafe().IsInstallState(
+                  other_id, {proto::INSTALLED_WITHOUT_OS_INTEGRATION,
+                             proto::INSTALLED_WITH_OS_INTEGRATION}));
 
     SkColor icon_color =
         IconManagerReadAppIconPixel(provider->icon_manager(), other_id, 96);
@@ -164,8 +185,19 @@ IN_PROC_BROWSER_TEST_F(InstallFromSyncCommandTest, AbortInstall) {
             webapps::InstallResultCode::kCancelledOnWebAppProviderShuttingDown);
       }));
   provider->command_manager().ScheduleCommand(std::move(command));
+
+  // Wait until the web contents is created, then listen for navigation and
+  // destruction.
+  content::WebContents* web_contents = nullptr;
+  base::test::TestFuture<void> web_contents_created;
+  provider->command_manager().SetOnWebContentsCreatedCallbackForTesting(
+      web_contents_created.GetCallback());
+  ASSERT_TRUE(web_contents_created.Wait());
+  ASSERT_TRUE(provider->command_manager().web_contents_for_testing());
+  web_contents = provider->command_manager().web_contents_for_testing();
+
   content::NavigationStartObserver navigation_started_observer(
-      provider->command_manager().web_contents_for_testing(),
+      web_contents,
       base::BindLambdaForTesting([&](content::NavigationHandle* handle) {
         if (handle && handle->GetURL() == test_url) {
           // This must be posted as a task because web contents cannot be
@@ -176,9 +208,12 @@ IN_PROC_BROWSER_TEST_F(InstallFromSyncCommandTest, AbortInstall) {
         }
       }));
   content::WebContentsDestroyedWatcher web_contents_destroyed_observer(
-      provider->command_manager().web_contents_for_testing());
+      web_contents);
   web_contents_destroyed_observer.Wait();
-  EXPECT_FALSE(provider->registrar_unsafe().IsInstalled(id));
+  EXPECT_FALSE(provider->registrar_unsafe().IsInstallState(
+      id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+           proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+           proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 }
 
 }  // namespace

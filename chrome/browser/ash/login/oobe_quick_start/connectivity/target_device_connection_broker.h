@@ -36,15 +36,18 @@ class TargetDeviceConnectionBroker {
   enum class FeatureSupportStatus {
     kUndetermined = 0,
     kNotSupported,
-    kSupported
+    kSupported,
+    kWaitingForAdapterToBecomePresent,  // When resuming after an update, the
+                                        // bluetooth adapter may not be present
+                                        // and powered immediately upon reboot
+                                        // when we initiate advertising.
+    kWaitingForAdapterToBecomePowered
   };
 
   enum class ConnectionClosedReason {
-    kComplete,
-    kUserAborted,
+    kUserAborted,  // Based on user selections on target device, which are
+                   // always informed by Chromebook UI.
     kAuthenticationFailed,
-    kConnectionLost,
-    kRequestTimedOut,
     kTargetDeviceUpdate,
     kResponseTimeout,
     kUnknownError,
@@ -98,6 +101,8 @@ class TargetDeviceConnectionBroker {
     // Exposes SessionContext::GetPrepareForUpdateInfo() to the
     // AuthenticatedConnection caller.
     virtual base::Value::Dict GetPrepareForUpdateInfo() = 0;
+
+    virtual void NotifyPhoneSetupComplete() = 0;
 
     // Retrieve Instance ID (CryptAuth device ID) from BootstrapConfigurations
     // response.
@@ -164,7 +169,7 @@ class TargetDeviceConnectionBroker {
   virtual FeatureSupportStatus GetFeatureSupportStatus() const = 0;
 
   using FeatureSupportStatusCallback =
-      base::OnceCallback<void(FeatureSupportStatus status)>;
+      base::RepeatingCallback<void(FeatureSupportStatus status)>;
   void GetFeatureSupportStatusAsync(FeatureSupportStatusCallback callback);
 
   // Will kick off Fast Pair and Nearby Connections advertising.
@@ -226,6 +231,16 @@ class TargetDeviceConnectionBroker {
  private:
   std::vector<FeatureSupportStatusCallback> feature_status_callbacks_;
 };
+
+std::ostream& operator<<(
+    std::ostream& stream,
+    const TargetDeviceConnectionBroker::ConnectionClosedReason&
+        connection_closed_reason);
+
+std::ostream& operator<<(
+    std::ostream& stream,
+    const TargetDeviceConnectionBroker::FeatureSupportStatus&
+        feature_support_status);
 
 }  // namespace ash::quick_start
 

@@ -20,6 +20,7 @@ import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.app.AlertDialog;
 import androidx.preference.PreferenceViewHolder;
 
+import org.chromium.base.CallbackUtils;
 import org.chromium.components.browser_ui.settings.ChromeImageViewPreference;
 import org.chromium.components.browser_ui.settings.FaviconViewUtils;
 import org.chromium.components.embedder_support.util.UrlConstants;
@@ -50,7 +51,7 @@ public class WebsiteRowPreference extends ChromeImageViewPreference {
         mSiteEntry = siteEntry;
         mLayoutInflater = layoutInflater;
         // Initialize with an empty callback.
-        mOnDeleteCallback = () -> {};
+        mOnDeleteCallback = CallbackUtils.emptyRunnable();
 
         // To make sure the layout stays stable throughout, we assign a
         // transparent drawable as the icon initially. This is so that
@@ -61,7 +62,9 @@ public class WebsiteRowPreference extends ChromeImageViewPreference {
         setTitle(mSiteEntry.getTitleForPreferenceRow());
         setImageView(
                 R.drawable.ic_delete_white_24dp,
-                R.string.webstorage_delete_data_dialog_title,
+                context.getString(
+                        R.string.webstorage_delete_data_content_description,
+                        mSiteEntry.getTitleForPreferenceRow()),
                 (View view) -> {
                     displayResetDialog();
                 });
@@ -118,7 +121,7 @@ public class WebsiteRowPreference extends ChromeImageViewPreference {
         signedOutText.setText(R.string.webstorage_clear_data_dialog_sign_out_message);
         TextView offlineText = dialogView.findViewById(R.id.offline_text);
         offlineText.setText(R.string.webstorage_delete_data_dialog_offline_message);
-        // TODO(crbug.com/1342991): Refactor and combine this with the ClearWebsiteStorageDialog
+        // TODO(crbug.com/40231223): Refactor and combine this with the ClearWebsiteStorageDialog
         // code.
         mConfirmationDialog =
                 new AlertDialog.Builder(getContext(), R.style.ThemeOverlay_BrowserUI_AlertDialog)
@@ -140,16 +143,12 @@ public class WebsiteRowPreference extends ChromeImageViewPreference {
             SiteDataCleaner.resetPermissions(
                     mSiteSettingsDelegate.getBrowserContextHandle(), (Website) mSiteEntry);
             SiteDataCleaner.clearData(
-                    mSiteSettingsDelegate.getBrowserContextHandle(),
-                    (Website) mSiteEntry,
-                    mOnDeleteCallback);
+                    mSiteSettingsDelegate, (Website) mSiteEntry, mOnDeleteCallback);
         } else {
             SiteDataCleaner.resetPermissions(
                     mSiteSettingsDelegate.getBrowserContextHandle(), (WebsiteGroup) mSiteEntry);
             SiteDataCleaner.clearData(
-                    mSiteSettingsDelegate.getBrowserContextHandle(),
-                    (WebsiteGroup) mSiteEntry,
-                    mOnDeleteCallback);
+                    mSiteSettingsDelegate, (WebsiteGroup) mSiteEntry, mOnDeleteCallback);
         }
     }
 
@@ -183,10 +182,8 @@ public class WebsiteRowPreference extends ChromeImageViewPreference {
                 summary = cookie_str;
             } else {
                 summary =
-                        String.format(
-                                getContext().getString(R.string.summary_with_one_bullet),
-                                cookie_str,
-                                summary);
+                        getContext()
+                                .getString(R.string.summary_with_one_bullet, cookie_str, summary);
             }
         }
 
@@ -195,11 +192,28 @@ public class WebsiteRowPreference extends ChromeImageViewPreference {
             if (summary.isEmpty()) {
                 summary = HTTP;
             } else {
-                summary =
-                        String.format(
-                                getContext().getString(R.string.summary_with_one_bullet),
-                                HTTP,
-                                summary);
+                summary = getContext().getString(R.string.summary_with_one_bullet, HTTP, summary);
+            }
+        }
+
+        if (mSiteSettingsDelegate.shouldShowPrivacySandboxRwsUi()) {
+            if (mSiteEntry.isPartOfRws()) {
+                String rwsSummary =
+                        getContext()
+                                .getResources()
+                                .getQuantityString(
+                                        R.plurals.rws_summary,
+                                        mSiteEntry.getRwsSize(),
+                                        Integer.toString(mSiteEntry.getRwsSize()),
+                                        mSiteEntry.getRwsOwner());
+                if (summary.isEmpty()) {
+                    summary = rwsSummary;
+                } else {
+                    summary =
+                            getContext()
+                                    .getString(
+                                            R.string.summary_with_one_bullet, summary, rwsSummary);
+                }
             }
         }
 

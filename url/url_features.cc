@@ -16,14 +16,13 @@ BASE_FEATURE(kRecordIDNA2008Metrics,
              "RecordIDNA2008Metrics",
              base::FEATURE_ENABLED_BY_DEFAULT);
 
-// Kill switch for crbug.com/1220361.
-BASE_FEATURE(kResolveBareFragmentWithColonOnNonHierarchical,
-             "ResolveBareFragmentWithColonOnNonHierarchical",
-             base::FEATURE_ENABLED_BY_DEFAULT);
-
 // Kill switch for crbug.com/1416006.
 BASE_FEATURE(kStandardCompliantNonSpecialSchemeURLParsing,
              "StandardCompliantNonSpecialSchemeURLParsing",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+
+BASE_FEATURE(kDisallowSpaceCharacterInURLHostParsing,
+             "DisallowSpaceCharacterInURLHostParsing",
              base::FEATURE_DISABLED_BY_DEFAULT);
 
 bool IsUsingIDNA2008NonTransitional() {
@@ -50,6 +49,16 @@ bool IsUsingStandardCompliantNonSpecialSchemeURLParsing() {
 
 bool IsRecordingIDNA2008Metrics() {
   return base::FeatureList::IsEnabled(kRecordIDNA2008Metrics);
+}
+
+bool IsDisallowingSpaceCharacterInURLHostParsing() {
+  // If the FeatureList isn't available yet, fall back to the feature's default
+  // state. This may happen during early startup, see crbug.com/1441956.
+  if (!base::FeatureList::GetInstance()) {
+    return kDisallowSpaceCharacterInURLHostParsing.default_state ==
+           base::FEATURE_DISABLED_BY_DEFAULT;
+  }
+  return base::FeatureList::IsEnabled(kDisallowSpaceCharacterInURLHostParsing);
 }
 
 }  // namespace url

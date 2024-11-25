@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/ui/webui/welcome/welcome_ui.h"
 
 #include "base/functional/bind.h"
@@ -111,6 +116,17 @@ void AddStrings(content::WebUIDataSource* html_source) {
 }
 
 }  // namespace
+
+bool WelcomeUIConfig::IsWebUIEnabled(content::BrowserContext* browser_context) {
+  Profile* profile = Profile::FromBrowserContext(browser_context);
+  return welcome::IsEnabled(profile);
+}
+
+std::unique_ptr<content::WebUIController>
+WelcomeUIConfig::CreateWebUIController(content::WebUI* web_ui,
+                                       const GURL& url) {
+  return std::make_unique<WelcomeUI>(web_ui, url);
+}
 
 WelcomeUI::WelcomeUI(content::WebUI* web_ui, const GURL& url)
     : content::WebUIController(web_ui) {

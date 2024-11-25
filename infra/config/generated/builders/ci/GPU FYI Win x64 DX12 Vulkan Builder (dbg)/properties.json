@@ -21,7 +21,8 @@
                 ],
                 "build_config": "Debug",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "win"
               },
               "legacy_gclient_config": {
                 "config": "chromium"
@@ -43,7 +44,8 @@
                 ],
                 "build_config": "Debug",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "win"
               },
               "legacy_gclient_config": {
                 "config": "chromium"
@@ -77,14 +79,24 @@
           "builder": "gpu-fyi-try-win10-nvidia-dx12vk-dbg-64",
           "group": "tryserver.chromium.win"
         }
-      ]
+      ],
+      "targets_spec_directory": "src/infra/config/generated/builders/ci/GPU FYI Win x64 DX12 Vulkan Builder (dbg)/targets"
     }
   },
   "$build/reclient": {
     "instance": "rbe-chromium-trusted",
-    "jobs": 80,
     "metrics_project": "chromium-reclient-metrics",
     "scandeps_server": true
+  },
+  "$build/siso": {
+    "configs": [
+      "builder"
+    ],
+    "enable_cloud_profiler": true,
+    "enable_cloud_trace": true,
+    "experiments": [],
+    "project": "rbe-chromium-trusted",
+    "remote_jobs": 80
   },
   "$recipe_engine/resultdb/test_presentation": {
     "column_keys": [],
@@ -94,6 +106,9 @@
     ]
   },
   "builder_group": "chromium.gpu.fyi",
+  "gardener_rotations": [
+    "chromium.gpu"
+  ],
   "perf_dashboard_machine_group": "ChromiumGPUFYI",
   "recipe": "chromium",
   "sheriff_rotations": [

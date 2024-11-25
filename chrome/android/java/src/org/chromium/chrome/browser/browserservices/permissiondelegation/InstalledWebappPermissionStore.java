@@ -13,7 +13,6 @@ import androidx.annotation.WorkerThread;
 import androidx.browser.trusted.Token;
 
 import org.chromium.base.ContextUtils;
-import org.chromium.base.StrictModeContext;
 import org.chromium.components.content_settings.ContentSettingValues;
 import org.chromium.components.content_settings.ContentSettingsType;
 import org.chromium.components.embedder_support.util.Origin;
@@ -85,11 +84,9 @@ public class InstalledWebappPermissionStore {
     public InstalledWebappPermissionStore() {
         // On some versions of Android, creating the Preferences object involves a disk read (to
         // check if the Preferences directory exists, not even to read the actual Preferences).
-        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
-            mPreferences =
-                    ContextUtils.getApplicationContext()
-                            .getSharedPreferences(SHARED_PREFS_FILE, Context.MODE_PRIVATE);
-        }
+        mPreferences =
+                ContextUtils.getApplicationContext()
+                        .getSharedPreferences(SHARED_PREFS_FILE, Context.MODE_PRIVATE);
     }
 
     /**
@@ -102,7 +99,7 @@ public class InstalledWebappPermissionStore {
         String key = createPermissionSettingKey(type, origin);
 
         if (!mPreferences.contains(key)) {
-            // TODO(crbug.com/1323183): Clean up this fallback.
+            // TODO(crbug.com/40838462): Clean up this fallback.
             String fallbackKey = createPermissionKey(type, origin);
             if (!mPreferences.contains(fallbackKey)) return null;
             boolean enabled = mPreferences.getBoolean(fallbackKey, false);
@@ -113,17 +110,17 @@ public class InstalledWebappPermissionStore {
     }
 
     @Nullable
-    String getDelegateAppName(Origin origin) {
+    public String getDelegateAppName(Origin origin) {
         return mPreferences.getString(createAppNameKey(origin), null);
     }
 
     @Nullable
-    String getDelegatePackageName(Origin origin) {
+    public String getDelegatePackageName(Origin origin) {
         return mPreferences.getString(createPackageNameKey(origin), null);
     }
 
     @Nullable
-    Set<Token> getAllDelegateApps(Origin origin) {
+    public Set<Token> getAllDelegateApps(Origin origin) {
         Set<String> tokens = mPreferences.getStringSet(createAllDelegateAppsKey(origin), null);
         if (tokens == null) return null;
 
@@ -134,7 +131,7 @@ public class InstalledWebappPermissionStore {
         return result;
     }
 
-    void addDelegateApp(Origin origin, Token token) {
+    public void addDelegateApp(Origin origin, Token token) {
         String key = createAllDelegateAppsKey(origin);
         Set<String> allDelegateApps =
                 new HashSet<>(mPreferences.getStringSet(key, Collections.emptySet()));
@@ -146,18 +143,16 @@ public class InstalledWebappPermissionStore {
     public Set<String> getStoredOrigins() {
         // In case the pre-emptive disk read in initStorage hasn't occurred by the time we actually
         // need the value.
-        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
-            // The set returned by getStringSet must not be modified. The consistency of the stored
-            // data is not guaranteed if you do, nor is your ability to modify the instance at all.
-            return new HashSet<>(mPreferences.getStringSet(KEY_ALL_ORIGINS, new HashSet<>()));
-        }
+        // The set returned by getStringSet must not be modified. The consistency of the stored
+        // data is not guaranteed if you do, nor is your ability to modify the instance at all.
+        return new HashSet<>(mPreferences.getStringSet(KEY_ALL_ORIGINS, new HashSet<>()));
     }
 
     /**
      * Sets the permission state for the origin. Returns whether {@code true} if state was changed,
      * {@code false} if the provided state was the same as the state beforehand.
      */
-    boolean setStateForOrigin(
+    public boolean setStateForOrigin(
             Origin origin,
             String packageName,
             String appName,
@@ -192,7 +187,7 @@ public class InstalledWebappPermissionStore {
     }
 
     /** Removes the origin from the store. */
-    void removeOrigin(Origin origin) {
+    public void removeOrigin(Origin origin) {
         Set<String> origins = getStoredOrigins();
         origins.remove(origin.toString());
 
@@ -210,7 +205,7 @@ public class InstalledWebappPermissionStore {
     }
 
     /** Reset permission {@type} from the store. */
-    void resetPermission(Origin origin, @ContentSettingsType.EnumType int type) {
+    public void resetPermission(Origin origin, @ContentSettingsType.EnumType int type) {
         mPreferences
                 .edit()
                 .remove(createPermissionKey(type, origin))
@@ -219,7 +214,7 @@ public class InstalledWebappPermissionStore {
     }
 
     /** Stores the notification permission setting the origin had before the app was installed. */
-    void setPreInstallNotificationPermission(
+    public void setPreInstallNotificationPermission(
             Origin origin, @ContentSettingValues int settingValue) {
         mPreferences
                 .edit()
@@ -234,11 +229,11 @@ public class InstalledWebappPermissionStore {
      */
     @Nullable
     @ContentSettingValues
-    Integer getAndRemovePreInstallNotificationPermission(Origin origin) {
+    public Integer getAndRemovePreInstallNotificationPermission(Origin origin) {
         String key = createPreInstallNotificationPermissionSettingKey(origin);
 
         if (!mPreferences.contains(key)) {
-            // TODO(crbug.com/1323183): Clean up this fallback.
+            // TODO(crbug.com/40838462): Clean up this fallback.
             String fallbackKey = createNotificationPreInstallPermissionKey(origin);
             if (!mPreferences.contains(fallbackKey)) return null;
             boolean enabled = mPreferences.getBoolean(fallbackKey, false);

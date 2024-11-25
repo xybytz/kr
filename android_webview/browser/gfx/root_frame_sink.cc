@@ -99,8 +99,8 @@ class RootFrameSink::ChildCompositorFrameSink
 RootFrameSink::RootFrameSink(RootFrameSinkClient* client)
     : root_frame_sink_id_(AllocateParentSinkId()),
       client_(client),
-      use_new_invalidate_heuristic_(base::FeatureList::IsEnabled(
-          features::kWebViewNewInvalidateHeuristic)) {
+      use_new_invalidate_heuristic_(
+          features::UseWebViewNewInvalidateHeuristic()) {
   constexpr bool is_root = true;
   GetFrameSinkManager()->RegisterFrameSinkId(root_frame_sink_id_,
                                              false /* report_activationa */);
@@ -365,10 +365,9 @@ void RootFrameSink::OnNewUncommittedFrame(const viz::SurfaceId& surface_id) {
   if (!use_new_invalidate_heuristic_)
     return;
 
-  // If there is new uncommitted frame in visible surface, make sure we request
-  // a begin frame to check if we need to invalidate next frame.
-  if (contained_surfaces_.contains(surface_id))
-    UpdateNeedsBeginFrames(true);
+  // If there is new uncommitted frame in the surface that affects display, make
+  // sure we request a begin frame to check if we need to invalidate next frame.
+  UpdateNeedsBeginFrames(true);
 }
 
 bool RootFrameSink::IsChildSurface(const viz::FrameSinkId& frame_sink_id) {
@@ -410,6 +409,25 @@ void RootFrameSink::SubmitChildCompositorFrame(ChildFrame* child_frame) {
     child_sink_support_ = std::make_unique<ChildCompositorFrameSink>(
         this, child_frame->layer_tree_frame_sink_id,
         child_frame->frame_sink_id);
+    child_frame_renderer_threads_ = {};
+  }
+  if (child_frame_renderer_threads_ != child_frame->renderer_threads) {
+    child_frame_renderer_threads_ = child_frame->renderer_threads;
+    // Thread IDs from a sandboxed renderer process, thus untrusted and
+    // require verification.
+    // child_frame_renderer_threads_ are used only to avoid unnessary
+    // reverification, they shouldn't be used a source of truth in
+    // GetChildFrameRendererThreadIds.
+    child_sink_support_->support()->SetThreads(
+        /*from_untrusted_client=*/true, child_frame->renderer_threads);
+  }
+
+  // Root renderer frame MUST be presented synchronously with UI, so we can't
+  // delay activation. Note, it's not part of invalidation heuristic, but for
+  // safety we update deadline only on the new path, on the old path there are
+  // almost no embedded surfaces anyway.
+  if (use_new_invalidate_heuristic_) {
+    child_frame->frame->metadata.deadline = viz::FrameDeadline::MakeZero();
   }
 
   child_sink_support_->SubmitCompositorFrame(
@@ -434,6 +452,20 @@ gfx::Size RootFrameSink::GetChildFrameSize() {
     return child_sink_support_->size();
   }
   return gfx::Size();
+}
+
+base::flat_set<base::PlatformThreadId>
+RootFrameSink::GetChildFrameRendererThreadIds() {
+  if (child_sink_support_) {
+    base::flat_set<base::PlatformThreadId> thread_ids;
+    std::vector<viz::Thread> support_threads =
+        child_sink_support_->support()->GetThreads();
+    for (const auto& thread : support_threads) {
+      thread_ids.insert(thread.id);
+    }
+    return thread_ids;
+  }
+  return {};
 }
 
 void RootFrameSink::EvictChildSurface(const viz::SurfaceId& surface_id) {

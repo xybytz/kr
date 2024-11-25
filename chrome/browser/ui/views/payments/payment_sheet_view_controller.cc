@@ -71,9 +71,9 @@ namespace {
 // "[preview] and N more" where preview might be elided to allow "and N more" to
 // be always visible.
 class PreviewEliderLabel : public views::Label {
- public:
-  METADATA_HEADER(PreviewEliderLabel);
+  METADATA_HEADER(PreviewEliderLabel, views::Label)
 
+ public:
   // Creates a PreviewEliderLabel where |preview_text| might be elided,
   // |format_string| is the string with format argument numbers in ICU syntax
   // and |n| is the "N more" item count.
@@ -104,8 +104,8 @@ class PreviewEliderLabel : public views::Label {
         return elided_string;
     }
 
-    // TODO(crbug.com/714776): Display something meaningful if the preview can't
-    // be elided enough for the string to fit.
+    // TODO(crbug.com/40517112): Display something meaningful if the preview
+    // can't be elided enough for the string to fit.
     return std::u16string();
   }
 
@@ -121,7 +121,7 @@ class PreviewEliderLabel : public views::Label {
   int n_;
 };
 
-BEGIN_METADATA(PreviewEliderLabel, views::Label)
+BEGIN_METADATA(PreviewEliderLabel)
 END_METADATA
 
 std::unique_ptr<PaymentRequestRowView> CreatePaymentSheetRow(
@@ -444,7 +444,8 @@ void PaymentSheetViewController::FillContentView(views::View* content_view) {
     builder.AddChild(views::Builder<views::View>(std::move(shipping_row)));
     // It's possible for requestShipping to be true and for there to be no
     // shipping options yet (they will come in updateWith).
-    // TODO(crbug.com/707353): Put a better placeholder row, instead of no row.
+    // TODO(crbug.com/40513573): Put a better placeholder row, instead of no
+    // row.
     std::unique_ptr<PaymentRequestRowView> shipping_option_row =
         CreateShippingOptionRow();
     if (shipping_option_row) {
@@ -764,7 +765,7 @@ PaymentSheetViewController::CreateContactInfoRow() {
       autofill::EMAIL_ADDRESS};
   const std::u16string preview =
       state()->contact_profiles()[0]->ConstructInferredLabel(
-          kLabelFields, std::size(kLabelFields), std::size(kLabelFields),
+          kLabelFields, std::size(kLabelFields),
           state()->GetApplicationLocale());
   if (state()->contact_profiles().size() == 1) {
     return builder.CreateWithButton(preview,

@@ -19,7 +19,6 @@ import org.jni_zero.NativeMethods;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.compat.ApiHelperForR;
 
 /** DisplayAndroidManager is a class that informs its observers Display changes. */
 @JNINamespace("ui")
@@ -73,11 +72,7 @@ public class DisplayAndroidManager {
 
     private static DisplayAndroidManager sDisplayAndroidManager;
 
-    // Real displays (as in, displays backed by an Android Display and recognized by the OS, though
-    // not necessarily physical displays) on Android start at ID 0, and increment indefinitely as
-    // displays are added. Display IDs are never reused until reboot. To avoid any overlap, start
-    // virtual display ids at a much higher number, and increment them in the same way.
-    private static final int VIRTUAL_DISPLAY_ID_BEGIN = Integer.MAX_VALUE / 2;
+    private static boolean sDisableHdrSdkRatioCallback;
 
     private long mNativePointer;
     private int mMainSdkDisplayId;
@@ -95,11 +90,16 @@ public class DisplayAndroidManager {
         return sDisplayAndroidManager;
     }
 
+    // Disable hdr/sdr ratio callback. Ratio will always be reported as 1.
+    public static void disableHdrSdrRatioCallback() {
+        sDisableHdrSdkRatioCallback = true;
+    }
+
     public static Display getDefaultDisplayForContext(Context context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Display display = null;
             try {
-                display = ApiHelperForR.getDisplay(context);
+                display = context.getDisplay();
             } catch (UnsupportedOperationException e) {
                 // Context is not associated with a display.
             }
@@ -178,7 +178,8 @@ public class DisplayAndroidManager {
 
     private DisplayAndroid addDisplay(Display display) {
         int sdkDisplayId = display.getDisplayId();
-        PhysicalDisplayAndroid displayAndroid = new PhysicalDisplayAndroid(display);
+        PhysicalDisplayAndroid displayAndroid =
+                new PhysicalDisplayAndroid(display, sDisableHdrSdkRatioCallback);
         assert mIdMap.get(sdkDisplayId) == null;
         mIdMap.put(sdkDisplayId, displayAndroid);
         displayAndroid.updateFromDisplay(display);

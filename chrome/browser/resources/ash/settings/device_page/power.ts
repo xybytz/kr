@@ -7,29 +7,30 @@
  * 'settings-power' is the settings subpage for power settings.
  */
 
-import 'chrome://resources/cr_elements/policy/cr_policy_indicator.js';
-import 'chrome://resources/cr_elements/md_select.css.js';
-import 'chrome://resources/cr_elements/cr_shared_style.css.js';
+import 'chrome://resources/ash/common/cr_elements/policy/cr_policy_indicator.js';
+import 'chrome://resources/ash/common/cr_elements/md_select.css.js';
+import 'chrome://resources/ash/common/cr_elements/cr_shared_style.css.js';
 import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
-import '/shared/settings/controls/settings_toggle_button.js';
+import '../controls/settings_toggle_button.js';
 import '../settings_shared.css.js';
 
-import {SettingsToggleButtonElement} from '/shared/settings/controls/settings_toggle_button.js';
-import {PrefsMixin} from 'chrome://resources/cr_components/settings_prefs/prefs_mixin.js';
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
-import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {PrefsMixin} from '/shared/settings/prefs/prefs_mixin.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
+import {WebUiListenerMixin} from 'chrome://resources/ash/common/cr_elements/web_ui_listener_mixin.js';
 import {assertNotReached} from 'chrome://resources/js/assert.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {DeepLinkingMixin} from '../common/deep_linking_mixin.js';
-import {isRevampWayfindingEnabled} from '../common/load_time_booleans.js';
 import {RouteObserverMixin} from '../common/route_observer_mixin.js';
+import type {SettingsToggleButtonElement} from '../controls/settings_toggle_button.js';
 import {recordSettingChange} from '../metrics_recorder.js';
 import {Setting} from '../mojom-webui/setting.mojom-webui.js';
-import {Route, routes} from '../router.js';
+import type {Route} from '../router.js';
+import {routes} from '../router.js';
 
-import {BatteryStatus, DevicePageBrowserProxy, DevicePageBrowserProxyImpl, IdleBehavior, LidClosedBehavior, PowerManagementSettings, PowerSource} from './device_page_browser_proxy.js';
+import type {BatteryStatus, DevicePageBrowserProxy, PowerManagementSettings, PowerSource} from './device_page_browser_proxy.js';
+import {DevicePageBrowserProxyImpl, IdleBehavior, LidClosedBehavior} from './device_page_browser_proxy.js';
 import {getTemplate} from './power.html.js';
 
 interface IdleOption {
@@ -179,13 +180,6 @@ export class SettingsPowerElement extends SettingsPowerElementBase {
             'computeBatterySaverHidden_(batteryStatus_, batterySaverFeatureEnabled_)',
       },
 
-      isRevampWayfindingEnabled_: {
-        type: Boolean,
-        value: () => {
-          return isRevampWayfindingEnabled();
-        },
-      },
-
       /**
        * Used by DeepLinkingMixin to focus this page's deep links.
        */
@@ -215,7 +209,6 @@ export class SettingsPowerElement extends SettingsPowerElementBase {
   private batteryStatus_: BatteryStatus|undefined;
   private browserProxy_: DevicePageBrowserProxy;
   private hasLid_: boolean;
-  private isRevampWayfindingEnabled_: boolean;
   private lidClosedLabel_: string;
   private lidClosedPref_: chrome.settingsPrivate.PrefObject<boolean>;
   private isExternalPowerUSB_: boolean;
@@ -327,23 +320,26 @@ export class SettingsPowerElement extends SettingsPowerElementBase {
     const behavior: IdleBehavior =
         parseInt((event.target as HTMLSelectElement).value, 10);
     this.browserProxy_.setIdleBehavior(behavior, /* whenOnAc */ true);
-    recordSettingChange();
+    recordSettingChange(
+        Setting.kPowerIdleBehaviorWhileCharging, {intValue: behavior});
   }
 
   private onBatteryIdleSelectChange_(event: Event): void {
     const behavior: IdleBehavior =
         parseInt((event.target as HTMLSelectElement).value, 10);
     this.browserProxy_.setIdleBehavior(behavior, /* whenOnAc */ false);
-    recordSettingChange();
+    recordSettingChange(
+        Setting.kPowerIdleBehaviorWhileOnBattery, {intValue: behavior});
   }
 
   private onLidClosedToggleChange_(): void {
     // Other behaviors are only displayed when the setting is controlled, in
     // which case the toggle can't be changed by the user.
+    const enabled = this.$.lidClosedToggle.checked;
     this.browserProxy_.setLidClosedBehavior(
-        this.$.lidClosedToggle.checked ? LidClosedBehavior.SUSPEND :
-                                         LidClosedBehavior.DO_NOTHING);
-    recordSettingChange();
+        enabled ? LidClosedBehavior.SUSPEND : LidClosedBehavior.DO_NOTHING);
+    recordSettingChange(
+        Setting.kSleepWhenLaptopLidClosed, {boolValue: enabled});
   }
 
   private onAdaptiveChargingToggleChange_(): void {
@@ -527,25 +523,13 @@ export class SettingsPowerElement extends SettingsPowerElementBase {
             !this.adaptiveChargingEnabled_) {
           classes.push('first');
         }
-        if (this.isRevampWayfindingEnabled_) {
-          classes.push('dropdown-row');
-        } else {
-          classes.push('indented');
-        }
+        classes.push('dropdown-row');
         break;
       case 'batteryIdle':
-        if (this.isRevampWayfindingEnabled_) {
-          classes.push('dropdown-row');
-        } else {
-          classes.push('indented');
-        }
+        classes.push('dropdown-row');
         break;
       case 'lidClosed':
-        if (this.isRevampWayfindingEnabled_) {
-          classes.push('dropdown-row');
-        } else {
-          classes.push('first');
-        }
+        classes.push('dropdown-row');
         break;
     }
 

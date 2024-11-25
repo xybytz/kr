@@ -60,7 +60,6 @@ gpu::VulkanInstance* VulkanImplementationFlatland::GetVulkanInstance() {
 std::unique_ptr<gpu::VulkanSurface>
 VulkanImplementationFlatland::CreateViewSurface(gfx::AcceleratedWidget window) {
   NOTREACHED();
-  return nullptr;
 }
 
 bool VulkanImplementationFlatland::GetPhysicalDevicePresentationSupport(
@@ -154,7 +153,7 @@ VulkanImplementationFlatland::CreateImageFromGpuMemoryHandle(
     return nullptr;
   }
 
-  absl::optional<gpu::VulkanYCbCrInfo> ycbcr_info;
+  std::optional<gpu::VulkanYCbCrInfo> ycbcr_info;
   if (collection->format() == gfx::BufferFormat::YUV_420_BIPLANAR) {
     VkSamplerYcbcrModelConversion ycbcr_conversion =
         (color_space.GetMatrixID() == gfx::ColorSpace::MatrixID::BT709)

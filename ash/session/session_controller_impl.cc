@@ -27,6 +27,7 @@
 #include "ash/wm/mru_window_tracker.h"
 #include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/ranges/algorithm.h"
 #include "components/account_id/account_id.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -39,6 +40,17 @@ using session_manager::SessionState;
 
 namespace ash {
 namespace {
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+//
+// LINT.IfChange(SessionLockEvent)
+enum class SessionLockEvent {
+  kLock = 0,
+  kUnlock = 1,
+  kMaxValue = kUnlock,
+};
+// LINT.ThenChange(//tools/metrics/histograms/metadata/ash/enums.xml:SessionLockEvent)
 
 void SetTimeOfLastSessionActivation(PrefService* user_pref_service) {
   if (!user_pref_service) {
@@ -55,6 +67,10 @@ void SetTimeOfLastSessionActivation(PrefService* user_pref_service) {
     user_pref_service->SetTime(prefs::kTimeOfLastSessionActivation,
                                time_of_last_session_activation);
   }
+}
+
+void RecordLockEvent(SessionLockEvent event) {
+  base::UmaHistogramEnumeration("Ash.Login.Lock.SessionStateChange", event);
 }
 
 }  // namespace
@@ -211,7 +227,7 @@ bool SessionControllerImpl::IsUserChild() const {
     return false;
 
   user_manager::UserType active_user_type = GetUserSession(0)->user_info.type;
-  return active_user_type == user_manager::USER_TYPE_CHILD;
+  return active_user_type == user_manager::UserType::kChild;
 }
 
 bool SessionControllerImpl::IsUserGuest() const {
@@ -220,7 +236,7 @@ bool SessionControllerImpl::IsUserGuest() const {
   }
 
   user_manager::UserType active_user_type = GetUserSession(0)->user_info.type;
-  return active_user_type == user_manager::USER_TYPE_GUEST;
+  return active_user_type == user_manager::UserType::kGuest;
 }
 
 bool SessionControllerImpl::IsUserPublicAccount() const {
@@ -228,7 +244,7 @@ bool SessionControllerImpl::IsUserPublicAccount() const {
     return false;
 
   user_manager::UserType active_user_type = GetUserSession(0)->user_info.type;
-  return active_user_type == user_manager::USER_TYPE_PUBLIC_ACCOUNT;
+  return active_user_type == user_manager::UserType::kPublicAccount;
 }
 
 std::optional<user_manager::UserType> SessionControllerImpl::GetUserType()
@@ -253,13 +269,21 @@ bool SessionControllerImpl::IsUserFirstLogin() const {
   return GetUserSession(0)->user_info.is_new_profile;
 }
 
-bool SessionControllerImpl::IsEnterpriseManaged() const {
-  return client_ && client_->IsEnterpriseManaged();
-}
-
 std::optional<int> SessionControllerImpl::GetExistingUsersCount() const {
   return client_ ? std::optional<int>(client_->GetExistingUsersCount())
                  : std::nullopt;
+}
+
+void SessionControllerImpl::NotifyFirstSessionReady() {
+  CHECK(IsActiveUserSessionStarted());
+
+  for (auto& observer : observers_) {
+    observer.OnFirstSessionReady();
+  }
+}
+
+void SessionControllerImpl::NotifyUserToBeRemoved(const AccountId& account_id) {
+  observers_.Notify(&SessionObserver::OnUserToBeRemoved, account_id);
 }
 
 bool SessionControllerImpl::ShouldDisplayManagedUI() const {
@@ -323,6 +347,12 @@ PrefService* SessionControllerImpl::GetUserPrefServiceForUser(
 base::FilePath SessionControllerImpl::GetProfilePath(
     const AccountId& account_id) const {
   return client_ ? client_->GetProfilePath(account_id) : base::FilePath();
+}
+
+std::tuple<bool, bool> SessionControllerImpl::IsEligibleForSeaPen(
+    const AccountId& account_id) const {
+  return client_ ? client_->IsEligibleForSeaPen(account_id)
+                 : std::make_tuple(false, false);
 }
 
 PrefService* SessionControllerImpl::GetPrimaryUserPrefService() const {
@@ -561,6 +591,12 @@ void SessionControllerImpl::SetSessionState(SessionState state) {
 
   const bool was_user_session_blocked = IsUserSessionBlocked();
   const bool was_locked = state_ == SessionState::LOCKED;
+  const bool is_locked = state == SessionState::LOCKED;
+  if (was_locked || is_locked) {
+    RecordLockEvent(is_locked ? SessionLockEvent::kLock
+                              : SessionLockEvent::kUnlock);
+  }
+
   state_ = state;
   for (auto& observer : observers_)
     observer.OnSessionStateChanged(state_);
@@ -630,7 +666,6 @@ LoginStatus SessionControllerImpl::CalculateLoginStatus() const {
       return LoginStatus::USER;
   }
   NOTREACHED();
-  return LoginStatus::NOT_LOGGED_IN;
 }
 
 LoginStatus SessionControllerImpl::CalculateLoginStatusForActiveSession()
@@ -641,23 +676,20 @@ LoginStatus SessionControllerImpl::CalculateLoginStatusForActiveSession()
     return LoginStatus::USER;
 
   switch (user_sessions_[0]->user_info.type) {
-    case user_manager::USER_TYPE_REGULAR:
+    case user_manager::UserType::kRegular:
       return LoginStatus::USER;
-    case user_manager::USER_TYPE_GUEST:
+    case user_manager::UserType::kGuest:
       return LoginStatus::GUEST;
-    case user_manager::USER_TYPE_PUBLIC_ACCOUNT:
+    case user_manager::UserType::kPublicAccount:
       return LoginStatus::PUBLIC;
-    case user_manager::USER_TYPE_KIOSK_APP:
-      return LoginStatus::KIOSK_APP;
-    case user_manager::USER_TYPE_CHILD:
+    case user_manager::UserType::kChild:
       return LoginStatus::CHILD;
-    case user_manager::USER_TYPE_ARC_KIOSK_APP:
-      return LoginStatus::KIOSK_APP;
-    case user_manager::USER_TYPE_WEB_KIOSK_APP:
+    case user_manager::UserType::kKioskApp:
+    case user_manager::UserType::kWebKioskApp:
+    case user_manager::UserType::kKioskIWA:
       return LoginStatus::KIOSK_APP;
   }
   NOTREACHED();
-  return LoginStatus::USER;
 }
 
 void SessionControllerImpl::UpdateLoginStatus() {

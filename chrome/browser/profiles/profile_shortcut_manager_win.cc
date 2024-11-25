@@ -95,6 +95,9 @@ void OnProfileIconCreateSuccess(base::FilePath profile_path) {
   if (profile) {
     profile->GetPrefs()->SetInteger(prefs::kProfileIconVersion,
                                     kCurrentProfileIconVersion);
+    profile->GetPrefs()->SetBoolean(
+        prefs::kProfileIconWin11Format,
+        base::win::GetVersion() >= base::win::Version::WIN11);
   }
 }
 
@@ -459,7 +462,6 @@ void CreateOrUpdateDesktopShortcutsAndIconForProfile(
   base::FilePath chrome_exe;
   if (!base::PathService::Get(base::FILE_EXE, &chrome_exe)) {
     NOTREACHED();
-    return;
   }
 
   std::set<base::FilePath> desktop_contents =
@@ -621,7 +623,6 @@ void UnpinAndDeleteDesktopShortcuts(
   base::FilePath chrome_exe;
   if (!base::PathService::Get(base::FILE_EXE, &chrome_exe)) {
     NOTREACHED();
-    return;
   }
 
   const std::wstring command_line =
@@ -657,7 +658,6 @@ bool HasAnyProfileShortcuts(const base::FilePath& profile_path) {
   base::FilePath chrome_exe;
   if (!base::PathService::Get(base::FILE_EXE, &chrome_exe)) {
     NOTREACHED();
-    return false;
   }
 
   const std::wstring command_line =
@@ -784,7 +784,6 @@ bool IsChromeShortcutForProfile(const base::FilePath& shortcut,
   base::FilePath chrome_exe;
   if (!base::PathService::Get(base::FILE_EXE, &chrome_exe)) {
     NOTREACHED();
-    return false;
   }
 
   std::wstring cmd_line_string;
@@ -938,7 +937,6 @@ void ProfileShortcutManagerWin::GetShortcutProperties(
   base::FilePath chrome_exe;
   if (!base::PathService::Get(base::FILE_EXE, &chrome_exe)) {
     NOTREACHED();
-    return;
   }
 
   ProfileAttributesStorage& storage =
@@ -1029,8 +1027,15 @@ void ProfileShortcutManagerWin::OnProfileHighResAvatarLoaded(
 }
 
 void ProfileShortcutManagerWin::OnProfileAdded(Profile* profile) {
-  if (profile->GetPrefs()->GetInteger(prefs::kProfileIconVersion) <
-      kCurrentProfileIconVersion) {
+  // Upgrade the profile icon if the current profile icon version has
+  // increased or if running on Win 11 and we don't know that the profile icon
+  // is the Win 11 format. This will result in a one time upgrade of profile
+  // icons on Win 11 since we were previously not tracking whether or not the
+  // profile icon was Win11 format.
+  if ((base::win::GetVersion() >= base::win::Version::WIN11 &&
+       !profile->GetPrefs()->GetBoolean(prefs::kProfileIconWin11Format)) ||
+      (profile->GetPrefs()->GetInteger(prefs::kProfileIconVersion) <
+       kCurrentProfileIconVersion)) {
     const base::FilePath profile_path = profile->GetPath();
     // Ensure the profile's icon file has been created.
     CreateOrUpdateProfileIcon(profile_path);
@@ -1065,7 +1070,6 @@ base::FilePath ProfileShortcutManagerWin::GetOtherProfilePath(
       return path;
   }
   NOTREACHED();
-  return base::FilePath();
 }
 
 void ProfileShortcutManagerWin::CreateOrUpdateShortcutsForProfileAtPath(

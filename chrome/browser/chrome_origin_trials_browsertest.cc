@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <bitset>
+#include <string_view>
 #include <vector>
 
 #include "base/base64.h"
@@ -93,7 +94,7 @@ class ChromeOriginTrialsTest : public InProcessBrowserTest {
  protected:
   ChromeOriginTrialsTest() {}
 
-  std::string GetCommandLineSwitch(const base::StringPiece& switch_name) {
+  std::string GetCommandLineSwitch(std::string_view switch_name) {
     base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
     EXPECT_TRUE(command_line->HasSwitch(switch_name));
     return command_line->GetSwitchValueASCII(switch_name);
@@ -241,9 +242,8 @@ class ChromeOriginTrialsDisabledTokensLimitTest
     // list of disabled tokens.
     std::vector<std::string> disabled_tokens;
     for (uint16_t i = 0; i < token_count; i++) {
-      std::string encoded_token;
       std::string token = std::bitset<kTokenSignatureSize>(i).to_string();
-      base::Base64Encode(token, &encoded_token);
+      std::string encoded_token = base::Base64Encode(token);
       disabled_tokens.push_back(encoded_token);
     }
     return disabled_tokens;

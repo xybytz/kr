@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include "base/containers/span.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/loader/code_cache.mojom-blink-forward.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -44,11 +45,11 @@ class PLATFORM_EXPORT CachedMetadataSender {
                                   WTF::String,
                                   base::Time,
                                   const String&,
-                                  const uint8_t*,
-                                  size_t);
+                                  base::span<const uint8_t>);
 
   virtual ~CachedMetadataSender() = default;
-  virtual void Send(CodeCacheHost* code_cache_host, const uint8_t*, size_t) = 0;
+  virtual void Send(CodeCacheHost* code_cache_host,
+                    base::span<const uint8_t>) = 0;
 
   // IsServedFromCacheStorage is used to alter caching strategy to be more
   // aggressive. See V8CodeCache::GetCompileOptions() for an example.

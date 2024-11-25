@@ -13,8 +13,7 @@
 #include "chromeos/ash/components/phonehub/util/histogram_util.h"
 #include "chromeos/ash/services/secure_channel/public/cpp/client/connection_manager.h"
 
-namespace ash {
-namespace phonehub {
+namespace ash::phonehub {
 
 namespace {
 
@@ -34,9 +33,12 @@ std::string SerializeMessage(proto::MessageType message_type,
 
 MessageSenderImpl::MessageSenderImpl(
     secure_channel::ConnectionManager* connection_manager,
-    PhoneHubUiReadinessRecorder* phone_hub_ui_readiness_recorder)
+    PhoneHubUiReadinessRecorder* phone_hub_ui_readiness_recorder,
+    PhoneHubStructuredMetricsLogger* phone_hub_structured_metrics_logger)
     : connection_manager_(connection_manager),
-      phone_hub_ui_readiness_recorder_(phone_hub_ui_readiness_recorder) {
+      phone_hub_ui_readiness_recorder_(phone_hub_ui_readiness_recorder),
+      phone_hub_structured_metrics_logger_(
+          phone_hub_structured_metrics_logger) {
   DCHECK(connection_manager_);
 }
 
@@ -56,6 +58,7 @@ void MessageSenderImpl::SendCrosState(
   proto::CrosState request;
   request.set_notification_setting(is_notification_enabled);
   request.set_camera_roll_setting(is_camera_roll_enabled);
+  phone_hub_structured_metrics_logger_->SetChromebookInfo(request);
 
   if (attestation_certs != nullptr) {
     proto::AttestationData* attestation_data =
@@ -66,6 +69,8 @@ void MessageSenderImpl::SendCrosState(
       attestation_data->add_certificates(cert);
     }
   }
+
+  request.set_should_provide_eche_status(true);
 
   SendMessage(proto::MessageType::PROVIDE_CROS_STATE, &request);
   phone_hub_ui_readiness_recorder_->RecordCrosStateMessageSent();
@@ -166,7 +171,8 @@ void MessageSenderImpl::SendMessage(
                             proto::MessageType_MAX);
   util::LogMessageResult(message_type,
                          util::PhoneHubMessageResult::kRequestAttempted);
+  phone_hub_structured_metrics_logger_->LogPhoneHubMessageEvent(
+      message_type, PhoneHubMessageDirection::kChromebookToPhone);
 }
 
-}  // namespace phonehub
-}  // namespace ash
+}  // namespace ash::phonehub

@@ -3,104 +3,66 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/plus_addresses/plus_address_creation_controller_desktop.h"
+
 #include <memory>
+#include <optional>
+#include <string>
 
 #include "base/functional/bind.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/simple_test_clock.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_future.h"
 #include "build/build_config.h"
 #include "chrome/browser/plus_addresses/plus_address_service_factory.h"
+#include "chrome/browser/plus_addresses/plus_address_setting_service_factory.h"
 #include "chrome/browser/profiles/profile_test_util.h"
+#include "chrome/browser/ui/hats/survey_config.h"
 #include "chrome/browser/ui/plus_addresses/plus_address_creation_controller.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
+#include "components/plus_addresses/fake_plus_address_service.h"
 #include "components/plus_addresses/features.h"
-#include "components/plus_addresses/plus_address_metrics.h"
+#include "components/plus_addresses/metrics/plus_address_metrics.h"
+#include "components/plus_addresses/plus_address_prefs.h"
 #include "components/plus_addresses/plus_address_service.h"
 #include "components/plus_addresses/plus_address_types.h"
+#include "components/plus_addresses/settings/fake_plus_address_setting_service.h"
+#include "components/signin/public/identity_manager/identity_test_environment.h"
+#include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/web_contents_tester.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace plus_addresses {
-
 namespace {
 
-constexpr char kPlusAddressModalEventHistogram[] =
-    "Autofill.PlusAddresses.Modal.Events";
+using ::testing::_;
+using ::testing::IsEmpty;
+using ::testing::Optional;
+using ::testing::SizeIs;
 
-constexpr char kFakePlusAddress[] = "plus+remote@plus.plus";
+constexpr char kPlusAddressModalEventHistogram[] = "PlusAddresses.Modal.Events";
+constexpr char kPlusAddressModalEventHistogramWithNotice[] =
+    "PlusAddresses.ModalWithNotice.Events";
+
+constexpr base::TimeDelta kDuration = base::Milliseconds(2400);
 
 std::string FormatModalDurationMetrics(
-    PlusAddressMetrics::PlusAddressModalCompletionStatus status) {
+    metrics::PlusAddressModalCompletionStatus status) {
   return base::ReplaceStringPlaceholders(
-      "Autofill.PlusAddresses.Modal.$1.ShownDuration",
-      {PlusAddressMetrics::PlusAddressModalCompletionStatusToString(status)},
+      "PlusAddresses.Modal.$1.ShownDuration",
+      {metrics::PlusAddressModalCompletionStatusToString(status)},
       /*offsets=*/nullptr);
 }
 
-// Used to control the behavior of the controller's `plus_address_service_`
-// (though mocking would also be fine). Most importantly, this avoids the
-// requirement to mock the identity portions of the `PlusAddressService`.
-class FakePlusAddressService : public PlusAddressService {
- public:
-  FakePlusAddressService() = default;
-
-  void ReservePlusAddress(const url::Origin& origin,
-                          PlusAddressRequestCallback on_completed) override {
-    std::move(on_completed)
-        .Run(PlusProfile({.facet = facet_,
-                          .plus_address = kFakePlusAddress,
-                          .is_confirmed = is_confirmed_}));
-  }
-
-  void ConfirmPlusAddress(const url::Origin& origin,
-                          const std::string& plus_address,
-                          PlusAddressRequestCallback on_completed) override {
-    if (should_fail_to_confirm_) {
-      std::move(on_completed)
-          .Run(base::unexpected(PlusAddressRequestError(
-              PlusAddressRequestErrorType::kNetworkError)));
-      return;
-    }
-    is_confirmed_ = true;
-    PlusProfile profile({.facet = facet_,
-                         .plus_address = plus_address,
-                         .is_confirmed = is_confirmed_});
-    if (on_confirmed.has_value()) {
-      std::move(on_confirmed.value()).Run(profile);
-      on_confirmed.reset();
-      return;
-    }
-    std::move(on_completed).Run(profile);
-  }
-
-  // Used to test scenarios where Reserve returns a confirmed PlusProfile.
-  void set_is_confirmed(bool confirmed) { is_confirmed_ = confirmed; }
-
-  void set_confirm_callback(PlusAddressRequestCallback callback) {
-    on_confirmed = std::move(callback);
-  }
-
-  // Used to test scenarios where error occurs on `ConfirmPlusAddress`.
-  void set_should_fail_to_confirm(bool status) {
-    should_fail_to_confirm_ = status;
-  }
-
-  std::optional<PlusAddressRequestCallback> on_confirmed;
-  std::string facet_ = "facet.bar";
-  bool is_confirmed_ = false;
-  bool should_fail_to_confirm_ = false;
-
-  std::optional<std::string> GetPrimaryEmail() override {
-    // Ensure the value is present without requiring identity setup.
-    return "plus+primary@plus.plus";
-  }
-};
-
-}  // namespace
+std::string FormatModalWithNoticeDurationMetrics(
+    metrics::PlusAddressModalCompletionStatus status) {
+  return base::ReplaceStringPlaceholders(
+      "PlusAddresses.ModalWithNotice.$1.ShownDuration",
+      {metrics::PlusAddressModalCompletionStatusToString(status)},
+      /*offsets=*/nullptr);
+}
 
 // Testing very basic functionality for now. As UI complexity increases, this
 // class will grow and mutate.
@@ -108,9 +70,12 @@ class PlusAddressCreationControllerDesktopEnabledTest
     : public ChromeRenderViewHostTestHarness {
  public:
   PlusAddressCreationControllerDesktopEnabledTest()
-      : override_profile_selections_(
-            PlusAddressServiceFactory::GetInstance(),
-            PlusAddressServiceFactory::CreateProfileSelections()) {}
+      : ChromeRenderViewHostTestHarness(
+            base::test::TaskEnvironment::TimeSource::MOCK_TIME) {
+    features_.InitWithFeatures({features::kPlusAddressesEnabled,
+                                features::kPlusAddressUserOnboardingEnabled},
+                               {});
+  }
 
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
@@ -119,33 +84,190 @@ class PlusAddressCreationControllerDesktopEnabledTest
         base::BindRepeating(&PlusAddressCreationControllerDesktopEnabledTest::
                                 PlusAddressServiceTestFactory,
                             base::Unretained(this)));
+    PlusAddressSettingServiceFactory::GetInstance()->SetTestingFactoryAndUse(
+        browser_context(),
+        base::BindRepeating(&PlusAddressCreationControllerDesktopEnabledTest::
+                                PlusAddressSettingServiceTestFactory,
+                            base::Unretained(this)));
   }
 
   void TearDown() override {
-    fake_plus_address_service_ = nullptr;
     ChromeRenderViewHostTestHarness::TearDown();
+  }
+
+  base::HistogramTester& histogram_tester() { return histogram_tester_; }
+
+  FakePlusAddressService& plus_address_service() {
+    return *static_cast<FakePlusAddressService*>(
+        PlusAddressServiceFactory::GetForBrowserContext(browser_context()));
+  }
+
+  FakePlusAddressSettingService& setting_service() {
+    return *static_cast<FakePlusAddressSettingService*>(
+        PlusAddressSettingServiceFactory::GetForBrowserContext(
+            browser_context()));
   }
 
   std::unique_ptr<KeyedService> PlusAddressServiceTestFactory(
       content::BrowserContext* context) {
-    std::unique_ptr<FakePlusAddressService> unique_service =
-        std::make_unique<FakePlusAddressService>();
-    fake_plus_address_service_ = unique_service.get();
-    return unique_service;
+    return std::make_unique<FakePlusAddressService>();
   }
 
- protected:
-  base::test::ScopedFeatureList features_{kFeature};
+  std::unique_ptr<KeyedService> PlusAddressSettingServiceTestFactory(
+      content::BrowserContext* context) {
+    return std::make_unique<FakePlusAddressSettingService>();
+  }
+
+ private:
   // Ensures that the feature is known to be enabled, such that
   // `PlusAddressServiceFactory` doesn't bail early with a null return.
-  profiles::testing::ScopedProfileSelectionsForFactoryTesting
-      override_profile_selections_;
+  base::test::ScopedFeatureList features_;
   base::HistogramTester histogram_tester_;
-  raw_ptr<FakePlusAddressService> fake_plus_address_service_;
-  base::SimpleTestClock test_clock_;
-  base::Time start_time_ = base::Time::FromSecondsSinceUnixEpoch(1);
-  base::TimeDelta duration_ = base::Milliseconds(2400);
 };
+
+// Tests the scenario when the user successfully creates the first plus address.
+TEST_F(PlusAddressCreationControllerDesktopEnabledTest,
+       ConfirmedFirstTimePlusAddressCreation) {
+  setting_service().set_has_accepted_notice(false);
+
+  std::unique_ptr<content::WebContents> web_contents =
+      ChromeRenderViewHostTestHarness::CreateTestWebContents();
+
+  PlusAddressCreationControllerDesktop::CreateForWebContents(
+      web_contents.get());
+  PlusAddressCreationControllerDesktop* controller =
+      PlusAddressCreationControllerDesktop::FromWebContents(web_contents.get());
+  controller->set_suppress_ui_for_testing(true);
+
+  base::test::TestFuture<const std::string&> future;
+
+  controller->OfferCreation(
+      url::Origin::Create(GURL("https://mattwashere.example")),
+      /*is_manual_fallback=*/false, future.GetCallback());
+  ASSERT_FALSE(future.IsReady());
+
+  task_environment()->FastForwardBy(kDuration);
+  controller->OnConfirmed();
+  EXPECT_TRUE(future.IsReady());
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples(
+          kPlusAddressModalEventHistogramWithNotice),
+      BucketsAre(
+          base::Bucket(metrics::PlusAddressModalEvent::kModalShown, 1),
+          base::Bucket(metrics::PlusAddressModalEvent::kModalConfirmed, 1)));
+  histogram_tester().ExpectUniqueTimeSample(
+      FormatModalWithNoticeDurationMetrics(
+          metrics::PlusAddressModalCompletionStatus::kModalConfirmed),
+      kDuration, 1);
+  // The pref is set only when the first time onboarding notice is shown.
+  EXPECT_EQ(profile()->GetTestingPrefService()->GetTime(
+                prefs::kFirstPlusAddressCreationTime),
+            base::Time::Now());
+  EXPECT_THAT(plus_address_service().get_triggered_survey_type(),
+              Optional(hats::SurveyType::kAcceptedFirstTimeCreate));
+}
+
+// Tests the scenario when the user declines the first plus address creation
+// flow.
+TEST_F(PlusAddressCreationControllerDesktopEnabledTest,
+       FirstTimePlusAddressCreationDeclined) {
+  setting_service().set_has_accepted_notice(false);
+
+  std::unique_ptr<content::WebContents> web_contents =
+      ChromeRenderViewHostTestHarness::CreateTestWebContents();
+
+  PlusAddressCreationControllerDesktop::CreateForWebContents(
+      web_contents.get());
+  PlusAddressCreationControllerDesktop* controller =
+      PlusAddressCreationControllerDesktop::FromWebContents(web_contents.get());
+  controller->set_suppress_ui_for_testing(true);
+
+  base::test::TestFuture<const std::string&> future;
+
+  controller->OfferCreation(
+      url::Origin::Create(GURL("https://mattwashere.example")),
+      /*is_manual_fallback=*/false, future.GetCallback());
+  ASSERT_FALSE(future.IsReady());
+
+  task_environment()->FastForwardBy(kDuration);
+
+  controller->OnCanceled();
+
+  EXPECT_FALSE(future.IsReady());
+
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples(
+          kPlusAddressModalEventHistogramWithNotice),
+      BucketsAre(
+          base::Bucket(metrics::PlusAddressModalEvent::kModalShown, 1),
+          base::Bucket(metrics::PlusAddressModalEvent::kModalCanceled, 1)));
+  histogram_tester().ExpectUniqueTimeSample(
+      FormatModalWithNoticeDurationMetrics(
+          metrics::PlusAddressModalCompletionStatus::kModalCanceled),
+      kDuration, 1);
+  // The pref is set only when the first time onboarding notice is shown.
+  EXPECT_EQ(profile()->GetTestingPrefService()->GetTime(
+                prefs::kFirstPlusAddressCreationTime),
+            base::Time());
+  // HaTS survey should be shown if the user declined the first time plus
+  // address creation flow.
+  EXPECT_THAT(plus_address_service().get_triggered_survey_type(),
+              Optional(hats::SurveyType::kDeclinedFirstTimeCreate));
+}
+
+// Tests the scenario when the user confirms the first plus address creation
+// flow, but the `PlusAddressService` fails to confirm the plus address.
+TEST_F(PlusAddressCreationControllerDesktopEnabledTest,
+       FirstTimePlusAddressCreationFailed) {
+  setting_service().set_has_accepted_notice(false);
+
+  std::unique_ptr<content::WebContents> web_contents =
+      ChromeRenderViewHostTestHarness::CreateTestWebContents();
+
+  PlusAddressCreationControllerDesktop::CreateForWebContents(
+      web_contents.get());
+  PlusAddressCreationControllerDesktop* controller =
+      PlusAddressCreationControllerDesktop::FromWebContents(web_contents.get());
+  controller->set_suppress_ui_for_testing(true);
+
+  base::test::TestFuture<const std::string&> future;
+
+  controller->OfferCreation(
+      url::Origin::Create(GURL("https://mattwashere.example")),
+      /*is_manual_fallback=*/false, future.GetCallback());
+  ASSERT_FALSE(future.IsReady());
+
+  plus_address_service().set_should_fail_to_confirm(true);
+
+  task_environment()->FastForwardBy(kDuration);
+
+  controller->OnConfirmed();
+
+  EXPECT_FALSE(future.IsReady());
+
+  // When `ConfirmPlusAddress` fails, `OnCanceled` may be called after
+  // `OnConfirmed`.
+  controller->OnCanceled();
+
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples(
+          kPlusAddressModalEventHistogramWithNotice),
+      BucketsAre(
+          base::Bucket(metrics::PlusAddressModalEvent::kModalShown, 1),
+          base::Bucket(metrics::PlusAddressModalEvent::kModalConfirmed, 1),
+          base::Bucket(metrics::PlusAddressModalEvent::kModalCanceled, 1)));
+  histogram_tester().ExpectUniqueTimeSample(
+      FormatModalWithNoticeDurationMetrics(
+          metrics::PlusAddressModalCompletionStatus::kConfirmPlusAddressError),
+      kDuration, 1);
+  // The pref is not set of the first plus address creation flow failed.
+  EXPECT_EQ(profile()->GetTestingPrefService()->GetTime(
+                prefs::kFirstPlusAddressCreationTime),
+            base::Time());
+  // Feature perception surveys shown after the first plus address creation
+  // flow should not be triggered if the plus address wasn't confirmed.
+  EXPECT_EQ(plus_address_service().get_triggered_survey_type(), std::nullopt);
+}
 
 TEST_F(PlusAddressCreationControllerDesktopEnabledTest, DirectCallback) {
   std::unique_ptr<content::WebContents> web_contents =
@@ -156,31 +278,32 @@ TEST_F(PlusAddressCreationControllerDesktopEnabledTest, DirectCallback) {
   PlusAddressCreationControllerDesktop* controller =
       PlusAddressCreationControllerDesktop::FromWebContents(web_contents.get());
   controller->set_suppress_ui_for_testing(true);
-  controller->SetClockForTesting(&test_clock_);
 
   base::test::TestFuture<const std::string&> future;
 
-  test_clock_.SetNow(start_time_);
   controller->OfferCreation(
       url::Origin::Create(GURL("https://mattwashere.example")),
-      future.GetCallback());
+      /*is_manual_fallback=*/false, future.GetCallback());
   ASSERT_FALSE(future.IsReady());
 
-  test_clock_.SetNow(start_time_ + duration_);
+  task_environment()->FastForwardBy(kDuration);
   controller->OnConfirmed();
   EXPECT_TRUE(future.IsReady());
   EXPECT_THAT(
-      histogram_tester_.GetAllSamples(kPlusAddressModalEventHistogram),
+      histogram_tester().GetAllSamples(kPlusAddressModalEventHistogram),
       BucketsAre(
-          base::Bucket(PlusAddressMetrics::PlusAddressModalEvent::kModalShown,
-                       1),
-          base::Bucket(
-              PlusAddressMetrics::PlusAddressModalEvent::kModalConfirmed, 1)));
-  histogram_tester_.ExpectUniqueTimeSample(
+          base::Bucket(metrics::PlusAddressModalEvent::kModalShown, 1),
+          base::Bucket(metrics::PlusAddressModalEvent::kModalConfirmed, 1)));
+  histogram_tester().ExpectUniqueTimeSample(
       FormatModalDurationMetrics(
-          PlusAddressMetrics::PlusAddressModalCompletionStatus::
-              kModalConfirmed),
-      duration_, 1);
+          metrics::PlusAddressModalCompletionStatus::kModalConfirmed),
+      kDuration, 1);
+  // The pref is not set after the first time onboarding notice has been already
+  // shown.
+  EXPECT_EQ(profile()->GetTestingPrefService()->GetTime(
+                prefs::kFirstPlusAddressCreationTime),
+            base::Time());
+  EXPECT_EQ(plus_address_service().get_triggered_survey_type(), std::nullopt);
 }
 
 TEST_F(PlusAddressCreationControllerDesktopEnabledTest, OnConfirmedError) {
@@ -192,19 +315,17 @@ TEST_F(PlusAddressCreationControllerDesktopEnabledTest, OnConfirmedError) {
   PlusAddressCreationControllerDesktop* controller =
       PlusAddressCreationControllerDesktop::FromWebContents(web_contents.get());
   controller->set_suppress_ui_for_testing(true);
-  controller->SetClockForTesting(&test_clock_);
 
   base::test::TestFuture<const std::string&> future;
 
-  test_clock_.SetNow(start_time_);
   controller->OfferCreation(
       url::Origin::Create(GURL("https://mattwashere.example")),
-      future.GetCallback());
+      /*is_manual_fallback=*/false, future.GetCallback());
   ASSERT_FALSE(future.IsReady());
 
-  fake_plus_address_service_->set_should_fail_to_confirm(true);
+  plus_address_service().set_should_fail_to_confirm(true);
 
-  test_clock_.SetNow(start_time_ + duration_);
+  task_environment()->FastForwardBy(kDuration);
 
   controller->OnConfirmed();
 
@@ -214,22 +335,140 @@ TEST_F(PlusAddressCreationControllerDesktopEnabledTest, OnConfirmedError) {
   controller->OnCanceled();
   // Ensure that plus address can be canceled after erroneous confirm event and
   // metric is recorded.
-  // TODO(b/319874782) Verify specific error event metric instead of
-  // `kModalConfirmed`.
   EXPECT_THAT(
-      histogram_tester_.GetAllSamples(kPlusAddressModalEventHistogram),
+      histogram_tester().GetAllSamples(kPlusAddressModalEventHistogram),
       BucketsAre(
-          base::Bucket(PlusAddressMetrics::PlusAddressModalEvent::kModalShown,
-                       1),
-          base::Bucket(
-              PlusAddressMetrics::PlusAddressModalEvent::kModalConfirmed, 1),
-          base::Bucket(
-              PlusAddressMetrics::PlusAddressModalEvent::kModalCanceled, 1)));
-  histogram_tester_.ExpectUniqueTimeSample(
+          base::Bucket(metrics::PlusAddressModalEvent::kModalShown, 1),
+          base::Bucket(metrics::PlusAddressModalEvent::kModalConfirmed, 1),
+          base::Bucket(metrics::PlusAddressModalEvent::kModalCanceled, 1)));
+  histogram_tester().ExpectUniqueTimeSample(
       FormatModalDurationMetrics(
-          PlusAddressMetrics::PlusAddressModalCompletionStatus::
-              kModalConfirmed),
-      duration_, 1);
+          metrics::PlusAddressModalCompletionStatus::kConfirmPlusAddressError),
+      kDuration, 1);
+}
+
+// Tests that the user can retry creating a plus address after the previous
+// attempt fails. Verifies that the correct metrics are logged in this case.
+TEST_F(PlusAddressCreationControllerDesktopEnabledTest,
+       ConfirmAfterCreateError) {
+  std::unique_ptr<content::WebContents> web_contents =
+      ChromeRenderViewHostTestHarness::CreateTestWebContents();
+
+  PlusAddressCreationControllerDesktop::CreateForWebContents(
+      web_contents.get());
+  PlusAddressCreationControllerDesktop* controller =
+      PlusAddressCreationControllerDesktop::FromWebContents(web_contents.get());
+  controller->set_suppress_ui_for_testing(true);
+
+  base::test::TestFuture<const std::string&> future;
+
+  controller->OfferCreation(
+      url::Origin::Create(GURL("https://timofeywashere.example")),
+      /*is_manual_fallback=*/false, future.GetCallback());
+  ASSERT_FALSE(future.IsReady());
+
+  plus_address_service().set_should_fail_to_confirm(true);
+
+  task_environment()->FastForwardBy(kDuration);
+
+  controller->OnConfirmed();
+  EXPECT_FALSE(future.IsReady());
+
+  plus_address_service().set_should_fail_to_confirm(false);
+  task_environment()->FastForwardBy(kDuration);
+
+  controller->OnConfirmed();
+  EXPECT_TRUE(future.IsReady());
+
+  // Ensure that plus address can be confirmed after a confirm error is shown.
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples(kPlusAddressModalEventHistogram),
+      BucketsAre(
+          base::Bucket(metrics::PlusAddressModalEvent::kModalShown, 1),
+          base::Bucket(metrics::PlusAddressModalEvent::kModalConfirmed, 2)));
+  histogram_tester().ExpectUniqueTimeSample(
+      FormatModalDurationMetrics(
+          metrics::PlusAddressModalCompletionStatus::kModalConfirmed),
+      2 * kDuration, 1);
+}
+
+TEST_F(PlusAddressCreationControllerDesktopEnabledTest, OnReservedError) {
+  std::unique_ptr<content::WebContents> web_contents =
+      ChromeRenderViewHostTestHarness::CreateTestWebContents();
+
+  PlusAddressCreationControllerDesktop::CreateForWebContents(
+      web_contents.get());
+  PlusAddressCreationControllerDesktop* controller =
+      PlusAddressCreationControllerDesktop::FromWebContents(web_contents.get());
+  controller->set_suppress_ui_for_testing(true);
+
+  base::test::TestFuture<const std::string&> future;
+  plus_address_service().set_should_fail_to_reserve(true);
+
+  controller->OfferCreation(
+      url::Origin::Create(GURL("https://mattwashere.example")),
+      /*is_manual_fallback=*/false, future.GetCallback());
+  ASSERT_FALSE(future.IsReady());
+
+  task_environment()->FastForwardBy(kDuration);
+
+  controller->OnCanceled();
+  // Ensure that plus address can be canceled after erroneous reserve event and
+  // metric is recorded.
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples(kPlusAddressModalEventHistogram),
+      BucketsAre(
+          base::Bucket(metrics::PlusAddressModalEvent::kModalShown, 1),
+          base::Bucket(metrics::PlusAddressModalEvent::kModalCanceled, 1)));
+  histogram_tester().ExpectUniqueTimeSample(
+      FormatModalDurationMetrics(
+          metrics::PlusAddressModalCompletionStatus::kReservePlusAddressError),
+      kDuration, 1);
+}
+
+// Tests that the user can retry confirming a plus address after the previous
+// attempt to reserve it failed. Verifies that the correct metrics are logged
+// in this case.
+TEST_F(PlusAddressCreationControllerDesktopEnabledTest,
+       ConfirmAfterReserveError) {
+  std::unique_ptr<content::WebContents> web_contents =
+      ChromeRenderViewHostTestHarness::CreateTestWebContents();
+
+  PlusAddressCreationControllerDesktop::CreateForWebContents(
+      web_contents.get());
+  PlusAddressCreationControllerDesktop* controller =
+      PlusAddressCreationControllerDesktop::FromWebContents(web_contents.get());
+  controller->set_suppress_ui_for_testing(true);
+
+  base::test::TestFuture<const std::string&> future;
+  plus_address_service().set_should_fail_to_reserve(true);
+
+  controller->OfferCreation(
+      url::Origin::Create(GURL("https://timofeywashere.example")),
+      /*is_manual_fallback=*/false, future.GetCallback());
+  ASSERT_FALSE(future.IsReady());
+
+  task_environment()->FastForwardBy(kDuration);
+
+  controller->set_suppress_ui_for_testing(false);
+  controller->OnRefreshClicked();
+  ASSERT_FALSE(future.IsReady());
+
+  task_environment()->FastForwardBy(kDuration);
+
+  controller->OnConfirmed();
+  ASSERT_TRUE(future.IsReady());
+  // Ensure that plus address can be confirmed after an error is shown and then
+  // the plus address is successfully reserved.
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples(kPlusAddressModalEventHistogram),
+      BucketsAre(
+          base::Bucket(metrics::PlusAddressModalEvent::kModalShown, 1),
+          base::Bucket(metrics::PlusAddressModalEvent::kModalConfirmed, 1)));
+  histogram_tester().ExpectUniqueTimeSample(
+      FormatModalDurationMetrics(
+          metrics::PlusAddressModalCompletionStatus::kModalConfirmed),
+      2 * kDuration, 1);
 }
 
 TEST_F(PlusAddressCreationControllerDesktopEnabledTest,
@@ -242,22 +481,20 @@ TEST_F(PlusAddressCreationControllerDesktopEnabledTest,
   PlusAddressCreationControllerDesktop* controller =
       PlusAddressCreationControllerDesktop::FromWebContents(web_contents.get());
   controller->set_suppress_ui_for_testing(true);
-  controller->SetClockForTesting(&test_clock_);
 
   base::test::TestFuture<const std::string&> autofill_future;
   base::test::TestFuture<const PlusProfileOrError&> confirm_future;
 
   // Make Reserve() return kFakePlusAddress as an already-confirmed address.
-  fake_plus_address_service_->set_is_confirmed(true);
-  fake_plus_address_service_->set_confirm_callback(
-      confirm_future.GetCallback());
-  test_clock_.SetNow(start_time_);
+  plus_address_service().set_is_confirmed(true);
+  plus_address_service().set_confirm_callback(confirm_future.GetCallback());
+
   controller->OfferCreation(
       url::Origin::Create(GURL("https://kirubelwashere.example")),
-      autofill_future.GetCallback());
+      /*is_manual_fallback=*/false, autofill_future.GetCallback());
   ASSERT_FALSE(autofill_future.IsReady());
 
-  test_clock_.SetNow(start_time_ + duration_);
+  task_environment()->FastForwardBy(kDuration);
   // Confirmation should fill the field, but not call ConfirmPlusAddress.
   controller->OnConfirmed();
   EXPECT_TRUE(autofill_future.IsReady());
@@ -265,17 +502,14 @@ TEST_F(PlusAddressCreationControllerDesktopEnabledTest,
 
   // Verify that the plus address modal is still shown.
   EXPECT_THAT(
-      histogram_tester_.GetAllSamples(kPlusAddressModalEventHistogram),
+      histogram_tester().GetAllSamples(kPlusAddressModalEventHistogram),
       BucketsAre(
-          base::Bucket(PlusAddressMetrics::PlusAddressModalEvent::kModalShown,
-                       1),
-          base::Bucket(
-              PlusAddressMetrics::PlusAddressModalEvent::kModalConfirmed, 1)));
-  histogram_tester_.ExpectUniqueTimeSample(
+          base::Bucket(metrics::PlusAddressModalEvent::kModalShown, 1),
+          base::Bucket(metrics::PlusAddressModalEvent::kModalConfirmed, 1)));
+  histogram_tester().ExpectUniqueTimeSample(
       FormatModalDurationMetrics(
-          PlusAddressMetrics::PlusAddressModalCompletionStatus::
-              kModalConfirmed),
-      duration_, 1);
+          metrics::PlusAddressModalCompletionStatus::kModalConfirmed),
+      kDuration, 1);
 }
 
 TEST_F(PlusAddressCreationControllerDesktopEnabledTest,
@@ -292,7 +526,7 @@ TEST_F(PlusAddressCreationControllerDesktopEnabledTest,
   EXPECT_FALSE(controller->get_plus_profile_for_testing().has_value());
   // Offering creation calls Reserve() and sets the profile.
   controller->OfferCreation(url::Origin::Create(GURL("https://foo.example")),
-                            base::DoNothing());
+                            /*is_manual_fallback=*/false, base::DoNothing());
   EXPECT_TRUE(controller->get_plus_profile_for_testing().has_value());
   // Destroying the dialog clears the profile.
   controller->OnDialogDestroyed();
@@ -308,29 +542,25 @@ TEST_F(PlusAddressCreationControllerDesktopEnabledTest, ModalCanceled) {
   PlusAddressCreationControllerDesktop* controller =
       PlusAddressCreationControllerDesktop::FromWebContents(web_contents.get());
   controller->set_suppress_ui_for_testing(true);
-  controller->SetClockForTesting(&test_clock_);
 
   base::test::TestFuture<const std::string&> future;
-  test_clock_.SetNow(start_time_);
   controller->OfferCreation(
       url::Origin::Create(GURL("https://mattwashere.example")),
-      future.GetCallback());
+      /*is_manual_fallback=*/false, future.GetCallback());
 
-  test_clock_.SetNow(start_time_ + duration_);
+  task_environment()->FastForwardBy(kDuration);
   controller->OnCanceled();
   EXPECT_FALSE(future.IsReady());
 
   EXPECT_THAT(
-      histogram_tester_.GetAllSamples(kPlusAddressModalEventHistogram),
+      histogram_tester().GetAllSamples(kPlusAddressModalEventHistogram),
       BucketsAre(
-          base::Bucket(PlusAddressMetrics::PlusAddressModalEvent::kModalShown,
-                       1),
-          base::Bucket(
-              PlusAddressMetrics::PlusAddressModalEvent::kModalCanceled, 1)));
-  histogram_tester_.ExpectUniqueTimeSample(
+          base::Bucket(metrics::PlusAddressModalEvent::kModalShown, 1),
+          base::Bucket(metrics::PlusAddressModalEvent::kModalCanceled, 1)));
+  histogram_tester().ExpectUniqueTimeSample(
       FormatModalDurationMetrics(
-          PlusAddressMetrics::PlusAddressModalCompletionStatus::kModalCanceled),
-      duration_, 1);
+          metrics::PlusAddressModalCompletionStatus::kModalCanceled),
+      kDuration, 1);
 }
 
 // With the feature disabled, the `KeyedService` is not present; ensure this is
@@ -362,7 +592,9 @@ TEST_F(PlusAddressCreationControllerDesktopDisabledTest, NullService) {
   base::test::TestFuture<const std::string&> future;
   controller->OfferCreation(
       url::Origin::Create(GURL("https://mattwashere.example")),
-      future.GetCallback());
+      /*is_manual_fallback=*/false, future.GetCallback());
   EXPECT_FALSE(future.IsReady());
 }
+
+}  // namespace
 }  // namespace plus_addresses

@@ -5,7 +5,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_CAPTURE_CONTROLLER_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_CAPTURE_CONTROLLER_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
+#include "base/functional/callback_helpers.h"
+#include "third_party/blink/public/mojom/mediastream/media_stream.mojom-blink.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_capture_start_focus_behavior.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_captured_wheel_action.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
@@ -13,13 +17,17 @@
 #include "third_party/blink/renderer/modules/mediastream/media_stream_track.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
 class ExceptionState;
+class HTMLElement;
 
-class MODULES_EXPORT CaptureController final : public EventTarget,
-                                               public ExecutionContextClient {
+class MODULES_EXPORT CaptureController final
+    : public EventTarget,
+      public ExecutionContextClient,
+      public MediaStreamSource::Observer {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -31,14 +39,17 @@ class MODULES_EXPORT CaptureController final : public EventTarget,
   // https://w3c.github.io/mediacapture-screen-share/#dom-capturecontroller-setfocusbehavior
   void setFocusBehavior(V8CaptureStartFocusBehavior, ExceptionState&);
 
-  // IDL interface, APIs related to Captured Surface Control
-  // TODO(crbug.com/1466247): Link to spec.
-  ScriptPromise sendWheel(ScriptState* script_state,
-                          CapturedWheelAction* action);
-  int getMinZoomLevel();
-  int getMaxZoomLevel();
-  ScriptPromise getZoomLevel(ScriptState* script_state);
-  ScriptPromise setZoomLevel(ScriptState* script_state, int zoom_level);
+  // Captured Surface Control IDL interface - scrolling
+  ScriptPromise<IDLUndefined> sendWheel(ScriptState* script_state,
+                                        CapturedWheelAction* action);
+  ScriptPromise<IDLUndefined> captureWheel(ScriptState* script_state,
+                                           HTMLElement* element);
+
+  // Captured Surface Control IDL interface - zooming
+  static Vector<int> getSupportedZoomLevels();
+  int getZoomLevel(ExceptionState& exception_state);
+  ScriptPromise<IDLUndefined> setZoomLevel(ScriptState* script_state,
+                                           int zoom_level);
 
   void SetIsBound(bool value) { is_bound_ = value; }
   bool IsBound() const { return is_bound_; }
@@ -63,10 +74,55 @@ class MODULES_EXPORT CaptureController final : public EventTarget,
   // https://w3c.github.io/mediacapture-screen-share/#dfn-finalize-focus-decision-algorithm
   void FinalizeFocusDecision();
 
+  // MediaStreamSource::Observer
+  void SourceChangedState() override {}
+  void SourceChangedCaptureConfiguration() override {}
+  void SourceChangedCaptureHandle() override {}
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
+  void SourceChangedZoomLevel(int) override;
+
+  // Deliver a wheel event on the captured tab.
+  //
+  // `relative_x` is a value from [0, 1). It denotes the relative position
+  // in the coordinate space of the captured surface, which is unknown to the
+  // capturer. A value of 0 denotes the leftmost pixel; increasing values denote
+  // values further to the right. The sender of the message scales from its own
+  // coordinate space down to the relative values, and the receiver scales
+  // back up to its own coordinates.
+  //
+  // `relative_y` is defined analogously to `relative_x`.
+  //
+  // `wheel_delta_x` and `wheel_delta_y` represent the scroll deltas in pixels.
+  void SendWheel(double relative_x,
+                 double relative_y,
+                 int32_t wheel_delta_x,
+                 int32_t wheel_delta_y);
+
+  void SetMediaStreamDispatcherHostForTesting(
+      mojo::PendingRemote<mojom::blink::MediaStreamDispatcherHost>);
+#endif
   void Trace(Visitor* visitor) const override;
 
  private:
-  std::pair<bool, DOMException*> ValidateCapturedSurfaceControlCall() const;
+  struct ValidationResult {
+    ValidationResult(DOMExceptionCode code, String message);
+
+    DOMExceptionCode code;
+    String message;
+  };
+
+  ValidationResult ValidateCapturedSurfaceControlCall() const;
+
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
+  class WheelEventListener;
+
+  mojom::blink::MediaStreamDispatcherHost* GetMediaStreamDispatcherHost();
+  void OnCaptureWheelPermissionResult(
+      ScriptPromiseResolver<IDLUndefined>*,
+      HTMLElement*,
+      mojom::blink::CapturedSurfaceControlResult);
+  bool DoCaptureWheel(ScriptState*, HTMLElement*);
+#endif
 
   // Whether this CaptureController has been passed to a getDisplayMedia() call.
   // This helps enforce the requirement that any CaptureController may only
@@ -89,11 +145,24 @@ class MODULES_EXPORT CaptureController final : public EventTarget,
   // resolved. If left unset, the default behavior will be used.
   // The default behavior is not specified, and may change.
   // Presently, the default is to focus.
-  absl::optional<V8CaptureStartFocusBehavior> focus_behavior_;
+  std::optional<V8CaptureStartFocusBehavior> focus_behavior_;
 
   // Track whether the window of opportunity to call setFocusBehavior() is still
   // open. Once set to true, this never changes.
   bool focus_decision_finalized_ = false;
+
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
+  // The last known zoom level of the captured surface.
+  // Set to a concrete value when capture starts.
+  // Never changes back to nullopt.
+  // Always stays at 100 (the default value) for window- and screen-capture.
+  std::optional<int> zoom_level_;
+
+  Member<WheelEventListener> wheel_listener_;
+  HeapMojoRemote<mojom::blink::MediaStreamDispatcherHost>
+      media_stream_dispatcher_host_;
+
+#endif
 };
 
 }  // namespace blink

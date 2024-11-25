@@ -8,6 +8,7 @@
 
 #include "ash/bubble/bubble_constants.h"
 #include "ash/constants/ash_constants.h"
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
@@ -60,13 +61,9 @@ void SetupConnectedScrollListItem(HoverHighlightView* view,
 
   view->sub_text_label()->SetAutoColorReadabilityEnabled(false);
 
-  if (chromeos::features::IsJellyEnabled()) {
-    view->sub_text_label()->SetEnabledColorId(cros_tokens::kCrosSysPositive);
-    ash::TypographyProvider::Get()->StyleLabel(
-        ash::TypographyToken::kCrosAnnotation1, *view->sub_text_label());
-  } else {
-    view->sub_text_label()->SetEnabledColorId(kColorAshTextColorPositive);
-  }
+  view->sub_text_label()->SetEnabledColorId(cros_tokens::kCrosSysPositive);
+  ash::TypographyProvider::Get()->StyleLabel(
+      ash::TypographyToken::kCrosAnnotation1, *view->sub_text_label());
 }
 
 void SetupConnectingScrollListItem(HoverHighlightView* view) {
@@ -81,13 +78,9 @@ void SetWarningSubText(HoverHighlightView* view, std::u16string subtext) {
 
   view->SetSubText(subtext);
   view->sub_text_label()->SetAutoColorReadabilityEnabled(false);
-  if (chromeos::features::IsJellyEnabled()) {
-    view->sub_text_label()->SetEnabledColorId(cros_tokens::kCrosSysWarning);
-    ash::TypographyProvider::Get()->StyleLabel(
-        ash::TypographyToken::kCrosAnnotation1, *view->sub_text_label());
-  } else {
-    view->sub_text_label()->SetEnabledColorId(kColorAshTextColorWarning);
-  }
+  view->sub_text_label()->SetEnabledColorId(cros_tokens::kCrosSysWarning);
+  ash::TypographyProvider::Get()->StyleLabel(
+      ash::TypographyToken::kCrosAnnotation1, *view->sub_text_label());
 }
 
 gfx::Insets GetTrayBubbleInsets(aura::Window* window) {
@@ -172,10 +165,12 @@ TrayBubbleView::InitParams CreateInitParamsForTrayBubble(
   TrayBubbleView::InitParams init_params;
   init_params.delegate = tray->GetWeakPtr();
   init_params.parent_window = tray->GetBubbleWindowContainer();
-  init_params.anchor_mode = TrayBubbleView::AnchorMode::kRect;
-  init_params.anchor_rect = anchor_to_shelf_corner
-                                ? tray->shelf()->GetSystemTrayAnchorRect()
-                                : tray->GetAnchorBoundsInScreen();
+  if (anchor_to_shelf_corner) {
+    init_params.anchor_mode = TrayBubbleView::AnchorMode::kRect;
+    init_params.anchor_rect = tray->shelf()->GetSystemTrayAnchorRect();
+  } else {
+    init_params.anchor_view = tray;
+  }
   init_params.insets = GetTrayBubbleInsets(tray->GetBubbleWindowContainer());
   init_params.shelf_alignment = tray->shelf()->alignment();
   init_params.preferred_width = kTrayMenuWidth;

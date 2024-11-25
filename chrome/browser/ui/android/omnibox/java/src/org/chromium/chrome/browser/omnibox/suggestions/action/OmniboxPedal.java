@@ -7,7 +7,7 @@ package org.chromium.chrome.browser.omnibox.suggestions.action;
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 
-import org.chromium.components.browser_ui.settings.SettingsLauncher.SettingsFragment;
+import org.chromium.components.browser_ui.settings.SettingsNavigation.SettingsFragment;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.components.omnibox.R;
 import org.chromium.components.omnibox.action.OmniboxAction;
@@ -36,7 +36,10 @@ public class OmniboxPedal extends OmniboxAction {
                 nativeInstance,
                 hint,
                 accessibilityHint,
-                pedalId == OmniboxPedalId.PLAY_CHROME_DINO_GAME ? DINO_GAME_ICON : null);
+                pedalId == OmniboxPedalId.PLAY_CHROME_DINO_GAME
+                        ? DINO_GAME_ICON
+                        : OmniboxAction.DEFAULT_ICON,
+                R.style.TextAppearance_ChipText);
         this.pedalId = pedalId;
     }
 

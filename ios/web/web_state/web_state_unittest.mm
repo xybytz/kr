@@ -76,8 +76,6 @@ std::unique_ptr<WebState> CreateUnrealizedWebStateWithItemsCount(
 
 }  // namespace
 
-using wk_navigation_util::IsWKInternalUrl;
-
 // Test fixture for web::WebTest class.
 class WebStateTest : public FakeWebClient, public WebTestWithWebState {
   void SetUp() override {
@@ -178,66 +176,8 @@ TEST_F(WebStateTest, Snapshot) {
   }));
 }
 
-// Tests that the create PDF method returns a PDF of a rendered html page when
-// running a supported iOS version.
-TEST_F(WebStateTest, CreateFullPagePdf_ValidURL_iOS14) {
-  // PDF generation is supported on iOS 14+.
-  if (@available(iOS 14, *)) {
-    [GetAnyKeyWindow() addSubview:web_state()->GetView()];
-
-    // Load a URL and some HTML in the WebState.
-    GURL url("https://www.chromium.org");
-    NavigationManager::WebLoadParams load_params(url);
-    web_state()->GetNavigationManager()->LoadURLWithParams(load_params);
-    ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, ^bool {
-      return web_state()->GetLastCommittedURL() == url &&
-             !web_state()->IsLoading();
-    }));
-
-    NSString* data_html =
-        @"<html><div style='background-color:#FF0000; width:50%; "
-         "height:100%;'></div></html>";
-    web_state()->LoadData([data_html dataUsingEncoding:NSUTF8StringEncoding],
-                          @"text/html", url);
-
-    ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, ^bool {
-      return !web_state()->IsLoading();
-    }));
-
-    // Create a PDF for this page and validate the data.
-    __block NSData* callback_data = nil;
-    web_state()->CreateFullPagePdf(base::BindOnce(^(NSData* pdf_document_data) {
-      callback_data = [pdf_document_data copy];
-    }));
-
-    ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, ^bool {
-      return callback_data;
-    }));
-
-    CGPDFDocumentRef pdf = CGPDFDocumentCreateWithProvider(
-        CGDataProviderCreateWithCFData((CFDataRef)callback_data));
-    CGSize pdf_size =
-        CGPDFPageGetBoxRect(CGPDFDocumentGetPage(pdf, 1), kCGPDFMediaBox).size;
-
-    CGFloat kSaveAreaTopInset = GetAnyKeyWindow().safeAreaInsets.top;
-    EXPECT_GE(pdf_size.height,
-              UIScreen.mainScreen.bounds.size.height - kSaveAreaTopInset);
-    EXPECT_GE(pdf_size.width, [[UIScreen mainScreen] bounds].size.width);
-
-    CGPDFDocumentRelease(pdf);
-  }
-
-  // If not an earlier version, then no PDF should be created.
-}
-
-// Tests that the create PDF method returns nil when running an unsupported iOS
-// version.
-TEST_F(WebStateTest, CreateFullPagePdf_ValidURL_NotSupported) {
-  if (@available(iOS 14, *)) {
-    // Return early when running on a support iOS version.
-    return;
-  }
-
+// Tests that the create PDF method returns a PDF of a rendered html page.
+TEST_F(WebStateTest, CreateFullPagePdf_ValidURL) {
   [GetAnyKeyWindow() addSubview:web_state()->GetView()];
 
   // Load a URL and some HTML in the WebState.
@@ -259,14 +199,27 @@ TEST_F(WebStateTest, CreateFullPagePdf_ValidURL_NotSupported) {
     return !web_state()->IsLoading();
   }));
 
-  // Attempt to create a PDF for this page and validate that it return nil.
-  __block BOOL callback_called = NO;
+  // Create a PDF for this page and validate the data.
+  __block NSData* callback_data = nil;
   web_state()->CreateFullPagePdf(base::BindOnce(^(NSData* pdf_document_data) {
-    EXPECT_EQ(nil, pdf_document_data);
-    callback_called = YES;
+    callback_data = [pdf_document_data copy];
   }));
 
-  EXPECT_TRUE(callback_called);
+  ASSERT_TRUE(WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, ^bool {
+    return callback_data;
+  }));
+
+  CGPDFDocumentRef pdf = CGPDFDocumentCreateWithProvider(
+      CGDataProviderCreateWithCFData((CFDataRef)callback_data));
+  CGSize pdf_size =
+      CGPDFPageGetBoxRect(CGPDFDocumentGetPage(pdf, 1), kCGPDFMediaBox).size;
+
+  CGFloat kSaveAreaTopInset = GetAnyKeyWindow().safeAreaInsets.top;
+  EXPECT_GE(pdf_size.height,
+            UIScreen.mainScreen.bounds.size.height - kSaveAreaTopInset);
+  EXPECT_GE(pdf_size.width, [[UIScreen mainScreen] bounds].size.width);
+
+  CGPDFDocumentRelease(pdf);
 }
 
 // Tests that CreateFullPagePdf invokes completion callback nil when an invalid
@@ -368,24 +321,16 @@ TEST_F(WebStateTest, RestoreLargeSession) {
   web_state->SetKeepRenderProcessAlive(true);
   WebState* web_state_ptr = web_state.get();
   NavigationManager* navigation_manager = web_state->GetNavigationManager();
-  // TODO(crbug.com/873729): The session will not be restored until
+  // TODO(crbug.com/41407753): The session will not be restored until
   // LoadIfNecessary call. Fix the bug and remove extra call.
   navigation_manager->LoadIfNecessary();
 
-  int maxSessionSize = wk_navigation_util::kMaxSessionSize;
-  ui::PageTransition transition_type = ui::PAGE_TRANSITION_RELOAD;
-  if (@available(iOS 15, *)) {
-    // kMaxSessionSize is no longer used on iOS15.
-    maxSessionSize = kItemCount;
-    // Synthesized restore defaults to transition first.
-    transition_type = ui::PAGE_TRANSITION_FIRST;
-  }
-
+  const int maxSessionSize = kItemCount;
+  const ui::PageTransition transition_type = ui::PAGE_TRANSITION_FIRST;
   // Verify that session was fully restored.
   auto block = ^{
     bool restored = navigation_manager->GetItemCount() == maxSessionSize &&
                     navigation_manager->CanGoForward();
-    EXPECT_EQ(restored, !navigation_manager->IsRestoreSessionInProgress());
     if (!restored) {
       EXPECT_FALSE(navigation_manager->GetLastCommittedItem());
       EXPECT_EQ(-1, navigation_manager->GetLastCommittedItemIndex());
@@ -430,7 +375,6 @@ TEST_F(WebStateTest, RestoreLargeSession) {
     EXPECT_TRUE(visible_item);
     EXPECT_TRUE(visible_item && visible_item->GetURL() == "http://www.0.com/");
     EXPECT_FALSE(navigation_manager->CanGoBack());
-    EXPECT_FALSE(IsWKInternalUrl(web_state_ptr->GetVisibleURL()));
 
     return restored;
   };
@@ -440,16 +384,9 @@ TEST_F(WebStateTest, RestoreLargeSession) {
 
   histogram_tester_.ExpectTotalCount(kRestoreNavigationItemCount, 1);
   histogram_tester_.ExpectBucketCount(kRestoreNavigationItemCount, 100, 1);
-  if (@available(iOS 15, *)) {
-  } else {
-    // kRestoreNavigationTime only applies to legacy session restore.
-    histogram_tester_.ExpectTotalCount(kRestoreNavigationTime, 1);
-  }
 
   // Now wait until the last committed item is fully loaded.
   auto block2 = ^{
-    EXPECT_FALSE(IsWKInternalUrl(web_state_ptr->GetVisibleURL()));
-
     return !navigation_manager->GetPendingItem() &&
            !web_state_ptr->IsLoading() &&
            web_state_ptr->GetLoadingProgress() == 1.0;
@@ -463,7 +400,7 @@ TEST_F(WebStateTest, RestoreLargeSession) {
   // The restoration of www.0.com ends with displaying an error page which may
   // not be complete at this point.
   // Queue some javascript to wait for every handler to complete.
-  // TODO(crbug.com/1244067): Remove this workaround.
+  // TODO(crbug.com/40195685): Remove this workaround.
   __block BOOL called = false;
   CRWWebController* web_controller =
       WebStateImpl::FromWebState(web_state.get())->GetWebController();
@@ -488,7 +425,7 @@ TEST_F(WebStateTest, CallStopDuringSessionRestore) {
   web_state->SetKeepRenderProcessAlive(true);
   WebState* web_state_ptr = web_state.get();
   NavigationManager* navigation_manager = web_state->GetNavigationManager();
-  // TODO(crbug.com/873729): The session will not be restored until
+  // TODO(crbug.com/41407753): The session will not be restored until
   // LoadIfNecessary call. Fix the bug and remove extra call.
   navigation_manager->LoadIfNecessary();
 
@@ -525,7 +462,7 @@ TEST_F(WebStateTest, CallLoadURLWithParamsDuringSessionRestore) {
   web_state->SetKeepRenderProcessAlive(true);
   WebState* web_state_ptr = web_state.get();
   NavigationManager* navigation_manager = web_state->GetNavigationManager();
-  // TODO(crbug.com/873729): The session will not be restored until
+  // TODO(crbug.com/41407753): The session will not be restored until
   // LoadIfNecessary call. Fix the bug and remove extra call.
   navigation_manager->LoadIfNecessary();
 
@@ -549,7 +486,7 @@ TEST_F(WebStateTest, CallLoadURLWithParamsDuringSessionRestore) {
   EXPECT_TRUE(navigation_manager->CanGoForward());
 
   // Now wait until the last committed item is fully loaded.
-  // TODO(crbug.com/996544) On Xcode 11 beta 6 this became very slow.  This
+  // TODO(crbug.com/41477584) On Xcode 11 beta 6 this became very slow.  This
   // appears to only affect simulator, and will hopefully be fixed in a future
   // Xcode release.  Revert this to `kWaitForPageLoadTimeout` alone when fixed.
   EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout * 7, ^{
@@ -569,7 +506,7 @@ TEST_F(WebStateTest, CallReloadDuringSessionRestore) {
   web_state->SetKeepRenderProcessAlive(true);
   WebState* web_state_ptr = web_state.get();
   NavigationManager* navigation_manager = web_state->GetNavigationManager();
-  // TODO(crbug.com/873729): The session will not be restored until
+  // TODO(crbug.com/41407753): The session will not be restored until
   // LoadIfNecessary call. Fix the bug and remove extra call.
   navigation_manager->LoadIfNecessary();
 
@@ -606,7 +543,7 @@ TEST_F(WebStateTest, RestorePageTitles) {
 
   web_state->SetKeepRenderProcessAlive(true);
   NavigationManager* navigation_manager = web_state->GetNavigationManager();
-  // TODO(crbug.com/873729): The session will not be restored until
+  // TODO(crbug.com/41407753): The session will not be restored until
   // LoadIfNecessary call. Fix the bug and remove extra call.
   navigation_manager->LoadIfNecessary();
 
@@ -620,6 +557,8 @@ TEST_F(WebStateTest, RestorePageTitles) {
               item->GetVirtualURL());
     EXPECT_EQ(base::ASCIIToUTF16(base::StringPrintf("Test%u", i)),
               item->GetTitle());
+    EXPECT_EQ(base::ASCIIToUTF16(base::StringPrintf("Test%u", i)),
+              item->GetTitleForDisplay());
   }
 }
 

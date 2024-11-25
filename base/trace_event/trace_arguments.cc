@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40284755): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "base/trace_event/trace_arguments.h"
 
 #include <inttypes.h>
@@ -101,7 +106,6 @@ const char* TypeToString(unsigned char arg_type) {
       return "convertable";
     default:
       NOTREACHED();
-      return "UNKNOWN_TYPE";
   }
 }
 
@@ -116,7 +120,6 @@ void AppendValueDebugString(const TraceArguments& args,
   *out += ")";
 }
 
-#if BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 class PerfettoProtoAppender : public ConvertableToTraceFormat::ProtoAppender {
  public:
   explicit PerfettoProtoAppender(
@@ -139,7 +142,6 @@ class PerfettoProtoAppender : public ConvertableToTraceFormat::ProtoAppender {
   std::vector<protozero::ContiguousMemoryRange> ranges_;
   raw_ptr<perfetto::protos::pbzero::DebugAnnotation> annotation_proto_;
 };
-#endif  // BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 
 }  // namespace
 
@@ -197,10 +199,10 @@ void TraceValue::Append(unsigned char type,
       // So as not to lose bits from a 64-bit pointer, output as a hex string.
       // For consistency, do the same for non-JSON strings, but without the
       // surrounding quotes.
-      const std::string value = StringPrintf(
+      std::string value = StringPrintf(
           "0x%" PRIx64,
           static_cast<uint64_t>(reinterpret_cast<uintptr_t>(this->as_pointer)));
-      *out += as_json ? StrCat({"\"", value, "\""}) : value;
+      *out += as_json ? StrCat({"\"", value, "\""}) : std::move(value);
     } break;
     case TRACE_VALUE_TYPE_STRING:
     case TRACE_VALUE_TYPE_COPY_STRING:
@@ -219,7 +221,6 @@ void TraceValue::Append(unsigned char type,
       break;
     default:
       NOTREACHED() << "Don't know how to print this value";
-      break;
   }
 }
 
@@ -318,7 +319,6 @@ void TraceArguments::AppendDebugString(std::string* out) {
   *out += ")";
 }
 
-#if BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 void ConvertableToTraceFormat::Add(
     perfetto::protos::pbzero::DebugAnnotation* annotation) const {
   PerfettoProtoAppender proto_appender(annotation);
@@ -328,9 +328,8 @@ void ConvertableToTraceFormat::Add(
 
   std::string json;
   AppendAsTraceFormat(&json);
-  annotation->set_legacy_json_value(json);
+  annotation->set_legacy_json_value(std::move(json));
 }
-#endif  // BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 
 }  // namespace trace_event
 }  // namespace base

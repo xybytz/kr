@@ -27,7 +27,6 @@ import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.browser.customtabs.content.TabObserverRegistrar.CustomTabTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabHidingType;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.content.browser.GestureListenerManagerImpl;
 import org.chromium.content_public.browser.GestureStateListener;
 import org.chromium.content_public.browser.LoadCommittedDetails;
@@ -44,8 +43,6 @@ public class EngagementSignalsInitialScrollObserverUnitTest {
     @Rule
     public final CustomTabActivityContentTestEnvironment env =
             new CustomTabActivityContentTestEnvironment();
-
-    @Rule public Features.JUnitProcessor processor = new Features.JUnitProcessor();
 
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
 

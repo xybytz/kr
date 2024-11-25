@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <stdint.h>
 
 #include <memory>
@@ -136,7 +141,7 @@ class MojoDecryptorTest : public ::testing::Test {
 };
 
 // DecryptAndDecodeAudio() and ResetDecoder(kAudio) immediately.
-TEST_F(MojoDecryptorTest, Reset_DuringDecryptAndDecode_Audio) {
+TEST_F(MojoDecryptorTest, ResetDuringDecryptAndDecodeAudio) {
   Initialize();
 
   {
@@ -158,7 +163,7 @@ TEST_F(MojoDecryptorTest, Reset_DuringDecryptAndDecode_Audio) {
 }
 
 // DecryptAndDecodeAudio() and ResetDecoder(kAudio) immediately.
-TEST_F(MojoDecryptorTest, Reset_DuringDecryptAndDecode_Audio_ChunkedWrite) {
+TEST_F(MojoDecryptorTest, ResetDuringDecryptAndDecodeAudioChunkedWrite) {
   SetWriterCapacity(20);
   Initialize();
 
@@ -181,7 +186,7 @@ TEST_F(MojoDecryptorTest, Reset_DuringDecryptAndDecode_Audio_ChunkedWrite) {
 }
 
 // DecryptAndDecodeVideo() and ResetDecoder(kVideo) immediately.
-TEST_F(MojoDecryptorTest, Reset_DuringDecryptAndDecode_Video) {
+TEST_F(MojoDecryptorTest, ResetDuringDecryptAndDecodeVideo) {
   Initialize();
 
   {
@@ -205,7 +210,7 @@ TEST_F(MojoDecryptorTest, Reset_DuringDecryptAndDecode_Video) {
 }
 
 // DecryptAndDecodeVideo() and ResetDecoder(kVideo) immediately.
-TEST_F(MojoDecryptorTest, Reset_DuringDecryptAndDecode_Video_ChunkedWrite) {
+TEST_F(MojoDecryptorTest, ResetDuringDecryptAndDecodeVideoChunkedWrite) {
   SetWriterCapacity(20);
   Initialize();
 
@@ -231,7 +236,7 @@ TEST_F(MojoDecryptorTest, Reset_DuringDecryptAndDecode_Video_ChunkedWrite) {
 
 // DecryptAndDecodeAudio(), DecryptAndDecodeVideo(), ResetDecoder(kAudio) and
 // ResetDecoder(kVideo).
-TEST_F(MojoDecryptorTest, Reset_DuringDecryptAndDecode_AudioAndVideo) {
+TEST_F(MojoDecryptorTest, ResetDuringDecryptAndDecodeAudioAndVideo) {
   // Only test chunked write as it's the most complex and error prone case.
   SetWriterCapacity(20);
   Initialize();

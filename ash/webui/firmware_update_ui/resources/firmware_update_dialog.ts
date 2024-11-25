@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/ash/common/cr_elements/cr_dialog/cr_dialog.js';
 import 'chrome://resources/mojo/mojo/public/mojom/base/big_buffer.mojom-webui.js';
 import 'chrome://resources/mojo/mojo/public/mojom/base/file_path.mojom-webui.js';
 import 'chrome://resources/mojo/mojo/public/mojom/base/string16.mojom-webui.js';
@@ -10,9 +10,9 @@ import 'chrome://resources/polymer/v3_0/paper-progress/paper-progress.js';
 import './firmware_shared.css.js';
 import './firmware_shared_fonts.css.js';
 import './firmware_update.mojom-webui.js';
-import './strings.m.js';
+import '/strings.m.js';
 
-import {I18nMixin, I18nMixinInterface} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {I18nMixin, I18nMixinInterface} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {mojoString16ToString} from 'chrome://resources/js/mojo_type_util.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
@@ -21,7 +21,7 @@ import {DeviceRequest, DeviceRequestId, DeviceRequestKind, DeviceRequestObserver
 import {getTemplate} from './firmware_update_dialog.html.js';
 import {DialogContent, OpenUpdateDialogEventDetail} from './firmware_update_types.js';
 import {isAppV2Enabled} from './firmware_update_utils.js';
-import {getUpdateProvider} from './mojo_interface_provider.js';
+import {getSystemUtils, getUpdateProvider} from './mojo_interface_provider.js';
 
 const initialDialogContent: DialogContent = {
   title: '',
@@ -33,15 +33,6 @@ const initialInstallationProgress: InstallationProgress = {
   percentage: 0,
   state: UpdateState.kIdle,
 };
-
-const deviceRequestIdToStringId = new Map<DeviceRequestId, string>([
-  [DeviceRequestId.kDoNotPowerOff, 'requestIdDoNotPowerOff'],
-  [DeviceRequestId.kReplugInstall, 'requestIdReplugInstall'],
-  [DeviceRequestId.kInsertUSBCable, 'requestIdInsertUsbCable'],
-  [DeviceRequestId.kRemoveUSBCable, 'requestIdRemoveUsbCable'],
-  [DeviceRequestId.kPressUnlock, 'requestIdPressUnlock'],
-  [DeviceRequestId.kRemoveReplug, 'requestIdRemoveReplug'],
-]);
 
 /**
  * @fileoverview
@@ -85,6 +76,13 @@ export class FirmwareUpdateDialogElement extends FirmwareUpdateDialogElementBase
             'isInitiallyInflight, lastDeviceRequestId)',
       },
 
+      updateIsDone: {
+        type: Boolean,
+        value: false,
+        computed: 'isUpdateDone(installationProgress.state)',
+        reflectToAttribute: true,
+      },
+
       /**
        * This property is used to keep track of the ID of the last-received
        * DeviceRequest. If this property is not null, it means there is a
@@ -109,6 +107,7 @@ export class FirmwareUpdateDialogElement extends FirmwareUpdateDialogElementBase
       null;
   private deviceRequestObserverReceiver: DeviceRequestObserverReceiver|null =
       null;
+  private systemUtils = getSystemUtils();
   private inactiveDialogStates: UpdateState[] =
       [UpdateState.kUnknown, UpdateState.kIdle];
 
@@ -160,15 +159,6 @@ export class FirmwareUpdateDialogElement extends FirmwareUpdateDialogElementBase
       this.isInitiallyInflight = false;
     }
     this.installationProgress = update;
-    if (this.isUpdateInProgress() && this.isDialogOpen()) {
-      // 'aria-hidden' is used to prevent ChromeVox from announcing
-      // the body text automatically. Setting 'aria-hidden' to false
-      // here allows ChromeVox to announce the body text when a user
-      // navigates to it.
-      assert(this.shadowRoot);
-      this.shadowRoot.querySelector('#updateDialogBody')!.setAttribute(
-          'aria-hidden', 'false');
-    }
   }
 
   protected installationProgressChanged(
@@ -304,20 +294,19 @@ export class FirmwareUpdateDialogElement extends FirmwareUpdateDialogElementBase
     const {percentage} = this.installationProgress;
     assert(this.lastDeviceRequestId !== null);
 
-    const requestStringId =
-        deviceRequestIdToStringId.get(this.lastDeviceRequestId);
-    assert(!!requestStringId);
+    const deviceNameString: string = mojoString16ToString(deviceName);
 
     return {
-      title: this.i18n('updating', mojoString16ToString(deviceName)),
-      body: this.i18n(requestStringId),
+      title: this.i18n('updating', deviceNameString),
+      body: this.getI18nStringForDeviceRequestId(
+          this.lastDeviceRequestId, deviceNameString),
       footer: this.i18n('waitingFooterText', percentage),
     };
   }
 
   createDialogContentObj(state: UpdateState): DialogContent {
     assert(this.update);
-    const {deviceName, deviceVersion} = this.update;
+    const {deviceName, deviceVersion, needsReboot} = this.update;
     const {percentage} = this.installationProgress;
 
     const dialogContent = new Map<UpdateState, DialogContent>([
@@ -347,17 +336,25 @@ export class FirmwareUpdateDialogElement extends FirmwareUpdateDialogElementBase
           footer: '',
         },
       ],
-      [
-        UpdateState.kSuccess,
-        {
-          title: this.i18n('deviceUpToDate', mojoString16ToString(deviceName)),
-          body: this.i18n(
-              'hasBeenUpdated', mojoString16ToString(deviceName),
-              deviceVersion),
-          footer: '',
-        },
-      ],
     ]);
+
+    if (needsReboot) {
+      dialogContent.set(UpdateState.kSuccess, {
+        title: this.i18n(
+            'deviceReadyToInstallUpdate', mojoString16ToString(deviceName)),
+        body: this.i18n(
+            'deviceNeedsReboot', mojoString16ToString(deviceName),
+            deviceVersion),
+        footer: '',
+      });
+    } else {
+      dialogContent.set(UpdateState.kSuccess, {
+        title: this.i18n('deviceUpToDate', mojoString16ToString(deviceName)),
+        body: this.i18n(
+            'hasBeenUpdated', mojoString16ToString(deviceName), deviceVersion),
+        footer: '',
+      });
+    }
 
     assert(dialogContent.has(state));
     return dialogContent.get(state) as DialogContent;
@@ -412,6 +409,12 @@ export class FirmwareUpdateDialogElement extends FirmwareUpdateDialogElementBase
     return this.isWaitingForUserAction();
   }
 
+  protected updateRequiresRestart(): boolean {
+    assert(this.update);
+    return this.installationProgress.state === UpdateState.kSuccess &&
+        this.update.needsReboot;
+  }
+
   protected computeButtonText(): string {
     if (!this.isUpdateDone()) {
       return '';
@@ -420,6 +423,12 @@ export class FirmwareUpdateDialogElement extends FirmwareUpdateDialogElementBase
     return this.installationProgress.state === UpdateState.kSuccess ?
         this.i18n('doneButton') :
         this.i18n('okButton');
+  }
+
+  protected restartDevice(): void {
+    assert(this.isUpdateDone());
+    this.systemUtils.restart();
+    return;
   }
 
   protected isDialogOpen(): boolean {
@@ -442,6 +451,44 @@ export class FirmwareUpdateDialogElement extends FirmwareUpdateDialogElementBase
   private isWaitingForUserAction(): boolean {
     return isAppV2Enabled() && this.lastDeviceRequestId !== null &&
         this.installationProgress.state === UpdateState.kWaitingForUser;
+  }
+
+  private getDialogBodyAriaLive(): string {
+    // Use assertive aria-live value to ensure user requests are announced
+    // before they time out.
+    return this.isWaitingForUserAction() ? 'assertive' : '';
+  }
+
+  private getStringIdForDeviceRequestId(deviceRequestId: DeviceRequestId):
+      string {
+    switch (deviceRequestId) {
+      case (DeviceRequestId.kDoNotPowerOff):
+        return 'requestIdDoNotPowerOff';
+      case (DeviceRequestId.kReplugInstall):
+        return 'requestIdReplugInstall';
+      case (DeviceRequestId.kInsertUSBCable):
+        return 'requestIdInsertUsbCable';
+      case (DeviceRequestId.kRemoveUSBCable):
+        return 'requestIdRemoveUsbCable';
+      case (DeviceRequestId.kPressUnlock):
+        return 'requestIdPressUnlock';
+      case (DeviceRequestId.kRemoveReplug):
+        return 'requestIdRemoveReplug';
+      case (DeviceRequestId.kReplugPower):
+        return 'requestIdReplugPower';
+    }
+  }
+
+  private getI18nStringForDeviceRequestId(
+      deviceRequestId: DeviceRequestId, deviceName: string): string {
+    const requestStringId = this.getStringIdForDeviceRequestId(deviceRequestId);
+
+    // DoNotPowerOff request does not use the device name.
+    if (deviceRequestId == DeviceRequestId.kDoNotPowerOff) {
+      return this.i18n(requestStringId);
+    }
+
+    return this.i18n(requestStringId, deviceName);
   }
 }
 

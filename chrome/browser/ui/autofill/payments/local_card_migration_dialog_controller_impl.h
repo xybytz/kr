@@ -49,7 +49,8 @@ class LocalCardMigrationDialogControllerImpl
   void UpdateCreditCardIcon(
       const std::u16string& tip_message,
       const std::vector<MigratableCreditCard>& migratable_credit_cards,
-      AutofillClient::MigrationDeleteCardCallback delete_local_card_callback);
+      payments::PaymentsAutofillClient::MigrationDeleteCardCallback
+          delete_local_card_callback);
 
   // If the user clicks on the credit card icon in the omnibox, we show the
   // feedback dialog containing the uploading results of the cards that the
@@ -62,6 +63,7 @@ class LocalCardMigrationDialogControllerImpl
   void ShowErrorDialog();
 
   void AddObserver(LocalCardMigrationControllerObserver* observer);
+  void RemoveObserver(LocalCardMigrationControllerObserver* observer);
 
   // LocalCardMigrationDialogController:
   LocalCardMigrationDialogState GetViewState() const override;
@@ -117,7 +119,8 @@ class LocalCardMigrationDialogControllerImpl
   // Invoked when the trash can button in the action-requied dialog is clicked.
   // Will pass a string of GUID of the card the user selected to delete from
   // local storage to LocalCardMigrationManager.
-  AutofillClient::MigrationDeleteCardCallback delete_local_card_callback_;
+  payments::PaymentsAutofillClient::MigrationDeleteCardCallback
+      delete_local_card_callback_;
 
   // Local copy of the MigratableCreditCards vector passed from
   // LocalCardMigrationManager. Used in constructing the
@@ -137,7 +140,7 @@ class LocalCardMigrationDialogControllerImpl
 
   // Contains observer listening to user's interactions with the dialog. The
   // observer is responsible for setting flow step upon these interactions.
-  base::ObserverList<LocalCardMigrationControllerObserver>::Unchecked
+  base::ObserverList<LocalCardMigrationControllerObserver>
       observer_list_;
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();

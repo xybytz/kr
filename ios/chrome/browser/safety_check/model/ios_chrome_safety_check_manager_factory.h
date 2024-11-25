@@ -10,17 +10,16 @@
 #import "base/no_destructor.h"
 #import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
 class IOSChromeSafetyCheckManager;
 class KeyedService;
+class ProfileIOS;
 
 // Singleton that owns all IOSChromeSafetyCheckManager(s) and associates them
-// with ChromeBrowserState.
+// with profiles.
 class IOSChromeSafetyCheckManagerFactory
     : public BrowserStateKeyedServiceFactory {
  public:
-  static IOSChromeSafetyCheckManager* GetForBrowserState(
-      ChromeBrowserState* browser_state);
+  static IOSChromeSafetyCheckManager* GetForProfile(ProfileIOS* profile);
   static IOSChromeSafetyCheckManagerFactory* GetInstance();
   static TestingFactory GetDefaultFactory();
 

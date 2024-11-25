@@ -76,8 +76,9 @@ public class AutofillPopup extends DropdownPopupWindow
 
     /**
      * Filters the Autofill suggestions to the ones that we support and shows the popup.
+     *
      * @param suggestions Autofill suggestion data.
-     * @param isRtl @code true if right-to-left text.
+     * @param isRtl true if right-to-left text.
      */
     @SuppressLint("InlinedApi")
     public void filterAndShow(AutofillSuggestion[] suggestions, boolean isRtl) {
@@ -86,8 +87,8 @@ public class AutofillPopup extends DropdownPopupWindow
         List<DropdownItem> cleanedData = new ArrayList<>();
         HashSet<Integer> separators = new HashSet<Integer>();
         for (int i = 0; i < suggestions.length; i++) {
-            int itemId = suggestions[i].getPopupItemId();
-            if (itemId == PopupItemId.SEPARATOR) {
+            int itemId = suggestions[i].getSuggestionType();
+            if (itemId == SuggestionType.SEPARATOR) {
                 separators.add(cleanedData.size());
             } else {
                 cleanedData.add(suggestions[i]);

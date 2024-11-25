@@ -88,7 +88,7 @@ public class TraceEvent implements AutoCloseable {
             boolean earlyTracingActive = EarlyTraceEvent.enabled();
             if ((sEnabled || earlyTracingActive) && mCurrentTarget != null) {
                 if (sEnabled) {
-                    TraceEventJni.get().endToplevel(mCurrentTarget);
+                    TraceEventJni.get().endToplevel();
                 } else {
                     EarlyTraceEvent.end(mCurrentTarget, /* isToplevel= */ true);
                 }
@@ -451,6 +451,20 @@ public class TraceEvent implements AutoCloseable {
         }
     }
 
+    /**
+     * Records a 'WebView.Startup.CreationTime.StartChromiumLocked' event with the
+     * 'android_webview.timeline' category starting at `startTimeMs` with the duration of
+     * `durationMs`. `callSite` and `fromUIThread` are set as the arguments for the event.
+     */
+    public static void webViewStartupStartChromiumLocked(
+            long startTimeMs, long durationMs, int callSite, boolean fromUIThread) {
+        if (sEnabled) {
+            TraceEventJni.get()
+                    .webViewStartupStartChromiumLocked(
+                            startTimeMs, durationMs, callSite, fromUIThread);
+        }
+    }
+
     /** Records 'Startup.ActivityStart' event with the 'interactions' category. */
     public static void startupActivityStart(long activityId, long startTimeMs) {
         if (sEnabled) {
@@ -529,7 +543,7 @@ public class TraceEvent implements AutoCloseable {
     public static void finishAsync(String name, long id) {
         EarlyTraceEvent.finishAsync(name, id);
         if (sEnabled) {
-            TraceEventJni.get().finishAsync(name, id);
+            TraceEventJni.get().finishAsync(id);
         }
     }
 
@@ -591,7 +605,7 @@ public class TraceEvent implements AutoCloseable {
     public static void end(String name, String arg, long flow) {
         EarlyTraceEvent.end(name, /* isToplevel= */ false);
         if (sEnabled) {
-            TraceEventJni.get().end(name, arg, flow);
+            TraceEventJni.get().end(arg, flow);
         }
     }
 
@@ -622,15 +636,15 @@ public class TraceEvent implements AutoCloseable {
 
         void beginWithIntArg(String name, int arg);
 
-        void end(String name, String arg, long flow);
+        void end(String arg, long flow);
 
         void beginToplevel(String target);
 
-        void endToplevel(String target);
+        void endToplevel();
 
         void startAsync(String name, long id);
 
-        void finishAsync(String name, long id);
+        void finishAsync(long id);
 
         boolean viewHierarchyDumpEnabled();
 
@@ -656,6 +670,9 @@ public class TraceEvent implements AutoCloseable {
         void webViewStartupStage1(long startTimeMs, long durationMs);
 
         void webViewStartupStage2(long startTimeMs, long durationMs, boolean isColdStartup);
+
+        void webViewStartupStartChromiumLocked(
+                long startTimeMs, long durationMs, int callSite, boolean fromUIThread);
 
         void startupActivityStart(long activityId, long startTimeMs);
 
@@ -759,6 +776,7 @@ public class TraceEvent implements AutoCloseable {
      * the trace. Enabled/disabled via the disabled-by-default-android_view_hierarchy trace
      * category.
      *
+     * <pre>
      * The class registers itself as an idle handler, so that it can run when there are no other
      * tasks in the queue (but not more often than once a second). When the queue is idle,
      * it calls the initViewHierarchyDump() native function which in turn calls the
@@ -771,9 +789,9 @@ public class TraceEvent implements AutoCloseable {
      *            -> JNI#startActivityDump()
      *            -> ViewHierarchyDumper.dumpView()
      *                -> JNI#addViewDump()
+     * </pre>
      */
     private static final class ViewHierarchyDumper implements MessageQueue.IdleHandler {
-        private static final String EVENT_NAME = "TraceEvent.ViewHierarchyDumper";
         private static final long MIN_VIEW_DUMP_INTERVAL_MILLIS = 1000L;
         private static boolean sEnabled;
         private static ViewHierarchyDumper sInstance;

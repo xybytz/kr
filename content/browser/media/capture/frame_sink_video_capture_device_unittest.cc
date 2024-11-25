@@ -4,6 +4,7 @@
 
 #include "content/browser/media/capture/frame_sink_video_capture_device.h"
 
+#include <array>
 #include <memory>
 
 #include "base/containers/flat_map.h"
@@ -30,10 +31,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/native_widget_types.h"
-
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-#include "chromeos/lacros/lacros_test_helper.h"
-#endif
 
 using testing::_;
 using testing::ByRef;
@@ -429,7 +426,8 @@ class FrameSinkVideoCaptureDeviceTest : public testing::Test {
     const size_t frame_allocation_size =
         media::VideoFrame::AllocationSize(kFormat, kResolution);
     CHECK_LE(frame_allocation_size, mapping.size());
-    const uint8_t* src = mapping.GetMemoryAs<const uint8_t>();
+    const base::span<const uint8_t> src =
+        mapping.GetMemoryAsSpan<const uint8_t>();
     const uint8_t expected_value = GetFrameFillValue(frame_number);
     for (size_t i = 0; i < frame_allocation_size; ++i) {
       if (src[i] != expected_value) {
@@ -442,12 +440,6 @@ class FrameSinkVideoCaptureDeviceTest : public testing::Test {
  protected:
   // See the threading notes at top of this file.
   BrowserTaskEnvironment task_environment_;
-
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  // Instantiate LacrosService for WakeLock support.
-  chromeos::ScopedLacrosServiceTestHelper scoped_lacros_service_test_helper_;
-#endif
-
   NiceMock<MockFrameSinkVideoCapturer> capturer_;
   std::unique_ptr<FrameSinkVideoCaptureDevice> device_;
 };
@@ -472,9 +464,10 @@ TEST_F(FrameSinkVideoCaptureDeviceTest, CapturesAndDeliversFrames) {
   for (int in_flight_count = 1; in_flight_count <= kMaxSimultaneousFrames;
        ++in_flight_count) {
     for (int iteration = 0; iteration < kNumFramesToDeliver; ++iteration) {
-      int buffer_ids[kMaxSimultaneousFrames] = {-1};
-      MockFrameSinkVideoConsumerFrameCallbacks
-          callbackses[kMaxSimultaneousFrames];
+      std::array<int, kMaxSimultaneousFrames> buffer_ids = {-1, -1, -1};
+      std::array<MockFrameSinkVideoConsumerFrameCallbacks,
+                 kMaxSimultaneousFrames>
+          callbackses;
 
       // Simulate |in_flight_count| frame captures and expect the frames to be
       // delivered to the VideoFrameReceiver.

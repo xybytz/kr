@@ -23,11 +23,11 @@ const FieldTypeSet& GetDatabaseStoredTypesOfAutofillProfile() {
       NAME_LAST_SECOND,
       NAME_LAST,
       NAME_FULL,
-      NAME_FULL_WITH_HONORIFIC_PREFIX,
       ADDRESS_HOME_STREET_ADDRESS,
       ADDRESS_HOME_STREET_NAME,
       ADDRESS_HOME_STREET_LOCATION,
       ADDRESS_HOME_HOUSE_NUMBER,
+      ADDRESS_HOME_HOUSE_NUMBER_AND_APT,
       ADDRESS_HOME_SUBPREMISE,
       ADDRESS_HOME_DEPENDENT_LOCALITY,
       ADDRESS_HOME_CITY,
@@ -47,11 +47,12 @@ const FieldTypeSet& GetDatabaseStoredTypesOfAutofillProfile() {
       ADDRESS_HOME_BETWEEN_STREETS_1,
       ADDRESS_HOME_BETWEEN_STREETS_2,
       ADDRESS_HOME_ADMIN_LEVEL2,
+      ADDRESS_HOME_STREET_LOCATION_AND_LOCALITY,
       EMAIL_ADDRESS,
       PHONE_HOME_WHOLE_NUMBER,
-      BIRTHDATE_DAY,
-      BIRTHDATE_MONTH,
-      BIRTHDATE_4_DIGIT_YEAR};
+      ALTERNATIVE_FULL_NAME,
+      ALTERNATIVE_GIVEN_NAME,
+      ALTERNATIVE_FAMILY_NAME};
   return stored_types;
 }
 
@@ -79,10 +80,6 @@ bool TypeOfFieldIsPossibleType(const AutofillField& field) {
   return field.possible_types().contains(field.Type().GetStorableType());
 }
 
-bool IsStreetNameOrHouseNumberType(const FieldType type) {
-  return type == ADDRESS_HOME_STREET_NAME || type == ADDRESS_HOME_HOUSE_NUMBER;
-}
-
 bool IsAddressType(FieldType type) {
   switch (GroupTypeOfFieldType(type)) {
     case FieldTypeGroup::kName:
@@ -90,7 +87,6 @@ bool IsAddressType(FieldType type) {
     case FieldTypeGroup::kCompany:
     case FieldTypeGroup::kAddress:
     case FieldTypeGroup::kPhone:
-    case FieldTypeGroup::kBirthdateField:
       return true;
     case FieldTypeGroup::kNoGroup:
     case FieldTypeGroup::kUnfillable:
@@ -99,9 +95,11 @@ bool IsAddressType(FieldType type) {
     case FieldTypeGroup::kPasswordField:
     case FieldTypeGroup::kTransaction:
     case FieldTypeGroup::kIban:
+    case FieldTypeGroup::kStandaloneCvcField:
+    case FieldTypeGroup::kPredictionImprovements:
       return false;
   }
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 size_t AddressLineIndex(FieldType type) {
@@ -112,7 +110,7 @@ size_t AddressLineIndex(FieldType type) {
   if (kAddressLineIndex.contains(type)) {
     return kAddressLineIndex.at(type);
   }
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 size_t DetermineExpirationYearLength(FieldType assumed_field_type) {
@@ -122,8 +120,13 @@ size_t DetermineExpirationYearLength(FieldType assumed_field_type) {
     case CREDIT_CARD_EXP_4_DIGIT_YEAR:
       return 4;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
+}
+
+bool IsAlternativeNameType(FieldType type) {
+  return type == ALTERNATIVE_FULL_NAME || type == ALTERNATIVE_GIVEN_NAME ||
+         type == ALTERNATIVE_FAMILY_NAME;
 }
 
 }  // namespace autofill

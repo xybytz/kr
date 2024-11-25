@@ -10,22 +10,17 @@
 #import "services/network/public/mojom/network_context.mojom.h"
 
 class KeyedService;
+class ProfileIOS;
 
 namespace safe_browsing {
 class HashRealTimeService;
 }
 
-class ChromeBrowserState;
-
-// Singleton that owns HashRealTimeService objects, one for each active
-// BrowserState. It returns nullptr for incognito BrowserStates.
+// Singleton that owns HashRealTimeService objects, one for each active profile.
+// It returns nullptr for incognito profiles.
 class HashRealTimeServiceFactory : public BrowserStateKeyedServiceFactory {
  public:
-  // Returns the instance of HashRealTimeService associated with this browser
-  // state, creating one if none exists.
-  static safe_browsing::HashRealTimeService* GetForBrowserState(
-      ChromeBrowserState* browser_state);
-
+  static safe_browsing::HashRealTimeService* GetForProfile(ProfileIOS* profile);
   // Returns the singleton instance of HashRealTimeServiceFactory.
   static HashRealTimeServiceFactory* GetInstance();
 

@@ -2,11 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IOS_CHROME_BROWSER_LENS_LENS_BROWSER_AGENT_H_
-#define IOS_CHROME_BROWSER_LENS_LENS_BROWSER_AGENT_H_
+#ifndef IOS_CHROME_BROWSER_LENS_MODEL_LENS_BROWSER_AGENT_H_
+#define IOS_CHROME_BROWSER_LENS_MODEL_LENS_BROWSER_AGENT_H_
 
 #import <optional>
 
+#import "base/memory/raw_ptr.h"
 #import "base/scoped_multi_source_observation.h"
 #import "ios/chrome/browser/shared/model/browser/browser_observer.h"
 #import "ios/chrome/browser/shared/model/browser/browser_user_data.h"
@@ -46,9 +47,9 @@ class LensBrowserAgent : public BrowserObserver,
   std::optional<LensEntrypoint> CurrentResultsEntrypoint() const;
 
   // The Browser that this agent is attached to.
-  Browser* browser_ = nullptr;
+  raw_ptr<Browser> browser_ = nullptr;
 
   BROWSER_USER_DATA_KEY_DECL();
 };
 
-#endif  // IOS_CHROME_BROWSER_LENS_LENS_BROWSER_AGENT_H_
+#endif  // IOS_CHROME_BROWSER_LENS_MODEL_LENS_BROWSER_AGENT_H_

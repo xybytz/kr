@@ -137,11 +137,6 @@ void ContentsView::CancelDrag() {
   }
 }
 
-void ContentsView::SetDragAndDropHostOfCurrentAppList(
-    ApplicationDragAndDropHost* drag_and_drop_host) {
-  apps_container_view_->SetDragAndDropHostOfCurrentAppList(drag_and_drop_host);
-}
-
 void ContentsView::OnAppListViewTargetStateChanged(
     AppListViewState target_state) {
   if (target_state == AppListViewState::kClosed) {
@@ -238,7 +233,7 @@ void ContentsView::SetActiveStateInternal(int page_index, bool animate) {
   ActivePageChanged();
 
   if (!should_animate)
-    Layout();
+    DeprecatedLayoutImmediately();
 }
 
 void ContentsView::ActivePageChanged() {
@@ -312,8 +307,8 @@ void ContentsView::ShowEmbeddedAssistantUI(bool show) {
   // kPeeking and layout the suggestion chips.
   if (next_page == GetPageIndexForState(AppListState::kStateApps)) {
     GetSearchBoxView()->ClearSearch();
-    GetSearchBoxView()->SetSearchBoxActive(false, ui::ET_UNKNOWN);
-    apps_container_view_->Layout();
+    GetSearchBoxView()->SetSearchBoxActive(false, ui::EventType::kUnknown);
+    apps_container_view_->DeprecatedLayoutImmediately();
   }
 }
 
@@ -473,12 +468,11 @@ bool ContentsView::Back() {
     case AppListState::kStateStart_DEPRECATED:
     case AppListState::kInvalidState:
       NOTREACHED();
-      break;
   }
   return true;
 }
 
-void ContentsView::Layout() {
+void ContentsView::Layout(PassKey) {
   const gfx::Rect rect = GetContentsBounds();
   if (rect.IsEmpty())
     return;

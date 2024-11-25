@@ -38,8 +38,9 @@ The tables are parsed in this file as critical user journeys. Lines are consider
 | WML | install_or_shortcut | enable_run_on_os_login | disable_run_on_os_login | check_run_on_os_login_disabled |
 | WML | install_or_shortcut | apply_run_on_os_login_policy_run_windowed | remove_run_on_os_login_policy | check_run_on_os_login_disabled |
 | WML | install_or_shortcut | enable_run_on_os_login | apply_run_on_os_login_policy_blocked | remove_run_on_os_login_policy | check_run_on_os_login_enabled |
-| WML | install_or_shortcut_by_user_windowed | switch_profile_clients(Client2) | switch_profile_clients(Client1) | sync_turn_off | uninstall_by_user | switch_profile_clients(Client2) | apply_run_on_os_login_policy_run_windowed | check_run_on_os_login_disabled |
-| WML | install_or_shortcut_by_user_windowed | switch_profile_clients(Client2) | switch_profile_clients(Client1) | sync_turn_off | uninstall_by_user | switch_profile_clients(Client2) | apply_run_on_os_login_policy_run_windowed | check_run_on_os_login_disabled | install_locally | check_run_on_os_login_enabled |
+| WML | install_or_shortcut_by_user_windowed | switch_profile_clients(Client2) | switch_profile_clients(Client1) | sync_turn_off | uninstall_by_user | switch_profile_clients(Client2) | check_app_not_in_list |
+| WML | install_or_shortcut_by_user_windowed | switch_profile_clients(Client2) | switch_profile_clients(Client2) |  apply_run_on_os_login_policy_run_windowed | check_run_on_os_login_disabled |
+| WML | install_or_shortcut_by_user_windowed | switch_profile_clients(Client2) | switch_profile_clients(Client2) |  apply_run_on_os_login_policy_run_windowed | install_locally | check_run_on_os_login_enabled |
 | WML | install_policy_app(Standalone, NoShortcut, Windowed, WebApp) | apply_run_on_os_login_policy_allowed | disable_run_on_os_login | check_run_on_os_login_disabled |
 | WML | install_policy_app(Standalone, NoShortcut, Windowed, WebApp) | apply_run_on_os_login_policy_allowed | enable_run_on_os_login | check_run_on_os_login_enabled |
 
@@ -92,6 +93,8 @@ The tables are parsed in this file as critical user journeys. Lines are consider
 | WMLC | create_shortcut(Standalone, Windowed) | check_window_created |
 | WMLC | create_shortcut(Standalone, Windowed) | close_pwa | check_app_in_list_windowed(Standalone) | check_platform_shortcut_and_icon(Standalone) |
 | WMLC | create_shortcut(Standalone, Windowed) | close_pwa | launch_from_platform_shortcut(Standalone) | check_pwa_window_created_in_profile(Standalone, One, Default) | check_launch_icon_not_shown |
+| WMLC | install_menu_option(ChromeUrl) | check_window_created |
+| WMLC | create_shortcut(ChromeUrl, Windowed) | check_window_created |
 
 ## Uninstallation
 | #Platforms | Test -> | | | | | | | | | | | | | | | | |
@@ -195,7 +198,7 @@ The tables are parsed in this file as critical user journeys. Lines are consider
 | C | install_or_shortcut_by_user_tabbed | switch_profile_clients | launch_from_chrome_apps | check_tab_created(One) | check_app_loaded_in_tab |
 | WML | install_or_shortcut_by_user_tabbed | switch_profile_clients | install_locally | launch_from_chrome_apps | check_tab_not_created | check_app_loaded_in_tab |
 | WML | install_or_shortcut_by_user_tabbed | switch_profile_clients | install_locally | launch_from_platform_shortcut | check_tab_created(One) | check_app_loaded_in_tab |
-| WML | install_or_shortcut_by_user_windowed | switch_profile_clients | launch_from_chrome_apps | check_tab_not_created | check_app_loaded_in_tab |
+| WML | install_or_shortcut_by_user_windowed | switch_profile_clients | launch_from_chrome_apps | check_tab_not_created | check_site_loaded_in_tab |
 | WMLC | install_or_shortcut_by_user | switch_profile_clients | uninstall_from_list | check_app_not_in_list |
 | WMLC | install_or_shortcut_by_user | switch_profile_clients | uninstall_from_list | switch_profile_clients(Client1) | check_app_not_in_list |
 | WML | install_or_shortcut_by_user | switch_profile_clients | check_app_in_list_not_locally_installed |
@@ -209,14 +212,15 @@ The tables are parsed in this file as critical user journeys. Lines are consider
 | C | install_or_shortcut_by_user_windowed | switch_profile_clients | navigate_browser(Standalone) | check_launch_icon_shown |
 | WML | install_or_shortcut_by_user(NotPromotable) | switch_profile_clients | check_app_in_list_not_locally_installed(NotPromotable) |
 | WML | install_or_shortcut_by_user(NotPromotable) | switch_profile_clients | check_platform_shortcut_not_exists(NotPromotable) |
-| WML | sync_turn_off | install_or_shortcut_by_user | sync_turn_on | switch_profile_clients | check_app_in_list_not_locally_installed |
-| WML | sync_turn_off | install_or_shortcut_by_user(NotPromotable) | sync_turn_on | switch_profile_clients | check_app_in_list_not_locally_installed(NotPromotable) |
-| WML | install_or_shortcut_by_user | switch_profile_clients(Client2) | sync_turn_off | uninstall_not_locally_installed | sync_turn_on | check_app_in_list_not_locally_installed |
-| WML | install_or_shortcut_by_user | switch_profile_clients(Client2) | sync_turn_off | uninstall_not_locally_installed | sync_turn_on | check_platform_shortcut_not_exists |
-| C | install_or_shortcut_by_user_tabbed | switch_profile_clients(Client2) | sync_turn_off | uninstall_by_user | sync_turn_on | check_app_in_list_tabbed |
-| C | install_or_shortcut_by_user_tabbed | switch_profile_clients(Client2) | sync_turn_off | uninstall_by_user | sync_turn_on | check_platform_shortcut_and_icon |
-| C | install_or_shortcut_by_user_windowed | switch_profile_clients(Client2) | sync_turn_off | uninstall_by_user | sync_turn_on | check_app_in_list_windowed |
-| C | install_or_shortcut_by_user_windowed | switch_profile_clients(Client2) | sync_turn_off | uninstall_by_user | sync_turn_on | check_platform_shortcut_and_icon |
+| WMLC | sync_turn_off | install_or_shortcut_by_user | sync_turn_on | switch_profile_clients | check_app_not_in_list |
+| WML | sync_sign_out | install_or_shortcut_by_user | sync_sign_in | switch_profile_clients | check_app_not_in_list |
+| WML | install_or_shortcut_by_user | switch_profile_clients(Client2) | sync_turn_off | check_app_not_in_list | sync_turn_on | check_app_in_list_not_locally_installed |
+| WML | install_or_shortcut_by_user | switch_profile_clients(Client2) | sync_turn_off | check_app_not_in_list | sync_turn_on | check_platform_shortcut_not_exists |
+| WML | install_or_shortcut_by_user | switch_profile_clients(Client2) | sync_turn_off | switch_profile_clients(Client1) | uninstall_by_user | sync_turn_on | switch_profile_clients(Client2) | check_app_in_list_not_locally_installed |
+| C | install_or_shortcut_by_user_tabbed | switch_profile_clients(Client2) | sync_turn_off | check_app_not_in_list | sync_turn_on | check_app_in_list_tabbed |
+| C | install_or_shortcut_by_user_tabbed | switch_profile_clients(Client2) | sync_turn_off | check_app_not_in_list | sync_turn_on | check_platform_shortcut_and_icon |
+| C | install_or_shortcut_by_user_windowed | switch_profile_clients(Client2) | sync_turn_off | check_app_not_in_list | sync_turn_on | check_app_in_list_windowed |
+| C | install_or_shortcut_by_user_windowed | switch_profile_clients(Client2) | sync_turn_off | check_app_not_in_list | sync_turn_on | check_platform_shortcut_and_icon |
 
 ## Policy installation and user installation interactions
 | #Platforms | Test -> | | | | | | | | | | | | | | | | |
@@ -307,8 +311,8 @@ These mac specializations are required due to launching from platform shortcut a
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | WMLC | install_or_shortcut_windowed(StandaloneNestedA) | navigate_browser(NotInstalled) | check_install_icon_shown |
 | WMLC | install_or_shortcut_windowed(StandaloneNestedA) | navigate_browser(NotInstalled) | check_launch_icon_not_shown |
-| WMLC | install_or_shortcut_windowed | navigate_browser(StandaloneNestedA) | check_install_icon_not_shown |
-| WMLC | install_or_shortcut_windowed | navigate_browser(StandaloneNestedA) | check_launch_icon_shown |
+| WMLC | install_windowed | navigate_browser(StandaloneNestedA) | check_install_icon_not_shown |
+| C | create_shortcut(Standalone, Windowed) | navigate_browser(StandaloneNestedA) | check_install_icon_shown |
 | WMLC | install_or_shortcut_by_user_windowed | navigate_browser(MinimalUi) | check_install_icon_shown |
 | WMLC | install_or_shortcut_by_user_windowed | navigate_browser(MinimalUi) | check_launch_icon_not_shown |
 | WMLC | install_or_shortcut_by_user_windowed | navigate_pwa(Standalone, MinimalUi) | check_app_title(Standalone, StandaloneOriginal) |

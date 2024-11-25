@@ -5,12 +5,14 @@
 #ifndef IOS_CHROME_BROWSER_BOOKMARKS_MODEL_BOOKMARK_REMOVER_HELPER_H_
 #define IOS_CHROME_BROWSER_BOOKMARKS_MODEL_BOOKMARK_REMOVER_HELPER_H_
 
-#include "base/functional/callback.h"
-#include "base/scoped_multi_source_observation.h"
-#include "base/sequence_checker.h"
-#include "components/bookmarks/browser/base_bookmark_model_observer.h"
+#import "base/functional/callback.h"
+#import "base/location.h"
+#import "base/memory/raw_ptr.h"
+#import "base/scoped_observation.h"
+#import "base/sequence_checker.h"
+#import "components/bookmarks/browser/base_bookmark_model_observer.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 
 namespace bookmarks {
 class BookmarkModel;
@@ -21,7 +23,7 @@ class BookmarkRemoverHelper : public bookmarks::BaseBookmarkModelObserver {
  public:
   using Callback = base::OnceCallback<void(bool)>;
 
-  explicit BookmarkRemoverHelper(ChromeBrowserState* browser_state);
+  explicit BookmarkRemoverHelper(ProfileIOS* profile);
 
   BookmarkRemoverHelper(const BookmarkRemoverHelper&) = delete;
   BookmarkRemoverHelper& operator=(const BookmarkRemoverHelper&) = delete;
@@ -30,27 +32,28 @@ class BookmarkRemoverHelper : public bookmarks::BaseBookmarkModelObserver {
 
   // Removes all bookmarks and asynchronously invoke `completion` with
   // boolean indicating success or failure.
-  void RemoveAllUserBookmarksIOS(Callback completion);
+  void RemoveAllUserBookmarksIOS(const base::Location& location,
+                                 Callback completion);
 
   // BaseBookmarkModelObserver implementation.
   void BookmarkModelChanged() override;
 
   // BookmarkModelObserver implementation.
-  void BookmarkModelLoaded(bookmarks::BookmarkModel* model,
-                           bool ids_reassigned) override;
-  void BookmarkModelBeingDeleted(bookmarks::BookmarkModel* model) override;
+  void BookmarkModelLoaded(bool ids_reassigned) override;
+  void BookmarkModelBeingDeleted() override;
 
  private:
-  // Invoked when the bookmark entries have been deleted. Invoke the
-  // completion callback with `success` (invocation is asynchronous so
-  // the object won't be deleted immediately).
-  void BookmarksRemoved(bool success);
+  void RemoveAllUserBookmarksFromLoadedModel();
+  void TriggerCompletion(bool success);
 
+  const raw_ptr<ProfileIOS> profile_;
+  const raw_ptr<bookmarks::BookmarkModel> model_;
+
+  base::Location location_;
   Callback completion_;
-  ChromeBrowserState* browser_state_ = nullptr;
-  base::ScopedMultiSourceObservation<bookmarks::BookmarkModel,
-                                     bookmarks::BookmarkModelObserver>
-      bookmark_model_observations_{this};
+  base::ScopedObservation<bookmarks::BookmarkModel,
+                          bookmarks::BookmarkModelObserver>
+      bookmark_model_observation_{this};
 
   SEQUENCE_CHECKER(sequence_checker_);
 };

@@ -25,6 +25,7 @@
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/vector_icon_types.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/flex_layout.h"
@@ -144,11 +145,22 @@ ShelfShutdownConfirmationBubble::ShelfShutdownConfirmationBubble(
           views::Emphasis::kHigh));
   GetBubbleFrameView()->SetBubbleBorder(std::move(bubble_border));
   GetBubbleFrameView()->SetBackgroundColor(GetBackgroundColor());
+  // The bubble content size changes after border setting, therefore resize
+  // the widget to its content.
+  // TODO(crbug.com/41493925): widget should autoresize to its content.
+  SizeToContents();
   GetWidget()->Show();
 
   base::UmaHistogramEnumeration(
       kActionHistogramName,
       ShelfShutdownConfirmationBubble::BubbleAction::kOpened);
+
+  GetViewAccessibility().SetRole(ax::mojom::Role::kDialog);
+  GetViewAccessibility().SetName(title_->GetText());
+
+  title_text_changed_subscription_ = title_->AddTextChangedCallback(
+      base::BindRepeating(&ShelfShutdownConfirmationBubble::OnTitleTextChanged,
+                          base::Unretained(this)));
 }
 
 ShelfShutdownConfirmationBubble::~ShelfShutdownConfirmationBubble() {
@@ -176,12 +188,6 @@ void ShelfShutdownConfirmationBubble::OnThemeChanged() {
       AshColorProvider::ContentLayerType::kButtonLabelColor);
   cancel_->SetEnabledTextColors(button_color);
   confirm_->SetEnabledTextColors(button_color);
-}
-
-void ShelfShutdownConfirmationBubble::GetAccessibleNodeData(
-    ui::AXNodeData* node_data) {
-  node_data->role = ax::mojom::Role::kDialog;
-  node_data->SetNameChecked(title_->GetText());
 }
 
 std::u16string ShelfShutdownConfirmationBubble::GetAccessibleWindowTitle()
@@ -230,6 +236,12 @@ bool ShelfShutdownConfirmationBubble::ShouldCloseOnMouseExit() {
 void ShelfShutdownConfirmationBubble::ReportBubbleAction(
     ShelfShutdownConfirmationBubble::BubbleAction action) {
   base::UmaHistogramEnumeration(kActionHistogramName, action);
+}
+
+void ShelfShutdownConfirmationBubble::OnTitleTextChanged() {
+  if (GetWidget()) {
+    GetWidget()->UpdateAccessibleNameForRootView();
+  }
 }
 
 }  // namespace ash

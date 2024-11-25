@@ -12,9 +12,11 @@
 #include <optional>
 #include <string>
 #include <vector>
+
 #include "base/values.h"
 #include "components/guest_view/browser/guest_view.h"
 #include "content/public/browser/javascript_dialog_manager.h"
+#include "content/public/browser/permission_result.h"
 #include "extensions/browser/guest_view/web_view/javascript_dialog_helper.h"
 #include "extensions/browser/guest_view/web_view/web_view_find_helper.h"
 #include "extensions/browser/guest_view/web_view/web_view_guest_delegate.h"
@@ -54,6 +56,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
                       int view_instance_id);
 
   static const char Type[];
+  static const guest_view::GuestViewHistogramValue HistogramValue;
 
   // Returns the WebView partition ID associated with the render process
   // represented by |render_process_host|, if any. Otherwise, an empty string is
@@ -74,7 +77,10 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   zoom::ZoomController::ZoomMode GetZoomMode();
 
   // Request navigating the guest to the provided |src| URL.
-  void NavigateGuest(const std::string& src, bool force_navigation);
+  void NavigateGuest(const std::string& src,
+                     base::OnceCallback<void(content::NavigationHandle&)>
+                         navigation_handle_callback,
+                     bool force_navigation);
 
   // Shows the context menu for the guest.
   void ShowContextMenu(int request_id);
@@ -98,6 +104,10 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   void SetAllowTransparency(bool allow);
   bool allow_transparency() const { return allow_transparency_; }
 
+  // Sets the audio muted state of the guest.
+  void SetAudioMuted(bool mute);
+  bool IsAudioMuted();
+
   // Begin or continue a find request.
   void StartFind(const std::u16string& search_text,
                  blink::mojom::FindOptionsPtr options,
@@ -113,9 +123,16 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   // Reload the guest.
   void Reload();
 
-  // Overrides the user agent for this guest.
-  // This affects subsequent guest navigations.
-  void SetUserAgentOverride(const std::string& user_agent_override);
+  // Overrides the "User-Agent" header for this guest if `ua_string_override` is
+  // non-empty. This override is applied on top of the default
+  // `UserAgentOverride` of the guest, see
+  // `WebViewGuestDelegate::GetDefaultUserAgentOverride`. This affects
+  // subsequent guest navigations.
+  void SetUserAgentOverride(const std::string& ua_string_override);
+
+  // Sets whether a special brand list is used in client hints. This currently
+  // affects <controlledframe> and has no affect on <webview>
+  void SetClientHintsEnabled(bool enable);
 
   // Stop loading the guest.
   void Stop();
@@ -165,14 +182,15 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   bool GuestMadeEmbedderFullscreen() const;
   void SetFullscreenState(bool is_fullscreen);
 
-  void RequestPointerLockPermission(bool user_gesture,
+  void RequestPointerLockPermission(content::WebContents* web_contents,
+                                    bool user_gesture,
                                     bool last_unlocked_by_target,
                                     base::OnceCallback<void(bool)> callback);
 
   // GuestViewBase implementation.
-  void CreateWebContents(std::unique_ptr<GuestViewBase> owned_this,
-                         const base::Value::Dict& create_params,
-                         WebContentsCreatedCallback callback) final;
+  void CreateInnerPage(std::unique_ptr<GuestViewBase> owned_this,
+                       const base::Value::Dict& create_params,
+                       GuestPageCreatedCallback callback) final;
   void DidAttachToEmbedder() final;
   void DidInitialize(const base::Value::Dict& create_params) final;
   void MaybeRecreateGuestContents(
@@ -192,17 +210,27 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   void GuestViewDidStopLoading() final;
   void GuestZoomChanged(double old_zoom_level, double new_zoom_level) final;
   bool IsAutoSizeSupported() const final;
+  void OnOwnerAudioMutedStateUpdated(bool muted) final;
   void SignalWhenReady(base::OnceClosure callback) final;
   void WillAttachToEmbedder() final;
   bool RequiresSslInterstitials() const final;
   bool IsPermissionRequestable(ContentSettingsType type) const final;
+  std::optional<content::PermissionResult> OverridePermissionResult(
+      ContentSettingsType type) const final;
+
+  // GuestpageHolder::Delegate implementation.
+  bool GuestHandleContextMenu(content::RenderFrameHost& render_frame_host,
+                              const content::ContextMenuParams& params) final;
+  content::JavaScriptDialogManager* GuestGetJavascriptDialogManager() final;
+  void GuestOverrideRendererPreferences(
+      blink::RendererPreferences& preferences) final;
 
   // WebContentsDelegate implementation.
   void CloseContents(content::WebContents* source) final;
   bool HandleContextMenu(content::RenderFrameHost& render_frame_host,
                          const content::ContextMenuParams& params) final;
   bool HandleKeyboardEvent(content::WebContents* source,
-                           const content::NativeWebKeyboardEvent& event) final;
+                           const input::NativeWebKeyboardEvent& event) final;
   bool PreHandleGestureEvent(content::WebContents* source,
                              const blink::WebGestureEvent& event) final;
   void RendererResponsive(content::WebContents* source,
@@ -224,16 +252,19 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   content::JavaScriptDialogManager* GetJavaScriptDialogManager(
       content::WebContents* source) final;
   bool ShouldResumeRequestsForCreatedWindow() override;
-  void AddNewContents(content::WebContents* source,
-                      std::unique_ptr<content::WebContents> new_contents,
-                      const GURL& target_url,
-                      WindowOpenDisposition disposition,
-                      const blink::mojom::WindowFeatures& window_features,
-                      bool user_gesture,
-                      bool* was_blocked) final;
+  content::WebContents* AddNewContents(
+      content::WebContents* source,
+      std::unique_ptr<content::WebContents> new_contents,
+      const GURL& target_url,
+      WindowOpenDisposition disposition,
+      const blink::mojom::WindowFeatures& window_features,
+      bool user_gesture,
+      bool* was_blocked) final;
   content::WebContents* OpenURLFromTab(
       content::WebContents* source,
-      const content::OpenURLParams& params) final;
+      const content::OpenURLParams& params,
+      base::OnceCallback<void(content::NavigationHandle&)>
+          navigation_handle_callback) final;
   void WebContentsCreated(content::WebContents* source_contents,
                           int opener_render_process_id,
                           int opener_render_frame_id,
@@ -246,7 +277,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   void ExitFullscreenModeForTab(content::WebContents* web_contents) final;
   bool IsFullscreenForTabOrPending(
       const content::WebContents* web_contents) final;
-  void RequestToLockMouse(content::WebContents* web_contents,
+  void RequestPointerLock(content::WebContents* guest_web_contents,
                           bool user_gesture,
                           bool last_unlocked_by_target) override;
 
@@ -280,13 +311,18 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
 
   void PushWebViewStateToIOThread(content::RenderFrameHost* guest_host);
 
-  // Loads the |url| provided. |force_navigation| indicates whether to reload
-  // the content if the provided |url| matches the current page of the guest.
-  void LoadURLWithParams(
-      const GURL& url,
-      const content::Referrer& referrer,
-      ui::PageTransition transition_type,
-      bool force_navigation);
+  // Loads the `url` provided. `force_navigation` indicates whether to reload
+  // the content if the provided `url` matches the current page of the guest.
+  // If a `navigation_handle_callback` function is provided, it should be called
+  // with the pending navigation (if any) when the navigation handle become
+  // available. This allows callers to observe or attach their specific data.
+  // This function may not be called if the navigation fails for any reason.
+  void LoadURLWithParams(const GURL& url,
+                         const content::Referrer& referrer,
+                         ui::PageTransition transition_type,
+                         base::OnceCallback<void(content::NavigationHandle&)>
+                             navigation_handle_callback,
+                         bool force_navigation);
 
   void RequestNewWindowPermission(WindowOpenDisposition disposition,
                                   const gfx::Rect& initial_bounds,
@@ -305,17 +341,19 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   void NewGuestWebViewCallback(const content::OpenURLParams& params,
                                std::unique_ptr<GuestViewBase> guest);
 
-  bool HandleKeyboardShortcuts(const content::NativeWebKeyboardEvent& event);
+  bool HandleKeyboardShortcuts(const input::NativeWebKeyboardEvent& event);
 
   void ApplyAttributes(const base::Value::Dict& params);
 
   void SetTransparency(content::RenderFrameHost* render_frame_host);
 
-  void CreateWebContentsWithStoragePartition(
+  void CreateInnerPageWithStoragePartition(
       std::unique_ptr<GuestViewBase> owned_this,
       const base::Value::Dict& create_params,
-      WebContentsCreatedCallback callback,
+      GuestPageCreatedCallback callback,
       std::optional<content::StoragePartitionConfig> storage_partition_config);
+
+  void UpdateUserAgentMetadata();
 
   // Identifies the set of rules registries belonging to this guest.
   int rules_registry_id_;
@@ -332,6 +370,9 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
 
   // Stores whether the contents of the guest can be transparent.
   bool allow_transparency_ = false;
+
+  // Stores whether the guest has been muted by the webview.setAudioMuted API.
+  bool is_audio_muted_ = false;
 
   // Handles the JavaScript dialog requests.
   JavaScriptDialogHelper javascript_dialog_helper_;
@@ -387,6 +428,9 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
   // Used to delay the navigation of a recreated guest contents until later in
   // the attachment process when state related to the WebRequest API is set up.
   base::OnceClosure recreate_initial_nav_;
+
+  // The current UA override.
+  blink::UserAgentOverride ua_override_;
 
   // This is used to ensure pending tasks will not fire after this object is
   // destroyed.

@@ -173,8 +173,6 @@ struct PaintPropertyTreeBuilderContext final {
   STACK_ALLOCATED();
 
  public:
-  PaintPropertyTreeBuilderContext();
-
   // TODO(paint-dev): We should fold PaintPropertyTreeBuilderFragmentContext
   // into PaintPropertyTreeBuilderContext but we can't do it for now because
   // SVG hidden containers need the default constructor of the former to
@@ -210,31 +208,21 @@ struct PaintPropertyTreeBuilderContext final {
   // True if a change has forced all properties in a subtree to be updated. This
   // can be set due to paint offset changes or when the structure of the
   // property tree changes (i.e., a node is added or removed).
-  unsigned force_subtree_update_reasons : 2;
+  unsigned force_subtree_update_reasons : 2 = 0;
 
   // True if the current subtree is underneath a LayoutSVGHiddenContainer
   // ancestor.
-  unsigned has_svg_hidden_container_ancestor : 1;
+  unsigned has_svg_hidden_container_ancestor : 1 = false;
 
   // Whether this object was a layout shift root during the previous render
   // (not this one).
-  unsigned was_layout_shift_root : 1;
+  unsigned was_layout_shift_root : 1 = false;
 
-  // Main thread scrolling reasons that apply to all scrollers in the current
-  // LocalFrameView subtree.
-  unsigned global_main_thread_scrolling_reasons : 5;
-  static constexpr MainThreadScrollingReasons
-      kGlobalMainThreadScrollingReasons =
-          cc::MainThreadScrollingReason::kHasBackgroundAttachmentFixedObjects |
-          cc::MainThreadScrollingReason::kPopupNoThreadedInput;
-  static_assert(kGlobalMainThreadScrollingReasons < (1 << 6));
+  // This applies to all scrollers in the current LocalFrameView subtree.
+  unsigned requires_main_thread_for_background_attachment_fixed : 1 = false;
 
-  unsigned composited_scrolling_preference : 2;
-
-  // This propagates to descendants (but not through isolations) to capture
-  // the situation of added/removed transform/clip affecting property tree
-  // states.
-  unsigned transform_or_clip_added_or_removed : 1;
+  unsigned composited_scrolling_preference : 2 =
+      static_cast<unsigned>(CompositedScrollingPreference::kDefault);
 
   // This is always recalculated in PaintPropertyTreeBuilder::UpdateForSelf()
   // which overrides the inherited value.
@@ -303,12 +291,15 @@ struct PaintPropertiesChangeInfo {
  public:
   PaintPropertyChangeType transform_changed =
       PaintPropertyChangeType::kUnchanged;
+  bool transform_change_is_scroll_translation_only = true;
   PaintPropertyChangeType clip_changed = PaintPropertyChangeType::kUnchanged;
   PaintPropertyChangeType effect_changed = PaintPropertyChangeType::kUnchanged;
   PaintPropertyChangeType scroll_changed = PaintPropertyChangeType::kUnchanged;
 
   void Merge(const PaintPropertiesChangeInfo& other) {
     transform_changed = std::max(transform_changed, other.transform_changed);
+    transform_change_is_scroll_translation_only &=
+        other.transform_change_is_scroll_translation_only;
     clip_changed = std::max(clip_changed, other.clip_changed);
     effect_changed = std::max(effect_changed, other.effect_changed);
     scroll_changed = std::max(scroll_changed, other.scroll_changed);
@@ -317,11 +308,6 @@ struct PaintPropertiesChangeInfo {
   PaintPropertyChangeType Max() const {
     return std::max(
         {transform_changed, clip_changed, effect_changed, scroll_changed});
-  }
-
-  bool TransformOrClipAddedOrRemoved() const {
-    return transform_changed >= PaintPropertyChangeType::kNodeAddedOrRemoved ||
-           clip_changed >= PaintPropertyChangeType::kNodeAddedOrRemoved;
   }
 };
 
@@ -350,6 +336,13 @@ class PaintPropertyTreeBuilder {
   // scroll offset transform) and ensure the context is up to date.
   void UpdateForChildren();
 
+  // Update paint properties for an @page border box fragment. This fragment is
+  // responsible for @page borders and other decorations, in addition to the
+  // document background.
+  //
+  // `page_container` is the parent fragment of the border box.
+  void UpdateForPageBorderBox(const PhysicalBoxFragment& page_container);
+
   void IssueInvalidationsAfterUpdate();
 
   bool PropertiesChanged() const {
@@ -370,7 +363,7 @@ class PaintPropertyTreeBuilder {
   ALWAYS_INLINE void UpdatePaintingLayer();
   ALWAYS_INLINE bool IsAffectedByOuterViewportBoundsDelta() const;
 
-  ALWAYS_INLINE void UpdateGlobalMainThreadScrollingReasons();
+  ALWAYS_INLINE void UpdateGlobalMainThreadRepaintReasonsForScroll();
 
   bool IsInNGFragmentTraversal() const { return pre_paint_info_; }
 

@@ -17,12 +17,10 @@ import androidx.annotation.VisibleForTesting;
 import androidx.browser.customtabs.CustomTabsIntent;
 
 import org.chromium.base.Log;
-import org.chromium.base.compat.ApiHelperForM;
 import org.chromium.chrome.browser.feed.FeedServiceBridge;
 import org.chromium.chrome.browser.feed.R;
 import org.chromium.chrome.browser.feed.StreamKind;
 import org.chromium.chrome.browser.feed.v2.FeedUserActionType;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
 import org.chromium.ui.modelutil.ModelListAdapter;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -38,22 +36,12 @@ public class FeedManagementMediator {
     private static final String TAG = "FeedManagementMdtr";
     private ModelList mModelList;
     private final Context mContext;
-    private final FollowManagementLauncher mFollowManagementLauncher;
     private final @StreamKind int mInitiatingStreamKind;
 
-    /** Interface to supply a method which can launch the FollowManagementActivity. */
-    public interface FollowManagementLauncher {
-        void launchFollowManagement(Context mContext);
-    }
-
     FeedManagementMediator(
-            Context context,
-            ModelList modelList,
-            FollowManagementLauncher followLauncher,
-            @StreamKind int initiatingStreamKind) {
+            Context context, ModelList modelList, @StreamKind int initiatingStreamKind) {
         mModelList = modelList;
         mContext = context;
-        mFollowManagementLauncher = followLauncher;
         mInitiatingStreamKind = initiatingStreamKind;
 
         // Add the menu items into the menu.
@@ -65,24 +53,6 @@ public class FeedManagementMediator {
         mModelList.add(
                 new ModelListAdapter.ListItem(
                         FeedManagementItemProperties.DEFAULT_ITEM_TYPE, activityModel));
-        int descResource =
-                ChromeFeatureList.isEnabled(ChromeFeatureList.FEED_FOLLOW_UI_UPDATE)
-                        ? R.string.feed_manage_interests_description_ui_update
-                        : R.string.feed_manage_interests_description;
-        PropertyModel interestsModel =
-                generateListItem(
-                        R.string.feed_manage_interests, descResource, this::handleInterestsClick);
-        mModelList.add(
-                new ModelListAdapter.ListItem(
-                        FeedManagementItemProperties.DEFAULT_ITEM_TYPE, interestsModel));
-        PropertyModel hiddenModel =
-                generateListItem(
-                        R.string.feed_manage_hidden,
-                        R.string.feed_manage_hidden_description,
-                        this::handleHiddenClick);
-        mModelList.add(
-                new ModelListAdapter.ListItem(
-                        FeedManagementItemProperties.DEFAULT_ITEM_TYPE, hiddenModel));
         PropertyModel followingModel =
                 generateListItem(
                         R.string.feed_manage_following,
@@ -91,12 +61,20 @@ public class FeedManagementMediator {
         mModelList.add(
                 new ModelListAdapter.ListItem(
                         FeedManagementItemProperties.DEFAULT_ITEM_TYPE, followingModel));
+        PropertyModel hiddenModel =
+                generateListItem(
+                        R.string.feed_manage_hidden,
+                        R.string.feed_manage_hidden_description,
+                        this::handleHiddenClick);
+        mModelList.add(
+                new ModelListAdapter.ListItem(
+                        FeedManagementItemProperties.DEFAULT_ITEM_TYPE, hiddenModel));
     }
 
     private PropertyModel generateListItem(
             int titleResource, int descriptionResource, OnClickListener listener) {
-        String title = mContext.getResources().getString(titleResource);
-        String description = mContext.getResources().getString(descriptionResource);
+        String title = mContext.getString(titleResource);
+        String description = mContext.getString(descriptionResource);
         return new PropertyModel.Builder(FeedManagementItemProperties.ALL_KEYS)
                 .with(FeedManagementItemProperties.TITLE_KEY, title)
                 .with(FeedManagementItemProperties.DESCRIPTION_KEY, description)
@@ -119,11 +97,10 @@ public class FeedManagementMediator {
         intent.setData(Uri.parse(uri));
         intent.setAction(Intent.ACTION_VIEW);
         intent.setClassName(mContext, "org.chromium.chrome.browser.customtabs.CustomTabActivity");
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); // Needed for pre-N versions of android.
         intent.putExtra(Browser.EXTRA_APPLICATION_ID, mContext.getPackageName());
         mContext.startActivity(intent);
 
-        // TODO(https://crbug.com/1195209): Record uma by calling ReportOtherUserAction
+        // TODO(crbug.com/40758890): Record uma by calling ReportOtherUserAction
         // on the stream.
     }
 
@@ -132,8 +109,7 @@ public class FeedManagementMediator {
         Intent fakeIntent = new Intent();
         ComponentName fakeComponentName = new ComponentName(mContext.getPackageName(), "FakeClass");
         fakeIntent.setComponent(fakeComponentName);
-        int mutabililtyFlag = 0;
-        mutabililtyFlag = ApiHelperForM.getPendingIntentImmutableFlag();
+        int mutabililtyFlag = PendingIntent.FLAG_IMMUTABLE;
         return PendingIntent.getActivity(mContext, 0, fakeIntent, mutabililtyFlag);
     }
 
@@ -146,8 +122,8 @@ public class FeedManagementMediator {
     }
 
     @VisibleForTesting
-    void handleInterestsClick(View view) {
-        Log.d(TAG, "Interests click caught.");
+    void handleFollowingClick(View view) {
+        Log.d(TAG, "Following click caught.");
         FeedServiceBridge.reportOtherUserAction(
                 mInitiatingStreamKind, FeedUserActionType.TAPPED_MANAGE_INTERESTS);
         launchUriActivity("https://www.google.com/preferences/interests/yourinterests?sh=n");
@@ -159,13 +135,5 @@ public class FeedManagementMediator {
         FeedServiceBridge.reportOtherUserAction(
                 mInitiatingStreamKind, FeedUserActionType.TAPPED_MANAGE_INTERESTS);
         launchUriActivity("https://www.google.com/preferences/interests/hidden?sh=n");
-    }
-
-    @VisibleForTesting
-    void handleFollowingClick(View view) {
-        Log.d(TAG, "Following click caught.");
-        FeedServiceBridge.reportOtherUserAction(
-                mInitiatingStreamKind, FeedUserActionType.TAPPED_MANAGE_FOLLOWING);
-        mFollowManagementLauncher.launchFollowManagement(mContext);
     }
 }

@@ -16,10 +16,8 @@
 #include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 #include "chrome/browser/ui/extensions/extensions_container.h"
-#include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_model.h"
 #include "chrome/browser/ui/views/extensions/extensions_request_access_button.h"
-#include "chrome/browser/ui/views/extensions/extensions_toolbar_controls.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_action_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_icon_container_view.h"
@@ -39,7 +37,6 @@ class ExtensionsMenuCoordinator;
 // or be called out to the user.
 class ExtensionsToolbarContainer : public ToolbarIconContainerView,
                                    public ExtensionsContainer,
-                                   public TabStripModelObserver,
                                    public ToolbarActionView::Delegate,
                                    public views::WidgetObserver {
   METADATA_HEADER(ExtensionsToolbarContainer, ToolbarIconContainerView)
@@ -59,7 +56,7 @@ class ExtensionsToolbarContainer : public ToolbarIconContainerView,
     // be hidden if the available space does not allow for them. Compact mode is
     // used in smaller windows (e.g. web apps) where
     // there may not be enough space to display the buttons.
-    // TODO(crbug.com/1155421): Remove kCompact in favour of kAutoHide once the
+    // TODO(crbug.com/40159931): Remove kCompact in favour of kAutoHide once the
     // |kDesktopPWAsElidedExtensionsMenu| flag is removed.
     kCompact,
     // In auto hide mode the menu icon is hidden until
@@ -104,16 +101,25 @@ class ExtensionsToolbarContainer : public ToolbarIconContainerView,
   // visibility, reordering views if necessary.
   void UpdatePinnedActions();
 
+  // Updates `extensions_button_` icon given user `site_setting` and whether
+  // `is_restricted_url` in `web_contents`.
+  void UpdateExtensionsButton(
+      extensions::PermissionsManager::UserSiteSetting site_setting,
+      content::WebContents* web_contents,
+      bool is_restricted_url);
+
   // Updates the `request_access_button_` given user `site_setting` for the
   // current `web_contents`.
   void UpdateRequestAccessButton(
       extensions::PermissionsManager::UserSiteSetting site_setting,
       content::WebContents* web_contents);
 
+  // Updates the container visibility and animation as needed.
+  void UpdateContainerVisibility();
+
   // Updates the controls visibility.
   void UpdateControlsVisibility();
 
-  const ToolbarIcons& icons_for_testing() const { return icons_; }
   ToolbarActionViewController* popup_owner_for_testing() {
     return popup_owner_;
   }
@@ -123,9 +129,9 @@ class ExtensionsToolbarContainer : public ToolbarIconContainerView,
     return extensions_button_;
   }
 
-  // Gets the extensions toolbar controls.
-  ExtensionsToolbarControls* GetExtensionsToolbarControls() const {
-    return extensions_controls_.get();
+  // Get the request access button for the toolbar.
+  ExtensionsRequestAccessButton* GetRequestAccessButton() const {
+    return request_access_button_;
   }
 
   // Get the view corresponding to the extension |id|, if any.
@@ -136,6 +142,12 @@ class ExtensionsToolbarContainer : public ToolbarIconContainerView,
   // action will be posted immediately (not run synchronously).
   void ShowWidgetForExtension(views::Widget* widget,
                               const std::string& extension_id);
+
+  // Check if the extensions menu is showing.
+  // TODO(crbug.com/40811196): This method will be removed once extensions menu
+  // under kExtensionsMenuAccessControl feature is fully rolled out and we can
+  // call directly into the menu coordinator.
+  bool IsExtensionsMenuShowing() const;
 
   // Event handler for when the extensions menu is opened.
   void OnMenuOpening();
@@ -158,13 +170,6 @@ class ExtensionsToolbarContainer : public ToolbarIconContainerView,
   ToolbarButton* GetCloseSidePanelButtonForTesting() {
     return close_side_panel_button_;
   }
-
-  // Updates the flex layout rules for the extension toolbar container to have
-  // views::MinimumFlexSizeRule::kPreferred when WindowControlsOverlay (WCO) is
-  // toggled on for PWAs. Otherwise the extensions icon does not stay visible as
-  // it is not considered for during the calculation of the preferred size of
-  // it's parent (in the case of WCO PWAs, WebAppFrameToolbarView).
-  void WindowControlsOverlayEnabledChanged(bool enabled);
 
   // Called when the side panel state has changed for an extensions side panel
   // to pop out button reflecting the side panel being open.
@@ -234,14 +239,8 @@ class ExtensionsToolbarContainer : public ToolbarIconContainerView,
     std::string extension_id;
   };
 
-  // Check if the extensions menu is showing.
-  // TODO(crbug.com/1279986): This method will be removed once extensions menu
-  // under kExtensionsMenuAccessControl feature is fully rolled out and we can
-  // call directly into the menu coordinator.
-  bool IsExtensionsMenuShowing() const;
-
   // Hides the currently-showing extensions menu, if it exists.
-  // TODO(crbug.com/1279986): This method will be removed once extensions menu
+  // TODO(crbug.com/40811196): This method will be removed once extensions menu
   // under kExtensionsMenuAccessControl feature is fully rolled out and we can
   // call directly into the menu coordinator.
   void HideExtensionsMenu();
@@ -265,8 +264,8 @@ class ExtensionsToolbarContainer : public ToolbarIconContainerView,
   void CreateActionForId(const ToolbarActionsModel::ActionId& action_id);
 
   // Sorts child views to display them in the correct order (pinned actions,
-  // popped out actions, extensions button).
-  void ReorderViews();
+  // popped out actions, other buttons).
+  void ReorderAllChildViews();
 
   // Utility function for going from width to icon counts.
   size_t WidthToIconCount(int x_offset);
@@ -277,9 +276,6 @@ class ExtensionsToolbarContainer : public ToolbarIconContainerView,
   void SetExtensionIconVisibility(ToolbarActionsModel::ActionId id,
                                   bool visible);
 
-  // Calls SetVisible() with ShouldContainerBeVisible().
-  void UpdateContainerVisibility();
-
   // Returns whether the contianer should be showing, e.g. not if there are no
   // extensions installed, nor if the container is inactive in kAutoHide mode.
   bool ShouldContainerBeVisible() const;
@@ -288,20 +284,8 @@ class ExtensionsToolbarContainer : public ToolbarIconContainerView,
   // animation ends.
   void UpdateContainerVisibilityAfterAnimation();
 
-  // Maybe displays the In-Product-Help with a specific priority order.
-  void MaybeShowIPH();
-
   // Triggers the side panel to close.
   void CloseSidePanelButtonPressed();
-
-  // TabStripModelObserver:
-  void OnTabStripModelChanged(
-      TabStripModel* tab_strip_model,
-      const TabStripModelChange& change,
-      const TabStripSelectionChange& selection) override;
-  void TabChangedAt(content::WebContents* contents,
-                    int index,
-                    TabChangeType change_type) override;
 
   // views::WidgetObserver:
   void OnWidgetDestroying(views::Widget* widget) override;
@@ -333,10 +317,8 @@ class ExtensionsToolbarContainer : public ToolbarIconContainerView,
 
   const raw_ptr<ExtensionsToolbarButton, AcrossTasksDanglingUntriaged>
       extensions_button_;
-  raw_ptr<ExtensionsRequestAccessButton> request_access_button_ = nullptr;
-
-  // TODO(crbug.com/1511762): Remove controls.
-  std::unique_ptr<ExtensionsToolbarControls> extensions_controls_ = nullptr;
+  raw_ptr<ExtensionsRequestAccessButton, DanglingUntriaged>
+      request_access_button_ = nullptr;
 
   DisplayMode display_mode_;
 
@@ -361,7 +343,7 @@ class ExtensionsToolbarContainer : public ToolbarIconContainerView,
   raw_ptr<ToolbarButton> close_side_panel_button_ = nullptr;
   // Used to ensure the button remains highlighted while active.
   std::optional<views::Button::ScopedAnchorHighlight>
-      close_side_panel_button_anchor_higlight_;
+      close_side_panel_button_anchor_highlight_;
 
   // The widgets currently popped out and, for each, the extension it is
   // associated with. See AnchoredWidget.

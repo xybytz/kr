@@ -14,8 +14,12 @@ import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Pair;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
 import org.chromium.components.webapk.lib.common.WebApkMetaDataKeys;
 import org.chromium.webapk.lib.common.WebApkConstants;
+import org.chromium.webapk.shell_apk.HostBrowserUtils.PackageNameAndComponentName;
 
 import java.util.ArrayList;
 import java.util.Locale;
@@ -23,8 +27,7 @@ import java.util.Locale;
 /** Convenience wrapper for parameters to {@link HostBrowserLauncher} methods. */
 public class HostBrowserLauncherParams {
     private boolean mIsNewStyleWebApk;
-    private String mHostBrowserPackageName;
-    private int mHostBrowserMajorChromiumVersion;
+    @NonNull private PackageNameAndComponentName mHostBrowserPackageNameAndComponentName;
     private boolean mDialogShown;
     private Intent mOriginalIntent;
     private String mStartUrl;
@@ -41,16 +44,13 @@ public class HostBrowserLauncherParams {
     public static HostBrowserLauncherParams createForIntent(
             Context context,
             Intent intent,
-            String hostBrowserPackageName,
+            @NonNull PackageNameAndComponentName hostBrowserPackageNameAndComponentName,
             boolean dialogShown,
             long launchTimeMs,
             long splashShownTimeMs) {
         Bundle metadata = WebApkUtils.readMetaData(context);
         if (metadata == null) return null;
 
-        int hostBrowserMajorChromiumVersion =
-                HostBrowserUtils.queryHostBrowserMajorChromiumVersion(
-                        context, hostBrowserPackageName);
         long intentLaunchTimeMs = intent.getLongExtra(WebApkConstants.EXTRA_WEBAPK_LAUNCH_TIME, -1);
         if (intentLaunchTimeMs > 0) {
             launchTimeMs = intentLaunchTimeMs;
@@ -106,8 +106,7 @@ public class HostBrowserLauncherParams {
 
         return new HostBrowserLauncherParams(
                 isNewStyleWebApk,
-                hostBrowserPackageName,
-                hostBrowserMajorChromiumVersion,
+                hostBrowserPackageNameAndComponentName,
                 dialogShown,
                 intent,
                 startUrl,
@@ -230,8 +229,7 @@ public class HostBrowserLauncherParams {
 
     private HostBrowserLauncherParams(
             boolean isNewStyleWebApk,
-            String hostBrowserPackageName,
-            int hostBrowserMajorChromiumVersion,
+            @NonNull PackageNameAndComponentName hostBrowserPackageNameAndComponentName,
             boolean dialogShown,
             Intent originalIntent,
             String startUrl,
@@ -241,8 +239,7 @@ public class HostBrowserLauncherParams {
             long splashShownTimeMs,
             String selectedShareTargetActivityClassName) {
         mIsNewStyleWebApk = isNewStyleWebApk;
-        mHostBrowserPackageName = hostBrowserPackageName;
-        mHostBrowserMajorChromiumVersion = hostBrowserMajorChromiumVersion;
+        mHostBrowserPackageNameAndComponentName = hostBrowserPackageNameAndComponentName;
         mDialogShown = dialogShown;
         mOriginalIntent = originalIntent;
         mStartUrl = startUrl;
@@ -261,17 +258,14 @@ public class HostBrowserLauncherParams {
         return mIsNewStyleWebApk;
     }
 
-    /** Returns the chosen host browser. */
-    public String getHostBrowserPackageName() {
-        return mHostBrowserPackageName;
+    /** Returns the chosen host browser Package Name. */
+    public @NonNull String getHostBrowserPackageName() {
+        return mHostBrowserPackageNameAndComponentName.getPackageName();
     }
 
-    /**
-     * Returns the major version of the host browser. Currently, only Chromium host browsers (Chrome
-     * Canary, Chrome Dev ...) are supported.
-     */
-    public int getHostBrowserMajorChromiumVersion() {
-        return mHostBrowserMajorChromiumVersion;
+    /** Returns the chosen host browser Component Name. */
+    public @Nullable ComponentName getHostBrowserComponentName() {
+        return mHostBrowserPackageNameAndComponentName.getComponentName();
     }
 
     /** Returns whether the choose-host-browser dialog was shown. */

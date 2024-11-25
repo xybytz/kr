@@ -108,6 +108,9 @@ class COMPONENT_EXPORT(UI_BASE_IME_ASH) MockInputMethodManager
   void ActivateInputMethodMenuItem(const std::string& key) override;
   void ConnectInputEngineManager(
       mojo::PendingReceiver<ime::mojom::InputEngineManager> receiver) override;
+  void BindInputMethodUserDataService(
+      mojo::PendingReceiver<ime::mojom::InputMethodUserDataService> receiver)
+      override;
   bool IsISOLevel5ShiftUsedByCurrentInputMethod() const override;
   bool IsAltGrUsedByCurrentInputMethod() const override;
   bool ArePositionalShortcutsUsedByCurrentInputMethod() const override;
@@ -117,7 +120,8 @@ class COMPONENT_EXPORT(UI_BASE_IME_ASH) MockInputMethodManager
   bool IsLoginKeyboard(const std::string& layout) const override;
   std::string GetMigratedInputMethodID(
       const std::string& input_method_id) override;
-  bool MigrateInputMethods(std::vector<std::string>* input_method_ids) override;
+  bool GetMigratedInputMethodIDs(
+      std::vector<std::string>* input_method_ids) override;
   scoped_refptr<InputMethodManager::State> CreateNewState(
       Profile* profile) override;
   scoped_refptr<InputMethodManager::State> GetActiveIMEState() override;

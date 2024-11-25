@@ -53,7 +53,7 @@ public class TrustedWebActivityBrowserControlsVisibilityManagerTest {
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
-        SecurityStateModelJni.TEST_HOOKS.setInstanceForTesting(mSecurityStateMocks);
+        SecurityStateModelJni.setInstanceForTesting(mSecurityStateMocks);
         when(mTabProvider.getTab()).thenReturn(mTab);
         doReturn(Tab.INVALID_TAB_ID).when(mTab).getParentId();
         setTabSecurityLevel(ConnectionSecurityLevel.NONE);
@@ -126,11 +126,9 @@ public class TrustedWebActivityBrowserControlsVisibilityManagerTest {
 
     private BrowserServicesIntentDataProvider buildWebApkIntentDataProvider(
             @DisplayMode.EnumType int displayMode) {
-        WebApkIntentDataProviderBuilder intentDataProviderBuilder =
-                new WebApkIntentDataProviderBuilder(
-                        "org.chromium.webapk.abcd", "https://pwa.rocks/");
-        intentDataProviderBuilder.setDisplayMode(displayMode);
-        return intentDataProviderBuilder.build();
+        return new WebApkIntentDataProviderBuilder("org.chromium.webapk.abcd", "https://pwa.rocks/")
+                .setDisplayMode(displayMode)
+                .build();
     }
 
     private TrustedWebActivityBrowserControlsVisibilityManager buildController(

@@ -29,8 +29,9 @@ import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
-import org.chromium.chrome.browser.searchwidget.SearchActivity;
+import org.chromium.chrome.browser.searchwidget.SearchActivityClientImpl;
 import org.chromium.chrome.browser.ui.quickactionsearchwidget.QuickActionSearchWidgetProviderDelegate;
+import org.chromium.chrome.browser.ui.searchactivityutils.SearchActivityExtras.IntentOrigin;
 import org.chromium.chrome.browser.ui.searchactivityutils.SearchActivityPreferencesManager;
 import org.chromium.chrome.browser.ui.searchactivityutils.SearchActivityPreferencesManager.SearchActivityPreferences;
 import org.chromium.components.embedder_support.util.UrlConstants;
@@ -57,7 +58,13 @@ public abstract class QuickActionSearchWidgetProvider extends AppWidgetProvider 
                 int areaWidthDp,
                 int areaHeightDp) {
             return getDelegate()
-                    .createSearchWidgetRemoteViews(context, prefs, areaWidthDp, areaHeightDp);
+                    .createSearchWidgetRemoteViews(
+                            context,
+                            new SearchActivityClientImpl(
+                                    context, IntentOrigin.QUICK_ACTION_SEARCH_WIDGET),
+                            prefs,
+                            areaWidthDp,
+                            areaHeightDp);
         }
     }
 
@@ -95,7 +102,13 @@ public abstract class QuickActionSearchWidgetProvider extends AppWidgetProvider 
                 int areaWidthDp,
                 int areaHeightDp) {
             return getDelegate()
-                    .createDinoWidgetRemoteViews(context, prefs, areaWidthDp, areaHeightDp);
+                    .createDinoWidgetRemoteViews(
+                            context,
+                            new SearchActivityClientImpl(
+                                    context, IntentOrigin.QUICK_ACTION_SEARCH_WIDGET),
+                            prefs,
+                            areaWidthDp,
+                            areaHeightDp);
         }
     }
 
@@ -148,7 +161,6 @@ public abstract class QuickActionSearchWidgetProvider extends AppWidgetProvider 
         if (sDelegate != null) return sDelegate;
 
         Context context = ContextUtils.getApplicationContext();
-        ComponentName searchActivityComponent = new ComponentName(context, SearchActivity.class);
         Intent trustedIncognitoIntent =
                 IntentHandler.createTrustedOpenNewTabIntent(context, /* incognito= */ true);
         trustedIncognitoIntent.putExtra(IntentHandler.EXTRA_INVOKED_FROM_APP_WIDGET, true);
@@ -158,7 +170,7 @@ public abstract class QuickActionSearchWidgetProvider extends AppWidgetProvider 
 
         sDelegate =
                 new QuickActionSearchWidgetProviderDelegate(
-                        context, searchActivityComponent, trustedIncognitoIntent, dinoIntent);
+                        context, trustedIncognitoIntent, dinoIntent);
         return sDelegate;
     }
 

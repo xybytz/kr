@@ -7,9 +7,65 @@ import {FakeMethodResolver} from 'chrome://resources/ash/common/fake_method_reso
 import {FakeObservables} from 'chrome://resources/ash/common/fake_observables.js';
 import {FilePath} from 'chrome://resources/mojo/mojo/public/mojom/base/file_path.mojom-webui.js';
 
-import {CalibrationComponentStatus, CalibrationObserverRemote, CalibrationOverallStatus, CalibrationSetupInstruction, CalibrationStatus, Component, ComponentType, ErrorObserverRemote, ExternalDiskStateObserverRemote, FeatureLevel, FinalizationError, FinalizationObserverRemote, FinalizationStatus, HardwareVerificationStatusObserverRemote, HardwareWriteProtectionStateObserverRemote, OsUpdateObserverRemote, OsUpdateOperation, PowerCableStateObserverRemote, ProvisioningError, ProvisioningObserverRemote, ProvisioningStatus, RmadErrorCode, Shimless3pDiagnosticsAppInfo, ShimlessRmaServiceInterface, Show3pDiagnosticsAppResult, State, StateResult, UpdateErrorCode, UpdateRoFirmwareObserverRemote, UpdateRoFirmwareStatus, WriteProtectDisableCompleteAction} from './shimless_rma.mojom-webui.js';
+import {CalibrationComponentStatus, CalibrationObserverRemote, CalibrationOverallStatus, CalibrationSetupInstruction, CalibrationStatus, Component, ComponentType, ErrorObserverRemote, ExternalDiskStateObserverRemote, FeatureLevel, FinalizationError, FinalizationObserverRemote, FinalizationStatus, HardwareVerificationStatusObserverRemote, HardwareWriteProtectionStateObserverRemote, OsUpdateObserverRemote, OsUpdateOperation, PowerCableStateObserverRemote, ProvisioningError, ProvisioningObserverRemote, ProvisioningStatus, RmadErrorCode, Shimless3pDiagnosticsAppInfo, ShimlessRmaServiceInterface, Show3pDiagnosticsAppResult, ShutdownMethod, State, StateResult, UpdateErrorCode, UpdateRoFirmwareObserverRemote, UpdateRoFirmwareStatus, WriteProtectDisableCompleteAction} from './shimless_rma.mojom-webui.js';
 
-export class FakeShimlessRmaService implements ShimlessRmaServiceInterface {
+
+/**
+ * Type for methods needed for the fake FakeShimlessRmaService implementation.
+ */
+export type FakeShimlessRmaServiceInterface = ShimlessRmaServiceInterface&{
+  setStates(states: StateResult[]): void,
+  setAsyncOperationDelayMs(delayMs: number): void,
+  setAbortRmaResult(error: RmadErrorCode): void,
+  enableAutomaticallyTriggerProvisioningObservation(): void,
+  getCurrentOsVersion(): void,
+  setCheckForOsUpdatesResult(version: string): void,
+  setUpdateOsResult(started: boolean): void,
+  setGetRsuDisableWriteProtectChallengeResult(challenge: string): void,
+  enableAutomaticallyTriggerDisableWriteProtectionObservation(): void,
+  setGetPowerwashRequiredResult(powerwashRequired: boolean): void,
+  setSaveLogResult(savePath: FilePath): void,
+  enableAutomaticallyTriggerHardwareVerificationStatusObservation(): void,
+  setGetCurrentOsVersionResult(version: string|null): void,
+  setGetComponentListResult(components: Component[]): void,
+  setGetRsuDisableWriteProtectHwidResult(hwid: string): void,
+  getRsuDisableWriteProtectChallengeQrCode(): Promise<{qrCodeData: number[]}>,
+  setGetRsuDisableWriteProtectChallengeQrCodeResponse(qrCodeData: number[]):
+      void,
+  setGetLogResult(log: string): void,
+  enableAutomaticallyTriggerFinalizationObservation(): void,
+  enableAutomaticallyTriggerOsUpdateObservation(): void,
+  setGetWriteProtectDisableCompleteAction(
+      action: WriteProtectDisableCompleteAction): void,
+  getWriteProtectDisableCompleteAction():
+      Promise<{action: WriteProtectDisableCompleteAction}>,
+  getOriginalSerialNumber(): Promise<{serialNumber: string}>,
+  setGetOriginalSerialNumberResult(serialNumber: string): void,
+  getRegionList(): Promise<{regions: string[]}>,
+  setGetRegionListResult(regions: string[]): void,
+  getCalibrationComponentList():
+      Promise<{components: CalibrationComponentStatus[]}>,
+  setGetCalibrationComponentListResult(
+      components: CalibrationComponentStatus[]): void,
+  setGetSkuListResult(skus: bigint[]): void,
+  setGetSkuDescriptionListResult(skuDescriptions: string[]): void,
+  enableAautomaticallyTriggerUpdateRoFirmwareObservation(): void,
+  setGetOriginalSkuResult(skuIndex: number): void,
+  enableAutomaticallyTriggerCalibrationObservation(): void,
+  getCustomLabelList(): Promise<{customLabels: string[]}>,
+  enableAutomaticallyTriggerPowerCableStateObservation(): void,
+  setGetOriginalRegionResult(regionIndex: number): void,
+  setGetCustomLabelListResult(customLabels: string[]): void,
+  setGetOriginalCustomLabelResult(customLabelIndex: number): void,
+  getOriginalDramPartNumber(): Promise<{dramPartNumber: string}>,
+  setGetOriginalDramPartNumberResult(dramPartNumber: string): void,
+  setGetOriginalFeatureLevelResult(featureLevel: FeatureLevel): void,
+  setGetCalibrationSetupInstructionsResult(
+      instructions: CalibrationSetupInstruction): void,
+};
+
+
+export class FakeShimlessRmaService implements FakeShimlessRmaServiceInterface {
   constructor() {
     this.methods = new FakeMethodResolver();
     this.observables = new FakeObservables();
@@ -256,7 +312,8 @@ export class FakeShimlessRmaService implements ShimlessRmaServiceInterface {
         'setDifferentOwner', State.kChooseDestination);
   }
 
-  setWipeDevice(): Promise<{stateResult: StateResult}> {
+  setWipeDevice(_shouldWipeDevice: boolean):
+      Promise<{stateResult: StateResult}> {
     return this.getNextStateForMethod('setWipeDevice', State.kChooseWipeDevice);
   }
 
@@ -269,15 +326,15 @@ export class FakeShimlessRmaService implements ShimlessRmaServiceInterface {
         'manualDisableWriteProtectAvailable', {available: available});
   }
 
-  chooseManuallyDisableWriteProtect(): Promise<{stateResult: StateResult}> {
+  setManuallyDisableWriteProtect(): Promise<{stateResult: StateResult}> {
     return this.getNextStateForMethod(
-        'chooseManuallyDisableWriteProtect',
+        'setManuallyDisableWriteProtect',
         State.kChooseWriteProtectDisableMethod);
   }
 
-  chooseRsuDisableWriteProtect(): Promise<{stateResult: StateResult}> {
+  setRsuDisableWriteProtect(): Promise<{stateResult: StateResult}> {
     return this.getNextStateForMethod(
-        'chooseRsuDisableWriteProtect', State.kChooseWriteProtectDisableMethod);
+        'setRsuDisableWriteProtect', State.kChooseWriteProtectDisableMethod);
   }
 
   getRsuDisableWriteProtectChallenge(): Promise<{challenge: string}> {
@@ -307,7 +364,8 @@ export class FakeShimlessRmaService implements ShimlessRmaServiceInterface {
         'getRsuDisableWriteProtectChallengeQrCode', {qrCodeData: qrCodeData});
   }
 
-  setRsuDisableWriteProtectCode(): Promise<{stateResult: StateResult}> {
+  setRsuDisableWriteProtectCode(_code: string):
+      Promise<{stateResult: StateResult}> {
     return this.getNextStateForMethod(
         'setRsuDisableWriteProtectCode', State.kEnterRSUWPDisableCode);
   }
@@ -342,7 +400,8 @@ export class FakeShimlessRmaService implements ShimlessRmaServiceInterface {
     this.components = components;
   }
 
-  setComponentList(): Promise<{stateResult: StateResult}> {
+  setComponentList(_components: Component[]):
+      Promise<{stateResult: StateResult}> {
     return this.getNextStateForMethod(
         'setComponentList', State.kSelectComponents);
   }
@@ -490,7 +549,8 @@ export class FakeShimlessRmaService implements ShimlessRmaServiceInterface {
    * The fake does not use the status list parameter, the fake data is never
    * updated.
    */
-  startCalibration(): Promise<{stateResult: StateResult}> {
+  startCalibration(_components: CalibrationComponentStatus[]):
+      Promise<{stateResult: StateResult}> {
     return this.getNextStateForMethod(
         'startCalibration', State.kCheckCalibration);
   }
@@ -569,7 +629,7 @@ export class FakeShimlessRmaService implements ShimlessRmaServiceInterface {
    * The fake does not use the status list parameter, the fake data is never
    * updated.
    */
-  endRma(): Promise<{stateResult: StateResult}> {
+  endRma(_shutdownMethod: ShutdownMethod): Promise<{stateResult: StateResult}> {
     return this.getNextStateForMethod('endRma', State.kRepairComplete);
   }
 
@@ -596,20 +656,21 @@ export class FakeShimlessRmaService implements ShimlessRmaServiceInterface {
     this.methods.setResult('get3pDiagnosticsProvider', {provider});
   }
 
-  getInstallable3pDiagnosticsAppPath(): Promise<{appPath: FilePath}> {
+  getInstallable3pDiagnosticsAppPath(): Promise<{appPath: FilePath | null}> {
     return this.methods.resolveMethod('getInstallable3pDiagnosticsAppPath');
   }
 
-  setInstallable3pDiagnosticsAppPath(appPath: FilePath): void {
+  setInstallable3pDiagnosticsAppPath(appPath: FilePath|null): void {
     this.methods.setResult('getInstallable3pDiagnosticsAppPath', {appPath});
   }
 
   installLastFound3pDiagnosticsApp():
-      Promise<{appInfo: Shimless3pDiagnosticsAppInfo}> {
+      Promise<{appInfo: Shimless3pDiagnosticsAppInfo | null}> {
     return this.methods.resolveMethod('installLastFound3pDiagnosticsApp');
   }
 
-  setInstallLastFound3pDiagnosticsApp(appInfo: Shimless3pDiagnosticsAppInfo): void {
+  setInstallLastFound3pDiagnosticsApp(appInfo: Shimless3pDiagnosticsAppInfo|
+                                      null): void {
     this.methods.setResult('installLastFound3pDiagnosticsApp', {appInfo});
   }
 
@@ -618,13 +679,18 @@ export class FakeShimlessRmaService implements ShimlessRmaServiceInterface {
     return Promise.resolve();
   }
 
-  getLastCompleteLast3pDiagnosticsInstallationApproval(): boolean|null {
-    return this.lastCompleteLast3pDiagnosticsInstallationApproval;
+  getLastCompleteLast3pDiagnosticsInstallationApproval(): boolean {
+    assert(this.lastCompleteLast3pDiagnosticsInstallationApproval !== null);
+    return this.lastCompleteLast3pDiagnosticsInstallationApproval as boolean;
   }
 
   show3pDiagnosticsApp(): Promise<{result: Show3pDiagnosticsAppResult}> {
     this.wasShow3pDiagnosticsAppCalled = true;
     return this.methods.resolveMethod('show3pDiagnosticsApp');
+  }
+
+  getWasShow3pDiagnosticsAppCalled(): boolean {
+    return this.wasShow3pDiagnosticsAppCalled;
   }
 
   setShow3pDiagnosticsAppResult(result: Show3pDiagnosticsAppResult): void {
@@ -1069,7 +1135,9 @@ export class FakeShimlessRmaService implements ShimlessRmaServiceInterface {
     this.setSaveLogResult({'path': ''});
 
     this.lastCompleteLast3pDiagnosticsInstallationApproval = null;
+    this.wasShow3pDiagnosticsAppCalled = false;
     this.setGet3pDiagnosticsProviderResult(null);
+    this.setAsyncOperationDelayMs(/* delayMs= */ 0);
   }
 
   /**
@@ -1100,8 +1168,8 @@ export class FakeShimlessRmaService implements ShimlessRmaServiceInterface {
     this.methods.register('setDifferentOwner');
     this.methods.register('setWipeDevice');
 
-    this.methods.register('chooseManuallyDisableWriteProtect');
-    this.methods.register('chooseRsuDisableWriteProtect');
+    this.methods.register('setManuallyDisableWriteProtect');
+    this.methods.register('setRsuDisableWriteProtect');
     this.methods.register('getRsuDisableWriteProtectChallenge');
     this.methods.register('getRsuDisableWriteProtectHwid');
     this.methods.register('getRsuDisableWriteProtectChallengeQrCode');
@@ -1213,11 +1281,6 @@ export class FakeShimlessRmaService implements ShimlessRmaServiceInterface {
     } else {
       // Success.
       this.stateIndex++;
-      if (method === 'chooseManuallyDisableWriteProtect') {
-        // A special case so that choosing manual WP disable sends you to the
-        // appropriate page in the fake app.
-        this.stateIndex++;
-      }
       const state = this.states[this.stateIndex];
       this.setFakeStateForMethod(
           method, state.state, state.canExit, state.canGoBack, state.error);

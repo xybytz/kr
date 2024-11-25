@@ -5,6 +5,8 @@
 #include "components/autofill/core/browser/data_model/contact_info.h"
 
 #include <stddef.h>
+
+#include <memory>
 #include <ostream>
 #include <string>
 
@@ -15,8 +17,11 @@
 #include "components/autofill/core/browser/autofill_data_util.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
+#include "components/autofill/core/browser/data_model/autofill_structured_address_component.h"
+#include "components/autofill/core/browser/data_model/autofill_structured_address_name.h"
 #include "components/autofill/core/browser/data_model/autofill_structured_address_utils.h"
 #include "components/autofill/core/browser/data_model/form_group.h"
+#include "components/autofill/core/browser/field_type_utils.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_l10n_util.h"
@@ -24,19 +29,9 @@
 
 namespace autofill {
 
-namespace {
-
-// Factory for the structured tree to be used in NameInfo.
-std::unique_ptr<AddressComponent> CreateStructuredNameTree() {
-  if (HonorificPrefixEnabled()) {
-    return std::make_unique<NameFullWithPrefix>();
-  }
-  return std::make_unique<NameFull>();
-}
-
-}  // namespace
-
-NameInfo::NameInfo() : name_(CreateStructuredNameTree()) {}
+NameInfo::NameInfo()
+    : name_(std::make_unique<NameFull>()),
+      alternative_name_(std::make_unique<AlternativeFullName>()) {}
 
 NameInfo::NameInfo(const NameInfo& info) : NameInfo() {
   *this = info;
@@ -44,64 +39,89 @@ NameInfo::NameInfo(const NameInfo& info) : NameInfo() {
 
 NameInfo::~NameInfo() = default;
 
+NameInfo::NameInfo(std::unique_ptr<NameFull> name,
+                   std::unique_ptr<AlternativeFullName> alternative_name)
+    : name_(std::move(name)), alternative_name_(std::move(alternative_name)) {}
+
 NameInfo& NameInfo::operator=(const NameInfo& info) {
   if (this == &info)
     return *this;
 
   name_->CopyFrom(*info.name_);
+  alternative_name_->CopyFrom(*info.alternative_name_);
 
   return *this;
 }
 
 bool NameInfo::MergeStructuredName(const NameInfo& newer) {
-  return name_->MergeWithComponent(newer.GetStructuredName());
+  if (name_->MergeWithComponent(newer.GetStructuredName())) {
+    if (base::FeatureList::IsEnabled(
+            features::kAutofillSupportPhoneticNameForJP)) {
+      return alternative_name_->MergeWithComponent(
+          newer.GetStructuredAlternativeName());
+    }
+    return true;
+  }
+  return false;
 }
 
 void NameInfo::MergeStructuredNameValidationStatuses(const NameInfo& newer) {
   name_->MergeVerificationStatuses(newer.GetStructuredName());
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSupportPhoneticNameForJP)) {
+    alternative_name_->MergeVerificationStatuses(
+        newer.GetStructuredAlternativeName());
+  }
 }
 
 bool NameInfo::IsStructuredNameMergeable(const NameInfo& newer) const {
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSupportPhoneticNameForJP)) {
+    return name_->IsMergeableWithComponent(newer.GetStructuredName()) &&
+           alternative_name_->IsMergeableWithComponent(
+               newer.GetStructuredAlternativeName());
+  }
   return name_->IsMergeableWithComponent(newer.GetStructuredName());
 }
 
 bool NameInfo::FinalizeAfterImport() {
   name_->MigrateLegacyStructure();
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSupportPhoneticNameForJP)) {
+    return name_->CompleteFullTree() && alternative_name_->CompleteFullTree();
+  }
   return name_->CompleteFullTree();
 }
 
 bool NameInfo::operator==(const NameInfo& other) const {
   if (this == &other)
     return true;
-
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSupportPhoneticNameForJP)) {
+    return name_->SameAs(*other.name_) &&
+           alternative_name_->SameAs(*other.alternative_name_);
+  }
   return name_->SameAs(*other.name_);
 }
 
 std::u16string NameInfo::GetRawInfo(FieldType type) const {
   DCHECK_EQ(FieldTypeGroup::kName, GroupTypeOfFieldType(type));
-
-  // TODO(crbug.com/1141460): Remove once honorific prefixes are launched.
-  if (type == NAME_FULL_WITH_HONORIFIC_PREFIX && !HonorificPrefixEnabled()) {
-    type = NAME_FULL;
-  }
-    // Without the second generation of the structured name tree, honorific
-    // prefixes and the name including the prefix are unsupported types.
-  if (type == NAME_HONORIFIC_PREFIX && !HonorificPrefixEnabled()) {
-    return std::u16string();
-  }
-
-    return name_->GetValueForType(type);
+  return GetNodeForType(type)->GetValueForType(type);
 }
 
 void NameInfo::SetRawInfoWithVerificationStatus(FieldType type,
                                                 const std::u16string& value,
                                                 VerificationStatus status) {
   DCHECK_EQ(FieldTypeGroup::kName, GroupTypeOfFieldType(type));
-  name_->SetValueForType(type, value, status);
+  GetNodeForType(type)->SetValueForType(type, value, status);
 }
 
 void NameInfo::GetSupportedTypes(FieldTypeSet* supported_types) const {
   name_->GetSupportedTypes(supported_types);
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSupportPhoneticNameForJP)) {
+    alternative_name_->GetSupportedTypes(supported_types);
+  }
 }
 
 std::u16string NameInfo::GetInfoImpl(const AutofillType& type,
@@ -113,36 +133,43 @@ bool NameInfo::SetInfoWithVerificationStatusImpl(const AutofillType& type,
                                                  const std::u16string& value,
                                                  const std::string& app_locale,
                                                  VerificationStatus status) {
-  if (type.GetStorableType() == NAME_FULL) {
+  if (type.GetStorableType() == NAME_FULL ||
+      (type.GetStorableType() == ALTERNATIVE_FULL_NAME &&
+       base::FeatureList::IsEnabled(
+           features::kAutofillSupportPhoneticNameForJP))) {
     // If the set string is token equivalent to the old one, the value can
     // just be updated, otherwise create a new name record and complete it in
     // the end.
-    // TODO(1440504): Move this logic to the data model.
-    AreStringTokenEquivalent(value, name_->GetValueForType(NAME_FULL))
-        ? name_->SetValueForType(type.GetStorableType(), value, status)
-        : name_->SetValueForTypeAndResetSubstructure(type.GetStorableType(),
-                                                     value, status);
+    // TODO(crbug.com/40266145): Move this logic to the data model.
+    AreStringTokenEquivalent(value,
+                             GetNodeForType(type.GetStorableType())
+                                 ->GetValueForType(type.GetStorableType()))
+        ? GetNodeForType(type.GetStorableType())
+              ->SetValueForType(type.GetStorableType(), value, status)
+        : GetNodeForType(type.GetStorableType())
+              ->SetValueForTypeAndResetSubstructure(type.GetStorableType(),
+                                                    value, status);
     return true;
   }
   return FormGroup::SetInfoWithVerificationStatusImpl(type, value, app_locale,
                                                       status);
 }
 
-void NameInfo::GetMatchingTypes(const std::u16string& text,
-                                const std::string& app_locale,
-                                FieldTypeSet* matching_types) const {
-  FormGroup::GetMatchingTypes(text, app_locale, matching_types);
-  // Replace type matches for |NAME_FULL_WITH_HONORIFIC_PREFIX| with |NAME_FULL|
-  // to always vote for a full name field even if the user decides to add an
-  // additional honorific prefix to their name.
-  if (matching_types->contains(NAME_FULL_WITH_HONORIFIC_PREFIX)) {
-    matching_types->erase(NAME_FULL_WITH_HONORIFIC_PREFIX);
-    matching_types->insert(NAME_FULL);
-  }
+VerificationStatus NameInfo::GetVerificationStatusImpl(FieldType type) const {
+  return GetNodeForType(type)->GetVerificationStatusForType(type);
 }
 
-VerificationStatus NameInfo::GetVerificationStatusImpl(FieldType type) const {
-  return name_->GetVerificationStatusForType(type);
+AddressComponent* NameInfo::GetNodeForType(FieldType field_type) {
+  return const_cast<AddressComponent*>(
+      const_cast<const NameInfo*>(this)->GetNodeForType(field_type));
+}
+
+const AddressComponent* NameInfo::GetNodeForType(FieldType field_type) const {
+  DCHECK_EQ(FieldTypeGroup::kName, GroupTypeOfFieldType(field_type));
+  if (IsAlternativeNameType(field_type)) {
+    return alternative_name_.get();
+  }
+  return name_.get();
 }
 
 EmailInfo::EmailInfo() = default;
@@ -198,11 +225,14 @@ void CompanyInfo::GetSupportedTypes(FieldTypeSet* supported_types) const {
   supported_types->insert(COMPANY_NAME);
 }
 
-void CompanyInfo::GetMatchingTypes(const std::u16string& text,
-                                   const std::string& app_locale,
-                                   FieldTypeSet* matching_types) const {
+void CompanyInfo::GetMatchingTypesWithProfileSources(
+    const std::u16string& text,
+    const std::string& app_locale,
+    FieldTypeSet* matching_types,
+    PossibleProfileValueSources* profile_value_sources) const {
   if (IsValid()) {
-    FormGroup::GetMatchingTypes(text, app_locale, matching_types);
+    FormGroup::GetMatchingTypesWithProfileSources(
+        text, app_locale, matching_types, profile_value_sources);
   } else if (text.empty()) {
     matching_types->insert(EMPTY_TYPE);
   }

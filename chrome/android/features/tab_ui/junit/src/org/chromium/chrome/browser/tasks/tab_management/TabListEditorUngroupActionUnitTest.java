@@ -4,6 +4,8 @@
 
 package org.chromium.chrome.browser.tasks.tab_management;
 
+import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -15,10 +17,10 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
@@ -26,18 +28,19 @@ import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tasks.tab_groups.TabGroupModelFilter;
+import org.chromium.chrome.browser.tabmodel.TabGroupModelFilter;
+import org.chromium.chrome.browser.tabmodel.TabUngrouper;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorAction.ActionDelegate;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorAction.ActionObserver;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorAction.ButtonType;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorAction.IconPosition;
 import org.chromium.chrome.browser.tasks.tab_management.TabListEditorAction.ShowMode;
 import org.chromium.chrome.tab_ui.R;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.tabmodel.MockTabModel;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -46,18 +49,19 @@ import java.util.Set;
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class TabListEditorUngroupActionUnitTest {
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
+    @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
 
     @Mock private SelectionDelegate<Integer> mSelectionDelegate;
     @Mock private TabGroupModelFilter mGroupFilter;
+    @Mock private TabUngrouper mTabUngrouper;
     @Mock private ActionDelegate mDelegate;
     @Mock private Profile mProfile;
+
     private MockTabModel mTabModel;
     private TabListEditorAction mAction;
 
     @Before
     public void setUp() {
-        MockitoAnnotations.initMocks(this);
         mAction =
                 TabListEditorUngroupAction.createAction(
                         RuntimeEnvironment.application,
@@ -66,6 +70,7 @@ public class TabListEditorUngroupActionUnitTest {
                         IconPosition.START);
         mTabModel = spy(new MockTabModel(mProfile, null));
         when(mGroupFilter.getTabModel()).thenReturn(mTabModel);
+        when(mGroupFilter.getTabUngrouper()).thenReturn(mTabUngrouper);
         mAction.configure(() -> mGroupFilter, mSelectionDelegate, mDelegate, false);
     }
 
@@ -105,13 +110,12 @@ public class TabListEditorUngroupActionUnitTest {
     @Test
     @SmallTest
     public void testUngroupActionWithTabs() throws Exception {
-        List<Integer> tabIds = new ArrayList<>();
-        tabIds.add(5);
-        tabIds.add(3);
-        tabIds.add(7);
+        List<Integer> tabIds = Arrays.asList(5, 3, 7);
+        List<Tab> tabs = new ArrayList<>();
         for (int id : tabIds) {
-            mTabModel.addTab(id);
+            tabs.add(mTabModel.addTab(id));
         }
+        when(mGroupFilter.getRelatedTabList(anyInt())).thenReturn(tabs);
         Set<Integer> tabIdsSet = new LinkedHashSet<>(tabIds);
         when(mSelectionDelegate.getSelectedItems()).thenReturn(tabIdsSet);
 
@@ -131,19 +135,16 @@ public class TabListEditorUngroupActionUnitTest {
                 };
         mAction.addActionObserver(observer);
 
-        Assert.assertTrue(mAction.perform());
-        for (int id : tabIds) {
-            verify(mGroupFilter).moveTabOutOfGroup(id);
-        }
+        assertTrue(mAction.perform());
+        verify(mTabUngrouper).ungroupTabs(tabs, /* trailing= */ true, /* allowDialog= */ true);
         verify(mDelegate).hideByAction();
 
-        helper.waitForFirst();
+        helper.waitForOnly();
         mAction.removeActionObserver(observer);
 
-        Assert.assertTrue(mAction.perform());
-        for (int id : tabIds) {
-            verify(mGroupFilter, times(2)).moveTabOutOfGroup(id);
-        }
+        assertTrue(mAction.perform());
+        verify(mTabUngrouper, times(2))
+                .ungroupTabs(tabs, /* trailing= */ true, /* allowDialog= */ true);
         verify(mDelegate, times(2)).hideByAction();
         Assert.assertEquals(1, helper.getCallCount());
     }

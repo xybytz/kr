@@ -5,6 +5,8 @@
 #ifndef UI_SHELL_DIALOGS_SELECT_FILE_DIALOG_LINUX_PORTAL_H_
 #define UI_SHELL_DIALOGS_SELECT_FILE_DIALOG_LINUX_PORTAL_H_
 
+#include <optional>
+
 #include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
@@ -18,6 +20,7 @@
 #include "ui/shell_dialogs/select_file_dialog_linux.h"
 
 namespace ui {
+
 using OnSelectFileExecutedCallback =
     base::OnceCallback<void(std::vector<base::FilePath> paths,
                             std::string current_filter)>;
@@ -40,8 +43,8 @@ class SelectFileDialogLinuxPortal : public SelectFileDialogLinux {
   // around program start.
   static void StartAvailabilityTestInBackground();
 
-  // Checks if the file chooser portal is available. Blocks if the availability
-  // test from above has not yet completed (which should generally not happen).
+  // Checks if the file chooser portal is available. Logs a warning if the
+  // availability test has not yet completed.
   static bool IsPortalAvailable();
 
   // Destroys the connection to the bus.
@@ -54,7 +57,6 @@ class SelectFileDialogLinuxPortal : public SelectFileDialogLinux {
   bool IsRunning(gfx::NativeWindow parent_window) const override;
 
   // SelectFileDialog implementation.
-  // |params| is user data we pass back via the Listener interface.
   void SelectFileImpl(Type type,
                       const std::u16string& title,
                       const base::FilePath& default_path,
@@ -62,7 +64,6 @@ class SelectFileDialogLinuxPortal : public SelectFileDialogLinux {
                       int file_type_index,
                       const base::FilePath::StringType& default_extension,
                       gfx::NativeWindow owning_window,
-                      void* params,
                       const GURL* caller) override;
 
   bool HasMultipleFileTypeChoicesImpl() override;
@@ -93,7 +94,7 @@ class SelectFileDialogLinuxPortal : public SelectFileDialogLinux {
     PortalFilterSet& operator=(PortalFilterSet&& other) = default;
 
     std::vector<PortalFilter> filters;
-    absl::optional<PortalFilter> default_filter;
+    std::optional<PortalFilter> default_filter;
   };
 
   // A wrapper over some shared contextual information that needs to be passed
@@ -142,7 +143,7 @@ class SelectFileDialogLinuxPortal : public SelectFileDialogLinux {
     void AppendOptions(dbus::MessageWriter* writer,
                        const std::string& response_handle_token,
                        const base::FilePath& default_path,
-                       const bool derfault_path_exists,
+                       const bool default_path_exists,
                        const PortalFilterSet& filter_set);
     void AppendFilterStruct(dbus::MessageWriter* writer,
                             const PortalFilter& filter);
@@ -176,8 +177,6 @@ class SelectFileDialogLinuxPortal : public SelectFileDialogLinux {
 
   // D-Bus configuration and initialization.
   static void CheckPortalAvailabilityOnBusThread();
-  static bool IsPortalRunningOnBusThread(dbus::ObjectProxy* dbus_proxy);
-  static bool IsPortalActivatableOnBusThread(dbus::ObjectProxy* dbus_proxy);
 
   // Returns a flag, written by the D-Bus thread and read by the UI thread,
   // indicating whether or not the availability test has completed.
@@ -202,10 +201,6 @@ class SelectFileDialogLinuxPortal : public SelectFileDialogLinux {
 
   // This should be used in the main thread.
   base::WeakPtr<aura::WindowTreeHost> host_;
-
-  // The untyped params to pass to the listener, it should be used in the main
-  // thread.
-  raw_ptr<void> listener_params_ = nullptr;
 
   // Data shared across main thread and D-Bus thread.
   scoped_refptr<DialogInfo> info_;

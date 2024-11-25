@@ -5,13 +5,17 @@
 #include "chrome/browser/picture_in_picture/auto_picture_in_picture_tab_helper.h"
 
 #include "base/feature_list.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "chrome/browser/permissions/permission_decision_auto_blocker_factory.h"
 #include "chrome/browser/picture_in_picture/auto_picture_in_picture_tab_strip_observer_helper.h"
+#include "chrome/browser/picture_in_picture/auto_pip_setting_helper.h"
 #include "chrome/browser/picture_in_picture/picture_in_picture_window_manager.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "chrome/browser/ui/recently_audible_helper.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/permissions/permission_decision_auto_blocker.h"
 #include "content/public/browser/media_session.h"
@@ -55,7 +59,9 @@ AutoPictureInPictureTabHelper::AutoPictureInPictureTabHelper(
   }
 }
 
-AutoPictureInPictureTabHelper::~AutoPictureInPictureTabHelper() = default;
+AutoPictureInPictureTabHelper::~AutoPictureInPictureTabHelper() {
+  StopAndResetAsyncTasks();
+}
 
 bool AutoPictureInPictureTabHelper::HasAutoPictureInPictureBeenRegistered()
     const {
@@ -64,6 +70,10 @@ bool AutoPictureInPictureTabHelper::HasAutoPictureInPictureBeenRegistered()
 
 void AutoPictureInPictureTabHelper::PrimaryPageChanged(content::Page& page) {
   has_ever_registered_for_auto_picture_in_picture_ = false;
+  // On navigation, forget any 'allow once' state.
+  auto_pip_setting_helper_.reset();
+
+  StopAndResetAsyncTasks();
 }
 
 void AutoPictureInPictureTabHelper::MediaPictureInPictureChanged(
@@ -102,9 +112,23 @@ void AutoPictureInPictureTabHelper::OnTabActivatedChanged(
     bool is_tab_activated) {
   is_tab_activated_ = is_tab_activated;
   if (is_tab_activated_) {
-    MaybeExitAutoPictureInPicture();
+    OnTabBecameActive();
   } else {
+    auto* active_contents = tab_strip_observer_helper_->GetActiveWebContents();
+    if (auto* active_tab_helper =
+            active_contents ? FromWebContents(active_contents) : nullptr) {
+      // There is a tab helper that's associated with the newly active contents.
+      // Since it's unclear whether we find out about the activation change
+      // before it does, notify it now.  This gives it the opportunity to close
+      // any auto-pip window it has before we try to autopip and find that
+      // there's a pip window already.  It's also possible that there is no pip
+      // window, or that it's not associated with the active tab, which is also
+      // fine.  Whatever the pip state is after this, we'll just believe it.
+      active_tab_helper->OnTabBecameActive();
+    }
+
     MaybeEnterAutoPictureInPicture();
+    MaybeScheduleAsyncTasks();
   }
 }
 
@@ -166,7 +190,44 @@ void AutoPictureInPictureTabHelper::MaybeEnterAutoPictureInPicture() {
   content::MediaSession::Get(web_contents())->EnterAutoPictureInPicture();
 }
 
+void AutoPictureInPictureTabHelper::MaybeScheduleAsyncTasks() {
+  if (!base::FeatureList::IsEnabled(
+          media::kAutoPictureInPictureForVideoPlayback)) {
+    return;
+  }
+
+  StopAndResetAsyncTasks();
+
+  // Prevent scheduling asynchronous checks if we are already in picture in
+  // picture, or a media session does not exist. Also prevent these checks if we
+  // are already eligible for auto picture in picture, since auto picture in
+  // picture requests will succeed anyways.
+  if (is_in_picture_in_picture_ ||
+      !(content::MediaSession::GetIfExists(web_contents())) ||
+      IsEligibleForAutoPictureInPicture()) {
+    return;
+  }
+
+  ScheduleAsyncVisibilityCheck();
+  ScheduleUrlSafetyCheck();
+}
+
+void AutoPictureInPictureTabHelper::StopAndResetAsyncTasks() {
+  if (!base::FeatureList::IsEnabled(
+          media::kAutoPictureInPictureForVideoPlayback)) {
+    return;
+  }
+
+  async_tasks_weak_factory_.InvalidateWeakPtrs();
+  safe_browsing_checker_client_.reset();
+
+  has_safe_url_ = false;
+  has_sufficiently_visible_video_ = false;
+}
+
 void AutoPictureInPictureTabHelper::MaybeExitAutoPictureInPicture() {
+  StopAndResetAsyncTasks();
+
   if (!is_in_auto_picture_in_picture_) {
     return;
   }
@@ -184,19 +245,15 @@ void AutoPictureInPictureTabHelper::MaybeStartOrStopObservingTabStrip() {
   }
 }
 
-bool AutoPictureInPictureTabHelper::IsEligibleForAutoPictureInPicture() const {
-  // The tab must either have playback or be using camera/microphone to autopip.
-  if (!HasSufficientPlayback() && !IsUsingCameraOrMicrophone()) {
+bool AutoPictureInPictureTabHelper::IsEligibleForAutoPictureInPicture() {
+  // Don't try to autopip if picture-in-picture is currently disabled.
+  if (PictureInPictureWindowManager::GetInstance()
+          ->IsPictureInPictureDisabled()) {
     return false;
   }
 
-  // The user may block autopip via a content setting. Also, if we're in an
-  // incognito window, then we should treat "ask" as "block".
-  ContentSetting setting = GetCurrentContentSetting();
-  if (setting == CONTENT_SETTING_BLOCK ||
-      (setting == CONTENT_SETTING_ASK &&
-       Profile::FromBrowserContext(web_contents()->GetBrowserContext())
-           ->IsIncognitoProfile())) {
+  // The tab must either have playback or be using camera/microphone to autopip.
+  if (!MeetsVideoPlaybackConditions() && !IsUsingCameraOrMicrophone()) {
     return false;
   }
 
@@ -211,29 +268,62 @@ bool AutoPictureInPictureTabHelper::IsEligibleForAutoPictureInPicture() const {
     return false;
   }
 
-  // Do not autopip if the tab is already in PiP.
-  if (is_in_picture_in_picture_) {
+  // Do not replace any PiP with autopip.  In the special case where the
+  // incoming active tab owns a pip window that will close as a result of the
+  // tab switch, it should have closed already by now.  Either it received a
+  // notification from its tab strip helper, or we notified it, depending on
+  // which one of us was notified by our respective tab strip helper.
+  if (PictureInPictureWindowManager::GetInstance()->GetWebContents() !=
+      nullptr) {
+    return false;
+  }
+
+  // Since nobody has a pip window, we shouldn't think we do.
+  CHECK(!is_in_picture_in_picture_);
+
+  // The user may block autopip via a content setting. Also, if we're in an
+  // incognito window, then we should treat "ask" as "block". This should be the
+  // final check before triggering autopip since it will record metrics about
+  // why autopip has been blocked.
+  ContentSetting setting = GetCurrentContentSetting();
+  if (setting == CONTENT_SETTING_BLOCK) {
+    EnsureAutoPipSettingHelper();
+    auto_pip_setting_helper_->OnAutoPipBlockedByPermission();
+    return false;
+  } else if (setting == CONTENT_SETTING_ASK &&
+             Profile::FromBrowserContext(web_contents()->GetBrowserContext())
+                 ->IsIncognitoProfile()) {
+    EnsureAutoPipSettingHelper();
+    auto_pip_setting_helper_->OnAutoPipBlockedByIncognito();
     return false;
   }
 
   return true;
 }
 
-bool AutoPictureInPictureTabHelper::HasSufficientPlayback() const {
+bool AutoPictureInPictureTabHelper::MeetsVideoPlaybackConditions() const {
   if (!base::FeatureList::IsEnabled(
           media::kAutoPictureInPictureForVideoPlayback)) {
     return false;
   }
 
-  // TODO(https://crbug.com/1464351): Make sure that there is a video that is
-  // large enough and visible.
-  return has_audio_focus_ && is_playing_;
+  return has_audio_focus_ && is_playing_ && WasRecentlyAudible() &&
+         has_safe_url_ && has_sufficiently_visible_video_;
 }
 
 bool AutoPictureInPictureTabHelper::IsUsingCameraOrMicrophone() const {
   return MediaCaptureDevicesDispatcher::GetInstance()
       ->GetMediaStreamCaptureIndicator()
       ->IsCapturingUserMedia(web_contents());
+}
+
+bool AutoPictureInPictureTabHelper::WasRecentlyAudible() const {
+  auto* audible_helper = RecentlyAudibleHelper::FromWebContents(web_contents());
+  if (!audible_helper) {
+    return false;
+  }
+
+  return audible_helper->WasRecentlyAudible();
 }
 
 ContentSetting AutoPictureInPictureTabHelper::GetCurrentContentSetting() const {
@@ -248,6 +338,68 @@ ContentSetting AutoPictureInPictureTabHelper::GetCurrentContentSetting() const {
   return setting;
 }
 
+void AutoPictureInPictureTabHelper::ScheduleAsyncVisibilityCheck() {
+  CHECK(!is_in_picture_in_picture_);
+
+  content::MediaSession* media_session =
+      content::MediaSession::GetIfExists(web_contents());
+  CHECK(media_session);
+
+  media_session->GetVisibility(
+      base::BindOnce(&AutoPictureInPictureTabHelper::OnVideoVisibilityResult,
+                     async_tasks_weak_factory_.GetWeakPtr()));
+}
+
+void AutoPictureInPictureTabHelper::OnVideoVisibilityResult(
+    bool has_sufficiently_visible_video) {
+  has_sufficiently_visible_video_ = has_sufficiently_visible_video;
+
+  if (!has_sufficiently_visible_video_) {
+    return;
+  }
+
+  MaybeEnterAutoPictureInPicture();
+}
+
+void AutoPictureInPictureTabHelper::OnUrlSafetyResult(bool has_safe_url) {
+  has_safe_url_ = has_safe_url;
+
+  if (!has_safe_url_) {
+    return;
+  }
+
+  MaybeEnterAutoPictureInPicture();
+}
+
+void AutoPictureInPictureTabHelper::ScheduleUrlSafetyCheck() {
+  CHECK(!is_in_picture_in_picture_);
+  CHECK(g_browser_process);
+  CHECK(g_browser_process->safe_browsing_service());
+
+  if (!safe_browsing_checker_client_) {
+    // Create the AutoPiP safe browsing checker client, which will be used for
+    // determining URL safety.
+    safe_browsing_checker_client_ = std::make_unique<
+        AutoPictureInPictureSafeBrowsingCheckerClient>(
+        g_browser_process->safe_browsing_service()->database_manager().get(),
+        kSafeBrowsingCheckDelay,
+        base::BindRepeating(&AutoPictureInPictureTabHelper::OnUrlSafetyResult,
+                            async_tasks_weak_factory_.GetWeakPtr()));
+  }
+
+  safe_browsing_checker_client_->CheckUrlSafety(
+      // TODO(crbug.com/40250017): Replace with MediaSession routed frame last
+      // committed URL, and ensure the rfh is in primary main frame.
+      web_contents()->GetLastCommittedURL());
+}
+
+void AutoPictureInPictureTabHelper::EnsureAutoPipSettingHelper() {
+  if (!auto_pip_setting_helper_) {
+    auto_pip_setting_helper_ = AutoPipSettingHelper::CreateForWebContents(
+        web_contents(), host_content_settings_map_, auto_blocker_);
+  }
+}
+
 bool AutoPictureInPictureTabHelper::IsInAutoPictureInPicture() const {
   return is_in_auto_picture_in_picture_;
 }
@@ -257,6 +409,51 @@ bool AutoPictureInPictureTabHelper::AreAutoPictureInPicturePreconditionsMet()
   // Note that `auto_picture_in_picture_activation_time_` is not set if all of
   // the other preconditions are not set.
   return base::TimeTicks::Now() < auto_picture_in_picture_activation_time_;
+}
+
+std::unique_ptr<AutoPipSettingOverlayView>
+AutoPictureInPictureTabHelper::CreateOverlayPermissionViewIfNeeded(
+    base::OnceClosure close_pip_cb,
+    views::View* anchor_view,
+    views::BubbleBorder::Arrow arrow) {
+  // Check both preconditions and "in pip", since we don't know if pip is
+  // officially ready yet or not.  This might be during the opening of the pip
+  // window, so we might not know about it yet.
+  if (!AreAutoPictureInPicturePreconditionsMet() &&
+      !IsInAutoPictureInPicture()) {
+    // This isn't auto-pip, so the content setting doesn't matter.
+    return nullptr;
+  }
+
+  // If we don't have a setting helper associated with this session (site) yet,
+  // then create one.
+  EnsureAutoPipSettingHelper();
+
+  return auto_pip_setting_helper_->CreateOverlayViewIfNeeded(
+      std::move(close_pip_cb), anchor_view, arrow);
+}
+
+void AutoPictureInPictureTabHelper::OnUserClosedWindow() {
+  if (!auto_pip_setting_helper_) {
+    // There is definitely no auto-pip UI showing, so ignore this.  Either this
+    // isn't auto-pip, or we didn't need to ask the user about it.
+    return;
+  }
+
+  // There might be the auto-pip setting UI shown, so forward this.
+  auto_pip_setting_helper_->OnUserClosedWindow();
+}
+
+void AutoPictureInPictureTabHelper::OnTabBecameActive() {
+  // We're the newly active tab, possibly before we've been notified by the tab
+  // strip helper.  See if there's an autopip instance to close, and close it.
+  // We may be called more than once for the same tab switch operation, once
+  // from our tab strip observer and once from an incoming tab's tab helper.
+  // This is because the order of the observers matters on the tab strip helper;
+  // we don't know whether the outgoing or incoming tab will be notified first.
+  // As a result, the outgoing tab notifies the incoming tab unconditionally, so
+  // that the incoming tab has the opportunity to close pip.
+  MaybeExitAutoPictureInPicture();
 }
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(AutoPictureInPictureTabHelper);

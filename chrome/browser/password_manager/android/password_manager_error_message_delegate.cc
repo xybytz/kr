@@ -23,8 +23,33 @@ namespace {
 using PasswordStoreBackendErrorType =
     password_manager::PasswordStoreBackendErrorType;
 
-void RecordDismissalReasonMetrics(messages::DismissReason dismiss_reason) {
-  base::UmaHistogramEnumeration("PasswordManager.ErrorMessageDismissalReason",
+std::string GetErrorMessageName(PasswordStoreBackendErrorType error_type) {
+  switch (error_type) {
+    case PasswordStoreBackendErrorType::kAuthErrorResolvable:
+      return "AuthErrorResolvable";
+    case PasswordStoreBackendErrorType::kAuthErrorUnresolvable:
+      return "AuthErrorUnresolvable";
+    case PasswordStoreBackendErrorType::kKeyRetrievalRequired:
+      return "KeyRetrievalRequired";
+    case PasswordStoreBackendErrorType::kGMSCoreOutdatedSavingPossible:
+      return "GMSCoreOutdatedSavingPossible";
+    case PasswordStoreBackendErrorType::kGMSCoreOutdatedSavingDisabled:
+      return "GMSCoreOutdatedSavingDisabled";
+    case PasswordStoreBackendErrorType::kEmptySecurityDomain:
+      return "EmptySecurityDomain";
+    case PasswordStoreBackendErrorType::kIrretrievableSecurityDomain:
+      return "IrretrievableSecurityDomain";
+    case PasswordStoreBackendErrorType::kUncategorized:
+    case PasswordStoreBackendErrorType::kKeychainError:
+      // Other error types aren't supported.
+      NOTREACHED();
+  }
+}
+
+void RecordDismissalReasonMetrics(PasswordStoreBackendErrorType error_type,
+                                  messages::DismissReason dismiss_reason) {
+  base::UmaHistogramEnumeration("PasswordManager.ErrorMessageDismissalReason." +
+                                    GetErrorMessageName(error_type),
                                 dismiss_reason, messages::DismissReason::COUNT);
 }
 
@@ -33,23 +58,50 @@ void RecordErrorTypeMetrics(PasswordStoreBackendErrorType error_type) {
                                 error_type);
 }
 
-void SetMessageStrings(messages::MessageWrapper* message,
-                       password_manager::ErrorMessageFlowType flow_type) {
-  int title_message_id =
-      flow_type == password_manager::ErrorMessageFlowType::kSaveFlow
-          ? IDS_SIGN_IN_TO_SAVE_PASSWORDS
-          : IDS_SIGN_IN_TO_USE_PASSWORDS;
-  message->SetTitle(l10n_util::GetStringUTF16(title_message_id));
+void SetVerifyItIsYouMessageContent(
+    messages::MessageWrapper* message,
+    password_manager::ErrorMessageFlowType flow_type) {
+  message->SetTitle(l10n_util::GetStringUTF16(IDS_VERIFY_IT_IS_YOU));
 
-  std::u16string description =
-      l10n_util::GetStringUTF16(IDS_PASSWORD_ERROR_DESCRIPTION);
+  std::u16string description = l10n_util::GetStringUTF16(
+      flow_type == password_manager::ErrorMessageFlowType::kSaveFlow
+          ? IDS_PASSWORD_ERROR_DESCRIPTION_SIGN_UP
+          : IDS_PASSWORD_ERROR_DESCRIPTION_SIGN_IN);
   message->SetDescription(description);
 
   message->SetPrimaryButtonText(
-      l10n_util::GetStringUTF16(IDS_PASSWORD_ERROR_SIGN_IN_BUTTON_TITLE));
+      l10n_util::GetStringUTF16(IDS_PASSWORD_ERROR_VERIFY_BUTTON_TITLE));
 
   message->SetIconResourceId(ResourceMapper::MapToJavaDrawableId(
       IDR_ANDORID_MESSAGE_PASSWORD_MANAGER_ERROR));
+
+  message->DisableIconTint();
+}
+
+void SetUpdateGmsCoreMessageContent(messages::MessageWrapper* message,
+                                    PasswordStoreBackendErrorType error_type) {
+  CHECK(error_type ==
+            PasswordStoreBackendErrorType::kGMSCoreOutdatedSavingPossible ||
+        error_type ==
+            PasswordStoreBackendErrorType::kGMSCoreOutdatedSavingDisabled);
+
+  message->SetPrimaryButtonText(
+      l10n_util::GetStringUTF16(IDS_UPDATE_GMS_BUTTON_TITLE));
+
+  if (error_type ==
+      PasswordStoreBackendErrorType::kGMSCoreOutdatedSavingPossible) {
+    message->SetTitle(l10n_util::GetStringUTF16(IDS_UPDATE_GMS));
+    message->SetDescription(
+        l10n_util::GetStringUTF16(IDS_UPDATE_GMS_TO_SAVE_PASSWORDS_TO_ACCOUNT));
+    message->SetIconResourceId(ResourceMapper::MapToJavaDrawableId(
+        IDR_ANDROID_PASSWORD_MANAGER_LOGO_24DP));
+  } else {
+    message->SetTitle(l10n_util::GetStringUTF16(IDS_UPDATE_TO_SAVE_PASSWORDS));
+    message->SetDescription(
+        l10n_util::GetStringUTF16(IDS_UPDATE_GMS_TO_SAVE_PASSWORDS));
+    message->SetIconResourceId(
+        ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_IC_ERROR));
+  }
   message->DisableIconTint();
 }
 
@@ -78,7 +130,7 @@ void PasswordManagerErrorMessageDelegate::MaybeDisplayErrorMessage(
     base::OnceCallback<void()> dismissal_callback) {
   DCHECK(web_contents);
 
-  if (!helper_bridge_->ShouldShowErrorUI(web_contents)) {
+  if (!ShouldShowErrorUI(web_contents, error_type)) {
     // Even if no message was technically shown, the owner of `this` should know
     // that it has served its purpose and can be safely destroyed.
     std::move(dismissal_callback).Run();
@@ -88,12 +140,51 @@ void PasswordManagerErrorMessageDelegate::MaybeDisplayErrorMessage(
   DCHECK(!message_);
   message_ =
       CreateMessage(web_contents, error_type, std::move(dismissal_callback));
-  SetMessageStrings(message_.get(), flow_type);
+  error_type_ = error_type;
+  // TODO(crbug.com/379762002): Replace all the switches with passing-in
+  // an already customized "handler".
+  switch (error_type) {
+    case PasswordStoreBackendErrorType::kAuthErrorResolvable:
+    case PasswordStoreBackendErrorType::kAuthErrorUnresolvable:
+    case PasswordStoreBackendErrorType::kKeyRetrievalRequired:
+    case PasswordStoreBackendErrorType::kEmptySecurityDomain:
+    case PasswordStoreBackendErrorType::kIrretrievableSecurityDomain:
+      SetVerifyItIsYouMessageContent(message_.get(), flow_type);
+      break;
+    case PasswordStoreBackendErrorType::kGMSCoreOutdatedSavingPossible:
+    case PasswordStoreBackendErrorType::kGMSCoreOutdatedSavingDisabled:
+      SetUpdateGmsCoreMessageContent(message_.get(), error_type);
+      break;
+    case PasswordStoreBackendErrorType::kUncategorized:
+    case PasswordStoreBackendErrorType::kKeychainError:
+      // Other error types aren't supported.
+      NOTREACHED();
+  }
 
   messages::MessageDispatcherBridge::Get()->EnqueueMessage(
       message_.get(), web_contents, messages::MessageScopeType::WEB_CONTENTS,
       messages::MessagePriority::kUrgent);
   helper_bridge_->SaveErrorUIShownTimestamp(web_contents);
+}
+
+bool PasswordManagerErrorMessageDelegate::ShouldShowErrorUI(
+    content::WebContents* web_contents,
+    password_manager::PasswordStoreBackendErrorType error_type) {
+  switch (error_type) {
+    case PasswordStoreBackendErrorType::kAuthErrorResolvable:
+    case PasswordStoreBackendErrorType::kAuthErrorUnresolvable:
+    case PasswordStoreBackendErrorType::kKeyRetrievalRequired:
+    case PasswordStoreBackendErrorType::kEmptySecurityDomain:
+    case PasswordStoreBackendErrorType::kIrretrievableSecurityDomain:
+      return helper_bridge_->ShouldShowSignInErrorUI(web_contents);
+    case PasswordStoreBackendErrorType::kGMSCoreOutdatedSavingPossible:
+    case PasswordStoreBackendErrorType::kGMSCoreOutdatedSavingDisabled:
+      return helper_bridge_->ShouldShowUpdateGMSCoreErrorUI(web_contents);
+    case PasswordStoreBackendErrorType::kUncategorized:
+    case PasswordStoreBackendErrorType::kKeychainError:
+      // Other error types aren't supported.
+      NOTREACHED();
+  }
 }
 
 std::unique_ptr<messages::MessageWrapper>
@@ -123,7 +214,7 @@ PasswordManagerErrorMessageDelegate::CreateMessage(
 
 void PasswordManagerErrorMessageDelegate::HandleMessageDismissed(
     messages::DismissReason dismiss_reason) {
-  RecordDismissalReasonMetrics(dismiss_reason);
+  RecordDismissalReasonMetrics(error_type_, dismiss_reason);
   message_.reset();
 }
 
@@ -136,9 +227,16 @@ void PasswordManagerErrorMessageDelegate::HandleActionButtonClicked(
       helper_bridge_->StartUpdateAccountCredentialsFlow(web_contents);
       break;
     case PasswordStoreBackendErrorType::kKeyRetrievalRequired:
-      // TODO(crbug.com/1507820): Implement actual handling for the error.
-      return;
-    default:
+    case PasswordStoreBackendErrorType::kEmptySecurityDomain:
+    case PasswordStoreBackendErrorType::kIrretrievableSecurityDomain:
+      helper_bridge_->StartTrustedVaultKeyRetrievalFlow(web_contents);
+      break;
+    case PasswordStoreBackendErrorType::kGMSCoreOutdatedSavingPossible:
+    case PasswordStoreBackendErrorType::kGMSCoreOutdatedSavingDisabled:
+      helper_bridge_->LaunchGmsUpdate(web_contents);
+      break;
+    case PasswordStoreBackendErrorType::kUncategorized:
+    case PasswordStoreBackendErrorType::kKeychainError:
       // Other error types aren't supported.
       NOTREACHED();
   }

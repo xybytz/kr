@@ -5,9 +5,10 @@
 #import "ios/chrome/browser/commerce/model/push_notification/commerce_push_notification_client.h"
 
 #import "base/base64.h"
+#import "base/functional/callback.h"
+#import "base/functional/callback_helpers.h"
 #import "base/metrics/histogram_functions.h"
 #import "base/metrics/user_metrics.h"
-#import "base/run_loop.h"
 #import "base/strings/sys_string_conversions.h"
 #import "components/bookmarks/browser/bookmark_model.h"
 #import "components/bookmarks/browser/bookmark_node.h"
@@ -15,17 +16,11 @@
 #import "components/commerce/core/proto/price_tracking.pb.h"
 #import "components/optimization_guide/core/hints_manager.h"
 #import "components/optimization_guide/proto/push_notification.pb.h"
-#import "ios/chrome/browser/bookmarks/model/local_or_syncable_bookmark_model_factory.h"
+#import "ios/chrome/browser/bookmarks/model/bookmark_model_factory.h"
+#import "ios/chrome/browser/commerce/model/shopping_service_factory.h"
 #import "ios/chrome/browser/optimization_guide/model/optimization_guide_service.h"
 #import "ios/chrome/browser/optimization_guide/model/optimization_guide_service_factory.h"
 #import "ios/chrome/browser/push_notification/model/push_notification_client_id.h"
-#import "ios/chrome/browser/shared/coordinator/scene/scene_state.h"
-#import "ios/chrome/browser/shared/model/application_context/application_context.h"
-#import "ios/chrome/browser/shared/model/browser/browser_list.h"
-#import "ios/chrome/browser/shared/model/browser/browser_list_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state_manager.h"
-#import "ios/chrome/browser/url_loading/model/url_loading_browser_agent.h"
-#import "ios/chrome/browser/url_loading/model/url_loading_params.h"
 #import "url/gurl.h"
 
 namespace {
@@ -78,34 +73,34 @@ CommercePushNotificationClient::ParseHintNotificationPayload(
   return hint_notification_payload;
 }
 
-void CommercePushNotificationClient::HandleNotificationInteraction(
+bool CommercePushNotificationClient::HandleNotificationInteraction(
     UNNotificationResponse* notification_response) {
   NSDictionary* user_info =
       notification_response.notification.request.content.userInfo;
   DCHECK(user_info);
-  HandleNotificationInteraction(notification_response.actionIdentifier,
-                                user_info);
+  return HandleNotificationInteraction(notification_response.actionIdentifier,
+                                       user_info, base::DoNothing());
 }
 
-UIBackgroundFetchResult
+std::optional<UIBackgroundFetchResult>
 CommercePushNotificationClient::HandleNotificationReception(
     NSDictionary<NSString*, id>* notification) {
-  base::RecordAction(base::UserMetricsAction(
-      "Commerce.PriceTracking.PushNotification.Received"));
   OptimizationGuideService* optimization_guide_service =
-      OptimizationGuideServiceFactory::GetForBrowserState(
-          GetLastUsedBrowserState());
+      OptimizationGuideServiceFactory::GetForProfile(GetAnyProfile());
   std::unique_ptr<optimization_guide::proto::HintNotificationPayload>
       hint_notification_payload = ParseHintNotificationPayload(
           [notification objectForKey:kSerializedPayloadKey]);
   if (hint_notification_payload) {
+    base::RecordAction(base::UserMetricsAction(
+        "Commerce.PriceTracking.PushNotification.Received"));
     optimization_guide::PushNotificationManager* push_notification_manager =
         optimization_guide_service->GetHintsManager()
             ->push_notification_manager();
     push_notification_manager->OnNewPushNotification(
         *hint_notification_payload);
+    return UIBackgroundFetchResultNoData;
   }
-  return UIBackgroundFetchResultNoData;
+  return std::nullopt;
 }
 
 NSArray<UNNotificationCategory*>*
@@ -126,65 +121,37 @@ CommercePushNotificationClient::RegisterActionableNotifications() {
                      options:UNNotificationCategoryOptionNone] ];
 }
 
-void CommercePushNotificationClient::OnSceneActiveForegroundBrowserReady() {
-  if (!urls_delayed_for_loading_.size()) {
-    return;
-  }
-  Browser* browser = GetSceneLevelForegroundActiveBrowser();
-  CHECK(browser);
-  for (const std::string& url : urls_delayed_for_loading_) {
-    UrlLoadParams params = UrlLoadParams::InNewTab(GURL(url));
-    UrlLoadingBrowserAgent::FromBrowser(browser)->Load(params);
-  }
-  urls_delayed_for_loading_.clear();
-}
-
 commerce::ShoppingService*
 CommercePushNotificationClient::GetShoppingService() {
-  return commerce::ShoppingServiceFactory::GetForBrowserState(
-      GetLastUsedBrowserState());
+  return commerce::ShoppingServiceFactory::GetForProfile(GetAnyProfile());
 }
 
 bookmarks::BookmarkModel* CommercePushNotificationClient::GetBookmarkModel() {
-  return ios::LocalOrSyncableBookmarkModelFactory::GetForBrowserState(
-      GetLastUsedBrowserState());
+  return ios::BookmarkModelFactory::GetForProfile(GetAnyProfile());
 }
 
-Browser*
-CommercePushNotificationClient::GetSceneLevelForegroundActiveBrowser() {
-  BrowserList* browser_list =
-      BrowserListFactory::GetForBrowserState(GetLastUsedBrowserState());
-  for (Browser* browser : browser_list->AllRegularBrowsers()) {
-    if (!browser->IsInactive()) {
-      if (browser->GetSceneState().activationLevel ==
-          SceneActivationLevelForegroundActive) {
-        return browser;
-      }
-    }
-  }
-  return nullptr;
-}
-
-void CommercePushNotificationClient::HandleNotificationInteraction(
+bool CommercePushNotificationClient::HandleNotificationInteraction(
     NSString* action_identifier,
     NSDictionary* user_info,
-    base::RunLoop* on_complete_for_testing) {
+    base::OnceClosure completion) {
   std::unique_ptr<optimization_guide::proto::HintNotificationPayload>
       hint_notification_payload =
           CommercePushNotificationClient::ParseHintNotificationPayload(
               [user_info objectForKey:kSerializedPayloadKey]);
   if (!hint_notification_payload) {
-    return;
+    std::move(completion).Run();
+    return false;
   }
 
   commerce::PriceDropNotificationPayload price_drop_notification;
   if (!hint_notification_payload->has_payload() ||
       !price_drop_notification.ParseFromString(
           hint_notification_payload->payload().value())) {
-    return;
+    std::move(completion).Run();
+    return false;
   }
 
-  // TODO(crbug.com/1362342) handle the user tapping 'untrack price'.
+  // TODO(crbug.com/40238314) handle the user tapping 'untrack price'.
   // User taps notification or long presses notification and presses 'Visit
   // Site'.
   if ([action_identifier isEqualToString:kVisitSiteActionIdentifier] ||
@@ -196,20 +163,7 @@ void CommercePushNotificationClient::HandleNotificationInteraction(
       base::RecordAction(base::UserMetricsAction(
           "Commerce.PriceTracking.PushNotification.NotificationTapped"));
     }
-    // TODO(crbug.com/1403190) implement alternate Open URL handler which
-    // attempts to find if a Tab with the URL already exists and switch
-    // to that Tab.
-    Browser* browser = GetSceneLevelForegroundActiveBrowser();
-    if (!browser) {
-      urls_delayed_for_loading_.push_back(
-          price_drop_notification.destination_url());
-      return;
-    }
-    // TODO(crbug.com/1403199) find first foregrounded browser instead of simply
-    // first browser here.
-    UrlLoadParams params = UrlLoadParams::InNewTab(
-        GURL(price_drop_notification.destination_url()));
-    UrlLoadingBrowserAgent::FromBrowser(browser)->Load(params);
+    LoadUrlInNewTab(GURL(price_drop_notification.destination_url()));
   } else if ([action_identifier isEqualToString:kUntrackPriceIdentifier]) {
     base::RecordAction(base::UserMetricsAction(
         "Commerce.PriceTracking.PushNotification.UnTrackProductTapped"));
@@ -220,28 +174,15 @@ void CommercePushNotificationClient::HandleNotificationInteraction(
     base::UmaHistogramBoolean("Commerce.PriceTracking.Untrack.BookmarkFound",
                               bookmark != nil);
     if (!bookmark) {
-      if (on_complete_for_testing) {
-        on_complete_for_testing->Quit();
-      }
-      return;
+      std::move(completion).Run();
+      return true;
     }
     commerce::SetPriceTrackingStateForBookmark(
         GetShoppingService(), GetBookmarkModel(), bookmark, false,
-        base::BindOnce(^(bool success) {
-          if (on_complete_for_testing) {
-            on_complete_for_testing->Quit();
-          }
+        base::BindOnce([](bool success) {
           base::UmaHistogramBoolean("Commerce.PriceTracking.Untrack.Success",
                                     success);
-        }));
+        }).Then(std::move(completion)));
   }
-}
-
-ChromeBrowserState* CommercePushNotificationClient::GetLastUsedBrowserState() {
-  if (last_used_browser_state_for_testing_) {
-    return last_used_browser_state_for_testing_;
-  }
-  return GetApplicationContext()
-      ->GetChromeBrowserStateManager()
-      ->GetLastUsedBrowserState();
+  return true;
 }

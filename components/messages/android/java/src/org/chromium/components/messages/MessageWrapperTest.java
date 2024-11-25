@@ -21,7 +21,6 @@ import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.ui.modelutil.PropertyModel;
 
 /** Unit test for MessageWrapper. */
@@ -29,13 +28,11 @@ import org.chromium.ui.modelutil.PropertyModel;
 public class MessageWrapperTest {
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
 
-    @Rule public JniMocker mJniMocker = new JniMocker();
-
     @Mock private MessageWrapper.Natives mNativeMock;
 
     @Before
     public void setUp() {
-        mJniMocker.mock(MessageWrapperJni.TEST_HOOKS, mNativeMock);
+        MessageWrapperJni.setInstanceForTesting(mNativeMock);
     }
 
     /** Tests that message properties are correctly propagated to PropertyModel. */
@@ -68,6 +65,12 @@ public class MessageWrapperTest {
                 "Button text doesn't match provided value",
                 "Primary button",
                 messageProperties.get(MessageBannerProperties.PRIMARY_BUTTON_TEXT));
+
+        message.setPrimaryButtonTextMaxLines(1);
+        Assert.assertEquals(
+                "Button text max lines doesn't match provided value",
+                1,
+                messageProperties.get(MessageBannerProperties.PRIMARY_BUTTON_TEXT_MAX_LINES));
 
         message.setSecondaryButtonMenuText("Secondary button");
         Assert.assertEquals(

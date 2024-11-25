@@ -6,11 +6,12 @@
 
 #include <list>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "base/scoped_observation.h"
 #include "ui/aura/null_window_targeter.h"
 #include "ui/aura/scoped_window_targeter.h"
 #include "ui/aura/window.h"
@@ -23,10 +24,9 @@
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
 #include "ui/linux/linux_ui.h"
-#include "ui/platform_window/extensions/desk_extension.h"
-#include "ui/platform_window/extensions/pinned_mode_extension.h"
 #include "ui/platform_window/extensions/wayland_extension.h"
 #include "ui/platform_window/extensions/x11_extension.h"
+#include "ui/platform_window/platform_window.h"
 #include "ui/platform_window/platform_window_init_properties.h"
 #include "ui/platform_window/wm/wm_move_resize_handler.h"
 #include "ui/views/views_delegate.h"
@@ -46,36 +46,33 @@ class SwapWithNewSizeObserverHelper : public ui::CompositorObserver {
   using HelperCallback = base::RepeatingCallback<void(const gfx::Size&)>;
   SwapWithNewSizeObserverHelper(ui::Compositor* compositor,
                                 const HelperCallback& callback)
-      : compositor_(compositor), callback_(callback) {
-    compositor_->AddObserver(this);
+      : callback_(callback) {
+    compositor_observation_.Observe(compositor);
   }
 
   SwapWithNewSizeObserverHelper(const SwapWithNewSizeObserverHelper&) = delete;
   SwapWithNewSizeObserverHelper& operator=(
       const SwapWithNewSizeObserverHelper&) = delete;
 
-  ~SwapWithNewSizeObserverHelper() override {
-    if (compositor_)
-      compositor_->RemoveObserver(this);
-  }
+  ~SwapWithNewSizeObserverHelper() override = default;
 
  private:
   // ui::CompositorObserver:
 #if BUILDFLAG(IS_OZONE_X11)
   void OnCompositingCompleteSwapWithNewSize(ui::Compositor* compositor,
                                             const gfx::Size& size) override {
-    DCHECK_EQ(compositor, compositor_);
+    DCHECK(compositor_observation_.IsObservingSource(compositor));
     callback_.Run(size);
   }
 #endif  // BUILDFLAG(IS_OZONE_X11)
 
   void OnCompositingShuttingDown(ui::Compositor* compositor) override {
-    DCHECK_EQ(compositor, compositor_);
-    compositor_->RemoveObserver(this);
-    compositor_ = nullptr;
+    DCHECK(compositor_observation_.IsObservingSource(compositor));
+    compositor_observation_.Reset();
   }
 
-  raw_ptr<ui::Compositor> compositor_;
+  base::ScopedObservation<ui::Compositor, ui::CompositorObserver>
+      compositor_observation_{this};
   const HelperCallback callback_;
 };
 
@@ -123,6 +120,24 @@ base::OnceClosure DesktopWindowTreeHostLinux::DisableEventListening() {
                         weak_factory_.GetWeakPtr());
 }
 
+void DesktopWindowTreeHostLinux::UpdateFrameHints() {
+  if (!GetContentWindow()->targeter()) {
+    platform_window()->SetInputRegion(std::nullopt);
+  } else {
+    // Content window can have a window_targeter that allows located events fall
+    // to the window underneath it. There is no window underneath the content
+    // window from aura's point of view so wayland platform needs to know about
+    // it.
+    gfx::Rect hit_test_rect_mouse_dp{
+        platform_window()->GetBoundsInDIP().size()};
+    gfx::Rect hit_test_rect_touch_dp = gfx::Rect{hit_test_rect_mouse_dp};
+    GetContentWindow()->targeter()->GetHitTestRects(
+        GetContentWindow(), &hit_test_rect_mouse_dp, &hit_test_rect_touch_dp);
+    platform_window()->SetInputRegion(std::optional<std::vector<gfx::Rect>>(
+        {ConvertRectToPixels(hit_test_rect_mouse_dp)}));
+  }
+}
+
 void DesktopWindowTreeHostLinux::Init(const Widget::InitParams& params) {
   DesktopWindowTreeHostPlatform::Init(params);
 
@@ -141,9 +156,10 @@ void DesktopWindowTreeHostLinux::OnNativeWidgetCreated(
   DesktopWindowTreeHostPlatform::OnNativeWidgetCreated(params);
 }
 
-void DesktopWindowTreeHostLinux::InitModalType(ui::ModalType modal_type) {
+void DesktopWindowTreeHostLinux::InitModalType(
+    ui::mojom::ModalType modal_type) {
   switch (modal_type) {
-    case ui::MODAL_TYPE_NONE:
+    case ui::mojom::ModalType::kNone:
       break;
     default:
       // TODO(erg): Figure out under what situations |modal_type| isn't
@@ -160,10 +176,10 @@ Widget::MoveLoopResult DesktopWindowTreeHostLinux::RunMoveLoop(
   GetContentWindow()->SetCapture();
 
   // DesktopWindowTreeHostLinux::RunMoveLoop() may result in |this| being
-  // deleted. As an extra safity guard, keep track of |this| with a weak
+  // deleted. As an extra safety guard, keep track of |this| with a weak
   // pointer, and only call ReleaseCapture() if it still exists.
   //
-  // TODO(https://crbug.com/1289682): Consider removing capture set/unset
+  // TODO(crbug.com/40212051): Consider removing capture set/unset
   // during window drag 'n drop (detached).
   auto weak_this = weak_factory_.GetWeakPtr();
 
@@ -232,6 +248,18 @@ void DesktopWindowTreeHostLinux::DispatchEvent(ui::Event* event) {
 void DesktopWindowTreeHostLinux::OnClosed() {
   DestroyNonClientEventFilter();
   DesktopWindowTreeHostPlatform::OnClosed();
+}
+
+void DesktopWindowTreeHostLinux::OnBoundsChanged(const BoundsChange& change) {
+  // DesktopWindowTreeHostPlatform::OnBoundsChanged() may result in |this| being
+  // deleted. As an extra safety guard, keep track of |this| with a weak
+  // pointer, and only call UpdateFrameHints() if it still exists.
+  auto weak_this = weak_factory_.GetWeakPtr();
+  DesktopWindowTreeHostPlatform::OnBoundsChanged(change);
+
+  if (weak_this.get()) {
+    UpdateFrameHints();
+  }
 }
 
 ui::X11Extension* DesktopWindowTreeHostLinux::GetX11Extension() {

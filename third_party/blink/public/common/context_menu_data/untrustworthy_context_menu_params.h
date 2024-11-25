@@ -8,16 +8,16 @@
 #include <stdint.h>
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "build/build_config.h"
 #include "services/network/public/mojom/referrer_policy.mojom.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/navigation/impression.h"
 #include "third_party/blink/public/mojom/context_menu/context_menu.mojom-forward.h"
 #include "third_party/blink/public/mojom/forms/form_control_type.mojom-shared.h"
-#include "ui/base/ui_base_types.h"
+#include "ui/base/mojom/menu_source_type.mojom-forward.h"
 #include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 
@@ -51,9 +51,9 @@ struct BLINK_COMMON_EXPORT UntrustworthyContextMenuParams {
   // Will be empty if |link_url| is empty.
   std::u16string link_text;
 
-  // The impression declared by the link. May be absl::nullopt even if
+  // The impression declared by the link. May be std::nullopt even if
   // |link_url| is non-empty.
-  absl::optional<blink::Impression> impression;
+  std::optional<blink::Impression> impression;
 
   // The link URL to be used ONLY for "copy link address". We don't validate
   // this field in the frontend process.
@@ -127,7 +127,7 @@ struct BLINK_COMMON_EXPORT UntrustworthyContextMenuParams {
   GURL link_followed;
   std::vector<blink::mojom::CustomContextMenuItemPtr> custom_items;
 
-  ui::MenuSourceType source_type;
+  ui::mojom::MenuSourceType source_type;
 
   // For the outermost main frame's widget, this will be the selection rect in
   // viewport space. For a local root, this is in the coordinates of the local
@@ -148,8 +148,6 @@ struct BLINK_COMMON_EXPORT UntrustworthyContextMenuParams {
   // Indicates whether the context menu is invoked on a non-form,
   // non-form-control element that is contenteditable. Thus, it is mutually
   // exclusive with `form_control_type`.
-  // TODO(crbug.com/1427131): Only true if AutofillUseDomNodeIdForRendererId
-  // is enabled.
   bool is_content_editable_for_autofill = false;
 
   // Identifies the element the context menu was invoked on if either
@@ -162,11 +160,6 @@ struct BLINK_COMMON_EXPORT UntrustworthyContextMenuParams {
   // associated.
   // See `autofill::FormRendererId` for the semantics of renderer IDs.
   uint64_t form_renderer_id = 0;
-
-  // True iff a field's type is plain text but heuristics (e.g. the name
-  // attribute contains 'password' as a substring) recognize it as a password
-  // field.
-  bool is_password_type_by_heuristics = false;
 
  private:
   void Assign(const UntrustworthyContextMenuParams& other);

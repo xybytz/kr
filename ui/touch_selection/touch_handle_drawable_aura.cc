@@ -60,7 +60,6 @@ gfx::Image* GetHandleImage(TouchHandleOrientation orientation) {
       break;
     case TouchHandleOrientation::UNDEFINED:
       NOTREACHED() << "Invalid touch handle bound type.";
-      return nullptr;
   };
   return &ResourceBundle::GetSharedInstance().GetImageNamed(resource_id);
 }
@@ -79,7 +78,7 @@ ImageModel GetHandleVectorIcon(TouchHandleOrientation orientation) {
       icon = &kTextSelectionHandleRightIcon;
       break;
     case TouchHandleOrientation::UNDEFINED:
-      NOTREACHED_NORETURN() << "Invalid touch handle bound type.";
+      NOTREACHED() << "Invalid touch handle bound type.";
   }
   return ImageModel::FromVectorIcon(*icon,
                                     /*color_id=*/kColorSysPrimary);

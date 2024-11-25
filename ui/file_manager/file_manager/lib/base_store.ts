@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {isDebugStoreEnabled} from '../common/js/util.js';
-
 import {type ActionsProducerGen, ConcurrentActionInvalidatedError, isActionsProducer} from './actions_producer.js';
 import {type Selector, SelectorEmitter, SelectorNode} from './selector.js';
 
@@ -296,6 +294,18 @@ export class BaseStore<State> {
     }
   }
 
+  /**
+   * Enable/Disable the debug mode for the store. More logs will be displayed in
+   * the console with debug mode on.
+   */
+  setDebug(isDebug: boolean): void {
+    if (isDebug) {
+      localStorage.setItem('DEBUG_STORE', '1');
+    } else {
+      localStorage.removeItem('DEBUG_STORE');
+    }
+  }
+
   /** Synchronously call apply the `action` by calling the reducer.  */
   private dispatchInternal_(action: Action) {
     this.reduce(action);
@@ -334,7 +344,9 @@ export class BaseStore<State> {
   protected reduce(action: Action) {
     const isDebugStore = isDebugStoreEnabled();
     if (isDebugStore) {
+      // eslint-disable-next-line no-console
       console.groupCollapsed(`Action: ${action.type}`);
+      // eslint-disable-next-line no-console
       console.dir(action.payload);
     }
 
@@ -357,6 +369,7 @@ export class BaseStore<State> {
     }
 
     if (isDebugStore) {
+      // eslint-disable-next-line no-console
       console.groupEnd();
     }
   }
@@ -376,7 +389,7 @@ export class BaseStore<State> {
 }
 
 /** Returns true when the error is a ConcurrentActionInvalidatedError. */
-function isInvalidationError(error: unknown): boolean {
+export function isInvalidationError(error: unknown): boolean {
   if (!error) {
     return false;
   }
@@ -392,4 +405,14 @@ function isInvalidationError(error: unknown): boolean {
   }
 
   return false;
+}
+
+/**
+ * Check if the store is in debug mode or not. When it's set, action data will
+ * be logged in the console for debugging purpose.
+ *
+ * Run `fileManager.store_.setDebug(true)` in the console to enable it.
+ */
+export function isDebugStoreEnabled() {
+  return localStorage.getItem('DEBUG_STORE') === '1';
 }

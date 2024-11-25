@@ -67,7 +67,6 @@ ClientFeatures_Gesture ConvertToProtoGesture(
   }
 
   NOTREACHED();
-  return permissions::ClientFeatures_Gesture_GESTURE_UNSPECIFIED;
 }
 
 ClientFeatures_GestureEnum ConvertToProtoGestureEnum(
@@ -83,7 +82,6 @@ ClientFeatures_GestureEnum ConvertToProtoGestureEnum(
   }
 
   NOTREACHED();
-  return permissions::ClientFeatures_GestureEnum_GESTURE_UNSPECIFIED_V2;
 }
 
 void FillInStatsFeatures(const PredictionRequestFeatures::ActionCounts& counts,
@@ -131,6 +129,10 @@ std::unique_ptr<GeneratePredictionsRequest> GetPredictionRequestProto(
     SiteFeatures* site_features = proto_request->mutable_site_features();
     site_features->set_origin(entity.url.spec());
   }
+
+  ClientFeatures_ExperimentConfig* experiment_config =
+      client_features->mutable_experiment_config();
+  experiment_config->set_experiment_id(entity.experiment_id);
 
   return proto_request;
 }

@@ -14,7 +14,7 @@
 #include "base/memory/raw_ptr.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/ash/system_web_apps/types/system_web_app_background_task_info.h"
-#include "ui/base/models/simple_menu_model.h"
+#include "ui/menus/simple_menu_model.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -153,6 +153,10 @@ class SystemWebAppDelegate {
   // If true, the App's window will have a tab-strip.
   virtual bool ShouldHaveTabStrip() const;
 
+  // If true, the new-tab button on the tab-strip will be hidden. Only
+  // applicable if the app's window has a tab-strip.
+  virtual bool ShouldHideNewTabButton() const;
+
   // If false, the app will not have the reload button in minimal ui
   // mode.
   virtual bool ShouldHaveReloadButtonInMinimalUi() const;
@@ -211,10 +215,6 @@ class SystemWebAppDelegate {
   // Whether |url| which is outside the normal Navigation Scope should be
   // considered part of this System App.
   virtual bool IsUrlInSystemAppScope(const GURL& url) const;
-
-  // Whether it is preferred to resolve background color from the manifest,
-  // as opposed to resolving background color from web contents.
-  virtual bool PreferManifestBackgroundColor() const;
 
   // Whether theme color should be inferred from ChromeOS system theme. If
   // true, theme_color is the first available from:

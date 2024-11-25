@@ -22,6 +22,11 @@
  *
  */
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/platform/fonts/font.h"
 
 #include "cc/paint/paint_canvas.h"
@@ -31,7 +36,9 @@
 #include "third_party/blink/renderer/platform/fonts/font_fallback_list.h"
 #include "third_party/blink/renderer/platform/fonts/font_fallback_map.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/caching_word_shaper.h"
+#include "third_party/blink/renderer/platform/fonts/shaping/harfbuzz_shaper.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result_bloberizer.h"
+#include "third_party/blink/renderer/platform/fonts/shaping/shape_result_spacing.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result_view.h"
 #include "third_party/blink/renderer/platform/fonts/simple_font_data.h"
 #include "third_party/blink/renderer/platform/fonts/text_fragment_paint_info.h"
@@ -216,15 +223,13 @@ bool Font::DrawBidiText(cc::PaintCanvas* canvas,
       custom_font_not_ready_action == kDoNotPaintIfFontNotReady)
     return false;
 
-  // sub-run painting is not supported for Bidi text.
   const TextRun& run = run_info.run;
-  DCHECK_EQ(run_info.from, 0u);
-  DCHECK_EQ(run_info.to, run.length());
   if (!run.length()) {
     return true;
   }
+  bool is_sub_run = (run_info.from != 0 || run_info.to != run.length());
 
-  if (UNLIKELY(run.DirectionalOverride())) {
+  if (run.DirectionalOverride()) [[unlikely]] {
     // If directional override, create a new string with Unicode directional
     // override characters.
     const String text_with_override =
@@ -251,9 +256,27 @@ bool Font::DrawBidiText(cc::PaintCanvas* canvas,
   gfx::PointF curr_point = point;
   CachingWordShaper word_shaper(*this);
   for (const BidiParagraph::Run& bidi_run : bidi_runs) {
+    if (bidi_run.end <= run_info.from || run_info.to <= bidi_run.start) {
+      continue;
+    }
+
     TextRun subrun = run.SubRun(bidi_run.start, bidi_run.Length());
     subrun.SetDirection(bidi_run.Direction());
+
     TextRunPaintInfo subrun_info(subrun);
+    CharacterRange range(0, 0, 0, 0);
+    if (is_sub_run) [[unlikely]] {
+      // Calculate the required indexes for this specific run.
+      subrun_info.from =
+          run_info.from < bidi_run.start ? 0 : run_info.from - bidi_run.start;
+      subrun_info.to = run_info.to > bidi_run.end
+                           ? bidi_run.Length()
+                           : run_info.to - bidi_run.start;
+      // The range provides information required for positioning the subrun.
+      range = word_shaper.GetCharacterRange(subrun, subrun_info.from,
+                                            subrun_info.to);
+    }
+
     ShapeResultBuffer buffer;
     word_shaper.FillResultBuffer(subrun_info, &buffer);
 
@@ -264,9 +287,17 @@ bool Font::DrawBidiText(cc::PaintCanvas* canvas,
         draw_type == Font::DrawType::kGlyphsOnly
             ? ShapeResultBloberizer::Type::kNormal
             : ShapeResultBloberizer::Type::kEmitText);
+    if (is_sub_run) [[unlikely]] {
+      // Align the subrun with the point given.
+      curr_point.Offset(-range.start, 0);
+    }
     DrawBlobs(canvas, flags, bloberizer.Blobs(), curr_point);
 
-    curr_point.Offset(bloberizer.Advance(), 0);
+    if (is_sub_run) [[unlikely]] {
+      curr_point.Offset(range.Width(), 0);
+    } else {
+      curr_point.Offset(bloberizer.Advance(), 0);
+    }
   }
   return true;
 }
@@ -331,6 +362,62 @@ float Font::Width(const TextRun& run, gfx::RectF* glyph_bounds) const {
   FontCachePurgePreventer purge_preventer;
   CachingWordShaper shaper(*this);
   return shaper.Width(run, glyph_bounds);
+}
+
+float Font::SubRunWidth(const TextRun& run,
+                        unsigned from,
+                        unsigned to,
+                        gfx::RectF* glyph_bounds) const {
+  if (run.length() == 0) {
+    return 0;
+  }
+
+  FontCachePurgePreventer purge_preventer;
+  CachingWordShaper shaper(*this);
+
+  // Run bidi algorithm on the given text. Step 5 of:
+  // https://html.spec.whatwg.org/multipage/canvas.html#text-preparation-algorithm
+  String text16 = run.ToStringView().ToString();
+  text16.Ensure16Bit();
+  BidiParagraph bidi;
+  bidi.SetParagraph(text16, run.Direction());
+  BidiParagraph::Runs runs;
+  bidi.GetVisualRuns(text16, &runs);
+
+  float x_pos = 0;
+  for (const BidiParagraph::Run& visual_run : runs) {
+    if (visual_run.end <= from || to <= visual_run.start) {
+      continue;
+    }
+    // Calculate the required indexes for this specific run.
+    unsigned run_from = from < visual_run.start ? 0 : from - visual_run.start;
+    unsigned run_to =
+        to > visual_run.end ? visual_run.Length() : to - visual_run.start;
+
+    // Measure the subrun.
+    TextRun text_run(
+        StringView(run.ToStringView(), visual_run.start, visual_run.Length()),
+        visual_run.Direction(), /* directional_override */ false);
+    text_run.SetNormalizeSpace(true);
+    CharacterRange character_range =
+        shaper.GetCharacterRange(text_run, run_from, run_to);
+
+    // Accumulate the position and the glyph bounding box.
+    if (glyph_bounds) {
+      gfx::RectF range_bounds(character_range.start, -character_range.ascent,
+                              character_range.Width(),
+                              character_range.Height());
+      // GetCharacterRange() returns bounds positioned as if the whole run was
+      // there, so the rect has to be moved to align with the current position.
+      range_bounds.Offset(-range_bounds.x() + x_pos, 0);
+      glyph_bounds->Union(range_bounds);
+    }
+    x_pos += character_range.Width();
+  }
+  if (glyph_bounds != nullptr) {
+    glyph_bounds->Offset(-glyph_bounds->x(), 0);
+  }
+  return x_pos;
 }
 
 namespace {  // anonymous namespace
@@ -481,8 +568,9 @@ void Font::ReportEmojiSegmentGlyphCoverage(unsigned num_clusters,
 void Font::WillUseFontData(const String& text) const {
   const FontDescription& font_description = GetFontDescription();
   const FontFamily& family = font_description.Family();
-  if (UNLIKELY(family.FamilyName().empty()))
+  if (family.FamilyName().empty()) [[unlikely]] {
     return;
+  }
   if (FontSelector* font_selector = GetFontSelector()) {
     font_selector->WillUseFontData(font_description, family, text);
     return;
@@ -531,12 +619,6 @@ int Font::EmphasisMarkHeight(const AtomicString& mark) const {
     return 0;
 
   return mark_font_data->GetFontMetrics().Height();
-}
-
-Vector<double> Font::IndividualCharacterAdvances(const TextRun& run) const {
-  FontCachePurgePreventer purge_preventer;
-  CachingWordShaper shaper(*this);
-  return shaper.IndividualCharacterAdvances(run);
 }
 
 float Font::TabWidth(const SimpleFontData* font_data,

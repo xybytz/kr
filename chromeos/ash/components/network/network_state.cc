@@ -7,9 +7,11 @@
 #include <stddef.h>
 
 #include <memory>
+#include <optional>
 #include <type_traits>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
@@ -17,6 +19,7 @@
 #include "base/values.h"
 #include "chromeos/ash/components/network/cellular_utils.h"
 #include "chromeos/ash/components/network/device_state.h"
+#include "chromeos/ash/components/network/network_config.h"
 #include "chromeos/ash/components/network/network_event_log.h"
 #include "chromeos/ash/components/network/network_profile_handler.h"
 #include "chromeos/ash/components/network/network_type_pattern.h"
@@ -60,7 +63,7 @@ bool IsValidConnectionState(const std::string& connection_state) {
          connection_state == shill::kStatePortalSuspected ||
          connection_state == shill::kStateOnline ||
          connection_state == shill::kStateFailure ||
-         connection_state == shill::kStateDisconnect;
+         connection_state == shill::kStateDisconnecting;
 }
 
 }  // namespace
@@ -141,11 +144,12 @@ bool NetworkState::PropertyChanged(const std::string& key,
     // If payment portal uses post method, set up post data.
     const std::string* portal_method_value =
         value_dict->FindString(shill::kPaymentPortalMethod);
+    payment_method_ =
+        portal_method_value ? *portal_method_value : std::string();
+
     const std::string* portal_post_data_value =
         value_dict->FindString(shill::kPaymentPortalPostData);
-    if (portal_method_value &&
-        *portal_method_value == kPaymentPortalMethodPost &&
-        portal_post_data_value) {
+    if (payment_method_ == kPaymentPortalMethodPost && portal_post_data_value) {
       payment_post_data_ = *portal_post_data_value;
     }
     return true;
@@ -178,6 +182,8 @@ bool NetworkState::PropertyChanged(const std::string& key,
     return GetBooleanValue(key, value, &hidden_ssid_);
   } else if (key == shill::kPasspointIDProperty) {
     return GetStringValue(key, value, &passpoint_id_);
+  } else if (key == shill::kMeteredProperty) {
+    return GetBooleanValue(key, value, &metered_);
   } else if (key == shill::kOutOfCreditsProperty) {
     return GetBooleanValue(key, value, &cellular_out_of_credits_);
   } else if (key == shill::kIccidProperty) {
@@ -263,6 +269,9 @@ bool NetworkState::PropertyChanged(const std::string& key,
       return false;
     }
     max_downlink_speed_kbps_ = max_downlink_speed_kbps;
+    return true;
+  } else if (key == shill::kNetworkConfigProperty) {
+    network_config_ = NetworkConfig::ParseFromServicePropertyValue(value);
     return true;
   }
   return false;
@@ -456,9 +465,12 @@ void NetworkState::SetConnectionState(const std::string& connection_state) {
     // important (i.e. not a normal auto connect).
     connect_requested_ = true;
   }
-  if (shill_portal_state_ == PortalState::kUnknown &&
+
+  // TODO(b/336931625): Polish the relationship between |portal_state_|
+  // and |connection_state_|.
+  if (portal_state_ == PortalState::kUnknown &&
       connection_state_ == shill::kStateOnline) {
-    shill_portal_state_ = PortalState::kOnline;
+    portal_state_ = PortalState::kOnline;
   }
 }
 
@@ -517,18 +529,13 @@ bool NetworkState::IsNonShillCellularNetwork() const {
          cellular_utils::IsStubCellularServicePath(path());
 }
 
-NetworkState::PortalState NetworkState::GetPortalState() const {
-  return chrome_portal_state_ != PortalState::kUnknown ? chrome_portal_state_
-                                                       : shill_portal_state_;
-}
-
 bool NetworkState::IsSecure() const {
   return !security_class_.empty() &&
          security_class_ != shill::kSecurityClassNone;
 }
 
 std::string NetworkState::GetHexSsid() const {
-  return base::HexEncode(raw_ssid().data(), raw_ssid().size());
+  return base::HexEncode(raw_ssid());
 }
 
 std::string NetworkState::GetDnsServersAsString() const {
@@ -641,7 +648,6 @@ NetworkState::NetworkTechnologyType NetworkState::GetNetworkTechnologyType()
     return NetworkTechnologyType::kWiFi;
   }
   NOTREACHED() << "Unknown network type: " << network_type;
-  return NetworkTechnologyType::kUnknown;
 }
 
 // static
@@ -709,39 +715,28 @@ void NetworkState::UpdateCaptivePortalState(
   if (!IsConnectedState()) {
     // Unconnected networks are in an unknown portal state and should not
     // update histograms.
-    shill_portal_state_ = PortalState::kUnknown;
+    portal_state_ = PortalState::kUnknown;
     return;
   }
 
-  int status_code =
-      properties.FindInt(shill::kPortalDetectionFailedStatusCodeProperty)
-          .value_or(0);
   if (connection_state_ == shill::kStateNoConnectivity) {
-    shill_portal_state_ = PortalState::kNoInternet;
+    portal_state_ = PortalState::kNoInternet;
   } else if (connection_state_ == shill::kStateRedirectFound) {
-    shill_portal_state_ = PortalState::kPortal;
+    portal_state_ = PortalState::kPortal;
   } else if (connection_state_ == shill::kStatePortalSuspected) {
-    if (status_code == net::HTTP_PROXY_AUTHENTICATION_REQUIRED) {
-      // If Shill's portal detection HTTP probe returns a 407 response, Shill
-      // will treat that as a portal-suspected state.
-      shill_portal_state_ = PortalState::kProxyAuthRequired;
-    } else {
-      shill_portal_state_ = PortalState::kPortalSuspected;
-    }
+    portal_state_ = PortalState::kPortalSuspected;
   } else if (connection_state_ == shill::kStateOnline) {
-    shill_portal_state_ = PortalState::kOnline;
+    portal_state_ = PortalState::kOnline;
   } else {
-    shill_portal_state_ = PortalState::kUnknown;
+    NET_LOG(ERROR) << "Unexpected captive portal state for: " << NetworkId(this)
+                   << " = " << portal_state_;
+    portal_state_ = PortalState::kUnknown;
   }
 
-  base::UmaHistogramEnumeration("Network.CaptivePortalResult",
-                                shill_portal_state_);
-  if (shill_portal_state_ != PortalState::kOnline) {
+  base::UmaHistogramEnumeration("Network.CaptivePortalResult", portal_state_);
+  if (portal_state_ != PortalState::kOnline) {
     NET_LOG(EVENT) << "Shill captive portal state for: " << NetworkId(this)
-                   << " = " << shill_portal_state_
-                   << " ,status_code=" << status_code;
-    base::UmaHistogramSparse("Network.CaptivePortalStatusCode",
-                             std::abs(status_code));
+                   << " = " << portal_state_;
   }
 }
 
@@ -770,7 +765,6 @@ std::ostream& operator<<(std::ostream& out,
     PRINT(Online)
     PRINT(PortalSuspected)
     PRINT(Portal)
-    PRINT(ProxyAuthRequired)
     PRINT(NoInternet)
 #undef PRINT
   }

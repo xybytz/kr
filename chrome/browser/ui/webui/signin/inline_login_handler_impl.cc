@@ -110,7 +110,6 @@ HandlerSigninReason GetHandlerSigninReason(const GURL& url) {
       return HandlerSigninReason::kFetchLstOnly;
     default:
       NOTREACHED() << "Unexpected signin reason: " << static_cast<int>(reason);
-      return HandlerSigninReason::kForcedSigninPrimaryAccount;
   }
 }
 
@@ -120,7 +119,7 @@ class ForcedSigninTurnSyncOnHelperDelegate
     : public TurnSyncOnHelperDelegateImpl {
  public:
   explicit ForcedSigninTurnSyncOnHelperDelegate(Browser* browser)
-      : TurnSyncOnHelperDelegateImpl(browser) {}
+      : TurnSyncOnHelperDelegateImpl(browser, /*is_sync_promo=*/false) {}
 
  protected:
   void ShouldEnterpriseConfirmationPromptForNewProfile(
@@ -219,7 +218,7 @@ void OnSigninComplete(Profile* profile,
   DCHECK(signin_util::IsForceSigninEnabled());
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
-  bool can_be_managed = chrome::enterprise_util::ProfileCanBeManaged(profile);
+  bool can_be_managed = enterprise_util::ProfileCanBeManaged(profile);
   if (can_be_managed && !password.empty()) {
     password_manager::PasswordReuseManager* reuse_manager =
         PasswordReuseManagerFactory::GetForProfile(profile);
@@ -252,7 +251,7 @@ void OnSigninComplete(Profile* profile,
             .GetProfileAttributesWithPath(profile->GetPath());
     if (entry) {
       entry->SetLocalProfileName(profile_name, /*is_default_name=*/false);
-      // TODO(https://crbug.com/1186969): move the following code into a new
+      // TODO(crbug.com/40172714): move the following code into a new
       // `Profile::SetIsHidden()` method.
       entry->SetIsOmitted(false);
       if (!profile->GetPrefs()->GetBoolean(prefs::kForceEphemeralProfiles)) {
@@ -325,7 +324,7 @@ void InlineSigninHelper::OnClientOAuthSuccess(const ClientOAuthResult& result) {
     // If user sign in in UserManager with force sign in enabled, the browser
     // window won't be opened until now.
     UnlockProfileAndHideLoginUI(profile_->GetPath(), handler_.get());
-    // TODO(https://crbug.com/1205147): In case of reauth, wait until cookies
+    // TODO(crbug.com/40764426): In case of reauth, wait until cookies
     // are set before opening a browser window.
     profiles::OpenBrowserWindowForProfile(
         base::IgnoreArgs<Browser*>(base::BindOnce(
@@ -355,12 +354,12 @@ void InlineSigninHelper::OnClientOAuthSuccessAndBrowserOpened(
              base::Value(result.access_token));
 
     handler_->SendLSTFetchResultsMessage(base::Value(std::move(args)));
-#else
-    NOTREACHED() << "Google Credential Provider is only available on Windows";
-#endif  // BUILDFLAG(IS_WIN)
     base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
                                                                   this);
     return;
+#else
+    NOTREACHED() << "Google Credential Provider is only available on Windows";
+#endif  // BUILDFLAG(IS_WIN)
   }
 
   AboutSigninInternals* about_signin_internals =
@@ -388,7 +387,7 @@ void InlineSigninHelper::OnClientOAuthSuccessAndBrowserOpened(
 
   if (reason == HandlerSigninReason::kReauthentication) {
     DCHECK(identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSignin) &&
-           chrome::enterprise_util::UserAcceptedAccountManagement(profile_));
+           enterprise_util::UserAcceptedAccountManagement(profile_));
     // TODO(b/278545484): support LST binding for refresh tokens created by
     // InlineSigninHelper.
     identity_manager->GetAccountsMutator()->AddOrUpdateAccount(
@@ -795,5 +794,5 @@ void InlineLoginHandlerImpl::SyncSetupFailed() {
   content::OpenURLParams params(url, content::Referrer(),
                                 WindowOpenDisposition::CURRENT_TAB,
                                 ui::PAGE_TRANSITION_AUTO_TOPLEVEL, false);
-  contents->OpenURL(params);
+  contents->OpenURL(params, /*navigation_handle_callback=*/{});
 }

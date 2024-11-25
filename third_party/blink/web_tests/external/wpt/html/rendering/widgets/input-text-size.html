@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <link rel="help" href="https://html.spec.whatwg.org/C/#the-input-element-as-a-text-entry-widget">
-<title>Test `size` attribute behaivor</title>
+<title>Test `size` attribute behavior</title>
 <script src="/resources/testharness.js"></script>
 <script src="/resources/testharnessreport.js"></script>
 <body>
@@ -13,6 +13,7 @@
 <input id="size20" size="20">
 <input id="size21" size="21">
 <input id="computed" style="border:none; padding:0;" size="19">
+<input id="computedNone" style="display:none" size="17">
 
 <script>
 test(() => {
@@ -33,7 +34,12 @@ test(() => {
 test(() => {
   const computedString = getComputedStyle(computed).width;
   assert_equals(computed.offsetWidth,
-      parseInt(computedString.substring(0, computedString.length - 2)));
-}, 'Size attribute value affects computed style');
+      Math.round(computedString.substring(0, computedString.length - 2)));
+}, 'Size attribute value affects layout-dependent computed style');
+
+test(() => {
+  const computedString = getComputedStyle(computedNone).width;
+  assert_equals(computedString, 'auto');
+}, 'Size attribute value is not a presentational hint');
 </script>
 

@@ -14,22 +14,6 @@ AccessibilityCommonE2ETest = class extends CommonE2ETestBase {
           name, enabled => resolve(enabled));
     });
   }
-
-  async getPref(name) {
-    return new Promise(resolve => {
-      chrome.settingsPrivate.getPref(name, ret => {
-        resolve(ret);
-      });
-    });
-  }
-
-  async setPref(name, value) {
-    return new Promise(resolve => {
-      chrome.settingsPrivate.setPref(name, value, undefined, () => {
-        resolve();
-      });
-    });
-  }
 };
 
 TEST_F('AccessibilityCommonE2ETest', 'ToggleFeatures', function() {
@@ -39,12 +23,6 @@ TEST_F('AccessibilityCommonE2ETest', 'ToggleFeatures', function() {
     assertEquals('settings.a11y.autoclick', pref.key);
     assertTrue(pref.value);
     assertTrue(Boolean(accessibilityCommon.getAutoclickForTest()));
-
-    // Check that FaceGaze is disabled by default.
-    const enabled = await this.getFeature(
-        chrome.accessibilityPrivate.AccessibilityFeature.FACE_GAZE);
-    assertFalse(enabled);
-    assertFalse(Boolean(accessibilityCommon.getFaceGazeForTest()));
 
     // Next, flip on screen magnifier and verify all prefs and internal state.
     await this.setPref('settings.a11y.screen_magnifier', true);
@@ -93,22 +71,8 @@ TEST_F('AccessibilityCommonE2ETest', 'ToggleFeatures', function() {
   })();
 });
 
-GEN('#include "ui/accessibility/accessibility_features.h"');
-
-/**
- * Accessibility common extension browser tests with enabled FaceGaze feature.
- */
-AccessibilityCommonWithFaceGazeEnabledE2ETest =
-    class extends AccessibilityCommonE2ETest {
-  /** @override */
-  get featureList() {
-    return {enabled: ['features::kAccessibilityFaceGaze']};
-  }
-};
-
 TEST_F(
-    'AccessibilityCommonWithFaceGazeEnabledE2ETest', 'FaceGazeEnabled',
-    function() {
+    'AccessibilityCommonE2ETest', 'FaceGazeEnabled', function() {
       this.newCallback(async () => {
         // Check that FaceGaze is enabled from the command line.
         const enabled = await this.getFeature(

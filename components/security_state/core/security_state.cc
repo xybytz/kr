@@ -51,7 +51,6 @@ std::string GetHistogramSuffixForSafetyTipStatus(
       return "SafetyTip_LookalikeIgnored";
   }
   NOTREACHED();
-  return std::string();
 }
 
 }  // namespace
@@ -217,7 +216,7 @@ VisibleSecurityState::VisibleSecurityState(const VisibleSecurityState& other) =
 VisibleSecurityState& VisibleSecurityState::operator=(
     const VisibleSecurityState& other) = default;
 
-VisibleSecurityState::~VisibleSecurityState() {}
+VisibleSecurityState::~VisibleSecurityState() = default;
 
 bool IsSchemeCryptographic(const GURL& url) {
   return url.is_valid() && url.SchemeIsCryptographic();

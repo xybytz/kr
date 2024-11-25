@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#import <Foundation/Foundation.h>
-
 #import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_default_browser_promo_coordinator.h"
+
+#import <Foundation/Foundation.h>
 
 #import "base/test/ios/wait_util.h"
 #import "base/test/metrics/histogram_tester.h"
@@ -12,7 +12,7 @@
 #import "base/test/task_environment.h"
 #import "ios/chrome/browser/default_browser/model/utils.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_default_browser_promo_coordinator_delegate.h"
 #import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "testing/platform_test.h"
@@ -22,17 +22,19 @@
 class SetUpListDefaultBrowserPromoCoordinatorTest : public PlatformTest {
  public:
   SetUpListDefaultBrowserPromoCoordinatorTest() {
-    browser_state_ = TestChromeBrowserState::Builder().Build();
-    browser_ = std::make_unique<TestBrowser>(browser_state_.get());
+    profile_ = TestProfileIOS::Builder().Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get());
     window_ = [[UIWindow alloc] init];
     window_.rootViewController = [[UIViewController alloc] init];
     [window_ addSubview:window_.rootViewController.view];
     UIView.animationsEnabled = NO;
     mock_application_ = OCMStrictClassMock([UIApplication class]);
     coordinator_ = [[SetUpListDefaultBrowserPromoCoordinator alloc]
-        initWithBaseViewController:window_.rootViewController
-                           browser:browser_.get()
-                       application:mock_application_];
+            initWithBaseViewController:window_.rootViewController
+                               browser:browser_.get()
+                           application:mock_application_
+                   segmentationService:nullptr
+        deviceSwitcherResultDispatcher:nullptr];
     delegate_ = OCMProtocolMock(
         @protocol(SetUpListDefaultBrowserPromoCoordinatorDelegate));
     coordinator_.delegate = delegate_;
@@ -40,8 +42,8 @@ class SetUpListDefaultBrowserPromoCoordinatorTest : public PlatformTest {
 
  protected:
   base::test::TaskEnvironment task_environment_;
-  IOSChromeScopedTestingLocalState local_state_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  IOSChromeScopedTestingLocalState scoped_testing_local_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<TestBrowser> browser_;
   UIWindow* window_;
   SetUpListDefaultBrowserPromoCoordinator* coordinator_;

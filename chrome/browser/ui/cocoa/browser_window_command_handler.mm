@@ -69,11 +69,6 @@ remote_cocoa::NativeWidgetNSWindowBridge* FindBridgeForSender(
     // selectors must be handled by the default -[NSWindow
     // validateUserInterfaceItem:window:].
     NOTREACHED();
-    // By default, interface items are enabled if the object in the responder
-    // chain that implements the action does not implement
-    // -validateUserInterfaceItem. Since we only care about -commandDispatch,
-    // return YES for all other actions.
-    return YES;
   }
 
   auto* bridge =

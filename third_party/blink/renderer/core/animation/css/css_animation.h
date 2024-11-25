@@ -45,7 +45,7 @@ class CORE_EXPORT CSSAnimation : public Animation {
   // processed any such pending changes to computed values.  Notably, changes
   // to animation-play-state and display:none must update the play state.
   // https://drafts.csswg.org/css-animations-2/#requirements-on-pending-style-changes
-  String playState() const override;
+  V8AnimationPlayState playState() const override;
   bool pending() const override;
 
   // Explicit calls to the web-animation API that update the play state are
@@ -64,8 +64,8 @@ class CORE_EXPORT CSSAnimation : public Animation {
   // Conditionally updates both boundaries of the animation range.
   // If the corresponding boundary has been explicitly set via WAAPI
   // the new value will be ignored.
-  void SetRange(const absl::optional<TimelineOffset>& range_start,
-                const absl::optional<TimelineOffset>& range_end) override;
+  void SetRange(const std::optional<TimelineOffset>& range_start,
+                const std::optional<TimelineOffset>& range_end) override;
 
   // When set, subsequent changes to animation-<property> no longer affect
   // <property>.

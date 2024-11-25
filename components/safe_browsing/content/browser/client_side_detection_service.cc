@@ -21,7 +21,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/escape.h"
 #include "base/strings/strcat.h"
-#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
@@ -82,8 +81,7 @@ ClientSideDetectionService::CacheState::CacheState(bool phish, base::Time time)
 
 ClientSideDetectionService::ClientSideDetectionService(
     std::unique_ptr<Delegate> delegate,
-    optimization_guide::OptimizationGuideModelProvider* opt_guide,
-    const scoped_refptr<base::SequencedTaskRunner>& background_task_runner)
+    optimization_guide::OptimizationGuideModelProvider* opt_guide)
     : delegate_(std::move(delegate)) {
   // delegate and prefs can be null in unit tests.
   if (!delegate_ || !delegate_->GetPrefs()) {
@@ -91,9 +89,9 @@ ClientSideDetectionService::ClientSideDetectionService(
   }
 
   if (!base::FeatureList::IsEnabled(kClientSideDetectionKillswitch) &&
-      opt_guide && background_task_runner) {
-    client_side_phishing_model_ = std::make_unique<ClientSidePhishingModel>(
-        opt_guide, background_task_runner);
+      opt_guide) {
+    client_side_phishing_model_ =
+        std::make_unique<ClientSidePhishingModel>(opt_guide);
   }
 
   url_loader_factory_ = delegate_->GetSafeBrowsingURLLoaderFactory();
@@ -111,7 +109,11 @@ ClientSideDetectionService::ClientSideDetectionService(
       prefs::kSafeBrowsingScoutReportingEnabled,
       base::BindRepeating(&ClientSideDetectionService::OnPrefsUpdated,
                           base::Unretained(this)));
-  // Do an initial check of the prefs.
+
+  // Load the report times from preferences.
+  LoadPhishingReportTimesFromPrefs();
+
+  //  Do an initial check of the prefs.
   OnPrefsUpdated();
 }
 
@@ -143,18 +145,15 @@ void ClientSideDetectionService::OnPrefsUpdated() {
     update_model_subscription_ = client_side_phishing_model_->RegisterCallback(
         base::BindRepeating(&ClientSideDetectionService::SendModelToRenderers,
                             weak_factory_.GetWeakPtr()));
-    if (base::FeatureList::IsEnabled(kClientSideDetectionModelImageEmbedder)) {
-      if (IsEnhancedProtectionEnabled(*delegate_->GetPrefs())) {
-        client_side_phishing_model_
-            ->SubscribeToImageEmbedderOptimizationGuide();
-      }
+    if (IsEnhancedProtectionEnabled(*delegate_->GetPrefs())) {
+      client_side_phishing_model_->SubscribeToImageEmbedderOptimizationGuide();
     }
   } else {
     // Invoke pending callbacks with a false verdict.
     for (auto& client_phishing_report : client_phishing_reports_) {
       ClientPhishingReportInfo* info = client_phishing_report.second.get();
       if (!info->callback.is_null()) {
-        std::move(info->callback).Run(info->phishing_url, false);
+        std::move(info->callback).Run(info->phishing_url, false, std::nullopt);
       }
     }
     client_phishing_reports_.clear();
@@ -198,12 +197,16 @@ void ClientSideDetectionService::OnURLLoaderComplete(
   if (response_body) {
     data = std::move(*response_body.get());
   }
-  int response_code = 0;
+  std::optional<net::HttpStatusCode> response_code = std::nullopt;
   if (url_loader->ResponseInfo() && url_loader->ResponseInfo()->headers) {
-    response_code = url_loader->ResponseInfo()->headers->response_code();
+    response_code = static_cast<net::HttpStatusCode>(
+        url_loader->ResponseInfo()->headers->response_code());
   }
-  RecordHttpResponseOrErrorCode("SBClientPhishing.NetworkResult",
-                                url_loader->NetError(), response_code);
+  if (response_code.has_value()) {
+    RecordHttpResponseOrErrorCode("SBClientPhishing.NetworkResult",
+                                  url_loader->NetError(),
+                                  response_code.value());
+  }
 
   DCHECK(base::Contains(client_phishing_reports_, url_loader));
   HandlePhishingVerdict(url_loader, url_loader->GetFinalURL(),
@@ -220,7 +223,18 @@ void ClientSideDetectionService::SendModelToRenderers() {
   for (content::RenderProcessHost::iterator it(
            content::RenderProcessHost::AllHostsIterator());
        !it.IsAtEnd(); it.Advance()) {
-    SetPhishingModel(it.GetCurrentValue(), /*new_renderer_process_host=*/false);
+    if (delegate_->ShouldSendModelToBrowserContext(
+            it.GetCurrentValue()->GetBrowserContext())) {
+      auto* rph = it.GetCurrentValue();
+      if (rph->IsReady()) {
+        SetPhishingModel(rph, /*new_renderer_process_host=*/false);
+      } else {
+        if (rph->IsInitializedAndNotDead() &&
+            !observed_render_process_hosts_.IsObservingSource(rph)) {
+          observed_render_process_hosts_.AddObservation(rph);
+        }
+      }
+    }
   }
   if (client_side_phishing_model_) {
     trigger_model_version_ =
@@ -236,7 +250,17 @@ void ClientSideDetectionService::StartClientReportPhishingRequest(
 
   if (!enabled_) {
     if (!callback.is_null()) {
-      std::move(callback).Run(GURL(request->url()), false);
+      std::move(callback).Run(GURL(request->url()), false, std::nullopt);
+    }
+    return;
+  }
+
+  // Record that we made a request. Logged before the request is made
+  // to ensure it gets recorded. If this returns false due to being at ping cap
+  // or prefs are null, abandon the request.
+  if (!AddPhishingReport(base::Time::Now())) {
+    if (!callback.is_null()) {
+      std::move(callback).Run(GURL(request->url()), false, std::nullopt);
     }
     return;
   }
@@ -288,6 +312,9 @@ void ClientSideDetectionService::StartClientReportPhishingRequest(
           })");
   auto resource_request = std::make_unique<network::ResourceRequest>();
   if (!access_token.empty()) {
+    LogAuthenticatedCookieResets(
+        *resource_request,
+        SafeBrowsingAuthenticatedEndpoint::kClientSideDetection);
     SetAccessTokenAndClearCookieInResourceRequest(resource_request.get(),
                                                   access_token);
   }
@@ -295,6 +322,7 @@ void ClientSideDetectionService::StartClientReportPhishingRequest(
   resource_request->url = GetClientReportUrl(kClientReportPhishingUrl);
   resource_request->method = "POST";
   resource_request->load_flags = net::LOAD_DISABLE_CACHE;
+
   auto loader = network::SimpleURLLoader::Create(std::move(resource_request),
                                                  traffic_annotation);
   loader->AttachStringForUpload(request_data, "application/octet-stream");
@@ -311,9 +339,6 @@ void ClientSideDetectionService::StartClientReportPhishingRequest(
   info->phishing_url = GURL(request->url());
   client_phishing_reports_[loader_ptr] = std::move(info);
 
-  // Record that we made a request
-  AddPhishingReport(base::Time::Now());
-
   // The following is to log this ClientPhishingRequest on any open
   // chrome://safe-browsing pages. If no such page is open, the request is
   // dropped and the |request| object deleted.
@@ -328,7 +353,7 @@ void ClientSideDetectionService::HandlePhishingVerdict(
     network::SimpleURLLoader* source,
     const GURL& url,
     int net_error,
-    int response_code,
+    std::optional<net::HttpStatusCode> response_code,
     const std::string& data) {
   ClientPhishingResponse response;
   std::unique_ptr<ClientPhishingReportInfo> info =
@@ -336,8 +361,8 @@ void ClientSideDetectionService::HandlePhishingVerdict(
   client_phishing_reports_.erase(source);
 
   bool is_phishing = false;
-  if (net_error == net::OK && net::HTTP_OK == response_code &&
-      response.ParseFromString(data)) {
+  if (net_error == net::OK && response_code.has_value() &&
+      net::HTTP_OK == response_code.value() && response.ParseFromString(data)) {
     // Cache response, possibly flushing an old one.
     cache_[info->phishing_url] =
         base::WrapUnique(new CacheState(response.phishy(), base::Time::Now()));
@@ -351,14 +376,13 @@ void ClientSideDetectionService::HandlePhishingVerdict(
                      std::make_unique<ClientPhishingResponse>(response)));
 
   if (!info->callback.is_null()) {
-    std::move(info->callback).Run(info->phishing_url, is_phishing);
+    if (response_code.has_value() && response_code.value() == 0) {
+      response_code = std::nullopt;
+    }
+
+    std::move(info->callback)
+        .Run(info->phishing_url, is_phishing, response_code);
   }
-}
-
-bool ClientSideDetectionService::IsInCache(const GURL& url) {
-  UpdateCache();
-
-  return cache_.find(url) != cache_.end();
 }
 
 bool ClientSideDetectionService::GetValidCachedResult(const GURL& url,
@@ -409,35 +433,50 @@ void ClientSideDetectionService::UpdateCache() {
   }
 }
 
-bool ClientSideDetectionService::OverPhishingReportLimit() {
-  // `delegate_` and prefs can be null in unit tests.
-  if (base::FeatureList::IsEnabled(kSafeBrowsingDailyPhishingReportsLimit) &&
-      (delegate_ && delegate_->GetPrefs()) &&
-      IsEnhancedProtectionEnabled(*delegate_->GetPrefs())) {
-    return GetPhishingNumReports() >
-           kSafeBrowsingDailyPhishingReportsLimitESB.Get();
-  }
-  return GetPhishingNumReports() > kMaxReportsPerInterval;
-}
-
-int ClientSideDetectionService::GetPhishingNumReports() {
-  return phishing_report_times_.size();
-}
-
-void ClientSideDetectionService::AddPhishingReport(base::Time timestamp) {
-  phishing_report_times_.push_back(timestamp);
-
-  base::Time cutoff = base::Time::Now() - base::Days(kReportsIntervalDays);
-
+bool ClientSideDetectionService::AtPhishingReportLimit() {
+  // Clear the expired timestamps
+  const auto cutoff = base::Time::Now() - base::Days(kReportsIntervalDays);
   // Erase items older than cutoff because we will never care about them again.
   while (!phishing_report_times_.empty() &&
          phishing_report_times_.front() < cutoff) {
     phishing_report_times_.pop_front();
   }
 
-  if (!delegate_ || !delegate_->GetPrefs()) {
-    return;
+  // `delegate_` and prefs can be null in unit tests.
+  if (base::FeatureList::IsEnabled(kSafeBrowsingDailyPhishingReportsLimit) &&
+      (delegate_ && delegate_->GetPrefs()) &&
+      IsEnhancedProtectionEnabled(*delegate_->GetPrefs())) {
+    return GetPhishingNumReports() >=
+           kSafeBrowsingDailyPhishingReportsLimitESB.Get();
   }
+  return GetPhishingNumReports() >= kMaxReportsPerInterval;
+}
+
+int ClientSideDetectionService::GetPhishingNumReports() {
+  return phishing_report_times_.size();
+}
+
+bool ClientSideDetectionService::AddPhishingReport(base::Time timestamp) {
+  // We should not be adding a report when we are at the limit when this
+  // function calls, but in case it does, we want to track how far back the
+  // last report was prior to the current report and exit the function early.
+  // Each classification request is made on the tab level, which may not have
+  // had |phishing_report_times_| updated because the service class, that's on
+  // the profile level, was processing a different request. Therefore, we check
+  // one last time before we log the request.
+  if (AtPhishingReportLimit()) {
+    base::UmaHistogramMediumTimes("SBClientPhishing.TimeSinceLastReportAtLimit",
+                                  timestamp - phishing_report_times_.back());
+    return false;
+  }
+
+  if (!delegate_ || !delegate_->GetPrefs()) {
+    base::UmaHistogramBoolean("SBClientPhishing.AddPhishingReportSuccessful",
+                              false);
+    return false;
+  }
+
+  phishing_report_times_.push_back(timestamp);
 
   base::Value::List time_list;
   for (const base::Time& report_time : phishing_report_times_) {
@@ -445,18 +484,26 @@ void ClientSideDetectionService::AddPhishingReport(base::Time timestamp) {
   }
   delegate_->GetPrefs()->SetList(prefs::kSafeBrowsingCsdPingTimestamps,
                                  std::move(time_list));
+  base::UmaHistogramBoolean("SBClientPhishing.AddPhishingReportSuccessful",
+                            true);
+
+  return true;
 }
 
 void ClientSideDetectionService::LoadPhishingReportTimesFromPrefs() {
+  // delegate and prefs can be null in unit tests.
   if (!delegate_ || !delegate_->GetPrefs()) {
     return;
   }
 
   phishing_report_times_.clear();
+  const auto cutoff = base::Time::Now() - base::Days(kReportsIntervalDays);
   for (const base::Value& timestamp :
        delegate_->GetPrefs()->GetList(prefs::kSafeBrowsingCsdPingTimestamps)) {
-    phishing_report_times_.push_back(
-        base::Time::FromSecondsSinceUnixEpoch(timestamp.GetDouble()));
+    auto time = base::Time::FromSecondsSinceUnixEpoch(timestamp.GetDouble());
+    if (time >= cutoff) {
+      phishing_report_times_.push_back(time);
+    }
   }
 }
 
@@ -507,7 +554,30 @@ void ClientSideDetectionService::SetURLLoaderFactoryForTesting(
 
 void ClientSideDetectionService::OnRenderProcessHostCreated(
     content::RenderProcessHost* rph) {
+  if (delegate_->ShouldSendModelToBrowserContext(rph->GetBrowserContext())) {
+    // The |rph| is ready, so the model can immediately be send.
+    if (rph->IsReady()) {
+      SetPhishingModel(rph, /*new_renderer_process_host=*/true);
+    } else if (!observed_render_process_hosts_.IsObservingSource(rph)) {
+      // Postpone sending the model until the |rph| is ready.
+      observed_render_process_hosts_.AddObservation(rph);
+    }
+  }
+}
+
+void ClientSideDetectionService::RenderProcessHostDestroyed(
+    content::RenderProcessHost* rph) {
+  if (observed_render_process_hosts_.IsObservingSource(rph)) {
+    observed_render_process_hosts_.RemoveObservation(rph);
+  }
+}
+
+void ClientSideDetectionService::RenderProcessReady(
+    content::RenderProcessHost* rph) {
   SetPhishingModel(rph, /*new_renderer_process_host=*/true);
+  if (observed_render_process_hosts_.IsObservingSource(rph)) {
+    observed_render_process_hosts_.RemoveObservation(rph);
+  }
 }
 
 void ClientSideDetectionService::SetPhishingModel(
@@ -536,9 +606,7 @@ void ClientSideDetectionService::SetPhishingModel(
       return;
     case CSDModelType::kFlatbuffer:
       if (delegate_ && delegate_->GetPrefs() &&
-          IsEnhancedProtectionEnabled(*delegate_->GetPrefs()) &&
-          base::FeatureList::IsEnabled(
-              kClientSideDetectionModelImageEmbedder)) {
+          IsEnhancedProtectionEnabled(*delegate_->GetPrefs())) {
         // The check for image embedding model is important because the
         // OptimizationGuide server can send a null image embedding model to
         // signal there is a bad model in disk. If the image embedding model
@@ -668,21 +736,19 @@ bool ClientSideDetectionService::IsModelAvailable() {
          client_side_phishing_model_->IsEnabled();
 }
 
+int ClientSideDetectionService::GetTriggerModelVersion() {
+  return trigger_model_version_;
+}
+
 bool ClientSideDetectionService::HasImageEmbeddingModel() {
-  if (base::FeatureList::IsEnabled(kClientSideDetectionModelImageEmbedder)) {
-    return client_side_phishing_model_ &&
-           client_side_phishing_model_->HasImageEmbeddingModel();
-  }
-  return false;
+  return client_side_phishing_model_ &&
+         client_side_phishing_model_->HasImageEmbeddingModel();
 }
 
 bool ClientSideDetectionService::IsSubscribedToImageEmbeddingModelUpdates() {
-  if (base::FeatureList::IsEnabled(kClientSideDetectionModelImageEmbedder)) {
-    return client_side_phishing_model_ &&
-           client_side_phishing_model_
-               ->IsSubscribedToImageEmbeddingModelUpdates();
-  }
-  return false;
+  return client_side_phishing_model_ &&
+         client_side_phishing_model_
+             ->IsSubscribedToImageEmbeddingModelUpdates();
 }
 
 base::CallbackListSubscription

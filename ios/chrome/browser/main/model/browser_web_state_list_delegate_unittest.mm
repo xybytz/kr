@@ -6,8 +6,8 @@
 
 #import <tuple>
 
-#import "ios/chrome/browser/sessions/ios_chrome_session_tab_helper.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/sessions/model/ios_chrome_session_tab_helper.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/web/public/test/fakes/fake_web_frames_manager.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
 #import "ios/web/public/test/web_task_environment.h"
@@ -40,8 +40,8 @@ class BrowserWebStateListDelegateTest
     : public testing::TestWithParam<BrowserWebStateListDelegateTestParam> {
  public:
   BrowserWebStateListDelegateTest() {
-    browser_state_ = TestChromeBrowserState::Builder().Build();
-    browser_state_->CreateOffTheRecordBrowserStateWithTestingFactories();
+    profile_ = TestProfileIOS::Builder().Build();
+    profile_->CreateOffTheRecordProfileWithTestingFactories();
   }
 
   // Creates a fake WebState that is unrealized and off-the-record (this
@@ -50,8 +50,7 @@ class BrowserWebStateListDelegateTest
   std::unique_ptr<web::WebState> CreateWebState() {
     auto web_state = std::make_unique<web::FakeWebState>();
     web_state->SetIsRealized(false);
-    web_state->SetBrowserState(
-        browser_state_->GetOffTheRecordChromeBrowserState());
+    web_state->SetBrowserState(profile_->GetOffTheRecordProfile());
 
     for (const web::ContentWorld content_world : kContentWorlds) {
       web_state->SetWebFramesManager(
@@ -62,7 +61,7 @@ class BrowserWebStateListDelegateTest
 
  private:
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
 };
 
 INSTANTIATE_TEST_SUITE_P(

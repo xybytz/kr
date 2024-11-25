@@ -16,7 +16,8 @@ import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {routes} from '../route.js';
-import {Route, RouteObserverMixin} from '../router.js';
+import type {Route} from '../router.js';
+import {RouteObserverMixin} from '../router.js';
 
 import {ContentSettingsTypes} from './constants.js';
 import {getTemplate} from './file_system_site_list.html.js';
@@ -25,7 +26,6 @@ import {SiteSettingsMixin} from './site_settings_mixin.js';
 export interface FileSystemGrant {
   isDirectory: boolean;
   displayName: string;  // Might be a shortened file path.
-  origin: string;
   filePath: string;
 }
 
@@ -37,7 +37,6 @@ export interface OriginFileSystemGrants {
 
 declare global {
   interface HTMLElementEventMap {
-    'revoke-grant': CustomEvent<FileSystemGrant>;
     'revoke-grants': CustomEvent<OriginFileSystemGrants>;
   }
 }
@@ -113,14 +112,6 @@ export class FileSystemSiteListElement extends FileSystemSiteListElementBase {
    */
   private hasAllowedGrants_(): boolean {
     return this.allowedGrants_.length > 0;
-  }
-
-  /**
-   * Revoke an individual permission grant for a given origin and filePath,
-   * then update the list displayed on the UI.
-   */
-  private onRevokeGrant_(e: CustomEvent<FileSystemGrant>) {
-    this.browserProxy.revokeFileSystemGrant(e.detail.origin, e.detail.filePath);
   }
 
   /**

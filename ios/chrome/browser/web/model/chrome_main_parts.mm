@@ -6,8 +6,10 @@
 
 #import <Foundation/Foundation.h>
 
+#import "base/allocator/partition_alloc_support.h"
 #import "base/check_op.h"
 #import "base/feature_list.h"
+#import "base/features.h"
 #import "base/files/file_path.h"
 #import "base/ios/ios_util.h"
 #import "base/memory/ptr_util.h"
@@ -25,13 +27,11 @@
 #import "components/crash/core/common/crash_key.h"
 #import "components/crash/core/common/reporter_running_ios.h"
 #import "components/flags_ui/pref_service_flags_storage.h"
-#import "components/language/core/browser/language_usage_metrics.h"
-#import "components/language/core/browser/pref_names.h"
+#import "components/keyed_service/ios/browser_state_dependency_manager.h"
 #import "components/memory_system/initializer.h"
 #import "components/memory_system/parameters.h"
 #import "components/metrics/call_stacks/call_stack_profile_builder.h"
 #import "components/metrics/call_stacks/call_stack_profile_metrics_provider.h"
-#import "components/metrics/call_stacks/call_stack_profile_params.h"
 #import "components/metrics/clean_exit_beacon.h"
 #import "components/metrics/expired_histogram_util.h"
 #import "components/metrics/metrics_service.h"
@@ -40,9 +40,8 @@
 #import "components/prefs/json_pref_store.h"
 #import "components/prefs/pref_service.h"
 #import "components/previous_session_info/previous_session_info.h"
+#import "components/sampling_profiler/process_type.h"
 #import "components/signin/public/identity_manager/tribool.h"
-#import "components/translate/core/browser/translate_download_manager.h"
-#import "components/translate/core/browser/translate_metrics_logger_impl.h"
 #import "components/variations/field_trial_config/field_trial_util.h"
 #import "components/variations/service/variations_service.h"
 #import "components/variations/synthetic_trial_registry.h"
@@ -51,7 +50,6 @@
 #import "components/variations/variations_ids_provider.h"
 #import "components/variations/variations_switches.h"
 #import "ios/chrome/browser/application_context/model/application_context_impl.h"
-#import "ios/chrome/browser/browser_state/model/browser_state_keyed_service_factories.h"
 #import "ios/chrome/browser/crash_report/model/crash_helper.h"
 #import "ios/chrome/browser/first_run/model/first_run.h"
 #import "ios/chrome/browser/flags/about_flags.h"
@@ -60,34 +58,26 @@
 #import "ios/chrome/browser/open_from_clipboard/model/create_clipboard_recent_content.h"
 #import "ios/chrome/browser/optimization_guide/model/optimization_guide_service_factory.h"
 #import "ios/chrome/browser/policy/model/browser_policy_connector_ios.h"
-#import "ios/chrome/browser/promos_manager/promos_manager.h"
-#import "ios/chrome/browser/safe_browsing/model/safe_browsing_metrics_collector_factory.h"
+#import "ios/chrome/browser/profile/model/keyed_service_factories.h"
+#import "ios/chrome/browser/promos_manager/model/promos_manager.h"
 #import "ios/chrome/browser/segmentation_platform/model/ukm_database_client.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state_manager.h"
 #import "ios/chrome/browser/shared/model/paths/paths.h"
 #import "ios/chrome/browser/shared/model/prefs/pref_names.h"
 #import "ios/chrome/browser/signin/model/signin_util.h"
-#import "ios/chrome/browser/translate/model/chrome_ios_translate_client.h"
 #import "ios/chrome/browser/translate/model/translate_service_ios.h"
 #import "ios/chrome/browser/web/model/ios_thread_profiler.h"
 #import "ios/chrome/common/channel_info.h"
-#import "ios/components/security_interstitials/safe_browsing/safe_browsing_service.h"
+#import "ios/public/provider/chrome/browser/additional_features/additional_features_controller.h"
 #import "ios/web/public/thread/web_task_traits.h"
 #import "ios/web/public/thread/web_thread.h"
 #import "net/base/network_change_notifier.h"
 #import "net/http/http_network_layer.h"
 #import "net/http/http_stream_factory.h"
 #import "net/url_request/url_request.h"
-#import "rlz/buildflags/buildflags.h"
+#import "services/network/public/cpp/shared_url_loader_factory.h"
 #import "ui/base/l10n/l10n_util.h"
 #import "ui/base/l10n/l10n_util_mac.h"
 #import "ui/base/resource/resource_bundle.h"
-
-#if BUILDFLAG(ENABLE_RLZ)
-#import "components/rlz/rlz_tracker.h"                        // nogncheck
-#import "ios/chrome/browser/rlz/rlz_tracker_delegate_impl.h"  // nogncheck
-#endif
 
 #if DCHECK_IS_ON()
 #import "ui/display/screen_base.h"
@@ -175,7 +165,7 @@ void IOSChromeMainParts::PreCreateThreads() {
   base::FilePath local_state_path;
   CHECK(base::PathService::Get(ios::FILE_LOCAL_STATE, &local_state_path));
   application_context_.reset(new ApplicationContextImpl(
-      local_state_task_runner.get(), parsed_command_line_,
+      local_state_task_runner.get(), *parsed_command_line_,
       l10n_util::GetLocaleOverride(),
       base::SysNSStringToUTF8(
           [[NSLocale currentLocale] objectForKey:NSLocaleCountryCode])));
@@ -184,8 +174,9 @@ void IOSChromeMainParts::PreCreateThreads() {
   // Check the first run state early; this must be done before IO is disallowed
   // so that later calls can use the cached value.
   static crash_reporter::CrashKeyString<4> key("first-run");
-  if (FirstRun::IsChromeFirstRun())
+  if (FirstRun::IsChromeFirstRun()) {
     key.Set("yes");
+  }
 
   // Compute device restore flag before IO is disallowed on UI thread, so the
   // value is available from cache synchronously.
@@ -234,6 +225,11 @@ void IOSChromeMainParts::PreCreateThreads() {
   // initialization is handled in PreMainMessageLoopRun since it posts tasks.
   SetUpFieldTrials(command_line_variation_ids);
 
+  // Initialize //base features that depend on the `FeatureList`. Don't force
+  // emitting profiler metadata since the profiler doesn't run on iOS.
+  base::features::Init(
+      base::features::EmitThreadControllerProfilerMetadata::kFeatureDependent);
+
   // Set metrics upload for stack/heap profiles.
   IOSThreadProfiler::SetBrowserProcessReceiverCallback(base::BindRepeating(
       &metrics::CallStackProfileMetricsProvider::ReceiveProfile));
@@ -249,7 +245,7 @@ void IOSChromeMainParts::PreCreateThreads() {
   // this way.
   memory_system::Initializer()
       .SetProfilingClientParameters(
-          channel, metrics::CallStackProfileParams::Process::kBrowser)
+          channel, sampling_profiler::ProfilerProcessType::kBrowser)
       .SetDispatcherParameters(memory_system::DispatcherParameters::
                                    PoissonAllocationSamplerInclusion::kDynamic,
                                memory_system::DispatcherParameters::
@@ -261,7 +257,7 @@ void IOSChromeMainParts::PreCreateThreads() {
 
   metrics::EnableExpiryChecker(::kExpiredHistogramsHashes);
 
-  // TODO(crbug.com/1164533): Remove code below some time after February 2021.
+  // TODO(crbug.com/40163579): Remove code below some time after February 2021.
   NSString* const kRemoveProtectionFromPrefFileKey =
       @"RemoveProtectionFromPrefKey";
   if ([NSUserDefaults.standardUserDefaults
@@ -290,7 +286,7 @@ void IOSChromeMainParts::PreMainMessageLoopRun() {
       base::BindOnce(&FirstRun::LoadSentinelInfo));
 
   // ContentSettingsPattern need to be initialized before creating the
-  // ChromeBrowserState.
+  // ProfileIOS.
   ContentSettingsPattern::SetNonWildcardDomainNonPortSchemes(nullptr, 0);
 
   // Ensure ClipboadRecentContentIOS is created.
@@ -303,21 +299,20 @@ void IOSChromeMainParts::PreMainMessageLoopRun() {
       .PreProfileInit(
           /*in_memory_database=*/false);
 
-  // Ensure that the browser state is initialized.
-  EnsureBrowserStateKeyedServiceFactoriesBuilt();
-  ios::ChromeBrowserStateManager* browser_state_manager =
-      application_context_->GetChromeBrowserStateManager();
-  ChromeBrowserState* last_used_browser_state =
-      browser_state_manager->GetLastUsedBrowserState();
-
   // This must occur at PreMainMessageLoopRun because `SetupMetrics()` uses the
   // blocking pool, which is disabled until the CreateThreads phase of startup.
-  // TODO(crbug.com/786494): Investigate whether metrics recording can be
+  // TODO(crbug.com/41356264): Investigate whether metrics recording can be
   // initialized consistently across iOS and non-iOS platforms
   SetupMetrics();
 
   // Now that the file thread has been started, start recording.
   StartMetricsRecording();
+
+  // Ensure that the KeyedService factories are registered.
+  EnsureProfileKeyedServiceFactoriesBuilt();
+  BrowserStateDependencyManager::GetInstance()
+      ->DisallowKeyedServiceFactoryRegistration(
+          "EnsureProfileKeyedServiceFactoriesBuilt()");
 
   // Because the CleanExitBeacon flag takes 2 restarts to take effect, register
   // a synthetic field trial when the user defaults beacon is set. Called
@@ -331,37 +326,19 @@ void IOSChromeMainParts::PreMainMessageLoopRun() {
   segmentation_platform::UkmDatabaseClientHolder::GetClientInstance(nullptr)
       .StartObservation();
 
-#if BUILDFLAG(ENABLE_RLZ)
-  // Init the RLZ library. This just schedules a task on the file thread to be
-  // run sometime later. If this is the first run we record the installation
-  // event.
-  int ping_delay = last_used_browser_state->GetPrefs()->GetInteger(
-      FirstRun::GetPingDelayPrefName());
-  // Negative ping delay means to send ping immediately after a first search is
-  // recorded.
-  rlz::RLZTracker::SetRlzDelegate(base::WrapUnique(new RLZTrackerDelegateImpl));
-  rlz::RLZTracker::InitRlzDelayed(
-      FirstRun::IsChromeFirstRun(), ping_delay < 0,
-      base::Milliseconds(abs(ping_delay)),
-      RLZTrackerDelegateImpl::IsGoogleDefaultSearch(last_used_browser_state),
-      RLZTrackerDelegateImpl::IsGoogleHomepage(last_used_browser_state),
-      RLZTrackerDelegateImpl::IsGoogleInStartpages(last_used_browser_state));
-#endif  // BUILDFLAG(ENABLE_RLZ)
+#if PA_BUILDFLAG(USE_PARTITION_ALLOC)
+  base::allocator::PartitionAllocSupport::Get()
+      ->ReconfigureAfterFeatureListInit("");
+  base::allocator::PartitionAllocSupport::Get()->ReconfigureAfterTaskRunnerInit(
+      "");
+#endif  // PA_BUILDFLAG(USE_PARTITION_ALLOC)
 
   TranslateServiceIOS::Initialize();
-  language::LanguageUsageMetrics::RecordAcceptLanguages(
-      last_used_browser_state->GetPrefs()->GetString(
-          language::prefs::kAcceptLanguages));
-  translate::TranslateMetricsLoggerImpl::LogApplicationStartMetrics(
-      ChromeIOSTranslateClient::CreateTranslatePrefs(
-          last_used_browser_state->GetPrefs()));
 
   // Request new variations seed information from server.
   variations::VariationsService* variations_service =
       application_context_->GetVariationsService();
   if (variations_service) {
-    variations_service->set_policy_pref_service(
-        last_used_browser_state->GetPrefs());
     variations_service->PerformPreMainMessageLoopStartup();
   }
 
@@ -372,18 +349,6 @@ void IOSChromeMainParts::PreMainMessageLoopRun() {
         application_context_->GetLocalState(),
         application_context_->GetSharedURLLoaderFactory());
   }
-
-  // Ensure that Safe Browsing is initialized.
-  SafeBrowsingService* safe_browsing_service =
-      application_context_->GetSafeBrowsingService();
-  base::FilePath user_data_path;
-  CHECK(base::PathService::Get(ios::DIR_USER_DATA, &user_data_path));
-  safe_browsing::SafeBrowsingMetricsCollector* safe_browsing_metrics_collector =
-      SafeBrowsingMetricsCollectorFactory::GetForBrowserState(
-          last_used_browser_state);
-  safe_browsing_service->Initialize(last_used_browser_state->GetPrefs(),
-                                    user_data_path,
-                                    safe_browsing_metrics_collector);
 }
 
 void IOSChromeMainParts::PostMainMessageLoopRun() {
@@ -392,9 +357,6 @@ void IOSChromeMainParts::PostMainMessageLoopRun() {
   segmentation_platform::UkmDatabaseClientHolder::GetClientInstance(nullptr)
       .PostMessageLoopRun();
 
-#if BUILDFLAG(ENABLE_RLZ)
-  rlz::RLZTracker::CleanupRlz();
-#endif  // BUILDFLAG(ENABLE_RLZ)
   application_context_->StartTearDown();
 }
 
@@ -409,7 +371,7 @@ void IOSChromeMainParts::SetUpFieldTrials(
 
   // FeatureList requires VariationsIdsProvider to be created.
 #if !BUILDFLAG(USE_BLINK)
-  // TODO(crbug.com/1427308) Move variations to PostEarlyInitialization.
+  // TODO(crbug.com/40261735) Move variations to PostEarlyInitialization.
   variations::VariationsIdsProvider::Create(
       variations::VariationsIdsProvider::Mode::kUseSignedInState);
 #endif
@@ -427,12 +389,18 @@ void IOSChromeMainParts::SetUpFieldTrials(
   std::vector<std::string> variation_ids =
       RegisterAllFeatureVariationParameters(&flags_storage, feature_list.get());
 
+  // Register additional features to the feature list.
+  AdditionalFeaturesController* additional_features_controller =
+      application_context_->GetAdditionalFeaturesController();
+  additional_features_controller->RegisterFeatureList(feature_list.get());
+
 #if !BUILDFLAG(USE_BLINK)
-  // TODO(crbug.com/1427308) Move variations to PostEarlyInitialization.
+  // TODO(crbug.com/40261735) Move variations to PostEarlyInitialization.
   application_context_->GetVariationsService()->SetUpFieldTrials(
       variation_ids, command_line_variation_ids,
       std::vector<base::FeatureList::FeatureOverrideInfo>(),
       std::move(feature_list), &ios_field_trials_);
+  additional_features_controller->FeatureListDidCompleteSetup();
 #endif
 }
 
@@ -447,7 +415,7 @@ void IOSChromeMainParts::SetupMetrics() {
 }
 
 void IOSChromeMainParts::StartMetricsRecording() {
-  // TODO(crbug.com/1417909) Add an EG2 test for cloned install detection.
+  // TODO(crbug.com/40894426) Add an EG2 test for cloned install detection.
   application_context_->GetMetricsService()->CheckForClonedInstall();
   application_context_->GetMetricsServicesManager()->UpdateUploadPermissions(
       true);

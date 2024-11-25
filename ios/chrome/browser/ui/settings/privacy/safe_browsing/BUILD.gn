@@ -22,18 +22,19 @@ source_set("safe_browsing") {
     "//build:branding_buildflags",
     "//components/password_manager/core/common",
     "//components/prefs",
-    "//components/safe_browsing/core/browser/hashprefix_realtime:hash_realtime_utils",
     "//components/safe_browsing/core/common",
     "//components/safe_browsing/core/common:safe_browsing_prefs",
+    "//components/safe_browsing/core/common/hashprefix_realtime:hash_realtime_utils",
     "//components/signin/public/identity_manager/objc",
     "//components/strings",
     "//ios/chrome/app/strings",
+    "//ios/chrome/browser/keyboard/ui_bundled",
     "//ios/chrome/browser/net/model:crurl",
     "//ios/chrome/browser/shared/coordinator/chrome_coordinator",
     "//ios/chrome/browser/shared/model/application_context",
     "//ios/chrome/browser/shared/model/browser",
-    "//ios/chrome/browser/shared/model/browser_state",
     "//ios/chrome/browser/shared/model/prefs",
+    "//ios/chrome/browser/shared/model/profile",
     "//ios/chrome/browser/shared/model/url:constants",
     "//ios/chrome/browser/shared/model/utils",
     "//ios/chrome/browser/shared/model/web_state_list",
@@ -46,6 +47,8 @@ source_set("safe_browsing") {
     "//ios/chrome/browser/shared/ui/table_view:utils",
     "//ios/chrome/browser/shared/ui/table_view/cells",
     "//ios/chrome/browser/signin/model",
+    "//ios/chrome/browser/signin/model:authentication_service",
+    "//ios/chrome/browser/signin/model:authentication_service_factory",
     "//ios/chrome/browser/ui/authentication",
     "//ios/chrome/browser/ui/authentication/enterprise:enterprise_utils",
     "//ios/chrome/browser/ui/settings:settings_root",
@@ -62,4 +65,10 @@ source_set("safe_browsing_constants") {
     "safe_browsing_constants.h",
     "safe_browsing_constants.mm",
   ]
+}
+
+source_set("safe_browsing_promo_delegate") {
+  sources = [ "enhanced_safe_browsing_inline_promo_delegate.h" ]
+
+  frameworks = [ "Foundation.framework" ]
 }

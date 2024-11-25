@@ -30,11 +30,9 @@ int ShelfItemTypeToWeight(ShelfItemType type) {
       return 3;
     case TYPE_UNDEFINED:
       NOTREACHED() << "ShelfItemType must be set";
-      return -1;
   }
 
   NOTREACHED() << "Invalid type " << type;
-  return 1;
 }
 
 bool CompareByWeight(const ShelfItem& a, const ShelfItem& b) {
@@ -64,7 +62,7 @@ void ShelfModel::AddAndPinAppWithFactoryConstructedDelegate(
       shelf_item_factory_->CreateShelfItemDelegateForAppId(app_id);
   std::unique_ptr<ShelfItem> item = shelf_item_factory_->CreateShelfItemForApp(
       ash::ShelfID(app_id), STATUS_CLOSED, TYPE_PINNED_APP,
-      /*title=*/base::EmptyString16());
+      /*title=*/std::u16string());
 
   Add(*item, std::move(delegate));
 }
@@ -221,7 +219,6 @@ void ShelfModel::Move(int index, int target_index) {
 void ShelfModel::Set(int index, const ShelfItem& item) {
   if (index < 0 || index >= item_count()) {
     NOTREACHED();
-    return;
   }
 
   int new_index = item.type == items_[index].type

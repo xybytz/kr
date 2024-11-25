@@ -9,12 +9,12 @@ import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Drawable;
 import android.view.View.OnClickListener;
+import android.view.View.OnDragListener;
 import android.view.ViewGroup;
 
 import androidx.appcompat.content.res.AppCompatResources;
 import androidx.core.graphics.drawable.RoundedBitmapDrawable;
 
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.lens.LensController;
 import org.chromium.chrome.browser.lens.LensEntryPoint;
 import org.chromium.chrome.browser.lens.LensIntentParams;
@@ -25,7 +25,6 @@ import org.chromium.chrome.browser.lifecycle.NativeInitObserver;
 import org.chromium.chrome.browser.omnibox.R;
 import org.chromium.chrome.browser.theme.ThemeUtils;
 import org.chromium.chrome.browser.ui.theme.BrandedColorScheme;
-import org.chromium.chrome.features.start_surface.StartSurfaceConfiguration;
 import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -38,7 +37,6 @@ class SearchBoxMediator implements DestroyObserver, NativeInitObserver {
     private final Context mContext;
     private final PropertyModel mModel;
     private final ViewGroup mView;
-    private final boolean mIsSurfacePolishOmniboxColorEnabled;
     private final List<OnClickListener> mVoiceSearchClickListeners = new ArrayList<>();
     private final List<OnClickListener> mLensClickListeners = new ArrayList<>();
     private ActivityLifecycleDispatcher mActivityLifecycleDispatcher;
@@ -48,10 +46,6 @@ class SearchBoxMediator implements DestroyObserver, NativeInitObserver {
         mContext = context;
         mModel = model;
         mView = view;
-        boolean isSurfacePolishEnabled = ChromeFeatureList.sSurfacePolish.isEnabled();
-        mIsSurfacePolishOmniboxColorEnabled =
-                isSurfacePolishEnabled
-                        && StartSurfaceConfiguration.SURFACE_POLISH_OMNIBOX_COLOR.getValue();
         PropertyModelChangeProcessor.create(mModel, mView, new SearchBoxViewBinder());
     }
 
@@ -84,17 +78,18 @@ class SearchBoxMediator implements DestroyObserver, NativeInitObserver {
         mModel.set(SearchBoxProperties.VOICE_SEARCH_DRAWABLE, drawable);
 
         ColorStateList colorStateList =
-                mIsSurfacePolishOmniboxColorEnabled
-                        ? AppCompatResources.getColorStateList(
-                                mContext, R.color.default_icon_color_accent1_container_tint_list)
-                        : ThemeUtils.getThemedToolbarIconTint(
-                                mContext, BrandedColorScheme.APP_DEFAULT);
+                ThemeUtils.getThemedToolbarIconTint(mContext, BrandedColorScheme.APP_DEFAULT);
         mModel.set(SearchBoxProperties.VOICE_SEARCH_COLOR_STATE_LIST, colorStateList);
     }
 
     /** Called to set a click listener for the search box. */
     void setSearchBoxClickListener(OnClickListener listener) {
         mModel.set(SearchBoxProperties.SEARCH_BOX_CLICK_CALLBACK, v -> listener.onClick(v));
+    }
+
+    /** Called to set a drag listener for the search box. */
+    void setSearchBoxDragListener(OnDragListener listener) {
+        mModel.set(SearchBoxProperties.SEARCH_BOX_DRAG_CALLBACK, listener);
     }
 
     /** Called to add a click listener for the voice search button. */
@@ -167,18 +162,6 @@ class SearchBoxMediator implements DestroyObserver, NativeInitObserver {
 
     void setTextViewTranslationX(float translationX) {
         mModel.set(SearchBoxProperties.SEARCH_TEXT_TRANSLATION_X, translationX);
-    }
-
-    void setButtonsHeight(int height) {
-        mModel.set(SearchBoxProperties.BUTTONS_HEIGHT, height);
-    }
-
-    void setButtonsWidth(int width) {
-        mModel.set(SearchBoxProperties.BUTTONS_WIDTH, width);
-    }
-
-    void setLensButtonLeftMargin(int leftMargin) {
-        mModel.set(SearchBoxProperties.LENS_BUTTON_LEFT_MARGIN, leftMargin);
     }
 
     private Drawable getRoundedDrawable(Bitmap bitmap) {

@@ -18,6 +18,7 @@ import android.view.View;
 import android.view.Window;
 import android.widget.Button;
 
+import androidx.annotation.GravityInt;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
@@ -40,6 +41,7 @@ import org.chromium.components.security_state.SecurityStateModel;
 import org.chromium.components.url_formatter.UrlFormatter;
 import org.chromium.content_public.browser.BrowserContextHandle;
 import org.chromium.content_public.browser.LoadCommittedDetails;
+import org.chromium.content_public.browser.Visibility;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.ui.base.Clipboard;
@@ -65,12 +67,18 @@ public class PageInfoController
         implements PageInfoMainController,
                 ModalDialogProperties.Controller,
                 SystemSettingsActivityRequiredListener {
-    @IntDef({OpenedFromSource.MENU, OpenedFromSource.TOOLBAR, OpenedFromSource.VR})
+    @IntDef({
+        OpenedFromSource.MENU,
+        OpenedFromSource.TOOLBAR,
+        OpenedFromSource.VR,
+        OpenedFromSource.WEBAPK_SNACKBAR
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface OpenedFromSource {
         int MENU = 1;
         int TOOLBAR = 2;
         int VR = 3;
+        int WEBAPK_SNACKBAR = 4;
     }
 
     @ContentSettingsType.EnumType
@@ -129,6 +137,12 @@ public class PageInfoController
     // The controller for the cookies section of the page info.
     private PageInfoCookiesController mCookiesController;
 
+    // The controller for the tracking protection section of the page info. Replaces cookies.
+    private PageInfoTrackingProtectionController mTrackingProtectionController;
+
+    // The controller for the tracking protection section for the 100% 3PCD launch UI.
+    private PageInfoTrackingProtectionLaunchController mTrackingProtectionLaunchController;
+
     // All subpage controllers.
     private Collection<PageInfoSubpageController> mSubpageControllers;
 
@@ -138,12 +152,14 @@ public class PageInfoController
     /**
      * Creates the PageInfoController, but does not display it. Also initializes the corresponding
      * C++ object and saves a pointer to it.
-     * @param webContents              The WebContents showing the page that the PageInfo is about.
-     * @param securityLevel            The security level of the page being shown.
-     * @param publisher                The name of the content publisher, if any.
-     * @param delegate                 The PageInfoControllerDelegate used to provide
-     *                                 embedder-specific info.
-     * @param pageInfoHighlight        Providing the highlight row info related to this dialog.
+     *
+     * @param webContents The WebContents showing the page that the PageInfo is about.
+     * @param securityLevel The security level of the page being shown.
+     * @param publisher The name of the content publisher, if any.
+     * @param delegate The PageInfoControllerDelegate used to provide embedder-specific info.
+     * @param pageInfoHighlight Providing the highlight row info related to this dialog.
+     * @param source Determines the source that triggered the popup.
+     * @param dialogPosition The position of the dialog, either TOP or BOTTOM.
      */
     @VisibleForTesting(otherwise = VisibleForTesting.PROTECTED)
     public PageInfoController(
@@ -151,7 +167,9 @@ public class PageInfoController
             @ConnectionSecurityLevel int securityLevel,
             String publisher,
             PageInfoControllerDelegate delegate,
-            PageInfoHighlight pageInfoHighlight) {
+            PageInfoHighlight pageInfoHighlight,
+            @OpenedFromSource int source,
+            @GravityInt int dialogPosition) {
         mWebContents = webContents;
         mSecurityLevel = securityLevel;
         mDelegate = delegate;
@@ -159,7 +177,8 @@ public class PageInfoController
         mContext = mWindowAndroid.getContext().get();
         mSubpageControllers = new ArrayList<>();
         // Work out the URL and connection message and status visibility.
-        // TODO(crbug.com/1033178): dedupe the DomDistillerUrlUtils#getOriginalUrlFromDistillerUrl()
+        // TODO(crbug.com/40663204): dedupe the
+        // DomDistillerUrlUtils#getOriginalUrlFromDistillerUrl()
         // calls.
         String url =
                 mDelegate.isShowingOfflinePage()
@@ -188,7 +207,7 @@ public class PageInfoController
                             displayUrlBuilder.toString(), autocompleteSchemeClassifier);
             if (emphasizeResponse.schemeLength > 0) {
                 displayUrlBuilder.setSpan(
-                        new TextAppearanceSpan(mContext, R.style.TextAppearance_RobotoMediumStyle),
+                        new TextAppearanceSpan(mContext, R.style.TextAppearance_MediumStyle),
                         0,
                         emphasizeResponse.schemeLength,
                         Spannable.SPAN_EXCLUSIVE_INCLUSIVE);
@@ -243,7 +262,6 @@ public class PageInfoController
                                 SettingsUtils.getTintedIcon(mContext, R.drawable.ic_globe_24dp));
                     }
                 });
-        mContainer.showPage(mView, null, null);
 
         // Create Subcontrollers.
         mConnectionController =
@@ -262,11 +280,33 @@ public class PageInfoController
                         mDelegate,
                         pageInfoHighlight.getHighlightedPermission());
         mSubpageControllers.add(mPermissionsController);
-        mCookiesController =
-                new PageInfoCookiesController(this, mView.getCookiesRowView(), mDelegate);
-        mSubpageControllers.add(mCookiesController);
+        if (mDelegate.showTrackingProtectionActFeaturesUi()) {
+            mTrackingProtectionLaunchController =
+                    new PageInfoTrackingProtectionLaunchController(
+                            this, mView.getCookiesRowView(), mDelegate);
+            mSubpageControllers.add(mTrackingProtectionLaunchController);
+        } else if (mDelegate.showTrackingProtectionUi()) {
+            mTrackingProtectionController =
+                    new PageInfoTrackingProtectionController(
+                            this, mView.getCookiesRowView(), mDelegate);
+            mSubpageControllers.add(mTrackingProtectionController);
+        } else {
+            mCookiesController =
+                    new PageInfoCookiesController(this, mView.getCookiesRowView(), mDelegate);
+            mSubpageControllers.add(mCookiesController);
+        }
 
-        // TODO(crbug.com/1173154): Setup forget this site button after history delete is
+        if (source == OpenedFromSource.WEBAPK_SNACKBAR
+                && mDelegate.showTrackingProtectionActFeaturesUi()) {
+            mContainer.showPage(
+                    mTrackingProtectionLaunchController.createViewForSubpage(mContainer),
+                    null,
+                    null);
+        } else {
+            mContainer.showPage(mView, null, null);
+        }
+
+        // TODO(crbug.com/40746014): Setup forget this site button after history delete is
         // implemented.
         // setupForgetSiteButton(mView.getForgetSiteButton());
 
@@ -285,10 +325,12 @@ public class PageInfoController
                     }
 
                     @Override
-                    public void wasHidden() {
-                        // The web contents were hidden (potentially by loading another URL via an
-                        // intent), so dismiss the dialog).
-                        mDialog.dismiss(true);
+                    public void onVisibilityChanged(@Visibility int visibility) {
+                        // The web contents were hidden or occluded (potentially by loading another
+                        // URL via an intent), so dismiss the dialog).
+                        if (visibility != Visibility.VISIBLE) {
+                            mDialog.dismiss(true);
+                        }
                     }
 
                     @Override
@@ -314,7 +356,8 @@ public class PageInfoController
                         webContents.getViewAndroidDelegate().getContainerView(),
                         isSheet(mContext),
                         delegate.getModalDialogManager(),
-                        this);
+                        this,
+                        dialogPosition);
         mDialog.show();
     }
 
@@ -326,6 +369,14 @@ public class PageInfoController
         if (mCookiesController != null) {
             mCookiesController.destroy();
             mCookiesController = null;
+        }
+        if (mTrackingProtectionController != null) {
+            mTrackingProtectionController.destroy();
+            mTrackingProtectionController = null;
+        }
+        if (mTrackingProtectionLaunchController != null) {
+            mTrackingProtectionLaunchController.destroy();
+            mTrackingProtectionLaunchController = null;
         }
         if (mForgetSiteDialog != null) {
             mForgetSiteDialog.dismiss();
@@ -495,6 +546,15 @@ public class PageInfoController
         return mContainer;
     }
 
+    public PageInfoTrackingProtectionController getTrackingProtectionControllerForTesting() {
+        return mTrackingProtectionController;
+    }
+
+    public PageInfoTrackingProtectionLaunchController
+            getTrackingProtectionLaunchControllerForTesting() {
+        return mTrackingProtectionLaunchController;
+    }
+
     public boolean isDialogShowingForTesting() {
         return mDialog != null;
     }
@@ -504,8 +564,8 @@ public class PageInfoController
      * hierarchy which owns the reference while it's visible.
      *
      * @param activity The activity that is used for launching a dialog.
-     * @param webContents The web contents for which to show Website information. This
-     *            information is retrieved for the visible entry.
+     * @param webContents The web contents for which to show Website information. This information
+     *     is retrieved for the visible entry.
      * @param contentPublisher The name of the publisher of the content.
      * @param source Determines the source that triggered the popup.
      * @param delegate The PageInfoControllerDelegate used to provide embedder-specific info.
@@ -517,7 +577,8 @@ public class PageInfoController
             final String contentPublisher,
             @OpenedFromSource int source,
             PageInfoControllerDelegate delegate,
-            PageInfoHighlight pageInfoHighlight) {
+            PageInfoHighlight pageInfoHighlight,
+            @GravityInt int dialogPosition) {
         // Don't show the dialog if this tab doesn't have an activity. See https://crbug.com/1267383
         if (activity == null) return;
         // If the activity's decor view is not attached to window, we don't show the dialog because
@@ -532,6 +593,8 @@ public class PageInfoController
             RecordUserAction.record("MobileWebsiteSettingsOpenedFromToolbar");
         } else if (source == OpenedFromSource.VR) {
             RecordUserAction.record("MobileWebsiteSettingsOpenedFromVR");
+        } else if (source == OpenedFromSource.WEBAPK_SNACKBAR) {
+            RecordUserAction.record("MobileWebsiteSettingsOpenedFromWebApkSnackbar");
         } else {
             assert false : "Invalid source passed";
         }
@@ -543,7 +606,9 @@ public class PageInfoController
                                 SecurityStateModel.getSecurityLevelForWebContents(webContents),
                                 contentPublisher,
                                 delegate,
-                                pageInfoHighlight));
+                                pageInfoHighlight,
+                                source,
+                                dialogPosition));
     }
 
     public static PageInfoController getLastPageInfoControllerForTesting() {

@@ -27,27 +27,24 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.RuleChain;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.chrome.browser.ChromeApplicationImpl;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
-import org.chromium.chrome.browser.dependency_injection.ChromeActivityCommonsModule;
-import org.chromium.chrome.browser.dependency_injection.ModuleOverridesRule;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.ui.messages.snackbar.Snackbar;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.R;
+import org.chromium.components.browser_ui.notifications.BaseNotificationManagerProxyFactory;
 import org.chromium.components.browser_ui.notifications.MockNotificationManagerProxy;
 import org.chromium.components.browser_ui.notifications.MockNotificationManagerProxy.NotificationEntry;
 import org.chromium.components.embedder_support.util.Origin;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServerRule;
 import org.chromium.ui.test.util.DeviceRestriction;
 
@@ -76,86 +73,13 @@ public class RunningInChromeTest {
     private final MockNotificationManagerProxy mMockNotificationManager =
             new MockNotificationManagerProxy();
 
-    private final TestRule mModuleOverridesRule =
-            new ModuleOverridesRule()
-                    .setOverride(
-                            ChromeActivityCommonsModule.Factory.class,
-                            (activity,
-                                    bottomSheetController,
-                                    tabModelSelectorSupplier,
-                                    browserControlsManager,
-                                    browserControlsVisibilityManager,
-                                    browserControlsSizer,
-                                    fullscreenManager,
-                                    layoutManagerSupplier,
-                                    lifecycleDispatcher,
-                                    snackbarManagerSupplier,
-                                    profileProvider,
-                                    activityTabProvider,
-                                    tabContentManager,
-                                    activityWindowAndroid,
-                                    compositorViewHolderSupplier,
-                                    tabCreatorManager,
-                                    tabCreatorSupplier,
-                                    isPromotableToTabSupplier,
-                                    statusBarColorController,
-                                    screenOrientationProvider,
-                                    notificationManagerProxySupplier,
-                                    tabContentManagerSupplier,
-                                    activityTabStartupMetricsTrackerSupplier,
-                                    compositorViewHolderInitializer,
-                                    chromeActivityNativeDelegate,
-                                    modalDialogManagerSupplier,
-                                    browserControlsStateProvider,
-                                    savedInstanceStateSupplier,
-                                    autofillUiBottomInsetSupplier,
-                                    shareDelegateSupplier,
-                                    tabModelInitializer,
-                                    activityType) -> {
-                                return new ChromeActivityCommonsModule(
-                                        activity,
-                                        bottomSheetController,
-                                        tabModelSelectorSupplier,
-                                        browserControlsManager,
-                                        browserControlsVisibilityManager,
-                                        browserControlsSizer,
-                                        fullscreenManager,
-                                        layoutManagerSupplier,
-                                        lifecycleDispatcher,
-                                        snackbarManagerSupplier,
-                                        profileProvider,
-                                        activityTabProvider,
-                                        tabContentManager,
-                                        activityWindowAndroid,
-                                        compositorViewHolderSupplier,
-                                        tabCreatorManager,
-                                        tabCreatorSupplier,
-                                        isPromotableToTabSupplier,
-                                        statusBarColorController,
-                                        screenOrientationProvider,
-                                        () -> mMockNotificationManager,
-                                        tabContentManagerSupplier,
-                                        activityTabStartupMetricsTrackerSupplier,
-                                        compositorViewHolderInitializer,
-                                        chromeActivityNativeDelegate,
-                                        modalDialogManagerSupplier,
-                                        browserControlsStateProvider,
-                                        savedInstanceStateSupplier,
-                                        autofillUiBottomInsetSupplier,
-                                        shareDelegateSupplier,
-                                        tabModelInitializer,
-                                        activityType);
-                            });
-
     @Rule
     public RuleChain mRuleChain =
             RuleChain.emptyRuleChain()
                     .around(mCustomTabActivityTestRule)
-                    .around(mEmbeddedTestServerRule)
-                    .around(mModuleOverridesRule);
+                    .around(mEmbeddedTestServerRule);
 
     private String mTestPage;
-    private BrowserServicesStore mStore;
 
     @Before
     public void setUp() {
@@ -166,11 +90,9 @@ public class RunningInChromeTest {
         mTestPage = mEmbeddedTestServerRule.getServer().getURL(TEST_PAGE);
 
         mMockNotificationManager.setNotificationsEnabled(false);
+        BaseNotificationManagerProxyFactory.setInstanceForTesting(mMockNotificationManager);
 
-        mStore =
-                new BrowserServicesStore(
-                        ChromeApplicationImpl.getComponent().resolveChromeSharedPreferences());
-        mStore.removeTwaDisclosureAcceptanceForPackage(PACKAGE_NAME);
+        BrowserServicesStore.removeTwaDisclosureAcceptanceForPackage(PACKAGE_NAME);
     }
 
     @Test
@@ -263,7 +185,7 @@ public class RunningInChromeTest {
         // On the trybots a Downloads Snackbar is shown over the one we want to test.
         SnackbarManager manager = mCustomTabActivityTestRule.getActivity().getSnackbarManager();
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     while (true) {
                         Snackbar snackbar = manager.getCurrentSnackbarForTesting();

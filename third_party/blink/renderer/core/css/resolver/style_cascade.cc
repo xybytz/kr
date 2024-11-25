@@ -2,27 +2,42 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/core/css/resolver/style_cascade.h"
 
 #include <bit>
+#include <optional>
 
+#include "base/not_fatal_until.h"
+#include "base/notreached.h"
 #include "third_party/blink/renderer/core/animation/css/css_animations.h"
 #include "third_party/blink/renderer/core/animation/css_interpolation_environment.h"
 #include "third_party/blink/renderer/core/animation/css_interpolation_types_map.h"
 #include "third_party/blink/renderer/core/animation/invalidatable_interpolation.h"
 #include "third_party/blink/renderer/core/animation/property_handle.h"
 #include "third_party/blink/renderer/core/animation/transition_interpolation.h"
-#include "third_party/blink/renderer/core/css/css_custom_property_declaration.h"
+#include "third_party/blink/renderer/core/css/css_attr_type.h"
+#include "third_party/blink/renderer/core/css/css_attr_value_tainting.h"
 #include "third_party/blink/renderer/core/css/css_cyclic_variable_value.h"
+#include "third_party/blink/renderer/core/css/css_flip_revert_value.h"
 #include "third_party/blink/renderer/core/css/css_font_selector.h"
 #include "third_party/blink/renderer/core/css/css_invalid_variable_value.h"
+#include "third_party/blink/renderer/core/css/css_math_function_value.h"
 #include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
 #include "third_party/blink/renderer/core/css/css_pending_substitution_value.h"
+#include "third_party/blink/renderer/core/css/css_primitive_value.h"
+#include "third_party/blink/renderer/core/css/css_syntax_string_parser.h"
+#include "third_party/blink/renderer/core/css/css_unparsed_declaration_value.h"
 #include "third_party/blink/renderer/core/css/css_unset_value.h"
+#include "third_party/blink/renderer/core/css/css_value.h"
 #include "third_party/blink/renderer/core/css/css_variable_data.h"
-#include "third_party/blink/renderer/core/css/css_variable_reference_value.h"
 #include "third_party/blink/renderer/core/css/document_style_environment_variables.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_local_context.h"
+#include "third_party/blink/renderer/core/css/parser/css_parser_token.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_token_stream.h"
 #include "third_party/blink/renderer/core/css/parser/css_property_parser.h"
 #include "third_party/blink/renderer/core/css/parser/css_tokenizer.h"
@@ -37,32 +52,39 @@
 #include "third_party/blink/renderer/core/css/resolver/cascade_expansion.h"
 #include "third_party/blink/renderer/core/css/resolver/cascade_interpolations.h"
 #include "third_party/blink/renderer/core/css/resolver/cascade_resolver.h"
+#include "third_party/blink/renderer/core/css/resolver/scoped_style_resolver.h"
 #include "third_party/blink/renderer/core/css/resolver/style_builder.h"
+#include "third_party/blink/renderer/core/css/resolver/style_builder_converter.h"
 #include "third_party/blink/renderer/core/css/resolver/style_resolver_state.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
+#include "third_party/blink/renderer/core/css/try_value_flips.h"
+#include "third_party/blink/renderer/core/css_value_keywords.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
+#include "third_party/blink/renderer/core/html/forms/html_select_element.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/style_property_shorthand.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
+#include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_view.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 
 namespace {
 
-template <class ParserTokenStream>
-AtomicString ConsumeVariableName(ParserTokenStream& stream) {
+AtomicString ConsumeVariableName(CSSParserTokenStream& stream) {
   stream.ConsumeWhitespace();
   CSSParserToken ident_token = stream.ConsumeIncludingWhitespaceRaw();
   DCHECK_EQ(ident_token.GetType(), kIdentToken);
   return ident_token.Value().ToAtomicString();
 }
 
-template <class ParserTokenStream>
-bool ConsumeComma(ParserTokenStream& stream) {
+bool ConsumeComma(CSSParserTokenStream& stream) {
   if (stream.Peek().GetType() == kCommaToken) {
     stream.ConsumeRaw();
     return true;
@@ -71,9 +93,9 @@ bool ConsumeComma(ParserTokenStream& stream) {
 }
 
 const CSSValue* Parse(const CSSProperty& property,
-                      CSSParserTokenRange range,
+                      CSSParserTokenStream& stream,
                       const CSSParserContext* context) {
-  return CSSPropertyParser::ParseSingleValue(property.PropertyID(), range,
+  return CSSPropertyParser::ParseSingleValue(property.PropertyID(), stream,
                                              context);
 }
 
@@ -89,8 +111,22 @@ const TreeScope& TreeScopeAt(const MatchResult& result, uint32_t position) {
   wtf_size_t matched_properties_index = DecodeMatchedPropertiesIndex(position);
   const MatchedProperties& properties =
       result.GetMatchedProperties()[matched_properties_index];
-  DCHECK_EQ(properties.types_.origin, CascadeOrigin::kAuthor);
-  return result.ScopeFromTreeOrder(properties.types_.tree_order);
+  DCHECK_EQ(properties.data_.origin, CascadeOrigin::kAuthor);
+  return result.ScopeFromTreeOrder(properties.data_.tree_order);
+}
+
+const CSSValue* EnsureScopedValue(const Document& document,
+                                  const MatchResult& match_result,
+                                  CascadePriority priority,
+                                  const CSSValue* value) {
+  CascadeOrigin origin = priority.GetOrigin();
+  const TreeScope* tree_scope{nullptr};
+  if (origin == CascadeOrigin::kAuthor) {
+    tree_scope = &TreeScopeAt(match_result, priority.GetPosition());
+  } else if (origin == CascadeOrigin::kAuthorPresentationalHint) {
+    tree_scope = &document;
+  }
+  return &value->EnsureScopedValue(tree_scope);
 }
 
 PropertyHandle ToPropertyHandle(const CSSProperty& property,
@@ -111,7 +147,6 @@ CascadeOrigin TargetOriginForRevert(CascadeOrigin origin) {
     case CascadeOrigin::kNone:
     case CascadeOrigin::kTransition:
       NOTREACHED();
-      return CascadeOrigin::kNone;
     case CascadeOrigin::kUserAgent:
       return CascadeOrigin::kNone;
     case CascadeOrigin::kUser:
@@ -148,23 +183,6 @@ bool IsInterpolation(CascadePriority priority) {
   }
 }
 
-#if DCHECK_IS_ON()
-
-bool HasUnresolvedReferences(CSSParserTokenRange range) {
-  while (!range.AtEnd()) {
-    switch (range.Consume().FunctionId()) {
-      case CSSValueID::kVar:
-      case CSSValueID::kEnv:
-        return true;
-      default:
-        continue;
-    }
-  }
-  return false;
-}
-
-#endif  // DCHECK_IS_ON()
-
 }  // namespace
 
 MatchResult& StyleCascade::MutableMatchResult() {
@@ -188,37 +206,8 @@ void StyleCascade::Apply(CascadeFilter filter) {
 
   ApplyCascadeAffecting(resolver);
 
-  if (map_.NativeBitset().Has(CSSPropertyID::kColorScheme)) {
-    // Affects the computed value of 'color', hence needs to happen before
-    // high-priority properties.
-    LookupAndApply(GetCSSPropertyColorScheme(), resolver);
-  }
-
-  if (map_.NativeBitset().Has(CSSPropertyID::kMathDepth)) {
-    // Affects the computed value of 'font-size', hence needs to happen before
-    // high-priority properties.
-    LookupAndApply(GetCSSPropertyMathDepth(), resolver);
-  }
-
-  if (map_.NativeBitset().Has(CSSPropertyID::kMaskImage)) {
-    // mask-image needs to be applied before {-webkit-}mask-composite,
-    // otherwise {-webkit-}mask-composite has no effect.
-    LookupAndApply(GetCSSPropertyMaskImage(), resolver);
-  }
-
-  if (map_.NativeBitset().Has(CSSPropertyID::kWebkitMaskImage)) {
-    // -webkit-mask-image needs to be applied before -webkit-mask-composite,
-    // otherwise -webkit-mask-composite has no effect.
-    LookupAndApply(GetCSSPropertyWebkitMaskImage(), resolver);
-  }
-
-  if (map_.NativeBitset().Has(CSSPropertyID::kForcedColorAdjust)) {
-    // Affects the computed value of color when it is inherited and
-    // forced-color- adjust is set to preserve-parent-color.
-    LookupAndApply(GetCSSPropertyForcedColorAdjust(), resolver);
-  }
-
   ApplyHighPriority(resolver);
+  state_.UpdateFont();
 
   if (map_.NativeBitset().Has(CSSPropertyID::kLineHeight)) {
     LookupAndApply(GetCSSPropertyLineHeight(), resolver);
@@ -344,8 +333,12 @@ StyleCascade::GetCascadedValues() const {
   for (CSSPropertyID id : map_.NativeBitset()) {
     CSSPropertyName name(id);
     CascadePriority priority = map_.At(name);
-    DCHECK(priority.HasOrigin());
     if (IsInterpolation(priority)) {
+      continue;
+    }
+    if (!priority.HasOrigin()) {
+      // Declarations added for explicit defaults (AddExplicitDefaults)
+      // should not be observable.
       continue;
     }
     const CSSValue* cascaded = ValueAt(match_result_, priority.GetPosition());
@@ -377,10 +370,11 @@ const CSSValue* StyleCascade::Resolve(StyleResolverState& state,
   // satisfy the API.
   CascadeResolver resolver(CascadeFilter(), /* generation */ 0);
 
-  // The origin is relevant for 'revert'. We pick kAuthor arbitrarily,
-  // but the behavior would be the same for any non-animated origin.
-  // (It always becomes 'unset').
-  CascadeOrigin origin = CascadeOrigin::kAuthor;
+  // The origin is relevant for 'revert', but since the cascade map
+  // is empty, there will be nothing to revert to regardless of the origin
+  // We use kNone, because kAuthor (etc) imply that the `value` originates
+  // from a location on the `MatchResult`, which is not the case.
+  CascadeOrigin origin = CascadeOrigin::kNone;
 
   return cascade.Resolve(name, value, origin, resolver);
 }
@@ -397,6 +391,8 @@ void StyleCascade::AnalyzeIfNeeded() {
 }
 
 void StyleCascade::AnalyzeMatchResult() {
+  AddExplicitDefaults();
+
   int index = 0;
   for (const MatchedProperties& properties :
        match_result_.GetMatchedProperties()) {
@@ -425,8 +421,13 @@ void StyleCascade::AnalyzeInterpolations() {
       auto name = active_interpolation.key.GetCSSPropertyName();
       uint32_t position = EncodeInterpolationPosition(
           name.Id(), i, active_interpolation.key.IsPresentationAttribute());
-      CascadePriority priority(entries[i].origin, false, 0, false, false, 0,
-                               position);
+      CascadePriority priority(entries[i].origin,
+                               /* important */ false,
+                               /* tree_order */ 0,
+                               /* is_inline_style */ false,
+                               /* is_try_style */ false,
+                               /* is_try_tactics_style */ false,
+                               /* layer_order */ 0, position);
 
       CSSPropertyRef ref(name, GetDocument());
       DCHECK(ref.IsValid());
@@ -449,6 +450,60 @@ void StyleCascade::AnalyzeInterpolations() {
   }
 }
 
+// The implicit defaulting behavior of inherited properties is to take
+// the value of the parent style [1]. However, we never reach
+// Longhand::ApplyInherit for implicit defaults, which is needed to adjust
+// Lengths with premultiplied zoom. Therefore, all inherited properties
+// are instead explicitly defaulted [2] when the effective zoom has changed
+// versus the parent zoom.
+//
+// [1] https://drafts.csswg.org/css-cascade/#defaulting
+// [2] https://drafts.csswg.org/css-cascade/#defaulting-keywords
+void StyleCascade::AddExplicitDefaults() {
+  if (state_.GetDocument().StandardizedBrowserZoomEnabled() &&
+      effective_zoom_changed_) {
+    // These inherited properties can contain lengths:
+    //
+    //   -webkit-border-horizontal-spacing
+    //   -webkit-border-vertical-spacing
+    //   -webkit-text-stroke-width
+    //   letter-spacing
+    //   line-height
+    //   list-style-image *
+    //   stroke-dasharray
+    //   stroke-dashoffset
+    //   stroke-width **
+    //   text-indent
+    //   text-shadow
+    //   text-underline-offset
+    //   word-spacing
+    //
+    // * list-style-image need not be recomputed on zoom change because list
+    // image marker is sized to 1em and font-size is already correctly zoomed.
+    //
+    // ** stroke-width gets special handling elsewhere.
+    map_.Add(CSSPropertyID::kLetterSpacing,
+             CascadePriority(CascadeOrigin::kNone));
+    map_.Add(CSSPropertyID::kLineHeight, CascadePriority(CascadeOrigin::kNone));
+    map_.Add(CSSPropertyID::kStrokeDasharray,
+             CascadePriority(CascadeOrigin::kNone));
+    map_.Add(CSSPropertyID::kStrokeDashoffset,
+             CascadePriority(CascadeOrigin::kNone));
+    map_.Add(CSSPropertyID::kTextIndent, CascadePriority(CascadeOrigin::kNone));
+    map_.Add(CSSPropertyID::kTextShadow, CascadePriority(CascadeOrigin::kNone));
+    map_.Add(CSSPropertyID::kTextUnderlineOffset,
+             CascadePriority(CascadeOrigin::kNone));
+    map_.Add(CSSPropertyID::kWebkitTextStrokeWidth,
+             CascadePriority(CascadeOrigin::kNone));
+    map_.Add(CSSPropertyID::kWebkitBorderHorizontalSpacing,
+             CascadePriority(CascadeOrigin::kNone));
+    map_.Add(CSSPropertyID::kWebkitBorderVerticalSpacing,
+             CascadePriority(CascadeOrigin::kNone));
+    map_.Add(CSSPropertyID::kWordSpacing,
+             CascadePriority(CascadeOrigin::kNone));
+  }
+}
+
 void StyleCascade::Reanalyze() {
   map_.Reset();
   generation_ = 0;
@@ -467,6 +522,12 @@ void StyleCascade::ApplyCascadeAffecting(CascadeResolver& resolver) {
   // values on ComputedStyle.
   auto direction = state_.StyleBuilder().Direction();
   auto writing_mode = state_.StyleBuilder().GetWritingMode();
+  // Similarly, we assume that the effective zoom of this element
+  // is the same as the parent's effective zoom. If it isn't,
+  // we re-cascade with explicit defaults inserted at CascadeOrigin::kNone.
+  //
+  // See also StyleCascade::AddExplicitDefaults.
+  float effective_zoom = state_.StyleBuilder().EffectiveZoom();
 
   if (map_.NativeBitset().Has(CSSPropertyID::kDirection)) {
     LookupAndApply(GetCSSPropertyDirection(), resolver);
@@ -474,12 +535,25 @@ void StyleCascade::ApplyCascadeAffecting(CascadeResolver& resolver) {
   if (map_.NativeBitset().Has(CSSPropertyID::kWritingMode)) {
     LookupAndApply(GetCSSPropertyWritingMode(), resolver);
   }
+  if (map_.NativeBitset().Has(CSSPropertyID::kZoom)) {
+    LookupAndApply(GetCSSPropertyZoom(), resolver);
+  }
+
+  bool reanalyze = false;
 
   if (depends_on_cascade_affecting_property_) {
     if (direction != state_.StyleBuilder().Direction() ||
         writing_mode != state_.StyleBuilder().GetWritingMode()) {
-      Reanalyze();
+      reanalyze = true;
     }
+  }
+  if (effective_zoom != state_.StyleBuilder().EffectiveZoom()) {
+    effective_zoom_changed_ = true;
+    reanalyze = true;
+  }
+
+  if (reanalyze) {
+    Reanalyze();
   }
 }
 
@@ -491,8 +565,6 @@ void StyleCascade::ApplyHighPriority(CascadeResolver& resolver) {
     bits &= bits - 1;  // Clear the lowest bit.
     LookupAndApply(CSSProperty::Get(ConvertToCSSPropertyID(i)), resolver);
   }
-
-  state_.UpdateFont();
 }
 
 void StyleCascade::ApplyWideOverlapping(CascadeResolver& resolver) {
@@ -528,9 +600,8 @@ void StyleCascade::ApplyWideOverlapping(CascadeResolver& resolver) {
       LookupAndApply(webkit_border_image, resolver);
 
       const auto& shorthand = borderImageShorthand();
-      const CSSProperty** longhands = shorthand.properties();
-      for (unsigned i = 0; i < shorthand.length(); ++i) {
-        maybe_skip(*longhands[i], *priority);
+      for (const CSSProperty* const longhand : shorthand.properties()) {
+        maybe_skip(*longhand, *priority);
       }
     }
   }
@@ -566,6 +637,19 @@ void StyleCascade::ApplyWideOverlapping(CascadeResolver& resolver) {
       maybe_skip(GetCSSPropertyBaselineSource(), *priority);
     }
   }
+
+  // Note that -webkit-box-decoration-break isn't really more (or less)
+  // "wide" than the non-prefixed counterpart, but they still share
+  // a ComputedStyle location, and therefore need to be handled here.
+  const CSSProperty& webkit_box_decoration_break =
+      GetCSSPropertyWebkitBoxDecorationBreak();
+  if (!resolver.filter_.Rejects(webkit_box_decoration_break)) {
+    if (const CascadePriority* priority =
+            map_.Find(webkit_box_decoration_break.GetCSSPropertyName())) {
+      LookupAndApply(webkit_box_decoration_break, resolver);
+      maybe_skip(GetCSSPropertyBoxDecorationBreak(), *priority);
+    }
+  }
 }
 
 // Go through all properties that were found during the analyze phase
@@ -573,7 +657,13 @@ void StyleCascade::ApplyWideOverlapping(CascadeResolver& resolver) {
 // in a second phase so that we know which ones actually won the cascade
 // before we start applying, as some properties can affect others.
 void StyleCascade::ApplyMatchResult(CascadeResolver& resolver) {
-  for (CSSPropertyID id : map_.NativeBitset()) {
+  // All the high-priority properties were dealt with in ApplyHighPriority(),
+  // so we don't need to look at them again. (That would be a no-op due to
+  // the generation check below, but it's cheaper just to mask them out
+  // entirely.)
+  for (auto it = map_.NativeBitset().BeginAfterHighPriority();
+       it != map_.NativeBitset().end(); ++it) {
+    CSSPropertyID id = *it;
     CascadePriority* p = map_.FindKnownToExist(id);
     const CascadePriority priority = *p;
     if (priority.GetGeneration() >= resolver.generation_) {
@@ -627,7 +717,13 @@ void StyleCascade::ApplyInterpolationMap(const ActiveInterpolationsMap& map,
     auto name = entry.key.GetCSSPropertyName();
     uint32_t position = EncodeInterpolationPosition(
         name.Id(), index, entry.key.IsPresentationAttribute());
-    CascadePriority priority(origin, false, 0, false, false, 0, position);
+    CascadePriority priority(origin,
+                             /* important */ false,
+                             /* tree_order */ 0,
+                             /* is_inline_style */ false,
+                             /* is_try_style */ false,
+                             /* is_try_tactics_style */ false,
+                             /* layer_order */ 0, position);
     priority = CascadePriority(priority, resolver.generation_);
 
     CSSPropertyRef ref(name, GetDocument());
@@ -733,20 +829,18 @@ void StyleCascade::LookupAndApplyDeclaration(const CSSProperty& property,
   *priority = CascadePriority(*priority, resolver.generation_);
   DCHECK(!property.IsSurrogate());
   DCHECK(priority->GetOrigin() < CascadeOrigin::kAnimation);
-  const CSSValue* value = ValueAt(match_result_, priority->GetPosition());
-  DCHECK(value);
   CascadeOrigin origin = priority->GetOrigin();
+  // Values at CascadeOrigin::kNone are used for explicit defaulting,
+  // see StyleCascade::AddExplicitDefaults.
+  const CSSValue* value = (origin == CascadeOrigin::kNone)
+                              ? cssvalue::CSSUnsetValue::Create()
+                              : ValueAt(match_result_, priority->GetPosition());
+  DCHECK(value);
   value = Resolve(property, *value, *priority, origin, resolver);
-  DCHECK(!value->IsVariableReferenceValue());
+  DCHECK(IsA<CustomProperty>(property) || !value->IsUnparsedDeclaration());
   DCHECK(!value->IsPendingSubstitutionValue());
-  const TreeScope* tree_scope{nullptr};
-  if (origin == CascadeOrigin::kAuthor) {
-    tree_scope = &TreeScopeAt(match_result_, priority->GetPosition());
-  } else if (origin == CascadeOrigin::kAuthorPresentationalHint) {
-    tree_scope = &GetDocument();
-  }
-  StyleBuilder::ApplyPhysicalProperty(property, state_,
-                                      value->EnsureScopedValue(tree_scope));
+  value = EnsureScopedValue(GetDocument(), match_result_, *priority, value);
+  StyleBuilder::ApplyPhysicalProperty(property, state_, *value);
 }
 
 void StyleCascade::LookupAndApplyInterpolation(const CSSProperty& property,
@@ -773,7 +867,7 @@ void StyleCascade::LookupAndApplyInterpolation(const CSSProperty& property,
   const ActiveInterpolationsMap& map = *interpolations_.GetEntries()[index].map;
   PropertyHandle handle = ToPropertyHandle(property, *priority);
   const auto& entry = map.find(handle);
-  DCHECK_NE(entry, map.end());
+  CHECK_NE(entry, map.end(), base::NotFatalUntil::M130);
   ApplyInterpolation(property, *priority, *entry->value, resolver);
 }
 
@@ -794,27 +888,33 @@ bool StyleCascade::TokenSequence::AppendFallback(const TokenSequence& sequence,
     return false;
   }
 
-  base::span<const CSSParserToken> other_tokens(sequence.tokens_.begin(),
-                                                sequence.tokens_.end());
+  String new_text;
+
   StringView other_text = sequence.original_text_;
-  other_text =
+  StringView stripped_text =
       CSSVariableParser::StripTrailingWhitespaceAndComments(other_text);
-  while (!other_tokens.empty() &&
-         other_tokens.front().GetType() == kWhitespaceToken) {
-    other_tokens = other_tokens.subspan(1);
-  }
-  while (!other_tokens.empty() &&
-         other_tokens.back().GetType() == kWhitespaceToken) {
-    other_tokens = other_tokens.first(other_tokens.size() - 1);
+
+  StringView trailer = StringView(other_text, stripped_text.length());
+  if (IsAttrTainted(trailer)) {
+    // We stripped away the taint token from the fallback value,
+    // so add it back here. This is a somewhat slower path,
+    // but should be rare.
+    StringBuilder sb;
+    sb.Append(stripped_text);
+    sb.Append(GetCSSAttrTaintToken());
+    new_text = sb.ReleaseString();
+    stripped_text = new_text;
   }
 
-  if (!tokens_.empty() && !other_tokens.empty() &&
-      NeedsInsertedComment(tokens_.back(), other_tokens.front())) {
+  CSSTokenizer tokenizer(stripped_text);
+  CSSParserToken first_token = tokenizer.TokenizeSingleWithComments();
+
+  if (NeedsInsertedComment(last_token_, first_token)) {
     original_text_.Append("/**/");
   }
-  tokens_.Append(other_tokens.data(),
-                 static_cast<wtf_size_t>(other_tokens.size()));
-  original_text_.Append(other_text);
+  original_text_.Append(stripped_text);
+  last_token_ = last_non_whitespace_token_ =
+      sequence.last_non_whitespace_token_;
 
   is_animation_tainted_ |= sequence.is_animation_tainted_;
   has_font_units_ |= sequence.has_font_units_;
@@ -823,45 +923,60 @@ bool StyleCascade::TokenSequence::AppendFallback(const TokenSequence& sequence,
   return true;
 }
 
-void StyleCascade::TokenSequence::StripCommentTokens() {
-  tokens_.erase(std::remove_if(tokens_.begin(), tokens_.end(),
-                               [](const CSSParserToken& token) {
-                                 return token.GetType() == kCommentToken;
-                               }),
-                tokens_.end());
+static bool IsNonWhitespaceToken(const CSSParserToken& token) {
+  return token.GetType() != kWhitespaceToken &&
+         token.GetType() != kCommentToken;
 }
 
-bool StyleCascade::TokenSequence::Append(CSSVariableData* data,
-                                         CSSTokenizer* parent_tokenizer,
+bool StyleCascade::TokenSequence::Append(StringView str,
                                          wtf_size_t byte_limit) {
   // https://drafts.csswg.org/css-variables/#long-variables
-  if (original_text_.length() + data->OriginalText().length() > byte_limit) {
+  if (original_text_.length() + str.length() > byte_limit) {
     return false;
   }
-  CSSTokenizer tokenizer(data->OriginalText());
+  CSSTokenizer tokenizer(str);
   const CSSParserToken first_token = tokenizer.TokenizeSingleWithComments();
   if (first_token.GetType() != kEOFToken) {
-    if (!tokens_.empty() && NeedsInsertedComment(tokens_.back(), first_token)) {
+    CSSVariableData::ExtractFeatures(first_token, has_font_units_,
+                                     has_root_font_units_,
+                                     has_line_height_units_);
+    if (NeedsInsertedComment(last_token_, first_token)) {
       original_text_.Append("/**/");
     }
-    tokens_.push_back(first_token);
+    last_token_ = first_token.CopyWithoutValue();
+    if (IsNonWhitespaceToken(first_token)) {
+      last_non_whitespace_token_ = first_token;
+    }
     while (true) {
       const CSSParserToken token = tokenizer.TokenizeSingleWithComments();
       if (token.GetType() == kEOFToken) {
         break;
       } else {
-        tokens_.push_back(token);
+        CSSVariableData::ExtractFeatures(token, has_font_units_,
+                                         has_root_font_units_,
+                                         has_line_height_units_);
+        last_token_ = token.CopyWithoutValue();
+        if (IsNonWhitespaceToken(token)) {
+          last_non_whitespace_token_ = token;
+        }
       }
     }
   }
-  original_text_.Append(data->OriginalText());
-  is_animation_tainted_ |= data->IsAnimationTainted();
-  has_font_units_ |= data->HasFontUnits();
-  has_root_font_units_ |= data->HasRootFontUnits();
-  has_line_height_units_ |= data->HasLineHeightUnits();
-  if (parent_tokenizer) {
-    tokenizer.PersistStrings(*parent_tokenizer);
+  original_text_.Append(str);
+  return true;
+}
+
+bool StyleCascade::TokenSequence::Append(const CSSValue* value,
+                                         wtf_size_t byte_limit) {
+  return Append(value->CssText(), byte_limit);
+}
+
+bool StyleCascade::TokenSequence::Append(CSSVariableData* data,
+                                         wtf_size_t byte_limit) {
+  if (!Append(data->OriginalText(), byte_limit)) {
+    return false;
   }
+  is_animation_tainted_ |= data->IsAnimationTainted();
   return true;
 }
 
@@ -869,15 +984,17 @@ void StyleCascade::TokenSequence::Append(const CSSParserToken& token,
                                          StringView original_text) {
   CSSVariableData::ExtractFeatures(token, has_font_units_, has_root_font_units_,
                                    has_line_height_units_);
-  if (!tokens_.empty() && NeedsInsertedComment(tokens_.back(), token)) {
+  if (NeedsInsertedComment(last_token_, token)) {
     original_text_.Append("/**/");
   }
-  tokens_.push_back(token);
+  last_token_ = token.CopyWithoutValue();
+  if (IsNonWhitespaceToken(token)) {
+    last_non_whitespace_token_ = token;
+  }
   original_text_.Append(original_text);
 }
 
-scoped_refptr<CSSVariableData>
-StyleCascade::TokenSequence::BuildVariableData() {
+CSSVariableData* StyleCascade::TokenSequence::BuildVariableData() {
   return CSSVariableData::Create(original_text_, is_animation_tainted_,
                                  /*needs_variable_resolution=*/false,
                                  has_font_units_, has_root_font_units_,
@@ -898,7 +1015,13 @@ const CSSValue* StyleCascade::Resolve(const CSSProperty& property,
     return ResolveRevert(property, *result, origin, resolver);
   }
   if (result->IsRevertLayerValue() || TreatAsRevertLayer(priority)) {
-    return ResolveRevertLayer(property, *result, priority, origin, resolver);
+    return ResolveRevertLayer(property, priority, origin, resolver);
+  }
+  if (const auto* v = DynamicTo<CSSFlipRevertValue>(result)) {
+    return ResolveFlipRevert(property, *v, priority, origin, resolver);
+  }
+  if (const auto* v = DynamicTo<CSSMathFunctionValue>(result)) {
+    return ResolveMathFunction(property, *v, priority);
   }
 
   resolver.CollectFlags(property, origin);
@@ -909,11 +1032,12 @@ const CSSValue* StyleCascade::Resolve(const CSSProperty& property,
 const CSSValue* StyleCascade::ResolveSubstitutions(const CSSProperty& property,
                                                    const CSSValue& value,
                                                    CascadeResolver& resolver) {
-  if (const auto* v = DynamicTo<CSSCustomPropertyDeclaration>(value)) {
-    return ResolveCustomProperty(property, *v, resolver);
-  }
-  if (const auto* v = DynamicTo<CSSVariableReferenceValue>(value)) {
-    return ResolveVariableReference(property, *v, resolver);
+  if (const auto* v = DynamicTo<CSSUnparsedDeclarationValue>(value)) {
+    if (property.GetCSSPropertyName().IsCustomProperty()) {
+      return ResolveCustomProperty(property, *v, resolver);
+    } else {
+      return ResolveVariableReference(property, *v, resolver);
+    }
   }
   if (const auto* v = DynamicTo<cssvalue::CSSPendingSubstitutionValue>(value)) {
     return ResolvePendingSubstitution(property, *v, resolver);
@@ -923,24 +1047,24 @@ const CSSValue* StyleCascade::ResolveSubstitutions(const CSSProperty& property,
 
 const CSSValue* StyleCascade::ResolveCustomProperty(
     const CSSProperty& property,
-    const CSSCustomPropertyDeclaration& decl,
+    const CSSUnparsedDeclarationValue& decl,
     CascadeResolver& resolver) {
   DCHECK(!property.IsSurrogate());
 
   DCHECK(!resolver.IsLocked(property));
   CascadeResolver::AutoLock lock(property, resolver);
 
-  scoped_refptr<CSSVariableData> data = &decl.Value();
+  CSSVariableData* data = decl.VariableDataValue();
 
   if (data->NeedsVariableResolution()) {
-    data = ResolveVariableData(data.get(), resolver);
+    data = ResolveVariableData(data, *GetParserContext(decl), resolver);
   }
 
-  if (HasFontSizeDependency(To<CustomProperty>(property), data.get())) {
+  if (HasFontSizeDependency(To<CustomProperty>(property), data)) {
     resolver.DetectCycle(GetCSSPropertyFontSize());
   }
 
-  if (HasLineHeightDependency(To<CustomProperty>(property), data.get())) {
+  if (HasLineHeightDependency(To<CustomProperty>(property), data)) {
     resolver.DetectCycle(GetCSSPropertyLineHeight());
   }
 
@@ -952,7 +1076,7 @@ const CSSValue* StyleCascade::ResolveCustomProperty(
     return CSSInvalidVariableValue::Create();
   }
 
-  if (data == &decl.Value()) {
+  if (data == decl.VariableDataValue()) {
     return &decl;
   }
 
@@ -962,23 +1086,21 @@ const CSSValue* StyleCascade::ResolveCustomProperty(
   //
   // https://drafts.csswg.org/css-variables/#substitute-a-var
   {
-    CSSTokenizer tokenizer(data->OriginalText());
-    Vector<CSSParserToken, 32> tokens = tokenizer.TokenizeToEOF();
-    CSSParserTokenRange range(tokens);
-    range.ConsumeWhitespace();
-    CSSValue* value = css_parsing_utils::ConsumeCSSWideKeyword(range);
-    if (value && range.AtEnd()) {
+    CSSParserTokenStream stream(data->OriginalText());
+    stream.ConsumeWhitespace();
+    CSSValue* value = css_parsing_utils::ConsumeCSSWideKeyword(stream);
+    if (value && stream.AtEnd()) {
       return value;
     }
   }
 
-  return MakeGarbageCollected<CSSCustomPropertyDeclaration>(
+  return MakeGarbageCollected<CSSUnparsedDeclarationValue>(
       data, decl.ParserContext());
 }
 
 const CSSValue* StyleCascade::ResolveVariableReference(
     const CSSProperty& property,
-    const CSSVariableReferenceValue& value,
+    const CSSUnparsedDeclarationValue& value,
     CascadeResolver& resolver) {
   DCHECK(!property.IsSurrogate());
   DCHECK(!resolver.IsLocked(property));
@@ -994,11 +1116,15 @@ const CSSValue* StyleCascade::ResolveVariableReference(
 
   TokenSequence sequence;
 
-  CSSTokenizer tokenizer(data->OriginalText());
-  CSSParserTokenStream stream(tokenizer);
-  if (ResolveTokensInto(stream, resolver, &tokenizer, sequence)) {
-    sequence.StripCommentTokens();
-    if (const auto* parsed = Parse(property, sequence.TokenRange(), context)) {
+  CSSParserTokenStream stream(data->OriginalText());
+  if (ResolveTokensInto(stream, resolver, *context, FunctionContext{},
+                        /* stop_type */ kEOFToken, sequence)) {
+    // TODO(sesse): It would be nice if we had some way of combining
+    // ResolveTokensInto() and the re-tokenization. This is basically
+    // what we pay by using the streaming parser everywhere; we tokenize
+    // everything involving variable references twice.
+    CSSParserTokenStream stream2(sequence.OriginalText());
+    if (const auto* parsed = Parse(property, stream2, context)) {
       return parsed;
     }
   }
@@ -1025,29 +1151,28 @@ const CSSValue* StyleCascade::ResolvePendingSubstitution(
   bool is_cached = resolver.shorthand_cache_.value == &value;
 
   if (!is_cached) {
-    CSSVariableReferenceValue* shorthand_value = value.ShorthandValue();
+    CSSUnparsedDeclarationValue* shorthand_value = value.ShorthandValue();
     const auto* shorthand_data = shorthand_value->VariableDataValue();
     CSSPropertyID shorthand_property_id = value.ShorthandPropertyId();
 
     TokenSequence sequence;
 
-    CSSTokenizer tokenizer(shorthand_data->OriginalText());
-    CSSParserTokenStream stream(tokenizer);
-    if (!ResolveTokensInto(stream, resolver, &tokenizer, sequence)) {
+    CSSParserTokenStream stream(shorthand_data->OriginalText());
+    if (!ResolveTokensInto(
+            stream, resolver, *GetParserContext(*shorthand_value),
+            FunctionContext{}, /* stop_type */ kEOFToken, sequence)) {
       return cssvalue::CSSUnsetValue::Create();
     }
-    sequence.StripCommentTokens();
 
     HeapVector<CSSPropertyValue, 64> parsed_properties;
-    const bool important = false;
 
-    // NOTE: We don't actually need any original text here, since we're
-    // not storing it in a custom property anywhere.
-    if (!CSSPropertyParser::ParseValue(shorthand_property_id, important,
-                                       {sequence.TokenRange(), StringView()},
-                                       shorthand_value->ParserContext(),
-                                       parsed_properties,
-                                       StyleRule::RuleType::kStyle)) {
+    // NOTE: We don't actually need the original text to be comment-stripped,
+    // since we're not storing it in a custom property anywhere.
+    CSSParserTokenStream stream2(sequence.OriginalText());
+    if (!CSSPropertyParser::ParseValue(
+            shorthand_property_id, /*allow_important_annotation=*/false,
+            stream2, shorthand_value->ParserContext(), parsed_properties,
+            StyleRule::RuleType::kStyle)) {
       return cssvalue::CSSUnsetValue::Create();
     }
 
@@ -1078,7 +1203,6 @@ const CSSValue* StyleCascade::ResolvePendingSubstitution(
   }
 
   NOTREACHED();
-  return cssvalue::CSSUnsetValue::Create();
 }
 
 const CSSValue* StyleCascade::ResolveRevert(const CSSProperty& property,
@@ -1100,7 +1224,7 @@ const CSSValue* StyleCascade::ResolveRevert(const CSSProperty& property,
     case CascadeOrigin::kAnimation: {
       const CascadePriority* p =
           map_.Find(property.GetCSSPropertyName(), target_origin);
-      if (!p) {
+      if (!p || !p->HasOrigin()) {
         origin = CascadeOrigin::kNone;
         return cssvalue::CSSUnsetValue::Create();
       }
@@ -1112,7 +1236,6 @@ const CSSValue* StyleCascade::ResolveRevert(const CSSProperty& property,
 }
 
 const CSSValue* StyleCascade::ResolveRevertLayer(const CSSProperty& property,
-                                                 const CSSValue& value,
                                                  CascadePriority priority,
                                                  CascadeOrigin& origin,
                                                  CascadeResolver& resolver) {
@@ -1127,17 +1250,65 @@ const CSSValue* StyleCascade::ResolveRevertLayer(const CSSProperty& property,
                  origin, resolver);
 }
 
-scoped_refptr<CSSVariableData> StyleCascade::ResolveVariableData(
+const CSSValue* StyleCascade::ResolveFlipRevert(const CSSProperty& property,
+                                                const CSSFlipRevertValue& value,
+                                                CascadePriority priority,
+                                                CascadeOrigin& origin,
+                                                CascadeResolver& resolver) {
+  const CSSProperty& to_property =
+      ResolveSurrogate(CSSProperty::Get(value.PropertyID()));
+  const CSSValue* unflipped =
+      ResolveRevertLayer(to_property, priority, origin, resolver);
+  // Note: the value is transformed *from* the property we're reverting *to*.
+  const CSSValue* flipped = TryValueFlips::FlipValue(
+      /* from_property */ to_property.PropertyID(), unflipped,
+      value.Transform(), state_.StyleBuilder().GetWritingDirection());
+  return Resolve(property, *flipped, priority, origin, resolver);
+}
+
+// Math functions can become invalid at computed-value time. Currently, this
+// is only possible for invalid anchor*() functions.
+//
+// https://drafts.csswg.org/css-anchor-position-1/#anchor-valid
+// https://drafts.csswg.org/css-anchor-position-1/#anchor-size-valid
+const CSSValue* StyleCascade::ResolveMathFunction(
+    const CSSProperty& property,
+    const CSSMathFunctionValue& math_value,
+    CascadePriority priority) {
+  if (!math_value.HasAnchorFunctions()) {
+    return &math_value;
+  }
+
+  const CSSLengthResolver& length_resolver = state_.CssToLengthConversionData();
+
+  // Calling HasInvalidAnchorFunctions evaluates the anchor*() functions
+  // inside the CSSMathFunctionValue. Evaluating anchor*() requires that we
+  // have the correct AnchorEvaluator::Mode, so we need to set that just like
+  // we do for during e.g. Left::ApplyValue, Right::ApplyValue, etc.
+  AnchorScope anchor_scope(property.PropertyID(),
+                           length_resolver.GetAnchorEvaluator());
+  // HasInvalidAnchorFunctions actually evaluates any anchor*() queries
+  // within the CSSMathFunctionValue, and this requires the TreeScope to
+  // be populated.
+  const auto* scoped_math_value = To<CSSMathFunctionValue>(
+      EnsureScopedValue(GetDocument(), match_result_, priority, &math_value));
+  if (scoped_math_value->HasInvalidAnchorFunctions(length_resolver)) {
+    return cssvalue::CSSUnsetValue::Create();
+  }
+  return scoped_math_value;
+}
+
+CSSVariableData* StyleCascade::ResolveVariableData(
     CSSVariableData* data,
+    const CSSParserContext& context,
     CascadeResolver& resolver) {
   DCHECK(data && data->NeedsVariableResolution());
 
   TokenSequence sequence(data);
 
-  CSSTokenizer tokenizer(data->OriginalText());
-  CSSParserTokenStream stream(tokenizer);
-  if (!ResolveTokensInto(stream, resolver, /*parent_tokenizer=*/nullptr,
-                         sequence)) {
+  CSSParserTokenStream stream(data->OriginalText());
+  if (!ResolveTokensInto(stream, resolver, context, FunctionContext{},
+                         /* stop_type */ kEOFToken, sequence)) {
     return nullptr;
   }
 
@@ -1146,7 +1317,9 @@ scoped_refptr<CSSVariableData> StyleCascade::ResolveVariableData(
 
 bool StyleCascade::ResolveTokensInto(CSSParserTokenStream& stream,
                                      CascadeResolver& resolver,
-                                     CSSTokenizer* parent_tokenizer,
+                                     const CSSParserContext& context,
+                                     const FunctionContext& function_context,
+                                     CSSParserTokenType stop_type,
                                      TokenSequence& out) {
   bool success = true;
   int nesting_level = 0;
@@ -1154,12 +1327,36 @@ bool StyleCascade::ResolveTokensInto(CSSParserTokenStream& stream,
     const CSSParserToken& token = stream.Peek();
     if (token.IsEOF()) {
       break;
+    } else if (token.GetType() == stop_type && nesting_level == 0) {
+      break;
     } else if (token.FunctionId() == CSSValueID::kVar) {
       CSSParserTokenStream::BlockGuard guard(stream);
-      success &= ResolveVarInto(stream, resolver, parent_tokenizer, out);
+      success &= ResolveVarInto(stream, resolver, context, out);
     } else if (token.FunctionId() == CSSValueID::kEnv) {
       CSSParserTokenStream::BlockGuard guard(stream);
-      success &= ResolveEnvInto(stream, resolver, parent_tokenizer, out);
+      success &= ResolveEnvInto(stream, resolver, context, out);
+    } else if (token.FunctionId() == CSSValueID::kArg &&
+               RuntimeEnabledFeatures::CSSFunctionsEnabled()) {
+      CSSParserTokenStream::BlockGuard guard(stream);
+      success &=
+          ResolveArgInto(stream, resolver, context, function_context, out);
+    } else if (token.FunctionId() == CSSValueID::kAttr &&
+               RuntimeEnabledFeatures::CSSAdvancedAttrFunctionEnabled()) {
+      CSSParserTokenStream::BlockGuard guard(stream);
+      state_.StyleBuilder().SetHasAttrFunction();
+      success &= ResolveAttrInto(stream, resolver, context, out);
+    } else if (token.FunctionId() ==
+               CSSValueID::kInternalAppearanceAutoBaseSelect) {
+      CSSParserTokenStream::BlockGuard guard(stream);
+      success &=
+          ResolveAppearanceAutoBaseSelectInto(stream, resolver, context, out);
+    } else if (token.GetType() == kFunctionToken &&
+               CSSVariableParser::IsValidVariableName(token.Value()) &&
+               RuntimeEnabledFeatures::CSSFunctionsEnabled()) {
+      // User-defined CSS function.
+      CSSParserTokenStream::BlockGuard guard(stream);
+      success &= ResolveFunctionInto(token.Value(), stream, resolver, context,
+                                     function_context, out);
     } else {
       if (token.GetBlockType() == CSSParserToken::kBlockStart) {
         ++nesting_level;
@@ -1185,10 +1382,9 @@ bool StyleCascade::ResolveTokensInto(CSSParserTokenStream& stream,
   return success;
 }
 
-template <class ParserTokenStream>
-bool StyleCascade::ResolveVarInto(ParserTokenStream& stream,
+bool StyleCascade::ResolveVarInto(CSSParserTokenStream& stream,
                                   CascadeResolver& resolver,
-                                  CSSTokenizer* parent_tokenizer,
+                                  const CSSParserContext& context,
                                   TokenSequence& out) {
   CustomProperty property(ConsumeVariableName(stream), state_.GetDocument());
   DCHECK(stream.AtEnd() || (stream.Peek().GetType() == kCommaToken));
@@ -1212,13 +1408,13 @@ bool StyleCascade::ResolveVarInto(ParserTokenStream& stream,
   // Note that even if we are in a cycle, we must proceed in order to discover
   // secondary cycles via the var() fallback.
 
-  scoped_refptr<CSSVariableData> data = GetVariableData(property);
+  CSSVariableData* data = GetVariableData(property);
 
   // If substitution is not allowed, treat the value as
   // invalid-at-computed-value-time.
   //
   // https://drafts.csswg.org/css-variables/#animation-tainted
-  if (!resolver.AllowSubstitution(data.get())) {
+  if (!resolver.AllowSubstitution(data)) {
     data = nullptr;
   }
 
@@ -1231,13 +1427,13 @@ bool StyleCascade::ResolveVarInto(ParserTokenStream& stream,
 
     TokenSequence fallback;
     bool success =
-        ResolveTokensInto(stream, resolver, parent_tokenizer, fallback);
+        ResolveTokensInto(stream, resolver, context, FunctionContext{},
+                          /* stop_type */ kEOFToken, fallback);
     // The fallback must match the syntax of the referenced custom property.
     // https://drafts.css-houdini.org/css-properties-values-api-1/#fallbacks-in-var-references
     //
-    // NOTE: We don't need the original text here, because ValidateFallback()
-    // only validates the tokens; it doesn't store anything.
-    if (!ValidateFallback(property, {fallback.TokenRange(), StringView()})) {
+    // TODO(sesse): Do we need the token range here anymore?
+    if (!ValidateFallback(property, fallback.OriginalText())) {
       return false;
     }
     if (!data) {
@@ -1250,15 +1446,136 @@ bool StyleCascade::ResolveVarInto(ParserTokenStream& stream,
     return false;
   }
 
-  return out.Append(data.get(), parent_tokenizer,
-                    CSSVariableData::kMaxVariableBytes);
+  return out.Append(data, CSSVariableData::kMaxVariableBytes);
 }
 
-template <class ParserTokenStream>
-bool StyleCascade::ResolveEnvInto(ParserTokenStream& stream,
+bool StyleCascade::ResolveFunctionInto(StringView function_name,
+                                       CSSParserTokenStream& stream,
+                                       CascadeResolver& resolver,
+                                       const CSSParserContext& context,
+                                       const FunctionContext& function_context,
+                                       TokenSequence& out) {
+  state_.StyleBuilder().SetAffectedByCSSFunction();
+
+  // TODO(sesse): Deal with tree-scoped references.
+  StyleRuleFunction* function = nullptr;
+  if (GetDocument().GetScopedStyleResolver()) {
+    function =
+        GetDocument().GetScopedStyleResolver()->FunctionForName(function_name);
+  }
+  if (!function) {
+    return false;
+  }
+
+  // Parse and resolve function arguments.
+  HeapHashMap<String, Member<const CSSValue>> function_arguments;
+
+  bool first_parameter = true;
+  for (const StyleRuleFunction::Parameter& parameter :
+       function->GetParameters()) {
+    stream.ConsumeWhitespace();
+    if (!first_parameter) {
+      if (stream.Peek().GetType() != kCommaToken) {
+        return false;
+      }
+      stream.ConsumeIncludingWhitespace();
+    }
+    first_parameter = false;
+
+    wtf_size_t value_start_offset = stream.LookAheadOffset();
+    stream.SkipUntilPeekedTypeIs<kCommaToken, kRightParenthesisToken>();
+    wtf_size_t value_end_offset = stream.LookAheadOffset();
+    StringView argument_string = stream.StringRangeAt(
+        value_start_offset, value_end_offset - value_start_offset);
+
+    // We need to resolve the argument in the context of this function,
+    // so that we can do type coercion on the resolved value before the call.
+    // In particular, we want any arg() within the argument to be resolved
+    // in our context; e.g., --foo(arg(--a)) should be our a, not foo's a
+    // (if that even exists).
+    //
+    // Note that if this expression comes from directly a function call,
+    // as in the example above (and if the return and argument types are the
+    // same), we will effectively do type parsing of exactly the same data
+    // twice. This is wasteful, and it's possible that we should do something
+    // about it if it proves to be a common case.
+    const CSSValue* argument_value = ResolveFunctionExpression(
+        argument_string, parameter.type, resolver, context, function_context);
+    if (argument_value == nullptr) {
+      return false;
+    }
+
+    function_arguments.insert(parameter.name, argument_value);
+  }
+
+  const CSSValue* ret_value = ResolveFunctionExpression(
+      function->GetFunctionBody().OriginalText(), function->GetReturnType(),
+      resolver, context, FunctionContext{function_arguments});
+  if (ret_value == nullptr) {
+    return false;
+  }
+  // Urggg
+  String ret_string = ret_value->CssText();
+  CSSParserTokenStream ret_value_stream(ret_string);
+  return ResolveTokensInto(ret_value_stream, resolver, context,
+                           FunctionContext{}, /* stop_type */ kEOFToken, out);
+}
+
+// Resolves an expression within a function; in practice, either a function
+// argument or its return value. In practice, this is about taking a string
+// and coercing it into the given type -- and then the caller will convert it
+// right back to a string again. This is pretty suboptimal, but it's the way
+// registered properties also work, and crucially, without such a resolve step
+// (which needs a type), we would not be able to collapse calc() expressions
+// and similar, which could cause massive blowup as the values are passed
+// through a large tree of function calls.
+const CSSValue* StyleCascade::ResolveFunctionExpression(
+    StringView expr,
+    const StyleRuleFunction::Type& type,
+    CascadeResolver& resolver,
+    const CSSParserContext& context,
+    const FunctionContext& function_context) {
+  TokenSequence resolved_expr;
+
+  // See documentation on should_add_implicit_calc.
+  if (type.should_add_implicit_calc) {
+    static const char kCalcToken[] = "calc";
+    static const char kCalcStart[] = "calc(";
+    resolved_expr.Append(
+        CSSParserToken(kFunctionToken, kCalcToken, CSSParserToken::kBlockStart),
+        kCalcStart);
+  }
+
+  CSSParserTokenStream argument_stream(expr);
+  if (!ResolveTokensInto(argument_stream, resolver, context, function_context,
+                         /* stop_type */ kEOFToken, resolved_expr)) {
+    return nullptr;
+  }
+
+  if (type.should_add_implicit_calc) {
+    static const char kCalcEnd[] = ")";
+    resolved_expr.Append(
+        CSSParserToken(kRightParenthesisToken, CSSParserToken::kBlockEnd),
+        kCalcEnd);
+  }
+
+  const CSSValue* value = type.syntax.Parse(
+      resolved_expr.OriginalText(), context, /*is_animation_tainted=*/false);
+  if (!value) {
+    return nullptr;
+  }
+
+  // Resolve the value as if it were a registered property, to get rid of
+  // extraneous calc(), resolve lengths and so on.
+  return &StyleBuilderConverter::ConvertRegisteredPropertyValue(state_, *value,
+                                                                &context);
+}
+
+bool StyleCascade::ResolveEnvInto(CSSParserTokenStream& stream,
                                   CascadeResolver& resolver,
-                                  CSSTokenizer* parent_tokenizer,
+                                  const CSSParserContext& context,
                                   TokenSequence& out) {
+  state_.StyleBuilder().SetHasEnv();
   AtomicString variable_name = ConsumeVariableName(stream);
   DCHECK(stream.AtEnd() || (stream.Peek().GetType() == kCommaToken) ||
          (stream.Peek().GetType() == kNumberToken));
@@ -1275,16 +1592,125 @@ bool StyleCascade::ResolveEnvInto(ParserTokenStream& stream,
 
   DCHECK(stream.AtEnd() || (stream.Peek().GetType() == kCommaToken));
 
-  CSSVariableData* data = GetEnvironmentVariable(variable_name, indices);
+  CSSVariableData* data =
+      GetEnvironmentVariable(variable_name, std::move(indices));
 
   if (!data) {
     if (ConsumeComma(stream)) {
-      return ResolveTokensInto(stream, resolver, parent_tokenizer, out);
+      return ResolveTokensInto(stream, resolver, context, FunctionContext{},
+                               /* stop_type */ kEOFToken, out);
     }
     return false;
   }
 
-  return out.Append(data, parent_tokenizer);
+  return out.Append(data);
+}
+
+bool StyleCascade::ResolveArgInto(CSSParserTokenStream& stream,
+                                  CascadeResolver& resolver,
+                                  const CSSParserContext& context,
+                                  const FunctionContext& function_context,
+                                  TokenSequence& out) {
+  AtomicString argument_name = ConsumeVariableName(stream);
+  DCHECK(stream.AtEnd());
+
+  const auto it = function_context.arguments.find(argument_name);
+  if (it == function_context.arguments.end()) {
+    // Argument not found.
+    return false;
+  }
+
+  String arg_value = it->value->CssText();
+  CSSParserTokenStream arg_value_stream(arg_value);
+  return ResolveTokensInto(arg_value_stream, resolver, context,
+                           FunctionContext{}, /* stop_type */ kEOFToken, out);
+}
+
+// Mark the value as tainted, so that ConsumeUrl() and similar can check
+// that they should not create URLs from it. Note that we do this _after_
+// the value, not before, so that we are sure that lookahead does not
+// accidentally consume it.
+void StyleCascade::AppendTaintToken(TokenSequence& out) {
+  out.Append(CSSParserToken(kCommentToken), GetCSSAttrTaintToken());
+}
+
+bool StyleCascade::ResolveAttrInto(CSSParserTokenStream& stream,
+                                   CascadeResolver& resolver,
+                                   const CSSParserContext& context,
+                                   TokenSequence& out) {
+  AtomicString attribute_name = ConsumeVariableName(stream);
+  std::optional<CSSAttrType> attr_type = CSSAttrType::Consume(stream);
+  if (!attr_type.has_value()) {
+    attr_type = CSSAttrType::GetDefaultValue();
+  }
+  DCHECK(stream.AtEnd() || stream.Peek().GetType() == kCommaToken);
+
+  const String& attribute_value =
+      state_.GetUltimateOriginatingElementOrSelf().getAttribute(attribute_name);
+
+  const CSSValue* substitution_value =
+      attribute_value.IsNull() ? nullptr
+                               : attr_type->Parse(attribute_value, context);
+
+  // Validate fallback value.
+  if (ConsumeComma(stream)) {
+    stream.ConsumeWhitespace();
+
+    TokenSequence fallback;
+    if (!ResolveTokensInto(stream, resolver, context, FunctionContext{},
+                           /* stop_type */ kEOFToken, fallback)) {
+      return false;
+    }
+    if (!substitution_value) {
+      AppendTaintToken(out);
+      return out.AppendFallback(fallback, CSSVariableData::kMaxVariableBytes);
+    }
+  }
+
+  if (attr_type->IsString() && !substitution_value) {
+    // If the <attr-type> argument is omitted, the fallback defaults to the
+    // empty string if omitted.
+    // https://drafts.csswg.org/css-values-5/#attr-notation
+    out.Append(CSSParserToken(kStringToken, g_empty_atom), g_empty_atom);
+    AppendTaintToken(out);
+    return true;
+  }
+
+  if (substitution_value) {
+    out.Append(substitution_value, CSSVariableData::kMaxVariableBytes);
+    AppendTaintToken(out);
+    return true;
+  }
+
+  return false;
+}
+
+bool StyleCascade::ResolveAppearanceAutoBaseSelectInto(
+    CSSParserTokenStream& stream,
+    CascadeResolver& resolver,
+    const CSSParserContext& context,
+    TokenSequence& out) {
+  const CSSProperty& appearance = GetCSSPropertyAppearance();
+  if (resolver.DetectCycle(appearance)) {
+    return false;
+  }
+  LookupAndApply(appearance, resolver);
+
+  // Note that the InBaseSelectAppearance() flag is set by StyleAdjuster,
+  // which hasn't happened yet. Therefore we also need to check
+  // HasBaseSelectAppearance() here.
+  bool has_base_appearance = state_.StyleBuilder().HasBaseSelectAppearance() ||
+                             state_.StyleBuilder().InBaseSelectAppearance();
+
+  if (has_base_appearance) {
+    // We want to the second argument.
+    stream.SkipUntilPeekedTypeIs<kCommaToken>();
+    CHECK(!stream.AtEnd());
+    stream.ConsumeIncludingWhitespace();  // kCommaToken
+  }
+
+  return ResolveTokensInto(stream, resolver, context, FunctionContext{},
+                           /* stop_type */ kCommaToken, out);
 }
 
 CSSVariableData* StyleCascade::GetVariableData(
@@ -1309,8 +1735,8 @@ CSSVariableData* StyleCascade::GetEnvironmentVariable(
 }
 
 const CSSParserContext* StyleCascade::GetParserContext(
-    const CSSVariableReferenceValue& value) {
-  // TODO(crbug.com/985028): CSSVariableReferenceValue should always have a
+    const CSSUnparsedDeclarationValue& value) {
+  // TODO(crbug.com/985028): CSSUnparsedDeclarationValue should always have a
   // CSSParserContext. (CSSUnparsedValue violates this).
   if (value.ParserContext()) {
     return value.ParserContext();
@@ -1345,10 +1771,7 @@ bool StyleCascade::HasLineHeightDependency(const CustomProperty& property,
 }
 
 bool StyleCascade::ValidateFallback(const CustomProperty& property,
-                                    CSSTokenizedValue value) const {
-#if DCHECK_IS_ON()
-  DCHECK(!HasUnresolvedReferences(value.range));
-#endif  // DCHECK_IS_ON()
+                                    StringView value) const {
   if (!property.IsRegistered()) {
     return true;
   }
@@ -1369,15 +1792,12 @@ void StyleCascade::MarkIsReferenced(const CSSProperty& referencer,
 }
 
 void StyleCascade::MarkHasVariableReference(const CSSProperty& property) {
-  if (!property.IsInherited()) {
-    state_.StyleBuilder().SetHasVariableReferenceFromNonInheritedProperty();
-  }
   state_.StyleBuilder().SetHasVariableReference();
 }
 
 bool StyleCascade::TreatAsRevertLayer(CascadePriority priority) const {
-  return priority.IsFallbackStyle() && !ComputedStyle::HasOutOfFlowPosition(
-                                           state_.StyleBuilder().GetPosition());
+  return priority.IsTryStyle() && !ComputedStyle::HasOutOfFlowPosition(
+                                      state_.StyleBuilder().GetPosition());
 }
 
 const Document& StyleCascade::GetDocument() const {
@@ -1394,8 +1814,7 @@ const CSSProperty& StyleCascade::ResolveSurrogate(const CSSProperty& property) {
   // properties.
   depends_on_cascade_affecting_property_ = true;
   const CSSProperty* original =
-      property.SurrogateFor(state_.StyleBuilder().Direction(),
-                            state_.StyleBuilder().GetWritingMode());
+      property.SurrogateFor(state_.StyleBuilder().GetWritingDirection());
   DCHECK(original);
   return *original;
 }

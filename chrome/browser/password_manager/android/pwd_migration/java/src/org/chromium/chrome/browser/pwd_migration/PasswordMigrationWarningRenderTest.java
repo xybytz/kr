@@ -6,10 +6,10 @@ package org.chromium.chrome.browser.pwd_migration;
 
 import static org.junit.Assert.fail;
 
+import static org.chromium.base.ThreadUtils.runOnUiThreadBlocking;
 import static org.chromium.base.test.util.CriteriaHelper.pollUiThread;
 import static org.chromium.chrome.browser.pwd_migration.PasswordMigrationWarningProperties.CURRENT_SCREEN;
 import static org.chromium.chrome.browser.pwd_migration.PasswordMigrationWarningProperties.VISIBLE;
-import static org.chromium.content_public.browser.test.util.TestThreadUtils.runOnUiThreadBlocking;
 import static org.chromium.ui.base.LocalizationUtils.setRtlForTesting;
 
 import android.view.View;
@@ -18,12 +18,12 @@ import androidx.test.filters.MediumTest;
 
 import org.junit.After;
 import org.junit.Before;
-import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 
 import org.chromium.base.Callback;
 import org.chromium.base.test.params.ParameterAnnotations;
@@ -46,7 +46,6 @@ import org.chromium.components.browser_ui.bottomsheet.BottomSheetTestSupport;
 import org.chromium.components.browser_ui.widget.RadioButtonWithDescription;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
-import org.chromium.ui.test.util.DisableAnimationsTestRule;
 import org.chromium.ui.test.util.RenderTestRule.Component;
 
 import java.util.Arrays;
@@ -68,6 +67,8 @@ public class PasswordMigrationWarningRenderTest {
                     new ParameterSet().value(false, true).name("RTL"),
                     new ParameterSet().value(true, false).name("NightMode"));
 
+    @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
+
     @Mock private Callback<Integer> mDismissCallback;
     @Mock private PasswordMigrationWarningOnClickHandler mOnClickHandler;
     // This callback should never be called as part of the render tests.
@@ -77,17 +78,13 @@ public class PasswordMigrationWarningRenderTest {
     private PasswordMigrationWarningView mView;
     private PropertyModel mModel;
 
-    @ClassRule
-    public static DisableAnimationsTestRule sDisableAnimationsRule =
-            new DisableAnimationsTestRule();
-
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
 
     @Rule
     public final ChromeRenderTestRule mRenderTestRule =
             ChromeRenderTestRule.Builder.withPublicCorpus()
-                    .setRevision(2)
+                    .setRevision(3)
                     .setBugComponent(Component.UI_BROWSER_AUTOFILL)
                     .build();
 
@@ -100,7 +97,6 @@ public class PasswordMigrationWarningRenderTest {
 
     @Before
     public void setUp() throws InterruptedException {
-        MockitoAnnotations.initMocks(this);
         mActivityTestRule.startMainActivityOnBlankPage();
         mBottomSheetController =
                 mActivityTestRule

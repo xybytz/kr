@@ -73,9 +73,10 @@ public class PlayerFrameScrollController {
 
     /**
      * Handles flinging of the viewport.
+     *
      * @param velocityX The velocity in the x-direction.
      * @param velocityY The velocity in the y-direction.
-     * @returns Whether the fling was consumed.
+     * @return Whether the fling was consumed.
      */
     public boolean onFling(float velocityX, float velocityY) {
         if (!mAcceptUserInput) return false;
@@ -157,7 +158,7 @@ public class PlayerFrameScrollController {
         // Ignore if there is no active overscroll and the direction is down.
         if (!mIsOverscrolling && distanceY <= 0) return false;
 
-        // TODO(crbug/1100338): Propagate this state to child mediators to
+        // TODO(crbug.com/40137904): Propagate this state to child mediators to
         // support easing.
         mOverscrollAmount += distanceY;
 

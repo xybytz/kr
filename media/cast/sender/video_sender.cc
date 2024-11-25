@@ -5,6 +5,7 @@
 #include "media/cast/sender/video_sender.h"
 
 #include <stdint.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -20,11 +21,10 @@
 #include "media/cast/common/rtp_time.h"
 #include "media/cast/common/sender_encoded_frame.h"
 #include "media/cast/encoding/video_encoder.h"
-#include "media/cast/net/cast_transport_config.h"
 #include "media/cast/sender/openscreen_frame_sender.h"
 #include "media/cast/sender/performance_metrics_overlay.h"
-#include "third_party/openscreen/src/cast/streaming/encoded_frame.h"
-#include "third_party/openscreen/src/cast/streaming/sender.h"
+#include "third_party/openscreen/src/cast/streaming/public/encoded_frame.h"
+#include "third_party/openscreen/src/cast/streaming/public/sender.h"
 
 namespace media::cast {
 
@@ -108,70 +108,29 @@ VideoSender::VideoSender(
     const FrameSenderConfig& video_config,
     StatusChangeCallback status_change_cb,
     const CreateVideoEncodeAcceleratorCallback& create_vea_cb,
-    CastTransport* const transport_sender,
-    std::unique_ptr<media::VideoEncoderMetricsProvider>
-        encoder_metrics_provider,
-    PlayoutDelayChangeCB playout_delay_change_cb,
-    media::VideoCaptureFeedbackCB feedback_cb)
-    : VideoSender(cast_environment,
-                  video_config,
-                  std::move(status_change_cb),
-                  std::move(create_vea_cb),
-                  FrameSender::Create(cast_environment,
-                                      video_config,
-                                      transport_sender,
-                                      *this),
-                  std::move(encoder_metrics_provider),
-                  std::move(playout_delay_change_cb),
-                  std::move(feedback_cb)) {}
-
-VideoSender::VideoSender(
-    scoped_refptr<CastEnvironment> cast_environment,
-    const FrameSenderConfig& video_config,
-    StatusChangeCallback status_change_cb,
-    const CreateVideoEncodeAcceleratorCallback& create_vea_cb,
     std::unique_ptr<openscreen::cast::Sender> sender,
     std::unique_ptr<media::VideoEncoderMetricsProvider>
         encoder_metrics_provider,
     PlayoutDelayChangeCB playout_delay_change_cb,
     media::VideoCaptureFeedbackCB feedback_cb,
     FrameSender::GetSuggestedVideoBitrateCB get_bitrate_cb)
-    : VideoSender(cast_environment,
-                  video_config,
-                  std::move(status_change_cb),
-                  std::move(create_vea_cb),
-                  FrameSender::Create(cast_environment,
-                                      video_config,
-                                      std::move(sender),
-                                      *this,
-                                      std::move(get_bitrate_cb)),
-                  std::move(encoder_metrics_provider),
-                  std::move(playout_delay_change_cb),
-                  std::move(feedback_cb)) {}
-
-// Note, we use a fixed bitrate value when external video encoder is used.
-// Some hardware encoder shows bad behavior if we set the bitrate too
-// frequently, e.g. quality drop, not abiding by target bitrate, etc.
-// See details: crbug.com/392086.
-VideoSender::VideoSender(
-    scoped_refptr<CastEnvironment> cast_environment,
-    const FrameSenderConfig& video_config,
-    StatusChangeCallback status_change_cb,
-    const CreateVideoEncodeAcceleratorCallback& create_vea_cb,
-    std::unique_ptr<FrameSender> sender,
-    std::unique_ptr<media::VideoEncoderMetricsProvider>
-        encoder_metrics_provider,
-    PlayoutDelayChangeCB playout_delay_change_cb,
-    media::VideoCaptureFeedbackCB feedback_callback)
-    : frame_sender_(std::move(sender)),
+    : frame_sender_(FrameSender::Create(cast_environment,
+                                        video_config,
+                                        std::move(sender),
+                                        *this,
+                                        std::move(get_bitrate_cb))),
       cast_environment_(cast_environment),
       min_playout_delay_(video_config.min_playout_delay),
       max_playout_delay_(video_config.max_playout_delay),
       playout_delay_change_cb_(std::move(playout_delay_change_cb)),
-      feedback_cb_(feedback_callback) {
-  video_encoder_ = VideoEncoder::Create(cast_environment_, video_config,
-                                        std::move(encoder_metrics_provider),
-                                        status_change_cb, create_vea_cb);
+      feedback_cb_(feedback_cb) {
+  // NOTE: we bind to the `output_cb` of the video encoder using a weak pointer
+  // because encoding occurs on a separate thread.
+  video_encoder_ = VideoEncoder::Create(
+      cast_environment_, video_config, std::move(encoder_metrics_provider),
+      status_change_cb,
+      base::BindRepeating(&VideoSender::OnEncodedVideoFrame, AsWeakPtr()),
+      create_vea_cb);
   if (!video_encoder_) {
     cast_environment_->PostTask(
         CastEnvironment::MAIN, FROM_HERE,
@@ -188,7 +147,7 @@ VideoSender::~VideoSender() {
 
 void VideoSender::InsertRawVideoFrame(
     scoped_refptr<media::VideoFrame> video_frame,
-    const base::TimeTicks& reference_time) {
+    base::TimeTicks reference_time) {
   DCHECK(cast_environment_->CurrentlyOn(CastEnvironment::MAIN));
   CHECK(video_encoder_);
 
@@ -222,9 +181,9 @@ void VideoSender::InsertRawVideoFrame(
        reference_time <= last_enqueued_frame_reference_time_)) {
     VLOG(1) << "Dropping video frame: RTP or reference time did not increase.";
     TRACE_EVENT_INSTANT2("cast.stream", "Video Frame Drop",
-                         TRACE_EVENT_SCOPE_THREAD,
-                         "rtp_timestamp", rtp_timestamp.lower_32_bits(),
-                         "reason", "time did not increase");
+                         TRACE_EVENT_SCOPE_THREAD, "rtp_timestamp",
+                         rtp_timestamp.lower_32_bits(), "reason",
+                         "time did not increase");
     return;
   }
 
@@ -324,12 +283,10 @@ void VideoSender::InsertRawVideoFrame(
         last_reported_lossiness_, std::move(video_frame));
   }
 
-  if (video_encoder_->EncodeVideoFrame(
-          video_frame, reference_time,
-          base::BindOnce(&VideoSender::OnEncodedVideoFrame, AsWeakPtr(),
-                         video_frame))) {
+  if (video_encoder_->EncodeVideoFrame(video_frame, reference_time)) {
     TRACE_EVENT_NESTABLE_ASYNC_BEGIN1(
-        "cast.stream", "Video Encode", TRACE_ID_LOCAL(video_frame.get()),
+        "cast.stream", "Video Encode",
+        TRACE_ID_LOCAL((reference_time - base::TimeTicks()).InMicroseconds()),
         "rtp_timestamp", rtp_timestamp.lower_32_bits());
     frames_in_encoder_++;
     duration_in_encoder_ += duration_added_by_next_frame;
@@ -341,10 +298,6 @@ void VideoSender::InsertRawVideoFrame(
                          TRACE_EVENT_SCOPE_THREAD,
                          "rtp_timestamp", rtp_timestamp.lower_32_bits());
   }
-}
-
-std::unique_ptr<VideoFrameFactory> VideoSender::CreateVideoFrameFactory() {
-  return video_encoder_ ? video_encoder_->CreateVideoFrameFactory() : nullptr;
 }
 
 void VideoSender::SetTargetPlayoutDelay(
@@ -360,6 +313,8 @@ base::WeakPtr<VideoSender> VideoSender::AsWeakPtr() {
   return weak_factory_.GetWeakPtr();
 }
 
+VideoSender::VideoSender() = default;
+
 int VideoSender::GetNumberOfFramesInEncoder() const {
   return frames_in_encoder_;
 }
@@ -369,27 +324,35 @@ base::TimeDelta VideoSender::GetEncoderBacklogDuration() const {
 }
 
 void VideoSender::OnEncodedVideoFrame(
-    scoped_refptr<media::VideoFrame> video_frame,
     std::unique_ptr<SenderEncodedFrame> encoded_frame) {
   DCHECK(cast_environment_->CurrentlyOn(CastEnvironment::MAIN));
 
   frames_in_encoder_--;
   DCHECK_GE(frames_in_encoder_, 0);
-
-  // Encoding was exited with errors.
-  if (!encoded_frame)
+  // The encoder drops a frame.
+  if (!encoded_frame) {
+    DVLOG(3) << "Dropped frame";
     return;
+  }
 
+  // Update |duration_in_encoder_| so that |frame_sender_| doesn't regard the
+  // encoder as really slow.
   duration_in_encoder_ =
       last_enqueued_frame_reference_time_ - encoded_frame->reference_time;
 
-  last_reported_encoder_utilization_ = encoded_frame->encoder_utilization;
-  last_reported_lossiness_ = encoded_frame->lossiness;
-
   TRACE_EVENT_NESTABLE_ASYNC_END2(
-      "cast.stream", "Video Encode", TRACE_ID_LOCAL(video_frame.get()),
+      "cast.stream", "Video Encode",
+      TRACE_ID_LOCAL(
+          (encoded_frame->reference_time - base::TimeTicks()).InMicroseconds()),
       "encoder_utilization", last_reported_encoder_utilization_, "lossiness",
       last_reported_lossiness_);
+  if (encoded_frame->data.empty()) {
+    DVLOG(3) << "Frame with no data";
+    return;
+  }
+
+  last_reported_encoder_utilization_ = encoded_frame->encoder_utilization;
+  last_reported_lossiness_ = encoded_frame->lossiness;
 
   // Report the resource utilization for processing this frame.  Take the
   // greater of the two utilization values and attenuate them such that the
@@ -402,11 +365,9 @@ void VideoSender::OnEncodedVideoFrame(
     // utilization is atypical compared to the other frames in the stream, and
     // this can misguide the producer of the input video frames.
     VideoCaptureFeedback feedback;
-    feedback.resource_utilization =
-        encoded_frame->dependency ==
-                openscreen::cast::EncodedFrame::Dependency::kKeyFrame
-            ? std::min(1.0, attenuated_utilization)
-            : attenuated_utilization;
+    feedback.resource_utilization = encoded_frame->is_key_frame
+                                        ? std::min(1.0, attenuated_utilization)
+                                        : attenuated_utilization;
     if (feedback_cb_)
       feedback_cb_.Run(feedback);
   }

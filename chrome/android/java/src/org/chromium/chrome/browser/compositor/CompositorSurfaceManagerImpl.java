@@ -15,6 +15,7 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
 import org.chromium.base.Log;
+import org.chromium.base.metrics.RecordHistogram;
 
 /**
  * Manage multiple SurfaceViews for the compositor, so that transitions between
@@ -158,6 +159,8 @@ class CompositorSurfaceManagerImpl implements SurfaceHolder.Callback2, Composito
     @Override
     public void requestSurface(int format) {
         Log.i(TAG, "Transitioning to surface with format: %d", format);
+        RecordHistogram.recordBooleanHistogram(
+                "Android.Compositor.IsRequestingOpaqueSurface", format != PixelFormat.TRANSLUCENT);
         mRequestedByClient = (format == PixelFormat.TRANSLUCENT) ? mTranslucent : mOpaque;
 
         // If destruction is pending, then we must wait for it to complete.  When we're notified
@@ -307,7 +310,7 @@ class CompositorSurfaceManagerImpl implements SurfaceHolder.Callback2, Composito
         assert mOwnedByClient != state;
         disownClientSurface(mOwnedByClient, false);
 
-        // TODO(crbug.com/1242632): `disownClientSurface` may recursively shutdown which sets
+        // TODO(crbug.com/40195080): `disownClientSurface` may recursively shutdown which sets
         // `mRequestedByClient` to null. However testing shows throwing an NPE in this case
         // is caught by SurfaceView implementation and does not crash, and throwing actually
         // avoids an ANR due to some unexplained reason.

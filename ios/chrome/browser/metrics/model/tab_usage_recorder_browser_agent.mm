@@ -11,8 +11,8 @@
 #import "components/ukm/ios/ukm_url_recorder.h"
 #import "ios/chrome/browser/prerender/model/prerender_service.h"
 #import "ios/chrome/browser/prerender/model/prerender_service_factory.h"
-#import "ios/chrome/browser/sessions/session_restoration_service.h"
-#import "ios/chrome/browser/sessions/session_restoration_service_factory.h"
+#import "ios/chrome/browser/sessions/model/session_restoration_service.h"
+#import "ios/chrome/browser/sessions/model/session_restoration_service_factory.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
 #import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
@@ -29,8 +29,8 @@ BROWSER_USER_DATA_KEY_IMPL(TabUsageRecorderBrowserAgent)
 TabUsageRecorderBrowserAgent::TabUsageRecorderBrowserAgent(Browser* browser)
     : restore_start_time_(base::TimeTicks::Now()),
       web_state_list_(browser->GetWebStateList()),
-      prerender_service_(PrerenderServiceFactory::GetForBrowserState(
-          browser->GetBrowserState())) {
+      prerender_service_(
+          PrerenderServiceFactory::GetForProfile(browser->GetProfile())) {
   browser->AddObserver(this);
 
   DCHECK(web_state_list_);
@@ -40,9 +40,9 @@ TabUsageRecorderBrowserAgent::TabUsageRecorderBrowserAgent(Browser* browser)
     web_state->AddObserver(this);
   }
 
-  ChromeBrowserState* browser_state = browser->GetBrowserState();
+  ProfileIOS* profile = browser->GetProfile();
   session_restoration_service_observation_.Observe(
-      SessionRestorationServiceFactory::GetForBrowserState(browser_state));
+      SessionRestorationServiceFactory::GetForProfile(profile));
 
   // Register for backgrounding and foregrounding notifications. It is safe for
   // the block to capture a pointer to `this` as they are unregistered in the
@@ -543,6 +543,18 @@ void TabUsageRecorderBrowserAgent::WebStateListDidChange(
       inserted_web_state->AddObserver(this);
       break;
     }
+    case WebStateListChange::Type::kGroupCreate:
+      // Do nothing when a group is created.
+      break;
+    case WebStateListChange::Type::kGroupVisualDataUpdate:
+      // Do nothing when a tab group's visual data are updated.
+      break;
+    case WebStateListChange::Type::kGroupMove:
+      // Do nothing when a tab group is moved.
+      break;
+    case WebStateListChange::Type::kGroupDelete:
+      // Do nothing when a group is deleted.
+      break;
   }
 
   if (status.active_web_state_change() &&

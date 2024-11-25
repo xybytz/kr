@@ -7,6 +7,7 @@
 
 #include <optional>
 
+#include "base/auto_reset.h"
 #include "base/component_export.h"
 
 namespace base {
@@ -44,14 +45,14 @@ COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kArcDisableMediaStoreMaintenance[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcDisablePlayAutoInstall[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcDisableTtsCache[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcDisableUreadahead[];
-COMPONENT_EXPORT(ASH_CONSTANTS)
-extern const char kArcHostUreadaheadGeneration[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcEnableAttestation[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcUseDevCaches[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcErofs[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcForcePostBootDexOpt[];
+COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const char kArcForceMountAndroidVolumesInFiles[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcForceShowOptInUi[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcGeneratePlayAutoInstall[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcHostUreadaheadMode[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kArcInstallEventChromeLogForTests[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcPackagesCacheMode[];
@@ -59,13 +60,10 @@ COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcPlayStoreAutoUpdate[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcScale[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcStartMode[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcTosHostForTests[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kPrivacyPolicyHostForTests[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcVmMountDebugFs[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcVmUreadaheadMode[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcHostUreadaheadMode[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kArcVmUseHugePages[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kAshClearFastInkBuffer[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kAshBypassGlanceablesPref[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kAshConstrainPointerToRoot[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kAshContextualNudgesInterval[];
@@ -84,7 +82,6 @@ COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kAshEnableWaylandServer[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kAshForceEnableStylusTools[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kAshForceStatusAreaCollapsible[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kGrowthCampaignsPath[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kAshHideNotificationsForFactory[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kAshNoNudges[];
@@ -96,7 +93,9 @@ COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kAshUiMode[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kAshUiModeClamshell[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kAshUiModeTablet[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kAuraLegacyPowerButton[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kBirchFeatureKey[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kBirchIsEvening[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kBirchIsMorning[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kCampbellKey[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kCellularFirst[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kChildWallpaperLarge[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kChildWallpaperSmall[];
@@ -120,29 +119,31 @@ extern const char kDemoModeEnrollingUsername[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kDemoModeForceArcOfflineProvision[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDemoModeHighlightsApp[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDemoModeServerAPIKey[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDemoModeServerUrl[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDemoModeScreensaverApp[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kDemoModeSwaContentDirectory[];
+COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const char kDemoModeResourceDirectory[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDerelictDetectionTimeout[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDerelictIdleTimeout[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisableArcCpuRestriction[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisableArcDataWipe[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kDisableArcOptInVerification[];
+COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const char kDisableBirchWeatherApiForTesting[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisableDemoMode[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisableDeviceDisabling[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisableDriveFsForTesting[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kDisableFineGrainedTimeZoneDetection[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisableFirstRunUI[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisableGaiaServices[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kDisableHIDDetectionOnOOBEForTesting[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
-extern const char kSkipMultideviceScreenForTesting[];
-COMPONENT_EXPORT(ASH_CONSTANTS)
-extern const char kDisableLacrosKeepAliveForTesting[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisableLoginAnimations[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisableLoginLacrosOpening[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisableMachineCertRequest[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kDisableOOBEChromeVoxHintTimerForTesting[];
@@ -150,21 +151,20 @@ COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kDisableOOBENetworkScreenSkippingForTesting[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisablePerUserTimezone[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisableRollbackOption[];
-COMPONENT_EXPORT(ASH_CONSTANTS)
-extern const char kDisableSigninFrameClientCerts[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisableVolumeAdjustSound[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kEnableArc[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kEnableArcVm[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kEnableArcVmDlc[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kEnableArcVmRtVcpu[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kEnableAshDebugBrowser[];
+COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const char kEnableBirchWeatherApiForTestingOverride[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kEnableCastReceiver[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kEnableConsumerKiosk[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kEnableDimShelf[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kEnableExtensionAssetsSharing[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kEnableHoudini[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kEnableHoudini64[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kEnableHoudiniDlc[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kEnableNdkTranslation[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kEnableNdkTranslation64[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
@@ -188,8 +188,6 @@ extern const char kEnterpriseEnableUnifiedStateDetermination[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kEnterpriseEnableInitialEnrollment[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
-extern const char kEnterpriseEnableZeroTouchEnrollment[];
-COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kEnterpriseEnrollmentInitialModulus[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kEnterpriseEnrollmentModulusLimit[];
@@ -209,9 +207,12 @@ COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kFakeDriveFsLauncherChrootPath[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kFakeDriveFsLauncherSocketPath[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kRestoreKeyOnLockScreen[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kFingerprintSensorLocation[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kFirstExecAfterBoot[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kForceBirchFakeCoralBackend[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kForceBirchFakeCoralGroup[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kForceBirchFetch[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kForceBirchReleaseNotes[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kForceCryptohomeRecoveryForTesting[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kForceFirstRunUI[];
@@ -219,17 +220,22 @@ COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kForceHWIDCheckResultForTest[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kForceHappinessTrackingSystem[];
-COMPONENT_EXPORT(ASH_CONSTANTS)
-extern const char kForceLacrosLaunchAtLoginScreenForTesting[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kForceLaunchBrowser[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kForceLoginManagerInTests[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kForceShowCursor[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kForceShowReleaseTrack[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kForceTabletPowerButton[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kFormFactor[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kFrameThrottleFps[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kGlanceablesKeyExpectedHash[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kGlanceablesKeySwitch[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kGrowthCampaigns[];
+COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const char kGrowthCampaignsClearEventsAtSessionStart[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kGrowthCampaignsPath[];
+COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const char kGrowthCampaignsCurrentTimeSecondsSinceUnixEpoch[];
+COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const char kGrowthCampaignsRegisteredTimeSecondsSinceUnixEpoch[];
+COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const char kGrowthCampaignsDelayedTriggerTimeInSecs[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kGuestSession[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kGuestWallpaperLarge[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kGuestWallpaperSmall[];
@@ -266,11 +272,15 @@ extern const char kExtensionAppsRunInAshOnly[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kExtensionAppsBlockForAppServiceInAsh[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kLaunchRma[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kLobsterFeatureKey[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kLoginManager[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kLoginProfile[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kLoginUser[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisallowLacros[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kDisableDisallowLacros[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kSparkyFeatureKey[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kSparkyServerUrl[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kSunfishFeatureKey[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kBrowserDataMigrationForUser[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
@@ -284,6 +294,7 @@ COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kForceBrowserDataBackwardMigration[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kForceBrowserDataMigrationForTesting[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kMallUrl[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kMarketingOptInUrl[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kNaturalScrollDefault[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kNoteTakingAppIds[];
@@ -296,19 +307,22 @@ extern const char kOobePrintFrontendLoadTimings[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kOobeScreenshotDirectory[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kOobeShowAccessibilityButtonOnMarketingOptInForTesting[];
+COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const char kOobeSkipNewUserCheckForTesting[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kOobeSkipPostLogin[];
+COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const char kOobeSkipSplitModifierCheckForTesting[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kOobeSkipToLogin[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kOobeTimerInterval[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kOobeTimezoneOverrideForTests[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kOobeTriggerSyncTimeoutForTests[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kOrcaKey[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kOverviewButtonForTests[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kHiddenNetworkMigrationInterval[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kHiddenNetworkMigrationAge[];
-COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kPickerFeatureKey[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kPrintingPpdChannel[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kPrintingPpdChannelProduction[];
@@ -316,6 +330,7 @@ COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kPrintingPpdChannelStaging[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kPrintingPpdChannelDev[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kPrintingPpdChannelLocalhost[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kPrivacyPolicyHostForTests[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kProfileRequiresPolicy[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kPublicAccountsSamlAclUrl[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kQsAddFakeBluetoothDevices[];
@@ -329,6 +344,7 @@ COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kRlzPingDelay[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kRmaNotAllowed[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kSafeMode[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kSamlPasswordChangeUrl[];
+COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kScannerUpdateKey[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kSealKey[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kScheduledRebootGracePeriodInSecondsForTesting[];
@@ -339,6 +355,8 @@ COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kShowOobeQuickStartDebugger[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kShowTaps[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kSkipForceOnlineSignInForTesting[];
+COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const char kSkipMultideviceScreenForTesting[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kSkipReorderNudgeShowThresholdDurationForTest[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
@@ -370,8 +388,6 @@ COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kWebUiDataSourcePathForTesting[];
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const char kGetAccessTokenForTest[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
-extern const char kCameraEffectsSupportedByHardware[];
-COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kPreventKioskAutolaunchForTesting[];
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const char kAllowDefaultShelfPinLayoutIgnoringSync[];
@@ -384,19 +400,11 @@ extern const char kForceRefreshRateThrottle[];
 // cryptohomed instead of explicitly authorizing each operation.
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsAuthSessionCryptohomeEnabled();
 
-// Returns true if the cryptohome filesystem keyset is evicted and needs to be
-// restored on lock screen.
-COMPONENT_EXPORT(ASH_CONSTANTS) bool ShouldRestoreKeyOnLockScreen();
-
 // Returns true if this is a Cellular First device.
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsCellularFirstDevice();
 
 // Returns true if this is reven board.
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsRevenBranding();
-
-// Returns true if client certificate authentication for the sign-in frame on
-// the Chrome OS sign-in screen is enabled.
-COMPONENT_EXPORT(ASH_CONSTANTS) bool IsSigninFrameClientCertsEnabled();
 
 // Returns true if the Chromebook should ignore its wired connections when
 // deciding whether to run scans for tethering hosts. Should be used only for
@@ -404,8 +412,15 @@ COMPONENT_EXPORT(ASH_CONSTANTS) bool IsSigninFrameClientCertsEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS)
 bool ShouldTetherHostScansIgnoreWiredConnections();
 
+// Returns true if we should skip new user check on the recommend apps screen.
+COMPONENT_EXPORT(ASH_CONSTANTS) bool ShouldSkipNewUserCheckForTesting();
+
 // Returns true if we should skip all other OOBE pages after user login.
 COMPONENT_EXPORT(ASH_CONSTANTS) bool ShouldSkipOobePostLogin();
+
+// Returns true if we should skip split modifier check on the split modifier
+// info screen.
+COMPONENT_EXPORT(ASH_CONSTANTS) bool ShouldSkipSplitModifierCheckForTesting();
 
 // Returns true if we should show a11y button on the marketing opt in screen.
 COMPONENT_EXPORT(ASH_CONSTANTS)
@@ -464,6 +479,10 @@ bool AreEmptyPasswordsAllowedForForTesting();
 COMPONENT_EXPORT(ASH_CONSTANTS)
 bool IsOOBEChromeVoxHintEnabledForDevMode();
 
+// Returns true if the overview button is set to be always visible. Mostly for
+// dev purpose.
+COMPONENT_EXPORT(ASH_CONSTANTS) bool IsOverviewButtonEnabledForTests();
+
 // Returns true if the OEM Device Requisition can be configured.
 COMPONENT_EXPORT(ASH_CONSTANTS)
 bool IsDeviceRequisitionConfigurable();
@@ -489,19 +508,34 @@ COMPONENT_EXPORT(ASH_CONSTANTS)
 bool IsStabilizeTimeDependentViewForTestsEnabled();
 
 COMPONENT_EXPORT(ASH_CONSTANTS)
-bool IsCameraEffectsSupportedByHardware();
-
-COMPONENT_EXPORT(ASH_CONSTANTS)
 bool UseFakeCrasAudioClientForDBus();
 
 COMPONENT_EXPORT(ASH_CONSTANTS)
 bool ShouldAllowDefaultShelfPinLayoutIgnoringSync();
 
 COMPONENT_EXPORT(ASH_CONSTANTS)
-bool IsBirchSecretKeyMatched();
+bool IsCampbellSecretKeyMatched();
 
 COMPONENT_EXPORT(ASH_CONSTANTS)
-void SetIgnoreBirchSecretKeyForTest(bool ignore);
+bool IsSparkySecretKeyMatched();
+
+COMPONENT_EXPORT(ASH_CONSTANTS)
+base::AutoReset<bool> SetIgnoreSparkySecretKeyForTest();
+
+COMPONENT_EXPORT(ASH_CONSTANTS)
+std::optional<std::string> ObtainSparkyServerUrl();
+
+COMPONENT_EXPORT(ASH_CONSTANTS)
+bool IsScannerUpdateSecretKeyMatched();
+
+COMPONENT_EXPORT(ASH_CONSTANTS)
+base::AutoReset<bool> SetIgnoreScannerUpdateSecretKeyForTest();
+
+COMPONENT_EXPORT(ASH_CONSTANTS)
+bool IsSunfishSecretKeyMatched();
+
+COMPONENT_EXPORT(ASH_CONSTANTS)
+base::AutoReset<bool> SetIgnoreSunfishSecretKeyForTest();
 
 }  // namespace ash::switches
 

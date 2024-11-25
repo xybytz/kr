@@ -14,9 +14,9 @@
 #include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "components/input/cursor_manager.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/host/host_frame_sink_client.h"
-#include "content/browser/renderer_host/cursor_manager.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
@@ -90,6 +90,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
       const std::string& url,
       const std::vector<std::string>& file_paths,
       blink::mojom::ShareService::ShareCallback callback) override;
+  uint64_t GetNSViewId() const override;
 #endif  // BUILDFLAG(IS_MAC)
 
   // Notified in response to a CommitPending where there is no content for
@@ -119,16 +120,17 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
                                  const gfx::Rect& bounds) override {}
   void ClearKeyboardTriggeredTooltip() override {}
   gfx::Rect GetBoundsInRootWindow() override;
-  blink::mojom::PointerLockResult LockMouse(bool) override;
-  blink::mojom::PointerLockResult ChangeMouseLock(bool) override;
-  void UnlockMouse() override;
+  const viz::LocalSurfaceId& IncrementSurfaceIdForNavigation() override;
+  blink::mojom::PointerLockResult LockPointer(bool) override;
+  blink::mojom::PointerLockResult ChangePointerLock(bool) override;
+  void UnlockPointer() override;
   const viz::FrameSinkId& GetFrameSinkId() const override;
   const viz::LocalSurfaceId& GetLocalSurfaceId() const override;
   viz::SurfaceId GetCurrentSurfaceId() const override;
   std::unique_ptr<SyntheticGestureTarget> CreateSyntheticGestureTarget()
       override;
   ui::Compositor* GetCompositor() override;
-  CursorManager* GetCursorManager() override;
+  input::CursorManager* GetCursorManager() override;
   void InvalidateLocalSurfaceIdAndAllocationGroup() override {}
 
   bool is_showing() const { return is_showing_; }
@@ -193,7 +195,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
 
   raw_ptr<ui::Compositor, DanglingUntriaged> compositor_ = nullptr;
 
-  CursorManager cursor_manager_;
+  input::CursorManager cursor_manager_;
 };
 
 // TestRenderWidgetHostViewChildFrame -----------------------------------------

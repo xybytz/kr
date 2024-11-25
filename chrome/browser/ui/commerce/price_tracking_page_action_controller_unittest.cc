@@ -84,13 +84,12 @@ class PriceTrackingPageActionControllerUnittest : public testing::Test {
   }
 
  protected:
+  base::test::TaskEnvironment task_environment_{
+      base::test::TaskEnvironment::TimeSource::MOCK_TIME};
   base::MockRepeatingCallback<void()> notify_host_callback_;
   std::unique_ptr<MockShoppingService> shopping_service_;
   std::unique_ptr<image_fetcher::MockImageFetcher> image_fetcher_;
   std::unique_ptr<feature_engagement::test::MockTracker> tracker_;
-
-  base::test::TaskEnvironment task_environment_{
-      base::test::TaskEnvironment::TimeSource::MOCK_TIME};
 };
 
 TEST_F(PriceTrackingPageActionControllerUnittest, IconShown) {
@@ -208,13 +207,15 @@ TEST_F(PriceTrackingPageActionControllerUnittest,
                            IdentifierType::kProductClusterId, "12345",
                            ManagementType::kUserManaged);
 
-  EXPECT_CALL(notify_host_callback_, Run()).Times(1);
+  EXPECT_CALL(notify_host_callback_, Run()).Times(testing::AtLeast(1));
   shopping_service_->SetIsSubscribedCallbackValue(true);
   controller.OnSubscribe(sub, true);
+  base::RunLoop().RunUntilIdle();
 
-  EXPECT_CALL(notify_host_callback_, Run()).Times(1);
+  EXPECT_CALL(notify_host_callback_, Run()).Times(testing::AtLeast(1));
   shopping_service_->SetIsSubscribedCallbackValue(false);
   controller.OnUnsubscribe(sub, true);
+  base::RunLoop().RunUntilIdle();
 
   ASSERT_TRUE(controller.ShouldShowForNavigation().has_value());
   ASSERT_TRUE(controller.ShouldShowForNavigation().value());

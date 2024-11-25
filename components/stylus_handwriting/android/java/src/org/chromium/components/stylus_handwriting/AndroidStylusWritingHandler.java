@@ -13,6 +13,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.Build;
 import android.provider.Settings;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.inputmethod.EditorBoundsInfo;
 import android.view.inputmethod.InputMethodInfo;
@@ -33,18 +34,25 @@ public class AndroidStylusWritingHandler implements StylusWritingHandler, Stylus
 
     private final InputMethodManager mInputMethodManager;
 
+    private StylusHandwritingInitiator mStylusHandwritingInitiator;
+
     public static boolean isEnabled(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false;
 
         int value = -1;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            value =
-                    Settings.Secure.getInt(
-                            context.getContentResolver(), "stylus_handwriting_enabled", 1);
+        if (StylusHandwritingFeatureMap.isEnabledOrDefault(
+                StylusHandwritingFeatureMap.CACHE_STYLUS_SETTINGS, false)) {
+            value = StylusWritingSettingsState.getInstance().getStylusHandWritingSetting();
         } else {
-            value =
-                    Settings.Global.getInt(
-                            context.getContentResolver(), "stylus_handwriting_enabled", -1);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                value =
+                        Settings.Secure.getInt(
+                                context.getContentResolver(), "stylus_handwriting_enabled", 1);
+            } else {
+                value =
+                        Settings.Global.getInt(
+                                context.getContentResolver(), "stylus_handwriting_enabled", -1);
+            }
         }
 
         if (value != 1) {
@@ -54,9 +62,15 @@ public class AndroidStylusWritingHandler implements StylusWritingHandler, Stylus
 
         InputMethodManager inputMethodManager = context.getSystemService(InputMethodManager.class);
         List<InputMethodInfo> inputMethods = inputMethodManager.getInputMethodList();
-        String defaultIme =
-                Settings.Secure.getString(
-                        context.getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
+        String defaultIme;
+        if (StylusHandwritingFeatureMap.isEnabledOrDefault(
+                StylusHandwritingFeatureMap.CACHE_STYLUS_SETTINGS, false)) {
+            defaultIme = StylusWritingSettingsState.getInstance().getDefaultInputMethod();
+        } else {
+            defaultIme =
+                    Settings.Secure.getString(
+                            context.getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
+        }
 
         if (defaultIme == null) {
             Log.d(
@@ -83,6 +97,7 @@ public class AndroidStylusWritingHandler implements StylusWritingHandler, Stylus
 
     AndroidStylusWritingHandler(Context context) {
         mInputMethodManager = context.getSystemService(InputMethodManager.class);
+        mStylusHandwritingInitiator = new StylusHandwritingInitiator(mInputMethodManager);
     }
 
     @Override
@@ -97,13 +112,13 @@ public class AndroidStylusWritingHandler implements StylusWritingHandler, Stylus
     }
 
     @Override
+    public boolean handleTouchEvent(MotionEvent event, View currentView) {
+        return mStylusHandwritingInitiator.onTouchEvent(event, currentView);
+    }
+
+    @Override
     public boolean canShowSoftKeyboard() {
-        // We can return false here when Android stylus writing service has widget toolbar that can
-        // allow editing commands like add space, backspace, perform editor actions like next, prev,
-        // search, go etc, or an option to show/hide keyboard. Until then it is better to allow
-        // showing soft keyboard for above operations. It can be noted that Platform Edit text
-        // behaviour is also to show soft keyboard during stylus writing in Android T.
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE;
+        return true;
     }
 
     @Override
@@ -152,5 +167,9 @@ public class AndroidStylusWritingHandler implements StylusWritingHandler, Stylus
     @Override
     public int getStylusPointerIcon() {
         return TYPE_HANDWRITING;
+    }
+
+    void setHandwritingInitiatorForTesting(StylusHandwritingInitiator stylusHandwritingInitiator) {
+        mStylusHandwritingInitiator = stylusHandwritingInitiator;
     }
 }

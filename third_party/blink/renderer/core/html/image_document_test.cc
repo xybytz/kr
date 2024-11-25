@@ -127,9 +127,9 @@ class ImageDocumentTest : public testing::Test {
   test::TaskEnvironment task_environment_;
   Persistent<WindowToViewportScalingChromeClient> chrome_client_;
   std::unique_ptr<DummyPageHolder> dummy_page_holder_;
-  float page_zoom_factor_ = 0.0f;
+  float zoom_factor_ = 0.0f;
   float viewport_scaling_factor_ = 0.0f;
-  absl::optional<bool> force_zero_layout_height_;
+  std::optional<bool> force_zero_layout_height_;
 };
 
 void ImageDocumentTest::CreateDocumentWithoutLoadingImage(int view_width,
@@ -140,8 +140,9 @@ void ImageDocumentTest::CreateDocumentWithoutLoadingImage(int view_width,
   dummy_page_holder_ = std::make_unique<DummyPageHolder>(
       gfx::Size(view_width, view_height), chrome_client_);
 
-  if (page_zoom_factor_)
-    dummy_page_holder_->GetFrame().SetPageZoomFactor(page_zoom_factor_);
+  if (zoom_factor_) {
+    dummy_page_holder_->GetFrame().SetLayoutZoomFactor(zoom_factor_);
+  }
   if (viewport_scaling_factor_)
     chrome_client_->SetScalingFactor(viewport_scaling_factor_);
   if (force_zero_layout_height_.has_value()) {
@@ -157,7 +158,7 @@ void ImageDocumentTest::CreateDocumentWithoutLoadingImage(int view_width,
       is_animated ? AnimatedWebpImage() : JpegImage();
   WebNavigationParams::FillStaticResponse(
       params.get(), is_animated ? "image/webp" : "image/jpeg", "UTF-8",
-      base::make_span(reinterpret_cast<const char*>(data.data()), data.size()));
+      base::as_chars(base::span(data)));
   dummy_page_holder_->GetFrame().Loader().CommitNavigation(std::move(params),
                                                            nullptr);
 }
@@ -176,9 +177,9 @@ ImageDocument& ImageDocumentTest::GetDocument() const {
 }
 
 void ImageDocumentTest::SetPageZoom(float factor) {
-  page_zoom_factor_ = factor;
+  zoom_factor_ = factor;
   if (dummy_page_holder_)
-    dummy_page_holder_->GetFrame().SetPageZoomFactor(factor);
+    dummy_page_holder_->GetFrame().SetLayoutZoomFactor(factor);
 }
 
 void ImageDocumentTest::SetWindowToViewportScalingFactor(float factor) {
@@ -361,9 +362,8 @@ TEST_F(ImageDocumentViewportTest, HidingURLBarDoesntChangeImageLocation) {
   SimRequest request("https://example.com/test.jpg", "image/jpeg");
   LoadURL("https://example.com/test.jpg");
 
-  Vector<unsigned char> jpeg = JpegImage();
-  Vector<char> data = Vector<char>();
-  data.Append(jpeg.data(), jpeg.size());
+  Vector<char> data;
+  data.AppendVector(JpegImage());
   request.Complete(data);
 
   Compositor().BeginFrame();
@@ -399,9 +399,8 @@ TEST_F(ImageDocumentViewportTest, ScaleImage) {
   SimRequest request("https://example.com/test.jpg", "image/jpeg");
   LoadURL("https://example.com/test.jpg");
 
-  Vector<unsigned char> jpeg = JpegImage();
-  Vector<char> data = Vector<char>();
-  data.Append(jpeg.data(), jpeg.size());
+  Vector<char> data;
+  data.AppendVector(JpegImage());
   request.Complete(data);
 
   HTMLImageElement* img = GetDocument().ImageElement();
@@ -440,9 +439,8 @@ TEST_F(ImageDocumentViewportTest, DivWidth) {
   SimRequest request("https://example.com/test.jpg", "image/jpeg");
   LoadURL("https://example.com/test.jpg");
 
-  Vector<unsigned char> jpeg = JpegImage();
-  Vector<char> data = Vector<char>();
-  data.Append(jpeg.data(), jpeg.size());
+  Vector<char> data;
+  data.AppendVector(JpegImage());
   request.Complete(data);
 
   HTMLImageElement* img = GetDocument().ImageElement();

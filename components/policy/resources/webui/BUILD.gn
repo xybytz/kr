@@ -21,6 +21,7 @@ build_webui("build") {
     "policy_row.ts",
     "policy_precedence_row.ts",
     "policy_table.ts",
+    "policy_promotion.ts",
     "test/policy_test_row.ts",
     "test/policy_test_table.ts",
     "status_box.ts",
@@ -45,5 +46,6 @@ build_webui("build") {
     "//ui/webui/resources/js:build_ts",
   ]
 
+  webui_context_type = "trusted"
   grit_output_dir = "$root_gen_dir/components"
 }

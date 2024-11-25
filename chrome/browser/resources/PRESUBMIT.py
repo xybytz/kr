@@ -144,7 +144,6 @@ def CheckNoNewJs(input_api, output_api):
     'chrome/browser/resources/hangout_services/',
     'chrome/browser/resources/image_editor/',
     'chrome/browser/resources/identity_scope_approval_dialog/',
-    'chrome/browser/resources/internals/lens/',
     'chrome/browser/resources/internals/notifications/',
     'chrome/browser/resources/internals/query_tiles/',
     'chrome/browser/resources/inspect/',
@@ -156,6 +155,7 @@ def CheckNoNewJs(input_api, output_api):
     'chrome/browser/resources/new_tab_page/untrusted/',
     'chrome/browser/resources/offline_pages/',
     'chrome/browser/resources/omnibox/',
+    'chrome/browser/resources/reading_mode_gdocs_helper/',
     'chrome/browser/resources/settings/',
     'chrome/browser/resources/tools/',
   ]

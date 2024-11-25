@@ -6,6 +6,7 @@
 
 #import "base/functional/bind.h"
 #import "base/functional/callback.h"
+#import "base/memory/raw_ptr.h"
 #import "base/run_loop.h"
 #import "base/strings/utf_string_conversions.h"
 #import "base/test/bind.h"
@@ -13,7 +14,7 @@
 #import "components/history/core/browser/history_service.h"
 #import "components/keyed_service/core/service_access_type.h"
 #import "ios/chrome/browser/history/model/history_service_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/test/fakes/fake_navigation_context.h"
@@ -27,17 +28,17 @@ namespace {
 class HistoryTabHelperTest : public PlatformTest {
  public:
   void SetUp() override {
-    TestChromeBrowserState::Builder test_cbs_builder;
+    TestProfileIOS::Builder test_cbs_builder;
     test_cbs_builder.AddTestingFactory(
         ios::HistoryServiceFactory::GetInstance(),
         ios::HistoryServiceFactory::GetDefaultFactory());
-    chrome_browser_state_ = test_cbs_builder.Build();
+    profile_ = std::move(test_cbs_builder).Build();
 
     auto navigation_manager = std::make_unique<web::FakeNavigationManager>();
     navigation_manager_ = navigation_manager.get();
     web_state_.SetNavigationManager(std::move(navigation_manager));
 
-    web_state_.SetBrowserState(chrome_browser_state_.get());
+    web_state_.SetBrowserState(profile_.get());
     HistoryTabHelper::CreateForWebState(&web_state_);
   }
 
@@ -45,8 +46,8 @@ class HistoryTabHelperTest : public PlatformTest {
   // returns the response.  Spins the runloop until a response is received.
   void QueryURL(const GURL& url) {
     history::HistoryService* service =
-        ios::HistoryServiceFactory::GetForBrowserState(
-            chrome_browser_state_.get(), ServiceAccessType::EXPLICIT_ACCESS);
+        ios::HistoryServiceFactory::GetForProfile(
+            profile_.get(), ServiceAccessType::EXPLICIT_ACCESS);
 
     base::RunLoop loop;
     service->QueryURL(
@@ -63,8 +64,8 @@ class HistoryTabHelperTest : public PlatformTest {
   // Adds an entry for the given `url` to the history database.
   void AddVisitForURL(const GURL& url) {
     history::HistoryService* service =
-        ios::HistoryServiceFactory::GetForBrowserState(
-            chrome_browser_state_.get(), ServiceAccessType::EXPLICIT_ACCESS);
+        ios::HistoryServiceFactory::GetForProfile(
+            profile_.get(), ServiceAccessType::EXPLICIT_ACCESS);
     service->AddPage(
         url, base::Time::Now(), 0, 0, GURL(), history::RedirectList(),
         ui::PAGE_TRANSITION_MANUAL_SUBFRAME, history::SOURCE_BROWSED, false);
@@ -72,9 +73,9 @@ class HistoryTabHelperTest : public PlatformTest {
 
  protected:
   base::test::TaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> chrome_browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   web::FakeWebState web_state_;
-  web::FakeNavigationManager* navigation_manager_;
+  raw_ptr<web::FakeNavigationManager> navigation_manager_;
   base::CancelableTaskTracker tracker_;
 
   // Cached data from the last call to `QueryURL()`.

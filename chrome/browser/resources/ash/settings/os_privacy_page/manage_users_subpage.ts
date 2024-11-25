@@ -8,15 +8,15 @@
  * accounts on the device.
  */
 
-import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
-import 'chrome://resources/cr_elements/action_link.css.js';
+import 'chrome://resources/ash/common/cr_elements/cr_shared_vars.css.js';
+import 'chrome://resources/ash/common/cr_elements/action_link.css.js';
 import 'chrome://resources/js/action_link.js';
-import '/shared/settings/controls/settings_toggle_button.js';
+import '../controls/settings_toggle_button.js';
 import '../settings_shared.css.js';
 import '../os_people_page/user_list.js';
 import '../os_people_page/add_user_dialog.js';
 
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
 import {focusWithoutInk} from 'chrome://resources/js/focus_without_ink.js';
 import {afterNextRender, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
@@ -25,8 +25,9 @@ import {DeepLinkingMixin} from '../common/deep_linking_mixin.js';
 import {isChild, isRevampWayfindingEnabled} from '../common/load_time_booleans.js';
 import {RouteObserverMixin} from '../common/route_observer_mixin.js';
 import {Setting} from '../mojom-webui/setting.mojom-webui.js';
-import {SettingsUsersAddUserDialogElement} from '../os_people_page/add_user_dialog.js';
-import {Route, routes} from '../router.js';
+import type {SettingsUsersAddUserDialogElement} from '../os_people_page/add_user_dialog.js';
+import type {Route} from '../router.js';
+import {routes} from '../router.js';
 
 import {getTemplate} from './manage_users_subpage.html.js';
 

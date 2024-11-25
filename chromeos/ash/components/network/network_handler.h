@@ -26,6 +26,7 @@ class CellularNetworkMetricsLogger;
 class CellularPolicyHandler;
 class ClientCertResolver;
 class ConnectionInfoMetricsLogger;
+class DefaultNetworkMetricsLogger;
 class EnterpriseManagedMetadataStore;
 class EphemeralNetworkConfigurationHandler;
 class EphemeralNetworkPoliciesEnablementHandler;
@@ -68,6 +69,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkHandler {
  public:
   // Sets the global instance. Must be called before any calls to Get().
   static void Initialize();
+
+  // Sets the global fake instance.
+  static void InitializeFake();
 
   // Destroys the global instance.
   static void Shutdown();
@@ -144,7 +148,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkHandler {
  private:
   friend class ConnectionInfoMetricsLoggerTest;
 
-  NetworkHandler();
+  NetworkHandler(std::unique_ptr<NetworkStateHandler> handler);
   virtual ~NetworkHandler();
 
   void Init();
@@ -179,6 +183,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkHandler {
   std::unique_ptr<ManagedCellularPrefHandler> managed_cellular_pref_handler_;
   std::unique_ptr<CellularMetricsLogger> cellular_metrics_logger_;
   std::unique_ptr<ConnectionInfoMetricsLogger> connection_info_metrics_logger_;
+  std::unique_ptr<DefaultNetworkMetricsLogger> default_network_metrics_logger_;
   std::unique_ptr<HiddenNetworkHandler> hidden_network_handler_;
   std::unique_ptr<EnterpriseManagedMetadataStore>
       enterprise_managed_metadata_store_;

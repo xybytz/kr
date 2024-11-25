@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -23,13 +24,10 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "components/history/core/browser/url_database.h"
-#include "components/history_clusters/core/config.h"
-#include "components/history_clusters/core/features.h"
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/autocomplete_result.h"
-#include "components/omnibox/browser/autocomplete_scoring_signals_annotator.h"
 #include "components/omnibox/browser/fake_autocomplete_provider_client.h"
 #include "components/omnibox/browser/in_memory_url_index.h"
 #include "components/omnibox/browser/omnibox_feature_configs.h"
@@ -38,7 +36,6 @@
 #include "components/omnibox/browser/shortcuts_provider_test_util.h"
 #include "components/omnibox/common/omnibox_features.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "third_party/metrics_proto/omnibox_focus_type.pb.h"
 #include "third_party/omnibox_proto/groups.pb.h"
@@ -874,11 +871,11 @@ TEST_F(ShortcutsProviderTest, DoAutocompleteWithScoringSignals) {
   EXPECT_EQ(matches.size(), 3u);
   // These matches are all HISTORY_URL type, so should have scoring signals
   // attached.
-  EXPECT_TRUE(AutocompleteScoringSignalsAnnotator::IsEligibleMatch(matches[0]));
+  EXPECT_TRUE(matches[0].IsMlSignalLoggingEligible());
   EXPECT_TRUE(matches[0].scoring_signals.has_value());
-  EXPECT_TRUE(AutocompleteScoringSignalsAnnotator::IsEligibleMatch(matches[1]));
+  EXPECT_TRUE(matches[1].IsMlSignalLoggingEligible());
   EXPECT_TRUE(matches[1].scoring_signals.has_value());
-  EXPECT_TRUE(AutocompleteScoringSignalsAnnotator::IsEligibleMatch(matches[2]));
+  EXPECT_TRUE(matches[2].IsMlSignalLoggingEligible());
   EXPECT_TRUE(matches[2].scoring_signals.has_value());
   // There are 2 shortcuts with the wilson7 url which have the same aggregate
   // text length, visit count, and last visit as the 1 winston shortcut.
@@ -897,16 +894,15 @@ TEST_F(ShortcutsProviderTest, DoAutocompleteWithScoringSignals) {
   EXPECT_EQ(matches[2].scoring_signals->visit_count(), 2);
   EXPECT_EQ(matches[2].scoring_signals->shortest_shortcut_len(), 7);
 
-  // Check again with an ineligible (SEARCH_HISTORY) type match and confirm
-  // that the match does not have scoring signals attached.
+  // Check with (SEARCH_HISTORY) type match and confirm that the match has
+  // scoring signals attached.
   AutocompleteInput input2(u"que", metrics::OmniboxEventProto::OTHER,
                            TestSchemeClassifier());
   DoAutocompleteWithScoringSignals(input2);
   EXPECT_EQ(matches.size(), 1u);
 
-  EXPECT_FALSE(
-      AutocompleteScoringSignalsAnnotator::IsEligibleMatch(matches[0]));
-  EXPECT_FALSE(matches[0].scoring_signals.has_value());
+  EXPECT_TRUE(matches[0].IsMlSignalLoggingEligible());
+  EXPECT_TRUE(matches[0].scoring_signals.has_value());
 }
 
 TEST_F(ShortcutsProviderTest, Score) {
@@ -1291,12 +1287,12 @@ TEST_F(ShortcutsProviderTest, HistoryClusterSuggestions) {
   EXPECT_EQ(matches[6].relevance, matches[1].relevance);
 
   // Expect cluster matches to not have grouping.
-  EXPECT_EQ(matches[0].suggestion_group_id, absl::nullopt);
-  EXPECT_EQ(matches[1].suggestion_group_id, absl::nullopt);
-  EXPECT_EQ(matches[2].suggestion_group_id, absl::nullopt);
-  EXPECT_EQ(matches[3].suggestion_group_id, absl::nullopt);
-  EXPECT_EQ(matches[4].suggestion_group_id, absl::nullopt);
-  EXPECT_EQ(matches[5].suggestion_group_id, absl::nullopt);
-  EXPECT_EQ(matches[6].suggestion_group_id, absl::nullopt);
+  EXPECT_EQ(matches[0].suggestion_group_id, std::nullopt);
+  EXPECT_EQ(matches[1].suggestion_group_id, std::nullopt);
+  EXPECT_EQ(matches[2].suggestion_group_id, std::nullopt);
+  EXPECT_EQ(matches[3].suggestion_group_id, std::nullopt);
+  EXPECT_EQ(matches[4].suggestion_group_id, std::nullopt);
+  EXPECT_EQ(matches[5].suggestion_group_id, std::nullopt);
+  EXPECT_EQ(matches[6].suggestion_group_id, std::nullopt);
 }
 #endif  // !BUILDFLAG(IS_IOS)

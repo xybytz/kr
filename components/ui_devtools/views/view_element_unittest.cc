@@ -126,12 +126,12 @@ END_METADATA
 
 class ViewElementTest : public views::ViewsTestBase {
  public:
-  ViewElementTest() {}
+  ViewElementTest() = default;
 
   ViewElementTest(const ViewElementTest&) = delete;
   ViewElementTest& operator=(const ViewElementTest&) = delete;
 
-  ~ViewElementTest() override {}
+  ~ViewElementTest() override = default;
 
  protected:
   void SetUp() override {
@@ -275,8 +275,8 @@ TEST_F(ViewElementTest, GetNodeWindowAndScreenBounds) {
   // a widget.
   auto widget = std::make_unique<views::Widget>();
   views::Widget::InitParams params =
-      CreateParams(views::Widget::InitParams::TYPE_WINDOW);
-  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+      CreateParams(views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET,
+                   views::Widget::InitParams::TYPE_WINDOW);
   widget->Init(std::move(params));
   widget->Show();
 
@@ -345,8 +345,8 @@ TEST_F(ViewElementTest, DispatchMouseEvent) {
   // The view must be in a widget in order to dispatch mouse event correctly.
   auto widget = std::make_unique<views::Widget>();
   views::Widget::InitParams params =
-      CreateParams(views::Widget::InitParams::TYPE_WINDOW);
-  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+      CreateParams(views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET,
+                   views::Widget::InitParams::TYPE_WINDOW);
   widget->Init(std::move(params));
   widget->GetContentsView()->AddChildView(view());
   widget->Show();

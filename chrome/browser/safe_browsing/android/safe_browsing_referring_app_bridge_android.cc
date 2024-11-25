@@ -6,14 +6,17 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
-#include "chrome/android/chrome_jni_headers/SafeBrowsingReferringAppBridge_jni.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/time/time.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/android/window_android.h"
 
+// Must come after all headers that specialize FromJniType() / ToJniType().
+#include "chrome/android/chrome_jni_headers/SafeBrowsingReferringAppBridge_jni.h"
+
 using base::android::ConvertJavaStringToUTF8;
 using base::android::ScopedJavaLocalRef;
-using ReferringAppSource = safe_browsing::LoginReputationClientRequest::
-    ReferringAppInfo::ReferringAppSource;
+using ReferringAppSource = safe_browsing::ReferringAppInfo::ReferringAppSource;
 
 namespace {
 ReferringAppSource IntToReferringAppSource(int source) {
@@ -23,9 +26,16 @@ ReferringAppSource IntToReferringAppSource(int source) {
 
 namespace safe_browsing {
 
-LoginReputationClientRequest::ReferringAppInfo GetReferringAppInfo(
+internal::ReferringAppInfo GetReferringAppInfo(
     content::WebContents* web_contents) {
+  base::TimeTicks start_time = base::TimeTicks::Now();
   ui::WindowAndroid* window_android = web_contents->GetTopLevelNativeWindow();
+
+  if (!window_android) {
+    return internal::ReferringAppInfo{
+        ReferringAppInfo::REFERRING_APP_SOURCE_UNSPECIFIED, "", GURL()};
+  }
+
   JNIEnv* env = base::android::AttachCurrentThread();
 
   ScopedJavaLocalRef<jobject> j_info =
@@ -35,12 +45,11 @@ LoginReputationClientRequest::ReferringAppInfo GetReferringAppInfo(
       IntToReferringAppSource(Java_ReferringAppInfo_getSource(env, j_info));
   std::string name =
       ConvertJavaStringToUTF8(Java_ReferringAppInfo_getName(env, j_info));
-
-  LoginReputationClientRequest::ReferringAppInfo referring_app_info;
-  referring_app_info.set_referring_app_source(source);
-  referring_app_info.set_referring_app_name(name);
-
-  return referring_app_info;
+  GURL url = GURL(
+      ConvertJavaStringToUTF8(Java_ReferringAppInfo_getTargetUrl(env, j_info)));
+  base::UmaHistogramTimes("SafeBrowsing.GetReferringAppInfo.Duration",
+                          base::TimeTicks::Now() - start_time);
+  return internal::ReferringAppInfo{source, name, url};
 }
 
 }  // namespace safe_browsing

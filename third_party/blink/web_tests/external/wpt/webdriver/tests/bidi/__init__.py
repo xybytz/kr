@@ -1,5 +1,4 @@
-from typing import Any, Callable, Dict, Mapping
-
+from typing import Any, Callable, Dict, List, Mapping
 from webdriver.bidi.modules.script import ContextTarget
 
 
@@ -11,15 +10,14 @@ def recursive_compare(expected: Any, actual: Any) -> None:
         expected(actual)
         return
 
-    assert type(expected) is type(actual)
-    if type(expected) is list:
+    if isinstance(actual, List) and isinstance(expected, List):
         assert len(expected) == len(actual)
         for index, _ in enumerate(expected):
             recursive_compare(expected[index], actual[index])
         return
 
-    if type(expected) is dict:
-        # Actual dict can have more keys as part of the forwards-compat design.
+    if isinstance(actual, Dict) and isinstance(expected, Dict):
+        # Actual Mapping can have more keys as part of the forwards-compat design.
         assert (
             expected.keys() <= actual.keys()
         ), f"Key set should be present: {set(expected.keys()) - set(actual.keys())}"
@@ -40,6 +38,10 @@ def any_dict(actual: Any) -> None:
 
 def any_int(actual: Any) -> None:
     assert isinstance(actual, int)
+
+
+def any_number(actual: Any) -> None:
+    assert isinstance(actual, int) or isinstance(actual, float)
 
 
 def any_int_or_null(actual: Any) -> None:
@@ -71,6 +73,23 @@ def int_interval(start: int, end: int) -> Callable[[Any], None]:
         assert start <= actual <= end
 
     return _
+
+
+def number_interval(start: float, end: float) -> Callable[[Any], None]:
+    def _(actual: Any) -> None:
+        any_number(actual)
+        assert start <= actual <= end
+
+    return _
+
+
+def assert_cookies(cookies, expected_cookies):
+    assert len(cookies) == len(expected_cookies)
+
+    expected = sorted(expected_cookies, key=lambda cookie: cookie["name"])
+    actual = sorted(cookies, key=lambda cookie: cookie["name"])
+
+    recursive_compare(expected, actual)
 
 
 def assert_handle(obj: Mapping[str, Any], should_contain_handle: bool) -> None:
@@ -130,13 +149,28 @@ async def get_element_dimensions(bidi_session, context, element):
     return remote_mapping_to_dict(result["value"])
 
 
-async def get_viewport_dimensions(bidi_session, context: str):
-    expression = """
-        ({
-          height: window.innerHeight || document.documentElement.clientHeight,
-          width: window.innerWidth || document.documentElement.clientWidth,
-        });
-    """
+async def get_viewport_dimensions(bidi_session, context: str,
+      with_scrollbar: bool = True, quirk_mode: bool = False):
+    if with_scrollbar:
+        expression = """
+            ({
+                height: window.innerHeight,
+                width: window.innerWidth,
+            });
+        """
+    else:
+        # The way the viewport height without the scrollbar can be calculated
+        # is different in quirks mode. In quirks mode, the viewport height is
+        # the height of the body element, while in standard mode it is the
+        # height of the document element.
+        element_expression = \
+            "document.body" if quirk_mode else "document.documentElement"
+        expression = f"""
+            ({{
+                height: {element_expression}.clientHeight,
+                width: {element_expression}.clientWidth,
+            }});
+        """
     result = await bidi_session.script.evaluate(
         expression=expression,
         target=ContextTarget(context["context"]),

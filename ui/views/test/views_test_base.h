@@ -15,7 +15,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
 #include "ui/accessibility/platform/ax_platform_for_test.h"
-#include "ui/accessibility/platform/ax_platform_node.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/views/test/scoped_views_test_helper.h"
 #include "ui/views/test/test_views_delegate.h"
@@ -84,9 +83,16 @@ class ViewsTestBase : public PlatformTest {
   // CreateParamsForTestWidget() and thus by CreateTestWidget(), and may also be
   // used directly.  The default implementation sets the context to
   // GetContext().
-  virtual Widget::InitParams CreateParams(Widget::InitParams::Type type);
+  virtual Widget::InitParams CreateParams(
+      Widget::InitParams::Ownership ownership,
+      Widget::InitParams::Type type);
+
+  // TODO(crbug.com/339619005): Remove once all uses are explicitly specifying
+  // Widget ownership.
+  Widget::InitParams CreateParams(Widget::InitParams::Type type);
 
   virtual std::unique_ptr<Widget> CreateTestWidget(
+      Widget::InitParams::Ownership ownership,
       Widget::InitParams::Type type =
           Widget::InitParams::TYPE_WINDOW_FRAMELESS);
 
@@ -155,8 +161,15 @@ class ViewsTestBase : public PlatformTest {
 
   // Constructs the params for CreateTestWidget().
   Widget::InitParams CreateParamsForTestWidget(
-      Widget::InitParams::Type type =
-          Widget::InitParams::TYPE_WINDOW_FRAMELESS);
+      views::Widget::InitParams::Ownership ownership,
+      views::Widget::InitParams::Type type =
+          views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
+
+  // TODO(crbug.com/339619005): Remove once all uses are explicitly specifying
+  // Widget ownership.
+  Widget::InitParams CreateParamsForTestWidget(
+      views::Widget::InitParams::Type type =
+          views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
 
  private:
   std::unique_ptr<base::test::TaskEnvironment> task_environment_;
@@ -200,14 +213,6 @@ class ViewsTestWithDesktopNativeWidget : public ViewsTestBase {
 
   // ViewsTestBase:
   void SetUp() override;
-};
-
-class ScopedAXModeSetter {
- public:
-  explicit ScopedAXModeSetter(ui::AXMode new_mode) {
-    ui::AXPlatformNode::SetAXMode(new_mode);
-  }
-  ~ScopedAXModeSetter() { ui::AXPlatformNode::SetAXMode(ui::AXMode::kNone); }
 };
 
 }  // namespace views

@@ -28,7 +28,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_service.h"
 #include "components/search_engines/search_engine_choice/search_engine_choice_service.h"
-#include "components/search_engines/search_engine_choice_utils.h"
+#include "components/search_engines/search_engine_choice/search_engine_choice_utils.h"
 #include "components/search_engines/search_engines_pref_names.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
@@ -71,6 +71,10 @@ void SearchEnginesHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "getSearchEnginesList",
       base::BindRepeating(&SearchEnginesHandler::HandleGetSearchEnginesList,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "getSaveGuestChoice",
+      base::BindRepeating(&SearchEnginesHandler::HandleGetSaveGuestChoice,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "setDefaultSearchEngine",
@@ -218,8 +222,7 @@ base::Value::Dict SearchEnginesHandler::CreateDictionaryForEngine(
   dict.Set("displayName",
            table_model->GetText(index,
                                 IDS_SEARCH_ENGINES_EDITOR_DESCRIPTION_COLUMN));
-  dict.Set("keyword", table_model->GetText(
-                          index, IDS_SEARCH_ENGINES_EDITOR_KEYWORD_COLUMN));
+  dict.Set("keyword", table_model->GetKeywordToDisplay(index));
   Profile* profile = Profile::FromWebUI(web_ui());
   dict.Set("url",
            template_url->url_ref().DisplayURL(UIThreadSearchTermsData()));
@@ -229,10 +232,6 @@ base::Value::Dict SearchEnginesHandler::CreateDictionaryForEngine(
   if (icon_url.is_valid())
     dict.Set("iconURL", icon_url.spec());
 
-  const bool is_search_engine_choice_settings_ui =
-      search_engines::IsChoiceScreenFlagEnabled(
-          search_engines::ChoicePromo::kAny);
-
   // The icons that are used for search engines in the EEA region are bundled
   // with Chrome. We use the favicon service for countries outside the EEA
   // region to guarantee having icons for all search engines.
@@ -240,8 +239,7 @@ base::Value::Dict SearchEnginesHandler::CreateDictionaryForEngine(
       search_engines::SearchEngineChoiceServiceFactory::GetForProfile(profile);
   const bool is_eea_region = search_engines::IsEeaChoiceCountry(
       search_engine_choice_service->GetCountryId());
-  if (is_search_engine_choice_settings_ui && is_eea_region &&
-      template_url->prepopulate_id() != 0) {
+  if (is_eea_region && template_url->prepopulate_id() != 0) {
     std::string_view icon_path =
         GetSearchEngineGeneratedIconPath(template_url->keyword());
     if (!icon_path.empty()) {
@@ -266,6 +264,8 @@ base::Value::Dict SearchEnginesHandler::CreateDictionaryForEngine(
   dict.Set("isManaged", list_controller_.IsManaged(template_url));
   TemplateURL::Type type = template_url->type();
   dict.Set("isOmniboxExtension", type == TemplateURL::OMNIBOX_API_EXTENSION);
+  dict.Set("isPrepopulated", template_url->prepopulate_id() > 0);
+  dict.Set("isStarterPack", template_url->starter_pack_id() > 0);
   if (type == TemplateURL::NORMAL_CONTROLLED_BY_EXTENSION ||
       type == TemplateURL::OMNIBOX_API_EXTENSION) {
     const extensions::Extension* extension =
@@ -295,7 +295,7 @@ void SearchEnginesHandler::HandleGetSearchEnginesList(
 
 void SearchEnginesHandler::HandleSetDefaultSearchEngine(
     const base::Value::List& args) {
-  CHECK_EQ(2U, args.size());
+  CHECK_EQ(3U, args.size());
   int index = args[0].GetInt();
   if (index < 0 || static_cast<size_t>(index) >=
                        list_controller_.table_model()->RowCount()) {
@@ -309,8 +309,46 @@ void SearchEnginesHandler::HandleSetDefaultSearchEngine(
         choice_made_location ==
             search_engines::ChoiceMadeLocation::kSearchEngineSettings);
   list_controller_.MakeDefaultTemplateURL(index, choice_made_location);
-
   base::RecordAction(base::UserMetricsAction("Options_SearchEngineSetDefault"));
+
+  auto* choice_service =
+      search_engines::SearchEngineChoiceServiceFactory::GetForProfile(profile_);
+  if (!choice_service->IsProfileEligibleForDseGuestPropagation()) {
+    return;
+  }
+
+  if (args[2].is_none()) {
+    return;
+  }
+
+  bool saveGuestChoice = args[2].GetBool();
+  if (!saveGuestChoice) {
+    choice_service->SetSavedSearchEngineBetweenGuestSessions(std::nullopt);
+    return;
+  }
+
+  int prepopulate_id =
+      list_controller_.GetDefaultSearchProvider()->prepopulate_id();
+  if (prepopulate_id > 0 &&
+      prepopulate_id <= TemplateURLPrepopulateData::kMaxPrepopulatedEngineID) {
+    choice_service->SetSavedSearchEngineBetweenGuestSessions(prepopulate_id);
+  }
+}
+
+void SearchEnginesHandler::HandleGetSaveGuestChoice(
+    const base::Value::List& args) {
+  CHECK_EQ(1U, args.size());
+  const base::Value& callback_id = args[0];
+  AllowJavascript();
+
+  base::Value save_guest_choice;
+  auto* choice_service =
+      search_engines::SearchEngineChoiceServiceFactory::GetForProfile(profile_);
+  if (choice_service->IsProfileEligibleForDseGuestPropagation()) {
+    save_guest_choice = base::Value(
+        choice_service->GetSavedSearchEngineBetweenGuestSessions().has_value());
+  }
+  ResolveJavascriptCallback(callback_id, std::move(save_guest_choice));
 }
 
 void SearchEnginesHandler::HandleSetIsActiveSearchEngine(
@@ -389,14 +427,15 @@ bool SearchEnginesHandler::CheckFieldValidity(const std::string& field_name,
     return false;
 
   bool is_valid = false;
-  if (field_name.compare(kSearchEngineField) == 0)
+  if (field_name.compare(kSearchEngineField) == 0) {
     is_valid = edit_controller_->IsTitleValid(base::UTF8ToUTF16(field_value));
-  else if (field_name.compare(kKeywordField) == 0)
+  } else if (field_name.compare(kKeywordField) == 0) {
     is_valid = edit_controller_->IsKeywordValid(base::UTF8ToUTF16(field_value));
-  else if (field_name.compare(kQueryUrlField) == 0)
+  } else if (field_name.compare(kQueryUrlField) == 0) {
     is_valid = edit_controller_->IsURLValid(field_value);
-  else
+  } else {
     NOTREACHED();
+  }
 
   return is_valid;
 }

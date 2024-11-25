@@ -21,9 +21,12 @@
 #import "ios/chrome/browser/ui/settings/settings_navigation_controller.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/regular/regular_grid_view_controller.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/inactive_tabs/inactive_tabs_constants.h"
+#import "ios/chrome/browser/ui/tab_switcher/tab_grid/inactive_tabs/inactive_tabs_coordinator_delegate.h"
+#import "ios/chrome/browser/ui/tab_switcher/tab_grid/inactive_tabs/inactive_tabs_grid_view_controller.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/inactive_tabs/inactive_tabs_mediator.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/inactive_tabs/inactive_tabs_user_education_coordinator.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/inactive_tabs/inactive_tabs_view_controller.h"
+#import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_context_menu/tab_context_menu_helper.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #import "ios/chrome/grit/ios_strings.h"
 #import "ios/web/public/web_state_id.h"
@@ -143,7 +146,7 @@ const base::TimeDelta kPopUIDelay = base::Seconds(0.3);
   __weak id<InactiveTabsCoordinatorDelegate> _delegate;
 
   // Provides the context menu for the tabs on the grid.
-  __weak id<TabContextMenuProvider> _menuProvider;
+  TabContextMenuHelper* _contextMenuProvider;
 
   // The navigation controller for inactive tabs settings.
   SettingsNavigationController* _settingsController;
@@ -153,18 +156,15 @@ const base::TimeDelta kPopUIDelay = base::Seconds(0.3);
 
 #pragma mark - Public
 
-- (instancetype)
-    initWithBaseViewController:(UIViewController*)viewController
-                       browser:(Browser*)browser
-                      delegate:(id<InactiveTabsCoordinatorDelegate>)delegate
-                  menuProvider:(id<TabContextMenuProvider>)menuProvider {
+- (instancetype)initWithBaseViewController:(UIViewController*)viewController
+                                   browser:(Browser*)browser
+                                  delegate:(id<InactiveTabsCoordinatorDelegate>)
+                                               delegate {
   CHECK(IsInactiveTabsAvailable());
-  CHECK(menuProvider);
   CHECK(delegate);
   self = [super initWithBaseViewController:viewController browser:browser];
   if (self) {
     _delegate = delegate;
-    _menuProvider = menuProvider;
   }
   return self;
 }
@@ -182,8 +182,12 @@ const base::TimeDelta kPopUIDelay = base::Seconds(0.3);
 - (void)start {
   [super start];
 
+  _contextMenuProvider = [[TabContextMenuHelper alloc]
+             initWithProfile:self.browser->GetActiveBrowser()->GetProfile()
+      tabContextMenuDelegate:self.tabContextMenuDelegate];
+
   Browser* browser = self.browser;
-  SnapshotStorage* snapshotStorage =
+  SnapshotStorageWrapper* snapshotStorage =
       SnapshotBrowserAgent::FromBrowser(browser)->snapshot_storage();
   self.mediator = [[InactiveTabsMediator alloc]
       initWithWebStateList:browser->GetWebStateList()
@@ -214,7 +218,7 @@ const base::TimeDelta kPopUIDelay = base::Seconds(0.3);
 
   self.mediator.consumer = self.viewController.gridViewController;
 
-  self.viewController.gridViewController.menuProvider = _menuProvider;
+  self.viewController.gridViewController.menuProvider = _contextMenuProvider;
 
   // Add the Inactive Tabs view controller to the hierarchy.
   UIView* baseView = self.baseViewController.view;
@@ -266,6 +270,8 @@ const base::TimeDelta kPopUIDelay = base::Seconds(0.3);
   if (self.presentingSettings) {
     [self closeSettings];
   }
+  [_actionSheetCoordinator stop];
+  _actionSheetCoordinator = nil;
   [self.viewController.gridViewController dismissModals];
 
   // Unhide the snapshot.
@@ -296,6 +302,11 @@ const base::TimeDelta kPopUIDelay = base::Seconds(0.3);
 }
 
 - (void)gridViewController:(BaseGridViewController*)gridViewController
+            didSelectGroup:(const TabGroup*)group {
+  NOTREACHED();
+}
+
+- (void)gridViewController:(BaseGridViewController*)gridViewController
         didCloseItemWithID:(web::WebStateID)itemID {
   __weak __typeof(self) weakSelf = self;
   auto closeItem = ^{
@@ -318,37 +329,24 @@ const base::TimeDelta kPopUIDelay = base::Seconds(0.3);
   }
 }
 
-- (void)gridViewController:(BaseGridViewController*)gridViewController
-         didMoveItemWithID:(web::WebStateID)itemID
-                   toIndex:(NSUInteger)destinationIndex {
+- (void)gridViewControllerDidMoveItem:
+    (BaseGridViewController*)gridViewController {
   NOTREACHED();
 }
 
 - (void)gridViewController:(BaseGridViewController*)gridViewController
-        didChangeItemCount:(NSUInteger)count {
-  if (!self.presentingSettings) {
-    [self popIfNeeded];
-  }
-}
-
-- (void)gridViewController:(BaseGridViewController*)gridViewController
-       didRemoveItemWIthID:(web::WebStateID)itemID {
+       didRemoveItemWithID:(web::WebStateID)itemID {
   // No op.
 }
 
-- (void)didChangeLastItemVisibilityInGridViewController:
+- (void)gridViewControllerDragSessionWillBeginForTab:
     (BaseGridViewController*)gridViewController {
   // No op.
 }
 
-- (void)gridViewControllerWillBeginDragging:
+- (void)gridViewControllerDragSessionWillBeginForTabGroup:
     (BaseGridViewController*)gridViewController {
-  // No op.
-}
-
-- (void)gridViewControllerDragSessionWillBegin:
-    (BaseGridViewController*)gridViewController {
-  // No op.
+  // No-op.
 }
 
 - (void)gridViewControllerDragSessionDidEnd:
@@ -379,6 +377,21 @@ const base::TimeDelta kPopUIDelay = base::Seconds(0.3);
 - (void)didTapInactiveTabsSettingsLinkInGridViewController:
     (BaseGridViewController*)gridViewController {
   [self presentSettings];
+}
+
+- (void)gridViewControllerDidRequestContextMenu:
+    (BaseGridViewController*)gridViewController {
+  // No-op.
+}
+
+- (void)gridViewControllerDropSessionDidEnter:
+    (BaseGridViewController*)gridViewController {
+  // No-op.
+}
+
+- (void)gridViewControllerDropSessionDidExit:
+    (BaseGridViewController*)gridViewController {
+  // No-op.
 }
 
 #pragma mark - InactiveTabsUserEducationCoordinatorDelegate
@@ -471,20 +484,16 @@ const base::TimeDelta kPopUIDelay = base::Seconds(0.3);
   [self onSettingsDismissed];
 }
 
-- (id<ApplicationCommands, BrowserCommands, BrowsingDataCommands>)
-    handlerForSettings {
+- (id<ApplicationCommands, BrowserCommands>)handlerForSettings {
   NOTREACHED();
-  return nil;
 }
 
 - (id<ApplicationCommands>)handlerForApplicationCommands {
   NOTREACHED();
-  return nil;
 }
 
 - (id<SnackbarCommands>)handlerForSnackbarCommands {
   NOTREACHED();
-  return nil;
 }
 
 #pragma mark - Actions

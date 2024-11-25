@@ -38,6 +38,10 @@ class SyncUserSettingsMock : public SyncUserSettings {
               IsTypeManagedByCustodian,
               (UserSelectableType),
               (const override));
+  MOCK_METHOD(SyncUserSettings::UserSelectableTypePrefState,
+              GetTypePrefStateForAccount,
+              (UserSelectableType),
+              (const override));
 #if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
   MOCK_METHOD(int,
               GetNumberOfAccountsWithPasswordsSelected,
@@ -53,12 +57,6 @@ class SyncUserSettingsMock : public SyncUserSettings {
               KeepAccountSettingsPrefsOnlyForUsers,
               (const std::vector<signin::GaiaIdHash>&),
               (override));
-#if BUILDFLAG(IS_IOS)
-  MOCK_METHOD(void,
-              SetBookmarksAndReadingListAccountStorageOptIn,
-              (bool),
-              (override));
-#endif  // BUILDFLAG(IS_IOS)
   MOCK_METHOD(UserSelectableTypeSet,
               GetRegisteredSelectableTypes,
               (),
@@ -91,7 +89,7 @@ class SyncUserSettingsMock : public SyncUserSettings {
 
   MOCK_METHOD(bool, IsCustomPassphraseAllowed, (), (const override));
   MOCK_METHOD(bool, IsEncryptEverythingEnabled, (), (const override));
-  MOCK_METHOD(ModelTypeSet, GetEncryptedDataTypes, (), (const override));
+  MOCK_METHOD(DataTypeSet, GetAllEncryptedDataTypes, (), (const override));
   MOCK_METHOD(bool, IsPassphraseRequired, (), (const override));
   MOCK_METHOD(bool,
               IsPassphraseRequiredForPreferredDataTypes,
@@ -113,7 +111,7 @@ class SyncUserSettingsMock : public SyncUserSettings {
   MOCK_METHOD(bool, IsTrustedVaultRecoverabilityDegraded, (), (const override));
   MOCK_METHOD(bool, IsUsingExplicitPassphrase, (), (const override));
   MOCK_METHOD(base::Time, GetExplicitPassphraseTime, (), (const override));
-  MOCK_METHOD(absl::optional<PassphraseType>,
+  MOCK_METHOD(std::optional<PassphraseType>,
               GetPassphraseType,
               (),
               (const override));

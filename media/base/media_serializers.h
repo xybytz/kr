@@ -5,6 +5,7 @@
 #ifndef MEDIA_BASE_MEDIA_SERIALIZERS_H_
 #define MEDIA_BASE_MEDIA_SERIALIZERS_H_
 
+#include <optional>
 #include <sstream>
 #include <vector>
 
@@ -15,10 +16,11 @@
 #include "media/base/cdm_config.h"
 #include "media/base/decoder.h"
 #include "media/base/media_serializers_base.h"
+#include "media/base/media_track.h"
+#include "media/base/ranges.h"
 #include "media/base/renderer.h"
 #include "media/base/status.h"
 #include "media/base/video_decoder_config.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/hdr_metadata.h"
 
@@ -78,8 +80,8 @@ struct MediaSerializer<std::unique_ptr<T>> {
 
 // serialize optional types
 template <typename OptType>
-struct MediaSerializer<absl::optional<OptType>> {
-  static base::Value Serialize(const absl::optional<OptType>& opt) {
+struct MediaSerializer<std::optional<OptType>> {
+  static base::Value Serialize(const std::optional<OptType>& opt) {
     return opt ? MediaSerializer<OptType>::Serialize(opt.value())
                : base::Value("unset");  // TODO(tmathmeyer) maybe empty string?
   }
@@ -428,7 +430,7 @@ struct MediaSerializer<SerializableBufferingState<T>> {
 
 // Class (complex)
 template <typename T>
-struct MediaSerializer<TypedStatus<T>> {
+struct MediaSerializerDebug<TypedStatus<T>> {
   static base::Value Serialize(const TypedStatus<T>& status) {
     // TODO: replace this with some kind of static "description"
     // of the default type, instead of "Ok".
@@ -556,6 +558,27 @@ struct MediaSerializer<gfx::ColorSpace::RangeID> {
       ENUM_CLASS_CASE_TO_STRING(gfx::ColorSpace::RangeID, FULL);
       ENUM_CLASS_CASE_TO_STRING(gfx::ColorSpace::RangeID, DERIVED);
     }
+  }
+};
+
+template <>
+struct MediaSerializer<MediaTrack::Id> {
+  static inline base::Value Serialize(MediaTrack::Id id) {
+    return base::Value(id.value());
+  }
+};
+
+template <typename T>
+struct MediaSerializer<Ranges<T>> {
+  static inline base::Value Serialize(Ranges<T> ranges) {
+    base::Value::List result;
+    for (size_t i = 0; i < ranges.size(); i++) {
+      base::Value::List tuple;
+      tuple.Append(MediaSerializer<T>::Serialize(ranges.start(i)));
+      tuple.Append(MediaSerializer<T>::Serialize(ranges.end(i)));
+      result.Append(std::move(tuple));
+    }
+    return base::Value(std::move(result));
   }
 };
 

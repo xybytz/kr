@@ -5,24 +5,23 @@
 #ifndef IOS_CHROME_BROWSER_SYNC_MODEL_SEND_TAB_TO_SELF_SYNC_SERVICE_FACTORY_H_
 #define IOS_CHROME_BROWSER_SYNC_MODEL_SEND_TAB_TO_SELF_SYNC_SERVICE_FACTORY_H_
 
-#include <memory>
+#import <memory>
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 
 namespace send_tab_to_self {
 class SendTabToSelfSyncService;
 }  // namespace send_tab_to_self
 
 // Singleton that owns all SendTabToSelfSyncService and associates them with
-// ChromeBrowserState.
+// ProfileIOS.
 class SendTabToSelfSyncServiceFactory : public BrowserStateKeyedServiceFactory {
  public:
-  static send_tab_to_self::SendTabToSelfSyncService* GetForBrowserState(
-      ChromeBrowserState* browser_state);
-
+  static send_tab_to_self::SendTabToSelfSyncService* GetForProfile(
+      ProfileIOS* profile);
   static SendTabToSelfSyncServiceFactory* GetInstance();
 
   // Returns the default factory used to build SendTabToSelfSyncService. Can be

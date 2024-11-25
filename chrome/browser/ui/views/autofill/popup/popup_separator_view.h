@@ -19,14 +19,11 @@ class PopupSeparatorView : public views::View {
   METADATA_HEADER(PopupSeparatorView, views::View)
 
  public:
-  PopupSeparatorView();
+  explicit PopupSeparatorView(int vertical_padding);
   ~PopupSeparatorView() override;
 
   PopupSeparatorView(const PopupSeparatorView&) = delete;
   PopupSeparatorView& operator=(const PopupSeparatorView&) = delete;
-
-  // views::View:
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 };
 
 }  // namespace autofill

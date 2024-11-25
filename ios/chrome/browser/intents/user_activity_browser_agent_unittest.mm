@@ -4,15 +4,17 @@
 
 #import "ios/chrome/browser/intents/user_activity_browser_agent.h"
 
-#import <memory>
-
 #import <CoreSpotlight/CoreSpotlight.h>
 
+#import <memory>
+
 #import "base/memory/ptr_util.h"
+#import "base/memory/raw_ptr.h"
 #import "base/strings/sys_string_conversions.h"
 #import "base/test/scoped_command_line.h"
 #import "base/test/task_environment.h"
 #import "base/test/with_feature_override.h"
+#import "base/types/cxx23_to_underlying.h"
 #import "base/values.h"
 #import "components/handoff/handoff_utility.h"
 #import "components/policy/core/common/policy_pref_names.h"
@@ -23,6 +25,8 @@
 #import "ios/chrome/app/app_startup_parameters.h"
 #import "ios/chrome/app/application_mode.h"
 #import "ios/chrome/app/main_controller.h"
+#import "ios/chrome/app/profile/profile_init_stage.h"
+#import "ios/chrome/app/profile/profile_state.h"
 #import "ios/chrome/app/spotlight/actions_spotlight_manager.h"
 #import "ios/chrome/app/spotlight/spotlight_util.h"
 #import "ios/chrome/browser/flags/chrome_switches.h"
@@ -33,7 +37,7 @@
 #import "ios/chrome/browser/shared/coordinator/scene/scene_state.h"
 #import "ios/chrome/browser/shared/coordinator/scene/test/fake_scene_state.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
 #import "ios/chrome/browser/shared/public/commands/bookmarks_commands.h"
 #import "ios/chrome/browser/shared/public/features/features.h"
@@ -60,7 +64,7 @@
 #import "ios/chrome/common/intents/SetChromeDefaultBrowserIntent.h"
 #import "ios/chrome/common/intents/ViewHistoryIntent.h"
 #import "ios/web/public/test/web_task_environment.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "net/test/gtest_util.h"
 #import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
@@ -108,20 +112,17 @@
 class UserActivityBrowserAgentTest : public PlatformTest {
  public:
   UserActivityBrowserAgentTest() {
-    browser_state_ = TestChromeBrowserState::Builder().Build();
+    profile_ = TestProfileIOS::Builder().Build();
 
-    AppState* app_state = CreateMockAppState(InitStageFinal);
-
-    scene_state_ =
-        [[FakeSceneState alloc] initWithAppState:app_state
-                                    browserState:browser_state_.get()];
+    scene_state_ = [[FakeSceneState alloc] initWithAppState:nil
+                                                    profile:profile_.get()];
+    InstallMockProfileState(ProfileInitStage::kFinal);
 
     scene_state_.activationLevel = SceneActivationLevelForegroundActive;
     scene_controller_ =
         [[FakeSceneController alloc] initWithSceneState:scene_state_];
     scene_state_.controller = scene_controller_;
-    browser_ =
-        std::make_unique<TestBrowser>(browser_state_.get(), scene_state_);
+    browser_ = std::make_unique<TestBrowser>(profile_.get(), scene_state_);
 
     // Create the UserActivity Browser Agent.
     UserActivityBrowserAgent::CreateForBrowser(browser_.get());
@@ -151,17 +152,18 @@ class UserActivityBrowserAgentTest : public PlatformTest {
     return mock_user_activity;
   }
 
-  // Mock & stub an AppState object with an arbitrary `init_stage` property.
-  id CreateMockAppState(InitStage init_stage) {
-    id mock_app_state = OCMClassMock([AppState class]);
-    OCMStub([(AppState*)mock_app_state initStage]).andReturn(init_stage);
-    return mock_app_state;
+  // Mock & stub a ProfileState object with a given `init_stage` and install
+  // as the SceneState's ProfileState.
+  void InstallMockProfileState(ProfileInitStage init_stage) {
+    profile_state_ = OCMClassMock([ProfileState class]);
+    OCMStub([profile_state_ initStage]).andReturn(init_stage);
+    scene_state_.profileState = profile_state_;
   }
 
   // Set pref kIncognitoModeAvailability to kForced and make it a managed pref.
   void ForceIncognitoMode() {
-    PrefService* pref_service = browser_state_->GetPrefs();
-    browser_state_->GetTestingPrefService()->SetManagedPref(
+    PrefService* pref_service = profile_->GetPrefs();
+    profile_->GetTestingPrefService()->SetManagedPref(
         policy::policy_prefs::kIncognitoModeAvailability,
         std::make_unique<base::Value>(true));
 
@@ -176,8 +178,8 @@ class UserActivityBrowserAgentTest : public PlatformTest {
   // Set pref kIncognitoModeAvailability to kDisabled and make it a managed
   // pref.
   void DisableIncognitoMode() {
-    PrefService* pref_service = browser_state_->GetPrefs();
-    browser_state_->GetTestingPrefService()->SetManagedPref(
+    PrefService* pref_service = profile_->GetPrefs();
+    profile_->GetTestingPrefService()->SetManagedPref(
         policy::policy_prefs::kIncognitoModeAvailability,
         std::make_unique<base::Value>(true));
 
@@ -189,7 +191,8 @@ class UserActivityBrowserAgentTest : public PlatformTest {
     EXPECT_TRUE(IsIncognitoModeDisabled(pref_service));
   }
 
-  UserActivityBrowserAgent* user_activity_browser_agent_;
+  raw_ptr<UserActivityBrowserAgent> user_activity_browser_agent_;
+  ProfileState* profile_state_;
   FakeSceneState* scene_state_;
   FakeSceneController* scene_controller_;
   id<ConnectionInformation> connection_information_;
@@ -197,7 +200,7 @@ class UserActivityBrowserAgentTest : public PlatformTest {
  private:
   std::unique_ptr<TestBrowser> browser_;
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
 };
 
 #pragma mark - Tests.
@@ -419,9 +422,10 @@ TEST_F(UserActivityBrowserAgentTest, ContinueUserActivityForeground) {
   [user_activity setWebpageURL:net::NSURLWithGURL(gurl)];
 
   AppStartupParameters* startup_params = [[AppStartupParameters alloc]
-      initWithExternalURL:gurl
-              completeURL:gurl
-          applicationMode:ApplicationModeForTabOpening::NORMAL];
+       initWithExternalURL:gurl
+               completeURL:gurl
+           applicationMode:ApplicationModeForTabOpening::NORMAL
+      forceApplicationMode:NO];
   [connection_information_ setStartupParameters:startup_params];
 
   // Action.
@@ -441,7 +445,7 @@ TEST_F(UserActivityBrowserAgentTest, ContinueUserActivityBrowsingWeb) {
       initWithActivityType:NSUserActivityTypeBrowsingWeb];
   // This URL is passed to application by iOS but is not used in this part
   // of application logic.
-  NSURL* nsurl = [NSURL URLWithString:@"http://goo.gl/foo/bar"];
+  NSURL* nsurl = [NSURL URLWithString:@"http://google.com/foo/bar"];
   [user_activity setWebpageURL:nsurl];
 
   BOOL result =
@@ -623,8 +627,9 @@ TEST_F(UserActivityBrowserAgentTest, ContinueUserActivityIntentForeground) {
   }
 
   AppStartupParameters* startup_params = [[AppStartupParameters alloc]
-         initWithURLs:URLs
-      applicationMode:ApplicationModeForTabOpening::NORMAL];
+              initWithURLs:URLs
+           applicationMode:ApplicationModeForTabOpening::NORMAL
+      forceApplicationMode:NO];
   [connection_information_ setStartupParameters:startup_params];
 
   // Action.
@@ -647,9 +652,10 @@ TEST_F(UserActivityBrowserAgentTest, HandleStartupParamsWithExternalFile) {
   GURL complete_url("file://test.pdf");
 
   AppStartupParameters* startup_params = [[AppStartupParameters alloc]
-      initWithExternalURL:external_url
-              completeURL:complete_url
-          applicationMode:ApplicationModeForTabOpening::INCOGNITO];
+       initWithExternalURL:external_url
+               completeURL:complete_url
+           applicationMode:ApplicationModeForTabOpening::INCOGNITO
+      forceApplicationMode:NO];
   [connection_information_ setStartupParameters:startup_params];
 
   // Action.
@@ -668,7 +674,7 @@ TEST_F(UserActivityBrowserAgentTest, HandleStartupParamsWithExternalFile) {
 
 // Tests that performActionForShortcutItem set startupParameters accordingly
 // to the shortcut used
-// TODO(crbug.com/1172529): The test fails on device.
+// TODO(crbug.com/40166681): The test fails on device.
 #if TARGET_IPHONE_SIMULATOR
 #define MAYBE_PerformActionForShortcutItemWithRealShortcut \
   PerformActionForShortcutItemWithRealShortcut
@@ -727,7 +733,8 @@ TEST_F(UserActivityBrowserAgentTest,
 TEST_F(UserActivityBrowserAgentTest,
        PerformActionForShortcutItemWithFirstRunUI) {
   // Setup.
-  scene_state_.appState = CreateMockAppState(InitStageFirstRun);
+  InstallMockProfileState(static_cast<ProfileInitStage>(
+      base::to_underlying(ProfileInitStage::kFinal) - 1));
   UIApplicationShortcutItem* shortcut =
       [[UIApplicationShortcutItem alloc] initWithType:kShortcutNewSearch
                                        localizedTitle:kShortcutNewSearch];
@@ -765,7 +772,8 @@ TEST_F(UserActivityBrowserAgentTest, ContinueUserActivityBookmarks) {
 // due to still being in first run.
 TEST_F(UserActivityBrowserAgentTest,
        ContinueUserActivityBookmarksFailsFirstRun) {
-  scene_state_.appState = CreateMockAppState(InitStageFirstRun);
+  InstallMockProfileState(static_cast<ProfileInitStage>(
+      base::to_underlying(ProfileInitStage::kFinal) - 1));
   NSUserActivity* user_activity = [[NSUserActivity alloc]
       initWithActivityType:kSiriShortcutAddBookmarkToChrome];
 
@@ -853,7 +861,8 @@ TEST_F(UserActivityBrowserAgentTest, ContinueUserActivityAddToReadingList) {
 // items intent due to still being in first run.
 TEST_F(UserActivityBrowserAgentTest,
        ContinueUserActivityAddToReadingListFailsFirstRun) {
-  scene_state_.appState = CreateMockAppState(InitStageFirstRun);
+  InstallMockProfileState(static_cast<ProfileInitStage>(
+      base::to_underlying(ProfileInitStage::kFinal) - 1));
   NSUserActivity* user_activity = [[NSUserActivity alloc]
       initWithActivityType:kSiriShortcutAddReadingListItemToChrome];
 

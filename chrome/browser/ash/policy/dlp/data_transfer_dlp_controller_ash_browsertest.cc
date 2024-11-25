@@ -27,10 +27,10 @@
 #include "chrome/browser/enterprise/data_controls/dlp_reporting_manager_test_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/enterprise/data_controls/component.h"
-#include "components/enterprise/data_controls/dlp_histogram_helper.h"
-#include "components/enterprise/data_controls/dlp_policy_event.pb.h"
-#include "components/enterprise/data_controls/rule.h"
+#include "components/enterprise/common/proto/synced/dlp_policy_event.pb.h"
+#include "components/enterprise/data_controls/core/browser/component.h"
+#include "components/enterprise/data_controls/core/browser/dlp_histogram_helper.h"
+#include "components/enterprise/data_controls/core/browser/rule.h"
 #include "components/policy/core/common/policy_pref_names.h"
 #include "components/policy/policy_constants.h"
 #include "components/policy/proto/cloud_policy.pb.h"
@@ -277,7 +277,7 @@ IN_PROC_BROWSER_TEST_F(DataTransferDlpAshBrowserTest, MAYBE_BlockComponent) {
   EXPECT_THAT(
       events[0],
       data_controls::IsDlpPolicyEvent(data_controls::CreateDlpPolicyEvent(
-          kMailUrl, data_controls::Component::kArc,
+          GURL(kMailUrl).spec(), data_controls::Component::kArc,
           DlpRulesManager::Restriction::kClipboard, kRuleName, kRuleId,
           DlpRulesManager::Level::kBlock)));
 
@@ -290,7 +290,7 @@ IN_PROC_BROWSER_TEST_F(DataTransferDlpAshBrowserTest, MAYBE_BlockComponent) {
   EXPECT_THAT(
       events[1],
       data_controls::IsDlpPolicyEvent(data_controls::CreateDlpPolicyEvent(
-          kMailUrl, data_controls::Component::kCrostini,
+          GURL(kMailUrl).spec(), data_controls::Component::kCrostini,
           DlpRulesManager::Restriction::kClipboard, kRuleName, kRuleId,
           DlpRulesManager::Level::kBlock)));
 }
@@ -335,7 +335,7 @@ IN_PROC_BROWSER_TEST_F(DataTransferDlpAshBrowserTest, MAYBE_WarnComponent) {
   EXPECT_THAT(
       events[0],
       data_controls::IsDlpPolicyEvent(data_controls::CreateDlpPolicyEvent(
-          kMailUrl, data_controls::Component::kArc,
+          GURL(kMailUrl).spec(), data_controls::Component::kArc,
           DlpRulesManager::Restriction::kClipboard, kRuleName, kRuleId,
           DlpRulesManager::Level::kWarn)));
 
@@ -348,7 +348,7 @@ IN_PROC_BROWSER_TEST_F(DataTransferDlpAshBrowserTest, MAYBE_WarnComponent) {
   EXPECT_THAT(
       events[1],
       data_controls::IsDlpPolicyEvent(data_controls::CreateDlpPolicyEvent(
-          kMailUrl, data_controls::Component::kCrostini,
+          GURL(kMailUrl).spec(), data_controls::Component::kCrostini,
           DlpRulesManager::Restriction::kClipboard, kRuleName, kRuleId,
           DlpRulesManager::Level::kWarn)));
 }

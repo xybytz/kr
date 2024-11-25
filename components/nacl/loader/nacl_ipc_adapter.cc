@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "components/nacl/loader/nacl_ipc_adapter.h"
 
 #include <limits.h>
@@ -155,7 +160,6 @@ static int64_t QuotaInterfaceFtruncateRequest(NaClDescQuotaInterface* ndqi,
   // We can't implement SetLength on the plugin side due to sandbox limitations.
   // See crbug.com/156077.
   NOTREACHED();
-  return 0;
 }
 
 static const struct NaClDescQuotaInterfaceVtbl kQuotaInterfaceVtbl = {
@@ -261,7 +265,7 @@ std::unique_ptr<NaClDescWrapper> MakeShmRegionNaClDesc(
 class NaClIPCAdapter::RewrittenMessage {
  public:
   RewrittenMessage();
-  ~RewrittenMessage() {}
+  ~RewrittenMessage() = default;
 
   bool is_consumed() const { return data_read_cursor_ == data_len_; }
 
@@ -492,7 +496,6 @@ bool NaClIPCAdapter::OnMessageReceived(const IPC::Message& msg) {
   if (type == IPC_REPLY_ID) {
     int id = IPC::SyncMessage::GetMessageId(msg);
     auto it = io_thread_data_.pending_sync_msgs_.find(id);
-    DCHECK(it != io_thread_data_.pending_sync_msgs_.end());
     if (it != io_thread_data_.pending_sync_msgs_.end()) {
       type = it->second;
       io_thread_data_.pending_sync_msgs_.erase(it);
@@ -779,8 +782,9 @@ void NaClIPCAdapter::ClearToBeSent() {
 }
 
 void NaClIPCAdapter::ConnectChannelOnIOThread() {
-  if (!io_thread_data_.channel_->Connect())
+  if (!io_thread_data_.channel_->Connect()) {
     NOTREACHED();
+  }
 }
 
 void NaClIPCAdapter::CloseChannelOnIOThread() {
@@ -831,7 +835,8 @@ void NaClIPCAdapter::SaveMessage(
   header.flags = msg.flags();
   header.num_fds = static_cast<uint16_t>(rewritten_msg->desc_count());
 
-  rewritten_msg->SetData(header, msg.payload(), msg.payload_size());
+  rewritten_msg->SetData(header, msg.payload_bytes().data(),
+                         msg.payload_bytes().size());
   locked_data_.to_be_received_.push(std::move(rewritten_msg));
 }
 

@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.multiwindow;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.ActivityManager.AppTask;
+import android.app.ActivityOptions;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -39,13 +40,17 @@ import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.ChromeTabbedActivity2;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.app.tabmodel.TabWindowManagerSingleton;
-import org.chromium.chrome.browser.partnercustomizations.PartnerBrowserCustomizations;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.homepage.HomepageManager;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.ChromeSharedPreferences;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabWindowManager;
+import org.chromium.chrome.browser.ui.desktop_windowing.AppHeaderUtils;
 import org.chromium.chrome.browser.util.AndroidTaskUtils;
+import org.chromium.components.browser_ui.desktop_windowing.DesktopWindowStateManager;
+import org.chromium.components.cached_flags.IntCachedFieldTrialParameter;
 import org.chromium.components.ukm.UkmRecorder;
 import org.chromium.ui.display.DisplayAndroidManager;
 
@@ -63,10 +68,25 @@ import java.util.Locale;
 public class MultiWindowUtils implements ActivityStateListener {
     public static final int INVALID_INSTANCE_ID = TabWindowManager.INVALID_WINDOW_INDEX;
     public static final int INVALID_TASK_ID = -1; // Defined in android.app.ActivityTaskManager.
+    public static final IntCachedFieldTrialParameter
+            BACK_TO_BACK_CTA_CREATION_TIMESTAMP_DIFF_THRESHOLD_MS =
+                    ChromeFeatureList.newIntCachedFieldTrialParameter(
+                            ChromeFeatureList.TAB_WINDOW_MANAGER_REPORT_INDICES_MISMATCH,
+                            "activity_creation_timestamp_diff_threshold_ms",
+                            1000);
+
+    static final String HISTOGRAM_NUM_ACTIVITIES_DESKTOP_WINDOW =
+            "Android.MultiInstance.NumActivities.DesktopWindow";
+    static final String HISTOGRAM_NUM_INSTANCES_DESKTOP_WINDOW =
+            "Android.MultiInstance.NumInstances.DesktopWindow";
+    static final String HISTOGRAM_DESKTOP_WINDOW_COUNT_NEW_INSTANCE_SUFFIX = ".NewInstance";
+    static final String HISTOGRAM_DESKTOP_WINDOW_COUNT_EXISTING_INSTANCE_SUFFIX =
+            ".ExistingInstance";
 
     private static MultiWindowUtils sInstance = new MultiWindowUtils();
 
     private static Integer sMaxInstancesForTesting;
+    private static Integer sInstanceCountForTesting;
 
     private final boolean mMultiInstanceApi31Enabled;
     private static Boolean sMultiInstanceApi31EnabledForTesting;
@@ -154,7 +174,9 @@ public class MultiWindowUtils implements ActivityStateListener {
         return sMaxInstancesForTesting != null
                 ? sMaxInstancesForTesting
                 : (isMultiInstanceApi31Enabled()
-                        ? TabWindowManager.MAX_SELECTORS_S
+                        ? (ChromeFeatureList.sDisableInstanceLimit.isEnabled()
+                                ? TabWindowManager.MAX_SELECTORS
+                                : TabWindowManager.MAX_SELECTORS_S)
                         : TabWindowManager.MAX_SELECTORS_LEGACY);
     }
 
@@ -171,7 +193,7 @@ public class MultiWindowUtils implements ActivityStateListener {
         if (mIsInMultiWindowModeForTesting) return true;
         if (activity == null) return false;
 
-        return ApiCompatibilityUtils.isInMultiWindowMode(activity);
+        return activity.isInMultiWindowMode();
     }
 
     /**
@@ -179,7 +201,7 @@ public class MultiWindowUtils implements ActivityStateListener {
      * @return Whether the system currently supports multiple displays, requiring Android Q+.
      */
     public boolean isInMultiDisplayMode(Activity activity) {
-        // TODO(crbug.com/824954): Consider supporting more displays.
+        // TODO(crbug.com/41378391): Consider supporting more displays.
         return ApiCompatibilityUtils.getTargetableDisplayIds(activity).size() == 2;
     }
 
@@ -207,7 +229,7 @@ public class MultiWindowUtils implements ActivityStateListener {
         // Not supported on automotive devices.
         if (BuildInfo.getInstance().isAutomotive) return false;
 
-        // Do not allow move for last tab when partner homepage enabled.
+        // Do not allow move for last tab when homepage enabled and is set to a custom url.
         if (hasAtMostOneTabWithHomepageEnabled(tabModelSelector)) {
             return false;
         }
@@ -220,14 +242,19 @@ public class MultiWindowUtils implements ActivityStateListener {
     }
 
     /**
-     * @param tabModelSelector Used to pull total tab count. Returns whether last tab with partner
-     *     homepage enabled.
+     * @param tabModelSelector Used to pull total tab count.
+     * @return whether it is last tab with homepage enabled and set to an custom url.
      */
     public boolean hasAtMostOneTabWithHomepageEnabled(TabModelSelector tabModelSelector) {
         boolean hasAtMostOneTab = tabModelSelector.getTotalTabCount() <= 1;
-        boolean partnerHomepageEnabled =
-                PartnerBrowserCustomizations.getInstance().isHomepageProviderAvailableAndEnabled();
-        return hasAtMostOneTab && partnerHomepageEnabled;
+
+        // Chrome app is set to close with zero tabs when homepage is enabled and set to a custom
+        // url other than the NTP. We should not allow dragging the last tab or display 'Move to
+        // other window' in this scenario as the source window might be closed before drag n drop
+        // completes properly and thus cause other complications.
+        boolean shouldAppCloseWithZeroTabs =
+                HomepageManager.getInstance().shouldCloseAppWithZeroTabs();
+        return hasAtMostOneTab && shouldAppCloseWithZeroTabs;
     }
 
     /**
@@ -362,7 +389,9 @@ public class MultiWindowUtils implements ActivityStateListener {
             throw new IllegalStateException(
                     "Attempting to open window in other display, but one is not found");
         }
-        return ApiCompatibilityUtils.createLaunchDisplayIdActivityOptions(id);
+        ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(id);
+        return options.toBundle();
     }
 
     /**
@@ -388,6 +417,7 @@ public class MultiWindowUtils implements ActivityStateListener {
      * @return The number of Chrome instances that can switch to or launch.
      */
     public static int getInstanceCount() {
+        if (sInstanceCountForTesting != null) return sInstanceCountForTesting;
         int count = 0;
         for (int i = 0; i < getMaxInstances(); ++i) {
             if (MultiInstanceManagerApi31.instanceEntryExists(i) && isRestorableInstance(i)) {
@@ -446,10 +476,17 @@ public class MultiWindowUtils implements ActivityStateListener {
             int taskId = activity.getTaskId();
             if (taskId != currentTaskId && isActivityVisible(activity)) {
                 // Found a visible task. Return its base ChromeTabbedActivity instance.
+                StringBuilder activityNameBuilder = new StringBuilder();
                 for (Activity a : runningActivities) {
-                    if (a instanceof ChromeTabbedActivity && a.getTaskId() == taskId) return a;
+                    if (a.getTaskId() == taskId) {
+                        activityNameBuilder.append(a.getClass().getName()).append(",");
+                        if (a instanceof ChromeTabbedActivity) return a;
+                    }
                 }
-                assert false : "Should have found the ChromeTabbedActivity of the visible task";
+                assert false
+                        : "Should have found the ChromeTabbedActivity of the visible task."
+                                + " Activities in this task: "
+                                + activityNameBuilder;
                 break;
             }
         }
@@ -604,7 +641,7 @@ public class MultiWindowUtils implements ActivityStateListener {
     }
 
     /**
-     * @returns A map taskID : boolean containing the visible tasks.
+     * @return A map taskID : boolean containing the visible tasks.
      */
     public static SparseBooleanArray getVisibleTasks() {
         SparseBooleanArray visibleTasks = new SparseBooleanArray();
@@ -743,32 +780,31 @@ public class MultiWindowUtils implements ActivityStateListener {
 
         if (tab == null || tab.isIncognito() || tab.getWebContents() == null) return;
 
-        new UkmRecorder.Bridge()
-                .recordEventWithIntegerMetric(
-                        tab.getWebContents(),
-                        "Android.MultiWindowChangeActivity",
+        new UkmRecorder(tab.getWebContents(), "Android.MultiWindowChangeActivity")
+                .addMetric(
                         "ActivityType",
                         isInMultiWindowMode
                                 ? MultiWindowActivityType.ENTER
-                                : MultiWindowActivityType.EXIT);
+                                : MultiWindowActivityType.EXIT)
+                .record();
     }
 
     /**
      * Records the ukms about if the activity is in multi-window mode when the activity is shown.
+     *
      * @param activity The current Context, used to retrieve the ActivityManager system service.
      * @param tab The current activity {@link Tab}.
      */
     public void recordMultiWindowStateUkm(Activity activity, Tab tab) {
         if (tab == null || tab.isIncognito() || tab.getWebContents() == null) return;
 
-        new UkmRecorder.Bridge()
-                .recordEventWithIntegerMetric(
-                        tab.getWebContents(),
-                        "Android.MultiWindowState",
+        new UkmRecorder(tab.getWebContents(), "Android.MultiWindowState")
+                .addMetric(
                         "WindowState",
                         isInMultiWindowMode(activity)
                                 ? MultiWindowState.MULTI_WINDOW
-                                : MultiWindowState.SINGLE_WINDOW);
+                                : MultiWindowState.SINGLE_WINDOW)
+                .record();
     }
 
     /**
@@ -823,10 +859,59 @@ public class MultiWindowUtils implements ActivityStateListener {
         return windowId;
     }
 
+    /**
+     * Record the number of running ChromeTabbedActivity's as well as the total number of Chrome
+     * instances when a new ChromeTabbedActivity is created in a desktop window.
+     *
+     * @param instanceAllocationType The {@link InstanceAllocationType} for the new activity.
+     * @param isColdStart Whether app startup is a cold start.
+     */
+    public static void maybeRecordDesktopWindowCountHistograms(
+            @Nullable DesktopWindowStateManager desktopWindowStateManager,
+            @InstanceAllocationType int instanceAllocationType,
+            boolean isColdStart) {
+        // Emit the histogram only for an activity that starts in a desktop window.
+        if (!AppHeaderUtils.isAppInDesktopWindow(desktopWindowStateManager)) return;
+
+        // Emit the histogram only for a newly created activity that is cold-started.
+        if (!isColdStart) return;
+
+        // Emit histograms for running activity count.
+        recordDesktopWindowCountHistograms(
+                instanceAllocationType,
+                HISTOGRAM_NUM_ACTIVITIES_DESKTOP_WINDOW,
+                MultiInstanceManagerApi31.getRunningTabbedActivityCount());
+
+        // Emit histograms for total instance count.
+        recordDesktopWindowCountHistograms(
+                instanceAllocationType, HISTOGRAM_NUM_INSTANCES_DESKTOP_WINDOW, getInstanceCount());
+    }
+
+    private static void recordDesktopWindowCountHistograms(
+            @InstanceAllocationType int instanceAllocationType, String histogramName, int count) {
+        // Emit generic histogram, irrespective of instance allocation type.
+        RecordHistogram.recordExactLinearHistogram(histogramName, count, getMaxInstances() + 1);
+
+        // Emit histogram variant based on instance allocation type.
+        String histogramSuffix = HISTOGRAM_DESKTOP_WINDOW_COUNT_NEW_INSTANCE_SUFFIX;
+        if (instanceAllocationType != InstanceAllocationType.NEW_INSTANCE_NEW_TASK
+                && instanceAllocationType != InstanceAllocationType.PREFER_NEW_INSTANCE_NEW_TASK) {
+            histogramSuffix = HISTOGRAM_DESKTOP_WINDOW_COUNT_EXISTING_INSTANCE_SUFFIX;
+        }
+
+        RecordHistogram.recordExactLinearHistogram(
+                histogramName + histogramSuffix, count, getMaxInstances() + 1);
+    }
+
     public static void setInstanceForTesting(MultiWindowUtils instance) {
         var oldValue = sInstance;
         sInstance = instance;
         ResettersForTesting.register(() -> sInstance = oldValue);
+    }
+
+    public static void setInstanceCountForTesting(int instanceCount) {
+        sInstanceCountForTesting = instanceCount;
+        ResettersForTesting.register(() -> sInstanceCountForTesting = null);
     }
 
     public static void setMaxInstancesForTesting(int maxInstances) {

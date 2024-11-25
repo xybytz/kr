@@ -69,8 +69,8 @@ void FontFaceCacheTest::AppendTestFaceForCapabilities(const CSSValue& stretch,
       CSSPropertyValue(CSSPropertyName(CSSPropertyID::kFontFamily),
                        *family_name),
       CSSPropertyValue(CSSPropertyName(CSSPropertyID::kSrc), *src_value_list)};
-  auto* font_face_descriptor = MakeGarbageCollected<MutableCSSPropertyValueSet>(
-      properties, static_cast<wtf_size_t>(std::size(properties)));
+  auto* font_face_descriptor =
+      MakeGarbageCollected<MutableCSSPropertyValueSet>(properties);
 
   font_face_descriptor->SetProperty(CSSPropertyID::kFontStretch, stretch);
   font_face_descriptor->SetProperty(CSSPropertyID::kFontStyle, style);
@@ -99,11 +99,9 @@ FontDescription FontFaceCacheTest::FontDescriptionForRequest(
     FontSelectionValue stretch,
     FontSelectionValue style,
     FontSelectionValue weight) {
-  FontFamily font_family;
-  font_family.SetFamily(kFontNameForTesting,
-                        FontFamily::InferredTypeFor(kFontNameForTesting));
   FontDescription description;
-  description.SetFamily(font_family);
+  description.SetFamily(FontFamily(
+      kFontNameForTesting, FontFamily::InferredTypeFor(kFontNameForTesting)));
   description.SetStretch(stretch);
   description.SetStyle(style);
   description.SetWeight(weight);
@@ -193,7 +191,7 @@ TEST_F(FontFaceCacheTest, SimpleWeightMatch) {
 // have only one of them.
 static HeapVector<Member<CSSValue>> AvailableCapabilitiesChoices(
     size_t choice,
-    CSSValue* available_values[2]) {
+    base::span<CSSValue*> available_values) {
   HeapVector<Member<CSSValue>> available_ones;
   switch (choice) {
     case 0:

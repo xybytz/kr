@@ -12,6 +12,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/tracing/tracing_tls.h"
+#include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/system/data_pipe_drainer.h"
@@ -37,7 +38,7 @@ using ShmemMode = perfetto::SharedMemoryArbiter::ShmemMode;
 namespace tracing {
 namespace {
 
-// TODO(crbug.com/83907): Find a good compromise between performance and
+// TODO(crbug.com/40574593): Find a good compromise between performance and
 // data granularity (mainly relevant to running with small buffer sizes
 // when we use background tracing) on Android.
 #if BUILDFLAG(IS_ANDROID)
@@ -46,7 +47,7 @@ constexpr size_t kDefaultSMBPageSizeBytes = 4 * 1024;
 constexpr size_t kDefaultSMBPageSizeBytes = 32 * 1024;
 #endif
 
-// TODO(crbug.com/839071): Figure out a good buffer size.
+// TODO(crbug.com/40574594): Figure out a good buffer size.
 constexpr size_t kDefaultSMBSizeBytes = 4 * 1024 * 1024;
 
 constexpr char kErrorTracingFailed[] = "Tracing failed";
@@ -352,7 +353,7 @@ class ConsumerEndpoint : public perfetto::ConsumerEndpoint,
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     trace_config_ = trace_config;
 #if BUILDFLAG(IS_WIN)
-    // TODO(crbug.com/1158482): Add support on Windows.
+    // TODO(crbug.com/40736989): Add support on Windows.
     DCHECK(!file)
         << "Tracing directly to a file isn't supported on Windows yet";
 #else
@@ -387,7 +388,9 @@ class ConsumerEndpoint : public perfetto::ConsumerEndpoint,
       tracing_session_host_->DisableTracing();
   }
 
-  void Flush(uint32_t timeout_ms, FlushCallback callback) override {
+  void Flush(uint32_t timeout_ms,
+             FlushCallback callback,
+             perfetto::FlushFlags) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     // TODO(skyostil): Implement flushing.
     NOTREACHED();
@@ -491,7 +494,8 @@ class ConsumerEndpoint : public perfetto::ConsumerEndpoint,
     observed_events_mask_ = events_mask;
   }
 
-  void QueryServiceState(QueryServiceStateCallback) override {
+  void QueryServiceState(QueryServiceStateArgs,
+                         QueryServiceStateCallback) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     // TODO(skyostil): Implement service state querying.
     NOTREACHED();
@@ -509,10 +513,36 @@ class ConsumerEndpoint : public perfetto::ConsumerEndpoint,
     NOTREACHED();
   }
 
-  void CloneSession(perfetto::TracingSessionID) override {
+  void CloneSession(CloneSessionArgs args) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    // Not implemented yet.
-    NOTREACHED();
+    auto uuid =
+        base::UnguessableToken::DeserializeFromString(args.unique_session_name);
+    if (!uuid) {
+      consumer_->OnSessionCloned({
+          .success = false,
+          .error = "Session name is not an UnguessableToken",
+      });
+    }
+    consumer_host_->CloneSession(
+        tracing_session_host_.BindNewPipeAndPassReceiver(),
+        tracing_session_client_.BindNewPipeAndPassRemote(), *uuid,
+        base::BindOnce(
+            [](ConsumerEndpoint* endpoint, bool success,
+               const std::string& error, const base::Token& uuid) {
+              DCHECK_CALLED_ON_VALID_SEQUENCE(endpoint->sequence_checker_);
+
+              perfetto::Consumer::OnSessionClonedArgs args{
+                  .success = success,
+                  .error = std::move(error),
+                  .uuid = perfetto::base::Uuid(uuid.high(), uuid.low()),
+              };
+              endpoint->consumer_->OnSessionCloned(args);
+            },
+            base::Unretained(this)));
+    tracing_session_host_.set_disconnect_handler(base::BindOnce(
+        &ConsumerEndpoint::OnTracingFailed, base::Unretained(this)));
+    tracing_session_client_.set_disconnect_handler(base::BindOnce(
+        &ConsumerEndpoint::OnTracingFailed, base::Unretained(this)));
   }
 
   // tracing::mojom::TracingSessionClient implementation:
@@ -547,19 +577,18 @@ class ConsumerEndpoint : public perfetto::ConsumerEndpoint,
   }
 
   // mojo::DataPipeDrainer::Client implementation:
-  void OnDataAvailable(const void* data, size_t num_bytes) override {
+  void OnDataAvailable(base::span<const uint8_t> data) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     if (tokenizer_) {
       // Protobuf-format data.
-      auto packets =
-          tokenizer_->Parse(reinterpret_cast<const uint8_t*>(data), num_bytes);
+      auto packets = tokenizer_->Parse(data.data(), data.size());
       if (!packets.empty())
         consumer_->OnTraceData(std::move(packets), /*has_more=*/true);
     } else {
       // Legacy JSON-format data.
       std::vector<perfetto::TracePacket> packets;
       packets.emplace_back();
-      packets.back().AddSlice(data, num_bytes);
+      packets.back().AddSlice(data.data(), data.size());
       consumer_->OnTraceData(std::move(packets), /*has_more=*/true);
     }
   }
@@ -660,13 +689,11 @@ PerfettoTracingBackend::ConnectProducer(const ConnectProducerArgs& args) {
   if (shmem_page_size_hint == 0)
     shmem_page_size_hint = kDefaultSMBPageSizeBytes;
 
-#if BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
   if (args.use_producer_provided_smb) {
     shm = std::make_unique<ChromeBaseSharedMemory>(shmem_size_hint);
     arbiter = perfetto::SharedMemoryArbiter::CreateUnboundInstance(
         shm.get(), shmem_page_size_hint, ShmemMode::kDefault);
   }
-#endif  // BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 
   auto producer_endpoint = std::make_unique<ProducerEndpoint>(
       args.producer_name, args.producer, args.task_runner, shmem_page_size_hint,

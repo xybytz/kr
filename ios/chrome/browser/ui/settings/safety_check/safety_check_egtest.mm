@@ -5,10 +5,10 @@
 #import "base/strings/sys_string_conversions.h"
 #import "base/time/time.h"
 #import "ios/chrome/browser/signin/model/fake_system_identity.h"
+#import "ios/chrome/browser/ui/authentication/signin_earl_grey.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey_ui_test_util.h"
 #import "ios/chrome/browser/ui/settings/password/password_checkup/password_checkup_constants.h"
 #import "ios/chrome/browser/ui/settings/password/password_manager_egtest_utils.h"
-#import "ios/chrome/browser/ui/settings/password/password_manager_ui_features.h"
 #import "ios/chrome/browser/ui/settings/password/password_settings_app_interface.h"
 #import "ios/chrome/browser/ui/settings/safety_check/safety_check_constants.h"
 #import "ios/chrome/grit/ios_strings.h"
@@ -118,7 +118,7 @@ void ResetLastPasswordCheckTimestamp() {
           password_manager::BulkLeakCheckServiceInterface::State::kIdle];
 
   FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
-  [SigninEarlGreyUI signinWithFakeIdentity:fakeIdentity enableSync:YES];
+  [SigninEarlGrey signinWithFakeIdentity:fakeIdentity];
 
   // Mock local authentication for opening Password Checkup.
   [PasswordSettingsAppInterface setUpMockReauthenticationModule];
@@ -128,24 +128,15 @@ void ResetLastPasswordCheckTimestamp() {
   ResetLastPasswordCheckTimestamp();
 }
 
-- (void)tearDown {
+- (void)tearDownHelper {
   [PasswordSettingsAppInterface removeMockReauthenticationModule];
-  [super tearDown];
+  [super tearDownHelper];
 
   [PasswordSettingsAppInterface
       setFakeBulkLeakCheckBufferedState:
           password_manager::BulkLeakCheckServiceInterface::State::kIdle];
 
   ResetLastPasswordCheckTimestamp();
-}
-
-- (AppLaunchConfiguration)appConfigurationForTestCase {
-  AppLaunchConfiguration config;
-
-  config.features_enabled.push_back(
-      password_manager::features::kIOSPasswordAuthOnEntryV2);
-
-  return config;
 }
 
 // Validates that the Safety Check module can be opened from the Settings UI.
@@ -170,8 +161,7 @@ void ResetLastPasswordCheckTimestamp() {
 
   [PasswordSettingsAppInterface mockReauthenticationModuleExpectedResult:
                                     ReauthenticationResult::kFailure];
-  [PasswordSettingsAppInterface
-      mockReauthenticationModuleShouldReturnSynchronously:NO];
+  [PasswordSettingsAppInterface mockReauthenticationModuleShouldSkipReAuth:NO];
 
   OpenPasswordCheckup();
 

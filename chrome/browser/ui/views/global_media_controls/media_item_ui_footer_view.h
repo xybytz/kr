@@ -43,9 +43,10 @@ class MediaItemUIFooterView : public global_media_controls::MediaItemUIFooter,
 
   // MediaItemDeviceSelectorObserver:
   void OnMediaItemUIDeviceSelectorUpdated(
-      const std::map<int, DeviceEntryUI*>& device_entries_map) override;
+      const std::map<int, raw_ptr<DeviceEntryUI, CtnExperimental>>&
+          device_entries_map) override;
 
-  void Layout() override;
+  void Layout(PassKey) override;
 
  private:
   void UpdateButtonsColor();

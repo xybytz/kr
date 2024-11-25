@@ -92,7 +92,6 @@ CSSNumericValueType::BaseType UnitTypeToBaseType(
       return BaseType::kPercent;
     default:
       NOTREACHED();
-      return BaseType::kLength;
   }
 }
 
@@ -119,7 +118,6 @@ String CSSNumericValueType::BaseTypeToString(BaseType base_type) {
   }
 
   NOTREACHED();
-  return "";
 }
 
 CSSNumericValueType::CSSNumericValueType(CSSPrimitiveValue::UnitType unit) {

@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/test/base/chrome_test_launcher.h"
-
 #include <memory>
 
 #include "base/command_line.h"
@@ -11,10 +9,12 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/ssl/https_upgrades_navigation_throttle.h"
+#include "chrome/test/base/chrome_test_launcher.h"
 #include "chrome/test/base/chrome_test_suite.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "gpu/ipc/service/image_transport_surface.h"
+#include "ui/base/interaction/interactive_test_internal.h"
 #include "ui/base/test/ui_controls.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -34,20 +34,9 @@
 #include "chrome/test/base/always_on_top_window_killer_win.h"
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS)
-#include "ui/gfx/linux/gbm_util.h"  // nogncheck
-#endif
-
 class InteractiveUITestSuite : public ChromeTestSuite {
  public:
-  InteractiveUITestSuite(int argc, char** argv) : ChromeTestSuite(argc, argv) {
-#if BUILDFLAG(IS_CHROMEOS)
-    // TODO(b/271455200): is the process single-threaded at this point and has
-    // the FeatureList been initialized? Those are requirements of
-    // ui::EnsureIntelMediaCompressionEnvVarIsSet().
-    ui::EnsureIntelMediaCompressionEnvVarIsSet();
-#endif  // BUILDFLAG(IS_CHROMEOS)
-  }
+  InteractiveUITestSuite(int argc, char** argv) : ChromeTestSuite(argc, argv) {}
   ~InteractiveUITestSuite() override = default;
 
  protected:
@@ -72,12 +61,16 @@ class InteractiveUITestSuite : public ChromeTestSuite {
 #else
     ui_controls::EnableUIControls();
 #endif
+    // Allow interactive Kombucha test verbs in interactive UI tests.
+    ui::test::internal::InteractiveTestPrivate::
+        set_interactive_test_verbs_allowed(
+            base::PassKey<InteractiveUITestSuite>());
 
-    // TODO(crbug.com/1430562) Investigate why https upgrade causes
+    // TODO(crbug.com/40263135) Investigate why https upgrade causes
     // interactive_ui_tests to run longer.
 #if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX)
     // Force the HTTPS-Upgrades timeout to zero.
-    HttpsUpgradesNavigationThrottle::set_timeout_for_testing(0);
+    HttpsUpgradesNavigationThrottle::set_timeout_for_testing(base::TimeDelta());
 #endif
   }
 

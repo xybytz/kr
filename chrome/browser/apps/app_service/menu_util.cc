@@ -4,6 +4,7 @@
 
 #include "chrome/browser/apps/app_service/menu_util.h"
 
+#include <string_view>
 #include <utility>
 
 #include "ash/public/cpp/app_menu_constants.h"
@@ -197,11 +198,10 @@ void PopulateItemFromMenuItem(const apps::MenuItemPtr& item,
     case apps::MenuItemType::kRadio:
     case apps::MenuItemType::kSubmenu:
       NOTREACHED();
-      break;
   }
 }
 
-base::StringPiece MenuTypeToString(MenuType menu_type) {
+std::string_view MenuTypeToString(MenuType menu_type) {
   switch (menu_type) {
     case MenuType::kShelf:
       return "shelf";
@@ -210,7 +210,7 @@ base::StringPiece MenuTypeToString(MenuType menu_type) {
   }
 }
 
-MenuType MenuTypeFromString(base::StringPiece menu_type) {
+MenuType MenuTypeFromString(std::string_view menu_type) {
   if (base::EqualsCaseInsensitiveASCII(menu_type, "shelf")) {
     return MenuType::kShelf;
   }
@@ -268,7 +268,6 @@ uint32_t StringIdForUseLaunchTypeCommand(uint32_t command_id) {
       [[fallthrough]];
     default:
       NOTREACHED();
-      return 0;
   }
 }
 

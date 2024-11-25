@@ -19,6 +19,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/not_fatal_until.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/bind_post_task.h"
@@ -47,10 +48,8 @@ bool IsSurfaceControl(TextureOwner::Mode mode) {
       return false;
     case TextureOwner::Mode::kSurfaceTextureInsecure:
       NOTREACHED();
-      return false;
   }
   NOTREACHED();
-  return false;
 }
 
 // This should be as small as possible to limit the memory usage.
@@ -77,6 +76,17 @@ uint32_t NumRequiredMaxImages(TextureOwner::Mode mode) {
   return features::LimitAImageReaderMaxSizeToOne() ? 1 : 2;
 }
 
+std::optional<gfx::Size> GetImageSize(AImage* image) {
+  int32_t width = 0, height = 0;
+  if (AImage_getWidth(image, &width) != AMEDIA_OK ||
+      AImage_getHeight(image, &height) != AMEDIA_OK || width <= 0 ||
+      height <= 0) {
+    return std::nullopt;
+  }
+
+  return gfx::Size(width, height);
+}
+
 }  // namespace
 
 // This class is safe to be created/destroyed on different threads. This is made
@@ -91,8 +101,7 @@ class ImageReaderGLOwner::ScopedHardwareBufferImpl
                            base::ScopedFD fence_fd)
       : base::android::ScopedHardwareBufferFenceSync(std::move(handle),
                                                      std::move(fence_fd),
-                                                     base::ScopedFD(),
-                                                     true /* is_video */),
+                                                     base::ScopedFD()),
         texture_owner_(std::move(texture_owner)),
         image_(image) {
     DCHECK(image_);
@@ -121,13 +130,15 @@ ImageReaderGLOwner::ImageReaderGLOwner(
     std::unique_ptr<AbstractTextureAndroid> texture,
     Mode mode,
     scoped_refptr<SharedContextState> context_state,
-    scoped_refptr<RefCountedLock> drdc_lock)
+    scoped_refptr<RefCountedLock> drdc_lock,
+    TextureOwnerCodecType type_for_metrics)
     : TextureOwner(false /* binds_texture_on_image_update */,
                    std::move(texture),
                    std::move(context_state)),
       RefCountedLockHelperDrDc(std::move(drdc_lock)),
       context_(gl::GLContext::GetCurrent()),
-      surface_(gl::GLSurface::GetCurrent()) {
+      surface_(gl::GLSurface::GetCurrent()),
+      type_for_metrics_(type_for_metrics) {
   DCHECK(context_);
   DCHECK(surface_);
 
@@ -220,6 +231,7 @@ void ImageReaderGLOwner::ReleaseResources() {
     // valid |image_reader_|.
     image_refs_.clear();
     current_image_ref_.reset();
+    total_estimated_size_in_bytes_ = 0;
   }
 }
 
@@ -289,6 +301,9 @@ void ImageReaderGLOwner::UpdateTexImage() {
   base::UmaHistogramSparse("Media.AImageReaderGLOwner.AcquireImageResult",
                            return_code);
 
+  UMA_HISTOGRAM_ENUMERATION("Media.AImageReaderGLOwner.CodecType",
+                            type_for_metrics_);
+
   // TODO(http://crbug.com/846050).
   // Need to add some better error handling if below error occurs. Currently we
   // just return if error occurs.
@@ -313,7 +328,6 @@ void ImageReaderGLOwner::UpdateTexImage() {
       LOG(ERROR) << "AImageReader: Unknown error: " << return_code;
       // No other error code should be returned.
       NOTREACHED();
-      return;
   }
   base::ScopedFD scoped_acquire_fence_fd(acquire_fence_fd);
 
@@ -344,8 +358,8 @@ ImageReaderGLOwner::GetAHardwareBuffer() {
     return nullptr;
   }
 
-  // TODO(1179206): We suspect that buffer is already freed here and it causes
-  // crash later. Trying to crash earlier.
+  // TODO(crbug.com/40749597): We suspect that buffer is already freed here and
+  // it causes crash later. Trying to crash earlier.
   base::AndroidHardwareBufferCompat::GetInstance().Acquire(buffer);
   base::AndroidHardwareBufferCompat::GetInstance().Release(buffer);
 
@@ -381,8 +395,20 @@ void ImageReaderGLOwner::RegisterRefOnImageLocked(AImage* image) {
   lock_.AssertAcquired();
   DCHECK(image_reader_);
 
+  auto& ref = image_refs_[image];
   // Add a ref that the caller will release.
-  image_refs_[image].count++;
+  if (ref.count++ == 0) {
+    if (auto size = GetImageSize(image)) {
+      ref.size = size.value();
+
+      // We don't know the exact format of the image so we use NV12 as
+      // approximation as the most popular format.
+      constexpr auto format = viz::MultiPlaneFormat::kNV12;
+      ref.estimated_size_in_bytes = format.EstimatedSizeInBytes(ref.size);
+
+      total_estimated_size_in_bytes_ += ref.estimated_size_in_bytes;
+    }
+  }
 }
 
 void ImageReaderGLOwner::ReleaseRefOnImage(AImage* image,
@@ -407,7 +433,7 @@ void ImageReaderGLOwner::ReleaseRefOnImageLocked(AImage* image,
   AssertAcquiredDrDcLock();
 
   auto it = image_refs_.find(image);
-  DCHECK(it != image_refs_.end());
+  CHECK(it != image_refs_.end(), base::NotFatalUntil::M130);
 
   auto& image_ref = it->second;
   DCHECK_GT(image_ref.count, 0u);
@@ -423,6 +449,8 @@ void ImageReaderGLOwner::ReleaseRefOnImageLocked(AImage* image,
   } else {
     AImage_delete(image);
   }
+
+  total_estimated_size_in_bytes_ -= it->second.estimated_size_in_bytes;
 
   image_refs_.erase(it);
   DCHECK_GT(max_images_, static_cast<int32_t>(image_refs_.size()));
@@ -531,6 +559,42 @@ bool ImageReaderGLOwner::GetCodedSizeAndVisibleRect(
 
   *visible_rect = GetCropRectLocked();
   *coded_size = gfx::Size(desc.width, desc.height);
+
+  return true;
+}
+
+bool ImageReaderGLOwner::OnMemoryDump(
+    const base::trace_event::MemoryDumpArgs& args,
+    base::trace_event::ProcessMemoryDump* pmd) {
+  if (args.level_of_detail ==
+      base::trace_event::MemoryDumpLevelOfDetail::kBackground) {
+    auto dump_name =
+        base::StringPrintf("gpu/media_texture_owner_%d/", tracing_id());
+
+    base::trace_event::MemoryAllocatorDump* dump =
+        pmd->CreateAllocatorDump(dump_name);
+    dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
+                    base::trace_event::MemoryAllocatorDump::kUnitsBytes,
+                    total_estimated_size_in_bytes_);
+    // Early out, no need for more detail in a BACKGROUND dump.
+    return true;
+  }
+
+  int i = 0;
+  base::AutoLock auto_lock(lock_);
+  for (const auto& image : image_refs_) {
+    std::string dump_name = base::StringPrintf(
+        "gpu/media_texture_owner_%d/image_%d", tracing_id(), i++);
+
+    // If we fail to get AImage size for any reason, we still report the image
+    // as a empty size, so it can be diagnosed in necessary.
+    base::trace_event::MemoryAllocatorDump* dump =
+        pmd->CreateAllocatorDump(dump_name);
+    dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
+                    base::trace_event::MemoryAllocatorDump::kUnitsBytes,
+                    image.second.estimated_size_in_bytes);
+    dump->AddString("dimensions", "", image.second.size.ToString());
+  }
 
   return true;
 }

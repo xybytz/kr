@@ -7,15 +7,15 @@
 #include <utility>
 
 #include "base/check.h"
+#include "base/ranges/algorithm.h"
 #include "chrome/browser/chromeos/cros_apps/api/cros_apps_api_info.h"
 #include "chrome/browser/chromeos/cros_apps/api/cros_apps_api_utils.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
-CrosAppsApiInfo::CrosAppsApiInfo(blink::mojom::RuntimeFeature blink_feature,
+CrosAppsApiInfo::CrosAppsApiInfo(CrosAppsApiId api_id,
                                  EnableBlinkRuntimeFeatureFunction enable_fn)
-    : blink_feature_(blink_feature),
-      enable_blink_runtime_feature_fn_(enable_fn) {}
+    : api_id_(api_id), enable_blink_runtime_feature_fn_(enable_fn) {}
 
 CrosAppsApiInfo::CrosAppsApiInfo(CrosAppsApiInfo&&) = default;
 
@@ -63,7 +63,7 @@ CrosAppsApiInfo& CrosAppsApiInfo::AddAllowlistedOrigins(
 }
 
 CrosAppsApiInfo& CrosAppsApiInfo::SetRequiredFeatures(
-    std::initializer_list<const std::reference_wrapper<const base::Feature>>
+    std::initializer_list<std::reference_wrapper<const base::Feature>>
         features) {
   required_features_ = decltype(required_features_)(features);
   return *this;

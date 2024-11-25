@@ -6,6 +6,7 @@
 #define IOS_CHROME_BROWSER_OPTIMIZATION_GUIDE_MODEL_OPTIMIZATION_GUIDE_TAB_HELPER_H_
 
 #import "base/containers/flat_map.h"
+#import "base/memory/raw_ptr.h"
 #import "base/memory/weak_ptr.h"
 #import "components/optimization_guide/core/insertion_ordered_set.h"
 #import "components/optimization_guide/core/optimization_guide_navigation_data.h"
@@ -92,13 +93,13 @@ class OptimizationGuideTabHelper
       inflight_optimization_guide_navigation_datas_;
 
   // The navigation data for the last completed navigation.
-  // TODO(crbug.com/1241152): Clear the last navigation data when the tab gets
+  // TODO(crbug.com/40194554): Clear the last navigation data when the tab gets
   // hidden and when Chrome app is backgrounded.
   std::unique_ptr<IOSOptimizationGuideNavigationData> last_navigation_data_;
 
   // Initialized in constructor. It may be null if the OptimizationGuideService
   // feature is not enabled.
-  OptimizationGuideService* optimization_guide_service_ = nullptr;
+  raw_ptr<OptimizationGuideService> optimization_guide_service_ = nullptr;
 
   WEB_STATE_USER_DATA_KEY_DECL();
 

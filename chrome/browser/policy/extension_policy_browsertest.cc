@@ -44,6 +44,7 @@
 #include "chrome/browser/profiles/profile_test_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
+#include "chrome/browser/web_applications/proto/web_app_install_state.pb.h"
 #include "chrome/browser/web_applications/test/web_app_test_observers.h"
 #include "chrome/browser/web_applications/test/web_app_test_utils.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
@@ -64,6 +65,7 @@
 #include "content/public/common/result_codes.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/download_test_observer.h"
+#include "content/public/test/no_renderer_crashes_assertion.h"
 #include "content/public/test/url_loader_interceptor.h"
 #include "extensions/browser/content_verifier/test_utils.h"
 #include "extensions/browser/extension_dialog_auto_confirm.h"
@@ -94,8 +96,8 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
+#include "ash/constants/web_app_id_constants.h"
 #include "chrome/browser/extensions/updater/local_extension_cache.h"
-#include "chrome/browser/web_applications/web_app_id_constants.h"
 #endif
 
 using base::test::TestFuture;
@@ -359,28 +361,6 @@ class ExtensionPolicyTest : public ExtensionPolicyTestBase {
 
  private:
   web_app::OsIntegrationManager::ScopedSuppressForTesting os_hooks_suppress_;
-};
-
-// Allows tests to wait for renderer process creation.
-class WindowedProcessCreationObserver
-    : public content::RenderProcessHostCreationObserver {
- public:
-  void Wait() {
-    if (!seen_) {
-      run_loop_.Run();
-    }
-    EXPECT_TRUE(seen_);
-  }
-
-  // content::RenderProcessHostCreationObserver:
-  void OnRenderProcessHostCreated(content::RenderProcessHost* host) override {
-    seen_ = true;
-    run_loop_.Quit();
-  }
-
- private:
-  base::RunLoop run_loop_;
-  bool seen_ = false;
 };
 
 }  // namespace
@@ -822,7 +802,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest,
   policies.Erase(policy::key::kExtensionInstallForcelist);
   UpdateProviderPolicy(policies);
 
-  // TODO(crbug.com/1042187)
+  // TODO(crbug.com/40668351)
   // Extension should be uninstalled now. It would be better to keep it, but it
   // doesn't happen for now.
   ASSERT_FALSE(extension_registry()->GetExtensionById(
@@ -874,7 +854,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest,
 // Verifies that if the cache entry contains inconsistent extension version,
 // the crx installation fails and download of a new crx file is attempted.
 //
-// TODO(crbug.com/1357637): Fix this test. It doesn't alway pass.
+// TODO(crbug.com/40236711): Fix this test. It doesn't alway pass.
 IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest,
                        DISABLED_CrxVersionInconsistencyInCache) {
   base::ScopedAllowBlockingForTesting allow_io;
@@ -967,6 +947,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest,
 // Verifies that extensions that are force-installed by policies are
 // installed and can't be uninstalled.
 IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest, ExtensionInstallForcelist) {
+  // Mark as enterprise managed.
+  policy::ScopedDomainEnterpriseManagement scoped_domain;
   ExtensionRequestInterceptor interceptor;
   extensions::ExtensionService* service = extension_service();
   extensions::ExtensionRegistry* registry = extension_registry();
@@ -1012,7 +994,6 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest, ExtensionInstallForcelist) {
   extensions::InstallStageTracker* install_stage_tracker =
       extensions::InstallStageTracker::Get(browser()->profile());
   install_stage_tracker->AddObserver(&collector_observer);
-
   UpdateProviderPolicy(policies);
   registry_observer.WaitForExtensionWillBeInstalled();
   install_stage_tracker->RemoveObserver(&collector_observer);
@@ -1045,7 +1026,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest, ExtensionInstallForcelist) {
   const std::string old_version_number =
       registry->enabled_extensions().GetByID(kGoodCrxId)->version().GetString();
 
-  WindowedProcessCreationObserver new_process_observer;
+  extensions::ExtensionHostTestHelper extension_ready_observer(
+      browser()->profile(), kGoodCrxId);
 
   // Updating the force-installed extension.
   extensions::ExtensionUpdater* updater = service->updater();
@@ -1065,7 +1047,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest, ExtensionInstallForcelist) {
   EXPECT_EQ(1, new_version.CompareTo(old_version));
 
   // Wait for the new extension process to launch.
-  new_process_observer.Wait();
+  extension_ready_observer.WaitForRenderProcessReady();
 
   // Wait until any background pages belonging to force-installed extensions
   // have been loaded.
@@ -1153,6 +1135,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest, UpdateExtensionWithProdversionmin) {
 // extension version.
 IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest,
                        InstallExtensionWithProdversionmin) {
+  // Mark as enterprise managed.
+  policy::ScopedDomainEnterpriseManagement scoped_domain;
   ExtensionRequestInterceptor interceptor;
   extensions::ExtensionRegistry* registry = extension_registry();
   ASSERT_FALSE(registry->GetExtensionById(
@@ -1278,6 +1262,8 @@ class ExtensionPinningTest : public extensions::ExtensionBrowserTest {
 // policy.
 IN_PROC_BROWSER_TEST_F(ExtensionPinningTest,
                        UpdateExtensionWithNoUrlInManifest) {
+  // Mark as enterprise managed.
+  policy::ScopedDomainEnterpriseManagement scoped_domain;
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir scoped_temp_dir;
   EXPECT_TRUE(scoped_temp_dir.CreateUniqueTempDir());
@@ -1335,6 +1321,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionPinningTest,
 // Extension with one update_url in manifest gets updated through another
 // update_url in policy.
 IN_PROC_BROWSER_TEST_F(ExtensionPinningTest, UpdateExtensionWithUrlInManifest) {
+  // Mark as enterprise managed.
+  policy::ScopedDomainEnterpriseManagement scoped_domain;
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir scoped_temp_dir;
   EXPECT_TRUE(scoped_temp_dir.CreateUniqueTempDir());
@@ -1389,6 +1377,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionPinningTest, UpdateExtensionWithUrlInManifest) {
 
 // Extension with one update_url in manifest is not updated through it.
 IN_PROC_BROWSER_TEST_F(ExtensionPinningTest, IgnoreUpdateUrlInManifest) {
+  // Mark as enterprise managed.
+  policy::ScopedDomainEnterpriseManagement scoped_domain;
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir scoped_temp_dir;
   EXPECT_TRUE(scoped_temp_dir.CreateUniqueTempDir());
@@ -1432,6 +1422,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionPinningTest, IgnoreUpdateUrlInManifest) {
 // Store.
 IN_PROC_BROWSER_TEST_F(ExtensionPinningTest,
                        SelfHostedCWSExtensionNotUpdatedFromStore) {
+  // Mark as enterprise managed.
+  policy::ScopedDomainEnterpriseManagement scoped_domain;
   // Sample Google calendar extension from Chrome Web Store, for which we have
   // an old CRX.
   const char kGoogleCalendarCrxId[] = "gmbgaklkmjakoegficnlkhebmhkjfich";
@@ -1479,6 +1471,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionPinningTest,
 // test helps to notify of any change in this behaviour as there might be
 // extensions relying on it.
 IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest, UpdateManifestOrderedAppTags) {
+  // Mark as enterprise managed.
+  policy::ScopedDomainEnterpriseManagement scoped_domain;
   ExtensionRequestInterceptor interceptor;
   extensions::ExtensionRegistry* registry = extension_registry();
   ASSERT_FALSE(registry->GetExtensionById(
@@ -1499,6 +1493,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest, UpdateManifestOrderedAppTags) {
 // repaired (reinstalled).
 IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest,
                        CorruptedNonWebstoreExtensionRepaired) {
+  // Mark as enterprise managed.
+  policy::ScopedDomainEnterpriseManagement scoped_domain;
   ignore_content_verifier_.reset();
   ExtensionRequestInterceptor interceptor;
   ASSERT_TRUE(embedded_test_server()->Start());
@@ -1652,10 +1648,12 @@ IN_PROC_BROWSER_TEST_F(
 // if there are no computed_hashes.json for it. Note that this behavior will
 // change in the future.
 // See https://crbug.com/958794#c22 for details.
-// TODO(https://crbug.com/1044572): Change this test so extension without hashes
+// TODO(crbug.com/40669814): Change this test so extension without hashes
 // will be also reinstalled.
 IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest,
                        CorruptedNonWebstoreExtensionWithoutHashesRemained) {
+  // Mark as enterprise managed.
+  policy::ScopedDomainEnterpriseManagement scoped_domain;
   ignore_content_verifier_.reset();
   ExtensionRequestInterceptor interceptor;
   ASSERT_TRUE(embedded_test_server()->Start());
@@ -1719,6 +1717,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest,
 // case the remote update server is down.
 IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest,
                        ExtensionInstallForcelistServerShutDown) {
+  // Mark as enterprise managed.
+  policy::ScopedDomainEnterpriseManagement scoped_domain;
   base::HistogramTester histogram_tester;
   ExtensionRequestInterceptor interceptor;
 
@@ -1763,6 +1763,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest,
 // ERR_INTERNET_DISCONNECTED response instead of actually having the device
 // offline.
 IN_PROC_BROWSER_TEST_F(ExtensionPolicyTest, ExtensionInstallForcelistOffline) {
+  // Mark as enterprise managed.
+  policy::ScopedDomainEnterpriseManagement scoped_domain;
   base::HistogramTester histogram_tester;
   ExtensionRequestInterceptor interceptor;
 
@@ -2274,8 +2276,14 @@ IN_PROC_BROWSER_TEST_F(WebAppInstallForceListPolicyTest, StartUpInstallation) {
       web_app::WebAppProvider::GetForTest(browser()->profile())
           ->registrar_unsafe();
   web_app::WebAppTestInstallObserver install_observer(browser()->profile());
-  std::optional<webapps::AppId> app_id =
-      registrar.FindAppWithUrlInScope(policy_app_url_);
+  // TODO(crbug.com/340952100): Evaluate call sites of FindBestAppWithUrlInScope
+  // for correctness.
+  std::optional<webapps::AppId> app_id = registrar.FindBestAppWithUrlInScope(
+      policy_app_url_,
+      {
+          web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION,
+          web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+      });
   if (!app_id) {
     app_id = install_observer.BeginListeningAndWait();
   }
@@ -2307,8 +2315,14 @@ IN_PROC_BROWSER_TEST_F(
       web_app::WebAppProvider::GetForTest(browser()->profile())
           ->registrar_unsafe();
   web_app::WebAppTestInstallObserver install_observer(browser()->profile());
-  std::optional<webapps::AppId> app_id =
-      registrar.FindAppWithUrlInScope(policy_app_url_);
+  // TODO(crbug.com/340952100): Evaluate call sites of FindBestAppWithUrlInScope
+  // for correctness.
+  std::optional<webapps::AppId> app_id = registrar.FindBestAppWithUrlInScope(
+      policy_app_url_,
+      {
+          web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION,
+          web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+      });
   if (!app_id) {
     app_id = install_observer.BeginListeningAndWait();
   }
@@ -2340,8 +2354,14 @@ IN_PROC_BROWSER_TEST_F(WebAppInstallForceListPolicySAATest,
       web_app::WebAppProvider::GetForTest(browser()->profile())
           ->registrar_unsafe();
   web_app::WebAppTestInstallObserver install_observer(browser()->profile());
-  std::optional<webapps::AppId> app_id =
-      registrar.FindAppWithUrlInScope(policy_app_url_);
+  // TODO(crbug.com/340952100): Evaluate call sites of FindBestAppWithUrlInScope
+  // for correctness.
+  std::optional<webapps::AppId> app_id = registrar.FindBestAppWithUrlInScope(
+      policy_app_url_,
+      {
+          web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION,
+          web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+      });
   if (!app_id) {
     app_id = install_observer.BeginListeningAndWait();
   }
@@ -2370,8 +2390,14 @@ IN_PROC_BROWSER_TEST_F(WebAppInstallForceListPolicyWithAppFallbackNameSAATest,
       web_app::WebAppProvider::GetForTest(browser()->profile())
           ->registrar_unsafe();
   web_app::WebAppTestInstallObserver install_observer(browser()->profile());
-  std::optional<webapps::AppId> app_id =
-      registrar.FindAppWithUrlInScope(policy_app_url_);
+  // TODO(crbug.com/340952100): Evaluate call sites of FindBestAppWithUrlInScope
+  // for correctness.
+  std::optional<webapps::AppId> app_id = registrar.FindBestAppWithUrlInScope(
+      policy_app_url_,
+      {
+          web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION,
+          web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+      });
   if (!app_id) {
     app_id = install_observer.BeginListeningAndWait();
   }
@@ -2405,8 +2431,14 @@ IN_PROC_BROWSER_TEST_F(
           ->registrar_unsafe();
   web_app::WebAppTestInstallWithOsHooksObserver install_observer(
       browser()->profile());
-  std::optional<webapps::AppId> app_id =
-      registrar.FindAppWithUrlInScope(policy_app_url_);
+  // TODO(crbug.com/340952100): Evaluate call sites of FindBestAppWithUrlInScope
+  // for correctness.
+  std::optional<webapps::AppId> app_id = registrar.FindBestAppWithUrlInScope(
+      policy_app_url_,
+      {
+          web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION,
+          web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+      });
   if (!app_id) {
     app_id = install_observer.BeginListeningAndWait();
   }

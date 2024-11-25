@@ -6,12 +6,12 @@
 
 #include "base/containers/contains.h"
 #include "content/public/browser/browser_context.h"
-#include "extensions/browser/api/scripting/scripting_constants.h"
-#include "extensions/browser/api/scripting/scripting_utils.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/extensions_browser_client.h"
+#include "extensions/browser/scripting_constants.h"
+#include "extensions/browser/scripting_utils.h"
 #include "extensions/browser/state_store.h"
 #include "extensions/browser/user_script_loader.h"
 #include "extensions/common/api/content_scripts.h"
@@ -30,8 +30,9 @@ UserScriptManager::UserScriptManager(content::BrowserContext* browser_context)
 
   StateStore* store =
       ExtensionSystem::Get(browser_context_)->dynamic_user_scripts_store();
-  if (store)
+  if (store) {
     store->RegisterKey(scripting::kRegisteredScriptsStorageKey);
+  }
 }
 
 UserScriptManager::~UserScriptManager() = default;
@@ -41,11 +42,9 @@ UserScriptLoader* UserScriptManager::GetUserScriptLoaderByID(
   switch (host_id.type) {
     case mojom::HostID::HostType::kExtensions:
       return GetUserScriptLoaderForExtension(host_id.id);
-    // TODO(cmp): Investigate improvements to load files for Controlled Frame.
-    //            crbug.com/1511295, b/316171914
     case mojom::HostID::HostType::kControlledFrameEmbedder:
     case mojom::HostID::HostType::kWebUi:
-      return GetUserScriptLoaderForWebUI(GURL(host_id.id));
+      return GetUserScriptLoaderForEmbedder(host_id);
   }
 }
 
@@ -62,11 +61,21 @@ ExtensionUserScriptLoader* UserScriptManager::GetUserScriptLoaderForExtension(
              : it->second.get();
 }
 
-WebUIUserScriptLoader* UserScriptManager::GetUserScriptLoaderForWebUI(
-    const GURL& url) {
-  auto it = webui_script_loaders_.find(url);
-  return (it == webui_script_loaders_.end()) ? CreateWebUIUserScriptLoader(url)
-                                             : it->second.get();
+EmbedderUserScriptLoader* UserScriptManager::GetUserScriptLoaderForEmbedder(
+    const mojom::HostID& host_id) {
+  auto it = embedder_script_loaders_.find(host_id);
+  if (it != embedder_script_loaders_.end()) {
+    return it->second.get();
+  }
+
+  switch (host_id.type) {
+    case mojom::HostID::HostType::kControlledFrameEmbedder:
+    case mojom::HostID::HostType::kWebUi:
+      return CreateEmbedderUserScriptLoader(host_id);
+    case mojom::HostID::HostType::kExtensions:
+      break;
+  }
+  NOTREACHED();
 }
 
 void UserScriptManager::SetUserScriptSourceEnabledForExtensions(
@@ -119,8 +128,9 @@ void UserScriptManager::OnInitialExtensionLoadComplete(
 void UserScriptManager::RemovePendingExtensionLoadAndSignal(
     const ExtensionId& extension_id) {
   int erased = pending_initial_extension_loads_.erase(extension_id);
-  if (!erased || !pending_initial_extension_loads_.empty())
+  if (!erased || !pending_initial_extension_loads_.empty()) {
     return;  // Not a relevant extension, or still waiting on more.
+  }
 
   // All our extensions are loaded!
   ExtensionsBrowserClient::Get()->SignalContentScriptsLoaded(browser_context_);
@@ -146,14 +156,14 @@ ExtensionUserScriptLoader* UserScriptManager::CreateExtensionUserScriptLoader(
   return loader;
 }
 
-WebUIUserScriptLoader* UserScriptManager::CreateWebUIUserScriptLoader(
-    const GURL& url) {
-  CHECK(!base::Contains(webui_script_loaders_, url));
-  // Inserts a new WebUIUserScriptLoader and returns a ptr to it.
-  WebUIUserScriptLoader* loader =
-      webui_script_loaders_
-          .emplace(url, std::make_unique<WebUIUserScriptLoader>(
-                            browser_context_, url))
+EmbedderUserScriptLoader* UserScriptManager::CreateEmbedderUserScriptLoader(
+    const mojom::HostID& host_id) {
+  CHECK(!base::Contains(embedder_script_loaders_, host_id));
+  // Inserts a new EmbedderUserScriptLoader and returns a ptr to it.
+  EmbedderUserScriptLoader* loader =
+      embedder_script_loaders_
+          .emplace(host_id, std::make_unique<EmbedderUserScriptLoader>(
+                                browser_context_, host_id))
           .first->second.get();
 
   return loader;

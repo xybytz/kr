@@ -88,14 +88,14 @@ class StandaloneTrustedVaultClient : public TrustedVaultClient {
   // Runs |cb| when all requests have completed.
   void WaitForFlushForTesting(base::OnceClosure cb) const;
   void FetchBackendPrimaryAccountForTesting(
-      base::OnceCallback<void(const absl::optional<CoreAccountInfo>&)> callback)
+      base::OnceCallback<void(const std::optional<CoreAccountInfo>&)> callback)
       const;
   void FetchIsDeviceRegisteredForTesting(
       const std::string& gaia_id,
       base::OnceCallback<void(bool)> callback);
   void AddDebugObserverForTesting(DebugObserver* debug_observer);
   void RemoveDebugObserverForTesting(DebugObserver* debug_observer);
-  // TODO(crbug.com/1201659): This this API and rely exclusively on
+  // TODO(crbug.com/40178774): This this API and rely exclusively on
   // FakeSecurityDomainsServer.
   void GetLastAddedRecoveryMethodPublicKeyForTesting(
       base::OnceCallback<void(const std::vector<uint8_t>&)> callback);

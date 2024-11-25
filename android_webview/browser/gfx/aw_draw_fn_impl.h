@@ -6,12 +6,12 @@
 #define ANDROID_WEBVIEW_BROWSER_GFX_AW_DRAW_FN_IMPL_H_
 
 #include <optional>
+
 #include "android_webview/browser/gfx/aw_vulkan_context_provider.h"
 #include "android_webview/browser/gfx/compositor_frame_consumer.h"
 #include "android_webview/browser/gfx/render_thread_manager.h"
 #include "android_webview/public/browser/draw_fn.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/threading/platform_thread.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 
 namespace android_webview {
@@ -21,6 +21,10 @@ class AwDrawFnImpl {
  public:
   // Safe to call even on versions where draw_fn functor is not supported.
   static bool IsUsingVulkan();
+
+  static void ReportRenderingThreads(int functor,
+                                     const pid_t* thread_ids,
+                                     size_t size);
 
   AwDrawFnImpl();
 
@@ -60,9 +64,6 @@ class AwDrawFnImpl {
 
   std::optional<AwVulkanContextProvider::ScopedSecondaryCBDraw>
       scoped_secondary_cb_draw_;
-
-  // Latched on first DrawGL / InitVk call.
-  std::optional<base::PlatformThreadId> render_thread_id_;
 
   bool skip_next_post_draw_vk_ = false;
 };

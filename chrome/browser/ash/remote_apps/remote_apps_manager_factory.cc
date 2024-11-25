@@ -24,7 +24,7 @@ RemoteAppsManager* RemoteAppsManagerFactory::GetForProfile(Profile* profile) {
 
 // static
 RemoteAppsManagerFactory* RemoteAppsManagerFactory::GetInstance() {
-  // TODO(crbug.com/1269752): Restore use of base::NoDestructor when
+  // TODO(crbug.com/40205142): Restore use of base::NoDestructor when
   // it no longer causes unit_test failures.
   static base::NoDestructor<RemoteAppsManagerFactory> instance;
   return instance.get();
@@ -53,8 +53,8 @@ RemoteAppsManagerFactory::BuildServiceInstanceForBrowserContext(
 
   Profile* profile = Profile::FromBrowserContext(context);
   user_manager::User* user = profile_helper->GetUserByProfile(profile);
-  if (!user || (user->GetType() != user_manager::USER_TYPE_PUBLIC_ACCOUNT &&
-                user->GetType() != user_manager::USER_TYPE_REGULAR)) {
+  if (!user || (user->GetType() != user_manager::UserType::kPublicAccount &&
+                user->GetType() != user_manager::UserType::kRegular)) {
     return nullptr;
   }
 

@@ -6,17 +6,23 @@
 
 #include "base/feature_list.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 
 namespace display {
 namespace features {
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_WIN)
+// TODO(crbug.com/368060445): Remove this when the feature is fully launched.
+BASE_FEATURE(kSkipEmptyDisplayHotplugEvent,
+             "SkipEmptyDisplayHotplugEvent",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+#endif  // BUILDFLAG(IS_WIN)
+
+#if BUILDFLAG(IS_CHROMEOS)
 
 // Enables the rounded corners for the internal display.
 BASE_FEATURE(kRoundedDisplay,
              "RoundedDisplay",
-             base::FEATURE_DISABLED_BY_DEFAULT);
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
 bool IsRoundedDisplayEnabled() {
   return base::FeatureList::IsEnabled(kRoundedDisplay);
@@ -38,6 +44,11 @@ BASE_FEATURE(kEnableExternalDisplayHDR10Mode,
              "EnableExternalDisplayHDR10Mode",
              base::FEATURE_DISABLED_BY_DEFAULT);
 
+// Feature to control if the CTM is dynamically set to the primary transform
+// from plane color space to output color space.
+BASE_FEATURE(kCtmColorManagement,
+             "CtmColorManagement",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 #endif
 
 // This features allows listing all display modes of external displays in the
@@ -60,6 +71,15 @@ BASE_FEATURE(kEnableEdidBasedDisplayIds,
 
 bool IsEdidBasedDisplayIdsEnabled() {
   return base::FeatureList::IsEnabled(kEnableEdidBasedDisplayIds);
+}
+
+// Enable display scale factor meant for OLED display.
+BASE_FEATURE(kOledScaleFactorEnabled,
+             "OledScaleFactorEnabled",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+bool IsOledScaleFactorEnabled() {
+  return base::FeatureList::IsEnabled(kOledScaleFactorEnabled);
 }
 
 // A temporary flag to control hardware mirroring until it is decided whether to
@@ -96,6 +116,14 @@ BASE_FEATURE(kTiledDisplaySupport,
 
 bool IsTiledDisplaySupportEnabled() {
   return base::FeatureList::IsEnabled(kTiledDisplaySupport);
+}
+
+BASE_FEATURE(kExcludeDisplayInMirrorMode,
+             "ExcludeDisplayInMirrorMode",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+bool IsExcludeDisplayInMirrorModeEnabled() {
+  return base::FeatureList::IsEnabled(kExcludeDisplayInMirrorMode);
 }
 
 }  // namespace features

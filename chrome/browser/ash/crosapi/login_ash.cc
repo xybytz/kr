@@ -9,13 +9,13 @@
 #include "ash/system/session/guest_session_confirmation_dialog.h"
 #include "base/notreached.h"
 #include "chrome/browser/ash/login/existing_user_controller.h"
-#include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/extensions/login_screen/login/errors.h"
 #include "chrome/browser/chromeos/extensions/login_screen/login/login_api_lock_handler.h"
 #include "chrome/browser/chromeos/extensions/login_screen/login/shared_session_handler.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/ui/ash/login/login_display_host.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/ash/components/login/auth/public/auth_types.h"
 #include "chromeos/ash/components/login/auth/public/cryptohome_key_constants.h"
@@ -54,9 +54,10 @@ void LoginAsh::LaunchManagedGuestSession(
 
   user_manager::UserManager* user_manager = user_manager::UserManager::Get();
   for (const user_manager::User* user : user_manager->GetUsers()) {
-    if (!user || user->GetType() != user_manager::USER_TYPE_PUBLIC_ACCOUNT)
+    if (!user || user->GetType() != user_manager::UserType::kPublicAccount) {
       continue;
-    ash::UserContext context(user_manager::USER_TYPE_PUBLIC_ACCOUNT,
+    }
+    ash::UserContext context(user_manager::UserType::kPublicAccount,
                              user->GetAccountId());
     if (password) {
       context.SetKey(ash::Key(*password));
@@ -107,7 +108,7 @@ void LoginAsh::LockManagedGuestSession(
   ui::UserActivityDetector::Get()->HandleExternalUserActivity();
 
   std::optional<std::string> error =
-      LockSession(user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+      LockSession(user_manager::UserType::kPublicAccount);
   // Error is std::nullopt in case of no error.
   std::move(callback).Run(error);
 }
@@ -117,7 +118,7 @@ void LoginAsh::UnlockManagedGuestSession(const std::string& password,
   ui::UserActivityDetector::Get()->HandleExternalUserActivity();
 
   std::optional<std::string> error =
-      CanUnlockSession(user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+      CanUnlockSession(user_manager::UserType::kPublicAccount);
   if (error) {
     std::move(callback).Run(error);
     return;
@@ -159,7 +160,7 @@ void LoginAsh::LaunchSamlUserSession(const std::string& email,
     return;
   }
 
-  ash::UserContext context(user_manager::USER_TYPE_REGULAR,
+  ash::UserContext context(user_manager::UserType::kRegular,
                            AccountId::FromUserEmailGaiaId(email, gaia_id));
   ash::Key key(password);
   key.SetLabel(ash::kCryptohomeGaiaKeyLabel);
@@ -207,8 +208,8 @@ void LoginAsh::UnlockSharedSession(const std::string& password,
       user_manager::UserManager::Get();
   const user_manager::User* active_user = user_manager->GetActiveUser();
   if (!active_user ||
-      active_user->GetType() != user_manager::USER_TYPE_PUBLIC_ACCOUNT ||
-      !user_manager->CanCurrentUserLock()) {
+      active_user->GetType() != user_manager::UserType::kPublicAccount ||
+      !active_user->CanLock()) {
     std::move(callback).Run(extensions::login_api_errors::kNoUnlockableSession);
     return;
   }
@@ -352,7 +353,7 @@ std::optional<std::string> LoginAsh::LockSession(
   const user_manager::UserManager* user_manager =
       user_manager::UserManager::Get();
   const user_manager::User* active_user = user_manager->GetActiveUser();
-  if (!active_user || !user_manager->CanCurrentUserLock() ||
+  if (!active_user || !active_user->CanLock() ||
       (user_type && active_user->GetType() != user_type)) {
     return extensions::login_api_errors::kNoLockableSession;
   }
@@ -371,7 +372,7 @@ std::optional<std::string> LoginAsh::CanUnlockSession(
   const user_manager::UserManager* user_manager =
       user_manager::UserManager::Get();
   const user_manager::User* active_user = user_manager->GetActiveUser();
-  if (!active_user || !user_manager->CanCurrentUserLock() ||
+  if (!active_user || !active_user->CanLock() ||
       (user_type && active_user->GetType() != user_type)) {
     return extensions::login_api_errors::kNoUnlockableSession;
   }

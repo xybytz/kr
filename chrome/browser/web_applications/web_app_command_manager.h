@@ -13,23 +13,28 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
+#include "base/scoped_observation.h"
 #include "base/sequence_checker.h"
 #include "base/types/pass_key.h"
 #include "base/values.h"
+#include "chrome/browser/profiles/profile_manager_observer.h"
 #include "chrome/browser/web_applications/commands/internal/command_internal.h"
 #include "chrome/browser/web_applications/locks/web_app_lock_manager.h"
 #include "components/webapps/common/web_app_id.h"
 
 class Profile;
+class ProfileManager;
 
 namespace content {
 class WebContents;
 }
 
-namespace web_app {
-
-class WebAppProvider;
+namespace webapps {
 class WebAppUrlLoader;
+}
+
+namespace web_app {
+class WebAppProvider;
 
 // The command manager is used to schedule commands or callbacks to write & read
 // from the WebAppProvider system. To use, simply call `ScheduleCommand` to
@@ -39,12 +44,12 @@ class WebAppUrlLoader;
 // on command's `Lock`, the `Lock` specifies which apps or particular entities
 // it wants to lock on. The next command will not execute until
 // `CompleteAndSelfDestruct()` was called by the last command.
-class WebAppCommandManager {
+class WebAppCommandManager : public ProfileManagerObserver {
  public:
   using PassKey = base::PassKey<WebAppCommandManager>;
 
   explicit WebAppCommandManager(Profile* profile);
-  ~WebAppCommandManager();
+  ~WebAppCommandManager() override;
 
   void SetProvider(base::PassKey<WebAppProvider>, WebAppProvider& provider);
 
@@ -85,6 +90,8 @@ class WebAppCommandManager {
   content::WebContents* web_contents_for_testing() const {
     return shared_web_contents_.get();
   }
+  void SetOnWebContentsCreatedCallbackForTesting(
+      base::OnceClosure on_web_contents_created);
 
   WebAppLockManager& lock_manager() { return lock_manager_; }
 
@@ -97,6 +104,11 @@ class WebAppCommandManager {
                          internal::CommandBase* running_command,
                          CommandResult result,
                          base::OnceClosure completion_callback);
+
+  // ProfileManagerObserver:
+  void OnProfileMarkedForPermanentDeletion(
+      Profile* profile_to_be_deleted) override;
+  void OnProfileManagerDestroying() override;
 
  private:
   void AddCommandToLog(const internal::CommandBase& value);
@@ -116,7 +128,7 @@ class WebAppCommandManager {
   raw_ptr<WebAppProvider> provider_ = nullptr;
 
   std::unique_ptr<content::WebContents> shared_web_contents_;
-  std::unique_ptr<WebAppUrlLoader> url_loader_;
+  std::unique_ptr<webapps::WebAppUrlLoader> url_loader_;
 
   bool started_ = false;
   bool is_in_shutdown_ = false;
@@ -125,10 +137,13 @@ class WebAppCommandManager {
   WebAppLockManager lock_manager_;
 
   std::map<internal::CommandBase::Id, std::unique_ptr<internal::CommandBase>>
-      commands_{};
+      commands_;
 
+  base::OnceClosure on_web_contents_created_for_testing_;
   std::unique_ptr<base::RunLoop> run_loop_for_testing_;
 
+  base::ScopedObservation<ProfileManager, ProfileManagerObserver>
+      profile_manager_observation_{this};
   base::WeakPtrFactory<WebAppCommandManager>
       weak_ptr_factory_reset_on_shutdown_{this};
 };

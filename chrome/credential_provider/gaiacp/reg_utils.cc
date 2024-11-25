@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/credential_provider/gaiacp/reg_utils.h"
 
 #include "base/base64.h"
@@ -45,6 +50,8 @@ const wchar_t kMicrosoftCryptographyMachineGuidRegKey[] = L"MachineGuid";
 constexpr wchar_t kRegUserDeviceResourceId[] = L"device_resource_id";
 constexpr wchar_t kRegGlsPath[] = L"gls_path";
 constexpr wchar_t kRegEnableVerboseLogging[] = L"enable_verbose_logging";
+constexpr wchar_t kRegLogFilePath[] = L"log_file_path";
+constexpr wchar_t kRegLogFileAppend[] = L"log_file_append";
 constexpr wchar_t kRegInitializeCrashReporting[] = L"enable_crash_reporting";
 constexpr wchar_t kRegMdmUrl[] = L"mdm";
 constexpr wchar_t kRegEnableDmEnrollment[] = L"enable_dm_enrollment";
@@ -595,7 +602,7 @@ HRESULT GetDmToken(std::string* dm_token) {
       GetMachineRegBinaryInternal(kEnrollmentRegKey, kDmTokenRegKey,
                                   &binary_dm_token, KEY_READ | KEY_WOW64_32KEY);
   if (SUCCEEDED(hr)) {
-    base::Base64Encode(binary_dm_token, dm_token);
+    *dm_token = base::Base64Encode(binary_dm_token);
   }
   return hr;
 }

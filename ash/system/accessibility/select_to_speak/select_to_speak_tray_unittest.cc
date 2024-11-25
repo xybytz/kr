@@ -24,9 +24,11 @@
 #include "ui/base/ime/ash/ime_bridge.h"
 #include "ui/base/ime/text_input_flags.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
 #include "ui/gfx/image/image_unittest_util.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 
@@ -91,10 +93,16 @@ class SelectToSpeakTrayTest : public AshTestBase {
 };
 
 // Ensures that creation doesn't cause any crashes and adds the image icon.
-// Also checks that the tray is visible.
+// Also checks that the tray is visible and has an accessible name.
 TEST_F(SelectToSpeakTrayTest, BasicConstruction) {
   EXPECT_TRUE(GetImageView());
   EXPECT_TRUE(IsVisible());
+
+  ui::AXNodeData tray_data;
+  GetTray()->GetViewAccessibility().GetAccessibleNodeData(&tray_data);
+  EXPECT_EQ(
+      tray_data.GetString16Attribute(ax::mojom::StringAttribute::kName),
+      l10n_util::GetStringUTF16(IDS_ASH_SELECT_TO_SPEAK_TRAY_ACCESSIBLE_NAME));
 }
 
 // Tests the icon disapears when select-to-speak is disabled and re-appears
@@ -153,14 +161,8 @@ TEST_F(SelectToSpeakTrayTest, SelectToSpeakStateImpactsImageAndActivation) {
 }
 
 // Test that changing the SelectToSpeakState in the AccessibilityController
-// results in a change of tooltip text in the tray, when hover text improvements
-// are enabled.
+// results in a change of tooltip text in the tray.
 TEST_F(SelectToSpeakTrayTest, SelectToSpeakStateImpactsTooltipText) {
-  // Enable AccessibilitySelectToSpeakHoverTextImprovements feature.
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(
-      ::features::kAccessibilitySelectToSpeakHoverTextImprovements);
-
   AccessibilityController* controller =
       Shell::Get()->accessibility_controller();
   controller->SetSelectToSpeakState(
@@ -184,46 +186,16 @@ TEST_F(SelectToSpeakTrayTest, SelectToSpeakStateImpactsTooltipText) {
   actual_tooltip_text = GetImageView()->GetTooltipText();
   EXPECT_TRUE(expected_tooltip_text == actual_tooltip_text);
 }
-// Test that changing the SelectToSpeakState in the AccessibilityController
-// results in a change of tooltip text in the tray, when hover text improvements
-// are disabled.
-TEST_F(SelectToSpeakTrayTest,
-       SelectToSpeakStateImpactsTooltipTextFeatureDisabled) {
-  // Disable AccessibilitySelectToSpeakHoverTextImprovements feature.
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndDisableFeature(
-      ::features::kAccessibilitySelectToSpeakHoverTextImprovements);
-
-  AccessibilityController* controller =
-      Shell::Get()->accessibility_controller();
-  controller->SetSelectToSpeakState(
-      SelectToSpeakState::kSelectToSpeakStateSelecting);
-  std::u16string expected_tooltip_text = l10n_util::GetStringUTF16(
-      IDS_ASH_STATUS_TRAY_ACCESSIBILITY_SELECT_TO_SPEAK);
-  std::u16string actual_tooltip_text = GetImageView()->GetTooltipText();
-  EXPECT_TRUE(expected_tooltip_text == actual_tooltip_text);
-
-  controller->SetSelectToSpeakState(
-      SelectToSpeakState::kSelectToSpeakStateSpeaking);
-  expected_tooltip_text = l10n_util::GetStringUTF16(
-      IDS_ASH_STATUS_TRAY_ACCESSIBILITY_SELECT_TO_SPEAK);
-  actual_tooltip_text = GetImageView()->GetTooltipText();
-  EXPECT_TRUE(expected_tooltip_text == actual_tooltip_text);
-
-  controller->SetSelectToSpeakState(
-      SelectToSpeakState::kSelectToSpeakStateInactive);
-  expected_tooltip_text = l10n_util::GetStringUTF16(
-      IDS_ASH_STATUS_TRAY_ACCESSIBILITY_SELECT_TO_SPEAK);
-  actual_tooltip_text = GetImageView()->GetTooltipText();
-  EXPECT_TRUE(expected_tooltip_text == actual_tooltip_text);
-}
 
 // Trivial test to increase coverage of select_to_speak_tray.h. The
 // SelectToSpeakTray does not have a bubble, so these are empty functions.
 // Without this test, coverage of select_to_speak_tray.h is 0%.
 TEST_F(SelectToSpeakTrayTest, OverriddenFunctionsDoNothing) {
   GetTray()->HideBubbleWithView(nullptr);
-  GetTray()->ClickedOutsideBubble();
+
+  const ui::MouseEvent event(ui::EventType::kMousePressed, gfx::Point(),
+                             gfx::Point(), ui::EventTimeForNow(), 0, 0);
+  GetTray()->ClickedOutsideBubble(event);
 }
 
 }  // namespace ash

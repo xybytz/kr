@@ -20,7 +20,6 @@ import org.chromium.chrome.browser.content.WebContentsFactory;
 import org.chromium.chrome.browser.creator.CreatorCoordinator;
 import org.chromium.chrome.browser.feed.SingleWebFeedEntryPoint;
 import org.chromium.chrome.browser.feed.webfeed.CreatorIntentConstants;
-import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherImpl;
 import org.chromium.chrome.browser.init.ActivityLifecycleDispatcherImpl;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.share.ShareDelegate;
@@ -93,13 +92,20 @@ public class CreatorActivity extends SnackbarActivity {
         mLifecycleDispatcher = new ActivityLifecycleDispatcherImpl(this);
         mShareDelegateSupplier = new ShareDelegateSupplier();
         mTabShareDelegateSupplier = new ShareDelegateSupplier();
-        mProfileSupplier = new ObservableSupplierImpl<>();
-        mProfile = Profile.getLastUsedRegularProfile();
-        mProfileSupplier.set(mProfile);
 
         super.onCreate(savedInstanceState);
+        mProfileSupplier = new ObservableSupplierImpl<>();
+        mProfile = getProfileProvider().getOriginalProfile();
+        mProfileSupplier.set(mProfile);
+
         IntentRequestTracker intentRequestTracker = IntentRequestTracker.createFromActivity(this);
-        mWindowAndroid = new ActivityWindowAndroid(this, false, intentRequestTracker);
+        mWindowAndroid =
+                new ActivityWindowAndroid(
+                        this,
+                        false,
+                        intentRequestTracker,
+                        getInsetObserver(),
+                        /* trackOcclusion= */ true);
 
         TabShareDelegateImpl tabshareDelegate =
                 new TabShareDelegateImpl(
@@ -141,12 +147,14 @@ public class CreatorActivity extends SnackbarActivity {
         mShareDelegateSupplier.set(shareDelegate);
         mCreatorActionDelegate =
                 new CreatorActionDelegateImpl(
-                        this, mProfile, getSnackbarManager(), coordinator, mParentTabId);
+                        this,
+                        mProfile,
+                        getSnackbarManager(),
+                        coordinator,
+                        mParentTabId,
+                        mBottomSheetController);
 
-        coordinator.queryFeedStream(
-                mCreatorActionDelegate,
-                HelpAndFeedbackLauncherImpl.getForProfile(mProfile),
-                mShareDelegateSupplier);
+        coordinator.queryFeedStream(mCreatorActionDelegate, mShareDelegateSupplier);
 
         setContentView(coordinator.getView());
         Toolbar actionBar = findViewById(R.id.action_bar);

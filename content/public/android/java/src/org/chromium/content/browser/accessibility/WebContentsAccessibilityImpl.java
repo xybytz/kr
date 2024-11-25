@@ -53,6 +53,7 @@ import static androidx.core.view.accessibility.AccessibilityNodeInfoCompat.MOVEM
 
 import static org.chromium.content.browser.accessibility.AccessibilityNodeInfoBuilder.EXTRAS_DATA_REQUEST_IMAGE_DATA_KEY;
 import static org.chromium.content.browser.accessibility.AccessibilityNodeInfoBuilder.EXTRAS_KEY_URL;
+import static org.chromium.content_public.browser.ContentFeatureList.ACCESSIBILITY_MANAGE_BROADCAST_RECEIVER_ON_BACKGROUND;
 
 import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
@@ -91,6 +92,9 @@ import org.chromium.base.StrictModeContext;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.UserData;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskRunner;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.build.BuildConfig;
 import org.chromium.content.browser.WindowEventObserver;
 import org.chromium.content.browser.WindowEventObserverManager;
@@ -103,6 +107,7 @@ import org.chromium.content.browser.webcontents.WebContentsImpl;
 import org.chromium.content.browser.webcontents.WebContentsImpl.UserDataFactory;
 import org.chromium.content_public.browser.ContentFeatureList;
 import org.chromium.content_public.browser.ContentFeatureMap;
+import org.chromium.content_public.browser.Visibility;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsAccessibility;
 import org.chromium.content_public.browser.WebContentsObserver;
@@ -121,13 +126,12 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Implementation of {@link WebContentsAccessibility} interface.
- * Native accessibility for a {@link WebContents}. Actual native instance is
- * created lazily upon the first request from Android framework on
- * {@link AccessibilityNodeProvider}, and shares the lifetime with {@link WebContents}.
- * Internally this class uses the {@link AccessibilityNodeProviderCompat} interface, and uses
- * the {@link AccessibilityNodeInfoCompat} object for the virtual tree, but will unwrap and surface
- * the non-Compat versions of these for any clients.
+ * Implementation of {@link WebContentsAccessibility} interface. Native accessibility for a {@link
+ * WebContents}. Actual native instance is created lazily upon the first request from Android
+ * framework on {@link AccessibilityNodeProvider}, and shares the lifetime with {@link WebContents}.
+ * Internally this class uses the {@link AccessibilityNodeProviderCompat} interface, and uses the
+ * {@link AccessibilityNodeInfoCompat} object for the virtual tree, but will unwrap and surface the
+ * non-Compat versions of these for any clients.
  */
 @JNINamespace("content")
 public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompat
@@ -160,6 +164,7 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
     protected Context mContext;
     private final String mProductVersion;
     protected long mNativeObj;
+    protected long mNativeAssistDataObj;
     private boolean mIsHovering;
     private int mLastHoverId = View.NO_ID;
     private int mCurrentRootId;
@@ -179,6 +184,7 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
     private String mSupportedHtmlElementTypes;
     private final AccessibilityNodeInfoBuilder mAccessibilityNodeInfoBuilder;
     private boolean mHasFinishedLatestAccessibilitySnapshot;
+    private boolean mPendingSetSequentialFocus;
 
     // Observer for WebContents, used to update state when |this| is shown/hidden.
     private WebContentsObserver mWebContentsObserver;
@@ -218,8 +224,11 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
     // This handles the dispatching of accessibility events. It acts as an intermediary where we can
     // apply throttling rules, delay event construction, etc.
     private final AccessibilityEventDispatcher mEventDispatcher;
-    private String mSystemLanguageTag;
+    private volatile String mSystemLanguageTag;
     private BroadcastReceiver mBroadcastReceiver;
+    // Only un-register the broadcast receiver if this is true, otherwise it would result in a
+    // crash.
+    private volatile boolean mIsBroadcastReceiverRegistered;
 
     // Set of all nodes that have received a request to populate image data. The request only needs
     // to be run once per node, and it completes asynchronously. We track which nodes have already
@@ -232,6 +241,11 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
     private boolean mIsCurrentlyAutoDisabled;
     private int mAutoDisableUsageCounter;
     private boolean mIsAutoDisableAccessibilityCandidate;
+
+    // To avoid any potential synchronization issues we post all broadcast receiver registration
+    // actions to the same sequence to be run serially.
+    private static final TaskRunner sSequencedTaskRunner =
+            PostTask.createSequencedTaskRunner(TaskTraits.BEST_EFFORT_MAY_BLOCK);
 
     /** Create a WebContentsAccessibilityImpl object. */
     private static class Factory implements UserDataFactory<WebContentsAccessibilityImpl> {
@@ -284,7 +298,7 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         mDelegate.setOnScrollPositionChangedCallback(
                 () -> {
                     handleScrollPositionChanged(mAccessibilityFocusId);
-                    moveAccessibilityFocusToIdAndRefocusIfNeeded(mAccessibilityFocusId);
+                    moveAccessibilityFocusToId(mAccessibilityFocusId);
                 });
 
         AccessibilityState.addListener(this);
@@ -340,10 +354,6 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
                             public void onDisabled() {
                                 assert mNativeObj != 0
                                         : "Native code is not initialized, but disable was called.";
-                                assert ContentFeatureMap.isEnabled(
-                                                ContentFeatureList.AUTO_DISABLE_ACCESSIBILITY_V2)
-                                        : "Disable was called, but Auto-disable accessibility is"
-                                                + " not enabled.";
                                 TraceEvent.begin(
                                         "WebContentsAccessibilityImpl.AutoDisableAccessibilityHandler.onDisabled");
                                 mHistogramRecorder.onDisableCalled(mAutoDisableUsageCounter == 0);
@@ -424,8 +434,7 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         // If the AXTree is not provided, native is initialized lazily, when node provider is
         // actually requested.
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
-                && !BuildConfig.IS_FOR_TEST) {
+        if (!BuildConfig.IS_FOR_TEST) {
             // The system service call for AutofillManager can timeout and throws an Exception.
             // This is treated differently in each version of Android, so we must catch a
             // generic Exception. (refer to crbug.com/1186406 or AutofillManagerWrapper ctor).
@@ -473,7 +482,16 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
                 };
 
         // Register a broadcast receiver for locale change.
-        if (mView.isAttachedToWindow()) registerLocaleChangeReceiver();
+        if (mView.isAttachedToWindow()) {
+            if (ContentFeatureMap.isEnabled(
+                    ACCESSIBILITY_MANAGE_BROADCAST_RECEIVER_ON_BACKGROUND)) {
+                // To prevent having empty languageTag until this background task runs.
+                mSystemLanguageTag = Locale.getDefault().toLanguageTag();
+                sSequencedTaskRunner.execute(this::registerLocaleChangeReceiver);
+            } else {
+                registerLocaleChangeReceiver();
+            }
+        }
 
         // Define a set of relevant AccessibilityEvents.
         Runnable serviceMaskRunnable =
@@ -583,47 +601,46 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         mWebContentsObserver =
                 new WebContentsObserver(webContents) {
                     @Override
-                    public void wasShown() {
-                        // The Tab holding |this| instance was shown, e.g. the user brings Chrome
-                        // back to the foreground, switches to this Tab, etc.
-                        super.wasShown();
-                        mHistogramRecorder.updateTimeOfFirstShown();
+                    public void onVisibilityChanged(@Visibility int visibility) {
+                        if (visibility == Visibility.VISIBLE) {
+                            // The Tab holding |this| instance was shown, e.g. the user brings
+                            // Chrome back to the foreground, switches to this Tab, etc.
+                            mHistogramRecorder.updateTimeOfFirstShown();
 
-                        // Accessibility state may have changed while |this| was not shown, so
-                        // refresh.
-                        refreshNativeState();
-                        if (isNativeInitialized()) {
-                            // When we are in an initialized state, accessibility may be disabled.
-                            // In that case, we should not update the time of native
-                            // initialization, and instead only update the time of the last
-                            // disabled call so we don't count any time while this instance was
-                            // hidden/backgrounded.
-                            if (mIsCurrentlyAutoDisabled) {
-                                mHistogramRecorder.showAutoDisabledInstance();
-                            } else {
-                                mHistogramRecorder.updateTimeOfNativeInitialization();
+                            // Accessibility state may have changed while |this| was not shown, so
+                            // refresh.
+                            refreshNativeState();
+                            if (isNativeInitialized()) {
+                                // When we are in an initialized state, accessibility may be
+                                // disabled. In that case, we should not update the time of native
+                                // initialization, and instead only update the time of the last
+                                // disabled call so we don't count any time while this instance was
+                                // hidden/backgrounded.
+                                if (mIsCurrentlyAutoDisabled) {
+                                    mHistogramRecorder.showAutoDisabledInstance();
+                                } else {
+                                    mHistogramRecorder.updateTimeOfNativeInitialization();
+                                }
                             }
-                        }
-                    }
+                        } else {
+                            // The Tab holding |this| instance was hidden or occluded, e.g. a new
+                            // Tab was opened, user has backgrounded Chrome, opened Settings, etc.
+                            // Record usage times and reset state.
+                            mHistogramRecorder.recordAccessibilityUsageHistograms();
 
-                    @Override
-                    public void wasHidden() {
-                        // The Tab holding |this| instance was hidden, e.g. a new Tab was opened,
-                        // user has backgrounded Chrome, opened Settings, etc. Record usage times
-                        // and reset state.
-                        super.wasHidden();
-                        mHistogramRecorder.recordAccessibilityUsageHistograms();
-
-                        // When the native code was initialized, also record performance metrics.
-                        if (isNativeInitialized()) {
-                            mHistogramRecorder.recordAccessibilityPerformanceHistograms();
-                            // When we are in an initialized state, accessibility may be disabled.
-                            // In that case, we should keep an on-going sum of the time spent
-                            // disabled (without counting time while hidden/backgrounded).
-                            if (mIsCurrentlyAutoDisabled) {
-                                mHistogramRecorder.hideAutoDisabledInstance();
+                            // When the native code was initialized, also record performance
+                            // metrics.
+                            if (isNativeInitialized()) {
+                                mHistogramRecorder.recordAccessibilityPerformanceHistograms();
+                                // When we are in an initialized state, accessibility may be
+                                // disabled. In that case, we should keep an on-going sum of the
+                                // time spent disabled (without counting time while
+                                // hidden/backgrounded).
+                                if (mIsCurrentlyAutoDisabled) {
+                                    mHistogramRecorder.hideAutoDisabledInstance();
+                                }
+                                mAutoDisableAccessibilityHandler.cancelDisableTimer();
                             }
-                            mAutoDisableAccessibilityHandler.cancelDisableTimer();
                         }
                     }
                 };
@@ -638,9 +655,9 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
             mCaptioningController.stopListening();
 
             // Destroy the WebContentsObserver if |this| is no longer attached to a Window, but
-            // first record whatever data we have collected since #wasHidden may not have been
-            // called, for example when opening the Tab Switcher. Timers will restart during the
-            // next onAttach.
+            // first record whatever data we have collected since
+            // onVisibilityChanged(Visibility.HIDDEN) may not have been called, for example when
+            // opening the Tab Switcher. Timers will restart during the next onAttach.
             if (mWebContentsObserver != null) {
                 mHistogramRecorder.recordAccessibilityUsageHistograms();
                 mWebContentsObserver.destroy();
@@ -650,7 +667,18 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
             // When the native code was initialized, also record performance metrics unregister
             // our broadcast receiver.
             if (isNativeInitialized()) {
-                ContextUtils.getApplicationContext().unregisterReceiver(mBroadcastReceiver);
+                if (mIsBroadcastReceiverRegistered) {
+                    if (ContentFeatureMap.isEnabled(
+                            ACCESSIBILITY_MANAGE_BROADCAST_RECEIVER_ON_BACKGROUND)) {
+                        sSequencedTaskRunner.execute(
+                                () ->
+                                        ContextUtils.getApplicationContext()
+                                                .unregisterReceiver(mBroadcastReceiver));
+                    } else {
+                        ContextUtils.getApplicationContext().unregisterReceiver(mBroadcastReceiver);
+                    }
+                    mIsBroadcastReceiverRegistered = false;
+                }
                 mHistogramRecorder.recordAccessibilityPerformanceHistograms();
                 // When we are in an initialized state, accessibility may be disabled. In that
                 // case, we should keep an on-going sum of the time spent disabled (without
@@ -670,7 +698,7 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         // When webContents is non-null (e.g. not a Paint Preview), we will track usage stats.
         if (mDelegate.getWebContents() != null) {
             registerWebContentsObserver(mDelegate.getWebContents());
-            mWebContentsObserver.wasShown();
+            mWebContentsObserver.onVisibilityChanged(Visibility.VISIBLE);
         }
 
         refreshNativeState();
@@ -681,16 +709,25 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
             mCaptioningController.startListening();
         }
 
-        registerLocaleChangeReceiver();
+        if (isNativeInitialized()) {
+            if (ContentFeatureMap.isEnabled(
+                    ACCESSIBILITY_MANAGE_BROADCAST_RECEIVER_ON_BACKGROUND)) {
+                // To prevent having empty languageTag until this background task runs.
+                mSystemLanguageTag = Locale.getDefault().toLanguageTag();
+                sSequencedTaskRunner.execute(this::registerLocaleChangeReceiver);
+            } else {
+                registerLocaleChangeReceiver();
+            }
+        }
         TraceEvent.end("WebContentsAccessibilityImpl.onAttachedToWindow");
     }
 
     private void registerLocaleChangeReceiver() {
-        if (!isNativeInitialized()) return;
         try {
             IntentFilter filter = new IntentFilter(Intent.ACTION_LOCALE_CHANGED);
             ContextUtils.registerProtectedBroadcastReceiver(
                     ContextUtils.getApplicationContext(), mBroadcastReceiver, filter);
+            mIsBroadcastReceiverRegistered = true;
         } catch (ReceiverCallNotAllowedException e) {
             // WebView may be running inside a BroadcastReceiver, in which case registerReceiver is
             // not allowed.
@@ -777,33 +814,30 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
             mEventDispatcher.updateRelevantEventTypes(
                     AccessibilityState.relevantEventTypesForCurrentServices());
 
-            // If the auto-disable feature is enabled, then we will disable renderer accessibility
-            // and tear down objects when no accessibility services are running. If we have
-            // disabled then re-enabled the renderer multiple times for this instance, then we
-            // will return early and keep accessibility enabled to prevent further churn.
-            if (ContentFeatureMap.isEnabled(ContentFeatureList.AUTO_DISABLE_ACCESSIBILITY_V2)) {
-                if (mAutoDisableUsageCounter >= AUTO_DISABLE_SINGLE_INSTANCE_TOGGLE_LIMIT
-                        || !mIsAutoDisableAccessibilityCandidate) {
-                    mAutoDisableAccessibilityHandler.cancelDisableTimer();
-                    return;
-                }
+            // When no accessibility services are running, disable renderer accessibility and tear
+            // down objects. If we have disabled then re-enabled the renderer accessibility multiple
+            // times for this instance, return early and keep enabled to prevent further churn.
+            if (mAutoDisableUsageCounter >= AUTO_DISABLE_SINGLE_INSTANCE_TOGGLE_LIMIT
+                    || !mIsAutoDisableAccessibilityCandidate) {
+                mAutoDisableAccessibilityHandler.cancelDisableTimer();
+                return;
+            }
 
-                // The C++ and Java instances are not fully connected until the root manager has
-                // been connected, which will happen asynchronously. Accessibility cannot be auto
-                // disabled and re-enabled when there is no root manager. See note in
-                // {@link web_contents_accessibility_android.h}.
-                if (!isRootManagerConnected()) return;
+            // The C++ and Java instances are not fully connected until the root manager has
+            // been connected, which will happen asynchronously. Accessibility cannot be auto
+            // disabled and re-enabled when there is no root manager. See note in
+            // {@link web_contents_accessibility_android.h}.
+            if (!isRootManagerConnected()) return;
 
-                // If accessibility was auto-disabled, then we do not want to restart a new timer.
-                if (mIsCurrentlyAutoDisabled) return;
+            // If accessibility was auto-disabled, then we do not want to restart a new timer.
+            if (mIsCurrentlyAutoDisabled) return;
 
-                if (!AccessibilityState.isAnyAccessibilityServiceEnabled()) {
-                    mAutoDisableAccessibilityHandler.cancelDisableTimer();
-                    mAutoDisableAccessibilityHandler.startDisableTimer(
-                            NO_ACCESSIBILITY_SERVICES_ENABLED_DELAY_MS);
-                } else {
-                    mAutoDisableAccessibilityHandler.cancelDisableTimer();
-                }
+            if (!AccessibilityState.isAnyAccessibilityServiceEnabled()) {
+                mAutoDisableAccessibilityHandler.cancelDisableTimer();
+                mAutoDisableAccessibilityHandler.startDisableTimer(
+                        NO_ACCESSIBILITY_SERVICES_ENABLED_DELAY_MS);
+            } else {
+                mAutoDisableAccessibilityHandler.cancelDisableTimer();
             }
         }
     }
@@ -884,7 +918,8 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         // so temporarily set the |mAccessibilityEnabledOverride| flag to true, then disable it.
         mAccessibilityEnabledOverride = true;
         String returnString =
-                AccessibilityNodeInfoUtils.toString(createAccessibilityNodeInfo(virtualViewId));
+                AccessibilityNodeInfoUtils.toString(
+                        createAccessibilityNodeInfo(virtualViewId), true);
         mAccessibilityEnabledOverride = false;
         return returnString;
     }
@@ -1057,24 +1092,50 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
 
         mHasFinishedLatestAccessibilitySnapshot = false;
         long beforeSnapshotTimeMs = SystemClock.elapsedRealtime();
-        mDelegate.requestAccessibilitySnapshot(
-                viewRoot,
-                () -> {
-                    viewRoot.asyncCommit();
-                    mHasFinishedLatestAccessibilitySnapshot = true;
 
-                    if (AccessibilityFeaturesMap.isEnabled(
-                            AccessibilityFeatures.ACCESSIBILITY_SNAPSHOT_STRESS_TESTS)) {
-                        long snapshotRuntimeMs =
-                                SystemClock.elapsedRealtime() - beforeSnapshotTimeMs;
-                        RecordHistogram.recordLinearCountHistogram(
-                                "Accessibility.AXTreeSnapshotter.Snapshot.EndToEndRuntime",
-                                (int) snapshotRuntimeMs,
-                                1,
-                                5 * 1000,
-                                100);
-                    }
-                });
+        if (ContentFeatureMap.isEnabled(ContentFeatureList.ACCESSIBILITY_UNIFIED_SNAPSHOTS)) {
+            mNativeAssistDataObj =
+                    WebContentsAccessibilityImplJni.get()
+                            .initForAssistData(
+                                    WebContentsAccessibilityImpl.this,
+                                    webContents,
+                                    new AssistDataBuilder());
+
+            WebContentsAccessibilityImplJni.get()
+                    .requestAccessibilityTreeSnapshot(
+                            mNativeAssistDataObj,
+                            viewRoot,
+                            mDelegate.getAccessibilityCoordinates(),
+                            mView,
+                            () -> onSnapshotDoneCallback(viewRoot, beforeSnapshotTimeMs));
+        } else {
+            mDelegate.requestAccessibilitySnapshot(
+                    viewRoot, () -> onSnapshotDoneCallback(viewRoot, beforeSnapshotTimeMs));
+        }
+    }
+
+    private void onSnapshotDoneCallback(ViewStructure viewRoot, long beforeSnapshotTimeMs) {
+        viewRoot.asyncCommit();
+        mHasFinishedLatestAccessibilitySnapshot = true;
+
+        if (AccessibilityFeaturesMap.isEnabled(
+                AccessibilityFeatures.ACCESSIBILITY_SNAPSHOT_STRESS_TESTS)) {
+            long snapshotRuntimeMs = SystemClock.elapsedRealtime() - beforeSnapshotTimeMs;
+            RecordHistogram.recordLinearCountHistogram(
+                    "Accessibility.AXTreeSnapshotter.Snapshot.EndToEndRuntime",
+                    (int) snapshotRuntimeMs,
+                    1,
+                    5 * 1000,
+                    100);
+        }
+
+        if (ContentFeatureMap.isEnabled(ContentFeatureList.ACCESSIBILITY_UNIFIED_SNAPSHOTS)) {
+            // In some cases (e.g. testing) the full engine may also be running, so don't delete.
+            if (!isNativeInitialized()) {
+                WebContentsAccessibilityImplJni.get().deleteEarly(mNativeAssistDataObj);
+                mNativeAssistDataObj = 0;
+            }
+        }
     }
 
     @Override
@@ -1132,7 +1193,11 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
             if (elementType == null) return false;
             elementType = elementType.toUpperCase(Locale.US);
             return jumpToElementType(
-                    virtualViewId, elementType, /* forwards= */ true, /* canWrap= */ false);
+                    virtualViewId,
+                    elementType,
+                    /* forwards= */ true,
+                    /* canWrap= */ false,
+                    /* setSequentialFocus= */ true);
         } else if (action == ACTION_PREVIOUS_HTML_ELEMENT.getId()) {
             if (arguments == null) return false;
             String elementType = arguments.getString(ACTION_ARGUMENT_HTML_ELEMENT_STRING);
@@ -1142,7 +1207,8 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
                     virtualViewId,
                     elementType,
                     /* forwards= */ false,
-                    /* canWrap= */ virtualViewId == mCurrentRootId);
+                    /* canWrap= */ virtualViewId == mCurrentRootId,
+                    /* setSequentialFocus= */ true);
         } else if (action == ACTION_SET_TEXT.getId()) {
             if (!WebContentsAccessibilityImplJni.get().isEditableText(mNativeObj, virtualViewId)) {
                 return false;
@@ -1187,7 +1253,8 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
                         virtualViewId,
                         PARAGRAPH_ELEMENT_TYPE,
                         /* forwards= */ true,
-                        /* canWrap= */ false);
+                        /* canWrap= */ false,
+                        /* setSequentialFocus= */ false);
             }
             return nextAtGranularity(granularity, extend, virtualViewId);
         } else if (action == ACTION_PREVIOUS_AT_MOVEMENT_GRANULARITY.getId()) {
@@ -1206,7 +1273,8 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
                         virtualViewId,
                         PARAGRAPH_ELEMENT_TYPE,
                         /* forwards= */ false,
-                        /* canWrap= */ virtualViewId == mCurrentRootId);
+                        /* canWrap= */ virtualViewId == mCurrentRootId,
+                        /* setSequentialFocus= */ false);
             }
             return previousAtGranularity(granularity, extend, virtualViewId);
         } else if (action == ACTION_SCROLL_FORWARD.getId()) {
@@ -1388,12 +1456,16 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         // AccessibilityNodeInfoCompat for this element before.
         if (!mShouldFocusOnPageLoad) return;
         if (mAccessibilityFocusId != View.NO_ID) {
-            moveAccessibilityFocusToIdAndRefocusIfNeeded(mAccessibilityFocusId);
+            moveAccessibilityFocusToId(mAccessibilityFocusId);
         }
     }
 
     private boolean jumpToElementType(
-            int virtualViewId, String elementType, boolean forwards, boolean canWrap) {
+            int virtualViewId,
+            String elementType,
+            boolean forwards,
+            boolean canWrap,
+            boolean setSequentialFocus) {
         int id =
                 WebContentsAccessibilityImplJni.get()
                         .findElementType(
@@ -1404,6 +1476,11 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
                                 canWrap,
                                 elementType.isEmpty());
         if (id == 0) return false;
+
+        if (setSequentialFocus) {
+            mPendingSetSequentialFocus = true;
+            WebContentsAccessibilityImplJni.get().setSequentialFocusStartingPoint(mNativeObj, id);
+        }
 
         moveAccessibilityFocusToId(id);
         scrollToMakeNodeVisible(mAccessibilityFocusId);
@@ -1682,19 +1759,6 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         return true;
     }
 
-    private void moveAccessibilityFocusToIdAndRefocusIfNeeded(int newAccessibilityFocusId) {
-        // Work around a bug in the Android framework where it doesn't fully update the object
-        // with accessibility focus even if you send it a WINDOW_CONTENT_CHANGED. To work around
-        // this, clear focus and then set focus again.
-        if (newAccessibilityFocusId == mAccessibilityFocusId) {
-            sendAccessibilityEvent(
-                    newAccessibilityFocusId,
-                    AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED);
-            mAccessibilityFocusId = View.NO_ID;
-        }
-        moveAccessibilityFocusToId(newAccessibilityFocusId);
-    }
-
     /**
      * Send a WINDOW_CONTENT_CHANGED event after a short delay. This helps throttle such
      * events from firing too quickly during animations, for example.
@@ -1809,6 +1873,18 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         // already within this WebView.
         if (!mShouldFocusOnPageLoad && mAccessibilityFocusId == View.NO_ID) return;
 
+        if (mPendingSetSequentialFocus) {
+            mPendingSetSequentialFocus = false;
+
+            // Ignore focuses on the root. Setting sequential focus can
+            // result in a blur aka focus on the root. This interferes
+            // with some accessibility services that move accessibility
+            // focus along with input focus.
+            if (mCurrentRootId == id) {
+                return;
+            }
+        }
+
         sendAccessibilityEvent(id, AccessibilityEvent.TYPE_VIEW_FOCUSED);
         moveAccessibilityFocusToId(id);
     }
@@ -1911,13 +1987,13 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         // using an AXTree that was cached.
         if (mDelegate.getNativeAXTree() != 0) {
             // As a workaround force the node into focus when a paint preview is showing.
-            moveAccessibilityFocusToIdAndRefocusIfNeeded(id);
+            moveAccessibilityFocusToId(id);
         }
     }
 
     @CalledByNative
     @SuppressLint("WrongConstant")
-    protected void handleDialogModalOpened(int virtualViewId) {
+    protected void handlePaneOpened(int virtualViewId) {
         if (isAccessibilityEnabled()) {
             AccessibilityEvent event =
                     AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
@@ -1931,6 +2007,9 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
 
     @CalledByNative
     private void announceLiveRegionText(String text) {
+        assert !ContentFeatureMap.isEnabled(
+                        ContentFeatureList.ACCESSIBILITY_DEPRECATE_TYPE_ANNOUNCE)
+                : "No views should be forcing an announcement outside approved instances.";
         if (isAccessibilityEnabled()) {
             AccessibilityEvent event =
                     AccessibilityEvent.obtain(AccessibilityEvent.TYPE_ANNOUNCEMENT);
@@ -2057,7 +2136,10 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
         if (arguments == null) return;
 
         if (!areInlineTextBoxesLoaded(virtualViewId)) {
+            mHistogramRecorder.recordInlineTextBoxesDuplicateRequestHistogram(false);
             loadInlineTextBoxes(virtualViewId);
+        } else {
+            mHistogramRecorder.recordInlineTextBoxesDuplicateRequestHistogram(true);
         }
 
         int positionInfoStartIndex =
@@ -2080,8 +2162,8 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
                             coords[4 * i + 1],
                             coords[4 * i + 2],
                             coords[4 * i + 3]);
-            mAccessibilityNodeInfoBuilder.convertWebRectToAndroidCoordinates(
-                    rect, info.getExtras());
+            AccessibilityNodeInfoBuilder.convertWebRectToAndroidCoordinates(
+                    rect, info.getExtras(), mDelegate.getAccessibilityCoordinates(), mView);
             boundingRects[i] = new RectF(rect);
         }
 
@@ -2111,6 +2193,19 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
                 WebContentsAccessibilityImpl caller,
                 long axTreePtr,
                 AccessibilityNodeInfoBuilder builder);
+
+        // These two methods are only used for one-off accessibility tree snapshots.
+        long initForAssistData(
+                WebContentsAccessibilityImpl caller,
+                WebContents webContents,
+                AssistDataBuilder builder);
+
+        void requestAccessibilityTreeSnapshot(
+                long nativeWebContentsAccessibilityAndroid,
+                ViewStructure viewRoot,
+                AccessibilityDelegate.AccessibilityCoordinates accessibilityCoordinates,
+                View view,
+                Runnable onDoneCallback);
 
         void connectInstanceToRootManager(long nativeWebContentsAccessibilityAndroid);
 
@@ -2204,6 +2299,8 @@ public class WebContentsAccessibilityImpl extends AccessibilityNodeProviderCompa
 
         void moveAccessibilityFocus(
                 long nativeWebContentsAccessibilityAndroid, int oldId, int newId);
+
+        void setSequentialFocusStartingPoint(long nativeWebContentsAccessibilityAndroid, int id);
 
         boolean isSlider(long nativeWebContentsAccessibilityAndroid, int id);
 

@@ -6,7 +6,9 @@
 #define IOS_WEB_WEB_STATE_WEB_STATE_IMPL_REALIZED_WEB_STATE_H_
 
 #include <map>
+#include <string_view>
 
+#import "base/memory/raw_ptr.h"
 #import "ios/web/public/web_state_observer.h"
 #import "ios/web/web_state/web_state_impl.h"
 
@@ -120,11 +122,12 @@ class WebStateImpl::RealizedWebState final : public NavigationManagerDelegate {
   void SetIsLoading(bool is_loading);
   void OnPageLoaded(const GURL& url, bool load_success);
   void OnFaviconUrlUpdated(const std::vector<FaviconURL>& candidates);
+  void OnUnderPageBackgroundColorChanged();
   void CreateWebUI(const GURL& url);
   void ClearWebUI();
   bool HasWebUI() const;
   void HandleWebUIMessage(const GURL& source_url,
-                          base::StringPiece message,
+                          std::string_view message,
                           const base::Value::List& args);
   void SetContentsMimeType(const std::string& mime_type);
   void ShouldAllowRequest(
@@ -265,14 +268,14 @@ class WebStateImpl::RealizedWebState final : public NavigationManagerDelegate {
       base::OnceCallback<void(Args...)> callback);
 
   // Owner. Never null. Owns this object.
-  WebStateImpl* const owner_;
+  const raw_ptr<WebStateImpl> owner_;
 
   // The InterfaceBinder exposed by WebStateImpl. Used to handle Mojo
   // interface requests from the main frame.
   InterfaceBinder interface_binder_;
 
   // Delegate, not owned by this object.
-  WebStateDelegate* delegate_ = nullptr;
+  raw_ptr<WebStateDelegate> delegate_ = nullptr;
 
   // Stores whether the web state is currently loading a page.
   bool is_loading_ = false;

@@ -19,7 +19,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "mojo/core/embedder/embedder.h"
-#include "remoting/base/breakpad.h"
+#include "remoting/base/crash/breakpad.h"
 #include "remoting/base/logging.h"
 #include "remoting/host/base/host_exit_codes.h"
 #include "remoting/host/base/switches.h"
@@ -222,7 +222,18 @@ int HostMain(int argc, char** argv) {
   // be initialized first, so that the preference for crash-reporting can be
   // looked up in the config file.
   if (IsUsageStatsAllowed()) {
+#if BUILDFLAG(IS_LINUX)
     InitializeCrashReporting();
+#elif BUILDFLAG(IS_WIN)
+    // TODO: joedow - Enable crash reporting for the RDP process.
+    if (process_type == kProcessTypeDesktop ||
+        process_type == kProcessTypeDaemon) {
+      InitializeCrashReporting();
+    } else if (command_line->HasSwitch(kCrashServerPipeHandle)) {
+      InitializeOopCrashClient(
+          command_line->GetSwitchValueASCII(kCrashServerPipeHandle));
+    }
+#endif
   }
 #endif  // defined(REMOTING_ENABLE_BREAKPAD)
 
@@ -249,9 +260,12 @@ int HostMain(int argc, char** argv) {
 
   mojo::core::Init({
 #if BUILDFLAG(IS_WIN)
-    .is_broker_process = main_routine == &DaemonProcessMain
+      .is_broker_process = main_routine == &DaemonProcessMain
+#elif BUILDFLAG(IS_MAC)
+      // The broker process on Mac is the agent process broker.
+      .is_broker_process = false
 #else
-    .is_broker_process = main_routine == &HostProcessMain
+      .is_broker_process = main_routine == &HostProcessMain
 #endif
   });
 

@@ -20,9 +20,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DoNotBatch;
@@ -41,23 +41,19 @@ import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.BookmarkTestUtil;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.TabStripUtils;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.embedder_support.util.UrlConstants;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.accessibility.AccessibilityState;
-import org.chromium.ui.test.util.UiRestriction;
+import org.chromium.ui.base.DeviceFormFactor;
 
 /** Tests for the bookmark manager on tablet. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-@Restriction({UiRestriction.RESTRICTION_TYPE_TABLET})
-// TODO(crbug.com/1426138): Investigate batching.
+@Restriction({DeviceFormFactor.TABLET})
+// TODO(crbug.com/40899175): Investigate batching.
 @DoNotBatch(reason = "Test has side-effects (bookmarks, pageloads) and thus can't be batched.")
 public class BookmarkTabletTest {
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
-
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
 
     private BookmarkManagerCoordinator mBookmarkManagerCoordinator;
     private BookmarkModel mBookmarkModel;
@@ -66,9 +62,10 @@ public class BookmarkTabletTest {
     @Before
     public void setUp() {
         mActivityTestRule.startMainActivityOnBlankPage();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mBookmarkModel = mActivityTestRule.getActivity().getBookmarkModelForTesting();
+                    mBookmarkModel.loadEmptyPartnerBookmarkShimForTesting();
                 });
     }
 
@@ -83,7 +80,7 @@ public class BookmarkTabletTest {
                 ((BookmarkPage) mActivityTestRule.getActivity().getActivityTab().getNativePage())
                         .getManagerForTesting();
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> AccessibilityState.setIsAnyAccessibilityServiceEnabledForTesting(false));
     }
 
@@ -142,7 +139,7 @@ public class BookmarkTabletTest {
         BookmarkTestUtil.waitForBookmarkModelLoaded();
 
         CallbackHelper callbackHelper = new CallbackHelper();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     Tab tab = mActivityTestRule.getActivity().getActivityTab();
                     tab.addObserver(

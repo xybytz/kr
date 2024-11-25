@@ -102,7 +102,6 @@ SharedMemoryBufferTracker::DuplicateAsUnsafeRegion() {
 gfx::GpuMemoryBufferHandle
 SharedMemoryBufferTracker::GetGpuMemoryBufferHandle() {
   NOTREACHED() << "Unsupported operation";
-  return gfx::GpuMemoryBufferHandle();
 }
 
 VideoCaptureBufferType SharedMemoryBufferTracker::GetBufferType() {

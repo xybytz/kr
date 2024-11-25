@@ -16,10 +16,12 @@
 #include "components/autofill/core/browser/test_autofill_client.h"
 #include "components/autofill/core/browser/test_autofill_driver.h"
 #include "components/autofill/core/browser/test_browser_autofill_manager.h"
+#include "components/autofill/core/browser/test_personal_data_manager.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
+
 using ::autofill::FastCheckoutTriggerOutcome;
 using ::autofill::FastCheckoutUIState;
 using ::testing::Return;
@@ -50,7 +52,7 @@ class MockPersonalDataHelper : public FastCheckoutPersonalDataHelper {
               GetValidCreditCards,
               (),
               (const override));
-  MOCK_METHOD(std::vector<autofill::AutofillProfile*>,
+  MOCK_METHOD(std::vector<const autofill::AutofillProfile*>,
               GetValidAddressProfiles,
               (),
               (const override));
@@ -58,7 +60,7 @@ class MockPersonalDataHelper : public FastCheckoutPersonalDataHelper {
               GetPersonalDataManager,
               (),
               (const override));
-  MOCK_METHOD(std::vector<autofill::AutofillProfile*>,
+  MOCK_METHOD(std::vector<const autofill::AutofillProfile*>,
               GetProfilesToSuggest,
               (),
               (const override));
@@ -66,15 +68,6 @@ class MockPersonalDataHelper : public FastCheckoutPersonalDataHelper {
               GetCreditCardsToSuggest,
               (),
               (const override));
-};
-
-class MockPersonalDataManager : public autofill::PersonalDataManager {
- public:
-  MockPersonalDataManager() : PersonalDataManager("en-US") {}
-  ~MockPersonalDataManager() override = default;
-
-  MOCK_METHOD(bool, IsAutofillProfileEnabled, (), (const override));
-  MOCK_METHOD(bool, IsAutofillPaymentMethodsEnabled, (), (const override));
 };
 
 class FastCheckoutTriggerValidatorTest
@@ -86,7 +79,6 @@ class FastCheckoutTriggerValidatorTest
   void SetUp() override {
     content::RenderViewHostTestHarness::SetUp();
 
-    pdm_ = std::make_unique<MockPersonalDataManager>();
     capabilities_fetcher_ =
         std::make_unique<MockFastCheckoutCapabilitiesFetcher>();
     personal_data_helper_ = std::make_unique<MockPersonalDataHelper>();
@@ -105,18 +97,18 @@ class FastCheckoutTriggerValidatorTest
             Return(std::vector<autofill::CreditCard*>{&credit_card_}));
     ON_CALL(*personal_data_helper(), GetValidAddressProfiles)
         .WillByDefault(
-            Return(std::vector<autofill::AutofillProfile*>{&profile_}));
+            Return(std::vector<const autofill::AutofillProfile*>{&profile_}));
     ON_CALL(*personal_data_helper(), GetPersonalDataManager)
-        .WillByDefault(Return(pdm()));
-    ON_CALL(*pdm(), IsAutofillPaymentMethodsEnabled)
-        .WillByDefault(Return(true));
-    ON_CALL(*pdm(), IsAutofillProfileEnabled).WillByDefault(Return(true));
+        .WillByDefault(Return(&pdm()));
     ON_CALL(*autofill_client(), IsContextSecure).WillByDefault(Return(true));
     ON_CALL(*autofill_client(), GetVariationConfigCountryCode)
         .WillByDefault(Return(GeoIpCountryCode("US")));
+
+    pdm().test_address_data_manager().SetAutofillProfileEnabled(true);
+    pdm().test_payments_data_manager().SetAutofillPaymentMethodsEnabled(true);
   }
 
-  MockPersonalDataManager* pdm() { return pdm_.get(); }
+  autofill::TestPersonalDataManager& pdm() { return pdm_; }
   MockAutofillClient* autofill_client() {
     return autofill_client_injector_[web_contents()];
   }
@@ -156,7 +148,7 @@ class FastCheckoutTriggerValidatorTest
   std::unique_ptr<FastCheckoutTriggerValidatorImpl> validator_;
   std::unique_ptr<MockFastCheckoutCapabilitiesFetcher> capabilities_fetcher_;
   std::unique_ptr<MockPersonalDataHelper> personal_data_helper_;
-  std::unique_ptr<MockPersonalDataManager> pdm_;
+  autofill::TestPersonalDataManager pdm_;
 };
 
 TEST_F(FastCheckoutTriggerValidatorTest, ShouldRun_AllChecksPass_ReturnsTrue) {
@@ -194,12 +186,12 @@ TEST_F(FastCheckoutTriggerValidatorTest, ShouldRun_UiWasShown_ReturnsFalse) {
 
 TEST_F(FastCheckoutTriggerValidatorTest,
        ShouldRun_FieldNotFocusable_ReturnsFalse) {
-  field_.is_focusable = false;
+  field_.set_is_focusable(false);
   EXPECT_EQ(ShouldRun(), FastCheckoutTriggerOutcome::kFailureFieldNotFocusable);
 }
 
 TEST_F(FastCheckoutTriggerValidatorTest, ShouldRun_FieldHasValue_ReturnsFalse) {
-  field_.value = u"value";
+  field_.set_value(u"value");
   EXPECT_EQ(ShouldRun(), FastCheckoutTriggerOutcome::kFailureFieldNotEmpty);
 }
 
@@ -212,14 +204,14 @@ TEST_F(FastCheckoutTriggerValidatorTest,
 
 TEST_F(FastCheckoutTriggerValidatorTest,
        ShouldRun_AutofillProfileDisabled_ReturnsFalse) {
-  ON_CALL(*pdm(), IsAutofillProfileEnabled).WillByDefault(Return(false));
+  pdm().test_address_data_manager().SetAutofillProfileEnabled(false);
   EXPECT_EQ(ShouldRun(),
             FastCheckoutTriggerOutcome::kFailureAutofillProfileDisabled);
 }
 
 TEST_F(FastCheckoutTriggerValidatorTest,
        ShouldRun_CreditCardDisabled_ReturnsFalse) {
-  ON_CALL(*pdm(), IsAutofillPaymentMethodsEnabled).WillByDefault(Return(false));
+  pdm().test_payments_data_manager().SetAutofillPaymentMethodsEnabled(false);
   EXPECT_EQ(ShouldRun(),
             FastCheckoutTriggerOutcome::kFailureAutofillCreditCardDisabled);
 }
@@ -227,7 +219,7 @@ TEST_F(FastCheckoutTriggerValidatorTest,
 TEST_F(FastCheckoutTriggerValidatorTest,
        ShouldRun_NoValidAddressProfiles_ReturnsFalse) {
   ON_CALL(*personal_data_helper(), GetValidAddressProfiles)
-      .WillByDefault(Return(std::vector<autofill::AutofillProfile*>{}));
+      .WillByDefault(Return(std::vector<const autofill::AutofillProfile*>{}));
   EXPECT_EQ(ShouldRun(),
             FastCheckoutTriggerOutcome::kFailureNoValidAutofillProfile);
 }

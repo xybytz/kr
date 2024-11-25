@@ -8,13 +8,12 @@
 
 namespace autofill {
 
-class IbanFieldTest
-    : public FormFieldTestBase,
-      public testing::TestWithParam<PatternProviderFeatureState> {
+class IbanFieldParserTest : public FormFieldParserTestBase,
+                            public testing::Test {
  public:
-  IbanFieldTest() : FormFieldTestBase(GetParam()) {}
-  IbanFieldTest(const IbanFieldTest&) = delete;
-  IbanFieldTest& operator=(const IbanFieldTest&) = delete;
+  IbanFieldParserTest() = default;
+  IbanFieldParserTest(const IbanFieldParserTest&) = delete;
+  IbanFieldParserTest& operator=(const IbanFieldParserTest&) = delete;
 
  protected:
   std::unique_ptr<FormFieldParser> Parse(ParsingContext& context,
@@ -23,28 +22,23 @@ class IbanFieldTest
   }
 };
 
-INSTANTIATE_TEST_SUITE_P(
-    IbanFieldTest,
-    IbanFieldTest,
-    ::testing::ValuesIn(PatternProviderFeatureState::All()));
-
 // Match IBAN
-TEST_P(IbanFieldTest, ParseIban) {
+TEST_F(IbanFieldParserTest, ParseIban) {
   AddTextFormFieldData("iban-field", "Enter account number", IBAN_VALUE);
 
-  ClassifyAndVerify(ParseResult::PARSED);
+  ClassifyAndVerify(ParseResult::kParsed);
 }
 
-TEST_P(IbanFieldTest, ParseIbanBanks) {
+TEST_F(IbanFieldParserTest, ParseIbanBanks) {
   AddTextFormFieldData("accountNumber", "IBAN*", IBAN_VALUE);
 
-  ClassifyAndVerify(ParseResult::PARSED);
+  ClassifyAndVerify(ParseResult::kParsed);
 }
 
-TEST_P(IbanFieldTest, ParseNonIban) {
+TEST_F(IbanFieldParserTest, ParseNonIban) {
   AddTextFormFieldData("other-field", "Field for Account Number", UNKNOWN_TYPE);
 
-  ClassifyAndVerify(ParseResult::NOT_PARSED);
+  ClassifyAndVerify(ParseResult::kNotParsed);
 }
 
 }  // namespace autofill

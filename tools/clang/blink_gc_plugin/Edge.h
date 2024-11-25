@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <deque>
+#include <string>
 #include <vector>
 
 #include "TracingStatus.h"
@@ -111,6 +112,7 @@ class Edge {
   virtual bool IsMember() { return false; }
   virtual bool IsWeakMember() { return false; }
   virtual bool IsCollection() { return false; }
+  virtual bool IsArray() { return false; }
   virtual bool IsTraceWrapperV8Reference() { return false; }
 };
 
@@ -139,6 +141,7 @@ class ArrayEdge : public Edge {
   }
   void Accept(EdgeVisitor* visitor) override { visitor->VisitArrayEdge(this); }
   Edge* element() { return value_; }
+  bool IsArray() override { return true; }
 
  private:
   Edge* value_;
@@ -289,6 +292,7 @@ class Collection : public Edge {
   }
   bool NeedsFinalization() override;
   TracingStatus NeedsTracing(NeedsTracingOption) override;
+  std::string GetCollectionName() const;
 
  private:
   RecordInfo* info_;

@@ -5,6 +5,9 @@
 #ifndef CHROME_BROWSER_ASH_ARC_INPUT_OVERLAY_UI_EDITING_LIST_H_
 #define CHROME_BROWSER_ASH_ARC_INPUT_OVERLAY_UI_EDITING_LIST_H_
 
+#include <memory>
+
+#include "ash/style/pill_button.h"
 #include "base/callback_list.h"
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/arc/input_overlay/touch_injector_observer.h"
@@ -13,6 +16,8 @@
 
 namespace ash {
 class AnchoredNudge;
+class PillButton;
+class SystemShadow;
 }  // namespace ash
 
 namespace ui {
@@ -20,14 +25,15 @@ class LocatedEvent;
 }  // namespace ui
 
 namespace views {
+class Button;
 class Label;
 class LabelButton;
 class ScrollView;
-class TableLayoutView;
 }  // namespace views
 
 namespace arc::input_overlay {
 
+class ActionViewListItem;
 class DisplayOverlayController;
 
 // EditingList contains the list of controls.
@@ -42,8 +48,9 @@ class DisplayOverlayController;
 //   |  +---------------------------+  |
 //   +---------------------------------+
 class EditingList : public views::View, public TouchInjectorObserver {
+  METADATA_HEADER(EditingList, views::View)
+
  public:
-  METADATA_HEADER(EditingList);
   explicit EditingList(DisplayOverlayController* display_overlay_controller);
   EditingList(const EditingList&) = delete;
   EditingList& operator=(const EditingList&) = delete;
@@ -51,19 +58,21 @@ class EditingList : public views::View, public TouchInjectorObserver {
 
   void UpdateWidget();
 
+  ActionViewListItem* GetListItemForAction(Action* action);
+
  private:
   friend class ButtonOptionsMenuTest;
   friend class EditingListTest;
   friend class EditLabelTest;
   friend class OverlayViewTestBase;
 
+  class AddContainerButton;
+
   void Init();
   bool HasControls() const;
 
   // Add top buttons and title.
   void AddHeader();
-  // Adds the UI row for creating new actions.
-  void AddActionAddRow();
   // Add the list view for the actions / controls.
   void AddControlListContent();
 
@@ -74,10 +83,6 @@ class EditingList : public views::View, public TouchInjectorObserver {
 
   // Updates changes depending on whether `is_zero_state` is true.
   void UpdateOnZeroState(bool is_zero_state);
-
-  // Updates the `add_container_` background. If `add_background` is true, add
-  // a default background to `add_container_`. Otherwise, remove the background.
-  void UpdateAddContainerBackground(bool add_background);
 
   // Updates the `scroll_view_` when the `scroll_content_` changes. If
   // `scroll_to_bottom` is true, scroll `scroll_view_` to the bottom.
@@ -91,7 +96,6 @@ class EditingList : public views::View, public TouchInjectorObserver {
   void OnAddButtonPressed();
   void OnDoneButtonPressed();
   void OnHelpButtonPressed();
-  void UpdateAddButtonState();
 
   // Drag operations.
   void OnDragStart(const ui::LocatedEvent& event);
@@ -107,8 +111,8 @@ class EditingList : public views::View, public TouchInjectorObserver {
   void ClipScrollViewHeight(bool is_outside);
 
   // views::View:
-  gfx::Size CalculatePreferredSize() const override;
-  void OnThemeChanged() override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   bool OnMouseDragged(const ui::MouseEvent& event) override;
   void OnMouseReleased(const ui::MouseEvent& event) override;
@@ -120,12 +124,13 @@ class EditingList : public views::View, public TouchInjectorObserver {
   void OnActionRemoved(const Action& action) override;
   void OnActionTypeChanged(Action* action, Action* new_action) override;
   void OnActionInputBindingUpdated(const Action& action) override;
-  void OnActionNameUpdated(const Action& action) override;
   void OnActionNewStateRemoved(const Action& action) override;
 
   // For test.
   bool IsKeyEditNudgeShownForTesting() const;
   ash::AnchoredNudge* GetKeyEditNudgeForTesting() const;
+  views::LabelButton* GetAddButtonForTesting() const;
+  views::Button* GetAddContainerButtonForTesting() const;
 
   const raw_ptr<DisplayOverlayController> controller_;
 
@@ -137,10 +142,11 @@ class EditingList : public views::View, public TouchInjectorObserver {
   // Label for list header.
   raw_ptr<views::Label> editing_header_label_;
 
-  // UIs in the row of creating new action.
-  raw_ptr<views::TableLayoutView> add_container_;
-  raw_ptr<views::Label> add_title_;
-  raw_ptr<views::LabelButton> add_button_;
+  raw_ptr<AddContainerButton> add_container_;
+  raw_ptr<ash::PillButton> done_button_;
+
+  // Owned by this view.
+  std::unique_ptr<ash::SystemShadow> shadow_;
 
   // Used to tell if the zero state view shows up.
   bool is_zero_state_ = false;

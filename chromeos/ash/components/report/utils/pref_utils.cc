@@ -109,6 +109,7 @@ void RestoreLocalStateWithPreservedFile(PrefService* local_state,
           local_state->SetBoolean(
               prefs::kDeviceActiveLastKnownIsActiveCurrentPeriodMinus2,
               active_status.period_status().is_active_current_period_minus_2());
+
           WriteObservationLastPingTimestampIfValid(
               local_state,
               prefs::kDeviceActiveChurnObservationMonthlyPingTimestamp,

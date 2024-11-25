@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
+#include "base/types/expected.h"
 #include "base/values.h"
 #include "chrome/common/extensions/api/cookies.h"
 #include "net/cookies/canonical_cookie.h"
@@ -22,7 +23,6 @@
 #include "net/cookies/cookie_options.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
 
-class Browser;
 class Profile;
 
 namespace net {
@@ -32,6 +32,7 @@ class CanonicalCookie;
 namespace extensions {
 
 class Extension;
+class WindowController;
 
 namespace cookies_helpers {
 
@@ -94,39 +95,56 @@ void AppendMatchingCookiesFromCookieAccessResultListToVector(
 
 // Appends the IDs of all tabs belonging to the given browser to the
 // given list.
-void AppendToTabIdList(Browser* browser, base::Value::List& tab_ids);
+void AppendToTabIdList(WindowController* window, base::Value::List& tab_ids);
 
-// Checks if the partition_key provided, which may unknown user input,
-// can be used to deserialize into the net_partition_key.
-// Returns false and populates error_message string if deserialization
-// fails.
-bool ValidateCookieApiPartitionKey(
+// The extensions API allows the caller to provide an incomplete
+// partitionKey that does not contain a hasCrossSiteAncestor value. If the key
+// is incomplete, this method calculates the value for the hasCrossSiteAncestor
+// otherwise the existing value for hasCrossSiteAncestor is returned.
+base::expected<bool, std::string> CalculateHasCrossSiteAncestor(
+    const std::string& url_string,
+    std::optional<extensions::api::cookies::CookiePartitionKey>& partition_key);
+
+// Checks to make sure the has_cross_site_ancestor value is valid.
+// Returns false and populates error_out string on failure.
+bool ValidateCrossSiteAncestor(
+    const std::string& url_string,
     const std::optional<extensions::api::cookies::CookiePartitionKey>&
         partition_key,
-    std::optional<net::CookiePartitionKey>& net_partition_key,
-    std::string& error_message);
+    std::string* error_out);
+
+// Checks to make sure that the partition_key provided is valid and creates a
+// net::CookiePartitionKey from it.
+base::expected<std::optional<net::CookiePartitionKey>, std::string>
+ToNetCookiePartitionKey(
+    const std::optional<extensions::api::cookies::CookiePartitionKey>&
+        partition_key);
 
 // Returns empty collection if no partition_key.
 // Returns CookiePartitionKeyCollection::ContainsAll() if top_level_site has no
 // value. Returns CookiePartitionKeyCollection::FromOptional() if partition_key
 // and top_level_site are both present.
+//
+// If no value for partition_key->has_cross_site_ancestor is provided, keys with
+// both values will be used to create a collection.
 net::CookiePartitionKeyCollection
 CookiePartitionKeyCollectionFromApiPartitionKey(
     const std::optional<extensions::api::cookies::CookiePartitionKey>&
         partition_key);
 
-// returns true if cookie_partition_key_collection::ContainsAll
-// calls CookieMatchesPartitionKeyInDetails if the collection is not empty
+// Returns true for unpartitioned cookies if the collection is empty.
+// Otherwise returns true if the collection contains the cookie's partition key.
 bool CookieMatchesPartitionKeyCollection(
     const net::CookiePartitionKeyCollection& cookie_partition_key_collection,
     const net::CanonicalCookie& cookie);
 
-// Returns true if the top_level_site values match or the optional does not
-// contain a value.
-bool CookieMatchesPartitionKeyInDetails(
+// Returns true if the top_level_site values match or both optionals do not
+// contain a value. For match to occur both partition keys must be serializable
+// if they are present.
+bool CanonicalCookiePartitionKeyMatchesApiCookiePartitionKey(
     const std::optional<extensions::api::cookies::CookiePartitionKey>&
-        partition_key,
-    const net::CanonicalCookie& cookie);
+        api_partition_key,
+    const std::optional<net::CookiePartitionKey>& net_partition_key);
 
 // A class representing the cookie filter parameters passed into
 // cookies.getAll().

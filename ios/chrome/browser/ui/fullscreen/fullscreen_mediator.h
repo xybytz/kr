@@ -7,6 +7,7 @@
 
 #import <Foundation/Foundation.h>
 
+#import "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_animator.h"
@@ -66,7 +67,7 @@ class FullscreenMediator : public FullscreenModelObserver {
   void Disconnect();
 
   // Instructs the mediator to signal the need to resize the horizontal insets.
-  // TODO(crbug.com/1114054) remove after fixing multiwindow resizing issue.
+  // TODO(crbug.com/40143738) remove after fixing multiwindow resizing issue.
   void ResizeHorizontalInsets();
 
  private:
@@ -87,10 +88,14 @@ class FullscreenMediator : public FullscreenModelObserver {
   // animator's current progress value.
   void StopAnimating(bool update_model);
 
+  // Progress value when scroll event started.
+  float start_progress_;
+  // True if metrics as not been recorded and should be.
+  bool should_record_metrics_;
   // The controller.
-  FullscreenController* controller_ = nullptr;
+  raw_ptr<FullscreenController> controller_ = nullptr;
   // The model.
-  FullscreenModel* model_ = nullptr;
+  raw_ptr<FullscreenModel> model_ = nullptr;
   // The active animator.
   __strong FullscreenAnimator* animator_ = nil;
   // Fullscreen resizer, used to resize the WebView based on the fullscreen

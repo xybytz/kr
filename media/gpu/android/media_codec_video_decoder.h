@@ -6,6 +6,7 @@
 #define MEDIA_GPU_ANDROID_MEDIA_CODEC_VIDEO_DECODER_H_
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "base/containers/circular_deque.h"
@@ -30,7 +31,6 @@
 #include "media/gpu/android/surface_chooser_helper.h"
 #include "media/gpu/android/video_frame_factory.h"
 #include "media/gpu/media_gpu_export.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace media {
 
@@ -234,6 +234,12 @@ class MEDIA_GPU_EXPORT MediaCodecVideoDecoder final
   // position if required.
   PromotionHintAggregator::NotifyPromotionHintCB CreatePromotionHintCB();
 
+  // Returns true if the MediaCodec must be reallocated due to an increase in
+  // resolution.
+  bool CodecNeedsReallocation(int new_width);
+
+  std::vector<SupportedVideoDecoderConfig> GetSupportedConfigsInternal();
+
   std::unique_ptr<MediaLog> media_log_;
 
   State state_ = State::kInitializing;
@@ -249,7 +255,7 @@ class MEDIA_GPU_EXPORT MediaCodecVideoDecoder final
   bool waiting_for_key_ = false;
 
   // The reason for the current drain operation if any.
-  absl::optional<DrainType> drain_type_;
+  std::optional<DrainType> drain_type_;
 
   // The current reset cb if a Reset() is in progress.
   base::OnceClosure reset_cb_;
@@ -349,8 +355,13 @@ class MEDIA_GPU_EXPORT MediaCodecVideoDecoder final
   // it fails to get a codec.  This is to work around b/191966399.
   bool should_retry_codec_allocation_ = false;
 
-  // True if the created codec is software backed.
-  bool is_software_codec_ = false;
+  // Name of the MediaCodec that was created.
+  std::string codec_name_;
+
+  // Enables Block Model (LinearBlock).
+  const bool use_block_model_;
+
+  SEQUENCE_CHECKER(sequence_checker_);
 
   base::WeakPtrFactory<MediaCodecVideoDecoder> weak_factory_{this};
   base::WeakPtrFactory<MediaCodecVideoDecoder> codec_allocator_weak_factory_{

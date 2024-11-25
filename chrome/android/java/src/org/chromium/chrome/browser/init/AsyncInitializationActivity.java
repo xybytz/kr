@@ -21,7 +21,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
-import org.chromium.base.StrictModeContext;
+import org.chromium.base.Log;
+import org.chromium.base.ResettersForTesting;
 import org.chromium.base.SysUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.library_loader.LibraryLoader;
@@ -36,13 +37,12 @@ import org.chromium.chrome.browser.LaunchIntentDispatcher;
 import org.chromium.chrome.browser.WarmupManager;
 import org.chromium.chrome.browser.firstrun.FirstRunFlowSequencer;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
+import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcherProvider;
 import org.chromium.chrome.browser.metrics.SimpleStartupForegroundSessionDetector;
 import org.chromium.chrome.browser.multiwindow.MultiWindowModeStateDispatcher;
 import org.chromium.chrome.browser.multiwindow.MultiWindowModeStateDispatcherImpl;
-import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.profiles.ProfileProvider;
-import org.chromium.chrome.browser.tasks.tab_management.TabUiFeatureUtilities;
-import org.chromium.chrome.features.start_surface.StartSurfaceConfiguration;
+import org.chromium.chrome.browser.util.BrowserUiUtils;
 import org.chromium.components.browser_ui.share.ShareHelper;
 import org.chromium.components.browser_ui.util.FirstDrawDetector;
 import org.chromium.ui.base.ActivityIntentRequestTrackerDelegate;
@@ -56,9 +56,11 @@ import org.chromium.ui.display.DisplayUtil;
  * An activity that talks with application and activity level delegates for async initialization.
  */
 public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatActivity
-        implements ChromeActivityNativeDelegate, BrowserParts {
+        implements ChromeActivityNativeDelegate, BrowserParts, ActivityLifecycleDispatcherProvider {
     @VisibleForTesting
     public static final String FIRST_DRAW_COMPLETED_TIME_MS_UMA = "FirstDrawCompletedTime";
+
+    public static final String TAG_MULTI_INSTANCE = "MultiInstance";
 
     protected final Handler mHandler;
 
@@ -76,6 +78,9 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
 
     /** Time at which onPause is called. */
     private long mOnPauseTimestampMs;
+
+    /** Time at which onStart is called. */
+    private long mOnStartTimestampMs;
 
     /**
      * Time at which onPause is called before the activity is recreated due to unfolding. The
@@ -169,37 +174,31 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
     protected void performPreInflationStartup() {
         mIsTablet = DeviceFormFactor.isNonMultiDisplayContextOnTablet(this);
         mHadWarmStart = LibraryLoader.getInstance().isInitialized();
-        // TODO(https://crbug.com/948745): Dispatch in #preInflationStartup instead so that
+        SimpleStartupForegroundSessionDetector.onTransitionToForeground();
+        // TODO(crbug.com/40621278): Dispatch in #preInflationStartup instead so that
         // subclass's #performPreInflationStartup has executed before observers are notified.
         mLifecycleDispatcher.dispatchPreInflationStartup();
     }
 
     @Override
     public final void setContentViewAndLoadLibrary(Runnable onInflationCompleteCallback) {
-        boolean enableInstantStart = isInstantStartEnabled() && !mHadWarmStart;
         mOnInflationCompleteCallback = onInflationCompleteCallback;
-        if (enableInstantStart) {
-            triggerLayoutInflation();
-        }
 
-        // Start loading libraries. It happens before triggerLayoutInflation() for regular startup,
-        // but after triggerLayoutInflation() for instant start because we prioritize a Java UI and
-        // not rendering web content. This "hides" library loading behind UI inflation and prevents
-        // stalling UI thread. See https://crbug.com/796957 for details. Note that for optimal
-        // performance AsyncInitTaskRunner.startBackgroundTasks() needs to start warmup renderer
-        // only after library is loaded.
+        // Start loading libraries. It happens before triggerLayoutInflation(). This "hides" library
+        // loading behind UI inflation and prevents stalling UI thread.
+        // See https://crbug.com/796957 for details. Note that for optimal performance
+        // AsyncInitTaskRunner.startBackgroundTasks() needs to start warm up renderer only after
+        // library is loaded.
 
         if (!mStartupDelayed) {
             // Kick off long running IO tasks that can be done in parallel.
             mNativeInitializationController.startBackgroundTasks(shouldAllocateChildConnection());
         }
 
-        if (!enableInstantStart) {
-            triggerLayoutInflation();
-        }
+        triggerLayoutInflation();
     }
 
-    /** Controls the parameter of {@link NativeInitializationController#startBackgroundTasks}.*/
+    /** Controls the parameter of {@link NativeInitializationController#startBackgroundTasks}. */
     @VisibleForTesting
     public boolean shouldAllocateChildConnection() {
         // If a spare WebContents exists, a child connection has already been allocated that will be
@@ -210,17 +209,8 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
     @Override
     public final void postInflationStartup() {
         performPostInflationStartup();
-        dispatchOnInflationComplete();
-        mLifecycleDispatcher.dispatchPostInflationStartup();
-    }
-
-    /**
-     * This function allows subclasses overriding and adding additional tasks between calling
-     * mLifecycleDispatcher.dispatchOnInflationComplete() and
-     * mLifecycleDispatcher.dispatchPostInflationStartup().
-     */
-    protected void dispatchOnInflationComplete() {
         mLifecycleDispatcher.dispatchOnInflationComplete();
+        mLifecycleDispatcher.dispatchPostInflationStartup();
     }
 
     /**
@@ -235,10 +225,9 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
                 firstDrawView,
                 () -> {
                     mFirstDrawComplete = true;
-                    StartSurfaceConfiguration.recordHistogram(
+                    BrowserUiUtils.recordHistogram(
                             FIRST_DRAW_COMPLETED_TIME_MS_UMA,
-                            SystemClock.elapsedRealtime() - getOnCreateTimestampMs(),
-                            isInstantStartEnabled());
+                            SystemClock.elapsedRealtime() - getOnCreateTimestampMs());
                     if (!mStartupDelayed) {
                         onFirstDrawComplete();
                     }
@@ -259,14 +248,20 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
             TraceEvent.begin("maybePreconnect");
             Intent intent = getIntent();
             if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
+            // TODO(https://crbug.com/372710946): Clean this up if CCTEarlyNav doesn't ship.
+            if (intent.getBooleanExtra(IntentHandler.EXTRA_SKIP_PRECONNECT, false)) return;
             String url = IntentHandler.getUrlFromIntent(intent);
             if (url == null) return;
             // Blocking pre-connect for all off-the-record profiles.
-            if (!IntentHandler.hasAnyIncognitoExtra(intent.getExtras())) {
-                WarmupManager.getInstance()
-                        .maybePreconnectUrlAndSubResources(
-                                Profile.getLastUsedRegularProfile(), url);
-            }
+            if (IntentHandler.hasAnyIncognitoExtra(intent.getExtras())) return;
+            assert getProfileProviderSupplier().hasValue();
+            getProfileProviderSupplier()
+                    .runSyncOrOnAvailable(
+                            (profileProvider) -> {
+                                WarmupManager.getInstance()
+                                        .maybePreconnectUrlAndSubResources(
+                                                profileProvider.getOriginalProfile(), url);
+                            });
         } finally {
             TraceEvent.end("maybePreconnect");
         }
@@ -310,11 +305,14 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
         throw new ProcessInitException(LoaderErrors.NATIVE_STARTUP_FAILED, failureCause);
     }
 
+    @Override
+    public void onTopResumedActivityChangedWithNative(boolean isTopResumedActivity) {}
+
     /**
      * Extending classes should override {@link AsyncInitializationActivity#preInflationStartup()},
-     * {@link AsyncInitializationActivity#triggerLayoutInflation()} and
-     * {@link AsyncInitializationActivity#postInflationStartup()} instead of this call which will
-     * be called on that order.
+     * {@link AsyncInitializationActivity#triggerLayoutInflation()} and {@link
+     * AsyncInitializationActivity#postInflationStartup()} instead of this call which will be called
+     * on that order.
      */
     @Override
     @SuppressLint("MissingSuperCall") // Called in onCreateInternal.
@@ -388,10 +386,7 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
             return false;
         }
 
-        // Some Samsung devices load fonts from disk, crbug.com/691706.
-        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
-            super.onCreate(transformSavedInstanceStateForOnCreate(savedInstanceState));
-        }
+        super.onCreate(transformSavedInstanceStateForOnCreate(savedInstanceState));
         mOnCreateTimestampMs = SystemClock.elapsedRealtime();
         mSavedInstanceState = savedInstanceState;
 
@@ -494,6 +489,13 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
     }
 
     /**
+     * @return The timestamp for the activity OnStart event in ms.
+     */
+    protected long getOnStartTimestampMs() {
+        return mOnStartTimestampMs;
+    }
+
+    /**
      * @return The timestamp for OnPause event before activity restarts due to unfolding in ms.
      */
     protected long getOnPauseBeforeFoldRecreateTimestampMs() {
@@ -529,6 +531,7 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
     @CallSuper
     @Override
     public void onStart() {
+        mOnStartTimestampMs = SystemClock.uptimeMillis();
         super.onStart();
         mNativeInitializationController.onStart();
 
@@ -549,11 +552,15 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
     public void onResume() {
         super.onResume();
 
+        if (!mFirstResumePending) {
+            // The foreground transition for the first onResume() is handled in
+            // #performPreInflationStartup().
+            SimpleStartupForegroundSessionDetector.onTransitionToForeground();
+        }
         // Start by setting the launch as cold or warm. It will be used in some resume handlers.
         mIsWarmOnResume = !mFirstResumePending || hadWarmStart();
         mFirstResumePending = false;
 
-        SimpleStartupForegroundSessionDetector.onTransitionToForeground();
         mNativeInitializationController.onResume();
     }
 
@@ -618,6 +625,13 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
     @Override
     public void onStopWithNative() {
         mLifecycleDispatcher.dispatchOnStopWithNative();
+    }
+
+    @CallSuper
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        mLifecycleDispatcher.dispatchOnUserLeaveHint();
     }
 
     @Override
@@ -702,7 +716,7 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
 
     /** Return a supplier for the ProfileProvider. */
     public OneshotSupplier<ProfileProvider> getProfileProviderSupplier() {
-        // TODO(crbug/1464647): Convert to a thrown exception if no asserts are discovered.
+        // TODO(crbug.com/40275690): Convert to a thrown exception if no asserts are discovered.
         assert mProfileProviderSupplier != null;
         return mProfileProviderSupplier;
     }
@@ -758,9 +772,20 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
 
         mLifecycleDispatcher.dispatchOnRecreate();
 
-        // TODO(https://crbug.com/1252526): Remove stack trace logging once root cause of bug is
+        // TODO(crbug.com/40793204): Remove stack trace logging once root cause of bug is
         // identified & fixed.
+        // Piggybacking for multi-instance bug crbug.com/1484026.
+        Log.i(TAG_MULTI_INSTANCE, "Tracing recreate().");
         Thread.dumpStack();
+    }
+
+    @CallSuper
+    @Override
+    public void onTopResumedActivityChanged(boolean isTopResumedActivity) {
+        super.onTopResumedActivityChanged(isTopResumedActivity);
+
+        mLifecycleDispatcher.dispatchOnTopResumedActivityChanged(isTopResumedActivity);
+        mNativeInitializationController.onTopResumedActivityChanged(isTopResumedActivity);
     }
 
     /**
@@ -768,11 +793,6 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
      */
     public boolean isTablet() {
         return mIsTablet;
-    }
-
-    /** Returns whether the instant start is enabled. */
-    protected boolean isInstantStartEnabled() {
-        return TabUiFeatureUtilities.supportInstantStart(isTablet(), this);
     }
 
     /**
@@ -854,6 +874,7 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
     /**
      * @return {@link ActivityLifecycleDispatcher} associated with this activity.
      */
+    @Override
     public ActivityLifecycleDispatcher getLifecycleDispatcher() {
         return mLifecycleDispatcher;
     }
@@ -885,9 +906,11 @@ public abstract class AsyncInitializationActivity extends ChromeBaseAppCompatAct
     public static void interceptMoveTaskToBackForTesting() {
         sInterceptMoveTaskToBackForTesting = true;
         sBackInterceptedForTesting = false;
+        ResettersForTesting.register(() -> sInterceptMoveTaskToBackForTesting = false);
     }
 
     public static boolean wasMoveTaskToBackInterceptedForTesting() {
+        assert sInterceptMoveTaskToBackForTesting;
         return sBackInterceptedForTesting;
     }
 

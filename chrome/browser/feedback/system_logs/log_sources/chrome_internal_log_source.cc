@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -34,6 +35,7 @@
 #include "components/sync/service/sync_internals_util.h"
 #include "components/sync/service/sync_service.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/gpu_data_manager.h"
 #include "extensions/browser/api/power/power_api.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/api/power.h"
@@ -47,15 +49,13 @@
 #include "base/i18n/time_formatting.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/policy/arc_policy_bridge.h"
-#include "chrome/browser/ash/crosapi/browser_manager.h"
-#include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #include "chrome/browser/ash/login/login_pref_names.h"
-#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/metrics/chromeos_metrics_provider.h"
 #include "chrome/browser/metrics/enrollment_status.h"
 #include "chromeos/ash/components/dbus/spaced/spaced_client.h"
 #include "chromeos/ash/components/login/auth/auth_events_recorder.h"
+#include "chromeos/ash/components/settings/cros_settings.h"
 #include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "chromeos/ash/components/system/statistics_provider.h"
 #include "chromeos/version/version_loader.h"
@@ -85,14 +85,9 @@ constexpr char kSyncDataKey[] = "about_sync_data";
 constexpr char kExtensionsListKey[] = "extensions";
 constexpr char kPowerApiListKey[] = "chrome.power extensions";
 constexpr char kChromeVersionTag[] = "CHROME VERSION";
-constexpr char kGraphiteEnabled[] = "graphite_enabled";
+constexpr char kSkiaGraphiteStatusKey[] = "skia_graphite_status";
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-constexpr char kLacrosChromeVersionPrefix[] = "Lacros ";
-#endif
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-constexpr char kAshChromeVersionPrefix[] = "Ash ";
 constexpr char kArcPolicyComplianceReportKey[] =
     "CHROMEOS_ARC_POLICY_COMPLIANCE_REPORT";
 constexpr char kArcDpcVersionKey[] = "CHROMEOS_ARC_DPC_VERSION";
@@ -106,7 +101,6 @@ constexpr char kLTSChromeVersionPrefix[] = "LTS ";
 constexpr char kArcStatusKey[] = "CHROMEOS_ARC_STATUS";
 constexpr char kMonitorInfoKey[] = "monitor_info";
 constexpr char kAccountTypeKey[] = "account_type";
-constexpr char kLacrosStatus[] = "lacros_status";
 constexpr char kDemoModeConfigKey[] = "demo_mode_config";
 constexpr char kOnboardingTime[] = "ONBOARDING_TIME";
 constexpr char kFreeDiskSpace[] = "FREE_DISK_SPACE";
@@ -147,20 +141,20 @@ std::string GetPrimaryAccountTypeString() {
     return "none";
 
   switch (primary_user->GetType()) {
-    case user_manager::USER_TYPE_REGULAR:
+    case user_manager::UserType::kRegular:
       return "regular";
-    case user_manager::USER_TYPE_GUEST:
+    case user_manager::UserType::kGuest:
       return "guest";
-    case user_manager::USER_TYPE_PUBLIC_ACCOUNT:
+    case user_manager::UserType::kPublicAccount:
       return "public_account";
-    case user_manager::USER_TYPE_KIOSK_APP:
+    case user_manager::UserType::kKioskApp:
       return "kiosk_app";
-    case user_manager::USER_TYPE_CHILD:
+    case user_manager::UserType::kChild:
       return "child";
-    case user_manager::USER_TYPE_ARC_KIOSK_APP:
-      return "arc_kiosk_app";
-    case user_manager::USER_TYPE_WEB_KIOSK_APP:
+    case user_manager::UserType::kWebKioskApp:
       return "web_kiosk_app";
+    case user_manager::UserType::kKioskIWA:
+      return "kiosk_iwa";
   }
   return std::string();
 }
@@ -209,7 +203,7 @@ void PopulateEntriesAsync(std::unique_ptr<SystemLogsResponse> response,
     DCHECK(stats);
 
     // Get the HWID.
-    std::optional<base::StringPiece> hwid =
+    std::optional<std::string_view> hwid =
         stats->GetMachineStatistic(ash::system::kHardwareClassKey);
     if (hwid) {
       response->emplace(kHWIDKey, std::string(hwid.value()));
@@ -312,18 +306,6 @@ std::string GetChromeVersionString() {
       ash::CrosSettings::Get()->GetString(ash::kReleaseLtsTag, &value);
   if (is_lts)
     browser_version = kLTSChromeVersionPrefix + browser_version;
-
-  // If lacros-chrome is allowed & supported, and launched before, which
-  // is indicated by |browser_version| in BrowserManager being set to non-empty
-  // string during lacros startup, attach its version in the chrome
-  // version string.
-  if (crosapi::browser_util::IsLacrosEnabled() &&
-      !crosapi::BrowserManager::Get()->browser_version().empty()) {
-    std::string lacros_version =
-        crosapi::BrowserManager::Get()->browser_version();
-    return kLacrosChromeVersionPrefix + lacros_version + ", " +
-           kAshChromeVersionPrefix + browser_version;
-  }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   return browser_version;
 }
@@ -437,11 +419,17 @@ void ChromeInternalLogSource::Fetch(SysLogsSourceCallback callback) {
   response->emplace(kCpuArch, WinCpuArchAsString());
 #endif
 
-  std::string graphite_enabled =
-      features::IsSkiaGraphiteEnabled(base::CommandLine::ForCurrentProcess())
-          ? "true"
-          : "false";
-  response->emplace(kGraphiteEnabled, graphite_enabled);
+  std::string skia_graphite_status = "unknown";
+  if (content::GpuDataManager::GetInstance()->IsEssentialGpuInfoAvailable()) {
+    if (content::GpuDataManager::GetInstance()->GetFeatureStatus(
+            gpu::GPU_FEATURE_TYPE_SKIA_GRAPHITE) ==
+        gpu::kGpuFeatureStatusEnabled) {
+      skia_graphite_status = "enabled";
+    } else {
+      skia_graphite_status = "disabled";
+    }
+  }
+  response->emplace(kSkiaGraphiteStatusKey, skia_graphite_status);
 
   if (ProfileManager::GetLastUsedProfile()->IsChild())
     response->emplace("account_type", "child");
@@ -455,9 +443,6 @@ void ChromeInternalLogSource::Fetch(SysLogsSourceCallback callback) {
     PopulateArcPolicyStatus(response.get());
   }
   response->emplace(kAccountTypeKey, GetPrimaryAccountTypeString());
-  response->emplace(kLacrosStatus, crosapi::browser_util::IsLacrosEnabled()
-                                       ? "enabled"
-                                       : "disabled");
   response->emplace(kDemoModeConfigKey, ash::DemoSession::DemoConfigToString(
                                             ash::DemoSession::GetDemoConfig()));
   response->emplace(

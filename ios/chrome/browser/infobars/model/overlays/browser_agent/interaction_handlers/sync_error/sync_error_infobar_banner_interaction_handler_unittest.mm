@@ -8,28 +8,27 @@
 #import "ios/chrome/browser/infobars/model/test/fake_infobar_ios.h"
 #import "ios/chrome/browser/settings/model/sync/utils/sync_presenter.h"
 #import "ios/chrome/browser/settings/model/sync/utils/test/mock_sync_error_infobar_delegate.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/gmock/include/gmock/gmock.h"
 #import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
 #import "third_party/ocmock/gtest_support.h"
 
-class ChromeBrowserState;
 @protocol SyncPresenter;
 
 // Test fixture for SyncErrorInfobarBannerInteractionHandler.
 class SyncErrorInfobarBannerInteractionHandlerTest : public PlatformTest {
  public:
   SyncErrorInfobarBannerInteractionHandlerTest() {
-    TestChromeBrowserState::Builder builder;
-    chrome_browser_state_ = builder.Build();
+    TestProfileIOS::Builder builder;
+    profile_ = std::move(builder).Build();
 
     id presenter = OCMStrictProtocolMock(@protocol(SyncPresenter));
     infobar_ = std::make_unique<InfoBarIOS>(
         InfobarType::kInfobarTypeSyncError,
-        std::make_unique<MockSyncErrorInfoBarDelegate>(
-            chrome_browser_state_.get(), presenter));
+        std::make_unique<MockSyncErrorInfoBarDelegate>(profile_.get(),
+                                                       presenter));
   }
 
   MockSyncErrorInfoBarDelegate& mock_delegate() {
@@ -39,7 +38,7 @@ class SyncErrorInfobarBannerInteractionHandlerTest : public PlatformTest {
 
  protected:
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> chrome_browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
 
   std::unique_ptr<InfoBarIOS> infobar_;
 };

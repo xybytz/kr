@@ -6,8 +6,8 @@
 
 #import "base/functional/bind.h"
 #import "base/memory/ptr_util.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
-#import "ios/chrome/browser/ui/overscroll_actions/overscroll_actions_controller.h"
+#import "ios/chrome/browser/overscroll_actions/ui_bundled/overscroll_actions_controller.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 
 OverscrollActionsTabHelper::~OverscrollActionsTabHelper() {}
 
@@ -48,7 +48,7 @@ void OverscrollActionsTabHelper::SetDelegate(
 OverscrollActionsTabHelper::OverscrollActionsTabHelper(web::WebState* web_state)
     : web_state_(web_state) {
   DCHECK(web_state_);
-  web_state_observation_.Observe(web_state_);
+  web_state_observation_.Observe(web_state_.get());
 }
 
 OverscrollActionsController*

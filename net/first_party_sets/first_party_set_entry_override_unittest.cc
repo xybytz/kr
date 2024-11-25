@@ -11,21 +11,21 @@
 
 namespace net {
 
-TEST(FirstPartySetEntryOverrideTest, IsDeletion_true) {
+TEST(FirstPartySetEntryOverrideTest, IsDeletionTrue) {
   EXPECT_TRUE(FirstPartySetEntryOverride().IsDeletion());
 }
 
-TEST(FirstPartySetEntryOverrideTest, IsDeletion_false) {
+TEST(FirstPartySetEntryOverrideTest, IsDeletionFalse) {
   EXPECT_FALSE(
       FirstPartySetEntryOverride(
           FirstPartySetEntry(SchemefulSite(GURL("https://example.test")),
-                             SiteType::kPrimary, absl::nullopt))
+                             SiteType::kPrimary, std::nullopt))
           .IsDeletion());
 }
 
 TEST(FirstPartySetEntryOverrideTest, GetEntry) {
   FirstPartySetEntry entry(SchemefulSite(GURL("https://example.test")),
-                           SiteType::kPrimary, absl::nullopt);
+                           SiteType::kPrimary, std::nullopt);
   EXPECT_EQ(FirstPartySetEntryOverride(entry).GetEntry(), entry);
 }
 

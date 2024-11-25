@@ -18,17 +18,14 @@ import com.google.android.gms.common.api.Status;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 import org.robolectric.annotation.Config;
 
-import org.chromium.base.metrics.UmaRecorderHolder;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Batch;
-import org.chromium.base.test.util.JniMocker;
-import org.chromium.chrome.test.util.browser.Features;
 
 import java.util.Optional;
 
@@ -37,11 +34,10 @@ import java.util.Optional;
 @Config(manifest = Config.NONE)
 @Batch(Batch.PER_CLASS)
 public class PasswordSettingsUpdaterReceiverBridgeTest {
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
 
     private static final long sFakeNativePointer = 7;
 
-    @Rule public JniMocker mJniMocker = new JniMocker();
+    @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
     @Mock private PasswordSettingsUpdaterReceiverBridge.Natives mReceiverBridgeJniMock;
     @Mock private PasswordSettingsUpdaterMetricsRecorder mMetricsRecorderMock;
 
@@ -49,10 +45,7 @@ public class PasswordSettingsUpdaterReceiverBridgeTest {
 
     @Before
     public void setUp() {
-        UmaRecorderHolder.resetForTesting();
-        MockitoAnnotations.initMocks(this);
-        mJniMocker.mock(
-                PasswordSettingsUpdaterReceiverBridgeJni.TEST_HOOKS, mReceiverBridgeJniMock);
+        PasswordSettingsUpdaterReceiverBridgeJni.setInstanceForTesting(mReceiverBridgeJniMock);
         mReceiverBridge = new PasswordSettingsUpdaterReceiverBridge(sFakeNativePointer);
     }
 

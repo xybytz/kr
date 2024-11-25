@@ -58,6 +58,7 @@ import org.chromium.base.UserData;
 import org.chromium.blink.mojom.EventType;
 import org.chromium.blink.mojom.FocusType;
 import org.chromium.blink.mojom.HandwritingGestureResult;
+import org.chromium.blink.mojom.InputCursorAnchorInfo;
 import org.chromium.blink.mojom.StylusWritingGestureData;
 import org.chromium.blink_public.web.WebInputEventModifier;
 import org.chromium.blink_public.web.WebTextInputMode;
@@ -72,6 +73,9 @@ import org.chromium.content_public.browser.ImeEventObserver;
 import org.chromium.content_public.browser.InputMethodManagerWrapper;
 import org.chromium.content_public.browser.StylusWritingImeCallback;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.mojo.system.MessagePipeHandle;
+import org.chromium.mojo.system.MojoException;
+import org.chromium.mojo.system.impl.CoreImpl;
 import org.chromium.ui.base.ViewAndroidDelegate;
 import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.base.WindowAndroid;
@@ -134,7 +138,6 @@ public class ImeAdapterImpl
 
     private final WebContentsImpl mWebContents;
     private ViewAndroidDelegate mViewDelegate;
-    private WindowAndroid mWindowAndroid;
 
     // This holds the information necessary for constructing CursorAnchorInfo, and notifies to
     // InputMethodManager on appropriate timing, depending on how IME requested the information
@@ -204,9 +207,36 @@ public class ImeAdapterImpl
         private static final UserDataFactory<ImeAdapterImpl> INSTANCE = ImeAdapterImpl::new;
     }
 
+    private static final class ImeRenderWidgetHostImpl
+            implements org.chromium.blink.mojom.ImeRenderWidgetHost {
+        private final WeakReference<ImeAdapterImpl> mImeAdapter;
+        private final MessagePipeHandle mHandle;
+
+        ImeRenderWidgetHostImpl(ImeAdapterImpl imeAdapter, MessagePipeHandle handle) {
+            mImeAdapter = new WeakReference<>(imeAdapter);
+            mHandle = handle;
+            org.chromium.blink.mojom.ImeRenderWidgetHost.MANAGER.bind(this, mHandle);
+        }
+
+        @Override
+        public void updateCursorAnchorInfo(InputCursorAnchorInfo cursorAnchorInfo) {
+            ImeAdapterImpl imeAdapter = mImeAdapter.get();
+            if (imeAdapter != null) {
+                imeAdapter.updateCursorAnchorInfo(cursorAnchorInfo);
+            }
+        }
+
+        @Override
+        public void onConnectionError(MojoException e) {}
+
+        @Override
+        public void close() {}
+    }
+
     /**
-     * Get {@link ImeAdapter} object used for the give WebContents.
-     * {@link #create()} should precede any calls to this.
+     * Get {@link ImeAdapter} object used for the give WebContents. {@link #create()} should precede
+     * any calls to this.
+     *
      * @param webContents {@link WebContents} object.
      * @return {@link ImeAdapter} object.
      */
@@ -342,6 +372,12 @@ public class ImeAdapterImpl
         return isTextInputType(mTextInputType);
     }
 
+    /** Whether the focused node is editable or not. */
+    @Override
+    public boolean focusedNodeEditable() {
+        return mTextInputType != TextInputType.NONE;
+    }
+
     private boolean isHardwareKeyboardAttached() {
         return mCurrentConfig.keyboard != Configuration.KEYBOARD_NOKEYS;
     }
@@ -349,6 +385,11 @@ public class ImeAdapterImpl
     @Override
     public void addEventObserver(ImeEventObserver eventObserver) {
         mEventObservers.add(eventObserver);
+    }
+
+    @Override
+    public void removeEventObserver(ImeEventObserver imeEventObserver) {
+        mEventObservers.remove(imeEventObserver);
     }
 
     private void createInputConnectionFactory() {
@@ -368,11 +409,6 @@ public class ImeAdapterImpl
     // should still be allowed with a physical keyboard so mInputConnection will be non-null.
     private boolean focusedNodeAllowsSoftKeyboard() {
         return mTextInputType != TextInputType.NONE && mTextInputMode != WebTextInputMode.NONE;
-    }
-
-    // Whether the focused node is editable or not.
-    private boolean focusedNodeEditable() {
-        return mTextInputType != TextInputType.NONE;
     }
 
     private View getContainerView() {
@@ -1388,16 +1424,43 @@ public class ImeAdapterImpl
     }
 
     /**
+     * Update the cached CursorAnchorInfo data. This may or may not trigger an update to the
+     * platform.
+     *
+     * @param cursorAnchorInfo the Blink representation of CursorAnchorInfo. Null attributes imply
+     *     that no update is needed.
+     */
+    void updateCursorAnchorInfo(InputCursorAnchorInfo cursorAnchorInfo) {
+        mCursorAnchorInfoController.updateCursorAnchorInfoData(
+                cursorAnchorInfo, getContainerView());
+    }
+
+    /**
+     * This connects the native mojo receiver to its Java implementation. We don't need to keep a
+     * reference to the ImeRenderWidgetHost implementation as Mojo will. The implementation does
+     * however have a reference to this so that it can call methods on the ImeAdapter.
+     *
+     * @param nativeHandle the native Mojo receiver's pipe as a native pointer.
+     */
+    @CalledByNative
+    private void bindImeRenderHost(long nativeHandle) {
+        MessagePipeHandle handle =
+                CoreImpl.getInstance().acquireNativeHandle(nativeHandle).toMessagePipeHandle();
+        new ImeRenderWidgetHostImpl(this, handle);
+    }
+
+    /**
      * Notified when a frame has been produced by the renderer and all the associated metadata.
+     *
      * @param scaleFactor device scale factor.
      * @param contentOffsetYPix Y offset below the browser controls.
      * @param hasInsertionMarker Whether the insertion marker is visible or not.
      * @param insertionMarkerHorizontal X coordinates (in view-local DIP pixels) of the insertion
-     *                                  marker if it exists. Will be ignored otherwise.
+     *     marker if it exists. Will be ignored otherwise.
      * @param insertionMarkerTop Y coordinates (in view-local DIP pixels) of the top of the
-     *                           insertion marker if it exists. Will be ignored otherwise.
-     * @param insertionMarkerBottom Y coordinates (in view-local DIP pixels) of the bottom of
-     *                              the insertion marker if it exists. Will be ignored otherwise.
+     *     insertion marker if it exists. Will be ignored otherwise.
+     * @param insertionMarkerBottom Y coordinates (in view-local DIP pixels) of the bottom of the
+     *     insertion marker if it exists. Will be ignored otherwise.
      */
     @CalledByNative
     private void updateFrameInfo(

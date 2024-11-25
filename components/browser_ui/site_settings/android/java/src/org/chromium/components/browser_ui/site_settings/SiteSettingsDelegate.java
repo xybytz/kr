@@ -11,11 +11,13 @@ import androidx.annotation.Nullable;
 
 import org.chromium.base.Callback;
 import org.chromium.components.browser_ui.settings.ManagedPreferenceDelegate;
+import org.chromium.components.browsing_data.content.BrowsingDataModel;
 import org.chromium.components.content_settings.ContentSettingsType;
 import org.chromium.components.embedder_support.util.Origin;
 import org.chromium.content_public.browser.BrowserContextHandle;
 import org.chromium.url.GURL;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -23,12 +25,14 @@ import java.util.Set;
  * embedder-specific logic.
  */
 public interface SiteSettingsDelegate {
-    /** @return The BrowserContextHandle that should be used to read and update settings. */
+    /**
+     * @return The BrowserContextHandle that should be used to read and update settings.
+     */
     BrowserContextHandle getBrowserContextHandle();
 
     /**
      * @return the ManagedPreferenceDelegate instance that should be used when rendering
-     *         Preferences.
+     *     Preferences.
      */
     ManagedPreferenceDelegate getManagedPreferenceDelegate();
 
@@ -38,28 +42,47 @@ public interface SiteSettingsDelegate {
      *
      * @param faviconUrl The URL of the page to get the favicon for. If a favicon for the full URL
      *     can't be found, the favicon for its host will be used as a fallback.
-     * @param callback A callback that will be called with the favicon bitmap, or null if no
-     *     favicon could be found or generated.
+     * @param callback A callback that will be called with the favicon bitmap, or null if no favicon
+     *     could be found or generated.
      */
     void getFaviconImageForURL(GURL faviconUrl, Callback<Drawable> callback);
 
-    /** @return true if the given category type should be shown in the SiteSettings Fragment. */
+    /**
+     * @return true if the BrowsingDataModel Feature is enabled.
+     */
+    boolean isBrowsingDataModelFeatureEnabled();
+
+    /**
+     * @return true if the given category type should be shown in the SiteSettings Fragment.
+     */
     boolean isCategoryVisible(@SiteSettingsCategory.Type int type);
 
-    /** @return true if Incognito mode is enabled. */
+    /**
+     * @return true if Incognito mode is enabled.
+     */
     boolean isIncognitoModeEnabled();
 
-    /** @return true if the QuietNotificationPrompts Feature is enabled. */
+    /**
+     * @return true if the QuietNotificationPrompts Feature is enabled.
+     */
     boolean isQuietNotificationPromptsFeatureEnabled();
 
-    /** @return true if the PrivacySandboxFirstPartySetsUI Feature is enabled. */
-    boolean isPrivacySandboxFirstPartySetsUIFeatureEnabled();
+    boolean isPermissionDedicatedCpssSettingAndroidFeatureEnabled();
 
-    /** @return The id of the notification channel associated with the given origin. */
-    // TODO(crbug.com/1069895): Remove this once WebLayer supports notifications.
+    /**
+     * @return true if the PrivacySandboxFirstPartySetsUi Feature is enabled.
+     */
+    boolean isPrivacySandboxFirstPartySetsUiFeatureEnabled();
+
+    /**
+     * @return The id of the notification channel associated with the given origin.
+     */
+    // TODO(crbug.com/40126121): Remove this once WebLayer supports notifications.
     String getChannelIdForOrigin(String origin);
 
-    /** @return The name of the app the settings are associated with. */
+    /**
+     * @return The name of the app the settings are associated with.
+     */
     String getAppName();
 
     /**
@@ -76,7 +99,9 @@ public interface SiteSettingsDelegate {
     @Nullable
     String getDelegatePackageNameForOrigin(Origin origin, @ContentSettingsType.EnumType int type);
 
-    /** @return true if Help and Feedback links and menu items should be shown to the user. */
+    /**
+     * @return true if Help and Feedback links and menu items should be shown to the user.
+     */
     boolean isHelpAndFeedbackEnabled();
 
     /**
@@ -96,11 +121,29 @@ public interface SiteSettingsDelegate {
     /** Launches the Storage Access API help center link in a Chrome Custom Tab. */
     void launchStorageAccessHelpActivity(Activity currentActivity);
 
-    /** @return The set of all origins that have a WebAPK or TWA installed. */
+    /**
+     * @return The set of all origins that have a WebAPK or TWA installed.
+     */
     Set<String> getOriginsWithInstalledApp();
 
-    /** @return The set of all origins whose notification permissions are delegated to another app. */
+    /**
+     * @return The set of all origins whose notification permissions are delegated to another app.
+     */
     Set<String> getAllDelegatedNotificationOrigins();
+
+    /**
+     * @return The set of all origins that have File System Access grants.
+     */
+    List<String> getOriginsWithFileSystemAccessGrants();
+
+    /**
+     * @return The list of file editing grants. result[0] contains paths, result[1] contains display
+     *     names.
+     */
+    String[][] getFileSystemAccessGrants(String origin);
+
+    /** Revoke the specified file system access grant. */
+    void revokeFileSystemAccessGrant(String origin, String file);
 
     /**
      * Displays a snackbar, informing the user about the Privacy Sandbox settings page, when the
@@ -111,43 +154,68 @@ public interface SiteSettingsDelegate {
     /** Dismisses the Privacy Sandbox snackbar, if active. */
     void dismissPrivacySandboxSnackbar();
 
-    /***
-     * @return true if First Party Sets data access is enabled.
+    /**
+     * @return true if Related Website Sets data access is enabled.
      */
-    boolean isFirstPartySetsDataAccessEnabled();
-
-    /***
-     * @return true if First Party Sets data access is managed.
-     */
-    boolean isFirstPartySetsDataAccessManaged();
-
-    /***
-     * @param origin to check.
-     * @return true if the origin is part of the managed FirstPartySet.
-     */
-    boolean isPartOfManagedFirstPartySet(String origin);
-
-    /***
-     * @return true if the Tracking Protection UI should be displayed.
-     */
-    boolean shouldShowTrackingProtectionUI();
-
-    /***
-     * @return true if all third-party cookies are blocked when Tracking Protection is on.
-     */
-    boolean isBlockAll3PCDEnabledInTrackingProtection();
-
-    /***
-     * @return Enables/disables First Party Sets data access.
-     */
-    void setFirstPartySetsDataAccessEnabled(boolean enabled);
+    boolean isRelatedWebsiteSetsDataAccessEnabled();
 
     /**
-     * Gets the First Party Sets owner hostname given a FPS member origin.
-     * @param memberOrigin FPS member origin.
+     * @return true if Related Website Sets data access is managed.
+     */
+    boolean isRelatedWebsiteSetsDataAccessManaged();
+
+    /**
+     * @param origin to check.
+     * @return true if the origin is part of the managed RelatedWebsiteSet.
+     */
+    boolean isPartOfManagedRelatedWebsiteSet(String origin);
+
+    /**
+     * @return true if the Tracking Protection UI should be displayed.
+     */
+    boolean shouldShowTrackingProtectionUi();
+
+    /**
+     * @return true if the IP Protection UI should be displayed in User Bypass.
+     */
+    boolean shouldDisplayIpProtection();
+
+    /***
+     * @return true if the Fingerprinting Protection UI should be displayed in User
+     *         Bypass.
+     */
+    boolean shouldDisplayFingerprintingProtection();
+
+    /***
+     * @return true if the Tracking Protection branded UI should be shown.
+     */
+    boolean shouldShowTrackingProtectionBrandedUi();
+
+    /**
+     * @return whether the 100% 3PCD Tracking Protection with ACT features UI should be shown.
+     */
+    boolean shouldShowTrackingProtectionActFeaturesUi();
+
+    /**
+     * @return whether all 3pcs should be blocked in incognito.
+     */
+    boolean isAlwaysBlock3pcsIncognitoEnabled();
+
+    /**
+     * @return true if all third-party cookies are blocked when Tracking Protection is on.
+     */
+    boolean isBlockAll3pcEnabledInTrackingProtection();
+
+    /** Enables/disables Related Website Sets data access. */
+    void setRelatedWebsiteSetsDataAccessEnabled(boolean enabled);
+
+    /**
+     * Gets the Related Website Sets owner hostname given a RWS member origin.
+     *
+     * @param memberOrigin RWS member origin.
      * @return A string containing the owner hostname, null if it doesn't exist.
      */
-    String getFirstPartySetOwner(String memberOrigin);
+    String getRelatedWebsiteSetOwner(String memberOrigin);
 
     /**
      * Returns whether the current implementation of the delegate is able to launch the Clear
@@ -164,6 +232,28 @@ public interface SiteSettingsDelegate {
     /** Called when the view this delegate is assigned to gets destroyed. */
     void onDestroyView();
 
-    /** @return whether the Tracking Protection offboarding notice should be shown in the Settings. */
-    boolean shouldShowSettingsOffboardingNotice();
+    /**
+     * Builds a browsing data model for BrowserContext if not already built and runs the callback.
+     *
+     * @param callback Callback runs with the BrowsingDataModel object when the model is built.
+     */
+    void getBrowsingDataModel(Callback<BrowsingDataModel> callback);
+
+    /**
+     * @return whether the Privacy Sandbox Rws UI should be shown in the Settings.
+     */
+    boolean shouldShowPrivacySandboxRwsUi();
+
+    /**
+     * @return whether the Safety Hub is enabled.
+     */
+    boolean isSafetyHubEnabled();
+
+    /**
+     * @return whether the unused site permission autorevocation is enabled.
+     */
+    boolean isPermissionAutorevocationEnabled();
+
+    /** Enable/Disable unused site permission autorevocation. */
+    void setPermissionAutorevocationEnabled(boolean isEnabled);
 }

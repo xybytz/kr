@@ -11,11 +11,11 @@
 #import "base/ios/block_types.h"
 #import "base/time/time.h"
 #import "components/content_settings/core/common/content_settings.h"
-#import "components/sync/base/model_type.h"
+#import "components/sync/base/data_type.h"
 #import "third_party/metrics_proto/user_demographics.pb.h"
 
 @class ElementSelector;
-@class FakeSystemIdentity;
+enum class TipsNotificationType;
 
 @interface JavaScriptExecutionResult : NSObject
 @property(readonly, nonatomic) BOOL success;
@@ -328,10 +328,6 @@
 // from the cache even if the Cache-Control response header says otherwise.
 + (NSError*)purgeCachedWebViewPages;
 
-// Returns YES if the current WebState's navigation manager is currently
-// restoring session state.
-+ (BOOL)isRestoreSessionInProgress;
-
 // Returns YES if the current WebState's web view uses the content inset to
 // correctly align the top of the content with the bottom of the top bar.
 + (BOOL)webStateWebViewUsesContentInset;
@@ -349,9 +345,6 @@
 + (NSString*)displayTitleForURL:(NSString*)URL;
 
 #pragma mark - Sync Utilities (EG2)
-
-// Signs in with `identity` without sync consent.
-+ (void)signInWithoutSyncWithIdentity:(FakeSystemIdentity*)identity;
 
 // Waits for sync engine to be initialized or not. It doesn't necessarily mean
 // that data types are configured and ready to use. See
@@ -397,7 +390,7 @@
 + (void)flushFakeSyncServerToDisk;
 
 // Gets the number of entities of the given `type`.
-+ (int)numberOfSyncEntitiesWithType:(syncer::ModelType)type;
++ (int)numberOfSyncEntitiesWithType:(syncer::DataType)type;
 
 // Forces every request to fail in a way that simulates a network failure.
 + (void)disconnectFakeSyncServerNetwork;
@@ -426,6 +419,10 @@
 // Adds typed URL into HistoryService.
 + (void)addHistoryServiceTypedURL:(NSString*)URL;
 
+// Adds typed URL into HistoryService at timestamp `visitTimestamp`.
++ (void)addHistoryServiceTypedURL:(NSString*)URL
+                   visitTimestamp:(base::Time)visitTimestamp;
+
 // Deletes typed URL from HistoryService.
 + (void)deleteHistoryServiceTypedURL:(NSString*)URL;
 
@@ -435,7 +432,7 @@
 + (BOOL)isURL:(NSString*)spec presentOnClient:(BOOL)expectPresent;
 
 // Triggers a sync cycle for a `type`.
-+ (void)triggerSyncCycleForType:(syncer::ModelType)type;
++ (void)triggerSyncCycleForType:(syncer::DataType)type;
 
 // Injects user demographics into the fake sync server. `rawBirthYear` is the
 // true birth year, pre-noise, and the gender corresponds to the proto enum
@@ -485,6 +482,9 @@
 // passphrase to start.
 + (void)addBookmarkWithSyncPassphrase:(NSString*)syncPassphrase;
 
+// Add a sync passphrase requirement to start the sync server.
++ (void)addSyncPassphrase:(NSString*)syncPassphrase;
+
 // Returns whether UserSelectableType::kHistory is among the selected types.
 + (BOOL)isSyncHistoryDataTypeSelected;
 
@@ -526,9 +526,6 @@
 // Returns YES if DemographicMetricsReporting feature is enabled.
 + (BOOL)isDemographicMetricsReportingEnabled [[nodiscard]];
 
-// Returns YES if the ReplaceSyncPromosWithSignInPromos feature is enabled.
-+ (BOOL)isReplaceSyncWithSigninEnabled [[nodiscard]];
-
 // Returns YES if the `launchSwitch` is found in host app launch switches.
 + (BOOL)appHasLaunchSwitch:(NSString*)launchSwitch;
 
@@ -536,9 +533,6 @@
 // system frameworks. Always returns YES if the app was not requested to run
 // with custom WebKit frameworks.
 + (BOOL)isCustomWebKitLoadedIfRequested [[nodiscard]];
-
-// Returns YES if error pages are displayed using loadSimulatedRequest.
-+ (BOOL)isLoadSimulatedRequestAPIEnabled [[nodiscard]];
 
 // Returns whether the mobile version of the websites are requested by default.
 + (BOOL)isMobileModeByDefault [[nodiscard]];
@@ -556,17 +550,23 @@
 // Returns whether the Web Channels feature is enabled.
 + (BOOL)isWebChannelsEnabled;
 
-// Returns whether the bottom omnibox steady state feature is enabled.
-+ (BOOL)isBottomOmniboxSteadyStateEnabled;
+// Returns whether Tab Group Sync is enabled.
++ (BOOL)isTabGroupSyncEnabled;
+
+// Returns whether the current layout is showing the bottom omnibox.
++ (BOOL)isCurrentLayoutBottomOmnibox;
+
+// Returns whether the Enhanced Safe Browsing Infobar Promo feature is enabled.
++ (BOOL)isEnhancedSafeBrowsingInfobarEnabled;
 
 #pragma mark - ContentSettings
 
 // Gets the current value of the popup content setting preference for the
-// original browser state.
+// original profile.
 + (ContentSetting)popupPrefValue;
 
 // Sets the popup content setting preference to the given value for the original
-// browser state.
+// profile.
 + (void)setPopupPrefValue:(ContentSetting)value;
 
 // Resets the desktop content setting to its default value.
@@ -597,37 +597,41 @@
 
 // Sets the integer value for the local state pref with `prefName`. `value`
 // can be either a casted enum or any other numerical value. Local State
-// contains the preferences that are shared between all browser states.
+// contains the preferences that are shared between all profiles.
 + (void)setIntegerValue:(int)value forLocalStatePref:(NSString*)prefName;
 
 // Sets the time value for the local state pref with `prefName`. Local State
-// contains the preferences that are shared between all browser states.
+// contains the preferences that are shared between all profiles.
 + (void)setTimeValue:(base::Time)value forLocalStatePref:(NSString*)prefName;
 
+// Sets the time value for the user pref with `prefName` in the original
+// profile.
++ (void)setTimeValue:(base::Time)value forUserPref:(NSString*)prefName;
+
 // Sets the string value for the local state pref with `prefName`. Local State
-// contains the preferences that are shared between all browser states.
+// contains the preferences that are shared between all profiles.
 + (void)setStringValue:(NSString*)value forLocalStatePref:(NSString*)prefName;
 
-// Sets the value of a string user pref in the original browser state.
+// Sets the value of a string user pref in the original profile.
 + (void)setStringValue:(NSString*)value forUserPref:(NSString*)prefName;
 
 // Sets the bool value for the local state pref with `prefName`. Local State
-// contains the preferences that are shared between all browser states.
+// contains the preferences that are shared between all profiles.
 + (void)setBoolValue:(BOOL)value forLocalStatePref:(NSString*)prefName;
 
-// Gets the value of a user pref in the original browser state. Returns a
+// Gets the value of a user pref in the original profile. Returns a
 // base::Value encoded as a JSON string. If the pref was not registered,
 // returns a Value of type NONE.
 + (NSString*)userPrefValue:(NSString*)prefName;
 
-// Sets the value of a boolean user pref in the original browser state.
+// Sets the value of a boolean user pref in the original profile.
 + (void)setBoolValue:(BOOL)value forUserPref:(NSString*)prefName;
 
-// Sets the value of a integer user pref in the original browser state.
+// Sets the value of a integer user pref in the original profile.
 + (void)setIntegerValue:(int)value forUserPref:(NSString*)prefName;
 
-// Returns true if the Preference is currently using its default value,
-// and has not been set by any higher-priority source (even with the same
+// Returns true if the LocalState Preference is currently using its default
+// value, and has not been set by any higher-priority source (even with the same
 // value).
 + (BOOL)prefWithNameIsDefaultValue:(NSString*)prefName;
 
@@ -718,8 +722,15 @@
 // completed.
 + (void)writeFirstRunSentinel;
 
-// Remove the FirstRun sentinel file.
+// Removes the FirstRun sentinel file.
 + (void)removeFirstRunSentinel;
+
+// Whether the first run sentinel exists.
++ (bool)hasFirstRunSentinel;
+
+#pragma mark - Notification Utilities
+
++ (void)requestTipsNotification:(TipsNotificationType)type;
 
 @end
 

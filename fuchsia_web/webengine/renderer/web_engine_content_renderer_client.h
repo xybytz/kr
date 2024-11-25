@@ -7,11 +7,16 @@
 
 #include <memory>
 
+#include "base/memory/scoped_refptr.h"
+#include "base/synchronization/lock.h"
+#include "base/thread_annotations.h"
 #include "build/chromecast_buildflags.h"
+#include "components/url_rewrite/common/url_request_rewrite_rules.h"
 #include "content/public/renderer/content_renderer_client.h"
 #include "fuchsia_web/webengine/renderer/web_engine_audio_device_factory.h"
 #include "fuchsia_web/webengine/renderer/web_engine_render_frame_observer.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
+#include "third_party/blink/public/platform/url_loader_throttle_provider.h"
 
 #if BUILDFLAG(ENABLE_CAST_RECEIVER)
 namespace cast_streaming {
@@ -34,10 +39,9 @@ class WebEngineContentRendererClient : public content::ContentRendererClient {
 
   ~WebEngineContentRendererClient() override;
 
-  // Returns the WebEngineRenderFrameObserver corresponding to
-  // `frame_token`.
-  WebEngineRenderFrameObserver* GetWebEngineRenderFrameObserverForFrameToken(
-      const blink::LocalFrameToken& frame_token) const;
+  // Returns the UrlRequestRewriteRules corresponding to `frame_token`.
+  scoped_refptr<url_rewrite::UrlRequestRewriteRules>
+  GetRewriteRulesForFrameToken(const blink::LocalFrameToken& frame_token) const;
 
  private:
   // Called by WebEngineRenderFrameObserver when its corresponding RenderFrame
@@ -47,8 +51,10 @@ class WebEngineContentRendererClient : public content::ContentRendererClient {
   // content::ContentRendererClient overrides.
   void RenderThreadStarted() override;
   void RenderFrameCreated(content::RenderFrame* render_frame) override;
-  void GetSupportedKeySystems(media::GetSupportedKeySystemsCB cb) override;
-  bool IsSupportedVideoType(const media::VideoType& type) override;
+  std::unique_ptr<media::KeySystemSupportRegistration> GetSupportedKeySystems(
+      content::RenderFrame* render_frame,
+      media::GetSupportedKeySystemsCB cb) override;
+  bool IsDecoderSupportedVideoType(const media::VideoType& type) override;
   std::unique_ptr<blink::URLLoaderThrottleProvider>
   CreateURLLoaderThrottleProvider(
       blink::URLLoaderThrottleProviderType type) override;
@@ -60,7 +66,8 @@ class WebEngineContentRendererClient : public content::ContentRendererClient {
       media::MediaLog* media_log,
       media::DecoderFactory* decoder_factory,
       base::RepeatingCallback<media::GpuVideoAcceleratorFactories*()>
-          get_gpu_factories_cb) override;
+          get_gpu_factories_cb,
+      int element_id) override;
 
 #if BUILDFLAG(ENABLE_CAST_RECEIVER)
   std::unique_ptr<cast_streaming::ResourceProvider>
@@ -74,10 +81,12 @@ class WebEngineContentRendererClient : public content::ContentRendererClient {
   // use the AudioConsumer service directly.
   WebEngineAudioDeviceFactory audio_device_factory_;
 
+  mutable base::Lock observer_map_lock_;
+
   // Map of `blink::LocalFrameToken` to WebEngineRenderFrameObserver.
   std::map<blink::LocalFrameToken,
            std::unique_ptr<WebEngineRenderFrameObserver>>
-      frame_token_to_observer_map_;
+      frame_token_to_observer_map_ GUARDED_BY(observer_map_lock_);
 
   // Initiates cache purges and Blink/V8 garbage collection when free memory
   // is limited.

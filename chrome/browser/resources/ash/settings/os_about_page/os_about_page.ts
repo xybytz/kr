@@ -7,12 +7,12 @@
  * information.
  */
 
-import 'chrome://resources/cr_components/localized_link/localized_link.js';
-import 'chrome://resources/cr_components/settings_prefs/prefs.js';
-import 'chrome://resources/cr_elements/cr_button/cr_button.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
-import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
-import 'chrome://resources/cr_elements/icons.html.js';
+import 'chrome://resources/ash/common/cr_elements/localized_link/localized_link.js';
+import '/shared/settings/prefs/prefs.js';
+import 'chrome://resources/ash/common/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_link_row/cr_link_row.js';
+import 'chrome://resources/ash/common/cr_elements/icons.html.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 import 'chrome://resources/polymer/v3_0/iron-media-query/iron-media-query.js';
 import '../icons.html.js';
@@ -27,8 +27,9 @@ import './update_warning_dialog.js';
 import '../crostini_page/crostini_settings_card.js';
 
 import {LifetimeBrowserProxyImpl} from '/shared/settings/lifetime_browser_proxy.js';
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
-import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import type {CrButtonElement} from 'chrome://resources/ash/common/cr_elements/cr_button/cr_button.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
+import {WebUiListenerMixin} from 'chrome://resources/ash/common/cr_elements/web_ui_listener_mixin.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {sanitizeInnerHtml} from 'chrome://resources/js/parse_html_subset.js';
@@ -40,9 +41,11 @@ import {RouteOriginMixin} from '../common/route_origin_mixin.js';
 import {recordSettingChange} from '../metrics_recorder.js';
 import {Section} from '../mojom-webui/routes.mojom-webui.js';
 import {Setting} from '../mojom-webui/setting.mojom-webui.js';
-import {Route, Router, routes} from '../router.js';
+import type {Route} from '../router.js';
+import {Router, routes} from '../router.js';
 
-import {AboutPageBrowserProxy, AboutPageBrowserProxyImpl, AboutPageUpdateInfo, BrowserChannel, browserChannelToI18nId, RegulatoryInfo, TpmFirmwareUpdateStatusChangedEvent, UpdateStatus, UpdateStatusChangedEvent} from './about_page_browser_proxy.js';
+import type {AboutPageBrowserProxy, AboutPageUpdateInfo, BrowserChannel, RegulatoryInfo, TpmFirmwareUpdateStatusChangedEvent, UpdateStatusChangedEvent} from './about_page_browser_proxy.js';
+import {AboutPageBrowserProxyImpl, browserChannelToI18nId, UpdateStatus} from './about_page_browser_proxy.js';
 import {getTemplate} from './os_about_page.html.js';
 
 declare global {
@@ -51,17 +54,22 @@ declare global {
   }
 }
 
-interface OsAboutPageElement {
+export interface OsAboutPageElement {
   $: {
-    updateStatusMessageInner: HTMLDivElement,
+    buttonContainer: HTMLElement,
+    checkForUpdatesButton: CrButtonElement,
+    extendedUpdatesButton: CrButtonElement,
     productLogo: HTMLImageElement,
+    regulatoryInfo: HTMLElement,
+    relaunchButton: CrButtonElement,
+    updateStatusMessageInner: HTMLDivElement,
   };
 }
 
 const OsAboutPageBase = DeepLinkingMixin(
     RouteOriginMixin(I18nMixin(WebUiListenerMixin(PolymerElement))));
 
-class OsAboutPageElement extends OsAboutPageBase {
+export class OsAboutPageElement extends OsAboutPageBase {
   static get is() {
     return 'os-about-page' as const;
   }
@@ -190,7 +198,8 @@ class OsAboutPageElement extends OsAboutPageBase {
       showCheckUpdates_: {
         type: Boolean,
         computed: 'computeShowCheckUpdates_(' +
-            'currentUpdateStatusEvent_, hasCheckedForUpdates_, hasEndOfLife_)',
+            'currentUpdateStatusEvent_, hasCheckedForUpdates_, hasEndOfLife_,' +
+            'showExtendedUpdatesOption_)',
       },
 
       showUpdateWarningDialog_: {
@@ -266,15 +275,57 @@ class OsAboutPageElement extends OsAboutPageBase {
           };
         },
       },
+
+      /**
+       * Controls whether the extended updates opt-in option is shown.
+       */
+      showExtendedUpdatesOption_: {
+        type: Boolean,
+        value: false,
+        computed: 'computeShowExtendedUpdatesOption_(' +
+            'isExtendedUpdatesOptInEligible_,' +
+            'currentUpdateStatusEvent_)',
+      },
+
+      /**
+       * Whether the device is eligible to opt into extended updates.
+       * Value is obtained from the extended updates controller.
+       */
+      isExtendedUpdatesOptInEligible_: {
+        type: Boolean,
+        value: false,
+      },
+
+      /**
+       * Whether extended updates date has passed.
+       * Value is derived from update engine.
+       */
+      isExtendedUpdatesDatePassed_: {
+        type: Boolean,
+        value: false,
+      },
+
+      /**
+       * Whether user opt-in is required to receive extended updates.
+       * Value is updated from update engine.
+       */
+      isExtendedUpdatesOptInRequired_: {
+        type: Boolean,
+        value: false,
+      },
     };
   }
 
   static get observers() {
     return [
       'updateShowUpdateStatus_(hasEndOfLife_, currentUpdateStatusEvent_,' +
-          'hasCheckedForUpdates_)',
-      'updateShowButtonContainer_(showRelaunch_, showCheckUpdates_)',
+          'hasCheckedForUpdates_, showExtendedUpdatesOption_)',
+      'updateShowButtonContainer_(showRelaunch_, showCheckUpdates_,' +
+          'showExtendedUpdatesOption_)',
       'handleCrostiniEnabledChanged_(prefs.crostini.enabled.value)',
+      'updateIsExtendedUpdatesOptInEligible_(' +
+          'hasEndOfLife_, isExtendedUpdatesDatePassed_,' +
+          'isExtendedUpdatesOptInRequired_)',
     ];
   }
 
@@ -307,6 +358,10 @@ class OsAboutPageElement extends OsAboutPageBase {
   private updateInfo_?: AboutPageUpdateInfo;
   private isPendingOsUpdateDeepLink_: boolean;
   private isRevampWayfindingEnabled_: boolean;
+  private showExtendedUpdatesOption_: boolean;
+  private isExtendedUpdatesOptInEligible_: boolean;
+  private isExtendedUpdatesDatePassed_: boolean;
+  private isExtendedUpdatesOptInRequired_: boolean;
 
   private aboutBrowserProxy_: AboutPageBrowserProxy;
 
@@ -345,6 +400,9 @@ class OsAboutPageElement extends OsAboutPageBase {
       this.eolMessageWithMonthAndYear_ = result.aboutPageEndOfLifeMessage || '';
       this.showEolIncentive_ = !!result.shouldShowEndOfLifeIncentive;
       this.shouldShowOfferText_ = !!result.shouldShowOfferText;
+      this.isExtendedUpdatesDatePassed_ = !!result.isExtendedUpdatesDatePassed;
+      this.isExtendedUpdatesOptInRequired_ =
+          !!result.isExtendedUpdatesOptInRequired;
     });
 
     this.aboutBrowserProxy_.checkInternetConnection().then(result => {
@@ -359,6 +417,8 @@ class OsAboutPageElement extends OsAboutPageBase {
         'true') {
       this.onCheckUpdatesClick_();
     }
+
+    this.registerExtendedUpdatesObserver_();
   }
 
   override ready(): void {
@@ -394,6 +454,9 @@ class OsAboutPageElement extends OsAboutPageBase {
         'tpm-firmware-update-status-changed',
         this.onTpmFirmwareUpdateStatusChanged_.bind(this));
     this.aboutBrowserProxy_.refreshTpmFirmwareUpdateStatus();
+    this.addWebUiListener(
+        'extended-updates-setting-changed',
+        this.onExtendedUpdatesSettingChanged_.bind(this));
   }
 
   private onUpdateStatusChanged_(event: UpdateStatusChangedEvent): void {
@@ -441,7 +504,6 @@ class OsAboutPageElement extends OsAboutPageBase {
   }
 
   private onRelaunchClick_(): void {
-    recordSettingChange();
     LifetimeBrowserProxyImpl.getInstance().relaunch();
   }
 
@@ -460,8 +522,9 @@ class OsAboutPageElement extends OsAboutPageBase {
       return;
     }
 
-    // Do not show "updated" status if the device is end of life.
-    if (this.hasEndOfLife_) {
+    // Do not show "updated" status if the device is end of life or needs to
+    // opt into extended updates.
+    if (this.hasEndOfLife_ || this.showExtendedUpdatesOption_) {
       this.showUpdateStatus_ = false;
       return;
     }
@@ -475,7 +538,8 @@ class OsAboutPageElement extends OsAboutPageBase {
    * container displays an unwanted border (see separator class).
    */
   private updateShowButtonContainer_(): void {
-    this.showButtonContainer_ = this.showRelaunch_ || this.showCheckUpdates_;
+    this.showButtonContainer_ = this.showRelaunch_ || this.showCheckUpdates_ ||
+        this.showExtendedUpdatesOption_;
 
     // Check if we have yet to focus the check for update button.
     if (!this.isPendingOsUpdateDeepLink_) {
@@ -578,6 +642,11 @@ class OsAboutPageElement extends OsAboutPageBase {
     if (this.hasEndOfLife_) {
       return 'os-settings:end-of-life';
     }
+    // Show a special icon if extended updates are available.
+    // TODO(b/328506053): Finalize icon.
+    if (this.showExtendedUpdatesOption_) {
+      return 'os-settings:about-update-complete';
+    }
 
     switch (this.currentUpdateStatusEvent_.status) {
       case UpdateStatus.DISABLED_BY_ADMIN:
@@ -590,7 +659,7 @@ class OsAboutPageElement extends OsAboutPageBase {
             'cr:error-outline';
       case UpdateStatus.UPDATED:
       case UpdateStatus.NEARLY_UPDATED:
-        // TODO(crbug.com/986596): Don't use browser icons here. Fork them.
+        // TODO(crbug.com/40637166): Don't use browser icons here. Fork them.
         return this.isRevampWayfindingEnabled_ ?
             'os-settings:about-update-complete' :
             'settings:check-circle';
@@ -617,7 +686,7 @@ class OsAboutPageElement extends OsAboutPageBase {
   }
 
   private getThrobberSrcIfUpdating_(): string|null {
-    if (this.hasEndOfLife_) {
+    if (this.hasEndOfLife_ || this.showExtendedUpdatesOption_) {
       return null;
     }
 
@@ -673,8 +742,9 @@ class OsAboutPageElement extends OsAboutPageBase {
   }
 
   private computeShowCheckUpdates_(): boolean {
-    // Disable update button if the device is end of life.
-    if (this.hasEndOfLife_) {
+    // Disable update button if the device is end of life or needs to opt-in
+    // to extended updates.
+    if (this.hasEndOfLife_ || this.showExtendedUpdatesOption_) {
       return false;
     }
 
@@ -797,6 +867,44 @@ class OsAboutPageElement extends OsAboutPageBase {
           this.i18n('aboutFirmwareUpToDateDescription');
     }
     return null;
+  }
+
+  private computeShowExtendedUpdatesOption_(): boolean {
+    return this.isExtendedUpdatesOptInEligible_ &&
+        this.checkStatus_(UpdateStatus.UPDATED);
+  }
+
+  private updateIsExtendedUpdatesOptInEligible_(): void {
+    this.aboutBrowserProxy_
+        .isExtendedUpdatesOptInEligible(
+            this.hasEndOfLife_, this.isExtendedUpdatesDatePassed_,
+            this.isExtendedUpdatesOptInRequired_)
+        .then(result => {
+          this.isExtendedUpdatesOptInEligible_ = result;
+        });
+  }
+
+  private onExtendedUpdatesSettingChanged_(): void {
+    this.updateIsExtendedUpdatesOptInEligible_();
+  }
+
+  private onExtendedUpdatesButtonClick_(): void {
+    this.aboutBrowserProxy_.openExtendedUpdatesDialog();
+  }
+
+  private registerExtendedUpdatesObserver_(): void {
+    const extendedUpdatesObserver = new IntersectionObserver(
+        (entries: IntersectionObserverEntry[],
+         observer: IntersectionObserver) => {
+          entries.forEach((entry: IntersectionObserverEntry) => {
+            if (entry.isIntersecting) {
+              this.aboutBrowserProxy_.recordExtendedUpdatesShown();
+              observer.disconnect();
+              return;
+            }
+          });
+        });
+    extendedUpdatesObserver.observe(this.$.extendedUpdatesButton);
   }
 }
 

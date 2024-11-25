@@ -27,7 +27,6 @@ class WebServiceWorkerFetchContextImplTest : public testing::Test {
   class FakeURLLoaderThrottleProvider : public URLLoaderThrottleProvider {
     std::unique_ptr<URLLoaderThrottleProvider> Clone() override {
       NOTREACHED();
-      return nullptr;
     }
 
     WebVector<std::unique_ptr<URLLoaderThrottle>> CreateThrottles(

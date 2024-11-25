@@ -4,8 +4,6 @@
 
 #import "ios/chrome/browser/settings/model/sync/utils/identity_error_util.h"
 
-#import "base/feature_list.h"
-#import "components/sync/base/features.h"
 #import "components/sync/service/sync_service.h"
 #import "components/sync/service/sync_user_settings.h"
 #import "ios/chrome/browser/settings/model/sync/utils/account_error_ui_info.h"
@@ -92,7 +90,7 @@ GetUIInfoForTrustedVaultRecoverabilityDegradedErrorForEverything() {
 AccountErrorUIInfo* GetAccountErrorUIInfo(syncer::SyncService* sync_service) {
   DCHECK(sync_service);
 
-  // TODO(crbug.com/1462552): Remove usage of IsSyncFeatureEnabled() after
+  // TODO(crbug.com/40066949): Remove usage of IsSyncFeatureEnabled() after
   // kSync users are migrated to kSignin in phase 3. See ConsentLevel::kSync
   // documentation for details.
   if (sync_service->IsSyncFeatureEnabled()) {
@@ -117,14 +115,13 @@ AccountErrorUIInfo* GetAccountErrorUIInfo(syncer::SyncService* sync_service) {
       return GetUIInfoForTrustedVaultRecoverabilityDegradedErrorForEverything();
     case syncer::SyncService::UserActionableError::kNone:
     case syncer::SyncService::UserActionableError::kSignInNeedsUpdate:
-    case syncer::SyncService::UserActionableError::kGenericUnrecoverableError:
       break;
   }
 
   return nil;
 }
 
-// TODO(crbug.com/1462552): Remove this function after kSync users are migrated
+// TODO(crbug.com/40066949): Remove this function after kSync users are migrated
 // to kSignin in phase 3. See ConsentLevel::kSync documentation for details.
 SyncState GetSyncFeatureState(syncer::SyncService* sync_service) {
   syncer::SyncService::UserActionableError error_state =
@@ -140,7 +137,7 @@ SyncState GetSyncFeatureState(syncer::SyncService* sync_service) {
   } else if (!sync_service->CanSyncFeatureStart()) {
     // Sync engine is off.
     return SyncState::kSyncOff;
-  } else if (sync_service->GetUserSettings()->GetSelectedTypes().Empty()) {
+  } else if (sync_service->GetUserSettings()->GetSelectedTypes().empty()) {
     // User has deselected all sync data types.
     // With pre-MICE, the sync status should be SyncState::kSyncEnabled to show
     // the same value than the sync toggle.

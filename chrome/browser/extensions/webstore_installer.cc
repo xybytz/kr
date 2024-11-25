@@ -10,6 +10,7 @@
 #include <limits>
 #include <memory>
 #include <set>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -21,7 +22,6 @@
 #include "base/rand_util.h"
 #include "base/strings/escape.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -55,6 +55,7 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/install/crx_install_error.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/extension_id.h"
 #include "extensions/common/extension_urls.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_handlers/shared_module_info.h"
@@ -101,7 +102,7 @@ const base::FilePath::CharType kWebstoreDownloadFolder[] =
 base::FilePath* g_download_directory_for_tests = nullptr;
 
 base::FilePath GetDownloadFilePath(const base::FilePath& download_directory,
-                                   const std::string& id) {
+                                   const extensions::ExtensionId& id) {
   // Ensure the download directory exists. TODO(asargent) - make this use
   // common code from the downloads system.
   if (!base::DirectoryExists(download_directory) &&
@@ -129,8 +130,7 @@ void MaybeAppendAuthUserParameter(const std::string& authuser, GURL* url) {
   url::Component query(0, old_query.length());
   url::Component key, value;
   // Ensure that the URL doesn't already specify an authuser parameter.
-  while (url::ExtractQueryKeyValue(
-             old_query.c_str(), &query, &key, &value)) {
+  while (url::ExtractQueryKeyValue(old_query, &query, &key, &value)) {
     std::string key_string = old_query.substr(key.begin, key.len);
     if (key_string == kAuthUserQueryKey) {
       return;
@@ -191,7 +191,7 @@ GURL WebstoreInstaller::GetWebstoreInstallURL(
     return GURL(base::StringPrintfNonConstexpr(download_url.c_str(),
                                                extension_id.c_str()));
   }
-  std::vector<base::StringPiece> params;
+  std::vector<std::string_view> params;
   std::string extension_param = "id=" + extension_id;
   std::string installsource_param = "installsource=" + install_source;
   params.push_back(extension_param);
@@ -232,7 +232,7 @@ WebstoreInstaller::Approval::CreateForSharedModule(Profile* profile) {
 std::unique_ptr<WebstoreInstaller::Approval>
 WebstoreInstaller::Approval::CreateWithNoInstallPrompt(
     Profile* profile,
-    const std::string& extension_id,
+    const extensions::ExtensionId& extension_id,
     base::Value::Dict parsed_manifest,
     bool strict_manifest_check) {
   std::unique_ptr<Approval> result(new Approval());
@@ -258,7 +258,7 @@ WebstoreInstaller::WebstoreInstaller(Profile* profile,
                                      SuccessCallback success_callback,
                                      FailureCallback failure_callback,
                                      content::WebContents* web_contents,
-                                     const std::string& id,
+                                     const extensions::ExtensionId& id,
                                      std::unique_ptr<Approval> approval,
                                      InstallSource source)
     : web_contents_(web_contents->GetWeakPtr()),
@@ -302,7 +302,7 @@ void WebstoreInstaller::Start() {
 
   total_modules_ = pending_modules_.size();
 
-  std::set<std::string> ids;
+  std::set<extensions::ExtensionId> ids;
   std::list<SharedModuleInfo::ImportInfo>::const_iterator i;
   for (i = pending_modules_.begin(); i != pending_modules_.end(); ++i) {
     ids.insert(i->extension_id);
@@ -323,7 +323,7 @@ void WebstoreInstaller::Start() {
 
   tracker->OnBeginExtensionDownload(id_);
 
-  // TODO(crbug.com/305343): Query manifest of dependencies before
+  // TODO(crbug.com/41064141): Query manifest of dependencies before
   // downloading & installing those dependencies.
   DownloadNextPendingModule();
 }
@@ -398,7 +398,7 @@ WebstoreInstaller::~WebstoreInstaller() {
 }
 
 void WebstoreInstaller::OnDownloadStarted(
-    const std::string& extension_id,
+    const extensions::ExtensionId& extension_id,
     DownloadItem* item,
     download::DownloadInterruptReason interrupt_reason) {
   if (!item || interrupt_reason != download::DOWNLOAD_INTERRUPT_REASON_NONE) {
@@ -517,9 +517,8 @@ void WebstoreInstaller::DownloadNextPendingModule() {
   }
 }
 
-void WebstoreInstaller::DownloadCrx(
-    const std::string& extension_id,
-    InstallSource source) {
+void WebstoreInstaller::DownloadCrx(const extensions::ExtensionId& extension_id,
+                                    InstallSource source) {
   download_url_ = GetWebstoreInstallURL(extension_id, source);
   MaybeAppendAuthUserParameter(approval_->authuser, &download_url_);
 
@@ -544,8 +543,9 @@ void WebstoreInstaller::DownloadCrx(
 // reports should narrow down exactly which pointer it is.  Collapsing all the
 // early-returns into a single branch makes it hard to see exactly which pointer
 // it is.
-void WebstoreInstaller::StartDownload(const std::string& extension_id,
-                                      const base::FilePath& file) {
+void WebstoreInstaller::StartDownload(
+    const extensions::ExtensionId& extension_id,
+    const base::FilePath& file) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (file.empty()) {
@@ -624,6 +624,7 @@ void WebstoreInstaller::StartDownload(const std::string& extension_id,
       download_url_, render_process_host_id, render_frame_host->GetRoutingID(),
       traffic_annotation));
   params->set_file_path(file);
+  params->set_initiator(render_frame_host->GetLastCommittedOrigin());
   if (controller.GetVisibleEntry()) {
     content::Referrer referrer = content::Referrer::SanitizeForRequest(
         download_url_,

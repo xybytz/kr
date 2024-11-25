@@ -37,17 +37,29 @@ import org.chromium.base.test.BaseRobolectricTestRunner;
 public class PaneManagerImplUnitTest {
     @Rule public final MockitoRule mMockitoRule = MockitoJUnit.rule();
 
+    @Mock private DisplayButtonData mReferenceButtonData;
     @Mock private Pane mTabSwitcherPane;
     @Mock private Pane mIncognitoTabSwitcherPane;
     @Mock private Supplier<Pane> mPaneSupplier;
+    @Mock private Runnable mRunnable;
+
     private final ObservableSupplierImpl<Boolean> mHubVisibilitySupplier =
             new ObservableSupplierImpl<>();
-    @Mock private Runnable mRunnable;
+    private final ObservableSupplierImpl<DisplayButtonData>
+            mTabSwitcherPaneReferenceButtonDataSupplier = new ObservableSupplierImpl<>();
+    private final ObservableSupplierImpl<DisplayButtonData>
+            mIncognitoTabSwitcherPaneReferenceButtonDataSupplier = new ObservableSupplierImpl<>();
 
     @Before
     public void setUp() {
         when(mTabSwitcherPane.getPaneId()).thenReturn(PaneId.TAB_SWITCHER);
+        when(mTabSwitcherPane.getReferenceButtonDataSupplier())
+                .thenReturn(mTabSwitcherPaneReferenceButtonDataSupplier);
+        mTabSwitcherPaneReferenceButtonDataSupplier.set(mReferenceButtonData);
         when(mIncognitoTabSwitcherPane.getPaneId()).thenReturn(PaneId.INCOGNITO_TAB_SWITCHER);
+        when(mIncognitoTabSwitcherPane.getReferenceButtonDataSupplier())
+                .thenReturn(mIncognitoTabSwitcherPaneReferenceButtonDataSupplier);
+        mIncognitoTabSwitcherPaneReferenceButtonDataSupplier.set(mReferenceButtonData);
     }
 
     @Test
@@ -72,6 +84,10 @@ public class PaneManagerImplUnitTest {
         assertEquals(mIncognitoTabSwitcherPane, paneManager.getFocusedPaneSupplier().get());
 
         assertTrue(paneManager.focusPane(PaneId.TAB_SWITCHER));
+        assertEquals(mTabSwitcherPane, paneManager.getFocusedPaneSupplier().get());
+
+        mIncognitoTabSwitcherPaneReferenceButtonDataSupplier.set(null);
+        assertFalse(paneManager.focusPane(PaneId.INCOGNITO_TAB_SWITCHER));
         assertEquals(mTabSwitcherPane, paneManager.getFocusedPaneSupplier().get());
 
         verify(mTabSwitcherPane, never()).destroy();
@@ -238,6 +254,7 @@ public class PaneManagerImplUnitTest {
         mHubVisibilitySupplier.set(false);
         ShadowLooper.runUiThreadTasks();
         verify(mTabSwitcherPane).notifyLoadHint(eq(LoadHint.COLD));
+        verify(mIncognitoTabSwitcherPane, times(2)).notifyLoadHint(eq(LoadHint.WARM));
         verify(mIncognitoTabSwitcherPane).notifyLoadHint(eq(LoadHint.COLD));
 
         paneManager.focusPane(PaneId.TAB_SWITCHER);
@@ -249,7 +266,7 @@ public class PaneManagerImplUnitTest {
         mHubVisibilitySupplier.set(true);
         verify(mTabSwitcherPane).notifyLoadHint(eq(LoadHint.HOT));
         ShadowLooper.runUiThreadTasks();
-        verify(mIncognitoTabSwitcherPane, times(2)).notifyLoadHint(eq(LoadHint.WARM));
+        verify(mIncognitoTabSwitcherPane, times(3)).notifyLoadHint(eq(LoadHint.WARM));
 
         paneManager.focusPane(PaneId.INCOGNITO_TAB_SWITCHER);
         verify(mIncognitoTabSwitcherPane, times(2)).notifyLoadHint(eq(LoadHint.HOT));

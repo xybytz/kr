@@ -26,6 +26,7 @@ public abstract class ImageFetcher {
     public static final String ASSISTANT_INFO_BOX_UMA_CLIENT_NAME = "AssistantInfoBox";
     public static final String AUTOFILL_CARD_ART_UMA_CLIENT_NAME = "AutofillCardArt";
     public static final String CRYPTIDS_UMA_CLIENT_NAME = "Cryptids";
+    public static final String DATA_SHARING_UMA_CLIENT_NAME = "DataSharing";
     public static final String OMNIBOX_UMA_CLIENT_NAME = "Omnibox";
     public static final String FEED_UMA_CLIENT_NAME = "Feed";
     public static final String NTP_ANIMATED_LOGO_UMA_CLIENT_NAME = "NewTabPageAnimatedLogo";
@@ -36,6 +37,7 @@ public abstract class ImageFetcher {
     public static final String WEB_ID_ACCOUNT_SELECTION_UMA_CLIENT_NAME = "WebIDAccountSelection";
     public static final String WEB_NOTES_UMA_CLIENT_NAME = "WebNotes";
     public static final String PRICE_CHANGE_MODULE_NAME = "PriceChangeModule";
+    public static final String TAB_RESUMPTION_MODULE_NAME = "TabResumptionModule";
 
     /**
      * Encapsulates image fetching customization options. Supports a subset of the native

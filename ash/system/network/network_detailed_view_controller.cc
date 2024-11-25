@@ -64,12 +64,11 @@ bool NetworkTypeIsConfigurable(NetworkType type) {
       return false;
   }
   NOTREACHED();
-  return false;
 }
 
 bool IsNetworkBehindPortalOrProxy(PortalState portalState) {
   return portalState == PortalState::kPortal ||
-         portalState == PortalState::kProxyAuthRequired;
+         portalState == PortalState::kPortalSuspected;
 }
 
 bool IsNetworkConnectable(const NetworkStatePropertiesPtr& network_properties) {
@@ -161,14 +160,9 @@ void NetworkDetailedViewController::OnNetworkListItemSelected(
       }
       // It is not possible to unlock the carrier locked device by entering the
       // pin on UI as unlock flow is triggered by simLock server
-      if (features::IsCellularCarrierLockEnabled()) {
-        if (network->type_state->get_cellular()->sim_lock_type ==
-            "network-pin") {
-          return;
-        }
+      if (network->type_state->get_cellular()->sim_lock_type == "network-pin") {
+        return;
       }
-      RecordNetworkRowClickedAction(
-          NetworkRowClickedAction::kOpenSimUnlockDialog);
       Shell::Get()->system_tray_model()->client()->ShowSettingsSimUnlock();
       return;
     }
@@ -181,7 +175,6 @@ void NetworkDetailedViewController::OnNetworkListItemSelected(
             LoginStatus::NOT_LOGGED_IN &&
         chromeos::network_config::StateIsConnected(network->connection_state) &&
         IsNetworkBehindPortalOrProxy(network->portal_state)) {
-      RecordNetworkRowClickedAction(NetworkRowClickedAction::kOpenPortalSignin);
       NetworkConnect::Get()->ShowPortalSignin(
           network->guid, NetworkConnect::Source::kQuickSettings);
       return;
@@ -190,7 +183,6 @@ void NetworkDetailedViewController::OnNetworkListItemSelected(
     if (IsNetworkConnectable(network)) {
       base::RecordAction(
           UserMetricsAction("StatusArea_Network_ConnectConfigured"));
-      RecordNetworkRowClickedAction(NetworkRowClickedAction::kConnectToNetwork);
       NetworkConnect::Get()->ConnectToNetworkId(network->guid);
       return;
     }
@@ -199,18 +191,11 @@ void NetworkDetailedViewController::OnNetworkListItemSelected(
   // If the network is no longer available or not connectable or configurable,
   // show the Settings UI.
   base::RecordAction(UserMetricsAction("StatusArea_Network_ConnectionDetails"));
-  RecordNetworkRowClickedAction(
-      NetworkRowClickedAction::kOpenNetworkSettingsPage);
   Shell::Get()->system_tray_model()->client()->ShowNetworkSettings(
       network ? network->guid : std::string());
 }
 
 void NetworkDetailedViewController::OnMobileToggleClicked(bool new_state) {
-  RecordNetworkTypeToggled(features::IsInstantHotspotRebrandEnabled()
-                               ? NetworkType::kCellular
-                               : NetworkType::kMobile,
-                           new_state);
-
   const DeviceStateType cellular_state =
       model_->GetDeviceState(NetworkType::kCellular);
 
@@ -246,7 +231,6 @@ void NetworkDetailedViewController::OnMobileToggleClicked(bool new_state) {
 }
 
 void NetworkDetailedViewController::OnWifiToggleClicked(bool new_state) {
-  RecordNetworkTypeToggled(NetworkType::kWiFi, new_state);
   model_->SetNetworkTypeEnabledState(NetworkType::kWiFi, new_state);
 }
 
@@ -262,6 +246,10 @@ void NetworkDetailedViewController::OnPropertiesUpdated(
     model_->SetNetworkTypeEnabledState(NetworkType::kTether,
                                        /*enabled=*/true);
   }
+}
+
+void NetworkDetailedViewController::ShutDown() {
+  network_list_view_controller_.reset();
 }
 
 }  // namespace ash

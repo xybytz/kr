@@ -6,9 +6,11 @@
 #define MEDIA_GPU_VAAPI_AV1_VAAPI_VIDEO_ENCODER_DELEGATE_H_
 
 #include <stdint.h>
+
 #include <vector>
 
 #include "media/base/video_bitrate_allocation.h"
+#include "media/gpu/av1_builder.h"
 #include "media/gpu/av1_picture.h"
 #include "media/gpu/vaapi/vaapi_video_encoder_delegate.h"
 
@@ -28,6 +30,13 @@ class AV1VaapiVideoEncoderDelegate : public VaapiVideoEncoderDelegate {
     uint32_t framerate = 0;
     uint8_t min_qp = 0;
     uint8_t max_qp = 0;
+
+    // The rate controller drop frame threshold. 0-100 as this is percentage.
+    uint8_t drop_frame_thresh = 0;
+
+    // The encoding content is a screen content.
+    bool is_screen = false;
+
     // Sensible default values for CDEF taken from
     // https://github.com/intel/libva-utils/blob/master/encode/av1encode.c
     // TODO: we may want to tune these parameters.
@@ -35,19 +44,6 @@ class AV1VaapiVideoEncoderDelegate : public VaapiVideoEncoderDelegate {
     uint8_t cdef_y_sec_strength[8] = {0, 2, 0, 0, 0, 1, 0, 1};
     uint8_t cdef_uv_pri_strength[8] = {9, 12, 0, 6, 2, 4, 1, 2};
     uint8_t cdef_uv_sec_strength[8] = {0, 2, 0, 0, 0, 1, 0, 1};
-  };
-
-  struct PicParamOffsets {
-    uint32_t q_idx_bit_offset = 0;
-    uint32_t segmentation_bit_offset = 0;
-    uint32_t segmentation_bit_size = 0;
-    uint32_t loop_filter_params_bit_offset = 0;
-    uint32_t frame_hdr_obu_size_bits = 0;
-    uint32_t frame_hdr_obu_size_byte_offset = 0;  // Tell the driver where to
-                                                  // put the frame size
-    uint32_t uncompressed_hdr_byte_offset = 0;
-    uint32_t cdef_params_bit_offset = 0;
-    uint32_t cdef_params_size_bits = 0;
   };
 
   AV1VaapiVideoEncoderDelegate(scoped_refptr<VaapiWrapper> vaapi_wrapper,
@@ -74,23 +70,18 @@ class AV1VaapiVideoEncoderDelegate : public VaapiVideoEncoderDelegate {
   PrepareEncodeJobResult PrepareEncodeJob(EncodeJob& encode_job) override;
   void BitrateControlUpdate(const BitstreamBufferMetadata& metadata) override;
 
-  bool SubmitTemporalDelimiter(PicParamOffsets& offsets);
-  bool SubmitSequenceHeader(PicParamOffsets& offsets);
+  bool SubmitTemporalDelimiter(size_t& temporal_delimiter_obu_size);
+  bool SubmitSequenceHeader(size_t& sequence_header_obu_size);
   bool SubmitSequenceParam();
-  bool SubmitSequenceHeaderOBU(PicParamOffsets& offsets);
-  std::vector<uint8_t> PackSequenceHeader() const;
-  bool SubmitFrame(EncodeJob& job, PicParamOffsets& offsets);
+  bool SubmitSequenceHeaderOBU(size_t& sequence_header_obu_size);
+  bool SubmitFrame(const EncodeJob& job, size_t frame_header_obu_offset);
   bool FillPictureParam(VAEncPictureParameterBufferAV1& pic_param,
                         VAEncSegMapBufferAV1& segment_map_param,
                         const EncodeJob& job,
                         const AV1Picture& pic);
   bool SubmitFrameOBU(const VAEncPictureParameterBufferAV1& pic_param,
-                      PicParamOffsets& offsets);
-  std::vector<uint8_t> PackFrameHeader(
-      const VAEncPictureParameterBufferAV1& pic_param,
-      PicParamOffsets& offsets) const;
-  bool SubmitPictureParam(VAEncPictureParameterBufferAV1& pic_param,
-                          const PicParamOffsets& offsets);
+                      size_t& frame_header_obu_size_offset);
+  bool SubmitPictureParam(const VAEncPictureParameterBufferAV1& pic_param);
   bool SubmitSegmentMap(const VAEncSegMapBufferAV1& segment_map_param);
   bool SubmitTileGroup();
   bool SubmitPackedData(const std::vector<uint8_t>& data);
@@ -103,7 +94,7 @@ class AV1VaapiVideoEncoderDelegate : public VaapiVideoEncoderDelegate {
   // TODO(b:274756117): In tuning this encoder, we may decide we want multiple
   // reference frames, not just the most recent.
   scoped_refptr<AV1Picture> last_frame_ = nullptr;
-  VAEncSequenceParameterBufferAV1 seq_param_;
+  AV1BitstreamBuilder::SequenceHeader sequence_header_;
   std::unique_ptr<aom::AV1RateControlRTC> rate_ctrl_;
   std::vector<uint8_t> segmentation_map_{};
   uint32_t seg_size_;

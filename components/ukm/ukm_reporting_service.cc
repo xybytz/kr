@@ -7,6 +7,7 @@
 #include "components/ukm/ukm_reporting_service.h"
 
 #include <memory>
+#include <string_view>
 
 #include "base/command_line.h"
 #include "base/metrics/field_trial_params.h"
@@ -88,7 +89,7 @@ UkmReportingService::UkmReportingService(metrics::MetricsServiceClient* client,
                         client->GetUploadSigningKey(),
                         /*logs_event_manager=*/nullptr) {}
 
-UkmReportingService::~UkmReportingService() {}
+UkmReportingService::~UkmReportingService() = default;
 
 metrics::LogStore* UkmReportingService::log_store() {
   return &unsent_log_store_;
@@ -102,7 +103,7 @@ GURL UkmReportingService::GetInsecureUploadUrl() const {
   return GURL();
 }
 
-base::StringPiece UkmReportingService::upload_mime_type() const {
+std::string_view UkmReportingService::upload_mime_type() const {
   return metrics::kUkmMimeType;
 }
 

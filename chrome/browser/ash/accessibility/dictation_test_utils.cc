@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ash/accessibility/dictation_test_utils.h"
 
+#include <string_view>
+
 #include "ash/constants/ash_pref_names.h"
 #include "ash/shell.h"
 #include "base/base_paths.h"
@@ -15,7 +17,6 @@
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ash/accessibility/accessibility_test_utils.h"
 #include "chrome/browser/ash/accessibility/automation_test_utils.h"
-#include "chrome/browser/ash/accessibility/caret_bounds_changed_waiter.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/speech/speech_recognition_constants.h"
 #include "chrome/browser/ui/browser.h"
@@ -122,8 +123,8 @@ DictationTestUtils::DictationTestUtils(
       editable_type_(editable_type) {
   automation_test_utils_ = std::make_unique<AutomationTestUtils>(
       extension_misc::kAccessibilityCommonExtensionId);
-  test_helper_ =
-      std::make_unique<SpeechRecognitionTestHelper>(speech_recognition_type);
+  test_helper_ = std::make_unique<SpeechRecognitionTestHelper>(
+      speech_recognition_type, media::mojom::RecognizerClientType::kDictation);
 }
 
 DictationTestUtils::~DictationTestUtils() {
@@ -366,7 +367,7 @@ void DictationTestUtils::WaitForPumpkinTaggerReady() {
   std::string locale =
       profile_->GetPrefs()->GetString(prefs::kAccessibilityDictationLocale);
   static constexpr auto kPumpkinLocales =
-      base::MakeFixedFlatSet<base::StringPiece>(
+      base::MakeFixedFlatSet<std::string_view>(
           {"en-US", "fr-FR", "it-IT", "de-DE", "es-ES"});
   if (!base::Contains(kPumpkinLocales, locale)) {
     // If Pumpkin doesn't support the dictation locale, then it will never

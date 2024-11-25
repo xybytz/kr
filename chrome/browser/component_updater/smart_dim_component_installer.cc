@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/component_updater/smart_dim_component_installer.h"
 
 #include <cstddef>
@@ -75,7 +80,7 @@ std::optional<ComponentFileContents> ReadComponentFiles(
                          std::move(model_flatbuffer));
 }
 
-void UpdateSmartDimMlAgent(const std::optional<ComponentFileContents>& result) {
+void UpdateSmartDimMlAgent(std::optional<ComponentFileContents> result) {
   if (result == std::nullopt) {
     LogLoadComponentEvent(LoadComponentEvent::kReadComponentFilesError);
     return;

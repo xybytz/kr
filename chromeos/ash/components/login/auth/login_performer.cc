@@ -59,6 +59,15 @@ void LoginPerformer::OnAuthSuccess(const UserContext& user_context) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   LoginEventRecorder::Get()->AddLoginTimeMarker("OnAuthSuccess", false);
   delegate_->ReportOnAuthSuccessMetrics();
+  auto mount_state = user_context.GetMountState();
+  if (mount_state && *mount_state == UserContext::MountState::kNewPersistent) {
+    // In rare cases (e.g. due to disk cleanup mechanism) it is possible that
+    // user's cryptohome is deleted, but information in `Local State` still
+    // assumes that user exists.
+    // Remove all such stale information at this point.
+    user_manager::UserManager::Get()->CleanStaleUserInformationFor(
+        user_context.GetAccountId());
+  }
 
   const bool is_known_user = user_manager::UserManager::Get()->IsKnownUser(
       user_context.GetAccountId());
@@ -83,11 +92,13 @@ void LoginPerformer::OnAuthSuccess(const UserContext& user_context) {
   bool is_primary_user = !primary_user || primary_user->GetAccountId() ==
                                               user_context.GetAccountId();
   bool regular_or_child =
-      user_context.GetUserType() == user_manager::USER_TYPE_REGULAR ||
-      user_context.GetUserType() == user_manager::USER_TYPE_CHILD;
+      user_context.GetUserType() == user_manager::UserType::kRegular ||
+      user_context.GetUserType() == user_manager::UserType::kChild;
   // TODO(b/315279142): Remove `is_primary_user` check and run factor updates
   // for all users.
+
   if (regular_or_child && is_primary_user) {
+    AuthEventsRecorder::Get()->StartPostLoginFactorAdjustments();
     LoadAndApplyEarlyPrefs(std::make_unique<UserContext>(user_context),
                            base::BindOnce(&LoginPerformer::OnEarlyPrefsApplied,
                                           weak_factory_.GetWeakPtr()));
@@ -105,7 +116,7 @@ void LoginPerformer::OnEarlyPrefsApplied(
     LOG(ERROR) << "Could not apply policies due to error:"
                << error->ToDebugString();
   }
-
+  AuthEventsRecorder::Get()->FinishPostLoginFactorAdjustments();
   base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&LoginPerformer::NotifyAuthSuccess,
                                 weak_factory_.GetWeakPtr(), *context.get()));
@@ -230,16 +241,6 @@ void LoginPerformer::LoginAsKioskAccount(const AccountId& app_account_id) {
       user_manager::UserManager::Get()->IsEphemeralAccountId(app_account_id));
 }
 
-void LoginPerformer::LoginAsArcKioskAccount(
-    const AccountId& arc_app_account_id) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  EnsureAuthenticator();
-  authenticator_->LoginAsArcKioskAccount(
-      arc_app_account_id,
-      user_manager::UserManager::Get()->IsEphemeralAccountId(
-          arc_app_account_id));
-}
-
 void LoginPerformer::LoginAsWebKioskAccount(
     const AccountId& web_app_account_id) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -250,27 +251,19 @@ void LoginPerformer::LoginAsWebKioskAccount(
           web_app_account_id));
 }
 
+void LoginPerformer::LoginAsIwaKioskAccount(const AccountId& iwa_account_id) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  EnsureAuthenticator();
+  authenticator_->LoginAsIwaKioskAccount(
+      iwa_account_id,
+      user_manager::UserManager::Get()->IsEphemeralAccountId(iwa_account_id));
+}
+
 void LoginPerformer::LoginAuthenticated(
     std::unique_ptr<UserContext> user_context) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   EnsureAuthenticator();
   authenticator_->LoginAuthenticated(std::move(user_context));
-}
-
-void LoginPerformer::RecoverEncryptedData(const std::string& old_password) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  authenticator_->RecoverEncryptedData(
-      std::make_unique<UserContext>(user_context_), old_password);
-  user_context_.ClearSecrets();
-}
-
-void LoginPerformer::ResyncEncryptedData() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  authenticator_->ResyncEncryptedData(
-      user_manager::UserManager::Get()->IsEphemeralAccountId(
-          user_context_.GetAccountId()),
-      std::make_unique<UserContext>(user_context_));
-  user_context_.ClearSecrets();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -10,14 +10,13 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/vector_icons/vector_icons.h"
-#include "chrome/browser/sharing/sharing_constants.h"
-#include "chrome/browser/sharing/sharing_dialog.h"
-#include "chrome/browser/sharing/sharing_target_device_info.h"
 #include "chrome/browser/sharing/sms/sms_remote_fetcher_metrics.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/omnibox/browser/omnibox_field_trial.h"
+#include "components/sharing_message/sharing_constants.h"
+#include "components/sharing_message/sharing_dialog.h"
+#include "components/sharing_message/sharing_target_device_info.h"
 #include "components/vector_icons/vector_icons.h"
 #include "content/public/browser/sms_fetcher.h"
 #include "content/public/browser/web_contents.h"
@@ -26,7 +25,7 @@
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/strings/grit/ui_strings.h"
 
-using SharingMessage = chrome_browser_sharing::SharingMessage;
+using SharingMessage = components_sharing_message::SharingMessage;
 
 // static
 SmsRemoteFetcherUiController*
@@ -67,9 +66,7 @@ std::u16string SmsRemoteFetcherUiController::GetContentType() const {
 }
 
 const gfx::VectorIcon& SmsRemoteFetcherUiController::GetVectorIcon() const {
-  return OmniboxFieldTrial::IsChromeRefreshIconsEnabled()
-             ? kSmartphoneRefreshIcon
-             : kSmartphoneIcon;
+  return kSmartphoneRefreshIcon;
 }
 
 bool SmsRemoteFetcherUiController::ShouldShowLoadingIcon() const {
@@ -97,7 +94,7 @@ SharingFeatureName SmsRemoteFetcherUiController::GetFeatureMetricsPrefix()
 void SmsRemoteFetcherUiController::OnSmsRemoteFetchResponse(
     OnRemoteCallback callback,
     SharingSendMessageResult result,
-    std::unique_ptr<chrome_browser_sharing::ResponseMessage> response) {
+    std::unique_ptr<components_sharing_message::ResponseMessage> response) {
   if (result != SharingSendMessageResult::kSuccessful) {
     std::move(callback).Run(std::nullopt, std::nullopt,
                             content::SmsFetchFailureType::kCrossDeviceFailure);
@@ -144,15 +141,15 @@ base::OnceClosure SmsRemoteFetcherUiController::FetchRemoteSms(
 
   // Sends to the first device that has the capability enabled. User cannot
   // select device because the site sends out the SMS asynchronously.
-  const std::unique_ptr<SharingTargetDeviceInfo>& device = devices.front();
-  last_device_name_ = device->client_name();
-  chrome_browser_sharing::SharingMessage request;
+  const SharingTargetDeviceInfo& device = devices.front();
+  last_device_name_ = device.client_name();
+  components_sharing_message::SharingMessage request;
 
   for (const url::Origin& origin : origin_list)
     request.mutable_sms_fetch_request()->add_origins(origin.Serialize());
 
   return SendMessageToDevice(
-      *device.get(), blink::kWebOTPRequestTimeout, std::move(request),
+      device, blink::kWebOTPRequestTimeout, std::move(request),
       base::BindOnce(&SmsRemoteFetcherUiController::OnSmsRemoteFetchResponse,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }

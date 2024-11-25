@@ -32,7 +32,7 @@ public class HomeModulesContextMenuManager {
         ContextMenuItemId.NUM_ENTRIES
     })
     @Retention(RetentionPolicy.SOURCE)
-    @interface ContextMenuItemId {
+    public @interface ContextMenuItemId {
         /** The "hide module" menu item is default shown on the context menu. */
         int HIDE_MODULE = 0;
 
@@ -42,8 +42,9 @@ public class HomeModulesContextMenuManager {
         int NUM_ENTRIES = 2;
     }
 
-    private final ModuleDelegate mModuleDelegate;
-    private final Point mContextMenuStartPointion;
+    private final Point mContextMenuStartPosition;
+
+    private ModuleDelegate mModuleDelegate;
 
     /**
      * @param moduleDelegate The instance of magic stack {@link ModuleDelegate}.
@@ -52,7 +53,11 @@ public class HomeModulesContextMenuManager {
     public HomeModulesContextMenuManager(
             @NonNull ModuleDelegate moduleDelegate, @NonNull Point startPosition) {
         mModuleDelegate = moduleDelegate;
-        mContextMenuStartPointion = startPosition;
+        mContextMenuStartPosition = startPosition;
+    }
+
+    public void destroy() {
+        mModuleDelegate = null;
     }
 
     /**
@@ -66,6 +71,8 @@ public class HomeModulesContextMenuManager {
             @NonNull ContextMenu contextMenu,
             @NonNull View associatedView,
             @NonNull ModuleProvider moduleProvider) {
+        if (mModuleDelegate == null) return;
+
         OnMenuItemClickListener listener =
                 menuItem -> onMenuItemClickImpl(menuItem, moduleProvider);
         boolean hasItems = false;
@@ -83,11 +90,9 @@ public class HomeModulesContextMenuManager {
                         .setOnMenuItemClickListener(listener);
             } else {
                 Context context = associatedView.getContext();
-                String item =
-                        context.getString(
-                                R.string.home_modules_context_menu_hide_module,
-                                moduleProvider.getModuleTitle(context));
-                contextMenu.add(item).setOnMenuItemClickListener(listener);
+                contextMenu
+                        .add(moduleProvider.getModuleContextMenuHideText(context))
+                        .setOnMenuItemClickListener(listener);
             }
             hasItems = true;
         }
@@ -109,14 +114,14 @@ public class HomeModulesContextMenuManager {
             @NonNull MenuItem menuItem, @NonNull ModuleProvider moduleProvider) {
         switch (menuItem.getItemId()) {
             case ContextMenuItemId.HIDE_MODULE:
-                mModuleDelegate.onHideModuleFromContextMenu(moduleProvider.getModuleType());
+                mModuleDelegate.removeModuleAndDisable(moduleProvider.getModuleType());
                 HomeModulesMetricsUtils.recordContextMenuRemoveModule(
-                        mModuleDelegate.getHostSurfaceType(), moduleProvider.getModuleType());
+                        moduleProvider.getModuleType());
                 return true;
             case ContextMenuItemId.SHOW_CUSTOMIZE_SETTINGS:
                 mModuleDelegate.customizeSettings();
                 HomeModulesMetricsUtils.recordContextMenuCustomizeSettings(
-                        mModuleDelegate.getHostSurfaceType(), moduleProvider.getModuleType());
+                        moduleProvider.getModuleType());
                 return true;
             default:
                 assert false : "Not reached.";
@@ -127,10 +132,11 @@ public class HomeModulesContextMenuManager {
     /** Returns whether to show a context menu item. */
     @VisibleForTesting
     boolean shouldShowItem(@ContextMenuItemId int itemId, @NonNull ModuleProvider moduleProvider) {
-        if (itemId == ContextMenuItemId.HIDE_MODULE
-                || itemId == ContextMenuItemId.SHOW_CUSTOMIZE_SETTINGS) {
+        if (itemId == ContextMenuItemId.SHOW_CUSTOMIZE_SETTINGS
+                || itemId == ContextMenuItemId.HIDE_MODULE) {
             return true;
         }
+
         return moduleProvider.isContextMenuItemSupported(itemId);
     }
 
@@ -155,12 +161,11 @@ public class HomeModulesContextMenuManager {
      */
     private void notifyContextMenuShown(@NonNull ModuleProvider moduleProvider) {
         moduleProvider.onContextMenuCreated();
-        HomeModulesMetricsUtils.recordContextMenuShown(
-                mModuleDelegate.getHostSurfaceType(), moduleProvider.getModuleType());
+        HomeModulesMetricsUtils.recordContextMenuShown(moduleProvider.getModuleType());
     }
 
     /** Returns the starting position of the context menu. */
     Point getContextMenuOffset() {
-        return mContextMenuStartPointion;
+        return mContextMenuStartPosition;
     }
 }

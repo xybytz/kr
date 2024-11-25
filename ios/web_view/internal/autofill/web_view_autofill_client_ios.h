@@ -9,16 +9,16 @@
 #include <string>
 #include <vector>
 
+#import "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "components/autofill/core/browser/autocomplete_history_manager.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/crowdsourcing/autofill_crowdsourcing_manager.h"
 #include "components/autofill/core/browser/logging/log_manager.h"
-#include "components/autofill/core/browser/payments/card_unmask_delegate.h"
-#include "components/autofill/core/browser/payments/legal_message_line.h"
+#import "components/autofill/core/browser/metrics/form_interactions_ukm_logger.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
+#include "components/autofill/core/browser/single_field_fill_router.h"
 #include "components/autofill/core/browser/strike_databases/strike_database.h"
-#include "components/autofill/core/browser/ui/payments/card_unmask_prompt_options.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/service/sync_service.h"
 #import "ios/web/public/web_state.h"
@@ -27,6 +27,8 @@
 #include "ios/web_view/internal/web_view_browser_state.h"
 
 namespace autofill {
+
+enum class SuggestionType;
 
 namespace payments {
 class IOSWebViewPaymentsAutofillClient;
@@ -40,7 +42,6 @@ class WebViewAutofillClientIOS : public AutofillClient {
       ios_web_view::WebViewBrowserState* browser_state);
 
   WebViewAutofillClientIOS(
-      const std::string& locale,
       PrefService* pref_service,
       PersonalDataManager* personal_data_manager,
       AutocompleteHistoryManager* autocomplete_history_manager,
@@ -56,82 +57,56 @@ class WebViewAutofillClientIOS : public AutofillClient {
   ~WebViewAutofillClientIOS() override;
 
   // AutofillClient:
-  bool IsOffTheRecord() override;
+  base::WeakPtr<AutofillClient> GetWeakPtr() override;
+  const std::string& GetAppLocale() const override;
+  bool IsOffTheRecord() const override;
   scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
+  AutofillDriverFactory& GetAutofillDriverFactory() override;
   AutofillCrowdsourcingManager* GetCrowdsourcingManager() override;
-  PersonalDataManager* GetPersonalDataManager() override;
+  PersonalDataManager& GetPersonalDataManager() override;
+  SingleFieldFillRouter& GetSingleFieldFillRouter() override;
   AutocompleteHistoryManager* GetAutocompleteHistoryManager() override;
-  CreditCardCvcAuthenticator* GetCvcAuthenticator() override;
   PrefService* GetPrefs() override;
   const PrefService* GetPrefs() const override;
   syncer::SyncService* GetSyncService() override;
   signin::IdentityManager* GetIdentityManager() override;
+  const signin::IdentityManager* GetIdentityManager() const override;
   FormDataImporter* GetFormDataImporter() override;
   payments::PaymentsAutofillClient* GetPaymentsAutofillClient() override;
-  payments::PaymentsNetworkInterface* GetPaymentsNetworkInterface() override;
   StrikeDatabase* GetStrikeDatabase() override;
   ukm::UkmRecorder* GetUkmRecorder() override;
-  ukm::SourceId GetUkmSourceId() override;
+  ukm::SourceId GetActivePageUkmSourceId() override;
   AddressNormalizer* GetAddressNormalizer() override;
   const GURL& GetLastCommittedPrimaryMainFrameURL() const override;
   url::Origin GetLastCommittedPrimaryMainFrameOrigin() const override;
   security_state::SecurityLevel GetSecurityLevelForUmaHistograms() override;
   const translate::LanguageState* GetLanguageState() override;
   translate::TranslateDriver* GetTranslateDriver() override;
-  void ShowAutofillSettings(FillingProduct main_filling_product) override;
-  void ShowUnmaskPrompt(
-      const CreditCard& card,
-      const CardUnmaskPromptOptions& card_unmask_prompt_options,
-      base::WeakPtr<CardUnmaskDelegate> delegate) override;
-  void OnUnmaskVerificationResult(PaymentsRpcResult result) override;
-  void ConfirmSaveCreditCardToCloud(
-      const CreditCard& card,
-      const LegalMessageLines& legal_message_lines,
-      SaveCreditCardOptions options,
-      UploadSaveCardPromptCallback callback) override;
-  void CreditCardUploadCompleted(bool card_saved) override;
-  void ConfirmCreditCardFillAssist(const CreditCard& card,
-                                   base::OnceClosure callback) override;
+  void ShowAutofillSettings(SuggestionType suggestion_type) override;
   void ConfirmSaveAddressProfile(
       const AutofillProfile& profile,
       const AutofillProfile* original_profile,
-      SaveAddressProfilePromptOptions options,
+      bool is_migration_to_account,
       AddressProfileSavePromptCallback callback) override;
-  void ShowEditAddressProfileDialog(
-      const AutofillProfile& profile,
-      AddressProfileSavePromptCallback on_user_decision_callback) override;
-  void ShowDeleteAddressProfileDialog(
-      const AutofillProfile& profile,
-      AddressProfileDeleteDialogCallback delete_dialog_callback) override;
-  bool HasCreditCardScanFeature() const override;
-  void ScanCreditCard(CreditCardScanCallback callback) override;
-  bool ShowTouchToFillCreditCard(
-      base::WeakPtr<TouchToFillDelegate> delegate,
-      base::span<const autofill::CreditCard> cards_to_suggest) override;
-  void HideTouchToFillCreditCard() override;
-  void ShowAutofillPopup(
+  SuggestionUiSessionId ShowAutofillSuggestions(
       const AutofillClient::PopupOpenArgs& open_args,
-      base::WeakPtr<AutofillPopupDelegate> delegate) override;
-  void UpdateAutofillPopupDataListValues(
+      base::WeakPtr<AutofillSuggestionDelegate> delegate) override;
+  void UpdateAutofillDataListValues(
       base::span<const autofill::SelectOption> datalist) override;
-  std::vector<Suggestion> GetPopupSuggestions() const override;
-  void PinPopupView() override;
-  AutofillClient::PopupOpenArgs GetReopenPopupArgs(
-      AutofillSuggestionTriggerSource trigger_source) const override;
-  void UpdatePopup(const std::vector<Suggestion>& suggestions,
-                   FillingProduct main_filling_product,
-                   AutofillSuggestionTriggerSource trigger_source) override;
-  void HideAutofillPopup(PopupHidingReason reason) override;
+  void PinAutofillSuggestions() override;
+  void HideAutofillSuggestions(SuggestionHidingReason reason) override;
+  bool IsAutofillEnabled() const override;
+  bool IsAutofillProfileEnabled() const override;
+  bool IsAutofillPaymentMethodsEnabled() const override;
   bool IsAutocompleteEnabled() const override;
-  bool IsPasswordManagerEnabled() override;
+  bool IsPasswordManagerEnabled() const override;
   void DidFillOrPreviewForm(mojom::ActionPersistence action_persistence,
                             AutofillTriggerSource trigger_source,
                             bool is_refill) override;
-  void DidFillOrPreviewField(const std::u16string& autofilled_value,
-                             const std::u16string& profile_full_name) override;
   bool IsContextSecure() const override;
-  void OpenPromoCodeOfferDetailsURL(const GURL& url) override;
   autofill::FormInteractionsFlowId GetCurrentFormInteractionsFlowId() override;
+  autofill_metrics::FormInteractionsUkmLogger& GetFormInteractionsUkmLogger()
+      override;
   bool IsLastQueriedField(FieldGlobalId field_id) override;
 
   LogManager* GetLogManager() const override;
@@ -139,22 +114,30 @@ class WebViewAutofillClientIOS : public AutofillClient {
   void set_bridge(id<CWVAutofillClientIOSBridge> bridge);
 
  private:
-  PrefService* pref_service_;
+  raw_ptr<PrefService> pref_service_;
   std::unique_ptr<AutofillCrowdsourcingManager> crowdsourcing_manager_;
   PersonalDataManager* personal_data_manager_;
   AutocompleteHistoryManager* autocomplete_history_manager_;
   web::WebState* web_state_;
   __weak id<CWVAutofillClientIOSBridge> bridge_;
-  signin::IdentityManager* identity_manager_;
-  std::unique_ptr<payments::IOSWebViewPaymentsAutofillClient>
-      payments_autofill_client_;
-  std::unique_ptr<payments::PaymentsNetworkInterface>
-      payments_network_interface_;
-  std::unique_ptr<CreditCardCvcAuthenticator> cvc_authenticator_;
+  raw_ptr<signin::IdentityManager> identity_manager_;
   std::unique_ptr<FormDataImporter> form_data_importer_;
   StrikeDatabase* strike_database_;
   syncer::SyncService* sync_service_ = nullptr;
   std::unique_ptr<LogManager> log_manager_;
+  autofill_metrics::FormInteractionsUkmLogger form_interactions_ukm_logger_{
+      this};
+
+  // Order matters for this initialization. This initialization must happen
+  // after all of the members passed into the constructor of
+  // `payments_autofill_client_` are initialized, other than `this`.
+  payments::IOSWebViewPaymentsAutofillClient payments_autofill_client_{
+      this, bridge_, web_state_};
+  SingleFieldFillRouter single_field_fill_router_{
+      autocomplete_history_manager_, payments_autofill_client_.GetIbanManager(),
+      payments_autofill_client_.GetMerchantPromoCodeManager()};
+
+  base::WeakPtrFactory<WebViewAutofillClientIOS> weak_ptr_factory_{this};
 };
 
 }  // namespace autofill

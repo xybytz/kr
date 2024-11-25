@@ -54,13 +54,15 @@ class ChromeAutocompleteProviderClient : public AutocompleteProviderClient {
   history::HistoryService* GetHistoryService() override;
   history_clusters::HistoryClustersService* GetHistoryClustersService()
       override;
+  history_embeddings::HistoryEmbeddingsService* GetHistoryEmbeddingsService()
+      override;
   scoped_refptr<history::TopSites> GetTopSites() override;
-  bookmarks::BookmarkModel* GetLocalOrSyncableBookmarkModel() override;
-  bookmarks::BookmarkModel* GetAccountBookmarkModel() override;
+  bookmarks::BookmarkModel* GetBookmarkModel() override;
   history::URLDatabase* GetInMemoryDatabase() override;
   InMemoryURLIndex* GetInMemoryURLIndex() override;
   TemplateURLService* GetTemplateURLService() override;
   const TemplateURLService* GetTemplateURLService() const override;
+  DocumentSuggestionsService* GetDocumentSuggestionsService() const override;
   RemoteSuggestionsService* GetRemoteSuggestionsService(
       bool create_if_necessary) const override;
   ZeroSuggestCacheService* GetZeroSuggestCacheService() override;
@@ -76,7 +78,6 @@ class ChromeAutocompleteProviderClient : public AutocompleteProviderClient {
   std::vector<std::u16string> GetBuiltinsToProvideAsUserTypes() override;
   component_updater::ComponentUpdateService* GetComponentUpdateService()
       override;
-  query_tiles::TileService* GetQueryTileService() const override;
   OmniboxTriggeredFeatureService* GetOmniboxTriggeredFeatureService()
       const override;
   signin::IdentityManager* GetIdentityManager() const override;
@@ -89,7 +90,7 @@ class ChromeAutocompleteProviderClient : public AutocompleteProviderClient {
   bool IsGuestSession() const override;
   bool SearchSuggestEnabled() const override;
   bool AllowDeletingBrowserHistory() const override;
-  bool IsPersonalizedUrlDataCollectionActive() const override;
+  bool IsUrlDataCollectionActive() const override;
   bool IsAuthenticated() const override;
   bool IsSyncActive() const override;
   std::string ProfileUserName() const override;
@@ -108,6 +109,8 @@ class ChromeAutocompleteProviderClient : public AutocompleteProviderClient {
   const TabMatcher& GetTabMatcher() const override;
   bool IsIncognitoModeAvailable() const override;
   bool IsSharingHubAvailable() const override;
+  bool IsHistoryEmbeddingsEnabled() const override;
+  bool IsHistoryEmbeddingsSettingVisible() const override;
   base::WeakPtr<AutocompleteProviderClient> GetWeakPtr() override;
 
   // OmniboxAction::Client:

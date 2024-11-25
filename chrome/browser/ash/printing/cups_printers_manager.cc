@@ -8,7 +8,6 @@
 #include <optional>
 #include <utility>
 
-#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/network_config_service.h"
 #include "base/containers/fixed_flat_map.h"
 #include "base/containers/flat_set.h"
@@ -24,12 +23,12 @@
 #include "base/timer/timer.h"
 #include "chrome/browser/ash/printing/automatic_usb_printer_configurer.h"
 #include "chrome/browser/ash/printing/cups_printer_status_creator.h"
-#include "chrome/browser/ash/printing/enterprise_printers_provider.h"
+#include "chrome/browser/ash/printing/enterprise/enterprise_printers_provider.h"
+#include "chrome/browser/ash/printing/enterprise/print_servers_policy_provider.h"
+#include "chrome/browser/ash/printing/enterprise/print_servers_provider.h"
 #include "chrome/browser/ash/printing/oauth2/client_ids_database.h"
 #include "chrome/browser/ash/printing/ppd_provider_factory.h"
 #include "chrome/browser/ash/printing/ppd_resolution_tracker.h"
-#include "chrome/browser/ash/printing/print_servers_policy_provider.h"
-#include "chrome/browser/ash/printing/print_servers_provider.h"
 #include "chrome/browser/ash/printing/printer_configurer.h"
 #include "chrome/browser/ash/printing/printer_event_tracker.h"
 #include "chrome/browser/ash/printing/printer_event_tracker_factory.h"
@@ -42,12 +41,12 @@
 #include "chrome/browser/ash/printing/usb_printer_notification_controller.h"
 #include "chrome/browser/ash/printing/zeroconf_printer_detector.h"
 #include "chrome/browser/ash/scanning/zeroconf_scanner_detector.h"
-#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/printing/print_preview_sticky_settings.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/ash/components/dbus/debug_daemon/debug_daemon_client.h"
+#include "chromeos/ash/components/dbus/dlcservice/dlcservice_client.h"
+#include "chromeos/ash/components/dbus/printscanmgr/printscanmgr_client.h"
+#include "chromeos/ash/components/settings/cros_settings.h"
 #include "chromeos/printing/cups_printer_status.h"
 #include "chromeos/printing/printing_constants.h"
 #include "chromeos/printing/uri.h"
@@ -113,8 +112,14 @@ using ::chromeos::Printer;
 using ::chromeos::PrinterClass;
 using ::printing::PrinterQueryResult;
 
-void OnRemovedPrinter(bool success) {
-  if (success) {
+void OnRemovedPrinter(
+    std::optional<printscanmgr::CupsRemovePrinterResponse> response) {
+  if (!response) {
+    PRINTER_LOG(DEBUG) << "No response to remove printer request.";
+    return;
+  }
+
+  if (response->result()) {
     PRINTER_LOG(DEBUG) << "Printer removal succeeded.";
   } else {
     PRINTER_LOG(DEBUG) << "Printer removal failed.";
@@ -137,6 +142,7 @@ class CupsPrintersManagerImpl
       std::unique_ptr<PrinterDetector> usb_detector,
       std::unique_ptr<PrinterDetector> zeroconf_detector,
       scoped_refptr<PpdProvider> ppd_provider,
+      DlcserviceClient* dlc_service_client,
       std::unique_ptr<UsbPrinterNotificationController>
           usb_notification_controller,
       std::unique_ptr<PrintServersManager> print_servers_manager,
@@ -147,6 +153,7 @@ class CupsPrintersManagerImpl
         usb_detector_(std::move(usb_detector)),
         zeroconf_detector_(std::move(zeroconf_detector)),
         ppd_provider_(std::move(ppd_provider)),
+        dlc_service_client_(dlc_service_client),
         usb_notification_controller_(std::move(usb_notification_controller)),
         print_servers_manager_(std::move(print_servers_manager)),
         enterprise_printers_provider_(std::move(enterprise_printers_provider)),
@@ -270,7 +277,6 @@ class CupsPrintersManagerImpl
   // Public API function.
   void AddLocalPrintersObserver(
       CupsPrintersManager::LocalPrintersObserver* observer) override {
-    CHECK(base::FeatureList::IsEnabled(::features::kLocalPrinterObserving));
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_);
 
     if (!local_printers_observer_list_.HasObserver(observer)) {
@@ -285,8 +291,6 @@ class CupsPrintersManagerImpl
   // Public API function.
   void RemoveLocalPrintersObserver(
       CupsPrintersManager::LocalPrintersObserver* observer) override {
-    CHECK(base::FeatureList::IsEnabled(::features::kLocalPrinterObserving));
-
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_);
     local_printers_observer_list_.RemoveObserver(observer);
   }
@@ -410,7 +414,7 @@ class CupsPrintersManagerImpl
     // start/restart the setup process.
     if (printers_being_setup_[id].fingerprint != fingerprint) {
       printers_being_setup_[id].configurer =
-          PrinterConfigurer::Create(ppd_provider_);
+          PrinterConfigurer::Create(ppd_provider_, dlc_service_client_);
       printers_being_setup_[id].fingerprint = fingerprint;
       printers_being_setup_[id].configurer->SetUpPrinterInCups(
           printer,
@@ -424,8 +428,10 @@ class CupsPrintersManagerImpl
     // Uninstall printer if installed completely.
     if (installed_printer_fingerprints_.erase(printer_id)) {
       // The printer was present in `installed_printer_fingerprints_`.
-      DebugDaemonClient::Get()->CupsRemovePrinter(
-          printer_id, base::BindOnce(&OnRemovedPrinter), base::DoNothing());
+      printscanmgr::CupsRemovePrinterRequest request;
+      request.set_name(printer_id);
+      PrintscanmgrClient::Get()->CupsRemovePrinter(
+          request, base::BindOnce(&OnRemovedPrinter), base::DoNothing());
       return;
     }
 
@@ -443,7 +449,6 @@ class CupsPrintersManagerImpl
   // Resets the overall polling timer then executes the first round of printer
   // status queries for good and unreachable printers.
   void StartPrinterStatusPolling() {
-    CHECK(base::FeatureList::IsEnabled(::features::kLocalPrinterObserving));
     printer_status_polling_total_duration_timer_ =
         std::make_unique<base::ElapsedTimer>();
     OnPrinterStatusTimerElapsed(/*for_unreachable_printers=*/true);
@@ -544,8 +549,9 @@ class CupsPrintersManagerImpl
                           PrinterStatusCallback cb) override {
     std::optional<Printer> printer = GetPrinter(printer_id);
     if (!printer) {
-      PRINTER_LOG(ERROR) << "Unable to complete printer status request. "
-                         << "Printer not found. Printer id: " << printer_id;
+      PRINTER_LOG(ERROR) << printer_id
+                         << ": Unable to complete printer status request: "
+                         << "GetPrinter failed.";
       CupsPrinterStatus printer_status(printer_id);
       printer_status.AddStatusReason(
           CupsPrinterStatus::CupsPrinterStatusReason::Reason::
@@ -578,9 +584,11 @@ class CupsPrintersManagerImpl
 
     // Behavior for querying a non-IPP uri is undefined and disallowed.
     if (!IsIppUri(printer->uri())) {
-      PRINTER_LOG(DEBUG) << "Unable to complete printer status request. "
-                         << "Printer uri is invalid. Printer id: "
-                         << printer_id;
+      PRINTER_LOG(DEBUG) << printer_id
+                         << ": Cannot send status request to non-IPP URI for "
+                         << printer->make_and_model() << ": "
+                         << printer->uri().GetNormalized(
+                                /*always_include_port=*/true);
       CupsPrinterStatus printer_status(printer_id);
       printer_status.AddStatusReason(
           CupsPrinterStatus::CupsPrinterStatusReason::Reason::kUnknownReason,
@@ -590,6 +598,10 @@ class CupsPrintersManagerImpl
       return;
     }
 
+    PRINTER_LOG(DEBUG) << printer_id << ": Sending status request for "
+                       << printer->make_and_model() << ": "
+                       << printer->uri().GetNormalized(
+                              /*always_include_port=*/true);
     QueryIppPrinter(
         printer->uri().GetHostEncoded(), printer->uri().GetPort(),
         printer->uri().GetPathEncodedAsString(),
@@ -651,8 +663,11 @@ class CupsPrintersManagerImpl
       case PrinterQueryResult::kHostnameResolution:
       case PrinterQueryResult::kUnreachable: {
         PRINTER_LOG(ERROR)
-            << "Printer status request failed. Could not reach printer "
-            << printer_id;
+            << printer_id
+            << ": Printer status request failed. Could not reach printer: "
+            << (result == PrinterQueryResult::kHostnameResolution
+                    ? "hostname resolution failed"
+                    : "device unreachable");
         CupsPrinterStatus error_printer_status(printer_id);
         error_printer_status.AddStatusReason(
             CupsPrinterStatus::CupsPrinterStatusReason::Reason::
@@ -663,9 +678,9 @@ class CupsPrintersManagerImpl
         break;
       }
       case PrinterQueryResult::kUnknownFailure: {
-        PRINTER_LOG(ERROR) << "Printer status request failed. Unknown failure "
-                              "trying to reach printer "
-                           << printer_id;
+        PRINTER_LOG(ERROR) << printer_id
+                           << ": Printer status request failed. Unknown "
+                              "failure trying to reach printer";
         CupsPrinterStatus error_printer_status(printer_id);
         error_printer_status.AddStatusReason(
             CupsPrinterStatus::CupsPrinterStatusReason::Reason::kUnknownReason,
@@ -716,8 +731,6 @@ class CupsPrintersManagerImpl
   void QueryPrinterForAutoConf(
       const Printer& printer,
       base::OnceCallback<void(bool)> callback) override {
-    CHECK(ash::features::IsPrintPreviewDiscoveredPrintersEnabled());
-
     if (!IsIppUri(printer.uri())) {
       std::move(callback).Run(false);
       return;
@@ -928,15 +941,13 @@ class CupsPrintersManagerImpl
                                const Printer& printer) {
     printers_.Insert(printer_class, printer);
 
-    if (base::FeatureList::IsEnabled(::features::kLocalPrinterObserving)) {
-      // If we've seen this printer before, don't trigger a new detection event.
-      if (detected_printers_seen_.contains(printer.id())) {
-        return;
-      }
-
-      detected_printers_seen_.insert(printer.id());
-      NotifyLocalPrinterObservers();
+    // If we've seen this printer before, don't trigger a new detection event.
+    if (detected_printers_seen_.contains(printer.id())) {
+      return;
     }
+
+    detected_printers_seen_.insert(printer.id());
+    NotifyLocalPrinterObservers();
   }
 
   // Returns true if we've disconnected from our current network. Updates
@@ -1020,7 +1031,8 @@ class CupsPrintersManagerImpl
     if (code == PpdProvider::SUCCESS) {
       ppd_resolution_tracker_.MarkResolutionSuccessful(printer_id, ref);
     } else {
-      LOG(WARNING) << "Failed to resolve PPD reference for " << printer_id;
+      LOG(WARNING) << printer_id << ": Failed to resolve PPD reference: "
+                   << PpdProvider::CallbackResultCodeName(code);
       ppd_resolution_tracker_.MarkResolutionFailed(printer_id);
       if (!usb_manufacturer.empty()) {
         ppd_resolution_tracker_.SetManufacturer(printer_id, usb_manufacturer);
@@ -1100,6 +1112,7 @@ class CupsPrintersManagerImpl
   std::unique_ptr<PrinterDetector> zeroconf_detector_;
 
   scoped_refptr<PpdProvider> ppd_provider_;
+  raw_ptr<DlcserviceClient> dlc_service_client_;
 
   std::unique_ptr<UsbPrinterNotificationController>
       usb_notification_controller_;
@@ -1181,7 +1194,7 @@ std::unique_ptr<CupsPrintersManager> CupsPrintersManager::Create(
       SyncedPrintersManagerFactory::GetInstance()->GetForBrowserContext(
           profile),
       UsbPrinterDetector::Create(), ZeroconfPrinterDetector::Create(),
-      CreatePpdProvider(profile),
+      CreatePpdProvider(profile), DlcserviceClient::Get(),
       UsbPrinterNotificationController::Create(profile),
       PrintServersManager::Create(profile),
       EnterprisePrintersProvider::Create(CrosSettings::Get(), profile),
@@ -1195,6 +1208,7 @@ std::unique_ptr<CupsPrintersManager> CupsPrintersManager::CreateForTesting(
     std::unique_ptr<PrinterDetector> usb_detector,
     std::unique_ptr<PrinterDetector> zeroconf_detector,
     scoped_refptr<PpdProvider> ppd_provider,
+    DlcserviceClient* dlc_service_client,
     std::unique_ptr<UsbPrinterNotificationController>
         usb_notification_controller,
     std::unique_ptr<PrintServersManager> print_servers_manager,
@@ -1203,7 +1217,7 @@ std::unique_ptr<CupsPrintersManager> CupsPrintersManager::CreateForTesting(
     PrefService* pref_service) {
   return std::make_unique<CupsPrintersManagerImpl>(
       synced_printers_manager, std::move(usb_detector),
-      std::move(zeroconf_detector), std::move(ppd_provider),
+      std::move(zeroconf_detector), std::move(ppd_provider), dlc_service_client,
       std::move(usb_notification_controller), std::move(print_servers_manager),
       std::move(enterprise_printers_provider), event_tracker, pref_service);
 }

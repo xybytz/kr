@@ -5,6 +5,7 @@
 #include "ash/clipboard/clipboard_history_util.h"
 
 #include <array>
+#include <string_view>
 
 #include "ash/clipboard/clipboard_history_item.h"
 #include "ash/clipboard/views/clipboard_history_view_constants.h"
@@ -131,7 +132,7 @@ bool ContainsFileSystemData(const ui::ClipboardData& data) {
 }
 
 void GetSplitFileSystemData(const ui::ClipboardData& data,
-                            std::vector<base::StringPiece16>* source_list,
+                            std::vector<std::u16string_view>* source_list,
                             std::u16string* sources) {
   DCHECK(sources);
   DCHECK(sources->empty());
@@ -151,7 +152,7 @@ void GetSplitFileSystemData(const ui::ClipboardData& data,
 
 size_t GetCountOfCopiedFiles(const ui::ClipboardData& data) {
   std::u16string sources;
-  std::vector<base::StringPiece16> source_list;
+  std::vector<std::u16string_view> source_list;
   GetSplitFileSystemData(data, &source_list, &sources);
 
   if (sources.empty()) {
@@ -178,7 +179,7 @@ std::u16string GetFileSystemSources(const ui::ClipboardData& data) {
 
   // Attempt to read file system sources in the custom data.
   if (std::optional<std::u16string> maybe_sources = ui::ReadCustomDataForType(
-          base::as_bytes(base::span(data.GetWebCustomData())),
+          base::as_byte_span(data.GetDataTransferCustomData()),
           kFileSystemSourcesType);
       maybe_sources) {
     return std::move(*maybe_sources);
@@ -188,19 +189,26 @@ std::u16string GetFileSystemSources(const ui::ClipboardData& data) {
 }
 
 const gfx::VectorIcon& GetShortcutKeyIcon() {
-  if (!Shell::Get()->keyboard_capability()->HasLauncherButtonOnAnyKeyboard()) {
-    return kClipboardSearchIcon;
+  switch (Shell::Get()->keyboard_capability()->GetMetaKeyToDisplay()) {
+    case ui::mojom::MetaKey::kSearch:
+      return kClipboardSearchIcon;
+    case ui::mojom::MetaKey::kLauncher: {
+      const auto* const assistant_state = AssistantState::Get();
+      const bool is_assistant_available =
+          assistant_state &&
+          assistant_state->allowed_state() ==
+              assistant::AssistantAllowedState::ALLOWED &&
+          assistant_state->settings_enabled().value_or(false);
+
+      return is_assistant_available ? kClipboardLauncherIcon
+                                    : kClipboardLauncherNoAssistantIcon;
+    }
+    case ui::mojom::MetaKey::kLauncherRefresh:
+      return kCampbellHeroIcon;
+    case ui::mojom::MetaKey::kExternalMeta:
+    case ui::mojom::MetaKey::kCommand:
+      NOTREACHED();
   }
-
-  const auto* const assistant_state = AssistantState::Get();
-  const bool is_assistant_available =
-      assistant_state &&
-      assistant_state->allowed_state() ==
-          assistant::AssistantAllowedState::ALLOWED &&
-      assistant_state->settings_enabled().value_or(false);
-
-  return is_assistant_available ? kClipboardLauncherIcon
-                                : kClipboardLauncherNoAssistantIcon;
 }
 
 std::u16string GetShortcutKeyName() {

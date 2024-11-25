@@ -7,28 +7,31 @@
 #include <memory>
 #include <optional>
 #include <ostream>
+#include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "base/check.h"
 #include "base/files/file_path.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
+#include "base/functional/callback_forward.h"
 #include "base/functional/callback_helpers.h"
+#include "base/functional/overloaded.h"
 #include "base/memory/ptr_util.h"
 #include "base/sequence_checker.h"
 #include "base/strings/strcat.h"
-#include "base/strings/string_piece.h"
-#include "base/strings/stringprintf.h"
 #include "base/types/expected.h"
 #include "base/types/expected_macros.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/web_applications/callback_utils.h"
 #include "chrome/browser/web_applications/commands/web_app_command.h"
-#include "chrome/browser/web_applications/isolated_web_apps/isolated_web_app_dev_mode.h"
+#include "chrome/browser/web_applications/isolated_web_apps/isolated_web_app_features.h"
 #include "chrome/browser/web_applications/isolated_web_apps/isolated_web_app_install_command_helper.h"
-#include "chrome/browser/web_applications/isolated_web_apps/isolated_web_app_location.h"
+#include "chrome/browser/web_applications/isolated_web_apps/isolation_data.h"
+#include "chrome/browser/web_applications/isolated_web_apps/jobs/prepare_install_info_job.h"
 #include "chrome/browser/web_applications/isolated_web_apps/pending_install_info.h"
 #include "chrome/browser/web_applications/locks/app_lock.h"
 #include "chrome/browser/web_applications/web_app.h"
@@ -37,8 +40,8 @@
 #include "chrome/browser/web_applications/web_app_registry_update.h"
 #include "chrome/browser/web_applications/web_app_sync_bridge.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
-#include "chrome/browser/web_applications/web_contents/web_app_url_loader.h"
 #include "chrome/browser/web_applications/web_contents/web_contents_manager.h"
+#include "components/webapps/browser/web_contents/web_app_url_loader.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/web_contents.h"
 #include "third_party/abseil-cpp/absl/types/variant.h"
@@ -48,7 +51,7 @@ namespace web_app {
 IsolatedWebAppUpdatePrepareAndStoreCommandSuccess::
     IsolatedWebAppUpdatePrepareAndStoreCommandSuccess(
         base::Version update_version,
-        IsolatedWebAppLocation destination_location)
+        IsolatedWebAppStorageLocation destination_location)
     : update_version(std::move(update_version)),
       location(std::move(destination_location)) {}
 IsolatedWebAppUpdatePrepareAndStoreCommandSuccess::
@@ -90,14 +93,13 @@ IsolatedWebAppUpdatePrepareAndStoreCommand::
           std::move(callback), /*args_for_shutdown=*/
           base::unexpected(IsolatedWebAppUpdatePrepareAndStoreCommandError{
               .message = "System is shutting down."})),
-      source_update_info_(std::move(update_info)),
+      command_helper_(std::move(command_helper)),
       url_info_(std::move(url_info)),
+      expected_version_(update_info.expected_version()),
+      update_source_(update_info.source()),
       web_contents_(std::move(web_contents)),
       optional_keep_alive_(std::move(optional_keep_alive)),
-      optional_profile_keep_alive_(std::move(optional_profile_keep_alive)),
-      command_helper_(std::move(command_helper)) {
-  DETACH_FROM_SEQUENCE(sequence_checker_);
-
+      optional_profile_keep_alive_(std::move(optional_profile_keep_alive)) {
   CHECK(web_contents_ != nullptr);
   CHECK(optional_profile_keep_alive_ == nullptr ||
         &profile() == optional_profile_keep_alive_->profile());
@@ -107,90 +109,81 @@ IsolatedWebAppUpdatePrepareAndStoreCommand::
   GetMutableDebugValue().Set("bundle_id", url_info_.web_bundle_id().id());
   GetMutableDebugValue().Set(
       "bundle_type", static_cast<int>(url_info_.web_bundle_id().type()));
-  GetMutableDebugValue().Set("source_update_info",
-                             source_update_info_.AsDebugValue());
+  GetMutableDebugValue().Set("update_source", update_source_->ToDebugValue());
+  GetMutableDebugValue().Set("expected_version",
+                             expected_version_.has_value()
+                                 ? expected_version_->GetString()
+                                 : "unknown");
 }
 
 IsolatedWebAppUpdatePrepareAndStoreCommand::
     ~IsolatedWebAppUpdatePrepareAndStoreCommand() {
-  if (lazy_destination_update_info_.has_value()) {
-    CleanupLocationIfOwned(profile().GetPath(),
-                           lazy_destination_update_info_->location(),
+  if (destination_storage_location_.has_value()) {
+    CleanupLocationIfOwned(profile().GetPath(), *destination_storage_location_,
                            base::DoNothing());
   }
 }
 
 void IsolatedWebAppUpdatePrepareAndStoreCommand::StartWithLock(
     std::unique_ptr<AppLock> lock) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   lock_ = std::move(lock);
-  url_loader_ = lock_->web_contents_manager().CreateUrlLoader();
 
-  auto weak_ptr = weak_factory_.GetWeakPtr();
-  RunChainedCallbacks(
-      base::BindOnce(&IsolatedWebAppUpdatePrepareAndStoreCommand::
-                         CheckIfUpdateIsStillApplicable,
-                     weak_ptr),
-      base::BindOnce(
-          &IsolatedWebAppUpdatePrepareAndStoreCommand::CopyToProfileDirectory,
-          weak_ptr),
-      base::BindOnce(
-          &IsolatedWebAppUpdatePrepareAndStoreCommand::UpdateLocation,
-          weak_ptr),
-      base::BindOnce(
-          &IsolatedWebAppUpdatePrepareAndStoreCommand::CheckTrustAndSignatures,
-          weak_ptr),
-      base::BindOnce(
-          &IsolatedWebAppUpdatePrepareAndStoreCommand::CreateStoragePartition,
-          weak_ptr),
-      base::BindOnce(
-          &IsolatedWebAppUpdatePrepareAndStoreCommand::LoadInstallUrl,
-          weak_ptr),
-      base::BindOnce(&IsolatedWebAppUpdatePrepareAndStoreCommand::
-                         CheckInstallabilityAndRetrieveManifest,
-                     weak_ptr),
-      base::BindOnce(&IsolatedWebAppUpdatePrepareAndStoreCommand::
-                         ValidateManifestAndCreateInstallInfo,
-                     weak_ptr),
-      base::BindOnce(&IsolatedWebAppUpdatePrepareAndStoreCommand::
-                         RetrieveIconsAndPopulateInstallInfo,
-                     weak_ptr),
-      base::BindOnce(&IsolatedWebAppUpdatePrepareAndStoreCommand::Finalize,
-                     weak_ptr));
+  using PrepareAndStoreUpdateCommand =
+      IsolatedWebAppUpdatePrepareAndStoreCommand;
+  RunChainedWeakCallbacks(
+      weak_factory_.GetWeakPtr(),
+      &PrepareAndStoreUpdateCommand::CheckIfUpdateIsStillApplicable,
+      &PrepareAndStoreUpdateCommand::CopyToProfileDirectory,
+      &PrepareAndStoreUpdateCommand::CheckTrustAndSignatures,
+      &PrepareAndStoreUpdateCommand::CreateStoragePartition,
+      &PrepareAndStoreUpdateCommand::PrepareInstallInfo,
+      &PrepareAndStoreUpdateCommand::SetPendingUpdateInfo);
 }
 
 void IsolatedWebAppUpdatePrepareAndStoreCommand::CheckIfUpdateIsStillApplicable(
     base::OnceClosure next_step_callback) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  const WebApp* installed_app =
-      lock_->registrar().GetAppById(url_info_.app_id());
-  if (installed_app == nullptr) {
-    ReportFailure("App is no longer installed.");
-    return;
+  ASSIGN_OR_RETURN(
+      const WebApp& iwa,
+      GetIsolatedWebAppById(lock_->registrar(), url_info_.app_id()),
+      [&](const std::string& error) { ReportFailure(error); });
+  const auto& isolation_data = *iwa.isolation_data();
+  installed_version_ = isolation_data.version();
+  GetMutableDebugValue().Set("installed_version",
+                             installed_version_->GetString());
+
+  switch (LookupRotatedKey(url_info_.web_bundle_id(), GetMutableDebugValue())) {
+    case KeyRotationLookupResult::kNoKeyRotation:
+      break;
+    case KeyRotationLookupResult::kKeyFound: {
+      KeyRotationData data =
+          GetKeyRotationData(url_info_.web_bundle_id(), isolation_data);
+      if (!data.current_installation_has_rk) {
+        same_version_update_allowed_by_key_rotation_ = true;
+      }
+    } break;
+    case KeyRotationLookupResult::kKeyBlocked:
+      ReportFailure(
+          "The web bundle id for this app's bundle has been blocked by the key "
+          "distribution component.");
+      return;
   }
-  if (!installed_app->isolation_data().has_value()) {
-    ReportFailure("Installed app is not an Isolated Web App.");
+
+  if (expected_version_ && (*expected_version_ < *installed_version_ ||
+                            (*expected_version_ == *installed_version_ &&
+                             !same_version_update_allowed_by_key_rotation_))) {
+    ReportFailure(base::StrCat({"Installed app is already on version ",
+                                installed_version_->GetString(),
+                                ". Cannot update to version ",
+                                expected_version_->GetString()}));
     return;
   }
 
-  installed_version_ = installed_app->isolation_data()->version;
-  GetMutableDebugValue().Set("installed_version",
-                             installed_version_.GetString());
-  if (source_update_info_.expected_version().has_value() &&
-      *source_update_info_.expected_version() <= installed_version_) {
-    ReportFailure(base::StrCat(
-        {"Installed app is already on version ", installed_version_.GetString(),
-         ". Cannot update to version ",
-         source_update_info_.expected_version()->GetString()}));
-    return;
-  }
-  if (installed_app->isolation_data()->location.index() !=
-      source_update_info_.location().index()) {
-    ReportFailure(
-        base::StringPrintf("Unable to update between different "
-                           "IsolatedWebAppLocation types (%zu to %zu).",
-                           installed_app->isolation_data()->location.index(),
-                           source_update_info_.location().index()));
+  if (isolation_data.location().dev_mode() != update_source_->dev_mode()) {
+    std::stringstream s;
+    s << "Unable to update between dev-mode and non-dev-mode storage location "
+         "types ("
+      << isolation_data.location() << " to " << *update_source_ << ").";
+    ReportFailure(s.str());
     return;
   }
 
@@ -198,134 +191,112 @@ void IsolatedWebAppUpdatePrepareAndStoreCommand::CheckIfUpdateIsStillApplicable(
 }
 
 void IsolatedWebAppUpdatePrepareAndStoreCommand::CopyToProfileDirectory(
-    base::OnceCallback<void(base::expected<IsolatedWebAppLocation,
-                                           std::string>)> next_step_callback) {
-  CopyLocationToProfileDirectory(profile().GetPath(),
-                                 source_update_info_.location(),
-                                 std::move(next_step_callback));
+    base::OnceClosure next_step_callback) {
+  UpdateBundlePathAndCreateStorageLocation(
+      profile().GetPath(), *update_source_,
+      base::BindOnce(&IsolatedWebAppUpdatePrepareAndStoreCommand::
+                         OnCopiedToProfileDirectory,
+                     weak_factory_.GetWeakPtr(),
+                     std::move(next_step_callback)));
 }
 
-void IsolatedWebAppUpdatePrepareAndStoreCommand::UpdateLocation(
+void IsolatedWebAppUpdatePrepareAndStoreCommand::OnCopiedToProfileDirectory(
     base::OnceClosure next_step_callback,
-    base::expected<IsolatedWebAppLocation, std::string> new_location) {
-  RETURN_IF_ERROR(new_location,
-                  &IsolatedWebAppUpdatePrepareAndStoreCommand::ReportFailure,
-                  this);
-  lazy_destination_update_info_ = source_update_info_;
-  lazy_destination_update_info_->set_location(std::move(*new_location));
-  GetMutableDebugValue().Set(
-      "lazy_destination_update_info",
-      lazy_destination_update_info_.value().AsDebugValue());
+    base::expected<IsolatedWebAppStorageLocation, std::string> new_location) {
+  ASSIGN_OR_RETURN(destination_storage_location_, new_location,
+                   &IsolatedWebAppUpdatePrepareAndStoreCommand::ReportFailure,
+                   this);
+  destination_location_ = IwaSourceWithMode::FromStorageLocation(
+      profile().GetPath(), *destination_storage_location_);
+  // Make sure that `update_source_`, which is now outdated, can no longer
+  // be accessed.
+  update_source_.reset();
+
+  GetMutableDebugValue().Set("destination_location",
+                             destination_location_->ToDebugValue());
+  GetMutableDebugValue().Set("destination_storage_location",
+                             destination_storage_location_->ToDebugValue());
   std::move(next_step_callback).Run();
 }
 
 void IsolatedWebAppUpdatePrepareAndStoreCommand::CheckTrustAndSignatures(
     base::OnceClosure next_step_callback) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  CHECK(lazy_destination_update_info_);
-
   command_helper_->CheckTrustAndSignatures(
-      lazy_destination_update_info_->location(), &profile(),
-      base::BindOnce(
-          &IsolatedWebAppUpdatePrepareAndStoreCommand::RunNextStepOnSuccess<
-              void>,
-          weak_factory_.GetWeakPtr(), std::move(next_step_callback)));
+      *destination_location_, &profile(),
+      base::BindOnce(&IsolatedWebAppUpdatePrepareAndStoreCommand::
+                         OnTrustAndSignaturesChecked,
+                     weak_factory_.GetWeakPtr(),
+                     std::move(next_step_callback)));
+}
+
+void IsolatedWebAppUpdatePrepareAndStoreCommand::OnTrustAndSignaturesChecked(
+    base::OnceClosure next_step_callback,
+    TrustCheckResult trust_check_result) {
+  ASSIGN_OR_RETURN(
+      std::optional<web_package::SignedWebBundleIntegrityBlock> integrity_block,
+      std::move(trust_check_result),
+      [&](const std::string& error) { ReportFailure(error); });
+  if (integrity_block) {
+    // Given that the bundle trust check has completed successfully, we may
+    // safely assume that `integrity_block_data_` contains the rotated key if
+    // there is one for this `url_info_.web_bundle_id()`.
+    integrity_block_data_ =
+        IsolatedWebAppIntegrityBlockData::FromIntegrityBlock(*integrity_block);
+  }
+  std::move(next_step_callback).Run();
 }
 
 void IsolatedWebAppUpdatePrepareAndStoreCommand::CreateStoragePartition(
     base::OnceClosure next_step_callback) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  // TODO(cmfcmf): Maybe we should log somewhere when the storage partition is
-  // unexpectedly missing?
   command_helper_->CreateStoragePartitionIfNotPresent(profile());
   std::move(next_step_callback).Run();
 }
 
-void IsolatedWebAppUpdatePrepareAndStoreCommand::LoadInstallUrl(
-    base::OnceClosure next_step_callback) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  command_helper_->LoadInstallUrl(
-      lazy_destination_update_info_->location(), *web_contents_.get(),
-      *url_loader_.get(),
-      base::BindOnce(
-          &IsolatedWebAppUpdatePrepareAndStoreCommand::RunNextStepOnSuccess<
-              void>,
-          weak_factory_.GetWeakPtr(), std::move(next_step_callback)));
+void IsolatedWebAppUpdatePrepareAndStoreCommand::PrepareInstallInfo(
+    base::OnceCallback<void(PrepareInstallInfoJob::InstallInfoOrFailure)>
+        next_step_callback) {
+  prepare_install_info_job_ = PrepareInstallInfoJob::CreateAndStart(
+      profile(), *destination_location_, expected_version_, *web_contents_,
+      *command_helper_, lock_->web_contents_manager().CreateUrlLoader(),
+      std::move(next_step_callback));
 }
 
-void IsolatedWebAppUpdatePrepareAndStoreCommand::
-    CheckInstallabilityAndRetrieveManifest(
-        base::OnceCallback<
-            void(IsolatedWebAppInstallCommandHelper::ManifestAndUrl)>
-            next_step_callback) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  command_helper_->CheckInstallabilityAndRetrieveManifest(
-      *web_contents_.get(),
-      base::BindOnce(
-          &IsolatedWebAppUpdatePrepareAndStoreCommand::RunNextStepOnSuccess<
-              IsolatedWebAppInstallCommandHelper::ManifestAndUrl>,
-          weak_factory_.GetWeakPtr(), std::move(next_step_callback)));
-}
+void IsolatedWebAppUpdatePrepareAndStoreCommand::SetPendingUpdateInfo(
+    PrepareInstallInfoJob::InstallInfoOrFailure result) {
+  prepare_install_info_job_.reset();
 
-void IsolatedWebAppUpdatePrepareAndStoreCommand::
-    ValidateManifestAndCreateInstallInfo(
-        base::OnceCallback<void(WebAppInstallInfo)> next_step_callback,
-        IsolatedWebAppInstallCommandHelper::ManifestAndUrl manifest_and_url) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  base::expected<WebAppInstallInfo, std::string> install_info =
-      command_helper_->ValidateManifestAndCreateInstallInfo(
-          lazy_destination_update_info_->expected_version(), manifest_and_url);
-  RunNextStepOnSuccess(std::move(next_step_callback), std::move(install_info));
-}
+  ASSIGN_OR_RETURN(
+      WebAppInstallInfo install_info, std::move(result),
+      [&](const auto& failure) { ReportFailure(failure.message); });
 
-void IsolatedWebAppUpdatePrepareAndStoreCommand::
-    RetrieveIconsAndPopulateInstallInfo(
-        base::OnceCallback<void(WebAppInstallInfo)> next_step_callback,
-        WebAppInstallInfo install_info) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  GetMutableDebugValue().Set("actual_version",
+                             install_info.isolated_web_app_version.GetString());
+  GetMutableDebugValue().Set("app_title", install_info.title);
 
-  CHECK(install_info.isolated_web_app_version.IsValid());
-  if (lazy_destination_update_info_->expected_version().has_value()) {
-    CHECK_EQ(lazy_destination_update_info_->expected_version().value(),
-             install_info.isolated_web_app_version);
-  }
-
-  if (install_info.isolated_web_app_version <= installed_version_) {
+  if (install_info.isolated_web_app_version < *installed_version_ ||
+      (install_info.isolated_web_app_version == *installed_version_ &&
+       !same_version_update_allowed_by_key_rotation_)) {
     ReportFailure(base::StrCat(
-        {"Installed app is already on version ", installed_version_.GetString(),
-         ". Cannot update to version ",
+        {"Installed app is already on version ",
+         installed_version_->GetString(), ". Cannot update to version ",
          install_info.isolated_web_app_version.GetString()}));
     return;
   }
 
-  GetMutableDebugValue().Set("app_title", install_info.title);
-
-  command_helper_->RetrieveIconsAndPopulateInstallInfo(
-      std::move(install_info), *web_contents_.get(),
-      base::BindOnce(
-          &IsolatedWebAppUpdatePrepareAndStoreCommand::RunNextStepOnSuccess<
-              WebAppInstallInfo>,
-          weak_factory_.GetWeakPtr(), std::move(next_step_callback)));
-}
-
-void IsolatedWebAppUpdatePrepareAndStoreCommand::Finalize(
-    WebAppInstallInfo info) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   ScopedRegistryUpdate update = lock_->sync_bridge().BeginUpdate(base::BindOnce(
       &IsolatedWebAppUpdatePrepareAndStoreCommand::OnFinalized,
-      weak_factory_.GetWeakPtr(), info.isolated_web_app_version));
+      weak_factory_.GetWeakPtr(), install_info.isolated_web_app_version));
 
   WebApp* app_to_update = update->UpdateApp(url_info_.app_id());
   CHECK(app_to_update);
 
-  WebApp::IsolationData updated_isolation_data =
-      *app_to_update->isolation_data();
-  updated_isolation_data.SetPendingUpdateInfo(
-      WebApp::IsolationData::PendingUpdateInfo(
-          lazy_destination_update_info_->location(),
-          info.isolated_web_app_version));
-  app_to_update->SetIsolationData(std::move(updated_isolation_data));
+  app_to_update->SetIsolationData(
+      IsolationData::Builder(*app_to_update->isolation_data())
+          .SetPendingUpdateInfo(IsolationData::PendingUpdateInfo(
+              *destination_storage_location_,
+              install_info.isolated_web_app_version,
+              std::move(integrity_block_data_)))
+          .Build());
 }
 
 void IsolatedWebAppUpdatePrepareAndStoreCommand::OnFinalized(
@@ -339,8 +310,7 @@ void IsolatedWebAppUpdatePrepareAndStoreCommand::OnFinalized(
 }
 
 void IsolatedWebAppUpdatePrepareAndStoreCommand::ReportFailure(
-    base::StringPiece message) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    std::string_view message) {
   IsolatedWebAppUpdatePrepareAndStoreCommandError error{
       .message = std::string(message)};
   GetMutableDebugValue().Set("result", "error: " + error.message);
@@ -350,15 +320,13 @@ void IsolatedWebAppUpdatePrepareAndStoreCommand::ReportFailure(
 
 void IsolatedWebAppUpdatePrepareAndStoreCommand::ReportSuccess(
     const base::Version& update_version) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  IsolatedWebAppLocation location =
-      lazy_destination_update_info_.value().location();
-  // Reset the lazy_destination_update_info_ to prevent cleanup in the
+  // Reset `destination_storage_location_` to prevent cleanup in the
   // destructor.
-  lazy_destination_update_info_ = std::nullopt;
+  auto destination_storage_location =
+      std::exchange(destination_storage_location_, std::nullopt).value();
   CompleteAndSelfDestruct(CommandResult::kSuccess,
                           IsolatedWebAppUpdatePrepareAndStoreCommandSuccess(
-                              update_version, location));
+                              update_version, destination_storage_location));
 }
 
 Profile& IsolatedWebAppUpdatePrepareAndStoreCommand::profile() {
@@ -368,9 +336,9 @@ Profile& IsolatedWebAppUpdatePrepareAndStoreCommand::profile() {
 }
 
 IsolatedWebAppUpdatePrepareAndStoreCommand::UpdateInfo::UpdateInfo(
-    IsolatedWebAppLocation location,
+    IwaSourceWithModeAndFileOp source,
     std::optional<base::Version> expected_version)
-    : location_(std::move(location)),
+    : source_(std::move(source)),
       expected_version_(std::move(expected_version)) {}
 
 IsolatedWebAppUpdatePrepareAndStoreCommand::UpdateInfo::~UpdateInfo() = default;
@@ -386,7 +354,7 @@ base::Value
 IsolatedWebAppUpdatePrepareAndStoreCommand::UpdateInfo::AsDebugValue() const {
   return base::Value(
       base::Value::Dict()
-          .Set("location", IsolatedWebAppLocationAsDebugValue(location_))
+          .Set("source", source_.ToDebugValue())
           .Set("expected_version", expected_version_.has_value()
                                        ? expected_version_->GetString()
                                        : "<any>"));

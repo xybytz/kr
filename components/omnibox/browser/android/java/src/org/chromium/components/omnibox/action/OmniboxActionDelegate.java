@@ -8,7 +8,7 @@ import android.content.Intent;
 
 import androidx.annotation.NonNull;
 
-import org.chromium.components.browser_ui.settings.SettingsLauncher.SettingsFragment;
+import org.chromium.components.browser_ui.settings.SettingsNavigation.SettingsFragment;
 
 /** An interface for handling interactions for Omnibox Action Chips. */
 public interface OmniboxActionDelegate {
@@ -39,13 +39,6 @@ public interface OmniboxActionDelegate {
 
     /** Open specific settings page. */
     void openSettingsPage(@SettingsFragment int fragment);
-
-    /**
-     * Open History Clusters page for a specific user query.
-     *
-     * @param query the query to access History Clusters for
-     */
-    void openHistoryClustersPage(String query);
 
     /** Handles opening the CBD or the quick deleted dialog. */
     void handleClearBrowsingData();

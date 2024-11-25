@@ -20,12 +20,6 @@ NSString* const kContentSuggestionsShortcutsAccessibilityIdentifierPrefix =
 NSString* const kMagicStackScrollViewAccessibilityIdentifier =
     @"MagicStackScrollViewAccessibilityIdentifier";
 
-NSString* const kMagicStackEditButtonContainerAccessibilityIdentifier =
-    @"MagicStackEditButtonContainerAccessibilityIdentifier";
-
-NSString* const kMagicStackEditButtonAccessibilityIdentifier =
-    @"MagicStackEditButtonAccessibilityIdentifier";
-
 NSString* const kMagicStackEditHalfSheetDoneButtonAccessibilityIdentifier =
     @"MagicStackEditHalfSheetDoneButtonAccessibilityIdentifier";
 
@@ -54,9 +48,57 @@ ContentSuggestionsModuleType SetUpListModuleTypeForSetUpListType(
       return ContentSuggestionsModuleType::kSetUpListAutofill;
     case SetUpListItemType::kAllSet:
       return ContentSuggestionsModuleType::kSetUpListAllSet;
-    case SetUpListItemType::kContentNotification:
-      return ContentSuggestionsModuleType::kSetUpListContentNotification;
+    case SetUpListItemType::kNotifications:
+      return ContentSuggestionsModuleType::kSetUpListNotifications;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
+  }
+}
+
+bool IsSetUpListModuleType(ContentSuggestionsModuleType type) {
+  switch (type) {
+    case ContentSuggestionsModuleType::kInvalid:
+    case ContentSuggestionsModuleType::kTabResumption:
+    case ContentSuggestionsModuleType::kSafetyCheck:
+    case ContentSuggestionsModuleType::kParcelTracking:
+    case ContentSuggestionsModuleType::kMostVisited:
+    case ContentSuggestionsModuleType::kShortcuts:
+    case ContentSuggestionsModuleType::kPlaceholder:
+    case ContentSuggestionsModuleType::kPriceTrackingPromo:
+    case ContentSuggestionsModuleType::kSendTabPromo:
+    case ContentSuggestionsModuleType::kTipsWithProductImage:
+    case ContentSuggestionsModuleType::kTips:
+      return false;
+    case ContentSuggestionsModuleType::kSetUpListSync:
+    case ContentSuggestionsModuleType::kSetUpListDefaultBrowser:
+    case ContentSuggestionsModuleType::kSetUpListAutofill:
+    case ContentSuggestionsModuleType::kSetUpListNotifications:
+    case ContentSuggestionsModuleType::kCompactedSetUpList:
+    case ContentSuggestionsModuleType::kSetUpListAllSet:
+      return true;
+  }
+}
+
+bool IsTipsModuleType(ContentSuggestionsModuleType type) {
+  switch (type) {
+    case ContentSuggestionsModuleType::kTipsWithProductImage:
+    case ContentSuggestionsModuleType::kTips:
+      return true;
+    case ContentSuggestionsModuleType::kInvalid:
+    case ContentSuggestionsModuleType::kTabResumption:
+    case ContentSuggestionsModuleType::kSafetyCheck:
+    case ContentSuggestionsModuleType::kParcelTracking:
+    case ContentSuggestionsModuleType::kMostVisited:
+    case ContentSuggestionsModuleType::kShortcuts:
+    case ContentSuggestionsModuleType::kPlaceholder:
+    case ContentSuggestionsModuleType::kPriceTrackingPromo:
+    case ContentSuggestionsModuleType::kSetUpListSync:
+    case ContentSuggestionsModuleType::kSetUpListDefaultBrowser:
+    case ContentSuggestionsModuleType::kSetUpListAutofill:
+    case ContentSuggestionsModuleType::kSetUpListNotifications:
+    case ContentSuggestionsModuleType::kCompactedSetUpList:
+    case ContentSuggestionsModuleType::kSendTabPromo:
+    case ContentSuggestionsModuleType::kSetUpListAllSet:
+      return false;
   }
 }

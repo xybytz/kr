@@ -55,11 +55,11 @@ const char k10ByteData[] = "10 bytes..";
 const char k20ByteData[] = "20 bytes............";
 
 const PolicyDetails kPolicyDetails[] = {
-    // deprecated  future, device_policy  id    max_external_data_size
-    {false, false, false, 1, 0},
-    {false, false, false, 2, 10},
-    {false, false, false, 3, 20},
-    {false, false, false, 4, 20},
+    // deprecated  future, scope  id    max_external_data_size
+    {false, false, kProfile, 1, 0},
+    {false, false, kProfile, 2, 10},
+    {false, false, kProfile, 3, 20},
+    {false, false, kProfile, 4, 20},
 };
 
 const char kCacheKey[] = "data";
@@ -176,7 +176,7 @@ base::Value CloudExternalDataManagerBaseTest::ConstructMetadata(
     const std::string& hash) {
   base::Value::Dict metadata;
   metadata.Set("url", url);
-  metadata.Set("hash", base::HexEncode(hash.c_str(), hash.size()));
+  metadata.Set("hash", base::HexEncode(hash));
   return base::Value(std::move(metadata));
 }
 

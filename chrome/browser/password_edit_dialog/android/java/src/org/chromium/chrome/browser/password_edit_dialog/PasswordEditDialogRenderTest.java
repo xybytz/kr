@@ -4,9 +4,9 @@
 
 package org.chromium.chrome.browser.password_edit_dialog;
 
+import static org.chromium.base.ThreadUtils.runOnUiThreadBlocking;
 import static org.chromium.base.test.util.ApplicationTestUtils.finishActivity;
 import static org.chromium.chrome.browser.password_edit_dialog.R.style.Theme_BrowserUI_DayNight;
-import static org.chromium.content_public.browser.test.util.TestThreadUtils.runOnUiThreadBlocking;
 
 import androidx.test.filters.MediumTest;
 
@@ -14,7 +14,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.BaseActivityTestRule;
@@ -27,7 +26,6 @@ import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
 import org.chromium.ui.test.util.BlankUiTestActivity;
@@ -55,8 +53,6 @@ public class PasswordEditDialogRenderTest {
 
     private static final String USERNAME = "John Doe";
     private static final String PASSWORD = "passwordForTest";
-
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
 
     @Rule
     public final ChromeRenderTestRule mRenderTestRule =

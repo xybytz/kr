@@ -5,6 +5,7 @@
 #include "net/http/http_auth_gssapi_posix.h"
 
 #include <memory>
+#include <string_view>
 
 #include "base/base_paths.h"
 #include "base/check.h"
@@ -264,26 +265,22 @@ TEST(HttpAuthGSSAPIPOSIXTest, GSSAPICycle) {
   EXPECT_EQ(static_cast<OM_uint32>(GSS_S_COMPLETE), major_status);
 }
 
-TEST(HttpAuthGSSAPITest, ParseChallenge_FirstRound) {
+TEST(HttpAuthGSSAPITest, ParseChallengeFirstRound) {
   // The first round should just consist of an unadorned "Negotiate" header.
   test::MockGSSAPILibrary mock_library;
   HttpAuthGSSAPI auth_gssapi(&mock_library, CHROME_GSS_SPNEGO_MECH_OID_DESC);
-  std::string challenge_text = "Negotiate";
-  HttpAuthChallengeTokenizer challenge(challenge_text.begin(),
-                                       challenge_text.end());
+  HttpAuthChallengeTokenizer challenge("Negotiate");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_ACCEPT,
             auth_gssapi.ParseChallenge(&challenge));
 }
 
-TEST(HttpAuthGSSAPITest, ParseChallenge_TwoRounds) {
+TEST(HttpAuthGSSAPITest, ParseChallengeTwoRounds) {
   RecordingNetLogObserver net_log_observer;
   // The first round should just have "Negotiate", and the second round should
   // have a valid base64 token associated with it.
   test::MockGSSAPILibrary mock_library;
   HttpAuthGSSAPI auth_gssapi(&mock_library, CHROME_GSS_SPNEGO_MECH_OID_DESC);
-  std::string first_challenge_text = "Negotiate";
-  HttpAuthChallengeTokenizer first_challenge(first_challenge_text.begin(),
-                                             first_challenge_text.end());
+  HttpAuthChallengeTokenizer first_challenge("Negotiate");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_ACCEPT,
             auth_gssapi.ParseChallenge(&first_challenge));
 
@@ -295,9 +292,7 @@ TEST(HttpAuthGSSAPITest, ParseChallenge_TwoRounds) {
                     &auth_token, NetLogWithSource::Make(NetLogSourceType::NONE),
                     base::BindOnce(&UnexpectedCallback)));
 
-  std::string second_challenge_text = "Negotiate Zm9vYmFy";
-  HttpAuthChallengeTokenizer second_challenge(second_challenge_text.begin(),
-                                              second_challenge_text.end());
+  HttpAuthChallengeTokenizer second_challenge("Negotiate Zm9vYmFy");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_ACCEPT,
             auth_gssapi.ParseChallenge(&second_challenge));
 
@@ -316,26 +311,22 @@ TEST(HttpAuthGSSAPITest, ParseChallenge_TwoRounds) {
   EXPECT_EQ("localhost", *source);
 }
 
-TEST(HttpAuthGSSAPITest, ParseChallenge_UnexpectedTokenFirstRound) {
+TEST(HttpAuthGSSAPITest, ParseChallengeUnexpectedTokenFirstRound) {
   // If the first round challenge has an additional authentication token, it
   // should be treated as an invalid challenge from the server.
   test::MockGSSAPILibrary mock_library;
   HttpAuthGSSAPI auth_gssapi(&mock_library, CHROME_GSS_SPNEGO_MECH_OID_DESC);
-  std::string challenge_text = "Negotiate Zm9vYmFy";
-  HttpAuthChallengeTokenizer challenge(challenge_text.begin(),
-                                       challenge_text.end());
+  HttpAuthChallengeTokenizer challenge("Negotiate Zm9vYmFy");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_INVALID,
             auth_gssapi.ParseChallenge(&challenge));
 }
 
-TEST(HttpAuthGSSAPITest, ParseChallenge_MissingTokenSecondRound) {
+TEST(HttpAuthGSSAPITest, ParseChallengeMissingTokenSecondRound) {
   // If a later-round challenge is simply "Negotiate", it should be treated as
   // an authentication challenge rejection from the server or proxy.
   test::MockGSSAPILibrary mock_library;
   HttpAuthGSSAPI auth_gssapi(&mock_library, CHROME_GSS_SPNEGO_MECH_OID_DESC);
-  std::string first_challenge_text = "Negotiate";
-  HttpAuthChallengeTokenizer first_challenge(first_challenge_text.begin(),
-                                             first_challenge_text.end());
+  HttpAuthChallengeTokenizer first_challenge("Negotiate");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_ACCEPT,
             auth_gssapi.ParseChallenge(&first_challenge));
 
@@ -345,21 +336,17 @@ TEST(HttpAuthGSSAPITest, ParseChallenge_MissingTokenSecondRound) {
             auth_gssapi.GenerateAuthToken(
                 nullptr, "HTTP/intranet.google.com", std::string(), &auth_token,
                 NetLogWithSource(), base::BindOnce(&UnexpectedCallback)));
-  std::string second_challenge_text = "Negotiate";
-  HttpAuthChallengeTokenizer second_challenge(second_challenge_text.begin(),
-                                              second_challenge_text.end());
+  HttpAuthChallengeTokenizer second_challenge("Negotiate");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_REJECT,
             auth_gssapi.ParseChallenge(&second_challenge));
 }
 
-TEST(HttpAuthGSSAPITest, ParseChallenge_NonBase64EncodedToken) {
+TEST(HttpAuthGSSAPITest, ParseChallengeNonBase64EncodedToken) {
   // If a later-round challenge has an invalid base64 encoded token, it should
   // be treated as an invalid challenge.
   test::MockGSSAPILibrary mock_library;
   HttpAuthGSSAPI auth_gssapi(&mock_library, CHROME_GSS_SPNEGO_MECH_OID_DESC);
-  std::string first_challenge_text = "Negotiate";
-  HttpAuthChallengeTokenizer first_challenge(first_challenge_text.begin(),
-                                             first_challenge_text.end());
+  HttpAuthChallengeTokenizer first_challenge("Negotiate");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_ACCEPT,
             auth_gssapi.ParseChallenge(&first_challenge));
 
@@ -369,21 +356,19 @@ TEST(HttpAuthGSSAPITest, ParseChallenge_NonBase64EncodedToken) {
             auth_gssapi.GenerateAuthToken(
                 nullptr, "HTTP/intranet.google.com", std::string(), &auth_token,
                 NetLogWithSource(), base::BindOnce(&UnexpectedCallback)));
-  std::string second_challenge_text = "Negotiate =happyjoy=";
-  HttpAuthChallengeTokenizer second_challenge(second_challenge_text.begin(),
-                                              second_challenge_text.end());
+  HttpAuthChallengeTokenizer second_challenge("Negotiate =happyjoy=");
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_INVALID,
             auth_gssapi.ParseChallenge(&second_challenge));
 }
 
-TEST(HttpAuthGSSAPITest, OidToValue_NIL) {
+TEST(HttpAuthGSSAPITest, OidToValueNIL) {
   auto actual = OidToValue(GSS_C_NO_OID);
   auto expected = base::JSONReader::Read(R"({ "oid": "<Empty OID>" })");
   ASSERT_TRUE(expected.has_value());
   EXPECT_EQ(actual, expected);
 }
 
-TEST(HttpAuthGSSAPITest, OidToValue_Known) {
+TEST(HttpAuthGSSAPITest, OidToValueKnown) {
   gss_OID_desc known = {6, const_cast<char*>("\x2b\x06\01\x05\x06\x03")};
 
   auto actual = OidToValue(const_cast<const gss_OID>(&known));
@@ -398,7 +383,7 @@ TEST(HttpAuthGSSAPITest, OidToValue_Known) {
   EXPECT_EQ(actual, expected);
 }
 
-TEST(HttpAuthGSSAPITest, OidToValue_Unknown) {
+TEST(HttpAuthGSSAPITest, OidToValueUnknown) {
   gss_OID_desc unknown = {6, const_cast<char*>("\x2b\x06\01\x05\x06\x05")};
   auto actual = OidToValue(const_cast<const gss_OID>(&unknown));
   auto expected = base::JSONReader::Read(R"(
@@ -411,7 +396,7 @@ TEST(HttpAuthGSSAPITest, OidToValue_Unknown) {
   EXPECT_EQ(actual, expected);
 }
 
-TEST(HttpAuthGSSAPITest, GetGssStatusValue_NoLibrary) {
+TEST(HttpAuthGSSAPITest, GetGssStatusValueNoLibrary) {
   auto actual = GetGssStatusValue(nullptr, "my_method", GSS_S_BAD_NAME, 1);
   auto expected = base::JSONReader::Read(R"(
       {
@@ -428,7 +413,7 @@ TEST(HttpAuthGSSAPITest, GetGssStatusValue_NoLibrary) {
   EXPECT_EQ(actual, expected);
 }
 
-TEST(HttpAuthGSSAPITest, GetGssStatusValue_WithLibrary) {
+TEST(HttpAuthGSSAPITest, GetGssStatusValueWithLibrary) {
   test::MockGSSAPILibrary library;
   auto actual = GetGssStatusValue(&library, "my_method", GSS_S_BAD_NAME, 1);
   auto expected = base::JSONReader::Read(R"(
@@ -448,7 +433,7 @@ TEST(HttpAuthGSSAPITest, GetGssStatusValue_WithLibrary) {
   EXPECT_EQ(actual, expected);
 }
 
-TEST(HttpAuthGSSAPITest, GetGssStatusValue_Multiline) {
+TEST(HttpAuthGSSAPITest, GetGssStatusValueMultiline) {
   test::MockGSSAPILibrary library;
   auto actual = GetGssStatusValue(
       &library, "my_method",
@@ -477,7 +462,7 @@ TEST(HttpAuthGSSAPITest, GetGssStatusValue_Multiline) {
   EXPECT_EQ(actual, expected);
 }
 
-TEST(HttpAuthGSSAPITest, GetGssStatusValue_InfiniteLines) {
+TEST(HttpAuthGSSAPITest, GetGssStatusValueInfiniteLines) {
   test::MockGSSAPILibrary library;
   auto actual = GetGssStatusValue(
       &library, "my_method",
@@ -509,7 +494,7 @@ TEST(HttpAuthGSSAPITest, GetGssStatusValue_InfiniteLines) {
   EXPECT_EQ(actual, expected);
 }
 
-TEST(HttpAuthGSSAPITest, GetGssStatusValue_Failure) {
+TEST(HttpAuthGSSAPITest, GetGssStatusValueFailure) {
   test::MockGSSAPILibrary library;
   auto actual = GetGssStatusValue(
       &library, "my_method",
@@ -531,7 +516,7 @@ TEST(HttpAuthGSSAPITest, GetGssStatusValue_Failure) {
   EXPECT_EQ(actual, expected);
 }
 
-TEST(HttpAuthGSSAPITest, GetGssStatusValue_EmptyMessage) {
+TEST(HttpAuthGSSAPITest, GetGssStatusValueEmptyMessage) {
   test::MockGSSAPILibrary library;
   auto actual = GetGssStatusValue(
       &library, "my_method",
@@ -553,7 +538,7 @@ TEST(HttpAuthGSSAPITest, GetGssStatusValue_EmptyMessage) {
   EXPECT_EQ(actual, expected);
 }
 
-TEST(HttpAuthGSSAPITest, GetGssStatusValue_Misbehave) {
+TEST(HttpAuthGSSAPITest, GetGssStatusValueMisbehave) {
   test::MockGSSAPILibrary library;
   auto actual = GetGssStatusValue(
       &library, "my_method",
@@ -575,7 +560,7 @@ TEST(HttpAuthGSSAPITest, GetGssStatusValue_Misbehave) {
   EXPECT_EQ(actual, expected);
 }
 
-TEST(HttpAuthGSSAPITest, GetGssStatusValue_NotUtf8) {
+TEST(HttpAuthGSSAPITest, GetGssStatusValueNotUtf8) {
   test::MockGSSAPILibrary library;
   auto actual = GetGssStatusValue(
       &library, "my_method",
@@ -597,7 +582,7 @@ TEST(HttpAuthGSSAPITest, GetGssStatusValue_NotUtf8) {
   EXPECT_EQ(actual, expected);
 }
 
-TEST(HttpAuthGSSAPITest, GetContextStateAsValue_ValidContext) {
+TEST(HttpAuthGSSAPITest, GetContextStateAsValueValidContext) {
   test::GssContextMockImpl context{"source_spn@somewhere",
                                    "target_spn@somewhere.else",
                                    /* lifetime_rec= */ 100,
@@ -638,7 +623,7 @@ TEST(HttpAuthGSSAPITest, GetContextStateAsValue_ValidContext) {
   EXPECT_EQ(actual, expected);
 }
 
-TEST(HttpAuthGSSAPITest, GetContextStateAsValue_NoContext) {
+TEST(HttpAuthGSSAPITest, GetContextStateAsValueNoContext) {
   test::MockGSSAPILibrary library;
   auto actual = GetContextStateAsValue(&library, GSS_C_NO_CONTEXT);
   auto expected = base::JSONReader::Read(R"(

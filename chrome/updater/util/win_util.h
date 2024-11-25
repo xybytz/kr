@@ -6,6 +6,7 @@
 #define CHROME_UPDATER_UTIL_WIN_UTIL_H_
 
 #include <windows.h>
+
 #include <wrl/client.h>
 #include <wrl/implements.h>
 
@@ -36,6 +37,7 @@
 #include "base/win/win_util.h"
 #include "base/win/windows_types.h"
 #include "chrome/updater/updater_scope.h"
+#include "chrome/updater/win/scoped_handle.h"
 
 namespace base {
 class FilePath;
@@ -56,6 +58,10 @@ struct IidComparator {
 };
 
 namespace updater {
+
+// Converts a `guid` to a string with the format
+// {xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}.
+[[nodiscard]] std::wstring StringFromGuid(const GUID& guid);
 
 template <typename ValueT>
 using HResultOr = base::expected<ValueT, HRESULT>;
@@ -116,8 +122,8 @@ class DynamicIIDsImpl : public internal::WrlRuntimeClass<Interface> {
  public:
   DynamicIIDsImpl() {
     VLOG(3) << __func__ << ": Interface: " << typeid(Interface).name()
-            << ": iid_user: " << base::win::WStringFromGUID(iid_user)
-            << ": iid_system: " << base::win::WStringFromGUID(iid_system)
+            << ": iid_user: " << StringFromGuid(iid_user)
+            << ": iid_system: " << StringFromGuid(iid_system)
             << ": IsSystemInstall(): " << IsSystemInstall();
   }
 
@@ -150,14 +156,6 @@ class DynamicIIDsImpl : public internal::WrlRuntimeClass<Interface> {
 // The macro maps a NO_ERROR to S_OK, whereas the HRESULTFromLastError maps a
 // NO_ERROR to E_FAIL.
 HRESULT HRESULTFromLastError();
-
-// Checks whether a process is running with the image |executable|. Returns true
-// if a process is found.
-bool IsProcessRunning(const wchar_t* executable);
-
-// Waits until every running instance of |executable| is stopped.
-// Returns true if every running processes are stopped.
-bool WaitForProcessesStopped(const wchar_t* executable);
 
 struct NamedObjectAttributes {
   NamedObjectAttributes(const std::wstring& name, const CSecurityDesc& sd);
@@ -227,9 +225,9 @@ bool SetRegistryKey(HKEY root,
                     const std::wstring& name,
                     const std::wstring& value);
 
-// Returns a value in the [0, 100] range or -1 if the progress could not
-// be computed.
-int GetDownloadProgress(int64_t downloaded_bytes, int64_t total_bytes);
+// Deletes or sets the `eulaaccepted` value in the `Google\Update` key, based on
+// whether `eula_accepted` is `true` or `false`. Returns `true` on success.
+bool SetEulaAccepted(UpdaterScope scope, bool eula_accepted);
 
 // Returns `true` if the token is an elevated administrator. If
 // `token` is `NULL`, the current thread token is used.
@@ -261,11 +259,6 @@ std::string GetUACState();
 // For instance: "ChromiumUpdaterInternalService92.0.0.1".
 std::wstring GetServiceName(bool is_internal_service);
 
-// Returns the versioned service name in the following format:
-// "{ProductName} {InternalService/Service} {UpdaterVersion}".
-// For instance: "ChromiumUpdater InternalService 92.0.0.1".
-std::wstring GetServiceDisplayName(bool is_internal_service);
-
 // Returns `KEY_WOW64_32KEY | access`. All registry access under the Updater key
 // should use `Wow6432(access)` as the `REGSAM`.
 REGSAM Wow6432(REGSAM access);
@@ -289,10 +282,9 @@ HResultOr<DWORD> ShellExecuteAndWait(const base::FilePath& file_path,
 HResultOr<DWORD> RunElevated(const base::FilePath& file_path,
                              const std::wstring& parameters);
 
-// Runs `path` de-elevated. `path` specifies the exe or url to be launched.
-// `parameters` can be an empty string. The function does not wait for the
-// spawned process.
-HRESULT RunDeElevated(const std::wstring& path, const std::wstring& parameters);
+// Runs `cmd_line` de-elevated.The function does not wait for the spawned
+// process.
+HRESULT RunDeElevatedCmdLine(const std::wstring& cmd_line);
 
 std::optional<base::FilePath> GetGoogleUpdateExePath(UpdaterScope scope);
 
@@ -306,14 +298,14 @@ std::optional<base::FilePath> GetGoogleUpdateExePath(UpdaterScope scope);
 // a log file in the same directory as the MSI installer.
 std::wstring BuildMsiCommandLine(
     const std::wstring& arguments,
-    const std::optional<base::FilePath>& installer_data_file,
+    std::optional<base::FilePath> installer_data_file,
     const base::FilePath& msi_installer);
 
 // Builds a command line running the provided `exe_installer`, `arguments`, and
 // `installer_data_file`.
 std::wstring BuildExeCommandLine(
     const std::wstring& arguments,
-    const std::optional<base::FilePath>& installer_data_file,
+    std::optional<base::FilePath> installer_data_file,
     const base::FilePath& exe_installer);
 
 // Returns `true` if the service specified is currently running or starting.
@@ -334,9 +326,7 @@ std::optional<OSVERSIONINFOEX> GetOSVersion();
 bool CompareOSVersions(const OSVERSIONINFOEX& os, BYTE oper);
 
 // This function calls ::SetDefaultDllDirectories to restrict DLL loads to
-// either full paths or %SYSTEM32%. ::SetDefaultDllDirectories is available on
-// Windows 8.1 and above, and on Windows Vista and above when KB2533623 is
-// applied.
+// either full paths or %SYSTEM32%.
 [[nodiscard]] bool EnableSecureDllLoading();
 
 // Enables metadata protection in the heap manager. This allows for the process
@@ -360,7 +350,7 @@ bool IsShutdownEventSignaled(UpdaterScope scope);
 // `wait_period`, and if the processes still have not exited, by terminating the
 // processes.
 void StopProcessesUnderPath(const base::FilePath& path,
-                            const base::TimeDelta& wait_period);
+                            base::TimeDelta wait_period);
 
 // Returns `true` if the argument is a guid.
 bool IsGuid(const std::wstring& s);
@@ -411,11 +401,6 @@ template <typename T, typename I, typename... TArgs>
                                        std::forward<TArgs>(args)...);
 }
 
-// Returns the base install directory for the x86 versions of the updater.
-// Does not create the directory if it does not exist.
-[[nodiscard]] std::optional<base::FilePath> GetInstallDirectoryX86(
-    UpdaterScope scope);
-
 // Gets the contents under a given registry key.
 std::optional<std::wstring> GetRegKeyContents(const std::wstring& reg_key);
 
@@ -424,6 +409,32 @@ std::optional<std::wstring> GetRegKeyContents(const std::wstring& reg_key);
 // thread is set, otherwise, the function uses the user/system default LANGID,
 // or it defaults to US English.
 std::wstring GetTextForSystemError(int error);
+
+// Retrieves the logged on user token for the active explorer process if one
+// exists.
+HResultOr<ScopedKernelHANDLE> GetLoggedOnUserToken();
+
+// Returns true if running in Windows Audit mode, as documented at
+// http://technet.microsoft.com/en-us/library/cc721913.aspx.
+bool IsAuditMode();
+
+// Writes the OEM install beginning timestamp in the registry.
+bool SetOemInstallState();
+
+// Removes the OEM install beginning timestamp from the registry.
+bool ResetOemInstallState();
+
+// Returns `true` if the OEM install time is present and it has been less than
+// `kMinOemModeTime` since the OEM install.
+bool IsOemInstalling();
+
+// Stores the runtime enrollment token to the persistent storage.
+bool StoreRunTimeEnrollmentToken(const std::string& enrollment_token);
+
+// Returns a unique temp file path of the form
+// `%TMP%\{name}{guid}.{fileextension}`, where `name` and `extension` are the
+// name and extension of `file`.
+std::optional<base::FilePath> GetUniqueTempFilePath(base::FilePath file);
 
 }  // namespace updater
 

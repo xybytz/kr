@@ -4,7 +4,6 @@
 
 #include "chrome/browser/ui/privacy_sandbox/privacy_sandbox_prompt_helper.h"
 
-#include "base/feature_list.h"
 #include "base/hash/hash.h"
 #include "base/metrics/histogram_functions.h"
 #include "chrome/browser/privacy_sandbox/privacy_sandbox_service.h"
@@ -44,7 +43,8 @@ PrivacySandboxService::PromptType GetRequiredPromptType(Profile* profile) {
     return PrivacySandboxService::PromptType::kNone;
   }
 
-  return privacy_sandbox_service->GetRequiredPromptType();
+  return privacy_sandbox_service->GetRequiredPromptType(
+      PrivacySandboxService::SurfaceType::kDesktop);
 }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -119,10 +119,12 @@ void PrivacySandboxPromptHelper::DidFinishNavigation(
         !IsChromeControlledNtpUrl(new_tab_page);
 
     if (has_extention_override || is_non_chrome_controlled_ntp) {
-      web_contents()->OpenURL(content::OpenURLParams(
-          GURL(url::kAboutBlankURL), content::Referrer(),
-          WindowOpenDisposition::NEW_FOREGROUND_TAB,
-          ui::PAGE_TRANSITION_AUTO_TOPLEVEL, /*is_renderer_initiated=*/false));
+      web_contents()->OpenURL(
+          content::OpenURLParams(GURL(url::kAboutBlankURL), content::Referrer(),
+                                 WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                                 ui::PAGE_TRANSITION_AUTO_TOPLEVEL,
+                                 /*is_renderer_initiated=*/false),
+          /*navigation_handle_callback=*/{});
       base::UmaHistogramEnumeration(
           kPrivacySandboxPromptHelperEventHistogram,
           SettingsPrivacySandboxPromptHelperEvent::kAboutBlankOpened);
@@ -154,13 +156,22 @@ void PrivacySandboxPromptHelper::DidFinishNavigation(
 
   // `SearchEngineChoiceDialogService` may need to suppress this dialog to avoid
   // dialog conflicts and too frequent promos.
+  // TODO(crbug.com/370804492): When we add DMA notice to queue, put this behind
+  // flag / remove.
   SearchEngineChoiceDialogService* search_engine_choice_dialog_service =
       SearchEngineChoiceDialogServiceFactory::GetForProfile(profile());
   if (search_engine_choice_dialog_service &&
-      !search_engine_choice_dialog_service->CanSuppressPrivacySandboxPromo()) {
+      search_engine_choice_dialog_service->CanSuppressPrivacySandboxPromo()) {
     base::UmaHistogramEnumeration(kPrivacySandboxPromptHelperEventHistogram,
                                   SettingsPrivacySandboxPromptHelperEvent::
                                       kSearchEngineChoiceDialogShown);
+#if !BUILDFLAG(IS_ANDROID)
+    if (auto* privacy_sandbox_service =
+            PrivacySandboxServiceFactory::GetForProfile(profile())) {
+      privacy_sandbox_service->MaybeUnqueueNotice();
+      privacy_sandbox_service->suppress_queue = true;
+    }
+#endif  // !BUILDFLAG(IS_ANDROID)
     return;
   }
 
@@ -169,6 +180,8 @@ void PrivacySandboxPromptHelper::DidFinishNavigation(
 
   // If a sign-in dialog is being currently displayed or is about to be
   // displayed, the prompt should not be shown to avoid conflict.
+  // TODO(crbug.com/370806609): When we add sign in notice to queue, put this
+  // behind flag / remove.
   bool signin_dialog_showing =
       browser->signin_view_controller()->ShowsModalDialog();
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
@@ -185,6 +198,7 @@ void PrivacySandboxPromptHelper::DidFinishNavigation(
 
   // If a Privacy Sandbox prompt already exists for this browser, do not attempt
   // to open another one.
+  // Or if the handle is not being held, do not attempt to show the prompt.
   if (auto* privacy_sandbox_service =
           PrivacySandboxServiceFactory::GetForProfile(profile())) {
     if (privacy_sandbox_service->IsPromptOpenForBrowser(browser)) {
@@ -193,53 +207,34 @@ void PrivacySandboxPromptHelper::DidFinishNavigation(
                                         kPromptAlreadyExistsForBrowser);
       return;
     }
+
+#if !BUILDFLAG(IS_ANDROID)
+    if (base::FeatureList::IsEnabled(
+            privacy_sandbox::kPrivacySandboxNoticeQueue) &&
+        !privacy_sandbox_service->IsHoldingHandle()) {
+      return;
+    }
+#endif  // !BUILDFLAG(IS_ANDROID)
   }
 
   // The PrivacySandbox prompt can always fit inside a normal tabbed window due
   // to its minimum width, so checking the height is enough here. Other non
   // normal tabbed browsers will be exlcuded in a later check.
-  const bool is_window_too_small =
+  const bool is_window_height_too_small =
       !CanWindowHeightFitPrivacySandboxPrompt(browser);
-  base::UmaHistogramBoolean("Settings.PrivacySandbox.DialogWindowTooSmall",
-                            is_window_too_small);
-  // If the windows height is too small, it is difficult to read or interrupt
+  // If the windows height is too small, it is difficult to read or interact
   // with the dialog. The dialog is blocking modal, that is why we want to
   // prevent it from showing if there isn't enough space.
-  if (is_window_too_small) {
+  if (is_window_height_too_small) {
     base::UmaHistogramEnumeration(
         kPrivacySandboxPromptHelperEventHistogram,
         SettingsPrivacySandboxPromptHelperEvent::kWindowTooSmall);
     return;
   }
 
-  auto required_prompt_type = GetRequiredPromptType(profile());
-
   // Avoid showing the prompt on popups, pip, anything that isn't a normal
   // browser.
-  if (base::FeatureList::IsEnabled(
-          privacy_sandbox::kPrivacySandboxSuppressDialogOnNonNormalBrowsers) &&
-      browser->type() != Browser::TYPE_NORMAL) {
-    switch (required_prompt_type) {
-      case PrivacySandboxService::PromptType::kM1Consent:
-        // Record how often we were going to show a consent page on a window
-        // with a width that isn't enough for the prompt.
-        base::UmaHistogramBoolean(
-            "Settings.PrivacySandbox.CanNonNormalBrowserWindowFitConsentWidth",
-            CanWindowWidthFitPrivacySandboxPrompt(browser));
-        break;
-      case PrivacySandboxService::PromptType::kM1NoticeROW:
-      case PrivacySandboxService::PromptType::kM1NoticeEEA:
-      case PrivacySandboxService::PromptType::kM1NoticeRestricted:
-        // Record how often we were going to show a notice page on a window
-        // with a width that isn't enough for the prompt.
-        base::UmaHistogramBoolean(
-            "Settings.PrivacySandbox.CanNonNormalBrowserWindowFitNoticeWidth",
-            CanWindowWidthFitPrivacySandboxPrompt(browser));
-        break;
-      default:
-        break;
-    }
-
+  if (browser->type() != Browser::TYPE_NORMAL) {
     base::UmaHistogramEnumeration(
         kPrivacySandboxPromptHelperEventHistogram,
         SettingsPrivacySandboxPromptHelperEvent::kNonNormalBrowser);
@@ -257,7 +252,7 @@ void PrivacySandboxPromptHelper::DidFinishNavigation(
       browser->tab_strip_model()->GetIndexOfWebContents(
           navigation_handle->GetWebContents()));
 
-  ShowPrivacySandboxPrompt(browser, required_prompt_type);
+  ShowPrivacySandboxPrompt(browser, GetRequiredPromptType(profile()));
   base::UmaHistogramEnumeration(
       kPrivacySandboxPromptHelperEventHistogram,
       SettingsPrivacySandboxPromptHelperEvent::kPromptShown);
@@ -265,8 +260,26 @@ void PrivacySandboxPromptHelper::DidFinishNavigation(
 
 // static
 bool PrivacySandboxPromptHelper::ProfileRequiresPrompt(Profile* profile) {
-  return GetRequiredPromptType(profile) !=
-         PrivacySandboxService::PromptType::kNone;
+  bool eligible = GetRequiredPromptType(profile) !=
+                  PrivacySandboxService::PromptType::kNone;
+
+#if !BUILDFLAG(IS_ANDROID)
+  if (auto* privacy_sandbox_service =
+          PrivacySandboxServiceFactory::GetForProfile(profile)) {
+    // When checking profile eligibility also update the queue.
+    // Case 1: Profile is eligible, but not in the queue. Add to queue.
+    // Case 2: Profile is ineligible, but we are queued, so we must unqueue. OR
+    //         We are holding the handle, so we must release the handle and
+    //         prevent showing.
+    if (eligible) {
+      privacy_sandbox_service->MaybeQueueNotice();
+    } else {
+      privacy_sandbox_service->MaybeUnqueueNotice();
+    }
+  }
+#endif  // !BUILDFLAG(IS_ANDROID)
+
+  return eligible;
 }
 
 Profile* PrivacySandboxPromptHelper::profile() {

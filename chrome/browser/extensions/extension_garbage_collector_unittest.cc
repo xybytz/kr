@@ -22,6 +22,7 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/pref_names.h"
 #include "extensions/common/extension_features.h"
+#include "extensions/common/extension_id.h"
 #include "ppapi/buildflags/buildflags.h"
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -47,45 +48,9 @@ class ExtensionGarbageCollectorUnitTest : public ExtensionServiceTestBase {
     // Wait for GarbageCollectExtensions task to complete.
     content::RunAllTasksUntilIdle();
   }
-
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
-// Test that partially deleted extensions are cleaned up during startup.
-TEST_F(ExtensionGarbageCollectorUnitTest, CleanupOnStartup) {
-  feature_list_.InitAndDisableFeature(
-      extensions_features::kExtensionsZipFileInstalledInProfileDir);
-  const std::string kExtensionId = "behllobkkfkfnphdnhnkndlbkcpglgmj";
-
-  InitPluginService();
-  InitializeGoodInstalledExtensionService();
-
-  // Simulate that one of them got partially deleted by clearing its pref.
-  {
-    ScopedDictPrefUpdate update(profile_->GetPrefs(), pref_names::kExtensions);
-    update->Remove(kExtensionId);
-  }
-
-  service_->Init();
-  GarbageCollectExtensions();
-
-  base::FileEnumerator dirs(extensions_install_dir(),
-                            false,  // not recursive
-                            base::FileEnumerator::DIRECTORIES);
-  size_t count = 0;
-  while (!dirs.Next().empty())
-    count++;
-
-  // We should have only gotten two extensions now.
-  EXPECT_EQ(2u, count);
-
-  // And extension1 dir should now be toast.
-  base::FilePath extension_dir =
-      extensions_install_dir().AppendASCII(kExtensionId);
-  ASSERT_FALSE(base::PathExists(extension_dir));
-}
-
-// TODO(crbug.com/1378775): The test extension good_juKvIh seems to error on
+// TODO(crbug.com/40875193): The test extension good_juKvIh seems to error on
 // install with "Manifest file is missing or unreadable" despite the manifest
 // being valid. This test case is still valid because we're only checking if the
 // files get deleted. The files get copied to the install directory by the test
@@ -96,9 +61,7 @@ TEST_F(ExtensionGarbageCollectorUnitTest, CleanupOnStartup) {
 // up during startup.
 TEST_F(ExtensionGarbageCollectorUnitTest,
        CleanupUnpackedOnStartup_DeleteWhenNoLongerInstalled) {
-  feature_list_.InitAndEnableFeature(
-      extensions_features::kExtensionsZipFileInstalledInProfileDir);
-  const std::string kExtensionId = "lckcjklfapeiadkadngidmocpbkemckm";
+  const ExtensionId kExtensionId = "lckcjklfapeiadkadngidmocpbkemckm";
 
   InitPluginService();
   InitializeGoodInstalledExtensionService();
@@ -129,9 +92,7 @@ TEST_F(ExtensionGarbageCollectorUnitTest,
 
 TEST_F(ExtensionGarbageCollectorUnitTest,
        CleanupUnpackedOnStartup_DoNotDeleteWhenStillInstalled) {
-  feature_list_.InitAndEnableFeature(
-      extensions_features::kExtensionsZipFileInstalledInProfileDir);
-  const std::string kExtensionId = "lckcjklfapeiadkadngidmocpbkemckm";
+  const ExtensionId kExtensionId = "lckcjklfapeiadkadngidmocpbkemckm";
 
   InitPluginService();
   InitializeGoodInstalledExtensionService();
@@ -165,7 +126,7 @@ TEST_F(ExtensionGarbageCollectorUnitTest,
 // Test that garbage collection doesn't delete anything while a crx is being
 // installed.
 TEST_F(ExtensionGarbageCollectorUnitTest, NoCleanupDuringInstall) {
-  const std::string kExtensionId = "behllobkkfkfnphdnhnkndlbkcpglgmj";
+  const ExtensionId kExtensionId = "behllobkkfkfnphdnhnkndlbkcpglgmj";
 
   InitPluginService();
   InitializeGoodInstalledExtensionService();
@@ -207,7 +168,7 @@ TEST_F(ExtensionGarbageCollectorUnitTest, GarbageCollectWithPendingUpdates) {
   ExtensionServiceInitParams params;
   ASSERT_TRUE(params.ConfigureByTestDataDirectory(
       data_dir().AppendASCII("pending_updates")));
-  InitializeExtensionService(params);
+  InitializeExtensionService(std::move(params));
 
   // This is the directory that is going to be deleted, so make sure it actually
   // is there before the garbage collection.
@@ -235,7 +196,7 @@ TEST_F(ExtensionGarbageCollectorUnitTest, UpdateOnStartup) {
   ExtensionServiceInitParams params;
   ASSERT_TRUE(params.ConfigureByTestDataDirectory(
       data_dir().AppendASCII("pending_updates")));
-  InitializeExtensionService(params);
+  InitializeExtensionService(std::move(params));
 
   // This is the directory that is going to be deleted, so make sure it actually
   // is there before the garbage collection.

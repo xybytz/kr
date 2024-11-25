@@ -47,6 +47,16 @@
   #define XML_HIDDEN
 #endif
 
+#if __GNUC__ * 100 + __GNUC_MINOR__ >= 207 || defined(__clang__)
+  #define ATTRIBUTE_UNUSED __attribute__((unused))
+#else
+  #define ATTRIBUTE_UNUSED
+#endif
+
+#ifdef HAVE_FUNC_ATTRIBUTE_DESTRUCTOR
+  #define ATTRIBUTE_DESTRUCTOR __attribute__((destructor))
+#endif
+
 #if defined(__clang__) || \
     (defined(__GNUC__) && (__GNUC__ >= 8) && !defined(__EDG__))
   #define ATTRIBUTE_NO_SANITIZE(arg) __attribute__((no_sanitize(arg)))
@@ -55,9 +65,14 @@
 #endif
 
 #ifdef __clang__
-  #define ATTRIBUTE_NO_SANITIZE_INTEGER \
-    ATTRIBUTE_NO_SANITIZE("unsigned-integer-overflow") \
-    ATTRIBUTE_NO_SANITIZE("unsigned-shift-base")
+  #if __clang_major__ >= 12
+    #define ATTRIBUTE_NO_SANITIZE_INTEGER \
+      ATTRIBUTE_NO_SANITIZE("unsigned-integer-overflow") \
+      ATTRIBUTE_NO_SANITIZE("unsigned-shift-base")
+  #else
+    #define ATTRIBUTE_NO_SANITIZE_INTEGER \
+      ATTRIBUTE_NO_SANITIZE("unsigned-integer-overflow")
+  #endif
 #else
   #define ATTRIBUTE_NO_SANITIZE_INTEGER
 #endif

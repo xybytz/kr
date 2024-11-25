@@ -35,7 +35,7 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/extension_features.h"
+#include "extensions/common/extension_id.h"
 #include "extensions/common/file_util.h"
 
 namespace extensions {
@@ -49,7 +49,7 @@ constexpr base::TimeDelta kGarbageCollectRetryDelay = base::Seconds(30);
 // garbage collected.
 constexpr base::TimeDelta kGarbageCollectStartupDelay = base::Seconds(30);
 
-using ExtensionPathsMultimap = std::multimap<std::string, base::FilePath>;
+using ExtensionPathsMultimap = std::multimap<ExtensionId, base::FilePath>;
 
 void CheckExtensionDirectory(const base::FilePath& path,
                              const ExtensionPathsMultimap& extension_paths) {
@@ -62,7 +62,7 @@ void CheckExtensionDirectory(const base::FilePath& path,
   }
 
   // Parse directory name as a potential extension ID.
-  std::string extension_id;
+  ExtensionId extension_id;
   if (base::IsStringASCII(basename.value())) {
     extension_id = base::UTF16ToASCII(basename.LossyDisplayName());
     if (!crx_file::id_util::IdIsValid(extension_id))
@@ -201,7 +201,7 @@ void ExtensionGarbageCollector::GarbageCollectExtensions() {
     return;
   }
 
-  // TODO(crbug.com/1378775): Since the GC recursively deletes, insert a check
+  // TODO(crbug.com/40875193): Since the GC recursively deletes, insert a check
   // so that we can't attempt to delete outside the profile directory. The
   // problem is that in extension_garbage_collector_unittest.cc the directory
   // containing the extension installs is not a direct subdir of the profile
@@ -209,7 +209,7 @@ void ExtensionGarbageCollector::GarbageCollectExtensions() {
   // like that to ensure we're inside the profile directory.
   ExtensionPrefs::ExtensionsInfo extensions_info =
       extension_prefs->GetInstalledExtensionsInfo();
-  std::multimap<std::string, base::FilePath> extension_paths;
+  std::multimap<ExtensionId, base::FilePath> extension_paths;
   for (const auto& info : extensions_info) {
     extension_paths.insert(
         std::make_pair(info.extension_id, info.extension_path));
@@ -230,10 +230,6 @@ void ExtensionGarbageCollector::GarbageCollectExtensions() {
     NOTREACHED();
   }
 
-  if (!base::FeatureList::IsEnabled(
-          extensions_features::kExtensionsZipFileInstalledInProfileDir)) {
-    return;
-  }
   if (!GetExtensionFileTaskRunner()->PostTask(
           FROM_HERE, base::BindOnce(&GarbageCollectExtensionsOnFileThread,
                                     service->unpacked_install_directory(),
@@ -245,20 +241,20 @@ void ExtensionGarbageCollector::GarbageCollectExtensions() {
 void ExtensionGarbageCollector::OnBeginCrxInstall(
     content::BrowserContext* context,
     const CrxInstaller& installer,
-    const std::string& extension_id) {
+    const ExtensionId& extension_id) {
   crx_installs_in_progress_++;
 }
 
 void ExtensionGarbageCollector::OnFinishCrxInstall(
     content::BrowserContext* context,
     const CrxInstaller& installer,
-    const std::string& extension_id,
+    const ExtensionId& extension_id,
     bool success) {
   crx_installs_in_progress_--;
   if (crx_installs_in_progress_ < 0) {
     // This can only happen if there is a mismatch in our begin/finish
     // accounting.
-    DUMP_WILL_BE_NOTREACHED_NORETURN();
+    DUMP_WILL_BE_NOTREACHED();
 
     // Don't let the count go negative to avoid garbage collecting when
     // an install is actually in progress.

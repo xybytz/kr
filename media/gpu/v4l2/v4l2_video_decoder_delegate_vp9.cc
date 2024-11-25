@@ -8,10 +8,10 @@
 
 #include "base/logging.h"
 #include "base/numerics/safe_math.h"
-#include "media/filters/vp9_parser.h"
 #include "media/gpu/macros.h"
 #include "media/gpu/v4l2/v4l2_decode_surface.h"
 #include "media/gpu/v4l2/v4l2_decode_surface_handler.h"
+#include "media/parsers/vp9_parser.h"
 
 namespace media {
 
@@ -324,8 +324,8 @@ DecodeStatus V4L2VideoDecoderDelegateVP9::SubmitDecode(
   // Copy the frame data into the V4L2 buffer.
   if (!surface_handler_->SubmitSlice(
           dec_surface.get(),
-          dec_surface->secure_handle() ? nullptr : frame_hdr->data,
-          frame_hdr->frame_size)) {
+          dec_surface->secure_handle() ? nullptr : frame_hdr->data.data(),
+          frame_hdr->data.size())) {
     return DecodeStatus::kFail;
   }
 

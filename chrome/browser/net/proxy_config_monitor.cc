@@ -123,7 +123,6 @@ void ProxyConfigMonitor::OnProxyConfigChanged(
         break;
       case net::ProxyConfigService::CONFIG_PENDING:
         NOTREACHED();
-        break;
     }
   }
 }
@@ -137,8 +136,7 @@ void ProxyConfigMonitor::OnPACScriptError(int32_t line_number,
                                           const std::string& details) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   extensions::ProxyEventRouter::GetInstance()->OnPACScriptError(
-      g_browser_process->extension_event_router_forwarder(), profile_,
-      line_number, base::UTF8ToUTF16(details));
+      profile_, line_number, base::UTF8ToUTF16(details));
 }
 
 void ProxyConfigMonitor::OnRequestMaybeFailedDueToProxySettings(
@@ -153,8 +151,7 @@ void ProxyConfigMonitor::OnRequestMaybeFailedDueToProxySettings(
     return;
   }
 
-  extensions::ProxyEventRouter::GetInstance()->OnProxyError(
-      g_browser_process->extension_event_router_forwarder(), profile_,
-      net_error);
+  extensions::ProxyEventRouter::GetInstance()->OnProxyError(profile_,
+                                                            net_error);
 }
 #endif

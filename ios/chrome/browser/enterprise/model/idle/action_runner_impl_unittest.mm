@@ -5,12 +5,11 @@
 #import "ios/chrome/browser/enterprise/model/idle/action_runner_impl.h"
 
 #import "base/test/gmock_callback_support.h"
+#import "base/test/metrics/histogram_tester.h"
 #import "base/test/mock_callback.h"
-#import "base/test/scoped_feature_list.h"
 #import "base/time/time.h"
-#import "components/enterprise/idle/idle_features.h"
 #import "components/enterprise/idle/idle_pref_names.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/gmock/include/gmock/gmock.h"
@@ -56,7 +55,7 @@ class MockAction : public Action {
   explicit MockAction(ActionType action_type)
       : Action(static_cast<int>(action_type)) {}
 
-  MOCK_METHOD2(Run, void(ChromeBrowserState*, Continuation));
+  MOCK_METHOD2(Run, void(ProfileIOS*, Continuation));
 };
 
 // testing::InvokeArgument<N> does not work with base::OnceCallback, so we
@@ -71,16 +70,14 @@ ACTION_P(RunContinuation, success) {
 class IdleActionRunnerTest : public PlatformTest {
  protected:
   void SetUp() override {
-    scoped_feature_list_ = std::make_unique<base::test::ScopedFeatureList>();
-    scoped_feature_list_->InitWithFeatures({enterprise_idle::kIdleTimeout}, {});
-    TestChromeBrowserState::Builder test_cbs_builder;
-    browser_state_ = test_cbs_builder.Build();
+    TestProfileIOS::Builder builder;
+    profile_ = std::move(builder).Build();
   }
 
   void TearDown() override {
     base::RunLoop run_loop;
     run_loop.RunUntilIdle();
-    browser_state_.reset();
+    profile_.reset();
   }
 
   void SetIdleTimeoutActions(std::vector<ActionType> action_types) {
@@ -88,18 +85,16 @@ class IdleActionRunnerTest : public PlatformTest {
     for (auto action_type : action_types) {
       actions.Append(static_cast<int>(action_type));
     }
-    browser_state()->GetPrefs()->SetList(prefs::kIdleTimeoutActions,
-                                         std::move(actions));
+    profile()->GetPrefs()->SetList(prefs::kIdleTimeoutActions,
+                                   std::move(actions));
   }
 
-  TestChromeBrowserState* browser_state() { return browser_state_.get(); }
+  TestProfileIOS* profile() { return profile_.get(); }
 
  protected:
   web::WebTaskEnvironment task_environment_{
-      web::WebTaskEnvironment::Options::DEFAULT,
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
-  std::unique_ptr<base::test::ScopedFeatureList> scoped_feature_list_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
 };
 
 // Tests that the order of actions in the pref doesn't matter. They still run
@@ -109,7 +104,7 @@ TEST_F(IdleActionRunnerTest, PrefOrderDoesNotMatter) {
       std::make_unique<FakeActionFactory>();
   base::MockCallback<ActionRunner::ActionsCompletedCallback>
       actions_completed_callback;
-  ActionRunnerImpl runner(browser_state());
+  ActionRunnerImpl runner(profile());
   SetIdleTimeoutActions({ActionType::kCloseTabs,
                          ActionType::kClearBrowsingHistory,
                          ActionType::kSignOut});
@@ -120,12 +115,10 @@ TEST_F(IdleActionRunnerTest, PrefOrderDoesNotMatter) {
   auto sign_out = std::make_unique<MockAction>(ActionType::kSignOut);
 
   testing::InSequence in_sequence;
-  EXPECT_CALL(*clear_history, Run(browser_state(), _))
+  EXPECT_CALL(*clear_history, Run(profile(), _))
       .WillOnce(RunContinuation(true));
-  EXPECT_CALL(*close_tabs, Run(browser_state(), _))
-      .WillOnce(RunContinuation(true));
-  EXPECT_CALL(*sign_out, Run(browser_state(), _))
-      .WillOnce(RunContinuation(true));
+  EXPECT_CALL(*close_tabs, Run(profile(), _)).WillOnce(RunContinuation(true));
+  EXPECT_CALL(*sign_out, Run(profile(), _)).WillOnce(RunContinuation(true));
 
   action_factory->Associate(ActionType::kCloseTabs, std::move(close_tabs));
   action_factory->Associate(ActionType::kClearBrowsingHistory,
@@ -140,9 +133,11 @@ TEST_F(IdleActionRunnerTest, PrefOrderDoesNotMatter) {
 // Tests that when a higher-priority action fails, the lower-priority actions
 // don't run.
 TEST_F(IdleActionRunnerTest, OtherActionsDontRunOnFailure) {
+  std::unique_ptr<base::HistogramTester> histogram_tester =
+      std::make_unique<base::HistogramTester>();
   std::unique_ptr<FakeActionFactory> action_factory =
       std::make_unique<FakeActionFactory>();
-  ActionRunnerImpl runner(browser_state());
+  ActionRunnerImpl runner(profile());
   base::MockCallback<ActionRunner::ActionsCompletedCallback>
       actions_completed_callback;
   SetIdleTimeoutActions({ActionType::kCloseTabs, ActionType::kSignOut});
@@ -152,8 +147,7 @@ TEST_F(IdleActionRunnerTest, OtherActionsDontRunOnFailure) {
 
   // "sign_out" shouldn't run, because "close_tabs" fails.
   testing::InSequence in_sequence;
-  EXPECT_CALL(*close_tabs, Run(browser_state(), _))
-      .WillOnce(RunContinuation(false));
+  EXPECT_CALL(*close_tabs, Run(profile(), _)).WillOnce(RunContinuation(false));
   EXPECT_CALL(*sign_out, Run(_, _)).Times(0);
 
   action_factory->Associate(ActionType::kCloseTabs, std::move(close_tabs));
@@ -162,13 +156,15 @@ TEST_F(IdleActionRunnerTest, OtherActionsDontRunOnFailure) {
   EXPECT_CALL(actions_completed_callback, Run()).Times(0);
   runner.SetActionFactoryForTesting(std::move(action_factory));
   runner.Run(actions_completed_callback.Get());
+  histogram_tester->ExpectUniqueSample(
+      "Enterprise.IdleTimeoutPolicies.Success.AllActions", false, 1);
 }
 
 // Tests that it does nothing when the "IdleTimeoutActions" pref is empty.
 TEST_F(IdleActionRunnerTest, DoNothingWithEmptyPref) {
   std::unique_ptr<FakeActionFactory> action_factory =
       std::make_unique<FakeActionFactory>();
-  ActionRunnerImpl runner(browser_state());
+  ActionRunnerImpl runner(profile());
   base::MockCallback<ActionRunner::ActionsCompletedCallback>
       actions_completed_callback;
 

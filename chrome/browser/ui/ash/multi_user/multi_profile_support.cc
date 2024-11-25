@@ -11,13 +11,14 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/ash/app_restore/full_restore_service.h"
+#include "chrome/browser/ash/app_restore/full_restore_service_factory.h"
 #include "chrome/browser/ash/floating_workspace/floating_workspace_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
-#include "chrome/browser/ui/ash/session_controller_client_impl.h"
-#include "chrome/browser/ui/ash/session_util.h"
+#include "chrome/browser/ui/ash/session/session_controller_client_impl.h"
+#include "chrome/browser/ui/ash/session/session_util.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -177,7 +178,7 @@ void MultiProfileSupport::OnTransitionUserShelfToNewAccount() {
   // TODO(b/312233508): Add fws test coverage for this case.
   if (!ash::floating_workspace_util::ShouldHandleRestartRestore()) {
     auto* full_restore_service =
-        ash::full_restore::FullRestoreService::GetForProfile(profile);
+        ash::full_restore::FullRestoreServiceFactory::GetForProfile(profile);
     if (full_restore_service) {
       full_restore_service->OnTransitionedToNewActiveUser(profile);
     }

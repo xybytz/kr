@@ -6,10 +6,12 @@
 
 #import "base/strings/sys_string_conversions.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/signin/model/authentication_service.h"
 #import "ios/chrome/browser/signin/model/authentication_service_factory.h"
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service_factory.h"
+#import "ios/chrome/browser/signin/model/identity_manager_factory.h"
 #import "ios/chrome/browser/ui/authentication/history_sync/history_sync_popup_coordinator.h"
 #import "ios/chrome/browser/ui/authentication/signin/add_account_signin/add_account_signin_coordinator.h"
 #import "ios/chrome/browser/ui/authentication/signin/consistency_promo_signin/consistency_promo_signin_coordinator.h"
@@ -66,9 +68,7 @@ enum class SignInHistorySyncStep {
 }
 
 - (void)dealloc {
-  // TODO(crbug.com/1478088): Turn into CHECK.
-  DUMP_WILL_BE_CHECK(!_childCoordinator)
-      << base::SysNSStringToUTF8([self description]);
+  DCHECK(!_childCoordinator) << base::SysNSStringToUTF8([self description]);
 }
 
 - (void)start {
@@ -88,7 +88,7 @@ enum class SignInHistorySyncStep {
 
 - (void)interruptWithAction:(SigninCoordinatorInterrupt)action
                  completion:(ProceduralBlock)completion {
-  // TODO(crbug.com/1478088): Turn into CHECK.
+  // TODO(crbug.com/40929259): Turn into CHECK.
   DUMP_WILL_BE_CHECK(_childCoordinator)
       << base::SysNSStringToUTF8([self description]);
   // Interrupt `_childCoordinator` which will trigger the end of this
@@ -118,10 +118,14 @@ enum class SignInHistorySyncStep {
     case SigninCoordinatorResultCanceledByUser:
       _currentStep = SignInHistorySyncStep::kCompleted;
       break;
+    case SigninCoordinatorUINotAvailable:
+      // SigninAndHistorySyncController presents its child coordinators
+      // directly and does not use `ShowSigninCommand`.
+      NOTREACHED();
   }
   if (_currentStep != SignInHistorySyncStep::kCompleted) {
     _childCoordinator = [self createPresentStepChildCoordinator];
-    // TODO(crbug.com/1478088): Turn into CHECK.
+    // TODO(crbug.com/40929259): Turn into CHECK.
     DUMP_WILL_BE_CHECK(_childCoordinator)
         << base::SysNSStringToUTF8([self description]);
     [_childCoordinator start];
@@ -130,8 +134,7 @@ enum class SignInHistorySyncStep {
   // If there are no steps remaining, call delegate to stop presenting
   // coordinators.
   AuthenticationService* authService =
-      AuthenticationServiceFactory::GetForBrowserState(
-          self.browser->GetBrowserState());
+      AuthenticationServiceFactory::GetForProfile(self.browser->GetProfile());
   id<SystemIdentity> identity =
       authService->GetPrimaryIdentity(signin::ConsentLevel::kSignin);
   SigninCoordinatorResult result;
@@ -145,10 +148,9 @@ enum class SignInHistorySyncStep {
   } else {
     result = SigninCoordinatorResultCanceledByUser;
   }
-  SigninCompletionInfo* completionInfo =
-      [SigninCompletionInfo signinCompletionInfoWithIdentity:identity];
-  [self runCompletionCallbackWithSigninResult:result
-                               completionInfo:completionInfo];
+  id<SystemIdentity> completionIdentity = identity;
+  [self runCompletionWithSigninResult:result
+                   completionIdentity:completionIdentity];
 }
 
 // Creates the current step coordinator according to `_currentStep`.
@@ -162,7 +164,7 @@ enum class SignInHistorySyncStep {
                              accessPoint:self.accessPoint];
       __weak __typeof(self) weakSelf = self;
       coordinator.signinCompletion =
-          ^(SigninCoordinatorResult result, SigninCompletionInfo* info) {
+          ^(SigninCoordinatorResult result, id<SystemIdentity>) {
             [weakSelf currentStepDidFinishWithResult:result];
           };
       return coordinator;
@@ -176,7 +178,7 @@ enum class SignInHistorySyncStep {
                          promoAction:_promoAction];
       __weak __typeof(self) weakSelf = self;
       coordinator.signinCompletion =
-          ^(SigninCoordinatorResult result, SigninCompletionInfo* info) {
+          ^(SigninCoordinatorResult result, id<SystemIdentity>) {
             [weakSelf currentStepDidFinishWithResult:result];
           };
       return coordinator;
@@ -197,12 +199,12 @@ enum class SignInHistorySyncStep {
     case SignInHistorySyncStep::kCompleted:
       break;
   }
-  NOTREACHED_NORETURN() << base::SysNSStringToUTF8([self description]);
+  NOTREACHED() << base::SysNSStringToUTF8([self description]);
 }
 
 // Stops the child coordinator and prepares the next step to present.
 - (void)currentStepDidFinishWithResult:(SigninCoordinatorResult)result {
-  // TODO(crbug.com/1478088): Turn into CHECK.
+  // TODO(crbug.com/40929259): Turn into CHECK.
   DUMP_WILL_BE_CHECK(_childCoordinator)
       << base::SysNSStringToUTF8([self description]);
   [_childCoordinator stop];
@@ -214,10 +216,18 @@ enum class SignInHistorySyncStep {
 - (SignInHistorySyncStep)nextStep {
   switch (_currentStep) {
     case SignInHistorySyncStep::kStart: {
-      ChromeAccountManagerService* accountManagerService =
-          ChromeAccountManagerServiceFactory::GetForBrowserState(
-              self.browser->GetBrowserState());
-      if (accountManagerService->HasIdentities()) {
+      bool hasIdentitiesOnDevice = false;
+      if (AreSeparateProfilesForManagedAccountsEnabled()) {
+        signin::IdentityManager* identityManager =
+            IdentityManagerFactory::GetForProfile(self.browser->GetProfile());
+        hasIdentitiesOnDevice = !identityManager->GetAccountsOnDevice().empty();
+      } else {
+        ChromeAccountManagerService* accountManagerService =
+            ChromeAccountManagerServiceFactory::GetForProfile(
+                self.browser->GetProfile());
+        hasIdentitiesOnDevice = accountManagerService->HasIdentities();
+      }
+      if (hasIdentitiesOnDevice) {
         return SignInHistorySyncStep::kBottomSheetSignin;
       }
       return SignInHistorySyncStep::kInstantSignin;
@@ -230,7 +240,7 @@ enum class SignInHistorySyncStep {
     case SignInHistorySyncStep::kCompleted:
       break;
   }
-  NOTREACHED_NORETURN() << base::SysNSStringToUTF8([self description]);
+  NOTREACHED() << base::SysNSStringToUTF8([self description]);
 }
 
 #pragma mark - NSObject

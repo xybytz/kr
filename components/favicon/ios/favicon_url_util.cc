@@ -30,7 +30,6 @@ favicon_base::IconType IconTypeFromWebIconType(
       return favicon_base::IconType::kInvalid;
   }
   NOTREACHED();
-  return favicon_base::IconType::kInvalid;
 }
 
 }  // namespace

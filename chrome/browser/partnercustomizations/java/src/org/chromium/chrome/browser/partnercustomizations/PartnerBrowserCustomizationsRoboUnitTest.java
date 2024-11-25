@@ -15,7 +15,6 @@ import androidx.annotation.Nullable;
 
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
@@ -29,14 +28,13 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.task.TaskTraits;
 import org.chromium.base.task.test.ShadowPostTask;
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.base.test.util.HistogramWatcher;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.partnercustomizations.PartnerBrowserCustomizationsRoboUnitTest.ShadowCustomizationProviderDelegate;
 import org.chromium.chrome.browser.partnercustomizations.PartnerCustomizationsTestUtils.HomepageCharacterizationHelperStub;
 import org.chromium.chrome.browser.partnercustomizations.PartnerCustomizationsUma.PartnerCustomizationsHomepageEnum;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.url.JUnitTestGURLs;
 
 /** Unit tests for {@link PartnerBrowserCustomizations}. */
@@ -44,7 +42,6 @@ import org.chromium.url.JUnitTestGURLs;
 @Config(shadows = {ShadowPostTask.class, ShadowCustomizationProviderDelegate.class})
 @EnableFeatures(ChromeFeatureList.PARTNER_CUSTOMIZATIONS_UMA)
 public class PartnerBrowserCustomizationsRoboUnitTest {
-    @Rule public Features.JUnitProcessor processor = new Features.JUnitProcessor();
     @Mock private ActivityLifecycleDispatcher mActivityLifecycleDispatcherMock;
 
     @Before
@@ -121,21 +118,21 @@ public class PartnerBrowserCustomizationsRoboUnitTest {
 
         public ShadowCustomizationProviderDelegate() {}
 
+        /** Returns the homepage string or null if none is available. */
         @Implementation
         @Nullable
-        /** Returns the homepage string or null if none is available. */
         protected String getHomepage() {
             return sHomepage;
         }
 
-        @Implementation
         /** Returns whether incognito mode is disabled. */
+        @Implementation
         protected boolean isIncognitoModeDisabled() {
             return false;
         }
 
-        @Implementation
         /** Returns whether bookmark editing is disabled. */
+        @Implementation
         protected boolean isBookmarksEditingDisabled() {
             return false;
         }
@@ -169,8 +166,6 @@ public class PartnerBrowserCustomizationsRoboUnitTest {
         PartnerBrowserCustomizations.getInstance()
                 .onCreateInitialTab(
                         JUnitTestGURLs.NTP_NATIVE_URL.getSpec(),
-                        50,
-                        /* overviewOrStart= */ true,
                         mActivityLifecycleDispatcherMock,
                         HomepageCharacterizationHelperStub::ntpHelper);
 

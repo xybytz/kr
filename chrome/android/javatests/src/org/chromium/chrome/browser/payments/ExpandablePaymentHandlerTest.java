@@ -27,6 +27,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.params.ParameterAnnotations;
 import org.chromium.base.test.params.ParameterProvider;
 import org.chromium.base.test.params.ParameterSet;
@@ -57,7 +58,7 @@ import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.TestTouchUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.net.test.ServerCertificate;
-import org.chromium.ui.test.util.UiDisableIf;
+import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.url.GURL;
 
 import java.util.Arrays;
@@ -143,7 +144,7 @@ public class ExpandablePaymentHandlerTest {
     private PaymentHandlerCoordinator createPaymentHandlerAndShow() throws Throwable {
         PaymentHandlerCoordinator paymentHandler = new PaymentHandlerCoordinator();
         paymentHandler.setInputProtectorForTest(new InputProtector(mClock));
-        mRule.runOnUiThread(
+        ThreadUtils.runOnUiThreadBlocking(
                 () ->
                         paymentHandler.show(
                                 mDefaultActivity.getCurrentWebContents(),
@@ -216,7 +217,7 @@ public class ExpandablePaymentHandlerTest {
         PaymentHandlerCoordinator paymentHandler = createPaymentHandlerAndShow();
         waitForUiShown();
 
-        mRule.runOnUiThread(() -> paymentHandler.hide());
+        ThreadUtils.runOnUiThreadBlocking(() -> paymentHandler.hide());
         waitForUiClosed();
     }
 
@@ -224,7 +225,7 @@ public class ExpandablePaymentHandlerTest {
     @SmallTest
     @DisabledTest(message = "https://crbug.com/1191988")
     @Feature({"Payments"})
-    public void testSwipeDownCloseUI() throws Throwable {
+    public void testSwipeDownCloseUi() throws Throwable {
         startDefaultServer();
         createPaymentHandlerAndShow();
 
@@ -253,7 +254,7 @@ public class ExpandablePaymentHandlerTest {
     @Test
     @SmallTest
     @Feature({"Payments"})
-    public void testClickCloseButtonCloseUI() throws Throwable {
+    public void testClickCloseButtonCloseUi() throws Throwable {
         startDefaultServer();
         createPaymentHandlerAndShow();
         waitForUiShown();
@@ -294,7 +295,7 @@ public class ExpandablePaymentHandlerTest {
         PaymentHandlerCoordinator paymentHandler = createPaymentHandlerAndShow();
         waitForUiShown();
 
-        mRule.runOnUiThread(() -> paymentHandler.hide());
+        ThreadUtils.runOnUiThreadBlocking(() -> paymentHandler.hide());
         waitForUiClosed();
     }
 
@@ -307,7 +308,7 @@ public class ExpandablePaymentHandlerTest {
         waitForUiShown();
 
         Assert.assertFalse(paymentHandler.getWebContentsForTest().isDestroyed());
-        mRule.runOnUiThread(() -> paymentHandler.hide());
+        ThreadUtils.runOnUiThreadBlocking(() -> paymentHandler.hide());
         waitForUiClosed();
         Assert.assertTrue(paymentHandler.getWebContentsForTest().isDestroyed());
     }
@@ -323,7 +324,7 @@ public class ExpandablePaymentHandlerTest {
 
         Assert.assertTrue(paymentHandler.getWebContentsForTest().isIncognito());
 
-        mRule.runOnUiThread(() -> paymentHandler.hide());
+        ThreadUtils.runOnUiThreadBlocking(() -> paymentHandler.hide());
         waitForUiClosed();
     }
 
@@ -337,7 +338,7 @@ public class ExpandablePaymentHandlerTest {
 
         Assert.assertFalse(paymentHandler.getWebContentsForTest().isIncognito());
 
-        mRule.runOnUiThread(() -> paymentHandler.hide());
+        ThreadUtils.runOnUiThreadBlocking(() -> paymentHandler.hide());
         waitForUiClosed();
     }
 
@@ -377,7 +378,7 @@ public class ExpandablePaymentHandlerTest {
                 .check(matches(isDisplayed()))
                 .check(matches(withText(getOrigin(mServer))));
 
-        mRule.runOnUiThread(() -> paymentHandler.hide());
+        ThreadUtils.runOnUiThreadBlocking(() -> paymentHandler.hide());
 
         waitForUiClosed();
     }
@@ -399,7 +400,7 @@ public class ExpandablePaymentHandlerTest {
                         callbackHelper.notifyCalled();
                     }
                 };
-        mRule.runOnUiThread(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     paymentHandler.getWebContentsForTest().addObserver(observer);
                 });
@@ -420,9 +421,9 @@ public class ExpandablePaymentHandlerTest {
                 contentLayout.onInterceptTouchEvent(MotionEvent.obtain(0, 0, 0, 0, 0, 0)));
         Assert.assertTrue(
                 DOMUtils.clickNode(paymentHandler.getWebContentsForTest(), "confirmButton"));
-        callbackHelper.waitForFirst();
+        callbackHelper.waitForOnly();
 
-        mRule.runOnUiThread(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     paymentHandler.getWebContentsForTest().removeObserver(observer);
                     paymentHandler.hide();
@@ -455,7 +456,7 @@ public class ExpandablePaymentHandlerTest {
 
         onView(withId(R.id.page_info_url)).check(doesNotExist());
 
-        mRule.runOnUiThread(() -> paymentHandler.hide());
+        ThreadUtils.runOnUiThreadBlocking(() -> paymentHandler.hide());
         waitForUiClosed();
     }
 
@@ -472,7 +473,7 @@ public class ExpandablePaymentHandlerTest {
 
         String anotherUrl =
                 mServer.getURL("/components/test/data/payments/bobpay.test/app1/index.html");
-        mRule.runOnUiThread(
+        ThreadUtils.runOnUiThreadBlocking(
                 () ->
                         paymentHandler
                                 .getWebContentsForTest()
@@ -491,7 +492,7 @@ public class ExpandablePaymentHandlerTest {
         waitForTitleShown(paymentHandler.getWebContentsForTest(), "Max Pay");
         onView(withId(R.id.origin)).check(matches(withText(getOrigin(mServer))));
 
-        mRule.runOnUiThread(() -> paymentHandler.hide());
+        ThreadUtils.runOnUiThreadBlocking(() -> paymentHandler.hide());
         waitForUiClosed();
     }
 
@@ -512,7 +513,7 @@ public class ExpandablePaymentHandlerTest {
     @Test
     @SmallTest
     @Feature({"Payments"})
-    @DisableIf.Device(type = {UiDisableIf.TABLET}) // https://crbug.com/1135547
+    @DisableIf.Device(DeviceFormFactor.TABLET) // https://crbug.com/1135547
     @ParameterAnnotations.UseMethodParameter(GoodCertParams.class)
     public void testSecureConnectionShowUi(int goodCertificate) throws Throwable {
         startServer(goodCertificate);
@@ -523,7 +524,7 @@ public class ExpandablePaymentHandlerTest {
                 .check(matches(isDisplayed()))
                 .check(matches(withContentDescription("Connection is secure")));
 
-        mRule.runOnUiThread(() -> paymentHandler.hide());
+        ThreadUtils.runOnUiThreadBlocking(() -> paymentHandler.hide());
         waitForUiClosed();
     }
 
@@ -533,11 +534,12 @@ public class ExpandablePaymentHandlerTest {
     public void testBottomSheetSuppressedFailsShow() {
         startDefaultServer();
         PaymentHandlerCoordinator paymentHandler = new PaymentHandlerCoordinator();
-        mRule.runOnUiThread(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mBottomSheetTestSupport.suppressSheet(StateChangeReason.UNKNOWN);
                 });
-        mRule.runOnUiThread(
+        // When the return value is null, the caller needs to hide() manually.
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     Assert.assertNull(
                             paymentHandler.show(

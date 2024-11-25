@@ -20,6 +20,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.BaseActivityTestRule;
 import org.chromium.base.test.params.ParameterAnnotations;
 import org.chromium.base.test.params.ParameterSet;
@@ -30,7 +31,6 @@ import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.listmenu.ListMenuButton;
 import org.chromium.ui.test.util.BlankUiTestActivity;
 import org.chromium.ui.test.util.NightModeTestUtils;
@@ -41,11 +41,7 @@ import java.util.List;
 /** Render tests for adaptive test long-press menu popup. */
 @RunWith(ParameterizedRunner.class)
 @ParameterAnnotations.UseRunnerDelegate(ChromeJUnit4RunnerDelegate.class)
-@CommandLineFlags.Add({
-    ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
-    "force-fieldtrials=Study/Group",
-    "force-fieldtrial-params=Study.Group:mode/always-share"
-})
+@CommandLineFlags.Add(ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE)
 public class AdaptiveButtonActionMenuRenderTest {
     @ParameterAnnotations.ClassParameter
     public static List<ParameterSet> sClassParams =
@@ -72,7 +68,7 @@ public class AdaptiveButtonActionMenuRenderTest {
     @Before
     public void setUpTest() throws Exception {
         mActivityTestRule.launchActivity(null);
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     Activity activity = mActivityTestRule.getActivity();
                     AdaptiveButtonActionMenuCoordinator coordinator =
@@ -100,7 +96,7 @@ public class AdaptiveButtonActionMenuRenderTest {
 
     @After
     public void tearDownTest() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> NightModeTestUtils.tearDownNightModeForBlankUiTestActivity());
     }
 

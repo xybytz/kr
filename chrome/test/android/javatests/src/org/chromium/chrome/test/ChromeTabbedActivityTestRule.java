@@ -19,12 +19,14 @@ import org.junit.Assert;
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.Log;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.ApplicationTestUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.omnibox.UrlBar;
+import org.chromium.chrome.browser.password_manager.PasswordManagerTestHelper;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tab.TabLaunchType;
@@ -35,7 +37,6 @@ import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.MenuUtils;
 import org.chromium.chrome.test.util.NewTabPageTestUtils;
 import org.chromium.chrome.test.util.WaitForFocusHelper;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.concurrent.TimeoutException;
 
@@ -106,12 +107,15 @@ public class ChromeTabbedActivityTestRule extends ChromeActivityTestRule<ChromeT
     }
 
     /**
-     * Starts the Main activity using the passed intent, and using the specified URL.
-     * This method waits for DEFERRED_STARTUP to fire as well as a subsequent
-     * idle-sync of the main looper thread, and the initial tab must either
-     * complete its load or it must crash before this method will return.
+     * Starts the Main activity using the passed intent, and using the specified URL. This method
+     * waits for DEFERRED_STARTUP to fire as well as a subsequent idle-sync of the main looper
+     * thread, and the initial tab must either complete its load or it must crash before this method
+     * will return.
      */
     public void startMainActivityFromIntent(Intent intent, String url) {
+        // Sets up password store. This fakes the Google Play Services password store for
+        // integration tests.
+        PasswordManagerTestHelper.setUpGmsCoreFakeBackends();
         prepareUrlIntent(intent, url);
         startActivityCompletely(intent);
         if (!getActivity().isInOverviewMode()) {
@@ -157,7 +161,7 @@ public class ChromeTabbedActivityTestRule extends ChromeActivityTestRule<ChromeT
                         selectedCallback.notifyCalled();
                     }
                 };
-        TestThreadUtils.runOnUiThreadBlocking(() -> incognitoTabModel.addObserver(observer));
+        ThreadUtils.runOnUiThreadBlocking(() -> incognitoTabModel.addObserver(observer));
 
         MenuUtils.invokeCustomMenuActionSync(
                 InstrumentationRegistry.getInstrumentation(),
@@ -167,14 +171,14 @@ public class ChromeTabbedActivityTestRule extends ChromeActivityTestRule<ChromeT
         try {
             createdCallback.waitForCallback(0);
         } catch (TimeoutException ex) {
-            Assert.fail("Never received tab created event");
+            throw new AssertionError("Never received tab created event", ex);
         }
         try {
             selectedCallback.waitForCallback(0);
         } catch (TimeoutException ex) {
-            Assert.fail("Never received tab selected event");
+            throw new AssertionError("Never received tab selected event", ex);
         }
-        TestThreadUtils.runOnUiThreadBlocking(() -> incognitoTabModel.removeObserver(observer));
+        ThreadUtils.runOnUiThreadBlocking(() -> incognitoTabModel.removeObserver(observer));
 
         Tab tab = getActivity().getActivityTab();
 
@@ -197,13 +201,10 @@ public class ChromeTabbedActivityTestRule extends ChromeActivityTestRule<ChromeT
     }
 
     /**
-     * Looks up the Omnibox in the view hierarchy and types the specified
-     * text into it, requesting focus and using an inter-character delay of
-     * 200ms.
+     * Looks up the Omnibox in the view hierarchy and types the specified text into it, requesting
+     * focus and using an inter-character delay of 200ms.
      *
      * @param oneCharAtATime Whether to type text one character at a time or all at once.
-     *
-     * @throws InterruptedException
      */
     public void typeInOmnibox(String text, boolean oneCharAtATime) throws InterruptedException {
         final UrlBar urlBar = getActivity().findViewById(R.id.url_bar);
@@ -211,7 +212,7 @@ public class ChromeTabbedActivityTestRule extends ChromeActivityTestRule<ChromeT
 
         WaitForFocusHelper.acquireFocusForView(urlBar);
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     if (!oneCharAtATime) {
                         urlBar.setText(text);

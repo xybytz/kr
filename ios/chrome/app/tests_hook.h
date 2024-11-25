@@ -6,25 +6,44 @@
 #define IOS_CHROME_APP_TESTS_HOOK_H_
 
 #include <memory>
+#import <optional>
 
 class PrefService;
+class ProfileIOS;
 class ProfileOAuth2TokenServiceDelegate;
 class ProfileOAuth2TokenService;
+class ShareKitService;
 class SystemIdentityManager;
-namespace drive {
-class DriveService;
-}
-namespace policy {
-class ConfigurationPolicyProvider;
-}
-namespace password_manager {
-class BulkLeakCheckServiceInterface;
-class RecipientsFetcher;
-}
+class TrustedVaultClientBackend;
 
 namespace base {
 class TimeDelta;
-}
+}  // namespace base
+
+namespace data_sharing {
+class DataSharingService;
+}  // namespace data_sharing
+
+namespace drive {
+class DriveService;
+}  // namespace drive
+
+namespace policy {
+class ConfigurationPolicyProvider;
+}  // namespace policy
+
+namespace password_manager {
+class BulkLeakCheckServiceInterface;
+class RecipientsFetcher;
+}  // namespace password_manager
+
+namespace plus_addresses {
+class PlusAddressService;
+}  // namespace plus_addresses
+
+namespace tab_groups {
+class TabGroupSyncService;
+}  // namespace tab_groups
 
 namespace tests_hook {
 
@@ -81,11 +100,6 @@ bool DisableUpgradeSigninPromo();
 // infobar won't be shown during testing.
 bool DisableUpdateService();
 
-// The main thread freeze detection is interfering with the EarlGrey
-// synchronization.
-// Return true if it should be disabled.
-bool DisableMainThreadFreezeDetection();
-
 // Returns true if any app launch promos should delay themselves so EGTests
 // can start before checking if the promo appears.
 bool DelayAppLaunchPromos();
@@ -94,14 +108,34 @@ bool DelayAppLaunchPromos();
 // provider when testing. May return nullptr.
 policy::ConfigurationPolicyProvider* GetOverriddenPlatformPolicyProvider();
 
-// Allow overriding the SystemIdentityManager factory. The real factory will
+// Allows overriding the SystemIdentityManager factory. The real factory will
 // be used if this hook returns null.
 std::unique_ptr<SystemIdentityManager> CreateSystemIdentityManager();
+
+// Allows overriding the TrustedVaultClientBackend factory. The real factory
+// will be used if this hook returns null.
+std::unique_ptr<TrustedVaultClientBackend> CreateTrustedVaultClientBackend();
+
+// Allows overriding the TabGroupSyncService factory. The real factory will be
+// used if this hook returns null.
+std::unique_ptr<tab_groups::TabGroupSyncService> CreateTabGroupSyncService(
+    ProfileIOS* profile);
+
+// Allows overriding the ShareKitService factory. The real factory will be
+// used if this hook returns null.
+std::unique_ptr<ShareKitService> CreateShareKitService(
+    data_sharing::DataSharingService* data_sharing_service,
+    tab_groups::TabGroupSyncService* sync_service);
 
 // Returns a bulk leak check service that should be used when testing. The real
 // factory will be used if this hook returns a nullptr.
 std::unique_ptr<password_manager::BulkLeakCheckServiceInterface>
 GetOverriddenBulkLeakCheckService();
+
+// Returns a plus address service that should be used when testing. The real
+// factory will be used if this hook returns a nullptr.
+std::unique_ptr<plus_addresses::PlusAddressService>
+GetOverriddenPlusAddressService();
 
 // Returns a recipients fetcher instance that should be used in EG tests. The
 // real instance will be used if this hook returns a nullptr.
@@ -115,15 +149,34 @@ void SetUpTestsIfPresent();
 // tests.
 void RunTestsIfPresent();
 
+// Signal that the app has successfully launched. Only used by performance
+// tests.
+void SignalAppLaunched();
+
 // Minimum duration of password checks. The password check UI displays checks as
 // in progress for at least this duration in order to avoid updating the UI too
 // fast and making it flicker. Test targets do not have an artificial minimum
 // duration as it can make test flaky.
 base::TimeDelta PasswordCheckMinimumDuration();
 
+// Duration for snackbars. If the value is 0, the default value from
+// -[MDCSnackbarMessage duration] should not be updated.
+base::TimeDelta GetOverriddenSnackbarDuration();
+
 // Returns a Drive service instance that should be used in EG tests. The real
 // instance will be used if this hook returns a nullptr.
 std::unique_ptr<drive::DriveService> GetOverriddenDriveService();
+
+// Override the Feature Engagement Tracker used in tests with a demo version.
+// Returning std::nullopt will not do any override. Returning any string will
+// override with a demo tracker that only enables that feature (use empty string
+// for a demo tracker that enables all features).
+std::optional<std::string> FETDemoModeOverride();
+
+// If the given argv contains `-EGTestWipeProfile`, deletes the
+// contents of the `Library` directory at the start of `main()`. This
+// simulates launching the application with a fresh profile.
+void WipeProfileIfRequested(int argc, char* argv[]);
 
 }  // namespace tests_hook
 

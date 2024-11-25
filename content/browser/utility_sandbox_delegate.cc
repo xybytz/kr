@@ -4,15 +4,21 @@
 
 #include "content/browser/utility_sandbox_delegate.h"
 
+#include <optional>
+
 #include "base/check.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "components/services/screen_ai/buildflags/buildflags.h"
+#include "content/common/features.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
 #include "content/public/common/zygote/zygote_buildflags.h"
 #include "ppapi/buildflags/buildflags.h"
-#include "printing/buildflags/buildflags.h"
 #include "sandbox/policy/mojom/sandbox.mojom.h"
+
+#if BUILDFLAG(IS_WIN)
+#include "content/public/browser/content_browser_client.h"
+#include "content/public/common/content_client.h"
+#endif  // BUILDFLAG(IS_WIN)
 
 #if BUILDFLAG(USE_ZYGOTE)
 #include "content/common/zygote/zygote_handle_impl_linux.h"
@@ -22,6 +28,10 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chromeos/ash/components/assistant/buildflags.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+#if BUILDFLAG(IS_MAC)
+#include "base/mac/process_requirement.h"
+#endif  // BUILDFLAG(IS_MAC)
 
 namespace content {
 
@@ -35,6 +45,10 @@ UtilitySandboxedProcessLauncherDelegate::
       env_(env),
 #endif
       sandbox_type_(sandbox_type),
+#if BUILDFLAG(IS_WIN)
+      app_container_disabled_(
+          GetContentClient()->browser()->IsAppContainerDisabled(sandbox_type)),
+#endif
       cmd_line_(cmd_line) {
 #if DCHECK_IS_ON()
   bool supported_sandbox_type =
@@ -57,11 +71,8 @@ UtilitySandboxedProcessLauncherDelegate::
       sandbox_type_ == sandbox::mojom::Sandbox::kNetwork ||
       sandbox_type_ == sandbox::mojom::Sandbox::kOnDeviceModelExecution ||
       sandbox_type_ == sandbox::mojom::Sandbox::kCdm ||
-#if BUILDFLAG(ENABLE_OOP_PRINTING)
-      sandbox_type_ == sandbox::mojom::Sandbox::kPrintBackend ||
-#endif
       sandbox_type_ == sandbox::mojom::Sandbox::kPrintCompositor ||
-#if BUILDFLAG(ENABLE_PPAPI)
+#if BUILDFLAG(ENABLE_PPAPI) && !BUILDFLAG(IS_WIN)
       sandbox_type_ == sandbox::mojom::Sandbox::kPpapi ||
 #endif
 #if BUILDFLAG(IS_FUCHSIA)
@@ -76,12 +87,21 @@ UtilitySandboxedProcessLauncherDelegate::
 #if BUILDFLAG(IS_CHROMEOS_ASH)
       sandbox_type_ == sandbox::mojom::Sandbox::kIme ||
       sandbox_type_ == sandbox::mojom::Sandbox::kTts ||
+      sandbox_type_ == sandbox::mojom::Sandbox::kNearby ||
 #if BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
       sandbox_type_ == sandbox::mojom::Sandbox::kLibassistant ||
 #endif  // BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
+#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \
+    BUILDFLAG(IS_WIN)
       sandbox_type_ == sandbox::mojom::Sandbox::kScreenAI ||
+      sandbox_type_ == sandbox::mojom::Sandbox::kPrintBackend ||
+#endif
+#if BUILDFLAG(IS_LINUX)
+      sandbox_type_ == sandbox::mojom::Sandbox::kVideoEffects ||
+#endif
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)
+      sandbox_type_ == sandbox::mojom::Sandbox::kOnDeviceTranslation ||
 #endif
       sandbox_type_ == sandbox::mojom::Sandbox::kAudio ||
       sandbox_type_ == sandbox::mojom::Sandbox::kSpeechRecognition;
@@ -113,9 +133,9 @@ ZygoteCommunication* UtilitySandboxedProcessLauncherDelegate::GetZygote() {
   if (sandbox::policy::IsUnsandboxedSandboxType(sandbox_type_))
     return nullptr;
 
-  // TODO(crbug.com/1427280): remove this special case and fork from the zygote.
-  // For now, browser tests fail when forking the network service from the
-  // unsandboxed zygote, as the forked process only creates the
+  // TODO(crbug.com/40261714): remove this special case and fork from the
+  // zygote. For now, browser tests fail when forking the network service from
+  // the unsandboxed zygote, as the forked process only creates the
   // NetworkServiceTestHelper if the process is exec'd.
   if (sandbox_type_ == sandbox::mojom::Sandbox::kNetwork) {
     return nullptr;
@@ -135,17 +155,21 @@ ZygoteCommunication* UtilitySandboxedProcessLauncherDelegate::GetZygote() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
       sandbox_type_ == sandbox::mojom::Sandbox::kIme ||
       sandbox_type_ == sandbox::mojom::Sandbox::kTts ||
+      sandbox_type_ == sandbox::mojom::Sandbox::kNearby ||
 #if BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
       sandbox_type_ == sandbox::mojom::Sandbox::kLibassistant ||
 #endif  // BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
       sandbox_type_ == sandbox::mojom::Sandbox::kAudio ||
-#if BUILDFLAG(ENABLE_OOP_PRINTING)
+#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \
+    BUILDFLAG(IS_WIN)
       sandbox_type_ == sandbox::mojom::Sandbox::kPrintBackend ||
-#endif
-#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
       sandbox_type_ == sandbox::mojom::Sandbox::kScreenAI ||
 #endif
+#if BUILDFLAG(IS_LINUX)
+      sandbox_type_ == sandbox::mojom::Sandbox::kVideoEffects ||
+      sandbox_type_ == sandbox::mojom::Sandbox::kOnDeviceTranslation ||
+#endif  // BUILDFLAG(IS_LINUX)
       sandbox_type_ == sandbox::mojom::Sandbox::kSpeechRecognition) {
     return GetUnsandboxedZygote();
   }
@@ -159,5 +183,20 @@ void UtilitySandboxedProcessLauncherDelegate::SetZygote(
   zygote_ = handle;
 }
 #endif  // BUILDFLAG(USE_ZYGOTE)
+
+#if BUILDFLAG(IS_MAC)
+std::optional<base::mac::ProcessRequirement>
+UtilitySandboxedProcessLauncherDelegate::GetProcessRequirement() {
+  if (sandbox_type_ == sandbox::mojom::Sandbox::kNetwork &&
+      base::FeatureList::IsEnabled(
+          features::kValidateNetworkServiceProcessIdentity)) {
+    return base::mac::ProcessRequirement::Builder()
+        .SignedWithSameIdentity()
+        .Build();
+  }
+
+  return std::nullopt;
+}
+#endif  // BUILDFLAG(IS_MAC)
 
 }  // namespace content

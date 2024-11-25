@@ -14,10 +14,6 @@ import {handleTreeSlotChange, isTreeItem, isXfTree} from './xf_tree_util.js';
  */
 export const TREE_ITEM_INDENT = 20;
 
-/**
- * TODO(b/285977941): Remove the closure annotation here.
- * @constructor
- */
 @customElement('xf-tree-item')
 export class XfTreeItem extends XfBase {
   /**
@@ -506,7 +502,9 @@ function getCSS() {
       border: none;
       color: var(--cros-sys-on_surface);
       display: none;
+      font: var(--cros-body-2-font);
       height: 20px;
+      width: 100%;
       margin: 0 10px;
       outline: 2px solid var(--cros-sys-focus_ring);
       overflow: hidden;

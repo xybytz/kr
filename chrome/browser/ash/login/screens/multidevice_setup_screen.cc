@@ -5,7 +5,6 @@
 #include "chrome/browser/ash/login/screens/multidevice_setup_screen.h"
 
 #include "ash/constants/ash_switches.h"
-#include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
@@ -30,14 +29,6 @@ namespace ash {
 
 namespace {
 
-// Passing "--quick-start-phone-instance-id" on the command line will implement
-// the Unified Setup UI enhancements with the ID provided in the switch. This is
-// for testing only and in the future this ID will be retrieved and saved to the
-// OOBE WizardContext on the QuickStartScreen, not the MultideviceSetupScreen.
-// TODO(b/234655072): Delete this once quick start flow is implemented.
-constexpr char kQuickStartPhoneInstanceIDSwitch[] =
-    "quick-start-phone-instance-id";
-
 constexpr const char kAcceptedSetupUserAction[] = "setup-accepted";
 constexpr const char kDeclinedSetupUserAction[] = "setup-declined";
 
@@ -45,12 +36,14 @@ constexpr const char kDeclinedSetupUserAction[] = "setup-declined";
 
 // static
 std::string MultiDeviceSetupScreen::GetResultString(Result result) {
+  // LINT.IfChange(UsageMetrics)
   switch (result) {
     case Result::NEXT:
       return "Next";
     case Result::NOT_APPLICABLE:
       return BaseScreen::kNotApplicable;
   }
+  // LINT.ThenChange(//tools/metrics/histograms/metadata/oobe/histograms.xml)
 }
 
 MultiDeviceSetupScreen::MultiDeviceSetupScreen(
@@ -107,23 +100,13 @@ bool MultiDeviceSetupScreen::MaybeSkip(WizardContext& context) {
     return true;
   }
 
-  // TODO(b/234655072): Delete this once quick start flow is implemented. This
-  // is for testing only and context.quick_start_phone_instance_id should be set
-  // from the QuickStartScreen.
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(kQuickStartPhoneInstanceIDSwitch)) {
-    context.quick_start_phone_instance_id =
-        command_line->GetSwitchValueASCII(kQuickStartPhoneInstanceIDSwitch);
-  }
-
   // Use WizardContext here to check if user already connected phone during
   // Quick Start. If so, the multidevice setup screen will display UI
   // enhancements.
   const std::string& phone_instance_id = context.quick_start_phone_instance_id;
   if (!phone_instance_id.empty()) {
     setup_client_->SetQuickStartPhoneInstanceID(phone_instance_id);
-    quick_start::QuickStartMetrics::RecordScreenOpened(
-        quick_start::QuickStartMetrics::ScreenName::kUnifiedSetup);
+    quick_start_metrics_ = std::make_unique<quick_start::QuickStartMetrics>();
   }
 
   // Do not skip if potential host exists but none is set yet.
@@ -149,6 +132,11 @@ void MultiDeviceSetupScreen::ShowImpl() {
     view_->Show();
   }
 
+  if (quick_start_metrics_ != nullptr) {
+    quick_start_metrics_->RecordScreenOpened(
+        quick_start::QuickStartMetrics::ScreenName::kUnifiedSetup);
+  }
+
   // Record that user was presented with setup flow to prevent spam
   // notifications from suggesting setup in the future.
   multidevice_setup::OobeCompletionTracker* oobe_completion_tracker =
@@ -166,8 +154,10 @@ void MultiDeviceSetupScreen::OnUserAction(const base::Value::List& args) {
   if (action_id == kAcceptedSetupUserAction) {
     RecordMultiDeviceSetupOOBEUserChoiceHistogram(
         MultiDeviceSetupOOBEUserChoice::kAccepted);
+    MaybeRecordQuickStartScreenClosed();
     exit_callback_.Run(Result::NEXT);
   } else if (action_id == kDeclinedSetupUserAction) {
+    MaybeRecordQuickStartScreenClosed();
     RecordMultiDeviceSetupOOBEUserChoiceHistogram(
         MultiDeviceSetupOOBEUserChoice::kDeclined);
     exit_callback_.Run(Result::NEXT);
@@ -293,6 +283,13 @@ void MultiDeviceSetupScreen::OnGetGroupPrivateKeyStatus(
   }
 }
 
+void MultiDeviceSetupScreen::MaybeRecordQuickStartScreenClosed() {
+  if (quick_start_metrics_ != nullptr) {
+    quick_start_metrics_->RecordScreenClosed(
+        quick_start::QuickStartMetrics::ScreenName::kUnifiedSetup,
+        quick_start::QuickStartMetrics::ScreenClosedReason::kAdvancedInFlow);
+  }
+}
 void MultiDeviceSetupScreen::RecordOobeMultideviceScreenSkippedReasonHistogram(
     OobeMultideviceScreenSkippedReason reason) {
   skipped_reason_determined_ = true;

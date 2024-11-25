@@ -5,18 +5,20 @@
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/regular/regular_grid_mediator.h"
 
 #import "base/containers/contains.h"
+#import "base/memory/raw_ptr.h"
 #import "components/policy/core/common/policy_pref_names.h"
 #import "components/sessions/core/tab_restore_service.h"
 #import "components/sync_preferences/testing_pref_service_syncable.h"
 #import "ios/chrome/browser/history/model/history_service_factory.h"
 #import "ios/chrome/browser/policy/model/policy_util.h"
-#import "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_factory.h"
+#import "ios/chrome/browser/sessions/model/ios_chrome_tab_restore_service_factory.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/grid_mediator_test.h"
+#import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_mode_holder.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/toolbars/tab_grid_toolbars_configuration.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/toolbars/test/fake_tab_grid_toolbars_mediator.h"
 #import "ios/chrome/browser/ui/tab_switcher/test/fake_tab_collection_consumer.h"
@@ -29,15 +31,15 @@ class RegularGridMediatorTest : public GridMediatorTestClass {
 
   void SetUp() override {
     GridMediatorTestClass::SetUp();
-    mediator_ = [[RegularGridMediator alloc] init];
+    mode_holder_ = [[TabGridModeHolder alloc] init];
+    mediator_ = [[RegularGridMediator alloc] initWithModeHolder:mode_holder_];
     mediator_.consumer = consumer_;
     mediator_.browser = browser_.get();
     mediator_.toolbarsMutator = fake_toolbars_mediator_;
     [mediator_ currentlySelectedGrid:YES];
 
     tab_restore_service_ =
-        IOSChromeTabRestoreServiceFactory::GetForBrowserState(
-            browser_state_.get());
+        IOSChromeTabRestoreServiceFactory::GetForProfile(profile_.get());
   }
 
   void TearDown() override {
@@ -50,7 +52,8 @@ class RegularGridMediatorTest : public GridMediatorTestClass {
 
  protected:
   RegularGridMediator* mediator_ = nullptr;
-  sessions::TabRestoreService* tab_restore_service_ = nullptr;
+  raw_ptr<sessions::TabRestoreService> tab_restore_service_ = nullptr;
+  TabGridModeHolder* mode_holder_;
 };
 
 #pragma mark - Command tests
@@ -107,18 +110,15 @@ TEST_F(RegularGridMediatorTest, UndoCloseAllItemsCommandWithNTP) {
 
   // Add three new tabs.
   auto web_state1 = CreateFakeWebStateWithURL(GURL("https://test/url1"));
-  browser_->GetWebStateList()->InsertWebState(0, std::move(web_state1),
-                                              WebStateList::INSERT_FORCE_INDEX,
-                                              WebStateOpener());
+  browser_->GetWebStateList()->InsertWebState(
+      std::move(web_state1), WebStateList::InsertionParams::AtIndex(0));
   // Second tab is a NTP.
   auto web_state2 = CreateFakeWebStateWithURL(GURL(kChromeUINewTabURL));
-  browser_->GetWebStateList()->InsertWebState(1, std::move(web_state2),
-                                              WebStateList::INSERT_FORCE_INDEX,
-                                              WebStateOpener());
+  browser_->GetWebStateList()->InsertWebState(
+      std::move(web_state2), WebStateList::InsertionParams::AtIndex(1));
   auto web_state3 = CreateFakeWebStateWithURL(GURL("https://test/url2"));
-  browser_->GetWebStateList()->InsertWebState(2, std::move(web_state3),
-                                              WebStateList::INSERT_FORCE_INDEX,
-                                              WebStateOpener());
+  browser_->GetWebStateList()->InsertWebState(
+      std::move(web_state3), WebStateList::InsertionParams::AtIndex(2));
   browser_->GetWebStateList()->ActivateWebStateAt(0);
 
   // Closing item does not add them to the recently closed.
@@ -140,7 +140,7 @@ TEST_F(RegularGridMediatorTest, UndoCloseAllItemsCommandWithNTP) {
 TEST_F(RegularGridMediatorTest, OpenNewTab_OpenIfAllowedByPolicy) {
   // IncognitoModePrefs::kEnabled Means that users may open pages in both
   // Incognito mode and normal mode
-  browser_state_->GetTestingPrefService()->SetManagedPref(
+  profile_->GetTestingPrefService()->SetManagedPref(
       policy::policy_prefs::kIncognitoModeAvailability,
       std::make_unique<base::Value>(
           static_cast<int>(IncognitoModePrefs::kEnabled)));
@@ -156,7 +156,7 @@ TEST_F(RegularGridMediatorTest, OpenNewTab_OpenIfAllowedByPolicy) {
 
   // IncognitoModePrefs::kDisabled Means that users may not open pages in
   // Incognito mode. Only normal mode is available for browsing.
-  browser_state_->GetTestingPrefService()->SetManagedPref(
+  profile_->GetTestingPrefService()->SetManagedPref(
       policy::policy_prefs::kIncognitoModeAvailability,
       std::make_unique<base::Value>(
           static_cast<int>(IncognitoModePrefs::kDisabled)));
@@ -169,7 +169,7 @@ TEST_F(RegularGridMediatorTest, OpenNewTab_OpenIfAllowedByPolicy) {
 
   // IncognitoModePrefs::kForced Means that users may open pages *ONLY* in
   // Incognito mode. Normal mode is not available for browsing.
-  browser_state_->GetTestingPrefService()->SetManagedPref(
+  profile_->GetTestingPrefService()->SetManagedPref(
       policy::policy_prefs::kIncognitoModeAvailability,
       std::make_unique<base::Value>(
           static_cast<int>(IncognitoModePrefs::kForced)));
@@ -188,7 +188,6 @@ TEST_F(RegularGridMediatorTest, TestToolbarsNormalModeWithoutWebstates) {
   EXPECT_EQ(0UL, consumer_.items.size());
 
   EXPECT_EQ(TabGridPageRegularTabs, fake_toolbars_mediator_.configuration.page);
-  EXPECT_EQ(TabGridModeNormal, fake_toolbars_mediator_.configuration.mode);
 
   EXPECT_TRUE(fake_toolbars_mediator_.configuration.newTabButton);
   EXPECT_TRUE(fake_toolbars_mediator_.configuration.searchButton);

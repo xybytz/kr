@@ -45,12 +45,13 @@ Response BrowserHandler::Disable() {
 }
 
 Response BrowserHandler::GetWindowForTarget(
-    Maybe<std::string> target_id,
+    std::optional<std::string> target_id,
     int* out_window_id,
     std::unique_ptr<Browser::Bounds>* out_bounds) {
-  HeadlessWebContentsImpl* web_contents = HeadlessWebContentsImpl::From(
-      browser_->GetWebContentsForDevToolsAgentHostId(
-          target_id.value_or(target_id_)));
+  auto agent_host =
+      content::DevToolsAgentHost::GetForId(target_id.value_or(target_id_));
+  HeadlessWebContentsImpl* web_contents =
+      HeadlessWebContentsImpl::From(agent_host->GetWebContents());
   if (!web_contents)
     return Response::ServerError("No web contents for the given target id");
 
@@ -114,8 +115,9 @@ Response BrowserHandler::SetWindowBounds(
   return Response::Success();
 }
 
-protocol::Response BrowserHandler::SetDockTile(Maybe<std::string> label,
-                                               Maybe<protocol::Binary> image) {
+protocol::Response BrowserHandler::SetDockTile(
+    std::optional<std::string> label,
+    std::optional<protocol::Binary> image) {
   return Response::Success();
 }
 

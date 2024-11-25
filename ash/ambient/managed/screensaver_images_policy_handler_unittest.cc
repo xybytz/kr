@@ -180,7 +180,7 @@ TEST_F(ScreensaverImagesPolicyHandlerTest, FactoryFunctionTestSignin) {
 TEST_F(ScreensaverImagesPolicyHandlerTest, FactoryFunctionTestUser) {
   // User
   RegisterUserWithUserPrefs(AccountId::FromUserEmail(kUserEmail),
-                            user_manager::USER_TYPE_REGULAR);
+                            user_manager::UserType::kRegular);
   auto handler = ScreensaverImagesPolicyHandler::Create(active_prefs());
   // Verify that the policy handler detected the new user and created a new
   // image downloader instance.
@@ -192,7 +192,7 @@ TEST_F(ScreensaverImagesPolicyHandlerTest, FactoryFunctionTestManagedGuest) {
   // Managed Guest
   GetSessionControllerClient()->RequestSignOut();
   RegisterUserWithUserPrefs(AccountId::FromUserEmail(kUserEmail),
-                            user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+                            user_manager::UserType::kPublicAccount);
   auto handler = ScreensaverImagesPolicyHandler::Create(
       Shell::Get()->session_controller()->GetActivePrefService());
   // Verify that the policy handler detected the new user and created a new
@@ -222,7 +222,7 @@ class ScreensaverImagesPolicyHandlerForAnySessionTest
     switch (test_case.handle_type) {
       case ScreensaverImagesPolicyHandler::HandlerType::kUser:
         RegisterUserWithUserPrefs(AccountId::FromUserEmail(kUserEmail),
-                                  user_manager::USER_TYPE_REGULAR);
+                                  user_manager::UserType::kRegular);
         break;
       case ScreensaverImagesPolicyHandler::HandlerType::kSignin: {
         auto pref_service = std::make_unique<TestingPrefServiceSimple>();
@@ -234,7 +234,7 @@ class ScreensaverImagesPolicyHandlerForAnySessionTest
       } break;
       case ScreensaverImagesPolicyHandler::HandlerType::kManagedGuest:
         RegisterUserWithUserPrefs(AccountId::FromUserEmail(kUserEmail),
-                                  user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+                                  user_manager::UserType::kPublicAccount);
         break;
     }
   }
@@ -265,8 +265,8 @@ class ScreensaverImagesPolicyHandlerForAnySessionTest
 
   void ResetScreensaverImagesPolicyHandler() { policy_handler_.reset(); }
 
-  base::FilePath GetExpectedFilePath(const std::string url) {
-    auto hash = base::SHA1HashSpan(base::as_byte_span(url));
+  base::FilePath GetExpectedFilePath(const std::string& url) {
+    auto hash = base::SHA1Hash(base::as_byte_span(url));
     return temp_dir_.GetPath()
         .AppendASCII(GetParam().base_directory)
         .AppendASCII(base::HexEncode(hash) + kCacheFileExt);

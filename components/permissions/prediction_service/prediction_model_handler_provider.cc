@@ -41,7 +41,6 @@ PredictionModelHandlerProvider::GetPredictionModelHandler(
       return geolocation_prediction_model_handler_.get();
     default:
       NOTREACHED();
-      return nullptr;
   }
 }
 

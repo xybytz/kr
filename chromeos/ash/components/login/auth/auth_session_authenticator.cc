@@ -17,7 +17,6 @@
 #include "base/time/default_clock.h"
 #include "chromeos/ash/components/cryptohome/auth_factor.h"
 #include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
-#include "chromeos/ash/components/cryptohome/cryptohome_util.h"
 #include "chromeos/ash/components/cryptohome/error_types.h"
 #include "chromeos/ash/components/cryptohome/error_util.h"
 #include "chromeos/ash/components/cryptohome/system_salt_getter.h"
@@ -53,6 +52,7 @@ AuthSessionAuthenticator::AuthSessionAuthenticator(
     AuthStatusConsumer* consumer,
     std::unique_ptr<SafeModeDelegate> safe_mode_delegate,
     base::RepeatingCallback<void(const AccountId&)> user_recorder,
+    bool new_user_can_become_owner,
     PrefService* local_state)
     : Authenticator(consumer),
       user_recorder_(std::move(user_recorder)),
@@ -63,7 +63,8 @@ AuthSessionAuthenticator::AuthSessionAuthenticator(
           std::make_unique<AuthPerformer>(UserDataAuthClient::Get(),
                                           base::DefaultClock::GetInstance())),
       mount_performer_(std::make_unique<MountPerformer>()),
-      local_state_(local_state) {
+      local_state_(local_state),
+      new_user_can_become_owner_(new_user_can_become_owner) {
   DCHECK(safe_mode_delegate_);
   DCHECK(!user_recorder_.is_null());
 }
@@ -83,19 +84,19 @@ void AuthSessionAuthenticator::CompleteLogin(
   CompleteLoginImpl(ephemeral, std::move(user_context));
 }
 
-// Implementation part, shared by CompleteLogin and ResyncEncryptedData.
+// Implementation part, called by CompleteLogin.
 void AuthSessionAuthenticator::CompleteLoginImpl(
     bool ephemeral,
     std::unique_ptr<UserContext> context) {
   DCHECK(context);
-  DCHECK(context->GetUserType() == user_manager::USER_TYPE_REGULAR ||
-         context->GetUserType() == user_manager::USER_TYPE_CHILD);
+  DCHECK(context->GetUserType() == user_manager::UserType::kRegular ||
+         context->GetUserType() == user_manager::UserType::kChild);
   // For now we don't support empty passwords:
   if (context->GetKey()->GetKeyType() == Key::KEY_TYPE_PASSWORD_PLAIN) {
     bool has_knowledge_factor = !context->GetKey()->GetSecret().empty();
     bool challenge_response_auth = !context->GetChallengeResponseKeys().empty();
     if (!has_knowledge_factor && !challenge_response_auth) {
-      // TODO(crbug.com/1325411): Restore non-empty password check.
+      // TODO(crbug.com/40225479): Restore non-empty password check.
       LOGIN_LOG(ERROR) << "Empty password used in AuthenticateToLogin";
     }
   }
@@ -214,10 +215,11 @@ void AuthSessionAuthenticator::StartAuthSessionForLoggedIn(
 }
 
 void AuthSessionAuthenticator::RecordCreatingNewUser(
+    user_manager::UserDirectoryIntegrityManager::CleanupStrategy strategy,
     std::unique_ptr<UserContext> context,
     AuthOperationCallback callback) {
   user_manager::UserDirectoryIntegrityManager integrity_manager(local_state_);
-  integrity_manager.RecordCreatingNewUser(context->GetAccountId());
+  integrity_manager.RecordCreatingNewUser(context->GetAccountId(), strategy);
   std::move(callback).Run(std::move(context),
                           /*authentication_error=*/std::nullopt);
 }
@@ -243,7 +245,7 @@ void AuthSessionAuthenticator::DoCompleteLogin(
                                : AuthFailure::COULD_NOT_MOUNT_CRYPTOHOME);
   if (error.has_value()) {
     LOGIN_LOG(ERROR) << "Error starting authsession for Regular user "
-                     << error.value().get_cryptohome_code();
+                     << error.value().get_cryptohome_error();
     std::move(error_callback).Run(std::move(context), error.value());
     return;
   }
@@ -264,9 +266,24 @@ void AuthSessionAuthenticator::DoCompleteLogin(
       steps.push_back(base::BindOnce(&MountPerformer::MountEphemeralDirectory,
                                      mount_performer_->AsWeakPtr()));
     } else {  // New persistent user
+      using CleanupStrategy =
+          user_manager::UserDirectoryIntegrityManager::CleanupStrategy;
+      CleanupStrategy strategy = new_user_can_become_owner_
+                                     ? CleanupStrategy::kSilentPowerwash
+                                     : CleanupStrategy::kRemoveUser;
+      bool ignore_owner_in_tests =
+          base::CommandLine::ForCurrentProcess()->HasSwitch(
+              ash::switches::kCryptohomeIgnoreCleanupOwnershipForTesting);
+
+      if (ignore_owner_in_tests &&
+          strategy == CleanupStrategy::kSilentPowerwash) {
+        LOG(WARNING) << "Overriding cleanup strategy due to testing";
+        strategy = CleanupStrategy::kRemoveUser;
+      }
+
       steps.push_back(
           base::BindOnce(&AuthSessionAuthenticator::RecordCreatingNewUser,
-                         weak_factory_.GetWeakPtr()));
+                         weak_factory_.GetWeakPtr(), strategy));
       // We need to store a user information as it would be used by
       // CryptohomeKeyDelegateServiceProvider and MisconfiguredUserCleaner
       // If the user creation process is interrupted, the known user record
@@ -303,38 +320,32 @@ void AuthSessionAuthenticator::DoCompleteLogin(
         steps.push_back(base::BindOnce(
             &AuthSessionAuthenticator::RecordFirstAuthFactorAdded,
             weak_factory_.GetWeakPtr()));
-      } else if (!ash::features::AreLocalPasswordsEnabledForConsumers()) {
-        CHECK(has_password)
-            << "Empty passwords are not supported during user creation";
-        steps.push_back(
-            base::BindOnce(&AuthFactorEditor::AddContextKnowledgeKey,
-                           auth_factor_editor_->AsWeakPtr()));
-        steps.push_back(base::BindOnce(
-            &AuthSessionAuthenticator::RecordFirstAuthFactorAdded,
-            weak_factory_.GetWeakPtr()));
+      } else if (ephemeral) {
+        // Short-terms fix for b/344603210:
+        // Ephemeral users don't have active authsession in onboarding
+        // flow, so we need to set up their password here, if they have one.
+        if (has_password) {
+          steps.push_back(
+              base::BindOnce(&AuthFactorEditor::AddContextKnowledgeKey,
+                             auth_factor_editor_->AsWeakPtr()));
+        }
       } else {
         // If Local passwords are enabled, password setup would
         // happen later in OOBE flow.
       }
-    }       // challenge-response
-    // In addition to factors suitable for authentication, fetch a set of
-    // supported factor types for new users.
-    steps.push_back(
-        base::BindOnce(&AuthFactorEditor::GetAuthFactorsConfiguration,
-                       auth_factor_editor_->AsWeakPtr()));
+    }  // challenge-response
   } else {  // existing user
     if (!challenge_response_auth) {
       // Password-based login
-      if (ash::features::AreLocalPasswordsEnabledForConsumers()) {
-        const auto& factors = context->GetAuthFactorsData();
-        if (!factors.FindOnlinePasswordFactor()) {
-          // User has knowledge factor other than online password need
-          // to go through custom flow.
-          NotifyOnlinePasswordUnusable(std::move(context),
-                                       /*online_password_mismatch=*/false);
-          return;
-        }
+      const auto& factors = context->GetAuthFactorsData();
+      if (!factors.FindOnlinePasswordFactor()) {
+        // User has knowledge factor other than online password need
+        // to go through custom flow.
+        NotifyOnlinePasswordUnusable(std::move(context),
+                                     /*online_password_mismatch=*/false);
+        return;
       }
+
       // We are sure that password is correct, so intercept authentication
       // failure events and treat them as password change signals.
       error_callback = base::BindOnce(
@@ -364,6 +375,10 @@ void AuthSessionAuthenticator::DoCompleteLogin(
                          weak_factory_.GetWeakPtr()));
     }
   }
+  // In addition to factors suitable for authentication, fetch a set of
+  // supported factor for users.
+  steps.push_back(base::BindOnce(&AuthFactorEditor::GetAuthFactorsConfiguration,
+                                 auth_factor_editor_->AsWeakPtr()));
   AuthSuccessCallback success_callback = base::BindOnce(
       &AuthSessionAuthenticator::NotifyAuthSuccess, weak_factory_.GetWeakPtr());
 
@@ -378,9 +393,9 @@ void AuthSessionAuthenticator::AuthenticateToLogin(
     bool ephemeral,
     std::unique_ptr<UserContext> context) {
   DCHECK(context);
-  DCHECK(context->GetUserType() == user_manager::USER_TYPE_REGULAR ||
-         context->GetUserType() == user_manager::USER_TYPE_CHILD ||
-         context->GetUserType() == user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+  DCHECK(context->GetUserType() == user_manager::UserType::kRegular ||
+         context->GetUserType() == user_manager::UserType::kChild ||
+         context->GetUserType() == user_manager::UserType::kPublicAccount);
   PrepareForNewAttempt("AuthenticateToLogin", "Returning regular user");
 
   bool challenge_response_auth = !context->GetChallengeResponseKeys().empty();
@@ -388,7 +403,7 @@ void AuthSessionAuthenticator::AuthenticateToLogin(
   // For now we don't support empty passwords:
   if (context->GetKey()->GetKeyType() == Key::KEY_TYPE_PASSWORD_PLAIN) {
     if (context->GetKey()->GetSecret().empty() && !challenge_response_auth) {
-      // TODO(crbug.com/1325411): Restore non-empty password check.
+      // TODO(crbug.com/40225479): Restore non-empty password check.
       LOGIN_LOG(ERROR) << "Empty password used in AuthenticateToLogin";
     }
   }
@@ -402,9 +417,9 @@ void AuthSessionAuthenticator::AuthenticateToUnlock(
     bool ephemeral,
     std::unique_ptr<UserContext> user_context) {
   DCHECK(user_context);
-  DCHECK(user_context->GetUserType() == user_manager::USER_TYPE_REGULAR ||
-         user_context->GetUserType() == user_manager::USER_TYPE_CHILD ||
-         user_context->GetUserType() == user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+  DCHECK(user_context->GetUserType() == user_manager::UserType::kRegular ||
+         user_context->GetUserType() == user_manager::UserType::kChild ||
+         user_context->GetUserType() == user_manager::UserType::kPublicAccount);
   PrepareForNewAttempt("AuthenticateToUnlock", "Returning regular user");
 
   bool challenge_response_auth =
@@ -414,21 +429,12 @@ void AuthSessionAuthenticator::AuthenticateToUnlock(
   if (user_context->GetKey()->GetKeyType() == Key::KEY_TYPE_PASSWORD_PLAIN) {
     if (user_context->GetKey()->GetSecret().empty() &&
         !challenge_response_auth) {
-      // TODO(crbug.com/1325411): Restore non-empty password check.
+      // TODO(crbug.com/40225479): Restore non-empty password check.
       LOGIN_LOG(ERROR) << "Empty password used in AuthenticateToLogin";
     }
   }
 
   AuthSessionIntent intent = AuthSessionIntent::kVerifyOnly;
-
-  // Full authentication is needed to restore keyset. It is only for
-  // non-ephemeral user sessions.
-  if (switches::ShouldRestoreKeyOnLockScreen() && !ephemeral) {
-    LOGIN_LOG(EVENT)
-        << "AuthenticateToUnlock starts AuthSession for decrypt to "
-           "restore keyset.";
-    intent = AuthSessionIntent::kDecrypt;
-  }
 
   StartAuthSessionForLoggedIn(
       ephemeral, std::move(user_context), intent,
@@ -448,7 +454,7 @@ void AuthSessionAuthenticator::DoLoginAsExistingUser(
                                : AuthFailure::COULD_NOT_MOUNT_CRYPTOHOME);
   if (error.has_value()) {
     LOGIN_LOG(ERROR) << "Error starting authsession for Regular user "
-                     << error.value().get_cryptohome_code();
+                     << error.value().get_cryptohome_error();
     std::move(error_callback).Run(std::move(context), error.value());
     return;
   }
@@ -460,7 +466,8 @@ void AuthSessionAuthenticator::DoLoginAsExistingUser(
     std::move(error_callback)
         .Run(std::move(context),
              AuthenticationError{
-                 user_data_auth::CRYPTOHOME_ERROR_ACCOUNT_NOT_FOUND});
+                 cryptohome::ErrorWrapper::CreateFromErrorCodeOnly(
+                     user_data_auth::CRYPTOHOME_ERROR_ACCOUNT_NOT_FOUND)});
     return;
   }
   DCHECK(user_exists && !ephemeral);
@@ -510,7 +517,7 @@ void AuthSessionAuthenticator::DoUnlock(
   if (error.has_value()) {
     LOGIN_LOG(ERROR) << "Error starting authsession for Regular user for "
                         "verification intent "
-                     << error.value().get_cryptohome_code();
+                     << error.value().get_cryptohome_error();
     std::move(error_callback).Run(std::move(context), error.value());
     return;
   }
@@ -523,7 +530,8 @@ void AuthSessionAuthenticator::DoUnlock(
     std::move(error_callback)
         .Run(std::move(context),
              AuthenticationError{
-                 user_data_auth::CRYPTOHOME_ERROR_ACCOUNT_NOT_FOUND});
+                 cryptohome::ErrorWrapper::CreateFromErrorCodeOnly(
+                     user_data_auth::CRYPTOHOME_ERROR_ACCOUNT_NOT_FOUND)});
     return;
   }
   DCHECK(user_exists || ephemeral);
@@ -543,10 +551,6 @@ void AuthSessionAuthenticator::DoUnlock(
         base::BindOnce(&AuthPerformer::AuthenticateUsingKnowledgeKey,
                        auth_performer_->AsWeakPtr()));
   }
-  if (switches::ShouldRestoreKeyOnLockScreen() && !ephemeral) {
-    steps.push_back(base::BindOnce(&MountPerformer::RestoreEvictedVaultKey,
-                                   mount_performer_->AsWeakPtr()));
-  }
 
   RunOperationChain(std::move(context), std::move(steps),
                     std::move(success_callback), std::move(error_callback));
@@ -556,7 +560,7 @@ void AuthSessionAuthenticator::LoginOffTheRecord() {
   PrepareForNewAttempt("LoginOffTheRecord", "Guest login");
 
   std::unique_ptr<UserContext> context = std::make_unique<UserContext>(
-      user_manager::USER_TYPE_GUEST, user_manager::GuestAccountId());
+      user_manager::UserType::kGuest, user_manager::GuestAccountId());
 
   // Guest can not be be an owner.
   if (safe_mode_delegate_->IsSafeMode()) {
@@ -585,7 +589,7 @@ void AuthSessionAuthenticator::LoginOffTheRecord() {
 // have a password set by extension (so that it is possible to lock session).
 void AuthSessionAuthenticator::LoginAsPublicSession(
     const UserContext& user_context) {
-  DCHECK_EQ(user_context.GetUserType(), user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+  DCHECK_EQ(user_context.GetUserType(), user_manager::UserType::kPublicAccount);
 
   PrepareForNewAttempt("LoginAsPublicSession", "Managed guest session");
 
@@ -614,7 +618,7 @@ void AuthSessionAuthenticator::DoLoginAsPublicSession(
 
   if (error.has_value()) {
     LOGIN_LOG(ERROR) << "Error starting authsession for MGS "
-                     << error.value().get_cryptohome_code();
+                     << error.value().get_cryptohome_error();
     std::move(error_callback).Run(std::move(context), error.value());
     return;
   }
@@ -642,21 +646,21 @@ void AuthSessionAuthenticator::DoLoginAsPublicSession(
 void AuthSessionAuthenticator::LoginAsKioskAccount(
     const AccountId& app_account_id,
     bool ephemeral) {
-  LoginAsKioskImpl(app_account_id, user_manager::USER_TYPE_KIOSK_APP,
+  LoginAsKioskImpl(app_account_id, user_manager::UserType::kKioskApp,
                    /*force_dircrypto=*/false, /*ephemeral=*/ephemeral);
-}
-
-void AuthSessionAuthenticator::LoginAsArcKioskAccount(
-    const AccountId& app_account_id,
-    bool ephemeral) {
-  LoginAsKioskImpl(app_account_id, user_manager::USER_TYPE_ARC_KIOSK_APP,
-                   /*force_dircrypto=*/true, /*ephemeral=*/ephemeral);
 }
 
 void AuthSessionAuthenticator::LoginAsWebKioskAccount(
     const AccountId& app_account_id,
     bool ephemeral) {
-  LoginAsKioskImpl(app_account_id, user_manager::USER_TYPE_WEB_KIOSK_APP,
+  LoginAsKioskImpl(app_account_id, user_manager::UserType::kWebKioskApp,
+                   /*force_dircrypto=*/false, /*ephemeral=*/ephemeral);
+}
+
+void AuthSessionAuthenticator::LoginAsIwaKioskAccount(
+    const AccountId& app_account_id,
+    bool ephemeral) {
+  LoginAsKioskImpl(app_account_id, user_manager::UserType::kKioskIWA,
                    /*force_dircrypto=*/false, /*ephemeral=*/ephemeral);
 }
 
@@ -695,7 +699,7 @@ void AuthSessionAuthenticator::DoLoginAsKiosk(
                                : AuthFailure::COULD_NOT_MOUNT_CRYPTOHOME);
   if (error.has_value()) {
     LOGIN_LOG(ERROR) << "Error starting authsession for Kiosk "
-                     << error.value().get_cryptohome_code();
+                     << error.value().get_cryptohome_error();
     std::move(error_callback).Run(std::move(context), error.value());
     return;
   }
@@ -722,7 +726,9 @@ void AuthSessionAuthenticator::DoLoginAsKiosk(
   } else {
     steps.push_back(
         base::BindOnce(&AuthSessionAuthenticator::RecordCreatingNewUser,
-                       weak_factory_.GetWeakPtr()));
+                       weak_factory_.GetWeakPtr(),
+                       user_manager::UserDirectoryIntegrityManager::
+                           CleanupStrategy::kRemoveUser));
     steps.push_back(base::BindOnce(&MountPerformer::CreateNewUser,
                                    mount_performer_->AsWeakPtr()));
     steps.push_back(base::BindOnce(&MountPerformer::MountPersistentDirectory,
@@ -761,85 +767,6 @@ void AuthSessionAuthenticator::OnAuthFailure(const AuthFailure& error) {
   NOTIMPLEMENTED();
 }
 
-void AuthSessionAuthenticator::RecoverEncryptedData(
-    std::unique_ptr<UserContext> context,
-    const std::string& old_password) {
-  DCHECK(context);
-  DCHECK(!context->GetAuthSessionId().empty());
-  LOGIN_LOG(USER) << "Attempting to update user password";
-
-  auto* password_factor =
-      context->GetAuthFactorsData().FindOnlinePasswordFactor();
-  DCHECK(password_factor);
-  std::string key_label = password_factor->ref().label().value();
-
-  if (!context->HasReplacementKey()) {
-    // Assume that there was an attempt to use the key, so it is was already
-    // hashed.
-    DCHECK(context->GetKey()->GetKeyType() != Key::KEY_TYPE_PASSWORD_PLAIN);
-    // Make sure that the key has correct label.
-    context->GetKey()->SetLabel(key_label);
-    context->SaveKeyForReplacement();
-  }
-
-  Key auth_key(old_password);
-  auth_key.SetLabel(key_label);
-  context->SetKey(auth_key);
-
-  AuthErrorCallback error_callback = base::BindOnce(
-      &AuthSessionAuthenticator::ProcessCryptohomeError,
-      weak_factory_.GetWeakPtr(), AuthFailure::COULD_NOT_MOUNT_CRYPTOHOME);
-
-  // Existing users might require encryption migration: intercept related
-  // error codes.
-  error_callback =
-      base::BindOnce(&AuthSessionAuthenticator::HandleMigrationRequired,
-                     weak_factory_.GetWeakPtr(), std::move(error_callback));
-  // As we are in password change flow, all auth failures should be handled
-  // as password changed errors to be redirected correctly.
-  error_callback =
-      base::BindOnce(&AuthSessionAuthenticator::HandlePasswordChangeDetected,
-                     weak_factory_.GetWeakPtr(), std::move(error_callback));
-
-  AuthSuccessCallback success_callback = base::BindOnce(
-      &AuthSessionAuthenticator::NotifyAuthSuccess, weak_factory_.GetWeakPtr());
-
-  std::vector<AuthOperation> steps;
-  steps.push_back(base::BindOnce(&AuthPerformer::AuthenticateUsingKnowledgeKey,
-                                 auth_performer_->AsWeakPtr()));
-  steps.push_back(base::BindOnce(&AuthFactorEditor::ReplaceContextKey,
-                                 auth_factor_editor_->AsWeakPtr()));
-  steps.push_back(base::BindOnce(&MountPerformer::MountPersistentDirectory,
-                                 mount_performer_->AsWeakPtr()));
-  if (safe_mode_delegate_->IsSafeMode()) {
-    steps.push_back(
-        base::BindOnce(&AuthSessionAuthenticator::CheckOwnershipOperation,
-                       weak_factory_.GetWeakPtr()));
-  }
-  RunOperationChain(std::move(context), std::move(steps),
-                    std::move(success_callback), std::move(error_callback));
-}
-
-void AuthSessionAuthenticator::ResyncEncryptedData(
-    bool ephemeral,
-    std::unique_ptr<UserContext> context) {
-  LOGIN_LOG(USER) << "Re-create cryptohome";
-
-  AuthErrorCallback error_callback = base::BindOnce(
-      &AuthSessionAuthenticator::ProcessCryptohomeError,
-      weak_factory_.GetWeakPtr(), AuthFailure::DATA_REMOVAL_FAILED);
-
-  AuthSuccessCallback success_callback =
-      base::BindOnce(&AuthSessionAuthenticator::CompleteLoginImpl,
-                     weak_factory_.GetWeakPtr(), ephemeral);
-
-  std::vector<AuthOperation> steps;
-  steps.push_back(base::BindOnce(&MountPerformer::RemoveUserDirectory,
-                                 mount_performer_->AsWeakPtr()));
-  RunOperationChain(std::move(context), std::move(steps),
-                    std::move(success_callback), std::move(error_callback));
-}
-
 void AuthSessionAuthenticator::PrepareForNewAttempt(
     const std::string& method_id,
     const std::string& long_desc) {
@@ -859,129 +786,237 @@ bool AuthSessionAuthenticator::ResolveCryptohomeError(
     AuthFailure::FailureReason default_error,
     AuthenticationError& error) {
   DCHECK_EQ(error.get_origin(), AuthenticationError::Origin::kCryptohome);
-  switch (error.get_cryptohome_code()) {
-    // Not an error:
-    case user_data_auth::CRYPTOHOME_ERROR_NOT_SET:
-    // Some errors need to be handled explicitly and can not be resolved to
-    // AuthFailure:
-    case user_data_auth::CRYPTOHOME_ERROR_MOUNT_OLD_ENCRYPTION:
-    case user_data_auth::CRYPTOHOME_ERROR_MOUNT_PREVIOUS_MIGRATION_INCOMPLETE:
-    case user_data_auth::CRYPTOHOME_ADD_CREDENTIALS_FAILED:
-    case user_data_auth::CRYPTOHOME_REMOVE_CREDENTIALS_FAILED:
-    case user_data_auth::CRYPTOHOME_UPDATE_CREDENTIALS_FAILED:
-    case user_data_auth::CRYPTOHOME_ERROR_RECOVERY_TRANSIENT:
-    case user_data_auth::CRYPTOHOME_ERROR_RECOVERY_FATAL:
-    // Fatal errors that can not be handled gracefully:
-    case user_data_auth::CRYPTOHOME_ERROR_LOCKBOX_SIGNATURE_INVALID:
-    case user_data_auth::CRYPTOHOME_ERROR_LOCKBOX_CANNOT_SIGN:
-    case user_data_auth::CRYPTOHOME_ERROR_BOOT_ATTRIBUTE_NOT_FOUND:
-    case user_data_auth::CRYPTOHOME_ERROR_BOOT_ATTRIBUTES_CANNOT_SIGN:
-    case user_data_auth::CRYPTOHOME_ERROR_TPM_EK_NOT_AVAILABLE:
-    case user_data_auth::CRYPTOHOME_ERROR_ATTESTATION_NOT_READY:
-    case user_data_auth::CRYPTOHOME_ERROR_CANNOT_CONNECT_TO_CA:
-    case user_data_auth::CRYPTOHOME_ERROR_CA_REFUSED_ENROLLMENT:
-    case user_data_auth::CRYPTOHOME_ERROR_CA_REFUSED_CERTIFICATE:
-    case user_data_auth::CRYPTOHOME_ERROR_INTERNAL_ATTESTATION_ERROR:
-    case user_data_auth::
-        CRYPTOHOME_ERROR_FIRMWARE_MANAGEMENT_PARAMETERS_INVALID:
-    case user_data_auth::
-        CRYPTOHOME_ERROR_FIRMWARE_MANAGEMENT_PARAMETERS_CANNOT_STORE:
-    case user_data_auth::
-        CRYPTOHOME_ERROR_FIRMWARE_MANAGEMENT_PARAMETERS_CANNOT_REMOVE:
-    case user_data_auth::CRYPTOHOME_ERROR_UPDATE_USER_ACTIVITY_TIMESTAMP_FAILED:
-    case user_data_auth::CRYPTOHOME_ERROR_FAILED_TO_EXTEND_PCR:
-    case user_data_auth::CRYPTOHOME_ERROR_FAILED_TO_READ_PCR:
-    case user_data_auth::CRYPTOHOME_ERROR_PCR_ALREADY_EXTENDED:
-    case user_data_auth::CRYPTOHOME_ERROR_FIDO_MAKE_CREDENTIAL_FAILED:
-    case user_data_auth::CRYPTOHOME_ERROR_FIDO_GET_ASSERTION_FAILED:
-      return false;
+  cryptohome::ErrorWrapper error_wrapper = error.get_cryptohome_error();
+  if (
+      // Not an error:
+      ErrorMatches(error_wrapper, user_data_auth::CRYPTOHOME_ERROR_NOT_SET) ||
+      // Some errors need to be handled explicitly and can not be resolved to
+      // AuthFailure:
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_MOUNT_OLD_ENCRYPTION) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::
+                       CRYPTOHOME_ERROR_MOUNT_PREVIOUS_MIGRATION_INCOMPLETE) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ADD_CREDENTIALS_FAILED) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_REMOVE_CREDENTIALS_FAILED) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_UPDATE_CREDENTIALS_FAILED) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_RECOVERY_TRANSIENT) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_RECOVERY_FATAL) ||
 
-    case user_data_auth::CRYPTOHOME_ERROR_ACCOUNT_NOT_FOUND:
-      error.ResolveToFailure(AuthFailure::MISSING_CRYPTOHOME);
-      break;
-    case user_data_auth::CRYPTOHOME_ERROR_NOT_IMPLEMENTED:
-    case user_data_auth::CRYPTOHOME_ERROR_INVALID_ARGUMENT:
-    case user_data_auth::CRYPTOHOME_TOKEN_SERIALIZATION_FAILED:
-      // Fatal implementation errors
-      error.ResolveToFailure(default_error);
-      break;
-    case user_data_auth::CRYPTOHOME_ERROR_FINGERPRINT_ERROR_INTERNAL:
-    case user_data_auth::CRYPTOHOME_ERROR_FINGERPRINT_RETRY_REQUIRED:
-    case user_data_auth::CRYPTOHOME_ERROR_FINGERPRINT_DENIED:
-      // Fingerprint errors
-      error.ResolveToFailure(default_error);
-      break;
-    case user_data_auth::CRYPTOHOME_ERROR_MOUNT_FATAL:
-    case user_data_auth::CRYPTOHOME_ERROR_KEY_QUOTA_EXCEEDED:
-    case user_data_auth::CRYPTOHOME_ERROR_BACKING_STORE_FAILURE:
-    case user_data_auth::CRYPTOHOME_ERROR_INSTALL_ATTRIBUTES_FINALIZE_FAILED:
-    case user_data_auth::CRYPTOHOME_ERROR_INSTALL_ATTRIBUTES_GET_FAILED:
-    case user_data_auth::CRYPTOHOME_ERROR_INSTALL_ATTRIBUTES_SET_FAILED:
-      // Fatal system state errors
-      error.ResolveToFailure(default_error);
-      break;
-    case user_data_auth::CRYPTOHOME_ERROR_AUTHORIZATION_KEY_NOT_FOUND:
-    case user_data_auth::CRYPTOHOME_ERROR_KEY_NOT_FOUND:
-    case user_data_auth::CRYPTOHOME_ERROR_MIGRATE_KEY_FAILED:
-    case user_data_auth::CRYPTOHOME_ERROR_AUTHORIZATION_KEY_FAILED:
-
-    case user_data_auth::CRYPTOHOME_ERROR_AUTHORIZATION_KEY_DENIED:
-    case user_data_auth::CRYPTOHOME_ERROR_KEY_LABEL_EXISTS:
-    case user_data_auth::CRYPTOHOME_ERROR_UPDATE_SIGNATURE_INVALID:
-    case user_data_auth::CRYPTOHOME_ERROR_UNKNOWN_LEGACY:
-      // Assumptions about key are not correct
-      error.ResolveToFailure(default_error);
-      break;
-    case user_data_auth::CRYPTOHOME_INVALID_AUTH_SESSION_TOKEN:
-    case user_data_auth::CRYPTOHOME_ERROR_UNAUTHENTICATED_AUTH_SESSION:
-      // Auth session expired, might need to handle it separately later.
-      error.ResolveToFailure(default_error);
-      break;
-    case user_data_auth::CRYPTOHOME_ERROR_TPM_COMM_ERROR:
-    case user_data_auth::CRYPTOHOME_ERROR_TPM_NEEDS_REBOOT:
-      error.ResolveToFailure(AuthFailure::TPM_ERROR);
-      break;
-    case user_data_auth::CRYPTOHOME_ERROR_TPM_DEFEND_LOCK:
-    case user_data_auth::CRYPTOHOME_ERROR_CREDENTIAL_LOCKED:
-      // PIN is locked out, for now mark it as auth failure, and pin lockout
-      // would be detected by PinStorageCryptohome.
-      error.ResolveToFailure(default_error);
-      break;
-    case user_data_auth::CRYPTOHOME_ERROR_CREDENTIAL_EXPIRED:
-      // TODO(b/285459974): Decide how to deal with credential expired error
-      // from cryptohome.
-      error.ResolveToFailure(default_error);
-      break;
-    case user_data_auth::CRYPTOHOME_ERROR_MOUNT_MOUNT_POINT_BUSY:
-      // Assumption about system state is not correct
-      error.ResolveToFailure(default_error);
-      break;
-    case user_data_auth::CRYPTOHOME_ERROR_REMOVE_FAILED:
-      error.ResolveToFailure(AuthFailure::DATA_REMOVAL_FAILED);
-      break;
-    case user_data_auth::CRYPTOHOME_ERROR_TPM_UPDATE_REQUIRED:
-      error.ResolveToFailure(AuthFailure::TPM_UPDATE_REQUIRED);
-      break;
-    case user_data_auth::CRYPTOHOME_ERROR_VAULT_UNRECOVERABLE:
-    case user_data_auth::CRYPTOHOME_ERROR_UNUSABLE_VAULT:
-      error.ResolveToFailure(AuthFailure::UNRECOVERABLE_CRYPTOHOME);
-      break;
-    case user_data_auth::CryptohomeErrorCode_INT_MIN_SENTINEL_DO_NOT_USE_:
-    case user_data_auth::CryptohomeErrorCode_INT_MAX_SENTINEL_DO_NOT_USE_:
-      // Ignored
-      break;
-    default:
-      // We need the default case here so that it is possible to add new
-      // CryptohomeErrorCode, because CryptohomeErrorCode is defined in another
-      // repo.
-      // However, we should seek to handle all CryptohomeErrorCode and not let
-      // any of them hit the default block.
-      NOTREACHED() << "Unhandled CryptohomeErrorCode in ProcessCryptohomeError"
-                      ": "
-                   << static_cast<int>(error.get_cryptohome_code());
-      return false;
+      // Fatal errors that can not be handled gracefully:
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::CRYPTOHOME_ERROR_LOCKBOX_SIGNATURE_INVALID) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_LOCKBOX_CANNOT_SIGN) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_BOOT_ATTRIBUTE_NOT_FOUND) ||
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::CRYPTOHOME_ERROR_BOOT_ATTRIBUTES_CANNOT_SIGN) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_TPM_EK_NOT_AVAILABLE) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_ATTESTATION_NOT_READY) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_CANNOT_CONNECT_TO_CA) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_CA_REFUSED_ENROLLMENT) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_CA_REFUSED_CERTIFICATE) ||
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::CRYPTOHOME_ERROR_INTERNAL_ATTESTATION_ERROR) ||
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::
+              CRYPTOHOME_ERROR_FIRMWARE_MANAGEMENT_PARAMETERS_INVALID) ||
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::
+              CRYPTOHOME_ERROR_FIRMWARE_MANAGEMENT_PARAMETERS_CANNOT_STORE) ||
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::
+              CRYPTOHOME_ERROR_FIRMWARE_MANAGEMENT_PARAMETERS_CANNOT_REMOVE) ||
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::
+              CRYPTOHOME_ERROR_UPDATE_USER_ACTIVITY_TIMESTAMP_FAILED) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_FAILED_TO_EXTEND_PCR) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_FAILED_TO_READ_PCR) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_PCR_ALREADY_EXTENDED) ||
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::CRYPTOHOME_ERROR_FIDO_MAKE_CREDENTIAL_FAILED) ||
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::CRYPTOHOME_ERROR_FIDO_GET_ASSERTION_FAILED)) {
+    return false;
   }
-  return true;
+
+  if (ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_ACCOUNT_NOT_FOUND)) {
+    error.ResolveToFailure(AuthFailure::MISSING_CRYPTOHOME);
+    return true;
+  }
+
+  if (ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_NOT_IMPLEMENTED) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_INVALID_ARGUMENT) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_TOKEN_SERIALIZATION_FAILED)) {
+    // Fatal implementation errors
+    error.ResolveToFailure(default_error);
+    return true;
+  }
+
+  if (ErrorMatches(
+          error_wrapper,
+          user_data_auth::CRYPTOHOME_ERROR_FINGERPRINT_ERROR_INTERNAL) ||
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::CRYPTOHOME_ERROR_FINGERPRINT_RETRY_REQUIRED) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_FINGERPRINT_DENIED)) {
+    // Fingerprint errors
+    error.ResolveToFailure(default_error);
+    return true;
+  }
+
+  if (ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_MOUNT_FATAL) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_KEY_QUOTA_EXCEEDED) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_BACKING_STORE_FAILURE) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::
+                       CRYPTOHOME_ERROR_INSTALL_ATTRIBUTES_FINALIZE_FAILED) ||
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::CRYPTOHOME_ERROR_INSTALL_ATTRIBUTES_GET_FAILED) ||
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::CRYPTOHOME_ERROR_INSTALL_ATTRIBUTES_SET_FAILED)) {
+    // Fatal system state errors
+    error.ResolveToFailure(default_error);
+    return true;
+  }
+
+  if (ErrorMatches(
+          error_wrapper,
+          user_data_auth::CRYPTOHOME_ERROR_AUTHORIZATION_KEY_NOT_FOUND) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_KEY_NOT_FOUND) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_MIGRATE_KEY_FAILED) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_AUTHORIZATION_KEY_FAILED) ||
+
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_AUTHORIZATION_KEY_DENIED) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_KEY_LABEL_EXISTS) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_UPDATE_SIGNATURE_INVALID) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_UNKNOWN_LEGACY)) {
+    // Assumptions about key are not correct
+    error.ResolveToFailure(default_error);
+    return true;
+  }
+
+  if (ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_INVALID_AUTH_SESSION_TOKEN) ||
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::CRYPTOHOME_ERROR_UNAUTHENTICATED_AUTH_SESSION)) {
+    // Auth session expired, might need to handle it separately later.
+    error.ResolveToFailure(default_error);
+    return true;
+  }
+
+  if (ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_TPM_COMM_ERROR) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_TPM_NEEDS_REBOOT)) {
+    error.ResolveToFailure(AuthFailure::TPM_ERROR);
+    return true;
+  }
+
+  if (ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_TPM_DEFEND_LOCK) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_CREDENTIAL_LOCKED)) {
+    // PIN is locked out, for now mark it as auth failure, and pin lockout
+    // would be detected by PinStorageCryptohome.
+    error.ResolveToFailure(default_error);
+    return true;
+  }
+
+  if (ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_CREDENTIAL_EXPIRED)) {
+    // TODO(b/285459974): Decide how to deal with credential expired error
+    // from cryptohome.
+    error.ResolveToFailure(default_error);
+    return true;
+  }
+
+  if (ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_MOUNT_MOUNT_POINT_BUSY)) {
+    // Assumption about system state is not correct
+    error.ResolveToFailure(default_error);
+    return true;
+  }
+
+  if (ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_REMOVE_FAILED)) {
+    error.ResolveToFailure(AuthFailure::DATA_REMOVAL_FAILED);
+    return true;
+  }
+
+  if (ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_TPM_UPDATE_REQUIRED)) {
+    error.ResolveToFailure(AuthFailure::TPM_UPDATE_REQUIRED);
+    return true;
+  }
+
+  if (ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_VAULT_UNRECOVERABLE) ||
+      ErrorMatches(error_wrapper,
+                   user_data_auth::CRYPTOHOME_ERROR_UNUSABLE_VAULT)) {
+    error.ResolveToFailure(AuthFailure::UNRECOVERABLE_CRYPTOHOME);
+    return true;
+  }
+
+  if (ErrorMatches(
+          error_wrapper,
+          user_data_auth::CryptohomeErrorCode_INT_MIN_SENTINEL_DO_NOT_USE_) ||
+      ErrorMatches(
+          error_wrapper,
+          user_data_auth::CryptohomeErrorCode_INT_MAX_SENTINEL_DO_NOT_USE_)) {
+    // Ignored
+    return true;
+  }
+
+  // We need the default case here so that it is possible to add new
+  // CryptohomeErrorCode, because CryptohomeErrorCode is defined in another
+  // repo.
+  // However, we should seek to handle all CryptohomeErrorCode and not let
+  // any of them hit the default block.
+  NOTREACHED() << "Unhandled CryptohomeError in ProcessCryptohomeError"
+                  ": "
+               << error.get_cryptohome_error();
 }
 
 void AuthSessionAuthenticator::ProcessCryptohomeError(
@@ -992,10 +1027,11 @@ void AuthSessionAuthenticator::ProcessCryptohomeError(
     return;
   }
   DCHECK_EQ(error.get_origin(), AuthenticationError::Origin::kCryptohome);
-  DCHECK(cryptohome::HasError(error.get_cryptohome_code()));
+  DCHECK(cryptohome::HasError(error.get_cryptohome_error()));
 
-  if (error.get_cryptohome_code() ==
-      user_data_auth::CRYPTOHOME_ADD_CREDENTIALS_FAILED) {
+  if (cryptohome::ErrorMatches(
+          error.get_cryptohome_error(),
+          user_data_auth::CRYPTOHOME_ADD_CREDENTIALS_FAILED)) {
     // for now treat it as login failed:
     error.ResolveToFailure(default_error);
     NotifyFailure(error.get_resolved_failure(), std::move(context));
@@ -1003,12 +1039,10 @@ void AuthSessionAuthenticator::ProcessCryptohomeError(
   }
   bool handled = ResolveCryptohomeError(default_error, error);
   if (!handled) {
-    NOTREACHED() << "Unhandled cryptohome error: "
-                 << error.get_cryptohome_code();
     SCOPED_CRASH_KEY_NUMBER("Cryptohome", "error_code",
-                            error.get_cryptohome_code());
-    base::debug::DumpWithoutCrashing();
-    error.ResolveToFailure(default_error);
+                            error.get_cryptohome_error().code());
+    NOTREACHED() << "Unhandled cryptohome error: "
+                 << error.get_cryptohome_error();
   }
 
   NotifyFailure(error.get_resolved_failure(), std::move(context));
@@ -1019,7 +1053,7 @@ void AuthSessionAuthenticator::HandlePasswordChangeDetected(
     std::unique_ptr<UserContext> context,
     AuthenticationError error) {
   if (cryptohome::ErrorMatches(
-          error.get_cryptohome_code(),
+          error.get_cryptohome_error(),
           user_data_auth::CRYPTOHOME_ERROR_AUTHORIZATION_KEY_FAILED)) {
     LOGIN_LOG(EVENT) << "Password change detected";
     NotifyOnlinePasswordUnusable(std::move(context),
@@ -1045,10 +1079,10 @@ void AuthSessionAuthenticator::HandleMigrationRequired(
     std::unique_ptr<UserContext> context,
     AuthenticationError error) {
   const bool migration_required = cryptohome::ErrorMatches(
-      error.get_cryptohome_code(),
+      error.get_cryptohome_error(),
       user_data_auth::CRYPTOHOME_ERROR_MOUNT_OLD_ENCRYPTION);
   const bool incomplete_migration = cryptohome::ErrorMatches(
-      error.get_cryptohome_code(),
+      error.get_cryptohome_error(),
       user_data_auth::CRYPTOHOME_ERROR_MOUNT_PREVIOUS_MIGRATION_INCOMPLETE);
   if (migration_required || incomplete_migration) {
     LOGIN_LOG(EVENT) << "Old encryption detected";
@@ -1065,13 +1099,6 @@ void AuthSessionAuthenticator::HandleMigrationRequired(
 void AuthSessionAuthenticator::NotifyAuthSuccess(
     std::unique_ptr<UserContext> context) {
   LOGIN_LOG(EVENT) << "Logged in successfully";
-
-  if (HibernateManager::IsHibernateSupported()) {
-    // Pass the AccountID and AuthSessionID to HibernateManager so once the
-    // user's profile is created we can notify hiberman.
-    HibernateManager::Get()->SetAuthInfo(context->GetAccountId().GetUserEmail(),
-                                         context->GetAuthSessionId());
-  }
 
   if (consumer_) {
     consumer_->OnAuthSuccess(*context);
@@ -1137,7 +1164,7 @@ void AuthSessionAuthenticator::OnUnmountForNonOwner(
     // Crash if could not unmount home directory, and let session_manager
     // handle it.
     LOG(FATAL) << "Failed to unmount non-owner home directory "
-               << error->get_cryptohome_code();
+               << error->get_cryptohome_error();
   } else {
     NotifyFailure(AuthFailure::OWNER_REQUIRED, std::move(context));
   }

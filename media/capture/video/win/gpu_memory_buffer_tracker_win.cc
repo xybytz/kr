@@ -4,8 +4,11 @@
 
 #include "media/capture/video/win/gpu_memory_buffer_tracker_win.h"
 
+#include <dxgi1_2.h>
+
 #include "base/check.h"
 #include "base/logging.h"
+#include "base/memory/raw_span.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/notreached.h"
 #include "base/trace_event/trace_event.h"
@@ -15,8 +18,6 @@
 #include "media/base/win/mf_helpers.h"
 #include "media/capture/video/video_capture_buffer_handle.h"
 #include "ui/gfx/geometry/size.h"
-
-#include <dxgi1_2.h>
 
 namespace media {
 
@@ -38,7 +39,7 @@ class DXGIGMBTrackerHandle : public media::VideoCaptureBufferHandle {
   }
 
  private:
-  base::span<uint8_t> data_;
+  base::raw_span<uint8_t> data_;
   HANDLE dxgi_handle_;
   raw_ptr<ID3D11Device> d3d11_device_;
 };
@@ -113,7 +114,6 @@ bool GpuMemoryBufferTrackerWin::Init(const gfx::Size& dimensions,
   // Only support NV12
   if (format != PIXEL_FORMAT_NV12) {
     NOTREACHED() << "Unsupported VideoPixelFormat " << format;
-    return false;
   }
 
   if (is_external_dxgi_handle_) {
@@ -153,7 +153,6 @@ bool GpuMemoryBufferTrackerWin::CreateBufferInternal(
       gpu::GpuMemoryBufferImpl::DestructionCallback(), nullptr, nullptr);
   if (!buffer_) {
     NOTREACHED() << "Failed to create GPU memory buffer";
-    return false;
   }
 
   region_ = base::UnsafeSharedMemoryRegion::Create(GetMemorySizeInBytes());

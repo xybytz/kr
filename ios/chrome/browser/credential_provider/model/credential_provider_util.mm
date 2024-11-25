@@ -12,9 +12,9 @@
 #import "base/task/thread_pool.h"
 #import "base/threading/scoped_blocking_call.h"
 #import "components/password_manager/core/common/password_manager_features.h"
-#import "ios/chrome/browser/favicon/favicon_loader.h"
-#import "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/favicon/model/favicon_loader.h"
+#import "ios/chrome/browser/favicon/model/ios_chrome_favicon_loader_factory.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/common/app_group/app_group_constants.h"
 #import "ios/chrome/common/credential_provider/archivable_credential.h"
 #import "ios/chrome/common/credential_provider/archivable_credential_store.h"
@@ -22,10 +22,13 @@
 #import "ios/chrome/common/credential_provider/credential.h"
 #import "ios/chrome/common/ui/favicon/favicon_attributes.h"
 #import "ios/chrome/common/ui/favicon/favicon_constants.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 
 using base::SysUTF16ToNSString;
 using base::UTF8ToUTF16;
+
+extern const char kSyncStoreHistogramName[] =
+    "IOS.CredentialExtension.SyncedStore";
 
 namespace {
 
@@ -37,6 +40,11 @@ NSString* const kFaviconsLastSyncDatePrefKey = @"FaviconsLastSyncDatePrefKey";
 
 // The minimum number of days between the last sync and today.
 constexpr base::TimeDelta kResyncInterval = base::Days(7);
+
+// The number of days after which to refetch an existing favicon. This number
+// aims at balancing not fetching too often while ensuring the users see updated
+// favicons relatively quickly.
+constexpr base::TimeDelta kFaviconRefreshInterval = base::Days(14);
 
 }  // namespace
 
@@ -55,8 +63,7 @@ NSString* GetFaviconFileKey(const GURL& url) {
   // a URL (including the scheme and ://) isn't a valid file name).
   unsigned char result[CC_SHA256_DIGEST_LENGTH];
   CC_SHA256(url.spec().data(), url.spec().length(), result);
-  return base::SysUTF8ToNSString(
-      base::HexEncode(result, CC_SHA256_DIGEST_LENGTH));
+  return base::SysUTF8ToNSString(base::HexEncode(result));
 }
 
 void SaveFaviconToSharedAppContainer(FaviconAttributes* attributes,
@@ -265,15 +272,9 @@ void UpdateFaviconsStorage(FaviconLoader* favicon_loader,
     if (!credential.favicon) {
       // Add favicon name to the credential and update the store.
       filename = GetFaviconFileKey(url);
-      ArchivableCredential* newCredential = [[ArchivableCredential alloc]
-            initWithFavicon:filename
-                   password:credential.password
-                       rank:credential.rank
-           recordIdentifier:credential.recordIdentifier
-          serviceIdentifier:credential.serviceIdentifier
-                serviceName:credential.serviceName
-                       user:credential.user
-                       note:credential.note];
+      ArchivableCredential* newCredential =
+          [[ArchivableCredential alloc] initWithFavicon:filename
+                                             credential:credential];
       if ([archivable_store
               credentialWithRecordIdentifier:newCredential.recordIdentifier]) {
         [archivable_store updateCredential:newCredential];
@@ -305,14 +306,79 @@ void UpdateFaviconsStorage(FaviconLoader* favicon_loader,
   }];
 }
 
-void UpdateFaviconsStorageForBrowserState(
-    base::WeakPtr<ChromeBrowserState> weak_browser_state,
-    bool fallback_to_google_server) {
-  ChromeBrowserState* browser_state = weak_browser_state.get();
-  if (!browser_state) {
+void UpdateFaviconsStorageForProfile(base::WeakPtr<ProfileIOS> weak_profile,
+                                     bool fallback_to_google_server) {
+  ProfileIOS* profile = weak_profile.get();
+  if (!profile) {
     return;
   }
-  UpdateFaviconsStorage(
-      IOSChromeFaviconLoaderFactory::GetForBrowserState(browser_state),
-      fallback_to_google_server);
+  UpdateFaviconsStorage(IOSChromeFaviconLoaderFactory::GetForProfile(profile),
+                        fallback_to_google_server);
+}
+
+NSDictionary<NSString*, NSDate*>* GetFaviconsListAndFreshness() {
+  NSURL* shared_favicon_attributes_folder_url =
+      app_group::SharedFaviconAttributesFolder();
+
+  NSFileManager* file_manager = [NSFileManager defaultManager];
+  NSString* path = shared_favicon_attributes_folder_url.path;
+
+  // If the favicon folder doesn't exist, there are not favicons stored.
+  if (![file_manager fileExistsAtPath:path]) {
+    return nil;
+  }
+
+  NSArray<NSString*>* fileNames = [file_manager contentsOfDirectoryAtPath:path
+                                                                    error:nil];
+  if (fileNames.count == 0) {
+    return nil;
+  }
+
+  NSMutableDictionary<NSString*, NSDate*>* favicon_info_dict =
+      [[NSMutableDictionary alloc] init];
+  for (NSString* fileName in fileNames) {
+    NSURL* filePath = [shared_favicon_attributes_folder_url
+        URLByAppendingPathComponent:fileName
+                        isDirectory:NO];
+    NSDictionary* fileAttribs =
+        [file_manager attributesOfItemAtPath:filePath.path error:nil];
+    if (fileAttribs) {
+      [favicon_info_dict setObject:fileAttribs[NSFileCreationDate]
+                            forKey:fileName];
+    }
+  }
+  return favicon_info_dict;
+}
+
+bool ShouldFetchFavicon(NSString* favicon_key,
+                        NSDictionary<NSString*, NSDate*>* favicon_dict) {
+  if (!favicon_dict) {
+    return true;
+  }
+
+  // If there is not previous fetch date, it means there is no favicon for that
+  // key. Fetch it.
+  NSDate* favicon_fetch_date = [favicon_dict valueForKey:favicon_key];
+  if (!favicon_fetch_date) {
+    return true;
+  }
+
+  // Re-fetch the favicon if it's older than the threshold.
+  return base::Time::Now() - base::Time::FromNSDate(favicon_fetch_date) >
+         kFaviconRefreshInterval;
+}
+
+bool DeleteFaviconsFolder() {
+  NSURL* shared_favicon_attributes_folder_url =
+      app_group::SharedFaviconAttributesFolder();
+
+  NSFileManager* file_manager = [NSFileManager defaultManager];
+  NSString* path = shared_favicon_attributes_folder_url.path;
+
+  // If the favicon folder doesn't exist, there's nothing to delete.
+  if (![file_manager fileExistsAtPath:path]) {
+    return true;
+  }
+
+  return [file_manager removeItemAtPath:path error:nil];
 }

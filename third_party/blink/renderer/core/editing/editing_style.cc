@@ -49,7 +49,6 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/node.h"
-#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/node_traversal.h"
 #include "third_party/blink/renderer/core/dom/qualified_name.h"
 #include "third_party/blink/renderer/core/editing/commands/apply_style_command.h"
@@ -68,6 +67,7 @@
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
+#include "third_party/blink/renderer/core/style_property_shorthand.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
@@ -101,7 +101,7 @@ static const CSSPropertyID kStaticEditingProperties[] = {
     CSSPropertyID::kWebkitTextStrokeColor,
     CSSPropertyID::kWebkitTextStrokeWidth,
     CSSPropertyID::kCaretColor,
-    CSSPropertyID::kTextWrap,
+    CSSPropertyID::kTextWrapMode,
     CSSPropertyID::kWhiteSpaceCollapse,
 };
 
@@ -399,10 +399,12 @@ const CSSValue* HTMLFontSizeEquivalent::AttributeValueAsCSSValue(
   const AtomicString& value = element->getAttribute(attr_name_);
   if (value.IsNull())
     return nullptr;
-  CSSValueID size;
-  if (!HTMLFontElement::CssValueFromFontSizeNumber(value, size))
+  std::optional<CSSValueID> size =
+      HTMLFontElement::CssValueFromFontSizeNumber(value);
+  if (!size) {
     return nullptr;
-  return CSSIdentifierValue::Create(size);
+  }
+  return CSSIdentifierValue::Create(*size);
 }
 
 EditingStyle::EditingStyle(Element* element,
@@ -522,7 +524,8 @@ static bool IsRedundantTextAlign(MutableCSSPropertyValueSet* style,
     return false;
   if (text_align == base_text_align)
     return true;
-  const ComputedStyle* node_style = node->GetComputedStyle();
+  const ComputedStyle* node_style =
+      GetComputedStyleForElementOrLayoutObject(*node);
   if (!node_style) {
     return true;
   }
@@ -603,7 +606,7 @@ void EditingStyle::Init(Node* node, PropertiesToInclude properties_to_include) {
   }
 
   const ComputedStyle* computed_style =
-      node ? node->GetComputedStyle() : nullptr;
+      node ? GetComputedStyleForElementOrLayoutObject(*node) : nullptr;
   if (computed_style) {
     // Fix for crbug.com/768261: due to text-autosizing, reading the current
     // computed font size and re-writing it to an element may actually cause the
@@ -851,8 +854,7 @@ void EditingStyle::RemoveBlockProperties(
     return;
 
   mutable_style_->RemovePropertiesInSet(
-      BlockPropertiesVector(execution_context).data(),
-      BlockPropertiesVector(execution_context).size());
+      BlockPropertiesVector(execution_context));
 }
 
 void EditingStyle::RemoveStyleAddedByElement(Element* element) {
@@ -951,8 +953,7 @@ EditingTriState EditingStyle::TriStateOfStyle(
       &GetCSSPropertyColor(),
   };
   if (should_ignore_text_only_properties == kIgnoreTextOnlyProperties) {
-    difference->RemovePropertiesInSet(kTextOnlyProperties,
-                                      std::size(kTextOnlyProperties));
+    difference->RemovePropertiesInSet(kTextOnlyProperties);
   }
 
   if (difference->IsEmpty())
@@ -1051,10 +1052,17 @@ bool EditingStyle::ConflictsWithInlineStyleOfElement(
     // e-mail, etc., `white-space` is more interoperable when
     // `white-space-collapse` is not broadly supported. See crbug.com/1417543
     // and `editing/pasteboard/pasting-tabs.html`.
+#if EXPENSIVE_DCHECKS_ARE_ON()
     DCHECK_NE(property_id, CSSPropertyID::kWhiteSpace);
+    DCHECK_EQ(whiteSpaceShorthand().length(), 2u);
+    DCHECK_EQ(whiteSpaceShorthand().properties()[0]->PropertyID(),
+              CSSPropertyID::kWhiteSpaceCollapse);
+    DCHECK_EQ(whiteSpaceShorthand().properties()[1]->PropertyID(),
+              CSSPropertyID::kTextWrapMode);
+#endif  // EXPENSIVE_DCHECKS_ARE_ON()
     const bool is_whitespace_property =
         property_id == CSSPropertyID::kWhiteSpaceCollapse ||
-        property_id == CSSPropertyID::kTextWrap;
+        property_id == CSSPropertyID::kTextWrapMode;
     if (is_whitespace_property && IsTabHTMLSpanElement(element)) {
       continue;
     }
@@ -1449,7 +1457,6 @@ static MutableCSSPropertyValueSet* ExtractEditingProperties(
   }
 
   NOTREACHED();
-  return nullptr;
 }
 
 void EditingStyle::MergeInlineAndImplicitStyleOfElement(
@@ -1627,8 +1634,7 @@ static void RemovePropertiesInStyle(
     properties_to_remove[i] = &CSSProperty::Get(style->PropertyAt(i).Id());
   }
 
-  style_to_remove_properties_from->RemovePropertiesInSet(
-      properties_to_remove.data(), properties_to_remove.size());
+  style_to_remove_properties_from->RemovePropertiesInSet(properties_to_remove);
 }
 
 void EditingStyle::RemoveStyleFromRulesAndContext(Element* element,
@@ -2082,11 +2088,14 @@ EditingTriState EditingStyle::SelectionHasStyle(const LocalFrame& frame,
   const SecureContextMode secure_context_mode =
       frame.DomWindow()->GetSecureContextMode();
 
+  // TODO(editing-dev): The use of UpdateStyleAndLayout
+  // needs to be audited.  See http://crbug.com/590369 for more details.
+  frame.GetDocument()->UpdateStyleAndLayout(DocumentUpdateReason::kSelection);
+
   return MakeGarbageCollected<EditingStyle>(property_id, value,
                                             secure_context_mode)
-      ->TriStateOfStyle(
-          frame.Selection().ComputeVisibleSelectionInDOMTreeDeprecated(),
-          secure_context_mode);
+      ->TriStateOfStyle(frame.Selection().ComputeVisibleSelectionInDOMTree(),
+                        secure_context_mode);
 }
 
 }  // namespace blink

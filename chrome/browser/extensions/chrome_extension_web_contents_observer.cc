@@ -8,7 +8,6 @@
 #include <string>
 
 #include "base/command_line.h"
-#include "base/metrics/field_trial.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/chrome_extension_frame_host.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -25,7 +24,6 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/common/constants.h"
-#include "extensions/common/extension_messages.h"
 #include "extensions/common/switches.h"
 #include "third_party/blink/public/common/chrome_debug_urls.h"
 
@@ -60,12 +58,50 @@ void ChromeExtensionWebContentsObserver::RenderFrameCreated(
   DCHECK(initialized());
   ReloadIfTerminated(render_frame_host);
   ExtensionWebContentsObserver::RenderFrameCreated(render_frame_host);
+}
+
+void ChromeExtensionWebContentsObserver::InitializeRenderFrame(
+    content::RenderFrameHost* render_frame_host) {
+  DCHECK(initialized());
+  ExtensionWebContentsObserver::InitializeRenderFrame(render_frame_host);
+  WindowController* controller = dispatcher()->GetExtensionWindowController();
+  if (controller) {
+    GetLocalFrame(render_frame_host)
+        ->UpdateBrowserWindowId(controller->GetWindowId());
+  }
+}
+
+void ChromeExtensionWebContentsObserver::ReloadIfTerminated(
+    content::RenderFrameHost* render_frame_host) {
+  DCHECK(initialized());
+  std::string extension_id = util::GetExtensionIdFromFrame(render_frame_host);
+  if (extension_id.empty()) {
+    return;
+  }
+
+  ExtensionRegistry* registry = ExtensionRegistry::Get(browser_context());
+
+  // Reload the extension if it has crashed.
+  // TODO(yoz): This reload doesn't happen synchronously for unpacked
+  //            extensions. It seems to be fast enough, but there is a race.
+  //            We should delay loading until the extension has reloaded.
+  if (registry->terminated_extensions().GetByID(extension_id)) {
+    ExtensionSystem::Get(browser_context())
+        ->extension_service()
+        ->ReloadExtension(extension_id);
+  }
+}
+
+void ChromeExtensionWebContentsObserver::SetUpRenderFrameHost(
+    content::RenderFrameHost* render_frame_host) {
+  ExtensionWebContentsObserver::SetUpRenderFrameHost(render_frame_host);
 
   // This logic should match
   // ChromeContentBrowserClient::RegisterNonNetworkSubresourceURLLoaderFactories.
   const Extension* extension = GetExtensionFromFrame(render_frame_host, false);
-  if (!extension)
+  if (!extension) {
     return;
+  }
 
   int process_id = render_frame_host->GetProcess()->GetID();
   auto* policy = content::ChildProcessSecurityPolicy::GetInstance();
@@ -84,8 +120,7 @@ void ChromeExtensionWebContentsObserver::RenderFrameCreated(
   // to use chrome://favicon/ and chrome://extension-icon/ URLs. Hosted apps are
   // not allowed because they are served via web servers (and are generally
   // never given access to Chrome APIs).
-  if (extension->is_extension() ||
-      extension->is_legacy_packaged_app() ||
+  if (extension->is_extension() || extension->is_legacy_packaged_app() ||
       (extension->is_platform_app() &&
        Manifest::IsComponentLocation(extension->location()))) {
     policy->GrantRequestOrigin(
@@ -93,36 +128,6 @@ void ChromeExtensionWebContentsObserver::RenderFrameCreated(
     policy->GrantRequestOrigin(
         process_id,
         url::Origin::Create(GURL(chrome::kChromeUIExtensionIconURL)));
-  }
-}
-
-void ChromeExtensionWebContentsObserver::InitializeRenderFrame(
-    content::RenderFrameHost* render_frame_host) {
-  DCHECK(initialized());
-  ExtensionWebContentsObserver::InitializeRenderFrame(render_frame_host);
-  WindowController* controller = dispatcher()->GetExtensionWindowController();
-  if (controller) {
-    GetLocalFrame(render_frame_host)
-        ->UpdateBrowserWindowId(controller->GetWindowId());
-  }
-}
-
-void ChromeExtensionWebContentsObserver::ReloadIfTerminated(
-    content::RenderFrameHost* render_frame_host) {
-  DCHECK(initialized());
-  std::string extension_id = util::GetExtensionIdFromFrame(render_frame_host);
-  if (extension_id.empty())
-    return;
-
-  ExtensionRegistry* registry = ExtensionRegistry::Get(browser_context());
-
-  // Reload the extension if it has crashed.
-  // TODO(yoz): This reload doesn't happen synchronously for unpacked
-  //            extensions. It seems to be fast enough, but there is a race.
-  //            We should delay loading until the extension has reloaded.
-  if (registry->terminated_extensions().GetByID(extension_id)) {
-    ExtensionSystem::Get(browser_context())->
-        extension_service()->ReloadExtension(extension_id);
   }
 }
 

@@ -223,8 +223,7 @@ class OptionalButtonView extends FrameLayout implements TransitionListener {
         if (buttonSpec.getActionChipLabelResId() == Resources.ID_NULL) {
             mActionChipLabelString = null;
         } else {
-            mActionChipLabelString =
-                    getContext().getResources().getString(buttonSpec.getActionChipLabelResId());
+            mActionChipLabelString = getContext().getString(buttonSpec.getActionChipLabelResId());
         }
 
         mClickListener = buttonSpec.getOnClickListener();
@@ -290,7 +289,6 @@ class OptionalButtonView extends FrameLayout implements TransitionListener {
     /**
      * Set a view to use as a root for all transition animations. It's used to animate sibling views
      * when this one changes width.
-     * @param transitionRoot
      */
     // TODO(salg): Consider getting rid of this property as it can be awkward to have a view
     // initiating an animation on its siblings.
@@ -334,20 +332,20 @@ class OptionalButtonView extends FrameLayout implements TransitionListener {
         return mAnimationImage;
     }
 
-    /**
-     * Constructor for inflating from XML.
-     * @param context
-     * @param attrs
-     */
+    /** Constructor for inflating from XML. */
     public OptionalButtonView(@NonNull Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
 
         mState = State.HIDDEN;
 
-        // TODO(salg): Move these dimensions to an XML file.
-        float density = getResources().getDisplayMetrics().density;
-        mCollapsedStateWidthPx = (int) (52 * density);
-        mExpandedStatePaddingPx = (int) (8 * density);
+        mCollapsedStateWidthPx =
+                getResources()
+                        .getDimensionPixelSize(
+                                R.dimen.toolbar_phone_optional_button_collapsed_state_width);
+        mExpandedStatePaddingPx =
+                getResources()
+                        .getDimensionPixelSize(
+                                R.dimen.toolbar_phone_optional_button_expanded_state_extra_width);
     }
 
     /**

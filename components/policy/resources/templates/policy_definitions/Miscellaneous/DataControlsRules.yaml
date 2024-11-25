@@ -1,21 +1,17 @@
 caption: Sets a list of Data Controls rules.
 desc: |-
-  Configures a list of Data Control rules to prevent data leaks. Data leaks can happen by copying and pasting data, attaching files to web pages, printing, downloading, ...etc.
+  Configures a list of Data Control rules to prevent data leaks.
 
         Each rule consists of the following:
-        - Properties of the source of an action. A rule will only trigger if a user action matches all the fields populated in its <ph name="DATA_CONTROLS_SOURCES">sources</ph> field. For list sub-fields, only one entry needs to be matched, for example only one URL pattern needs to match to trigger the rule.
-        - Properties of the destination of an action. A rule will only trigger if a user action matches all the fields populated in its <ph name="DATA_CONTROLS_DESTINATIONS">destinations</ph> field. For list sub-fields, only one entry needs to be matched, for example only one URL pattern needs to match to trigger the rule.
-        - A list of restrictions to be applied on the data of the sources.
+        - Condition fields to trigger that rule. A rule will only trigger if a user action matches all the fields populated in its <ph name="DATA_CONTROLS_SOURCES">sources</ph>, <ph name="DATA_CONTROLS_DESTINATIONS">destinations</ph>, <ph name="DATA_CONTROLS_AND">and</ph>, <ph name="DATA_CONTROLS_OR">or</ph> and <ph name="DATA_CONTROLS_NOT">not</ph> fields. For list sub-fields, only one entry needs to be matched, for example only one URL pattern needs to match to trigger the rule.
+        - A list of restrictions to be applied. Depending on the restriction, only <ph name="DATA_CONTROLS_SOURCES">sources</ph> or <ph name="DATA_CONTROLS_DESTINATIONS">destinations</ph> conditions may be available.
 
         Rules can be added to:
         - Control the clipboard data shared between the sources and the destinations.
-        - Control printing from any of the sources.
-        - Control files being attached to any of the destinations.
-        - Control files being downloaded from any of the sources.
+        - Control blocking screenshots based on the source tabs.
 
-        If <ph name="ON_SECURITY_EVENT_ENTERPRISE_CONNECTOR">OnSecurityEventEnterpriseConnector</ph> policy is set to True, triggered rules be reported to the admin.
-        The restriction level can be set to ALLOW, BLOCK, WARN, REPORT.
-        - If the restriction level is set to ALLOW, the action will be allowed. This also overrides restrictions applied by other rules.
+        If <ph name="ON_SECURITY_EVENT_ENTERPRISE_CONNECTOR">OnSecurityEventEnterpriseConnector</ph> policy is set to True, triggered rules are reported to the admin.
+        The restriction level can be set to BLOCK, WARN, or REPORT.
         - If the restriction level is set to BLOCK, the action won't be allowed.
         - If the restriction level is set to WARN, a user will be warned and may choose to proceed with or cancel the action.
         - If the restriction level is set to REPORT, the user action will not be interrupted, but a report will be sent if <ph name="ON_SECURITY_EVENT_ENTERPRISE_CONNECTOR">OnSecurityEventEnterpriseConnector</ph> policy is enabled.
@@ -25,32 +21,9 @@ desc: |-
         - For data leak prevention rules specific to <ph name="PRODUCT_OS_NAME">$2<ex>Google ChromeOS</ex></ph>, see also the <ph name="DATA_LEAK_PREVENTION_RULES_LIST">DataLeakPreventionRulesList</ph> policy.
 
         If the policy is left not set, no restrictions will be applied.
+
+        This policy is available only to users who have an assigned Chrome Enterprise Premium license.
 example_value:
-- description: Block executables of a few select types
-  name: Block .exe files
-  rule_id: rule1
-  restrictions:
-  - class: FILE_DOWNLOAD
-    level: BLOCK
-  sources:
-    urls:
-    - salesforce.com
-    - gmail.com
-    - docs.google.com
-    - drive.google.com
-    - company.com
-    byte_size_higher_than: 100
-    byte_size_lower_than: 5000000
-    file_type:
-    - exe
-    - bat
-    - msi
-    - dmg
-    mime_type:
-    - application/vnd.microsoft.portable-executable
-    - video/avi
-    file_number_higher_than: 0
-    file_number_lower_than: 2
 - description: Block copying from internal sites to the OS clipboard
   name: Block copying from corp sites to OS
   destinations:
@@ -88,6 +61,63 @@ example_value:
   restrictions:
   - class: CLIPBOARD
     level: BLOCK
+- description: Block pasting in non corp sites using a not condition
+  not:
+    destinations:
+      urls:
+      - corp.com
+  restrictions:
+  - class: CLIPBOARD
+    level: BLOCK
+- description: Block pasting to incognito with an exception of corp sites
+  and:
+    - destinations:
+        incognito: true
+    - not:
+        destinations:
+          urls:
+          - corp.com
+  restrictions:
+  - class: CLIPBOARD
+    level: BLOCK
+- description: Block copying from non corp sites using a not condition
+  not:
+    sources:
+      urls:
+      - corp.com
+  restrictions:
+  - class: CLIPBOARD
+    level: BLOCK
+- description: Block copying from incognito with an exception of corp sites
+  and:
+    - sources:
+        incognito: true
+    - not:
+        sources:
+          urls:
+          - corp.com
+  restrictions:
+  - class: CLIPBOARD
+    level: BLOCK
+- description: Prevent clipboard data from leaving a specified set of corp sites
+  and:
+    - sources:
+        urls:
+        - corp1.com
+        - corp2.com
+    - or:
+      - not:
+          destinations:
+            urls:
+              - corp1.com
+              - corp2.com
+      - destinations:
+          os_clipboard: true
+      - destinations:
+          other_profile: true
+  restrictions:
+  - class: CLIPBOARD
+    level: BLOCK
 features:
   cloud_only: true
   dynamic_refresh: true
@@ -99,6 +129,10 @@ owners:
 schema:
   items:
     properties:
+      and:
+        items:
+          $ref: DataControlsCondition
+        type: array
       description:
         type: string
       destinations:
@@ -116,15 +150,19 @@ schema:
         type: object
       name:
         type: string
+      not:
+        $ref: DataControlsCondition
+      or:
+        items:
+          $ref: DataControlsCondition
+        type: array
       restrictions:
         items:
           properties:
             class:
               enum:
               - CLIPBOARD
-              - FILE_ATTACH
-              - FILE_DOWNLOAD
-              - PRINTING
+              - SCREENSHOT
               type: string
             level:
               enum:
@@ -138,32 +176,12 @@ schema:
         type: string
       sources:
         properties:
-          file_number_higher_than:
-            minimum: 0
-            type: integer
-          file_number_lower_than:
-            minimum: 0
-            type: integer
-          file_type:
-            items:
-              type: string
-            type: array
           incognito:
             type: boolean
-          mime_type:
-            items:
-              type: string
-            type: array
           os_clipboard:
             type: boolean
           other_profile:
             type: boolean
-          byte_size_higher_than:
-            minimum: 0
-            type: integer
-          byte_size_lower_than:
-            minimum: 0
-            type: integer
           urls:
             items:
               type: string
@@ -172,7 +190,9 @@ schema:
     type: object
   type: array
 future_on:
-- chrome.*
-- chrome_os
+- android
+supported_on:
+- chrome.*:128-
+- chrome_os:128-
 tags: []
 type: dict

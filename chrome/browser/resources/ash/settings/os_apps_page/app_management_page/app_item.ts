@@ -3,9 +3,10 @@
 // found in the LICENSE file.
 import './app_management_cros_shared_style.css.js';
 import './app_management_cros_shared_vars.css.js';
-import 'chrome://resources/cr_elements/cr_icons.css.js';
+import 'chrome://resources/ash/common/cr_elements/cr_icons.css.js';
 
-import {App, AppType} from 'chrome://resources/cr_components/app_management/app_management.mojom-webui.js';
+import type {App} from 'chrome://resources/cr_components/app_management/app_management.mojom-webui.js';
+import {AppType} from 'chrome://resources/cr_components/app_management/app_management.mojom-webui.js';
 import {AppManagementEntryPoint, AppManagementEntryPointsHistogramName} from 'chrome://resources/cr_components/app_management/constants.js';
 import {getAppIcon} from 'chrome://resources/cr_components/app_management/util.js';
 import {assertNotReached} from 'chrome://resources/js/assert.js';
@@ -64,7 +65,7 @@ export class AppManagementAppItemElement extends
       case AppType.kChromeApp:
       case AppType.kStandaloneBrowser:
       case AppType.kStandaloneBrowserChromeApp:
-        // TODO(https://crbug.com/1225848): Figure out appropriate behavior for
+        // TODO(crbug.com/40188614): Figure out appropriate behavior for
         // Lacros-hosted chrome-apps.
         return AppManagementEntryPoint.MAIN_VIEW_CHROME_APP;
       case AppType.kWeb:

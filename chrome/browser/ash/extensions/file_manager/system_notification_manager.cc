@@ -174,7 +174,6 @@ std::u16string GetIOTaskMessage(Profile* profile,
     case OperationType::kRestore:
     default:
       NOTREACHED() << "Unexpected operation type " << status.type;
-      return u"Unknown operation type";
   }
 
   if (status.sources.size() > 1) {

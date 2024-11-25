@@ -47,7 +47,7 @@ void FCMHandler::StartListening() {
   DCHECK(!fcm_registration_token_.has_value());
   // Note that AddAppHandler() causes an immediate replay of all received
   // messages in background on Android. Those messages will be stored in
-  // |last_received_messages_| and delivered to listeners once they have been
+  // `last_received_messages_` and delivered to listeners once they have been
   // added.
   gcm_driver_->AddAppHandler(app_id_, this);
   StartTokenFetch(/*is_validation=*/false);
@@ -59,8 +59,8 @@ void FCMHandler::StopListening() {
   // DidRetrieveToken() won't be called.
   if (IsListening()) {
     gcm_driver_->RemoveAppHandler(app_id_);
-    fcm_registration_token_ = absl::nullopt;
-    token_validation_timer_.AbandonAndStop();
+    fcm_registration_token_ = std::nullopt;
+    token_validation_timer_.Stop();
     last_received_messages_.clear();
   }
 }
@@ -77,7 +77,7 @@ void FCMHandler::StopListeningPermanently() {
   StopListening();
 }
 
-const absl::optional<std::string>& FCMHandler::GetFCMRegistrationToken() const {
+const std::optional<std::string>& FCMHandler::GetFCMRegistrationToken() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return fcm_registration_token_;
 }
@@ -95,7 +95,7 @@ void FCMHandler::AddListener(InvalidationsListener* listener) {
   }
   listeners_.AddObserver(listener);
 
-  // Immediately replay any buffered messages received before the |listener|
+  // Immediately replay any buffered messages received before the `listener`
   // was added.
   for (const std::string& message : last_received_messages_) {
     listener->OnInvalidationReceived(message);
@@ -173,7 +173,7 @@ void FCMHandler::DidRetrieveToken(base::TimeTicks fetch_time_for_metrics,
 
   // Record histograms for the initial token requests only (called from
   // StartListening()).
-  // TODO(crbug.com/1425026): record similar metrics for validation requests.
+  // TODO(crbug.com/40260679): record similar metrics for validation requests.
   if (!is_validation) {
     base::UmaHistogramEnumeration("Sync.FCMInstanceIdTokenRetrievalStatus",
                                   result);
@@ -186,7 +186,7 @@ void FCMHandler::DidRetrieveToken(base::TimeTicks fetch_time_for_metrics,
   }
 
   if (!IsListening()) {
-    // After we requested the token, |StopListening| has been called. Thus,
+    // After we requested the token, `StopListening` has been called. Thus,
     // ignore the token.
     return;
   }

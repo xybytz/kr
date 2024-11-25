@@ -13,6 +13,7 @@
 #include "base/functional/callback_helpers.h"
 #include "base/json/values_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/not_fatal_until.h"
 #include "base/rand_util.h"
 #include "base/ranges/algorithm.h"
 #include "base/task/sequenced_task_runner.h"
@@ -43,7 +44,7 @@ constexpr char kHatsShouldShowSurveyReasonHistogram[] =
 
 namespace {
 
-// TODO(crbug.com/1160661): When the minimum time between any survey, and the
+// TODO(crbug.com/40162245): When the minimum time between any survey, and the
 // minimum time between a specific survey, are the same, the logic supporting
 // the latter check is superfluous.
 constexpr base::TimeDelta kMinimumTimeBetweenSurveyStarts = base::Days(180);
@@ -84,7 +85,7 @@ constexpr char kAnyLastSurveyStartedTimePath[] = "any_last_survey_started_time";
 
 HatsServiceDesktop::DelayedSurveyTask::DelayedSurveyTask(
     HatsServiceDesktop* hats_service,
-    const std::string& trigger,
+    std::string trigger,
     content::WebContents* web_contents,
     const SurveyBitsData& product_specific_bits_data,
     const SurveyStringData& product_specific_string_data,
@@ -114,9 +115,10 @@ void HatsServiceDesktop::DelayedSurveyTask::Launch() {
   CHECK(web_contents());
   if (web_contents() &&
       web_contents()->GetVisibility() == content::Visibility::VISIBLE) {
-    hats_service_->LaunchSurveyForWebContents(trigger_, web_contents(),
-                                              product_specific_bits_data_,
-                                              product_specific_string_data_);
+    hats_service_->LaunchSurveyForWebContents(
+        trigger_, web_contents(), product_specific_bits_data_,
+        product_specific_string_data_, std::move(success_callback_),
+        std::move(failure_callback_), supplied_trigger_id_);
     hats_service_->RemoveTask(*this);
   }
 }
@@ -189,7 +191,12 @@ void HatsServiceDesktop::LaunchSurveyForWebContents(
     const SurveyStringData& product_specific_string_data,
     base::OnceClosure success_callback,
     base::OnceClosure failure_callback,
-    const std::optional<std::string_view>& supplied_trigger_id) {
+    const std::optional<std::string>& supplied_trigger_id,
+    const SurveyOptions& survey_options) {
+  CHECK(!survey_options.custom_invitation.has_value() &&
+        !survey_options.message_identifier.has_value())
+      << "Custom invitation strings and message types are not supported on "
+         "desktop.";
   if (ShouldShowSurvey(trigger) && web_contents &&
       web_contents->GetVisibility() == content::Visibility::VISIBLE) {
     LaunchSurveyForBrowser(chrome::FindBrowserWithTab(web_contents), trigger,
@@ -223,7 +230,12 @@ bool HatsServiceDesktop::LaunchDelayedSurveyForWebContents(
     NavigationBehaviour navigation_behaviour,
     base::OnceClosure success_callback,
     base::OnceClosure failure_callback,
-    const std::optional<std::string_view>& supplied_trigger_id) {
+    const std::optional<std::string>& supplied_trigger_id,
+    const SurveyOptions& survey_options) {
+  CHECK(!survey_options.custom_invitation.has_value() &&
+        !survey_options.message_identifier.has_value())
+      << "Custom invitation strings and message types are not supported on "
+         "desktop.";
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (survey_configs_by_triggers_.find(trigger) ==
       survey_configs_by_triggers_.end()) {
@@ -512,7 +524,8 @@ void HatsServiceDesktop::RecordSurveyAsShown(std::string trigger_id) {
                            return pair.second.trigger_id;
                          });
 
-  DCHECK(trigger_survey_config != survey_configs_by_triggers_.end());
+  CHECK(trigger_survey_config != survey_configs_by_triggers_.end(),
+        base::NotFatalUntil::M130);
   std::string trigger = trigger_survey_config->first;
 
   UMA_HISTOGRAM_ENUMERATION(kHatsShouldShowSurveyReasonHistogram,
@@ -644,12 +657,15 @@ void HatsServiceDesktop::CheckSurveyStatusAndMaybeShow(
                           base::TimeToValue(base::Time::Now()));
 
   DCHECK(!hats_next_dialog_exists_);
-  const auto& trigger_id =
-      supplied_trigger_id.has_value()
-          ? std::string(supplied_trigger_id.value())
-          : survey_configs_by_triggers_[trigger].trigger_id;
+  if (supplied_trigger_id.has_value()) {
+    survey_configs_by_triggers_[trigger].trigger_id =
+        std::string(supplied_trigger_id.value());
+  }
   browser->window()->ShowHatsDialog(
-      trigger_id, std::move(success_callback), std::move(failure_callback),
+      survey_configs_by_triggers_[trigger].trigger_id,
+      survey_configs_by_triggers_[trigger].hats_histogram_name,
+      survey_configs_by_triggers_[trigger].hats_survey_ukm_id,
+      std::move(success_callback), std::move(failure_callback),
       product_specific_bits_data, product_specific_string_data);
   hats_next_dialog_exists_ = true;
 }

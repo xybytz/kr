@@ -74,7 +74,6 @@ void BrowserReportGenerator::GenerateBasicInfo(em::BrowserReport* report,
       break;
     case ReportType::kBrowserVersion:
       NOTREACHED();
-      break;
   }
 }
 

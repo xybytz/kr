@@ -5,22 +5,20 @@
 #ifndef IOS_CHROME_BROWSER_GOOGLE_MODEL_GOOGLE_LOGO_SERVICE_FACTORY_H_
 #define IOS_CHROME_BROWSER_GOOGLE_MODEL_GOOGLE_LOGO_SERVICE_FACTORY_H_
 
-#include <memory>
+#import <memory>
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
-class KeyedService;
 class GoogleLogoService;
+class KeyedService;
+class ProfileIOS;
 
 // Singleton that owns all GoogleLogoServices and associates them with
-// ChromeBrowserState.
+// profiles.
 class GoogleLogoServiceFactory : public BrowserStateKeyedServiceFactory {
  public:
-  static GoogleLogoService* GetForBrowserState(
-      ChromeBrowserState* browser_state);
-
+  static GoogleLogoService* GetForProfile(ProfileIOS* profile);
   static GoogleLogoServiceFactory* GetInstance();
 
   GoogleLogoServiceFactory(const GoogleLogoServiceFactory&) = delete;

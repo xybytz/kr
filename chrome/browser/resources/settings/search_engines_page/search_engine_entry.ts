@@ -15,11 +15,13 @@ import '../settings_shared.css.js';
 import '../site_favicon.js';
 
 import {AnchorAlignment} from 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
+import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {getTemplate} from './search_engine_entry.html.js';
-import {ChoiceMadeLocation, SearchEngine, SearchEnginesBrowserProxy, SearchEnginesBrowserProxyImpl} from './search_engines_browser_proxy.js';
+import type {SearchEngine, SearchEnginesBrowserProxy} from './search_engines_browser_proxy.js';
+import {ChoiceMadeLocation, SearchEnginesBrowserProxyImpl} from './search_engines_browser_proxy.js';
 
 export interface SettingsSearchEngineEntryElement {
   $: {
@@ -29,7 +31,10 @@ export interface SettingsSearchEngineEntryElement {
   };
 }
 
-export class SettingsSearchEngineEntryElement extends PolymerElement {
+const SettingsSearchEngineEntryElementBase = I18nMixin(PolymerElement);
+
+export class SettingsSearchEngineEntryElement extends
+    SettingsSearchEngineEntryElementBase {
   static get is() {
     return 'settings-search-engine-entry';
   }
@@ -76,7 +81,8 @@ export class SettingsSearchEngineEntryElement extends PolymerElement {
   }
 
   private computeShowEditIcon_(): boolean {
-    return !this.engine.canBeActivated && !this.engine.isManaged;
+    return !this.engine.isStarterPack && !this.engine.canBeActivated &&
+        !this.engine.isManaged;
   }
 
   private onDeleteClick_(e: Event) {
@@ -129,7 +135,8 @@ export class SettingsSearchEngineEntryElement extends PolymerElement {
   private onMakeDefaultClick_() {
     this.closePopupMenu_();
     this.browserProxy_.setDefaultSearchEngine(
-        this.engine.modelIndex, ChoiceMadeLocation.SEARCH_ENGINE_SETTINGS);
+        this.engine.modelIndex, ChoiceMadeLocation.SEARCH_ENGINE_SETTINGS,
+        /*saveGuestChoice=*/ null);
   }
 
   private onActivateClick_() {
@@ -142,6 +149,21 @@ export class SettingsSearchEngineEntryElement extends PolymerElement {
     this.closePopupMenu_();
     this.browserProxy_.setIsActiveSearchEngine(
         this.engine.modelIndex, /*is_active=*/ false);
+  }
+
+  private getMoreActionsAriaLabel_(): string {
+    return this.i18n(
+        'searchEnginesMoreActionsAriaLabel', this.engine.displayName);
+  }
+
+  private getActivateButtonAriaLabel_(): string {
+    return this.i18n(
+        'searchEnginesActivateButtonAriaLabel', this.engine.displayName);
+  }
+
+  private getEditButtonAriaLabel_(): string {
+    return this.i18n(
+        'searchEnginesEditButtonAriaLabel', this.engine.displayName);
   }
 }
 

@@ -8,7 +8,7 @@ found in the LICENSE file.
 </style>
 <oobe-adaptive-dialog id="factorSetupSuccessDialog" role="dialog">
   <iron-icon slot="icon" icon="oobe-32:lock"></iron-icon>
-  <h1 slot="title">
+  <h1 slot="title" aria-live="polite">
     [[getTitle(locale, factors, changeMode)]]
   </h1>
   <div slot="subtitle">
@@ -22,11 +22,12 @@ found in the LICENSE file.
   <div slot="bottom-buttons">
     <oobe-text-button id="doneButton" inverse on-click="onProceed"
         class="focus-on-show" text-key="factorSuccessDoneButton"
+        disabled="[[!buttonsEnabled]]"
         hidden="[[hasNextStep]]">
     </oobe-text-button>
     <oobe-next-button id="nextButton" inverse on-click="onProceed"
-        class="focus-on-show"
-     hidden="[[!hasNextStep]]" >
+        class="focus-on-show" disabled="[[!buttonsEnabled]]"
+        hidden="[[!hasNextStep]]" >
     </oobe-next-button>
   </div>
 </oobe-adaptive-dialog>

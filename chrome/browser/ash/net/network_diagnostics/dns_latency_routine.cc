@@ -85,8 +85,9 @@ double AverageLatency(const std::vector<base::TimeDelta>& latencies) {
 
 }  // namespace
 
-DnsLatencyRoutine::DnsLatencyRoutine()
-    : tick_clock_(base::DefaultTickClock::GetInstance()) {
+DnsLatencyRoutine::DnsLatencyRoutine(mojom::RoutineCallSource source)
+    : NetworkDiagnosticsRoutine(source),
+      tick_clock_(base::DefaultTickClock::GetInstance()) {
   profile_ = GetUserProfile();
   network_context_ =
       profile_->GetDefaultStoragePartition()->GetNetworkContext();
@@ -138,10 +139,11 @@ void DnsLatencyRoutine::AttemptNextResolution() {
   std::string hostname = hostnames_to_query_.back();
   hostnames_to_query_.pop_back();
 
+  // Resolver host parameter source must be unset or set to ANY in order for DNS
+  // queries with BuiltInDnsClientEnabled policy disabled to work (b/353448388).
   network::mojom::ResolveHostParametersPtr parameters =
       network::mojom::ResolveHostParameters::New();
   parameters->dns_query_type = net::DnsQueryType::A;
-  parameters->source = net::HostResolverSource::DNS;
   parameters->cache_usage =
       network::mojom::ResolveHostParameters::CacheUsage::DISALLOWED;
 

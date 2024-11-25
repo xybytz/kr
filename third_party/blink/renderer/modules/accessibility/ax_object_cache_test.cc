@@ -94,44 +94,46 @@ TEST_F(AccessibilityTest, HistogramTest) {
   histogram_tester.ExpectTotalCount(
       "Accessibility.Performance.AXObjectCacheImpl.Incremental.String", 0);
 
-  ui::AXTreeUpdate response;
-  ScopedFreezeAXCache freeze(cache);
-  cache.SerializeEntireTree(/* max_node_count */ 1000,
-                            base::TimeDelta::FiniteMax(), &response);
-  histogram_tester.ExpectTotalCount(
-      "Accessibility.Performance.AXObjectCacheImpl.Snapshot", 1);
-  histogram_tester.ExpectTotalCount(
-      "Accessibility.Performance.AXObjectCacheImpl.Incremental", 0);
-  histogram_tester.ExpectTotalCount(
-      "Accessibility.Performance.AXObjectCacheImpl.Incremental.Float", 0);
-  histogram_tester.ExpectTotalCount(
-      "Accessibility.Performance.AXObjectCacheImpl.Incremental.Int", 0);
-  histogram_tester.ExpectTotalCount(
-      "Accessibility.Performance.AXObjectCacheImpl.Incremental.HTML", 0);
-  histogram_tester.ExpectTotalCount(
-      "Accessibility.Performance.AXObjectCacheImpl.Incremental.String", 0);
+  {
+    ui::AXTreeUpdate response;
+    ScopedFreezeAXCache freeze(cache);
+    cache.SerializeEntireTree(/* max_node_count */ 1000,
+                              base::TimeDelta::FiniteMax(), &response);
+    histogram_tester.ExpectTotalCount(
+        "Accessibility.Performance.AXObjectCacheImpl.Snapshot", 1);
+    histogram_tester.ExpectTotalCount(
+        "Accessibility.Performance.AXObjectCacheImpl.Incremental", 0);
+    histogram_tester.ExpectTotalCount(
+        "Accessibility.Performance.AXObjectCacheImpl.Incremental.Float", 0);
+    histogram_tester.ExpectTotalCount(
+        "Accessibility.Performance.AXObjectCacheImpl.Incremental.Int", 0);
+    histogram_tester.ExpectTotalCount(
+        "Accessibility.Performance.AXObjectCacheImpl.Incremental.HTML", 0);
+    histogram_tester.ExpectTotalCount(
+        "Accessibility.Performance.AXObjectCacheImpl.Incremental.String", 0);
+  }
 
-  std::vector<ui::AXTreeUpdate> updates;
-  std::vector<ui::AXEvent> events;
-  bool has_plugin_tree_source = false;
-  bool had_end_of_test_event = true;
-  bool had_load_complete_messages = true;
-  bool need_to_send_location_changes = false;
-  cache.SerializeDirtyObjectsAndEvents(
-      has_plugin_tree_source, updates, events, had_end_of_test_event,
-      had_load_complete_messages, need_to_send_location_changes);
-  histogram_tester.ExpectTotalCount(
-      "Accessibility.Performance.AXObjectCacheImpl.Snapshot", 1);
-  histogram_tester.ExpectTotalCount(
-      "Accessibility.Performance.AXObjectCacheImpl.Incremental", 1);
-  histogram_tester.ExpectTotalCount(
-      "Accessibility.Performance.AXObjectCacheImpl.Incremental.Float", 1);
-  histogram_tester.ExpectTotalCount(
-      "Accessibility.Performance.AXObjectCacheImpl.Incremental.Int", 1);
-  histogram_tester.ExpectTotalCount(
-      "Accessibility.Performance.AXObjectCacheImpl.Incremental.HTML", 1);
-  histogram_tester.ExpectTotalCount(
-      "Accessibility.Performance.AXObjectCacheImpl.Incremental.String", 1);
+  {
+    std::vector<ui::AXTreeUpdate> updates;
+    std::vector<ui::AXEvent> events;
+    bool had_end_of_test_event = true;
+    bool had_load_complete_messages = true;
+    ScopedFreezeAXCache freeze(cache);
+    cache.GetUpdatesAndEventsForSerialization(
+        updates, events, had_end_of_test_event, had_load_complete_messages);
+    histogram_tester.ExpectTotalCount(
+        "Accessibility.Performance.AXObjectCacheImpl.Snapshot", 1);
+    histogram_tester.ExpectTotalCount(
+        "Accessibility.Performance.AXObjectCacheImpl.Incremental", 1);
+    histogram_tester.ExpectTotalCount(
+        "Accessibility.Performance.AXObjectCacheImpl.Incremental.Float", 1);
+    histogram_tester.ExpectTotalCount(
+        "Accessibility.Performance.AXObjectCacheImpl.Incremental.Int", 1);
+    histogram_tester.ExpectTotalCount(
+        "Accessibility.Performance.AXObjectCacheImpl.Incremental.HTML", 1);
+    histogram_tester.ExpectTotalCount(
+        "Accessibility.Performance.AXObjectCacheImpl.Incremental.String", 1);
+  }
 }
 
 TEST_F(AccessibilityTest, RemoveReferencesToAXID) {
@@ -236,7 +238,7 @@ class AXViewTransitionTest : public testing::Test {
     UpdateAllLifecyclePhasesForTest();
     for (auto& callback :
          LayerTreeHost()->TakeViewTransitionCallbacksForTesting()) {
-      std::move(callback).Run();
+      std::move(callback).Run({});
     }
   }
 
@@ -281,16 +283,16 @@ TEST_F(AXViewTransitionTest, TransitionPseudoNotRelevant) {
     <div id=target class=shared></div>
   )HTML");
 
-  V8TestingScope v8_scope;
-  ScriptState* script_state = v8_scope.GetScriptState();
-  ExceptionState& exception_state = v8_scope.GetExceptionState();
+  auto* script_state = ToScriptStateForMainWorld(GetDocument().GetFrame());
+  ScriptState::Scope scope(script_state);
 
   MockFunctionScope funcs(script_state);
-  auto* view_transition_callback =
-      V8ViewTransitionCallback::Create(funcs.ExpectCall());
+  auto* view_transition_callback = V8ViewTransitionCallback::Create(
+      funcs.ExpectCall()->ToV8Function(script_state));
 
   auto* transition = ViewTransitionSupplement::startViewTransition(
-      script_state, GetDocument(), view_transition_callback, exception_state);
+      script_state, GetDocument(), view_transition_callback,
+      ASSERT_NO_EXCEPTION);
 
   ScriptPromiseTester finish_tester(script_state,
                                     transition->finished(script_state));
@@ -337,6 +339,64 @@ TEST_F(AXViewTransitionTest, TransitionPseudoNotRelevant) {
       AXObjectCacheImpl::IsRelevantPseudoElement(*incoming_image_pseudo));
   EXPECT_FALSE(
       AXObjectCacheImpl::IsRelevantPseudoElement(*outgoing_image_pseudo));
+}
+
+class AccessibilityEnabledLaterTest : public AccessibilityTest {
+  USING_FAST_MALLOC(AccessibilityEnabledLaterTest);
+
+ public:
+  AccessibilityEnabledLaterTest(LocalFrameClient* local_frame_client = nullptr)
+      : AccessibilityTest(local_frame_client) {}
+
+  void SetUp() override { RenderingTest::SetUp(); }
+
+  void EnableAccessibility() {
+    ax_context_ =
+        std::make_unique<AXContext>(GetDocument(), ui::kAXModeComplete);
+  }
+};
+
+TEST_F(AccessibilityEnabledLaterTest, CSSAnchorPositioning) {
+  SetHtmlInnerHTML(R"HTML(
+    <style>
+      .anchor {
+        anchor-name: --anchor-el;
+       }
+      .anchored-notice {
+        position: absolute;
+        position-anchor: --anchor-el;
+        bottom: anchor(top);
+        right: anchor(right);
+      }
+    </style>
+    <body>
+      <button id="1" class="anchor">
+        <p>anchor</p>
+      </button>
+      <div id="2" class="anchored-notice">
+        <p>positioned element tethered to the top-right of the anchor at bottom-right</p>
+      </div>
+    </body>
+  )HTML");
+
+  // Turning on a11y later should still set anchor relationships correctly.
+  UpdateAllLifecyclePhasesForTest();
+  DCHECK(!GetDocument().ExistingAXObjectCache());
+  DCHECK(GetElementById("1")
+             ->GetComputedStyle()
+             ->AnchorName()
+             ->GetNames()[0]
+             ->GetName() == "--anchor-el");
+  DCHECK(GetElementById("2")->GetComputedStyle()->PositionAnchor()->GetName() ==
+         "--anchor-el");
+
+  EnableAccessibility();
+  AXObject* anchor = GetAXObjectByElementId("1");
+  AXObject* positioned_object = GetAXObjectByElementId("2");
+  EXPECT_EQ(GetAXObjectCache().GetPositionedObjectForAnchor(anchor),
+            positioned_object);
+  EXPECT_EQ(GetAXObjectCache().GetAnchorForPositionedObject(positioned_object),
+            anchor);
 }
 
 }  // namespace blink

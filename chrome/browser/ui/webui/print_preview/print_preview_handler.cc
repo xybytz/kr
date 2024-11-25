@@ -11,10 +11,12 @@
 #include <utility>
 #include <vector>
 
+#include "ash/constants/ash_features.h"
 #include "base/check.h"
 #include "base/command_line.h"
 #include "base/containers/contains.h"
 #include "base/dcheck_is_on.h"
+#include "base/feature_list.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
 #include "base/i18n/number_formatting.h"
@@ -53,6 +55,7 @@
 #include "chrome/common/webui_url_constants.h"
 #include "components/cloud_devices/common/cloud_device_description.h"
 #include "components/cloud_devices/common/printer_description.h"
+#include "components/enterprise/buildflags/buildflags.h"
 #include "components/prefs/pref_service.h"
 #include "components/printing/common/cloud_print_cdd_conversion.h"
 #include "components/url_formatter/url_formatter.h"
@@ -72,7 +75,7 @@
 #include "third_party/icu/source/i18n/unicode/ulocdata.h"
 #include "ui/shell_dialogs/selected_file_info.h"
 
-#if BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+#if BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS)
 #include "chrome/browser/enterprise/data_protection/print_utils.h"
 #if BUILDFLAG(IS_MAC)
 #include "chrome/grit/generated_resources.h"
@@ -85,13 +88,11 @@
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/crosapi/crosapi_ash.h"
 #include "chrome/browser/ash/crosapi/crosapi_manager.h"
 #include "chrome/browser/ash/crosapi/local_printer_ash.h"
 #include "chrome/browser/ash/drive/drive_integration_service.h"
-#elif BUILDFLAG(IS_CHROMEOS_LACROS)
-#include "chrome/common/chrome_paths_lacros.h"
-#include "chromeos/lacros/lacros_service.h"
 #endif
 
 #if DCHECK_IS_ON()
@@ -120,7 +121,7 @@ mojom::PrinterType GetPrinterTypeForUserAction(UserActionBuckets user_action) {
     case UserActionBuckets::kOpenInMacPreview:
       return mojom::PrinterType::kLocal;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 
@@ -234,7 +235,7 @@ UserActionBuckets DetermineUserAction(const base::Value::Dict& settings) {
     case mojom::PrinterType::kLocal:
       break;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 
   if (settings.FindBool(kSettingShowSystemDialog).value_or(false))
@@ -409,15 +410,6 @@ PrintPreviewHandler::PrintPreviewHandler() {
   DCHECK(crosapi::CrosapiManager::IsInitialized());
   local_printer_ =
       crosapi::CrosapiManager::Get()->crosapi_ash()->local_printer_ash();
-#elif BUILDFLAG(IS_CHROMEOS_LACROS)
-  chromeos::LacrosService* service = chromeos::LacrosService::Get();
-  if (service->IsAvailable<crosapi::mojom::LocalPrinter>()) {
-    local_printer_ = service->GetRemote<crosapi::mojom::LocalPrinter>().get();
-    local_printer_version_ =
-        service->GetInterfaceVersion<crosapi::mojom::LocalPrinter>();
-  } else {
-    LOG(ERROR) << "Local printer not available";
-  }
 #endif
   ReportUserActionHistogram(UserActionBuckets::kPreviewStarted);
 }
@@ -501,13 +493,6 @@ void PrintPreviewHandler::ReadPrinterTypeDenyListFromPrefs() {
   if (!local_printer_)
     return;
 
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  if (local_printer_version_ <
-      int{crosapi::mojom::LocalPrinter::MethodMinVersions::
-              kGetPrinterTypeDenyListMinVersion}) {
-    return;
-  }
-#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
   local_printer_->GetPrinterTypeDenyList(
       base::BindOnce(&PrintPreviewHandler::OnPrinterTypeDenyListReady,
                      weak_factory_.GetWeakPtr()));
@@ -730,7 +715,6 @@ void PrintPreviewHandler::HandleDoPrint(const base::Value::List& args) {
     return;
   }
   DCHECK(data->size());
-  DCHECK(data->front());
 
   // After validating |settings|, record metrics.
   const mojom::RequestPrintPreviewParams* request_params = GetRequestParams();
@@ -746,7 +730,7 @@ void PrintPreviewHandler::HandleDoPrint(const base::Value::List& args) {
   }
   ReportUserActionHistogram(user_action);
 
-#if BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+#if BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS)
   std::string device_name = *settings.FindString(kSettingDeviceName);
 
   using enterprise_data_protection::PrintScanningContext;
@@ -780,10 +764,10 @@ void PrintPreviewHandler::HandleDoPrint(const base::Value::List& args) {
 
 #else
   FinishHandleDoPrint(user_action, std::move(settings), data, callback_id);
-#endif  // BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+#endif  // BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS)
 }
 
-#if BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+#if BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS)
 void PrintPreviewHandler::OnVerdictByEnterprisePolicy(
     UserActionBuckets user_action,
     base::Value::Dict settings,
@@ -800,7 +784,7 @@ void PrintPreviewHandler::OnVerdictByEnterprisePolicy(
 void PrintPreviewHandler::OnHidePreviewDialog() {
   print_preview_ui()->OnHidePreviewDialog();
 }
-#endif  // BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+#endif  // BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS)
 
 void PrintPreviewHandler::FinishHandleDoPrint(
     UserActionBuckets user_action,
@@ -980,7 +964,7 @@ void PrintPreviewHandler::SendInitialSettings(
   base::CommandLine* cmdline = base::CommandLine::ForCurrentProcess();
   initial_settings.Set(kIsInKioskAutoPrintMode,
                        cmdline->HasSwitch(switches::kKioskModePrinting));
-  initial_settings.Set(kIsInAppKioskMode, chrome::IsRunningInForcedAppMode());
+  initial_settings.Set(kIsInAppKioskMode, IsRunningInForcedAppMode());
   const std::string rules_str =
       prefs->GetString(prefs::kPrintPreviewDefaultDestinationSelectionRules);
   if (rules_str.empty()) {
@@ -997,15 +981,6 @@ void PrintPreviewHandler::SendInitialSettings(
           Profile::FromWebUI(web_ui()));
   initial_settings.Set(kIsDriveMounted,
                        drive_service && drive_service->IsMounted());
-#elif BUILDFLAG(IS_CHROMEOS_LACROS)
-  // The "Save to Google Drive" option is only allowed for the primary profile
-  // in the Lacros browser.
-  if (Profile::FromWebUI(web_ui())->IsMainProfile()) {
-    base::FilePath drive_path;
-    initial_settings.Set(
-        kIsDriveMounted,
-        chrome::GetDriveFsMountPointPath(&drive_path) && !drive_path.empty());
-  }
 #endif
 
   ResolveJavascriptCallback(base::Value(callback_id), initial_settings);
@@ -1183,7 +1158,7 @@ PrinterHandler* PrintPreviewHandler::GetPrinterHandler(
     }
     return local_printer_handler_.get();
   }
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 PdfPrinterHandler* PrintPreviewHandler::GetPdfPrinterHandler() {
@@ -1238,16 +1213,14 @@ void PrintPreviewHandler::BadMessageReceived() {
       GetInitiator()->GetPrimaryMainFrame()->GetProcess(),
       bad_message::BadMessageReason::PPH_EXTRA_PREVIEW_MESSAGE);
 #if DCHECK_IS_ON()
-  // TODO(crbug.com/1371776): Remove this once the bug is fixed.
+  // TODO(crbug.com/40870686): Remove this once the bug is fixed.
   base::debug::StackTrace().Print();
 #endif
 }
 
 void PrintPreviewHandler::FileSelectedForTesting(const base::FilePath& path,
-                                                 int index,
-                                                 void* params) {
-  GetPdfPrinterHandler()->FileSelected(ui::SelectedFileInfo(path), index,
-                                       params);
+                                                 int index) {
+  GetPdfPrinterHandler()->FileSelected(ui::SelectedFileInfo(path), index);
 }
 
 void PrintPreviewHandler::SetPdfSavedClosureForTesting(

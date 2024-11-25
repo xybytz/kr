@@ -4,6 +4,8 @@
 
 package org.chromium.chrome.browser;
 
+import static org.mockito.Mockito.when;
+
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build.VERSION_CODES;
@@ -11,6 +13,7 @@ import android.provider.Browser;
 
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.runner.lifecycle.Stage;
 
 import com.google.common.collect.Lists;
@@ -22,16 +25,23 @@ import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.Mock;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 
+import org.chromium.base.GarbageCollectionTestUtils;
 import org.chromium.base.IntentUtils;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.ApplicationTestUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.base.test.util.HistogramWatcher;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
+import org.chromium.base.test.util.RequiresRestart;
 import org.chromium.chrome.browser.device.DeviceClassManager;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
@@ -41,24 +51,34 @@ import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.ChromeSharedPreferences;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
+import org.chromium.chrome.browser.tab_group_sync.TabGroupSyncServiceFactory;
 import org.chromium.chrome.browser.tabmodel.ChromeTabCreator;
+import org.chromium.chrome.browser.tabmodel.TabClosureParams;
+import org.chromium.chrome.browser.tabmodel.TabGroupModelFilter;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
+import org.chromium.components.tab_group_sync.LocalTabGroupId;
+import org.chromium.components.tab_group_sync.SavedTabGroup;
+import org.chromium.components.tab_group_sync.SavedTabGroupTab;
+import org.chromium.components.tab_group_sync.TabGroupSyncService;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.base.PageTransition;
 import org.chromium.url.JUnitTestGURLs;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 /** Instrumentation tests for ChromeTabbedActivity. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 @Batch(Batch.PER_CLASS)
 public class ChromeTabbedActivityTest {
+    @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
+
     @ClassRule
     public static ChromeTabbedActivityTestRule sActivityTestRule =
             new ChromeTabbedActivityTestRule();
@@ -66,6 +86,8 @@ public class ChromeTabbedActivityTest {
     @Rule
     public BlankCTATabInitialStateRule mBlankCTATabInitialStateRule =
             new BlankCTATabInitialStateRule(sActivityTestRule, false);
+
+    @Mock private TabGroupSyncService mTabGroupSyncService;
 
     private static final String FILE_PATH = "/chrome/test/data/android/test.html";
 
@@ -88,7 +110,7 @@ public class ChromeTabbedActivityTest {
         // Create two tabs - tab[0] in the foreground and tab[1] in the background.
         final Tab[] tabs = new Tab[2];
         sActivityTestRule.getTestServer(); // Triggers the lazy initialization of the test server.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     // Foreground tab.
                     ChromeTabCreator tabCreator = mActivity.getCurrentTabCreator();
@@ -112,17 +134,17 @@ public class ChromeTabbedActivityTest {
         Assert.assertTrue(tabs[1].isHidden());
 
         // Fake sending the activity to background.
-        TestThreadUtils.runOnUiThreadBlocking(() -> mActivity.onPause());
-        TestThreadUtils.runOnUiThreadBlocking(() -> mActivity.onStop());
-        TestThreadUtils.runOnUiThreadBlocking(() -> mActivity.onWindowFocusChanged(false));
+        ThreadUtils.runOnUiThreadBlocking(() -> mActivity.onPause());
+        ThreadUtils.runOnUiThreadBlocking(() -> mActivity.onStop());
+        ThreadUtils.runOnUiThreadBlocking(() -> mActivity.onWindowFocusChanged(false));
         // Verify that both Tabs are hidden.
         Assert.assertTrue(tabs[0].isHidden());
         Assert.assertTrue(tabs[1].isHidden());
 
         // Fake bringing the activity back to foreground.
-        TestThreadUtils.runOnUiThreadBlocking(() -> mActivity.onWindowFocusChanged(true));
-        TestThreadUtils.runOnUiThreadBlocking(() -> mActivity.onStart());
-        TestThreadUtils.runOnUiThreadBlocking(() -> mActivity.onResume());
+        ThreadUtils.runOnUiThreadBlocking(() -> mActivity.onWindowFocusChanged(true));
+        ThreadUtils.runOnUiThreadBlocking(() -> mActivity.onStart());
+        ThreadUtils.runOnUiThreadBlocking(() -> mActivity.onResume());
         // Verify that the front tab is in the 'visible' state.
         Assert.assertFalse(tabs[0].isHidden());
         Assert.assertTrue(tabs[1].isHidden());
@@ -132,7 +154,7 @@ public class ChromeTabbedActivityTest {
     @SmallTest
     public void testTabAnimationsCorrectlyEnabled() {
         boolean animationsEnabled =
-                TestThreadUtils.runOnUiThreadBlockingNoException(
+                ThreadUtils.runOnUiThreadBlocking(
                         () -> mActivity.getLayoutManager().animationsEnabled());
         Assert.assertEquals(animationsEnabled, DeviceClassManager.enableAnimations());
     }
@@ -151,7 +173,7 @@ public class ChromeTabbedActivityTest {
         mActivity.getMultiInstanceMangerForTesting().setTabModelObserverForTesting(null);
 
         var tabModelSelectorObserver = mActivity.getTabModelSelectorObserverForTesting();
-        TestThreadUtils.runOnUiThreadBlocking(tabModelSelectorObserver::onTabStateInitialized);
+        ThreadUtils.runOnUiThreadBlocking(tabModelSelectorObserver::onTabStateInitialized);
         Assert.assertTrue(
                 "Regular tab count should be written to SharedPreferences after tab state"
                         + " initialization.",
@@ -206,8 +228,14 @@ public class ChromeTabbedActivityTest {
                             tabModel.getTabAt(3).getUrl().getSpec(), Matchers.endsWith("third"));
                 });
 
-        TestThreadUtils.runOnUiThreadBlocking(
-                () -> mActivity.getCurrentTabModel().closeAllTabs(false));
+        ThreadUtils.runOnUiThreadBlocking(
+                () ->
+                        mActivity
+                                .getCurrentTabModel()
+                                .getTabRemover()
+                                .closeTabs(
+                                        TabClosureParams.closeAllTabs().build(),
+                                        /* allowDialog= */ false));
 
         viewIntent.putExtra(IntentHandler.EXTRA_OPEN_ADDITIONAL_URLS_IN_TAB_GROUP, true);
         mActivity.getApplicationContext().startActivity(viewIntent);
@@ -281,5 +309,223 @@ public class ChromeTabbedActivityTest {
                     Criteria.checkThat(tabModel.getCount(), Matchers.is(2));
                 });
         histogramWatcher.assertExpected();
+    }
+
+    @Test
+    @MediumTest
+    @MinAndroidSdkLevel(VERSION_CODES.S)
+    @EnableFeatures(ChromeFeatureList.TAB_WINDOW_MANAGER_INDEX_REASSIGNMENT_ACTIVITY_FINISHING)
+    public void testHandleMismatchedIndices_ActivityFinishing() throws ExecutionException {
+        HistogramWatcher histogramWatcher =
+                HistogramWatcher.newBuilder()
+                        .expectAnyRecordTimes(
+                                ChromeTabbedActivity
+                                        .HISTOGRAM_MISMATCHED_INDICES_ACTIVITY_CREATION_TIME_DELTA,
+                                1)
+                        .build();
+        // Create two new ChromeTabbedActivity's.
+        ChromeTabbedActivity activity1 = createActivityForMismatchedIndicesTest();
+        ChromeTabbedActivity activity2 = createActivityForMismatchedIndicesTest();
+
+        // Assume that activity1 is going to finish().
+        activity1.finish();
+
+        // Trigger mismatched indices handling, this should destroy activity1's tab persistent store
+        // instance.
+        ThreadUtils.runOnUiThreadBlocking(
+                () ->
+                        activity2.handleMismatchedIndices(
+                                activity1,
+                                /* isActivityInAppTasks= */ true,
+                                /* isActivityInSameTask= */ false));
+        Assert.assertTrue(
+                "Boolean |mTabPersistentStoreDestroyedEarly| should be true.",
+                activity1
+                        .getTabModelOrchestratorSupplier()
+                        .get()
+                        .getTabPersistentStoreDestroyedEarlyForTesting());
+        histogramWatcher.assertExpected();
+    }
+
+    @Test
+    @MediumTest
+    @MinAndroidSdkLevel(VERSION_CODES.S)
+    @EnableFeatures(ChromeFeatureList.TAB_WINDOW_MANAGER_INDEX_REASSIGNMENT_ACTIVITY_IN_SAME_TASK)
+    public void testHandleMismatchedIndices_ActivityInSameTask() throws ExecutionException {
+        HistogramWatcher histogramWatcher =
+                HistogramWatcher.newBuilder()
+                        .expectAnyRecordTimes(
+                                ChromeTabbedActivity
+                                        .HISTOGRAM_MISMATCHED_INDICES_ACTIVITY_CREATION_TIME_DELTA,
+                                1)
+                        .build();
+
+        // Create two new ChromeTabbedActivity's.
+        ChromeTabbedActivity activity1 = createActivityForMismatchedIndicesTest();
+        ChromeTabbedActivity activity2 = createActivityForMismatchedIndicesTest();
+
+        // Trigger mismatched indices handling assuming that activity1 and activity2 are in the same
+        // task, this should destroy activity1's tab persistent store instance.
+        ThreadUtils.runOnUiThreadBlocking(
+                () ->
+                        activity2.handleMismatchedIndices(
+                                activity1,
+                                /* isActivityInAppTasks= */ true,
+                                /* isActivityInSameTask= */ true));
+        Assert.assertTrue(
+                "Boolean |mTabPersistentStoreDestroyedEarly| should be true.",
+                activity1
+                        .getTabModelOrchestratorSupplier()
+                        .get()
+                        .getTabPersistentStoreDestroyedEarlyForTesting());
+
+        // activity1 should be subsequently destroyed.
+        ApplicationTestUtils.waitForActivityState(activity1, Stage.DESTROYED);
+
+        histogramWatcher.assertExpected();
+    }
+
+    @Test
+    @MediumTest
+    @MinAndroidSdkLevel(VERSION_CODES.S)
+    @EnableFeatures(
+            ChromeFeatureList.TAB_WINDOW_MANAGER_INDEX_REASSIGNMENT_ACTIVITY_NOT_IN_APP_TASKS)
+    public void testHandleMismatchedIndices_ActivityNotInAppTasks() throws ExecutionException {
+        HistogramWatcher histogramWatcher =
+                HistogramWatcher.newBuilder()
+                        .expectAnyRecordTimes(
+                                ChromeTabbedActivity
+                                        .HISTOGRAM_MISMATCHED_INDICES_ACTIVITY_CREATION_TIME_DELTA,
+                                1)
+                        .build();
+
+        // Create two new ChromeTabbedActivity's.
+        ChromeTabbedActivity activity1 = createActivityForMismatchedIndicesTest();
+        ChromeTabbedActivity activity2 = createActivityForMismatchedIndicesTest();
+
+        // Trigger mismatched indices handling assuming that activity1 is not in AppTasks, this
+        // should destroy activity1's tab persistent store instance.
+        ThreadUtils.runOnUiThreadBlocking(
+                () ->
+                        activity2.handleMismatchedIndices(
+                                activity1,
+                                /* isActivityInAppTasks= */ false,
+                                /* isActivityInSameTask= */ false));
+        Assert.assertTrue(
+                "Boolean |mTabPersistentStoreDestroyedEarly| should be true.",
+                activity1
+                        .getTabModelOrchestratorSupplier()
+                        .get()
+                        .getTabPersistentStoreDestroyedEarlyForTesting());
+
+        // activity1 should be subsequently destroyed.
+        ApplicationTestUtils.waitForActivityState(activity1, Stage.DESTROYED);
+
+        histogramWatcher.assertExpected();
+    }
+
+    private ChromeTabbedActivity createActivityForMismatchedIndicesTest() {
+        // Launch a new ChromeTabbedActivity intent with the FLAG_ACTIVITY_MULTIPLE_TASK set to
+        // ensure that a new activity is created. Note that generally our logs indicate
+        // FLAG_ACTIVITY_MULTIPLE_TASK is not set on incoming intents, however, this is generally
+        // the only way to get new ChromeTabbedActivity's in a non-error case.
+        Intent intent = new Intent(Intent.ACTION_MAIN);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        intent.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+        intent.setClass(mActivity, ChromeTabbedActivity.class);
+
+        return ApplicationTestUtils.waitForActivityWithClass(
+                ChromeTabbedActivity.class,
+                Stage.CREATED,
+                () -> mActivity.getApplicationContext().startActivity(intent));
+    }
+
+    @Test
+    @MediumTest
+    // Intentionally not batched due to recreating activity.
+    @RequiresRestart
+    @DisabledTest(message = "crbug.com/1187320 This doesn't work with FeedV2 and crbug.com/1096295")
+    public void testActivityCanBeGarbageCollectedAfterFinished() {
+        WeakReference<ChromeTabbedActivity> activityRef =
+                new WeakReference<>(sActivityTestRule.getActivity());
+
+        ChromeTabbedActivity activity =
+                ApplicationTestUtils.recreateActivity(sActivityTestRule.getActivity());
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+
+        sActivityTestRule.setActivity(activity);
+
+        CriteriaHelper.pollUiThread(
+                () -> GarbageCollectionTestUtils.canBeGarbageCollected(activityRef));
+    }
+
+    @Test
+    @MediumTest
+    public void testBackShouldCloseTab() {
+        sActivityTestRule.getTestServer(); // Triggers the lazy initialization of the test server.
+        Tab tab =
+                ThreadUtils.runOnUiThreadBlocking(
+                        () -> {
+                            ChromeTabCreator tabCreator = mActivity.getCurrentTabCreator();
+                            return tabCreator.createNewTab(
+                                    new LoadUrlParams(
+                                            sActivityTestRule.getTestServer().getURL(FILE_PATH)),
+                                    TabLaunchType.FROM_LINK,
+                                    null);
+                        });
+        boolean ret =
+                ThreadUtils.runOnUiThreadBlocking(
+                        () -> {
+                            return mActivity.backShouldCloseTab(tab);
+                        });
+        Assert.assertTrue(ret);
+    }
+
+    @Test
+    @MediumTest
+    public void testBackShouldCloseTab_Collaboration() {
+
+        sActivityTestRule.getTestServer(); // Triggers the lazy initialization of the test server.
+        Tab tab =
+                ThreadUtils.runOnUiThreadBlocking(
+                        () -> {
+                            ChromeTabCreator tabCreator = mActivity.getCurrentTabCreator();
+                            Tab newTab =
+                                    tabCreator.createNewTab(
+                                            new LoadUrlParams(
+                                                    sActivityTestRule
+                                                            .getTestServer()
+                                                            .getURL(FILE_PATH)),
+                                            TabLaunchType.FROM_LINK,
+                                            null);
+                            TabGroupModelFilter filter =
+                                    mActivity
+                                            .getTabModelSelector()
+                                            .getTabGroupModelFilterProvider()
+                                            .getTabGroupModelFilter(false);
+                            filter.createSingleTabGroup(newTab, false);
+                            return newTab;
+                        });
+
+        SavedTabGroupTab savedTab = new SavedTabGroupTab();
+        savedTab.localId = tab.getId();
+
+        String syncId = "sync_id";
+        SavedTabGroup savedTabGroup = new SavedTabGroup();
+        savedTabGroup.syncId = syncId;
+        savedTabGroup.localId = new LocalTabGroupId(tab.getTabGroupId());
+        savedTabGroup.collaborationId = "collaboration_id";
+        savedTabGroup.savedTabs = List.of(savedTab);
+
+        TabGroupSyncServiceFactory.setForTesting(mTabGroupSyncService);
+        when(mTabGroupSyncService.getGroup(syncId)).thenReturn(savedTabGroup);
+        when(mTabGroupSyncService.getAllGroupIds()).thenReturn(new String[] {syncId});
+
+        boolean ret =
+                ThreadUtils.runOnUiThreadBlocking(
+                        () -> {
+                            return mActivity.backShouldCloseTab(tab);
+                        });
+        Assert.assertFalse(ret);
     }
 }

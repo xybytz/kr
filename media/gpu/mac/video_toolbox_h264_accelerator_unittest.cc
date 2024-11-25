@@ -2,13 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "media/gpu/mac/video_toolbox_h264_accelerator.h"
+
 #include <memory>
 
 #include "base/containers/span.h"
 #include "media/base/media_util.h"
 #include "media/gpu/codec_picture.h"
-#include "media/gpu/mac/video_toolbox_h264_accelerator.h"
-#include "media/video/h264_parser.h"
+#include "media/parsers/h264_parser.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -138,7 +139,7 @@ TEST_F(VideoToolboxH264AcceleratorTest, DecodeTwo) {
             CMSampleBufferGetFormatDescription(sample1.get()));
 }
 
-TEST_F(VideoToolboxH264AcceleratorTest, DecodeTwo_Reset) {
+TEST_F(VideoToolboxH264AcceleratorTest, DecodeTwoReset) {
   scoped_refptr<H264Picture> pic0 = accelerator_->CreateH264Picture();
   scoped_refptr<H264Picture> pic1 = accelerator_->CreateH264Picture();
   H264SPS sps;
@@ -182,7 +183,7 @@ TEST_F(VideoToolboxH264AcceleratorTest, DecodeTwo_Reset) {
             CMSampleBufferGetFormatDescription(sample1.get()));
 }
 
-TEST_F(VideoToolboxH264AcceleratorTest, DecodeTwo_ConfigChange) {
+TEST_F(VideoToolboxH264AcceleratorTest, DecodeTwoConfigChange) {
   scoped_refptr<H264Picture> pic0 = accelerator_->CreateH264Picture();
   scoped_refptr<H264Picture> pic1 = accelerator_->CreateH264Picture();
   H264SPS sps;

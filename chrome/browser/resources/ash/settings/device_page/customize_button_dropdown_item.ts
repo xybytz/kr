@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/md_select.css.js';
+import 'chrome://resources/ash/common/cr_elements/md_select.css.js';
 import './input_device_settings_shared.css.js';
 import '../settings_shared.css.js';
 
-import {PolymerElementProperties} from 'chrome://resources/polymer/v3_0/polymer/interfaces.js';
+import type {PolymerElementProperties} from 'chrome://resources/polymer/v3_0/polymer/interfaces.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {getTemplate} from './customize_button_dropdown_item.html.js';
@@ -23,6 +23,12 @@ export interface DropdownMenuOption {
   name: string;
   value: number|string;
   hidden?: boolean;
+}
+
+export interface CustomizeButtonDropdownItemElement {
+  $: {
+    container: HTMLDivElement,
+  };
 }
 
 export class CustomizeButtonDropdownItemElement extends PolymerElement {
@@ -50,6 +56,12 @@ export class CustomizeButtonDropdownItemElement extends PolymerElement {
 
   selected: boolean;
   option: DropdownMenuOption;
+
+  override focus(): void {
+    super.focus();
+
+    this.$.container.focus();
+  }
 
   private onDropdownItemSelected_(): void {
     this.dispatchEvent(new CustomEvent('customize-button-dropdown-selected', {

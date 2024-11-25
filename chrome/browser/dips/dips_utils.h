@@ -7,17 +7,17 @@
 
 #include <optional>
 #include <ostream>
+#include <string_view>
 
 #include "base/files/file_path.h"
-#include "base/strings/string_piece.h"
 #include "base/time/time.h"
-#include "components/content_settings/browser/page_specific_content_settings.h"
+#include "chrome/browser/dips/dips_redirect_info.h"
+#include "content/public/browser/cookie_access_details.h"
 #include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/page.h"
 #include "content/public/browser/render_frame_host.h"
 #include "services/network/public/mojom/cookie_access_observer.mojom.h"
 #include "url/gurl.h"
-
-class ProfileSelections;
 
 namespace base {
 class TimeDelta;
@@ -27,18 +27,14 @@ namespace content {
 class BrowserContext;
 }
 
+namespace url {
+class Origin;
+}
+
 // A single cookie-accessing operation (either read or write). Not to be
 // confused with SiteDataAccessType, which can also represent no access or both
 // read+write.
 using CookieOperation = network::mojom::CookieAccessDetails::Type;
-inline CookieOperation ToCookieOperation(content_settings::AccessType type) {
-  switch (type) {
-    case content_settings::AccessType::kRead:
-    case content_settings::AccessType::kWrite:
-    case content_settings::AccessType::kUnknown:
-      return CookieOperation::kChange;
-  }
-}
 
 // The filename for the DIPS database.
 const base::FilePath::CharType kDIPSFilename[] = FILE_PATH_LITERAL("DIPS");
@@ -49,26 +45,10 @@ const base::FilePath::CharType kDIPSFilename[] = FILE_PATH_LITERAL("DIPS");
 // persisted DIPSDatabase for the BrowserContext or not.
 base::FilePath GetDIPSFilePath(content::BrowserContext* context);
 
-// The ProfileSelections used to dictate when the DIPSService should be created,
-// if `features::kDIPS` is enabled, and when the DIPSCleanupService
-// should be created, if `features::kDIPS` is NOT enabled.
-ProfileSelections GetHumanProfileSelections();
-
-// SiteDataAccessType:
-// NOTE: We use this type as a bitfield, and will soon be logging it. Don't
-// change the values or add additional members.
-enum class SiteDataAccessType {
-  kUnknown = -1,
-  kNone = 0,
-  kRead = 1,
-  kWrite = 2,
-  kReadWrite = 3
-};
 inline SiteDataAccessType ToSiteDataAccessType(CookieOperation op) {
   return (op == CookieOperation::kChange ? SiteDataAccessType::kWrite
                                          : SiteDataAccessType::kRead);
 }
-base::StringPiece SiteDataAccessTypeToString(SiteDataAccessType type);
 std::ostream& operator<<(std::ostream& os, SiteDataAccessType access_type);
 
 constexpr SiteDataAccessType operator|(SiteDataAccessType lhs,
@@ -77,12 +57,8 @@ constexpr SiteDataAccessType operator|(SiteDataAccessType lhs,
                                          static_cast<int>(rhs));
 }
 
-// DIPSCookieMode:
-enum class DIPSCookieMode { kBlock3PC, kOffTheRecord_Block3PC };
-
 DIPSCookieMode GetDIPSCookieMode(bool is_otr);
-base::StringPiece GetHistogramSuffix(DIPSCookieMode mode);
-const char* DIPSCookieModeToString(DIPSCookieMode mode);
+std::string_view GetHistogramSuffix(DIPSCookieMode mode);
 std::ostream& operator<<(std::ostream& os, DIPSCookieMode mode);
 
 // DIPSEventRemovalType:
@@ -118,11 +94,7 @@ constexpr DIPSEventRemovalType& operator&=(DIPSEventRemovalType& lhs,
   return lhs = lhs & rhs;
 }
 
-// DIPSRedirectType:
-enum class DIPSRedirectType { kClient, kServer };
-
-base::StringPiece GetHistogramPiece(DIPSRedirectType type);
-const char* DIPSRedirectTypeToString(DIPSRedirectType type);
+std::string_view GetHistogramPiece(DIPSRedirectType type);
 std::ostream& operator<<(std::ostream& os, DIPSRedirectType type);
 
 using TimestampRange = std::optional<std::pair<base::Time, base::Time>>;
@@ -148,6 +120,7 @@ struct PopupsStateValue {
   uint64_t access_id;
   base::Time last_popup_time;
   bool is_current_interaction;
+  bool is_authentication_interaction;
 };
 
 struct PopupWithTime {
@@ -155,6 +128,16 @@ struct PopupWithTime {
   std::string popup_site;
   base::Time last_popup_time;
 };
+
+enum class OptionalBool {
+  kUnknown = 0,
+  kFalse = 1,
+  kTrue = 2,
+};
+
+inline OptionalBool ToOptionalBool(bool b) {
+  return b ? OptionalBool::kTrue : OptionalBool::kFalse;
+}
 
 inline bool operator==(const StateValue& lhs, const StateValue& rhs) {
   return std::tie(lhs.site_storage_times, lhs.user_interaction_times,
@@ -173,13 +156,22 @@ int64_t BucketizeBounceDelay(base::TimeDelta delta);
 // belongs to. Currently returns eTLD+1, but this is an implementation detail
 // and may change.
 std::string GetSiteForDIPS(const GURL& url);
+std::string GetSiteForDIPS(const url::Origin& origin);
 
 // Returns true iff `web_contents` contains an iframe whose committed URL
 // belongs to the same site as `url`.
 bool HasSameSiteIframe(content::WebContents* web_contents, const GURL& url);
 
-// Returns `True` iff the `navigation_handle` represents a navigation happening
-// in an iframe of the primary frame tree.
+// Returns whether the provided cookie access was ad-tagged, based on the cookie
+// settings overrides. Returns Unknown if kSkipTpcdMitigationsForAdsHeuristics
+// is false and the override is not set regardless.
+OptionalBool IsAdTaggedCookieForHeuristics(
+    const content::CookieAccessDetails& details);
+
+bool HasCHIPS(const net::CookieAccessResultList& cookie_access_result_list);
+
+// Returns `True` iff the `navigation_handle` represents a navigation
+// happening in an iframe of the primary frame tree.
 inline bool IsInPrimaryPageIFrame(
     content::NavigationHandle* navigation_handle) {
   return navigation_handle && navigation_handle->GetParentFrame()
@@ -228,6 +220,14 @@ inline std::optional<GURL> GetFirstPartyURL(content::RenderFrameHost* rfh) {
   return rfh ? std::optional<GURL>(rfh->GetMainFrame()->GetLastCommittedURL())
              : std::nullopt;
 }
+
+// The amount of time since a page last received user interaction before a
+// subsequent user interaction event may be recorded to DIPS Storage for the
+// same page.
+extern const base::TimeDelta kDIPSTimestampUpdateInterval;
+
+[[nodiscard]] bool UpdateTimestamp(std::optional<base::Time>& last_time,
+                                   base::Time now);
 
 enum class DIPSRecordedEvent {
   kStorage,

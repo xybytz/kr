@@ -10,7 +10,7 @@ void ImmersiveModeControllerStub::Init(BrowserView* browser_view) {
 }
 
 void ImmersiveModeControllerStub::SetEnabled(bool enabled) {
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 bool ImmersiveModeControllerStub::IsEnabled() const {
@@ -54,3 +54,6 @@ int ImmersiveModeControllerStub::GetMinimumContentOffset() const {
 int ImmersiveModeControllerStub::GetExtraInfobarOffset() const {
   return 0;
 }
+
+void ImmersiveModeControllerStub::OnContentFullscreenChanged(
+    bool is_content_fullscreen) {}

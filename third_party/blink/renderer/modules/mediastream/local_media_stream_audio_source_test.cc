@@ -12,7 +12,7 @@
 namespace blink {
 namespace {
 
-enum class SystemAec { kNotSupported, kSupported, kExperimentallySupported };
+enum class SystemAec { kNotSupported, kSupported };
 
 // Creates an audio source from a device with AEC support specified by
 // |aec_mode| and requested AEC effect specified by |enable_system_aec|.
@@ -25,9 +25,6 @@ std::unique_ptr<LocalMediaStreamAudioSource> CreateLocalMediaStreamAudioSource(
                              media::ChannelLayoutConfig::Stereo(), 48000, 512);
   if (aec_mode == SystemAec::kSupported) {
     device.input.set_effects(media::AudioParameters::ECHO_CANCELLER);
-  } else if (aec_mode == SystemAec::kExperimentallySupported) {
-    device.input.set_effects(
-        media::AudioParameters::EXPERIMENTAL_ECHO_CANCELLER);
   }
   return std::make_unique<LocalMediaStreamAudioSource>(
       /*consumer_frame*/ nullptr, device,
@@ -42,7 +39,7 @@ TEST(LocalMediaStreamAudioSourceAecTest, SupportsUnsupportedSystemAec) {
   std::unique_ptr<LocalMediaStreamAudioSource> source =
       CreateLocalMediaStreamAudioSource(SystemAec::kNotSupported,
                                         /*enable_system_aec*/ false);
-  absl::optional<AudioProcessingProperties> properties =
+  std::optional<AudioProcessingProperties> properties =
       source->GetAudioProcessingProperties();
   ASSERT_TRUE(properties.has_value());
 
@@ -58,23 +55,7 @@ TEST(LocalMediaStreamAudioSourceAecTest, CanDisableSystemAec) {
   std::unique_ptr<LocalMediaStreamAudioSource> source =
       CreateLocalMediaStreamAudioSource(SystemAec::kSupported,
                                         /*enable_system_aec*/ false);
-  absl::optional<AudioProcessingProperties> properties =
-      source->GetAudioProcessingProperties();
-  ASSERT_TRUE(properties.has_value());
-
-  EXPECT_EQ(properties->echo_cancellation_type,
-            AudioProcessingProperties::EchoCancellationType::
-                kEchoCancellationDisabled);
-  EXPECT_FALSE(source->GetAudioParameters().effects() &
-               media::AudioParameters::ECHO_CANCELLER);
-}
-
-TEST(LocalMediaStreamAudioSourceAecTest, CanDisableExperimentalSystemAec) {
-  test::TaskEnvironment task_environment;
-  std::unique_ptr<LocalMediaStreamAudioSource> source =
-      CreateLocalMediaStreamAudioSource(SystemAec::kExperimentallySupported,
-                                        /*enable_system_aec*/ false);
-  absl::optional<AudioProcessingProperties> properties =
+  std::optional<AudioProcessingProperties> properties =
       source->GetAudioProcessingProperties();
   ASSERT_TRUE(properties.has_value());
 
@@ -90,23 +71,7 @@ TEST(LocalMediaStreamAudioSourceAecTest, CanEnableSystemAec) {
   std::unique_ptr<LocalMediaStreamAudioSource> source =
       CreateLocalMediaStreamAudioSource(SystemAec::kSupported,
                                         /*enable_system_aec*/ true);
-  absl::optional<AudioProcessingProperties> properties =
-      source->GetAudioProcessingProperties();
-  ASSERT_TRUE(properties.has_value());
-
-  EXPECT_EQ(
-      properties->echo_cancellation_type,
-      AudioProcessingProperties::EchoCancellationType::kEchoCancellationSystem);
-  EXPECT_TRUE(source->GetAudioParameters().effects() &
-              media::AudioParameters::ECHO_CANCELLER);
-}
-
-TEST(LocalMediaStreamAudioSourceAecTest, CanEnableExperimentalSystemAec) {
-  test::TaskEnvironment task_environment;
-  std::unique_ptr<LocalMediaStreamAudioSource> source =
-      CreateLocalMediaStreamAudioSource(SystemAec::kExperimentallySupported,
-                                        /*enable_system_aec*/ true);
-  absl::optional<AudioProcessingProperties> properties =
+  std::optional<AudioProcessingProperties> properties =
       source->GetAudioProcessingProperties();
   ASSERT_TRUE(properties.has_value());
 

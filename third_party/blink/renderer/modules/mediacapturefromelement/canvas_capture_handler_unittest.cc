@@ -8,7 +8,7 @@
 #include "base/run_loop.h"
 #include "base/test/gmock_callback_support.h"
 #include "media/base/limits.h"
-#include "media/base/video_util.h"
+#include "media/base/video_frame_converter.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
@@ -123,9 +123,7 @@ class CanvasCaptureHandlerTest
       auto i420_frame = media::VideoFrame::CreateFrame(
           converted_format, size, gfx::Rect(size), size,
           video_frame->timestamp());
-      std::vector<uint8_t> tmp_buf;
-      auto status =
-          media::ConvertAndScaleFrame(*video_frame, *i420_frame, tmp_buf);
+      auto status = converter_.ConvertAndScale(*video_frame, *i420_frame);
       EXPECT_TRUE(status.is_ok());
       video_frame = i420_frame;
     }
@@ -139,17 +137,17 @@ class CanvasCaptureHandlerTest
     EXPECT_EQ(expected_width, size.width());
     EXPECT_EQ(expected_height, size.height());
     const uint8_t* y_plane =
-        video_frame->visible_data(media::VideoFrame::kYPlane);
+        video_frame->visible_data(media::VideoFrame::Plane::kY);
     EXPECT_NEAR(74, y_plane[0], kTestCanvasCaptureFrameColorErrorTolerance);
     const uint8_t* u_plane =
-        video_frame->visible_data(media::VideoFrame::kUPlane);
+        video_frame->visible_data(media::VideoFrame::Plane::kU);
     EXPECT_NEAR(193, u_plane[0], kTestCanvasCaptureFrameColorErrorTolerance);
     const uint8_t* v_plane =
-        video_frame->visible_data(media::VideoFrame::kVPlane);
+        video_frame->visible_data(media::VideoFrame::Plane::kV);
     EXPECT_NEAR(105, v_plane[0], kTestCanvasCaptureFrameColorErrorTolerance);
     if (!opaque) {
       const uint8_t* a_plane =
-          video_frame->visible_data(media::VideoFrame::kAPlane);
+          video_frame->visible_data(media::VideoFrame::Plane::kA);
       EXPECT_EQ(kTestAlphaValue, a_plane[0]);
     }
   }
@@ -159,6 +157,7 @@ class CanvasCaptureHandlerTest
   std::unique_ptr<StaticBitmapImageToVideoFrameCopier> copier_;
   // The Class under test. Needs to be scoped_ptr to force its destruction.
   std::unique_ptr<CanvasCaptureHandler> canvas_capture_handler_;
+  media::VideoFrameConverter converter_;
 
  protected:
   VideoCapturerSource* GetVideoCapturerSource(

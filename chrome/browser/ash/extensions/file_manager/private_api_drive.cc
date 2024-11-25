@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <string_view>
 #include <utility>
 
 #include "ash/constants/ash_features.h"
@@ -20,7 +21,6 @@
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/strcat.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/thread_pool.h"
@@ -59,6 +59,7 @@
 #include "components/drive/chromeos/search_metadata.h"
 #include "components/drive/drive_pref_names.h"
 #include "components/drive/event_logger.h"
+#include "components/drive/file_errors.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
@@ -357,11 +358,14 @@ void OnSearchDriveFs(
   DriveIntegrationService* const service =
       GetIntegrationServiceByProfile(profile);
   if (!service) {
+    LOG(ERROR) << "No drive service";
     std::move(callback).Run(std::nullopt);
     return;
   }
 
   if (error != drive::FILE_ERROR_OK || !items.has_value()) {
+    LOG_IF(ERROR, error != drive::FILE_ERROR_OK)
+        << "Drive search failed: " << drive::FileErrorToString(error);
     std::move(callback).Run(std::nullopt);
     return;
   }
@@ -403,11 +407,8 @@ drivefs::mojom::QueryParameters::QuerySource SearchDriveFs(
       Profile::FromBrowserContext(function->browser_context()));
   auto on_response = base::BindOnce(&OnSearchDriveFs, std::move(function),
                                     filter_dirs, std::move(callback));
-  return service->GetDriveFsHost()->PerformSearch(
-      std::move(query),
-      mojo::WrapCallbackWithDefaultInvokeIfNotRun(
-          std::move(on_response), drive::FileError::FILE_ERROR_ABORT,
-          std::optional<std::vector<drivefs::mojom::QueryItemPtr>>()));
+  return service->GetDriveFsHost()->PerformSearch(std::move(query),
+                                                  std::move(on_response));
 }
 
 void UmaEmitSearchOutcome(
@@ -476,7 +477,7 @@ FileManagerPrivateInternalGetEntryPropertiesFunction::Run() {
 
     storage::FileSystemType file_system_type = file_system_url.type();
     if (file_system_type == storage::kFileSystemTypeFuseBox) {
-      base::StringPiece path(file_system_url.path().value());
+      std::string_view path(file_system_url.path().value());
       if (base::StartsWith(path, file_manager::util::kFuseBoxMediaSlashPath)) {
         path.remove_prefix(strlen(file_manager::util::kFuseBoxMediaSlashPath));
         if (base::StartsWith(path,
@@ -795,7 +796,7 @@ void FileManagerPrivateSearchDriveMetadataFunction::OnSearchDriveFs(
 
   std::vector<std::u16string> keywords =
       base::SplitString(base::UTF8ToUTF16(query_text),
-                        base::StringPiece16(base::kWhitespaceUTF16),
+                        std::u16string_view(base::kWhitespaceUTF16),
                         base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
   std::vector<std::unique_ptr<
       base::i18n::FixedPatternStringSearchIgnoringCaseAndAccents>>

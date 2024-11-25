@@ -22,7 +22,7 @@
 #include "base/test/bind.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/win/scoped_hstring.h"
-#include "base/win/vector.h"
+#include "base/win/shortcut.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
@@ -35,12 +35,15 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/shell_integration_win.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/web_applications/web_app_browsertest_base.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
+#include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_registrar.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notifications/notification_operation.h"
-#include "chrome/install_static/install_util.h"
 #include "chrome/installer/util/install_util.h"
 #include "chrome/installer/util/shell_util.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -68,11 +71,12 @@ Profile* CreateTestingProfile(const base::FilePath& path) {
   ProfileManager* profile_manager = g_browser_process->profile_manager();
   size_t starting_number_of_profiles = profile_manager->GetNumberOfProfiles();
 
-  if (!base::PathExists(path) && !base::CreateDirectory(path))
+  if (!base::PathExists(path) && !base::CreateDirectory(path)) {
     NOTREACHED() << "Could not create directory at " << path.MaybeAsASCII();
+  }
 
   std::unique_ptr<Profile> profile =
-      Profile::CreateProfile(path, nullptr, Profile::CREATE_MODE_SYNCHRONOUS);
+      Profile::CreateProfile(path, nullptr, Profile::CreateMode::kSynchronous);
   Profile* profile_ptr = profile.get();
   profile_manager->RegisterTestingProfile(std::move(profile), true);
   EXPECT_EQ(starting_number_of_profiles + 1,
@@ -87,17 +91,16 @@ Profile* CreateTestingProfile(const std::string& profile_name) {
   return CreateTestingProfile(path);
 }
 
-std::wstring GetAppId() {
+std::wstring GetBrowserAppId() {
   return ShellUtil::GetBrowserModelId(InstallUtil::IsPerUserInstall());
 }
 
-static std::wstring GetWebAppIdForNotification(const webapps::AppId& web_app_id,
-                                               const std::string& profile_id) {
-  base::FilePath default_user_data_dir;
-  chrome::GetDefaultUserDataDirectory(&default_user_data_dir);
+static std::wstring GetWebAppIdForNotification(
+    const webapps::AppId& web_app_id,
+    const base::FilePath& profile_path) {
   return shell_integration::win::GetAppUserModelIdForApp(
       base::UTF8ToWide(web_app::GenerateApplicationNameFromAppId(web_app_id)),
-      default_user_data_dir.AppendASCII(profile_id));
+      profile_path);
 }
 
 std::wstring GetToastString(const std::wstring& notification_id,
@@ -108,6 +111,19 @@ std::wstring GetToastString(const std::wstring& notification_id,
                        app_user_model_id, L"|",
                        base::NumberToWString(incognito), L"|https://foo.com/|",
                        notification_id, L"\"></toast>"});
+}
+
+NotificationPlatformBridgeWin* GetBridge() {
+  return static_cast<NotificationPlatformBridgeWin*>(
+      g_browser_process->notification_platform_bridge());
+}
+
+void ValidateLaunchId(const std::string& expected_launch_id,
+                      const base::RepeatingClosure& quit_task,
+                      const NotificationLaunchId& launch_id) {
+  ASSERT_TRUE(launch_id.is_valid());
+  ASSERT_STREQ(expected_launch_id.c_str(), launch_id.Serialize().c_str());
+  quit_task.Run();
 }
 
 }  // namespace
@@ -121,11 +137,6 @@ class NotificationPlatformBridgeWinUITest : public InProcessBrowserTest {
     display_service_tester_ =
         std::make_unique<NotificationDisplayServiceTester>(
             browser()->profile());
-  }
-
-  NotificationPlatformBridgeWin* GetBridge() {
-    return static_cast<NotificationPlatformBridgeWin*>(
-        g_browser_process->notification_platform_bridge());
   }
 
   void TearDownOnMainThread() override { display_service_tester_.reset(); }
@@ -152,14 +163,6 @@ class NotificationPlatformBridgeWinUITest : public InProcessBrowserTest {
                               std::set<std::string> displayed_notifications,
                               bool supports_synchronization) {
     displayed_notifications_ = std::move(displayed_notifications);
-    quit_task.Run();
-  }
-
-  void ValidateLaunchId(const std::string& expected_launch_id,
-                        const base::RepeatingClosure& quit_task,
-                        const NotificationLaunchId& launch_id) {
-    ASSERT_TRUE(launch_id.is_valid());
-    ASSERT_STREQ(expected_launch_id.c_str(), launch_id.Serialize().c_str());
     quit_task.Run();
   }
 
@@ -586,7 +589,7 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, DisplayWithFakeAC) {
   bridge->SetNotifierForTesting(&notifier);
 
   std::string launch_id_value = "0|0|P1|" +
-                                base::WideToUTF8(GetAppId().c_str()) +
+                                base::WideToUTF8(GetBrowserAppId().c_str()) +
                                 "|0|https://example.com/|notification_id";
   NotificationLaunchId launch_id(launch_id_value);
   ASSERT_TRUE(launch_id.is_valid());
@@ -603,8 +606,7 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, DisplayWithFakeAC) {
   {
     base::RunLoop run_loop;
     notifier.SetNotificationShownCallback(base::BindRepeating(
-        &NotificationPlatformBridgeWinUITest::ValidateLaunchId,
-        base::Unretained(this), launch_id_value, run_loop.QuitClosure()));
+        &ValidateLaunchId, launch_id_value, run_loop.QuitClosure()));
     bridge->Display(NotificationHandler::Type::WEB_PERSISTENT, profile,
                     *notification, std::move(metadata));
     run_loop.Run();
@@ -615,6 +617,9 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, DisplayWithFakeAC) {
 
 // Test calling Display for a web app notification with a fake implementation of
 // the Action Center and validate it gets the values expected.
+// If the app is not in the start menu, a normal Chrome notification is shown.
+// If the kAppSpecificNotifications experiment is enabled, and the app is in the
+// start menu, a web-app specific notification should be shown.
 IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest,
                        DisplayWebAppNotificationWithFakeAC) {
   NotificationPlatformBridgeWin* bridge = GetBridge();
@@ -628,30 +633,147 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest,
       u"Text2", ui::ImageModel(), std::u16string(),
       GURL("https://example.com/"),
       message_center::NotifierId(GURL("https://example.com/"), u"webpagetitle",
-                                 base::WideToUTF8(GetAppId().c_str())),
+                                 base::WideToUTF8(GetBrowserAppId().c_str())),
       message_center::RichNotificationData(), nullptr);
 
-  std::wstring app_id = GetWebAppIdForNotification(
-      notification->notifier_id().web_app_id.value_or(""), "P1");
   std::string launch_id_value =
-      base::StrCat({"0|0|P1|", base::WideToUTF8(app_id).c_str(),
+      base::StrCat({"0|0|P1|", base::WideToUTF8(GetBrowserAppId().c_str()),
                     "|0|https://example.com/|notification_id"});
   NotificationLaunchId launch_id(launch_id_value);
   ASSERT_TRUE(launch_id.is_valid());
 
   std::unique_ptr<NotificationCommon::Metadata> metadata;
   Profile* profile = CreateTestingProfile("P1");
-
   {
     base::RunLoop run_loop;
     notifier.SetNotificationShownCallback(base::BindRepeating(
-        &NotificationPlatformBridgeWinUITest::ValidateLaunchId,
-        base::Unretained(this), launch_id_value, run_loop.QuitClosure()));
+        &ValidateLaunchId, launch_id_value, run_loop.QuitClosure()));
     bridge->Display(NotificationHandler::Type::WEB_PERSISTENT, profile,
                     *notification, std::move(metadata));
     run_loop.Run();
   }
   bridge->SetNotifierForTesting(nullptr);
+}
+
+class NotificationPlatformBridgeWinAppInstalledTest
+    : public web_app::WebAppBrowserTestBase {
+ public:
+  NotificationPlatformBridgeWinAppInstalledTest()
+      : web_app::WebAppBrowserTestBase({features::kAppSpecificNotifications},
+                                       {}) {}
+  void SetUpOnMainThread() override {
+    webapps::AppId pwa_app_id = InstallPWA(GURL("https://example.com/"));
+
+    notification_ = std::make_unique<message_center::Notification>(
+        message_center::NOTIFICATION_TYPE_SIMPLE, "notification_id", u"Text1",
+        u"Text2", ui::ImageModel(), std::u16string(),
+        GURL("https://example.com/"),
+        message_center::NotifierId(GURL("https://example.com/"),
+                                   u"webpagetitle", pwa_app_id.c_str()),
+        message_center::RichNotificationData(), nullptr);
+
+    web_app::WebAppBrowserTestBase::SetUpOnMainThread();
+  }
+
+  void SetNotifier(NotificationPlatformBridgeWin* bridge,
+                   ABI::Windows::UI::Notifications::IToastNotifier* notifier) {
+    bridge->SetNotifierForTesting(notifier);
+  }
+
+  base::FilePath GetStartMenuShortcutPath(Profile* profile) {
+    std::string web_app_id =
+        notification_->notifier_id().web_app_id.value_or("");
+    std::string app_name;
+    CHECK(!web_app_id.empty());
+    auto* provider = web_app::WebAppProvider::GetForWebApps(profile);
+    if (provider) {
+      app_name = provider->registrar_unsafe().GetAppShortName(web_app_id);
+    }
+
+    std::wstring file_name = base::AsWString(base::UTF8ToUTF16(app_name));
+
+    base::FilePath chrome_apps_dir;
+    CHECK(ShellUtil::GetShortcutPath(
+        ShellUtil::SHORTCUT_LOCATION_START_MENU_CHROME_APPS_DIR,
+        ShellUtil::CURRENT_USER, &chrome_apps_dir));
+
+    return chrome_apps_dir.Append(file_name).AddExtension(installer::kLnkExt);
+  }
+
+  void DisplayNotificationAndCheckLaunchId(Profile* profile,
+                                           const std::string& app_id) {
+    NotificationPlatformBridgeWin* bridge = GetBridge();
+    ASSERT_TRUE(bridge);
+
+    FakeIToastNotifier notifier;
+    SetNotifier(bridge, &notifier);
+
+    std::string expected_launch_id = base::StrCat(
+        {"0|0|", NotificationPlatformBridge::GetProfileId(profile), "|",
+         app_id.c_str(), "|0|https://example.com/|notification_id"});
+    NotificationLaunchId launch_id(expected_launch_id);
+    ASSERT_TRUE(launch_id.is_valid());
+
+    std::unique_ptr<NotificationCommon::Metadata> metadata;
+
+    {
+      base::RunLoop run_loop;
+      notifier.SetNotificationShownCallback(base::BindRepeating(
+          &ValidateLaunchId, expected_launch_id, run_loop.QuitClosure()));
+      bridge->Display(NotificationHandler::Type::WEB_PERSISTENT, profile,
+                      *notification_, std::move(metadata));
+      run_loop.Run();
+    }
+    SetNotifier(bridge, nullptr);
+  }
+
+ protected:
+  std::unique_ptr<message_center::Notification> notification_;
+};
+
+IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinAppInstalledTest,
+                       DisplayWebAppNotification) {
+  Profile* profile = WebAppBrowserTestBase::profile();
+  std::wstring app_id = GetWebAppIdForNotification(
+      notification_->notifier_id().web_app_id.value_or(""), profile->GetPath());
+
+  DisplayNotificationAndCheckLaunchId(profile, base::WideToUTF8(app_id));
+}
+
+// Tests that a Chrome notification is shown if the PWA doesn't have a shortcut
+// in the Chrome Apps sub-menu of the start menu.
+IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinAppInstalledTest,
+                       DisplayChromeNotificationNoStartMenuShortcut) {
+  Profile* profile = WebAppBrowserTestBase::profile();
+
+  base::FilePath start_menu_shortcut_path = GetStartMenuShortcutPath(profile);
+  {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    ASSERT_TRUE(base::DeleteFile(start_menu_shortcut_path));
+  }
+
+  DisplayNotificationAndCheckLaunchId(profile,
+                                      base::WideToUTF8(GetBrowserAppId()));
+}
+
+// Test that a Chrome notification is shown if the Web App shortcut in the
+// start menu has the wrong AUMI.
+IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinAppInstalledTest,
+                       DisplayChromeNotificationStartMenuShortcutWrongAUMI) {
+  Profile* profile = WebAppBrowserTestBase::profile();
+
+  base::FilePath start_menu_shortcut_path = GetStartMenuShortcutPath(profile);
+  {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    // Change the AUMI on the start menu shortcut.
+    base::win::ShortcutProperties new_properties;
+    new_properties.set_app_id(L"wrongAUMI");
+    ASSERT_TRUE(base::win::CreateOrUpdateShortcutLink(
+        start_menu_shortcut_path, new_properties,
+        base::win::ShortcutOperation::kUpdateExisting));
+  }
+  DisplayNotificationAndCheckLaunchId(
+      profile, base::WideToUTF8(GetBrowserAppId().c_str()));
 }
 
 IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, CmdLineClick) {

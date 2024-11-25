@@ -108,6 +108,8 @@ class ASH_EXPORT HotseatWidget : public ShelfComponent,
   // hotseat background.
   void UpdateTranslucentBackground();
 
+  void InitializeAccessibilityProperties();
+
   // Calculates the hotseat y position for |hotseat_target_state| in screen
   // coordinates.
   int CalculateHotseatYInScreen(HotseatState hotseat_target_state) const;
@@ -191,6 +193,9 @@ class ASH_EXPORT HotseatWidget : public ShelfComponent,
   // The layer that should be used to animate hotseat bounds while showing the
   // home to overview contextual nudge.
   ui::Layer* GetLayerForNudgeAnimation();
+
+  // Returns if the shelf is going to be overflown.
+  bool CalculateShelfOverflow(bool use_target_bounds) const;
 
  private:
   class DelegateView;

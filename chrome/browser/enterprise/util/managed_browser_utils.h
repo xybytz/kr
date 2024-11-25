@@ -9,16 +9,29 @@
 
 #include <string>
 
+#include "base/functional/bind.h"
 #include "build/build_config.h"
 #include "net/base/host_port_pair.h"
 #include "net/ssl/client_cert_identity.h"
+#include "ui/gfx/image/image.h"
+#include "url/gurl.h"
 
+struct AccountInfo;
 class GURL;
 class PrefRegistrySimple;
 class Profile;
 
-namespace chrome {
 namespace enterprise_util {
+
+enum EnterpriseProfileBadgingTemporarySetting : int {
+  kHide = 0,
+  kShowOnUnmanagedDevices = 1,
+  kShowOnAllDevices = 2,
+  kShowOnManagedDevices = 3
+};
+
+// Represents which type of managed environment we have.
+enum class ManagementEnvironment { kNone, kSchool, kWork };
 
 // Determines whether the browser with `profile` as its primary profile is
 // managed. This is determined by looking it there are any policies applied or
@@ -64,6 +77,16 @@ bool UserAcceptedAccountManagement(Profile* profile);
 // management through the enterprise account confirmation dialog.
 bool ProfileCanBeManaged(Profile* profile);
 
+ManagementEnvironment GetManagementEnvironment(Profile* profile,
+                                               const AccountInfo& account_info);
+
+// Returns false if the toolbar enterprise badging is disabled by policy.
+bool IsEnterpriseBadgingEnabledForToolbar(Profile* profile);
+
+bool CanShowEnterpriseBadgingForAvatar(Profile* profile);
+
+bool CanShowEnterpriseBadgingForMenu(Profile* profile);
+
 // Checks `email_domain` against the list of pre-defined known consumer domains.
 // Use this for optimization purposes when you want to skip some code paths for
 // most non-managed (=consumer) users with domains like gmail.com. Note that it
@@ -71,15 +94,13 @@ bool ProfileCanBeManaged(Profile* profile);
 // implementation.
 bool IsKnownConsumerDomain(const std::string& email_domain);
 
-#if BUILDFLAG(IS_ANDROID)
-
-// Returns the UTF8-encoded string representation of the entity that manages
-// `profile` or nullopt if unmanaged. `profile` must be not-null.
-std::string GetBrowserManagerName(Profile* profile);
-
-#endif  // BUILDFLAG(IS_ANDROID)
+// Returns an enterprise icon hosted at `url` for `profile` using `callback`.
+// An empty image is returned in case `url` is invalid or we fail to fetch the
+// image.
+void GetManagementIcon(const GURL& url,
+                       Profile* profile,
+                       base::OnceCallback<void(const gfx::Image&)> callback);
 
 }  // namespace enterprise_util
-}  // namespace chrome
 
 #endif  // CHROME_BROWSER_ENTERPRISE_UTIL_MANAGED_BROWSER_UTILS_H_

@@ -17,6 +17,7 @@
 #include "base/cancelable_callback.h"
 #include "base/containers/linked_list.h"
 #include "base/functional/callback.h"
+#import "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "ios/net/cookies/cookie_cache.h"
@@ -54,11 +55,6 @@ class CookieStoreIOS : public net::CookieStore,
   // so callers should not expect these values to be populated.
   CookieStoreIOS(std::unique_ptr<SystemCookieStore> system_store,
                  NetLog* net_log);
-
-  // Used by ChromeSigninCookieManager/Cronet.
-  // TODO(crbug.com/759226): Remove once the migration to use SystemCookieStore
-  // is finished.
-  CookieStoreIOS(NSHTTPCookieStorage* ns_cookie_store, NetLog* net_log);
 
   CookieStoreIOS(const CookieStoreIOS&) = delete;
   CookieStoreIOS& operator=(const CookieStoreIOS&) = delete;
@@ -171,7 +167,7 @@ class CookieStoreIOS : public net::CookieStore,
    private:
     // Instances of this class are always members of CookieStoreIOS, so
     // |cookie_store| is guaranteed to outlive this instance.
-    CookieStoreIOS* const cookie_store_;
+    const raw_ptr<CookieStoreIOS> cookie_store_;
   };
 
   // Interface only used by CookieChangeDispatcherIOS.

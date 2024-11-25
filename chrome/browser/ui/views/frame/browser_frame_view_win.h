@@ -17,7 +17,6 @@
 #include "ui/views/window/non_client_view.h"
 
 class BrowserView;
-class TabSearchBubbleHost;
 class BrowserCaptionButtonContainer;
 
 class BrowserFrameViewWin : public BrowserNonClientFrameView,
@@ -46,7 +45,6 @@ class BrowserFrameViewWin : public BrowserNonClientFrameView,
   void UpdateThrobber(bool running) override;
   gfx::Size GetMinimumSize() const override;
   void WindowControlsOverlayEnabledChanged() override;
-  TabSearchBubbleHost* GetTabSearchBubbleHost() override;
 
   // views::NonClientFrameView:
   gfx::Rect GetBoundsForClientView() const override;
@@ -89,7 +87,7 @@ class BrowserFrameViewWin : public BrowserNonClientFrameView,
 
   // views::View:
   void OnPaint(gfx::Canvas* canvas) override;
-  void Layout() override;
+  void Layout(PassKey) override;
 
  private:
   friend class BrowserCaptionButtonContainer;

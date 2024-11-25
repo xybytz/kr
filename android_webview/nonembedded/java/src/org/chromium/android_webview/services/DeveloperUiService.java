@@ -52,8 +52,6 @@ public final class DeveloperUiService extends Service {
     private static final String FRAGMENT_ID_INTENT_EXTRA = "fragment-id";
     private static final String RESET_FLAGS_INTENT_EXTRA = "reset-flags";
 
-    private static final int FRAGMENT_ID_HOME = 0;
-    private static final int FRAGMENT_ID_CRASHES = 1;
     private static final int FRAGMENT_ID_FLAGS = 2;
 
     public static final String NOTIFICATION_TITLE = "Experimental WebView features active";
@@ -74,9 +72,6 @@ public final class DeveloperUiService extends Service {
             CommandLine.getInstance().getSwitches();
 
     @GuardedBy("sLock")
-    private boolean mDeveloperModeEnabled;
-
-    @GuardedBy("sLock")
     private static @NonNull Flag[] sFlagList = ProductionSupportedFlagList.sFlagList;
 
     private final IDeveloperUiService.Stub mBinder =
@@ -94,11 +89,7 @@ public final class DeveloperUiService extends Service {
                         if (sOverriddenFlags.isEmpty()) {
                             disableDeveloperMode();
                         } else {
-                            try {
-                                enableDeveloperMode();
-                            } catch (IllegalStateException e) {
-                                logSuspectedForegroundServiceStartNotAllowedException();
-                            }
+                            enableDeveloperMode();
                         }
                     }
                 }
@@ -282,14 +273,6 @@ public final class DeveloperUiService extends Service {
             startForeground(FLAG_OVERRIDE_NOTIFICATION_ID, notification);
         } catch (IllegalStateException e) {
             logSuspectedForegroundServiceStartNotAllowedException();
-
-            // Mark that we failed to start developer mode fully.
-            // Mark as not enabled to let enableDeveloperMode run again, which will call
-            // onStartCommand.
-            // https://developer.android.com/guide/components/services#StartingAService
-            synchronized (sLock) {
-                mDeveloperModeEnabled = false;
-            }
         }
     }
 
@@ -314,14 +297,8 @@ public final class DeveloperUiService extends Service {
      */
     private void enableDeveloperMode() {
         synchronized (sLock) {
-            if (mDeveloperModeEnabled) return;
-            // Keep this service alive as long as we're in developer mode.
-            Intent intent = new Intent(this, DeveloperUiService.class);
-            // Android O doesn't allow bound Services to request foreground status unless the
-            // app is running in the foreground already or we already started the service with
-            // Context#startForegroundService.
-            startForegroundService(intent);
 
+            // Mark developer mode as enabled for other apps.
             ComponentName developerModeState =
                     new ComponentName(this, DeveloperModeUtils.DEVELOPER_MODE_STATE_COMPONENT);
             getPackageManager()
@@ -330,15 +307,21 @@ public final class DeveloperUiService extends Service {
                             PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                             PackageManager.DONT_KILL_APP);
 
-            mDeveloperModeEnabled = true;
+            // Keep this service alive as long as we're in developer mode.
+            Intent intent = new Intent(this, DeveloperUiService.class);
+            try {
+                startForegroundService(intent);
+            } catch (IllegalStateException e) {
+                // Android O doesn't allow bound Services to request foreground status unless the
+                // app is running in the foreground already or we already started the service with
+                // Context#startForegroundService.
+                logSuspectedForegroundServiceStartNotAllowedException();
+            }
         }
     }
 
     private void disableDeveloperMode() {
         synchronized (sLock) {
-            if (!mDeveloperModeEnabled) return;
-            mDeveloperModeEnabled = false;
-
             ComponentName developerModeState =
                     new ComponentName(this, DeveloperModeUtils.DEVELOPER_MODE_STATE_COMPONENT);
             getPackageManager()

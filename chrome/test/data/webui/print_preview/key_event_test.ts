@@ -2,11 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {NativeLayerImpl, PluginProxyImpl, PrintPreviewAppElement} from 'chrome://print/print_preview.js';
-import {isChromeOS, isLacros, isMac, isWindows} from 'chrome://resources/js/platform.js';
-import {keyEventOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
+import type {PrintPreviewAppElement} from 'chrome://print/print_preview.js';
+import {NativeLayerImpl, PluginProxyImpl} from 'chrome://print/print_preview.js';
+import {isChromeOS, isMac, isWindows} from 'chrome://resources/js/platform.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {assertEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {keyEventOn} from 'chrome://webui-test/keyboard_mock_interactions.js';
+import type {ModifiersParam} from 'chrome://webui-test/keyboard_mock_interactions.js';
 import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
 
@@ -159,7 +161,7 @@ suite('KeyEventTest', function() {
   test(
       'CtrlShiftPOpensSystemDialog', function() {
         let promise: Promise<void>;
-        if (isChromeOS || isLacros) {
+        if (isChromeOS) {
           // Chrome OS doesn't have a system dialog. Just make sure the key
           // event does not trigger a crash.
           promise = Promise.resolve();
@@ -170,7 +172,8 @@ suite('KeyEventTest', function() {
         } else {
           promise = nativeLayer.whenCalled('showSystemDialog');
         }
-        const modifiers = isMac ? ['meta', 'alt'] : ['ctrl', 'shift'];
+        const modifiers: ModifiersParam =
+            isMac ? ['meta', 'alt'] : ['ctrl', 'shift'];
         const key = isMac ? '\u03c0' : 'P';
         keyEventOn(page, 'keydown', 0, modifiers, key);
         return promise;

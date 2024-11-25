@@ -24,7 +24,6 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "cc/slim/features.h"
 #include "cc/slim/layer_tree.h"
 #include "cc/slim/surface_layer.h"
 #include "components/viz/common/features.h"
@@ -180,7 +179,7 @@ class RenderWidgetHostViewBrowserTest : public ContentBrowserTest {
   static void GiveItSomeTime() {
     base::RunLoop run_loop;
     base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
-        FROM_HERE, run_loop.QuitClosure(), base::Milliseconds(250));
+        FROM_HERE, run_loop.QuitClosure(), TestTimeouts::tiny_timeout());
     run_loop.Run();
   }
 
@@ -395,6 +394,8 @@ IN_PROC_BROWSER_TEST_F(NoCompositingRenderWidgetHostViewBrowserTest,
   // is maintained as the fallback. The DelegatedFrameHost should have not have
   // a valid active viz::LocalSurfaceId until the first surface after navigation
   // has been embedded.
+  rwhva = static_cast<RenderWidgetHostViewAndroid*>(rwhvb);
+  dfh = rwhva->delegated_frame_host_for_testing();
   EXPECT_TRUE(dfh->HasPrimarySurface());
   EXPECT_FALSE(dfh->IsPrimarySurfaceEvicted());
   EXPECT_EQ(initial_local_surface_id,
@@ -431,6 +432,7 @@ IN_PROC_BROWSER_TEST_F(NoCompositingRenderWidgetHostViewBrowserTest,
   ASSERT_TRUE(rwhvb);
   viz::LocalSurfaceId rwhvb_local_surface_id = rwhvb->GetLocalSurfaceId();
   EXPECT_TRUE(rwhvb_local_surface_id.is_valid());
+  viz::SurfaceId initial_surface_id = rwhvb->GetCurrentSurfaceId();
 
   // Hide the view before performing the next navigation.
   shell()->web_contents()->WasHidden();
@@ -463,11 +465,23 @@ IN_PROC_BROWSER_TEST_F(NoCompositingRenderWidgetHostViewBrowserTest,
   // If this takes too long we hit a timeout that attempts to reset us back to
   // the initial surface. So that some content state can be presented.
   //
-  // If a navigation were to fail, then this would be invoked before any new
-  // surface is embedded. For which we expect it to clear out the fallback
-  // surfaces. As we cannot fallback to a surface from before navigation.
+  // If a navigation were to fail and stayed in the same RenderFrameHost, then
+  // this would be invoked before any new surface is embedded. For which we
+  // expect it to clear out the fallback surfaces. As we cannot fallback to a
+  // surface from before navigation.
+  //
+  // However, if the navigation involves a change of RenderFrameHosts (and thus
+  // RenderWidgetViewHosts) we will embed a new surface early on when creating
+  // the speculative RenderFrameHosts. This is OK because the surface is not
+  // related to the previous page's surface, so we won't be showing the previous
+  // page's content as a fallback.
   rwhvb->ResetFallbackToFirstNavigationSurface();
-  EXPECT_FALSE(rwhvb->HasFallbackSurface());
+  if (ShouldCreateNewHostForAllFrames()) {
+    EXPECT_TRUE(rwhvb->HasFallbackSurface());
+    EXPECT_NE(rwhvb->GetFallbackSurfaceIdForTesting(), initial_surface_id);
+  } else {
+    EXPECT_FALSE(rwhvb->HasFallbackSurface());
+  }
 
 #if BUILDFLAG(IS_ANDROID)
   // Navigating while hidden should not generate a new surface.
@@ -475,6 +489,8 @@ IN_PROC_BROWSER_TEST_F(NoCompositingRenderWidgetHostViewBrowserTest,
   // The DelegatedFrameHost should have not have a valid active
   // viz::LocalSurfaceId until the first surface after navigation has been
   // embedded.
+  rwhva = static_cast<RenderWidgetHostViewAndroid*>(rwhvb);
+  dfh = rwhva->delegated_frame_host_for_testing();
   EXPECT_FALSE(dfh->HasPrimarySurface());
   EXPECT_TRUE(dfh->IsPrimarySurfaceEvicted());
   EXPECT_FALSE(dfh->content_layer()->surface_id().is_valid());
@@ -588,10 +604,6 @@ class BFCachedRenderWidgetHostViewBrowserTest
 
 IN_PROC_BROWSER_TEST_F(BFCachedRenderWidgetHostViewBrowserTest,
                        BFCacheRestoredPageHasNewLocalSurfaceId) {
-  if (!base::FeatureList::IsEnabled(
-          features::kInvalidateLocalSurfaceIdPreCommit)) {
-    return;
-  }
   ASSERT_TRUE(embedded_test_server()->Start());
   ASSERT_TRUE(
       NavigateToURL(shell(), embedded_test_server()->GetURL("/title1.html")));
@@ -657,10 +669,6 @@ IN_PROC_BROWSER_TEST_F(BFCachedRenderWidgetHostViewBrowserTest,
 IN_PROC_BROWSER_TEST_F(
     BFCachedRenderWidgetHostViewBrowserTest,
     BFCachedPageResizedWhileHiddenShouldNotHavePreservedFallback) {
-  if (!base::FeatureList::IsEnabled(
-          features::kInvalidateLocalSurfaceIdPreCommit)) {
-    return;
-  }
   ASSERT_TRUE(embedded_test_server()->Start());
   ASSERT_TRUE(
       NavigateToURL(shell(), embedded_test_server()->GetURL("/title1.html")));
@@ -722,10 +730,6 @@ IN_PROC_BROWSER_TEST_F(
 // Same as above, except that the resize operation is a no-op.
 IN_PROC_BROWSER_TEST_F(BFCachedRenderWidgetHostViewBrowserTest,
                        BFCachedPageNoopResizedWhileHiddenHasPreservedFallback) {
-  if (!base::FeatureList::IsEnabled(
-          features::kInvalidateLocalSurfaceIdPreCommit)) {
-    return;
-  }
   ASSERT_TRUE(embedded_test_server()->Start());
   ASSERT_TRUE(
       NavigateToURL(shell(), embedded_test_server()->GetURL("/title1.html")));
@@ -793,10 +797,6 @@ IN_PROC_BROWSER_TEST_F(BFCachedRenderWidgetHostViewBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(BFCachedRenderWidgetHostViewBrowserTest,
                        BFCachedViewShouldNotBeEvicted) {
-  if (!base::FeatureList::IsEnabled(
-          features::kInvalidateLocalSurfaceIdPreCommit)) {
-    return;
-  }
   ASSERT_TRUE(embedded_test_server()->Start());
   ASSERT_TRUE(
       NavigateToURL(shell(), embedded_test_server()->GetURL("/title1.html")));
@@ -978,7 +978,8 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewBrowserTestBase,
       WebContents::Create(new_contents_params));
 
   new_web_contents->GetController().LoadURLWithParams(
-      NavigationController::LoadURLParams(GURL(url::kAboutBlankURL)));
+      NavigationController::LoadURLParams(
+          embedded_test_server()->GetURL("/empty.html")));
   EXPECT_TRUE(WaitForLoadStop(new_web_contents.get()));
 
   // Start a cross-process navigation.
@@ -1320,9 +1321,8 @@ class CompositingRenderWidgetHostViewBrowserTestTabCapture
         CASE_LOG_READBACK_WARNING(READBACK_NO_TEST_COLORS);
         CASE_LOG_READBACK_WARNING(READBACK_INCORRECT_RESULT_SIZE);
         default:
-          LOG(ERROR)
+          NOTREACHED()
               << "Invalid readback response value: " << readback_result_;
-          NOTREACHED();
       }
       // clang-format on
     } while (readback_result_ != READBACK_SUCCESS &&
@@ -1568,7 +1568,8 @@ class RenderWidgetHostViewPresentationFeedbackBrowserTest
     const base::TimeTicks start_time = base::TimeTicks::Now();
     // The full action_timeout is excessively long when expecting nothing to be
     // logged.
-    while (base::TimeTicks::Now() - start_time < base::Seconds(1)) {
+    const base::TimeDelta kTimeout = TestTimeouts::action_timeout() / 10;
+    while (base::TimeTicks::Now() - start_time < kTimeout) {
       GiveItSomeTime();
       ASSERT_TRUE(
           histogram_tester_.GetAllSamples("Browser.Tabs.TabSwitchResult3")
@@ -1614,8 +1615,14 @@ class RenderWidgetHostViewPresentationFeedbackBrowserTest
   base::HistogramTester histogram_tester_;
 };
 
+// TODO(crbug.com/353234554): Flaky on linux-lacros-tester-rel.
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#define MAYBE_Show DISABLED_Show
+#else
+#define MAYBE_Show Show
+#endif
 IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewPresentationFeedbackBrowserTest,
-                       Show) {
+                       MAYBE_Show) {
   CreateVisibleTimeRequest();
   GetRenderWidgetHostView()->ShowWithVisibility(PageVisibilityState::kVisible);
   ExpectPresentationFeedback(TabSwitchResult::kSuccess);
@@ -1641,8 +1648,14 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewPresentationFeedbackBrowserTest,
   ExpectNoPresentationFeedback();
 }
 
+// TODO(crbug.com/353234554): Flaky on linux-lacros-tester-rel.
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#define MAYBE_ShowWhileCapturing DISABLED_ShowWhileCapturing
+#else
+#define MAYBE_ShowWhileCapturing ShowWhileCapturing
+#endif
 IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewPresentationFeedbackBrowserTest,
-                       ShowWhileCapturing) {
+                       MAYBE_ShowWhileCapturing) {
   // Frame is captured and then becomes visible.
   CreateVisibleTimeRequest();
   GetRenderWidgetHostView()->ShowWithVisibility(
@@ -1688,7 +1701,7 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewPresentationFeedbackBrowserTest,
 // when the RWHV is visible. These tests add a parent layer to make sure that
 // presentation feedback is logged when the state is UseParentLayerCompositor.
 
-// TODO(https://crbug.com/1164477): These tests don't match the behaviour of the
+// TODO(crbug.com/40163556): These tests don't match the behaviour of the
 // browser. In production the Browser.Tabs.* histograms are logged but in this
 // test, the presentation time request is swallowed during the
 // UseParentLayerCompositor state. Need to find out what's wrong with the test
@@ -1731,23 +1744,25 @@ void CheckSurfaceRangeRemovedAfterCopy(viz::SurfaceRange range,
                                        CompositorImpl* compositor,
                                        base::RepeatingClosure resume_test,
                                        const SkBitmap& btimap) {
-  ASSERT_FALSE(!compositor->GetLayerTreeForTesting()
-                    ->GetSurfaceRangesForTesting()
-                    .contains(range));
+  // The surface range is removed first when the browser receives the result
+  // of the copy request. Then the result callback (including this function) is
+  // run.
+  auto iter =
+      compositor->GetLayerTreeForTesting()->GetSurfaceRangesForTesting().find(
+          range);
+  ASSERT_NE(
+      iter,
+      compositor->GetLayerTreeForTesting()->GetSurfaceRangesForTesting().end());
+  // In DelegatedFrameHostAndroid we keep an extra ref for visible surfaces to
+  // make sure tab capture works, so this should be 1, not 0.
+  EXPECT_EQ(iter->second, 1);
   std::move(resume_test).Run();
 }
 
 class RenderWidgetHostViewCopyFromSurfaceBrowserTest
-    : public RenderWidgetHostViewBrowserTest,
-      public testing::WithParamInterface<bool> {
+    : public RenderWidgetHostViewBrowserTest {
  public:
   RenderWidgetHostViewCopyFromSurfaceBrowserTest() {
-    if (GetParam()) {
-      scoped_feature_list_.InitAndEnableFeature(features::kSlimCompositor);
-    } else {
-      scoped_feature_list_.InitAndDisableFeature(features::kSlimCompositor);
-    }
-
     // Enable `RenderDocument` to guarantee renderer/RFH swap for cross-site
     // navigations.
     InitAndEnableRenderDocumentFeature(&scoped_feature_list_render_document_,
@@ -1768,11 +1783,10 @@ class RenderWidgetHostViewCopyFromSurfaceBrowserTest
   bool SetUpSourceSurface(const char* wait_message) override { return false; }
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
   base::test::ScopedFeatureList scoped_feature_list_render_document_;
 };
 
-IN_PROC_BROWSER_TEST_P(RenderWidgetHostViewCopyFromSurfaceBrowserTest,
+IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewCopyFromSurfaceBrowserTest,
                        AsyncCopyFromSurface) {
   EXPECT_TRUE(
       NavigateToURL(shell(), embedded_test_server()->GetURL("/empty.html")));
@@ -1791,9 +1805,12 @@ IN_PROC_BROWSER_TEST_P(RenderWidgetHostViewCopyFromSurfaceBrowserTest,
       gfx::Rect(), gfx::Size(),
       base::BindOnce(&CheckSurfaceRangeRemovedAfterCopy, range_for_copy,
                      compositor, run_loop.QuitClosure()));
+
+  // In DelegatedFrameHostAndroid we keep an extra ref for visible
+  // surfaces to make sure tab capture works.
   EXPECT_THAT(
       compositor->GetLayerTreeForTesting()->GetSurfaceRangesForTesting(),
-      testing::UnorderedElementsAre(std::make_pair(range_for_copy, 1),
+      testing::UnorderedElementsAre(std::make_pair(range_for_copy, 2),
                                     std::make_pair(range_for_mainframe, 1)));
   run_loop.Run(FROM_HERE);
 }
@@ -1860,7 +1877,7 @@ class ScopedSnapshotWaiter : public WebContentsObserver {
 // A "best effort" browser test: issue an exact `CopyOutputRequest` during a
 // cross-renderer navigation, when the navigation is about to commit in the
 // browser. We should always be able to get a desired snapshot back.
-IN_PROC_BROWSER_TEST_P(RenderWidgetHostViewCopyFromSurfaceBrowserTest,
+IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewCopyFromSurfaceBrowserTest,
                        CopyExactSurfaceDuringCrossRendererNavigations) {
   ASSERT_TRUE(
       NavigateToURL(shell()->web_contents(),
@@ -1878,10 +1895,6 @@ IN_PROC_BROWSER_TEST_P(RenderWidgetHostViewCopyFromSurfaceBrowserTest,
   // Blocks until we get the desired snapshot of "empty.html".
   waiter.Wait();
 }
-
-INSTANTIATE_TEST_SUITE_P(EnableDisableSlim,
-                         RenderWidgetHostViewCopyFromSurfaceBrowserTest,
-                         ::testing::Bool());
 #endif
 
 namespace {
@@ -1911,7 +1924,7 @@ namespace {
 //    BFCached, but the OOPIF still has reference to a RWHV/NativeView that it
 //    shouldn't have.
 //
-// TODO(https://crbug.com/1492600):
+// TODO(crbug.com/40285569):
 // - A page shouldn't be BFCached if it is no longer reachable via session
 //   history navigations (i.e., if the navigation entry is replaced).
 // - When the browser is in a steady state with no on-going navigations, there
@@ -1932,11 +1945,6 @@ class RenderWidgetHostViewOOPIFNavigatesMainFrameLocationReplaceBrowserTest
     command_line->AppendSwitch(switches::kSitePerProcess);
 
     std::vector<base::test::FeatureRefAndParams> enabled_features;
-    base::test::FeatureRefAndParams must_enable(
-        /*feature=*/features::kInvalidateLocalSurfaceIdPreCommit,
-        /*params=*/std::map<std::string, std::string>());
-    enabled_features.push_back(std::move(must_enable));
-
     bool bfcache_enabled = GetParam();
     if (bfcache_enabled) {
       scoped_feature_list_.InitWithFeaturesAndParameters(
@@ -1946,6 +1954,13 @@ class RenderWidgetHostViewOOPIFNavigatesMainFrameLocationReplaceBrowserTest
       scoped_feature_list_.InitWithFeaturesAndParameters(enabled_features, {});
       command_line->AppendSwitch(switches::kDisableBackForwardCache);
     }
+    // Disable the delay of creating the speculative RFH for test
+    // TouchEventsForwardedToTheCorrectRenderWidgetHostView.
+    // The test involves receiving a coop header for a non-coop speculative RFH.
+    // The speculatve RFH must be created when the request is sent.
+    feature_list_for_defer_speculative_rfh_.InitAndEnableFeatureWithParameters(
+        features::kDeferSpeculativeRFHCreation,
+        {{"create_speculative_rfh_delay_ms", "0"}});
 
     RenderWidgetHostViewBrowserTest::SetUpCommandLine(command_line);
   }
@@ -1998,6 +2013,7 @@ class RenderWidgetHostViewOOPIFNavigatesMainFrameLocationReplaceBrowserTest
   net::EmbeddedTestServer https_server_{
       net::EmbeddedTestServer::Type::TYPE_HTTPS};
   base::test::ScopedFeatureList scoped_feature_list_;
+  base::test::ScopedFeatureList feature_list_for_defer_speculative_rfh_;
 };
 
 std::string DescribeBFCacheFeatureStatus(
@@ -2011,7 +2027,7 @@ std::string DescribeBFCacheFeatureStatus(
 
 }  // namespace
 
-// TODO(https://crbug.com/1492600): When fix the BFCache behavior, move this
+// TODO(crbug.com/40285569): When fix the BFCache behavior, move this
 // test into "back_forward_cache_basics_browsertest.cc". Temporarily placed here
 // to reuse the testing harness.
 IN_PROC_BROWSER_TEST_P(
@@ -2036,7 +2052,7 @@ IN_PROC_BROWSER_TEST_P(
 
   bool bfcache_enabled = GetParam();
   if (bfcache_enabled) {
-    // TODO(https://crbug.com/1492600): We shouldn't store the old page and its
+    // TODO(crbug.com/40285569): We shouldn't store the old page and its
     // OOPIF in the BFCache.
     ASSERT_FALSE(old_main_frame.IsDestroyed());
     ASSERT_FALSE(subframe_rfh.IsDestroyed());
@@ -2054,6 +2070,7 @@ IN_PROC_BROWSER_TEST_P(
 // to the main frame's `RenderWidgetHostViewAndroid` and its `ui::ViewAndroid`,
 // no matter if there are redundant RWHVAs / VAs under the same WebContents.
 #if BUILDFLAG(IS_ANDROID)
+
 IN_PROC_BROWSER_TEST_P(
     RenderWidgetHostViewOOPIFNavigatesMainFrameLocationReplaceBrowserTest,
     TouchEventsForwardedToTheCorrectRenderWidgetHostView) {
@@ -2078,7 +2095,7 @@ IN_PROC_BROWSER_TEST_P(
   // Three RWHV when BFCache is enabled: old main frame and its OOPIF, and the
   // new main frame.
   //
-  // TODO(https://crbug.com/1492600): The number of RWHVs should be one,
+  // TODO(crbug.com/40285569): The number of RWHVs should be one,
   // regardless of BFCache.
   size_t num_expected_rwhv = bfcache_enabled ? 3u : 1u;
   size_t num_actual_rwhv = 0u;
@@ -2095,8 +2112,12 @@ IN_PROC_BROWSER_TEST_P(
   // view from the native view tree. Thus the number of ViewAndroids is two
   // instead of three, when the old main frame and the OOPIF are BFCached. See
   // `WebContentsViewAndroid::RenderViewHostChanged()`.
+  // If the DeferSpeculativeRFHCreation feature is enabled, the RWHV won't be
+  // created when the navigation starts so only one native view will be left.
+  // For some reason the android view for the first speculative RFH is not
+  // removed when the response arrives (a new speculiatve RFH will be created).
   //
-  // TODO(https://crbug.com/1492600): The number of `ui::ViewAndroid`s should be
+  // TODO(crbug.com/40285569): The number of `ui::ViewAndroid`s should be
   // one, regardless of BFCache.
   size_t num_expected_native_view = bfcache_enabled ? 2u : 1u;
   auto* web_contents_view_android =

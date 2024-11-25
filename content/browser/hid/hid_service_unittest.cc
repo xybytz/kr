@@ -19,6 +19,7 @@
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/hid_delegate.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/common/content_client.h"
 #include "content/public/test/back_forward_cache_util.h"
 #include "content/public/test/navigation_simulator.h"
@@ -278,13 +279,14 @@ class HidServiceBaseTest : public testing::Test, public HidServiceTestHelper {
         break;
     }
     NOTREACHED();
-    return nullptr;
   }
 
   void CheckHidServiceConnectedState(HidServiceCreationType type,
                                      bool expected_state) {
     if (type == kCreateUsingRenderFrameHost) {
-      ASSERT_EQ(web_contents_->IsConnectedToHidDevice(), expected_state);
+      ASSERT_EQ(
+          web_contents_->IsCapabilityActive(WebContents::CapabilityType::kHID),
+          expected_state);
     } else if (type == kCreateUsingServiceWorkerContextCore) {
       ASSERT_EQ(worker_version_->GetExternalRequestCountForTest(),
                 expected_state ? 1u : 0u);
@@ -510,7 +512,7 @@ TEST_F(HidServiceRenderFrameHostTest, OpenAndNavigateCrossOrigin) {
   // The test assumes the previous page gets deleted after navigation,
   // disconnecting the device. Disable back/forward cache to ensure that it
   // doesn't get preserved in the cache.
-  // TODO(crbug.com/1346021): Integrate WebHID with bfcache and remove this.
+  // TODO(crbug.com/40232335): Integrate WebHID with bfcache and remove this.
   DisableBackForwardCacheForTesting(web_contents(),
                                     BackForwardCache::TEST_REQUIRES_NO_CACHING);
 
@@ -527,7 +529,8 @@ TEST_F(HidServiceRenderFrameHostTest, OpenAndNavigateCrossOrigin) {
   connection_client()->Bind(
       hid_connection_client.InitWithNewPipeAndPassReceiver());
 
-  EXPECT_FALSE(contents()->IsConnectedToHidDevice());
+  EXPECT_FALSE(
+      contents()->IsCapabilityActive(WebContents::CapabilityType::kHID));
 
   base::RunLoop run_loop;
   mojo::Remote<device::mojom::HidConnection> connection;
@@ -548,7 +551,8 @@ TEST_F(HidServiceRenderFrameHostTest, OpenAndNavigateCrossOrigin) {
   run_loop.Run();
   EXPECT_TRUE(connection.is_connected());
 
-  EXPECT_TRUE(contents()->IsConnectedToHidDevice());
+  EXPECT_TRUE(
+      contents()->IsCapabilityActive(WebContents::CapabilityType::kHID));
 
   EXPECT_CALL(hid_delegate(),
               DecrementConnectionCount(browser_context(),
@@ -559,7 +563,8 @@ TEST_F(HidServiceRenderFrameHostTest, OpenAndNavigateCrossOrigin) {
   connection.set_disconnect_handler(disconnect_loop.QuitClosure());
 
   disconnect_loop.Run();
-  EXPECT_FALSE(contents()->IsConnectedToHidDevice());
+  EXPECT_FALSE(
+      contents()->IsCapabilityActive(WebContents::CapabilityType::kHID));
   EXPECT_FALSE(connection.is_connected());
 }
 
@@ -905,7 +910,8 @@ TEST_P(HidServiceTest, Forget) {
 
   EXPECT_CALL(hid_delegate(), HasDevicePermission).WillOnce(Return(false));
   EXPECT_CALL(hid_delegate(), RevokeDevicePermission)
-      .WillOnce([this](content::BrowserContext* browser_context,
+      .WillOnce([this](BrowserContext* browser_context,
+                       RenderFrameHost* render_frame_host,
                        const url::Origin& origin,
                        const device::mojom::HidDeviceInfo& device) {
         hid_delegate().OnPermissionRevoked(origin);

@@ -133,14 +133,15 @@ class TabContainerImpl : public TabContainer,
   gfx::Rect GetIdealBounds(tab_groups::TabGroupId group) const override;
 
   // views::View
-  void Layout() override;
+  void Layout(PassKey) override;
   void PaintChildren(const views::PaintInfo& paint_info) override;
   gfx::Size GetMinimumSize() const override;
-  gfx::Size CalculatePreferredSize() const override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
   views::View* GetTooltipHandlerForPoint(const gfx::Point& point) override;
 
   // BrowserRootView::DropTarget:
-  BrowserRootView::DropIndex GetDropIndex(
+  std::optional<BrowserRootView::DropIndex> GetDropIndex(
       const ui::DropTargetEvent& event) override;
   BrowserRootView::DropTarget* GetDropTarget(
       gfx::Point loc_in_local_coords) override;

@@ -6,8 +6,8 @@ import 'chrome://resources/ash/common/auth_setup/set_local_password_input.js';
 
 import {SetLocalPasswordInputElement} from 'chrome://resources/ash/common/auth_setup/set_local_password_input.js';
 import {fireAuthTokenInvalidEvent} from 'chrome://resources/ash/common/quick_unlock/utils.js';
-import {CrButtonElement} from 'chrome://resources/cr_elements/cr_button/cr_button.js';
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import {CrButtonElement} from 'chrome://resources/ash/common/cr_elements/cr_button/cr_button.js';
+import {CrDialogElement} from 'chrome://resources/ash/common/cr_elements/cr_dialog/cr_dialog.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {ConfigureResult, PasswordFactorEditor} from 'chrome://resources/mojo/chromeos/ash/services/auth_factor_config/public/mojom/auth_factor_config.mojom-webui.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
@@ -41,11 +41,16 @@ export class SettingsSetLocalPasswordDialogElement extends PolymerElement {
         type: Boolean,
         value: false,
       },
+      password_: {
+        type: String,
+        value: null,
+      },
     };
   }
 
   authToken: string|null;
   private showError_: boolean;
+  private password_: string|null;
 
   override ready(): void {
     super.ready();
@@ -85,8 +90,9 @@ export class SettingsSetLocalPasswordDialogElement extends PolymerElement {
       return;
     }
 
-    const {result} = await PasswordFactorEditor.getRemote().updateLocalPassword(
-        authToken, value);
+    const {result} =
+        await PasswordFactorEditor.getRemote().updateOrSetLocalPassword(
+            authToken, value);
     switch (result) {
       case ConfigureResult.kSuccess:
         this.$.dialog.close();

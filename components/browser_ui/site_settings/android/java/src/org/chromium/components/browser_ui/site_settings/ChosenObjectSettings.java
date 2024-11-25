@@ -19,9 +19,12 @@ import androidx.core.view.MenuItemCompat;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceScreen;
 
+import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.build.BuildConfig;
 import org.chromium.components.browser_ui.settings.ChromeImageViewPreference;
 import org.chromium.components.browser_ui.settings.CustomDividerFragment;
+import org.chromium.components.browser_ui.settings.EmbeddableSettingsPage;
 import org.chromium.components.browser_ui.settings.ManagedPreferencesUtils;
 import org.chromium.components.browser_ui.util.TraceEventVectorDrawableCompat;
 
@@ -30,11 +33,11 @@ import java.util.Collection;
 import java.util.Locale;
 
 /**
- * Shows a particular chosen object (e.g. a USB device) and the list of sites that have been
- * granted access to it by the user.
+ * Shows a particular chosen object (e.g. a USB device) and the list of sites that have been granted
+ * access to it by the user.
  */
 public class ChosenObjectSettings extends BaseSiteSettingsFragment
-        implements CustomDividerFragment {
+        implements EmbeddableSettingsPage, CustomDividerFragment {
     public static final String EXTRA_OBJECT_INFOS = "org.chromium.chrome.preferences.object_infos";
     public static final String EXTRA_SITES = "org.chromium.chrome.preferences.site_set";
     public static final String EXTRA_CATEGORY =
@@ -50,6 +53,8 @@ public class ChosenObjectSettings extends BaseSiteSettingsFragment
     private SearchView mSearchView;
     // If not blank, represents a substring to use to search for site names.
     private String mSearch = "";
+
+    private final ObservableSupplierImpl<String> mPageTitle = new ObservableSupplierImpl<>();
 
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
@@ -70,11 +75,16 @@ public class ChosenObjectSettings extends BaseSiteSettingsFragment
         checkObjectConsistency();
         mSites = (ArrayList<Website>) getArguments().getSerializable(EXTRA_SITES);
         String title = getArguments().getString(SingleCategorySettings.EXTRA_TITLE);
-        if (title != null) getActivity().setTitle(title);
+        if (title != null) mPageTitle.set(title);
 
         setHasOptionsMenu(true);
 
         super.onActivityCreated(savedInstanceState);
+    }
+
+    @Override
+    public ObservableSupplier<String> getPageTitle() {
+        return mPageTitle;
     }
 
     @Override
@@ -182,7 +192,7 @@ public class ChosenObjectSettings extends BaseSiteSettingsFragment
         if (hasManagedObject) {
             ManagedPreferencesUtils.showManagedSettingsCannotBeResetToast(getContext());
         } else {
-            getActivity().finish();
+            getSettingsNavigation().finishCurrentSettings(this);
         }
     }
 
@@ -219,7 +229,7 @@ public class ChosenObjectSettings extends BaseSiteSettingsFragment
             // them back to SingleCategorySettings which will now no longer offer the option to
             // examine the permissions for this object.
             if (mObjectInfos.isEmpty()) {
-                getActivity().finish();
+                getSettingsNavigation().finishCurrentSettings(ChosenObjectSettings.this);
             } else {
                 resetList();
             }
@@ -229,11 +239,11 @@ public class ChosenObjectSettings extends BaseSiteSettingsFragment
     /**
      * Refreshes the list of sites with access to the object being examined.
      *
-     * resetList() is called to refresh the view when the data is ready.
+     * <p>resetList() is called to refresh the view when the data is ready.
      */
     private void getInfo() {
         WebsitePermissionsFetcher fetcher =
-                new WebsitePermissionsFetcher(getSiteSettingsDelegate().getBrowserContextHandle());
+                new WebsitePermissionsFetcher(getSiteSettingsDelegate());
         fetcher.fetchPreferencesForCategory(mCategory, new ResultsPopulator());
     }
 
@@ -247,11 +257,10 @@ public class ChosenObjectSettings extends BaseSiteSettingsFragment
         ChromeImageViewPreference header = new ChromeImageViewPreference(getStyledContext());
         String titleText = mObjectInfos.get(0).getName();
         String dialogMsg =
-                String.format(
-                        getView()
-                                .getContext()
-                                .getString(R.string.chosen_object_website_reset_confirmation_for),
-                        titleText);
+                getView()
+                        .getContext()
+                        .getString(
+                                R.string.chosen_object_website_reset_confirmation_for, titleText);
 
         header.setTitle(titleText);
         header.setImageView(

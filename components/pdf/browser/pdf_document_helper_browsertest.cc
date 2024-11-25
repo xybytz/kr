@@ -5,6 +5,7 @@
 #include "components/pdf/browser/pdf_document_helper.h"
 
 #include "base/test/metrics/user_action_tester.h"
+#include "base/test/with_feature_override.h"
 #include "build/build_config.h"
 #include "components/pdf/browser/pdf_document_helper_client.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -15,10 +16,11 @@
 #include "content/shell/browser/shell.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "pdf/mojom/pdf.mojom.h"
+#include "pdf/pdf_features.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/base/pointer/touch_editing_controller.h"
 #include "ui/gfx/selection_bound.h"
+#include "ui/touch_selection/touch_editing_controller.h"
 
 namespace pdf {
 
@@ -39,6 +41,10 @@ class FakePdfListener : public pdf::mojom::PdfListener {
               SetSelectionBounds,
               (const gfx::PointF&, const gfx::PointF&),
               (override));
+  MOCK_METHOD(void,
+              GetPdfBytes,
+              (uint32_t, GetPdfBytesCallback callback),
+              (override));
 };
 
 class TestPDFDocumentHelperClient : public PDFDocumentHelperClient {
@@ -54,11 +60,6 @@ class TestPDFDocumentHelperClient : public PDFDocumentHelperClient {
 
  private:
   // PDFDocumentHelperClient:
-  content::RenderFrameHost* FindPdfFrame(
-      content::WebContents* contents) override {
-    return contents->GetPrimaryMainFrame();
-  }
-
   void UpdateContentRestrictions(content::RenderFrameHost* render_frame_host,
                                  int content_restrictions) override {}
   void OnPDFHasUnsupportedFeature(content::WebContents* contents) override {}
@@ -70,6 +71,7 @@ class TestPDFDocumentHelperClient : public PDFDocumentHelperClient {
     start_ = start;
     end_ = end;
   }
+  void OnSearchifyStarted(content::WebContents* contents) override {}
 
  private:
   // The last bounds reported by PDFDocumentHelper.
@@ -79,9 +81,11 @@ class TestPDFDocumentHelperClient : public PDFDocumentHelperClient {
 
 }  // namespace
 
-class PDFDocumentHelperTest : public content::ContentBrowserTest {
+class PDFDocumentHelperTest : public base::test::WithFeatureOverride,
+                              public content::ContentBrowserTest {
  public:
-  PDFDocumentHelperTest() = default;
+  PDFDocumentHelperTest()
+      : base::test::WithFeatureOverride(chrome_pdf::features::kPdfOopif) {}
   ~PDFDocumentHelperTest() override = default;
 
  protected:
@@ -124,7 +128,7 @@ class PDFDocumentHelperTest : public content::ContentBrowserTest {
   raw_ptr<TestPDFDocumentHelperClient> client_ = nullptr;
 };
 
-IN_PROC_BROWSER_TEST_F(PDFDocumentHelperTest, SetListenerTwice) {
+IN_PROC_BROWSER_TEST_P(PDFDocumentHelperTest, SetListenerTwice) {
   NiceMock<FakePdfListener> listener;
 
   {
@@ -140,7 +144,7 @@ IN_PROC_BROWSER_TEST_F(PDFDocumentHelperTest, SetListenerTwice) {
 
 // Tests that select-changed on a pdf text brings up selection handles and the
 // quick menu in the reasonable position.
-IN_PROC_BROWSER_TEST_F(PDFDocumentHelperTest, SelectionChanged) {
+IN_PROC_BROWSER_TEST_P(PDFDocumentHelperTest, SelectionChanged) {
   gfx::SelectionBound initial_start = client()->GetSelectionBoundStart();
   gfx::SelectionBound initial_end = client()->GetSelectionBoundEnd();
 
@@ -212,7 +216,7 @@ IN_PROC_BROWSER_TEST_F(PDFDocumentHelperTest, SelectionChanged) {
 }
 
 // When selecting something, only the copy command id should be enabled.
-IN_PROC_BROWSER_TEST_F(PDFDocumentHelperTest, IsCommandIdEnabledCopyEnabled) {
+IN_PROC_BROWSER_TEST_P(PDFDocumentHelperTest, IsCommandIdEnabledCopyEnabled) {
   EXPECT_FALSE(
       pdf_document_helper()->IsCommandIdEnabled(ui::TouchEditable::kCut));
   EXPECT_FALSE(
@@ -239,7 +243,7 @@ IN_PROC_BROWSER_TEST_F(PDFDocumentHelperTest, IsCommandIdEnabledCopyEnabled) {
 }
 
 // Test that the copy command executes.
-IN_PROC_BROWSER_TEST_F(PDFDocumentHelperTest, ExecuteCommandCopy) {
+IN_PROC_BROWSER_TEST_P(PDFDocumentHelperTest, ExecuteCommandCopy) {
   base::UserActionTester action_tester;
   EXPECT_EQ(0, action_tester.GetActionCount("Copy"));
 
@@ -248,11 +252,15 @@ IN_PROC_BROWSER_TEST_F(PDFDocumentHelperTest, ExecuteCommandCopy) {
   EXPECT_EQ(1, action_tester.GetActionCount("Copy"));
 }
 
-IN_PROC_BROWSER_TEST_F(PDFDocumentHelperTest, DefaultImplementation) {
+IN_PROC_BROWSER_TEST_P(PDFDocumentHelperTest, DefaultImplementation) {
   EXPECT_FALSE(pdf_document_helper()->SupportsAnimation());
   EXPECT_FALSE(pdf_document_helper()->CreateDrawable());
   EXPECT_FALSE(pdf_document_helper()->ShouldShowQuickMenu());
   EXPECT_TRUE(pdf_document_helper()->GetSelectedText().empty());
 }
+
+// TODO(crbug.com/40268279): Stop testing both modes after OOPIF PDF viewer
+// launches.
+INSTANTIATE_FEATURE_OVERRIDE_TEST_SUITE(PDFDocumentHelperTest);
 
 }  // namespace pdf

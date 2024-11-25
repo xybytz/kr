@@ -8,9 +8,9 @@
  * individually and for forgetting a host.
  */
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.js';
-import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
-import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
+import 'chrome://resources/ash/common/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_link_row/cr_link_row.js';
+import 'chrome://resources/ash/common/cr_elements/cr_shared_vars.css.js';
 import '../settings_shared.css.js';
 import '../settings_vars.css.js';
 import './multidevice_combined_setup_item.js';
@@ -28,9 +28,11 @@ import {DeepLinkingMixin} from '../common/deep_linking_mixin.js';
 import {isRevampWayfindingEnabled} from '../common/load_time_booleans.js';
 import {RouteObserverMixin} from '../common/route_observer_mixin.js';
 import {Setting} from '../mojom-webui/setting.mojom-webui.js';
-import {Route, routes} from '../router.js';
+import type {Route} from '../router.js';
+import {routes} from '../router.js';
 
-import {MultiDeviceBrowserProxy, MultiDeviceBrowserProxyImpl} from './multidevice_browser_proxy.js';
+import type {MultiDeviceBrowserProxy} from './multidevice_browser_proxy.js';
+import {MultiDeviceBrowserProxyImpl} from './multidevice_browser_proxy.js';
 import {MultiDeviceFeature, MultiDeviceSettingsMode, PhoneHubFeatureAccessProhibitedReason, PhoneHubPermissionsSetupFeatureCombination} from './multidevice_constants.js';
 import {MultiDeviceFeatureMixin} from './multidevice_feature_mixin.js';
 import {getTemplate} from './multidevice_subpage.html.js';

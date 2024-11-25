@@ -75,6 +75,7 @@ std::vector<std::unique_ptr<PasswordPromoCardBase>> GetAllPromoCardsForProfile(
   promo_cards.push_back(
       std::make_unique<RelaunchChromePromo>(profile->GetPrefs()));
 #endif
+
   return promo_cards;
 }
 

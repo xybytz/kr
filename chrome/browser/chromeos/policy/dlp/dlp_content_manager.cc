@@ -12,7 +12,6 @@
 #include "base/check.h"
 #include "base/check_op.h"
 #include "base/containers/contains.h"
-#include "base/containers/cxx20_erase.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
 #include "base/memory/weak_ptr.h"
@@ -30,7 +29,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "components/enterprise/data_controls/dlp_histogram_helper.h"
+#include "components/enterprise/data_controls/core/browser/dlp_histogram_helper.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
@@ -61,10 +60,8 @@ void ReportEvent(GURL url,
   DlpRulesManager::RuleMetadata rule_metadata;
   const std::string src_pattern = rules_manager->GetSourceUrlPattern(
       url, restriction, level, &rule_metadata);
-  if (src_pattern.empty()) {
-    LOG(ERROR) << "DlpContentManager failed to get the source URL pattern.";
-  }
-  reporting_manager->ReportEvent(src_pattern, restriction, level,
+  const std::string src_url = url.is_empty() ? src_pattern : url.spec();
+  reporting_manager->ReportEvent(src_url, restriction, level,
                                  rule_metadata.name,
                                  rule_metadata.obfuscated_id);
 }
@@ -104,7 +101,6 @@ const std::optional<std::string> RestrictionToWarnProceededUMASuffix(
     case DlpRulesManager::Restriction::kPrivacyScreen:
     case DlpRulesManager::Restriction::kFiles:
       NOTREACHED();
-      return std::nullopt;
   }
 }
 
@@ -380,11 +376,13 @@ void DlpContentManager::ScreenShareInfo::Resume() {
       web_contents_ && source_callback_) {
     content::RenderFrameHost* main_frame = web_contents_->GetPrimaryMainFrame();
     DCHECK(main_frame);
-    source_callback_.Run(content::DesktopMediaID(
-        content::DesktopMediaID::TYPE_WEB_CONTENTS,
-        content::DesktopMediaID::kNullId,
-        content::WebContentsMediaCaptureId(main_frame->GetProcess()->GetID(),
-                                           main_frame->GetRoutingID())));
+    source_callback_.Run(
+        content::DesktopMediaID(
+            content::DesktopMediaID::TYPE_WEB_CONTENTS,
+            content::DesktopMediaID::kNullId,
+            content::WebContentsMediaCaptureId(
+                main_frame->GetProcess()->GetID(), main_frame->GetRoutingID())),
+        captured_surface_control_active_);
     // Start after source will be changed and notified.
     pending_start_on_source_change_ = true;
   } else {
@@ -437,6 +435,10 @@ bool DlpContentManager::ScreenShareInfo::HasOpenDialogWidget() {
   return dialog_widget_ && !dialog_widget_->IsClosed();
 }
 
+void DlpContentManager::ScreenShareInfo::SetCapturedSurfaceControlActive() {
+  captured_surface_control_active_ = true;
+}
+
 base::WeakPtr<DlpContentManager::ScreenShareInfo>
 DlpContentManager::ScreenShareInfo::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();
@@ -478,13 +480,18 @@ void DlpContentManager::AddObserver(DlpContentManagerObserver* observer,
 void DlpContentManager::OnScreenShareSourceChanging(
     const std::string& label,
     const content::DesktopMediaID& old_media_id,
-    const content::DesktopMediaID& new_media_id) {
+    const content::DesktopMediaID& new_media_id,
+    bool captured_surface_control_active) {
   for (auto& screen_share : running_screen_shares_) {
     if (screen_share->label() == label &&
-        screen_share->media_id() == old_media_id &&
-        screen_share->new_media_id() != new_media_id) {
-      screen_share->ChangeStateBeforeSourceChange();
-      screen_share->set_new_media_id(new_media_id);
+        screen_share->media_id() == old_media_id) {
+      if (captured_surface_control_active) {
+        screen_share->SetCapturedSurfaceControlActive();
+      }
+      if (screen_share->new_media_id() != new_media_id) {
+        screen_share->ChangeStateBeforeSourceChange();
+        screen_share->set_new_media_id(new_media_id);
+      }
     }
   }
 }
@@ -540,12 +547,9 @@ void DlpContentManager::ReportWarningProceededEvent(
     DlpRulesManager::RuleMetadata rule_metadata;
     const std::string src_pattern = rules_manager->GetSourceUrlPattern(
         url, restriction, DlpRulesManager::Level::kWarn, &rule_metadata);
-    if (src_pattern.empty()) {
-      LOG(ERROR) << "DlpContentManager failed to get the source URL pattern.";
-    }
-    reporting_manager->ReportWarningProceededEvent(src_pattern, restriction,
-                                                   rule_metadata.name,
-                                                   rule_metadata.obfuscated_id);
+    const std::string src_url = url.is_empty() ? src_pattern : url.spec();
+    reporting_manager->ReportWarningProceededEvent(
+        src_url, restriction, rule_metadata.name, rule_metadata.obfuscated_id);
   }
 }
 
@@ -740,7 +744,7 @@ void DlpContentManager::AddOrUpdateScreenShare(
 void DlpContentManager::RemoveScreenShare(
     const std::string& label,
     const content::DesktopMediaID& media_id) {
-  base::EraseIf(
+  std::erase_if(
       running_screen_shares_,
       [=](const std::unique_ptr<ScreenShareInfo>& screen_share_info) -> bool {
         return screen_share_info->label() == label &&
@@ -952,7 +956,7 @@ void DlpContentManager::RemoveAllowedContents(
     DlpConfidentialContents& contents,
     DlpRulesManager::Restriction restriction) {
   base::EraseIf(
-      contents.GetContents(), [=](const DlpConfidentialContent& content) {
+      contents.GetContents(), [=, this](const DlpConfidentialContent& content) {
         return user_allowed_contents_cache_.Contains(content, restriction);
       });
 }

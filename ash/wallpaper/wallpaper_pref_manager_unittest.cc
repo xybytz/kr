@@ -5,8 +5,10 @@
 #include "ash/wallpaper/wallpaper_pref_manager.h"
 
 #include <string>
+#include <string_view>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/wallpaper/wallpaper_info.h"
 #include "ash/session/session_controller_impl.h"
@@ -17,6 +19,7 @@
 #include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/prefs/testing_pref_service.h"
@@ -51,64 +54,13 @@ WallpaperInfo InfoWithType(WallpaperType type) {
                        base::Time::Now());
 }
 
-base::Value CreateWallpaperInfoDict(WallpaperInfo info) {
-  base::Value::Dict wallpaper_info_dict;
-  if (info.asset_id.has_value()) {
-    wallpaper_info_dict.Set(WallpaperPrefManager::kNewWallpaperAssetIdNodeName,
-                            base::NumberToString(info.asset_id.value()));
-  }
-  if (info.dedup_key.has_value()) {
-    wallpaper_info_dict.Set(WallpaperPrefManager::kNewWallpaperDedupKeyNodeName,
-                            info.dedup_key.value());
-  }
-  if (info.unit_id.has_value()) {
-    wallpaper_info_dict.Set(WallpaperPrefManager::kNewWallpaperUnitIdNodeName,
-                            base::NumberToString(info.unit_id.value()));
-  }
-  base::Value::List online_wallpaper_variant_list;
-  for (const auto& variant : info.variants) {
-    base::Value::Dict online_wallpaper_variant_dict;
-    online_wallpaper_variant_dict.Set(
-        WallpaperPrefManager::kNewWallpaperAssetIdNodeName,
-        base::NumberToString(variant.asset_id));
-    online_wallpaper_variant_dict.Set(
-        WallpaperPrefManager::kOnlineWallpaperUrlNodeName,
-        variant.raw_url.spec());
-    online_wallpaper_variant_dict.Set(
-        WallpaperPrefManager::kOnlineWallpaperTypeNodeName,
-        static_cast<int>(variant.type));
-    online_wallpaper_variant_list.Append(
-        std::move(online_wallpaper_variant_dict));
-  }
-  wallpaper_info_dict.Set(
-      WallpaperPrefManager::kNewWallpaperVariantListNodeName,
-      std::move(online_wallpaper_variant_list));
-  wallpaper_info_dict.Set(
-      WallpaperPrefManager::kNewWallpaperCollectionIdNodeName,
-      info.collection_id);
-  wallpaper_info_dict.Set(WallpaperPrefManager::kNewWallpaperDateNodeName,
-                          base::NumberToString(info.date.ToInternalValue()));
-  wallpaper_info_dict.Set(WallpaperPrefManager::kNewWallpaperLocationNodeName,
-                          info.location);
-  wallpaper_info_dict.Set(
-      WallpaperPrefManager::kNewWallpaperUserFilePathNodeName,
-      info.user_file_path);
-  wallpaper_info_dict.Set(WallpaperPrefManager::kNewWallpaperLayoutNodeName,
-                          info.layout);
-  wallpaper_info_dict.Set(WallpaperPrefManager::kNewWallpaperTypeNodeName,
-                          static_cast<int>(info.type));
-  return base::Value(std::move(wallpaper_info_dict));
-}
-
 void PutWallpaperInfoInPrefs(AccountId account_id,
                              WallpaperInfo info,
                              PrefService* pref_service,
                              const std::string& pref_name) {
   DCHECK(pref_service);
   ScopedDictPrefUpdate wallpaper_update(pref_service, pref_name);
-  base::Value wallpaper_info_dict = CreateWallpaperInfoDict(info);
-  wallpaper_update->Set(account_id.GetUserEmail(),
-                        std::move(wallpaper_info_dict));
+  wallpaper_update->Set(account_id.GetUserEmail(), info.ToDict());
 }
 
 void AssertWallpaperInfoInPrefs(const PrefService* pref_service,
@@ -118,8 +70,7 @@ void AssertWallpaperInfoInPrefs(const PrefService* pref_service,
   const base::Value::Dict* stored_info_dict =
       pref_service->GetDict(pref_name).FindDict(account_id.GetUserEmail());
   DCHECK(stored_info_dict);
-  base::Value expected_info_dict = CreateWallpaperInfoDict(info);
-  EXPECT_EQ(expected_info_dict, *stored_info_dict);
+  EXPECT_EQ(info.ToDict(), *stored_info_dict);
 }
 
 std::string GetDummyFileName(const AccountId& account_id) {
@@ -140,8 +91,9 @@ class TestProfileHelper : public WallpaperProfileHelper {
   void SetClient(WallpaperControllerClient*) override {}
 
   PrefService* GetUserPrefServiceSyncable(const AccountId& id) override {
-    if (!is_sync_enabled)
+    if (!is_sync_enabled) {
       return nullptr;
+    }
 
     const auto& pref = synced_prefs_.find(id);
     return pref == synced_prefs_.end() ? nullptr : &(pref->second);
@@ -194,7 +146,7 @@ class WallpaperPrefManagerTestBase : public testing::Test {
     profile_helper_->RegisterPrefsForAccount(id);
   }
 
-  void StoreWallpaper(const AccountId& account_id, base::StringPiece location) {
+  void StoreWallpaper(const AccountId& account_id, std::string_view location) {
     WallpaperInfo info = InfoWithType(WallpaperType::kCustomized);
     info.location = std::string(location);
     ASSERT_TRUE(pref_manager_->SetUserWallpaperInfo(account_id, info));
@@ -217,7 +169,7 @@ class WallpaperPrefManagerTest : public WallpaperPrefManagerTestBase {
   WallpaperPrefManagerTest() = default;
 };
 
-TEST_F(WallpaperPrefManagerTest, GetWallpaperInfo_Normal) {
+TEST_F(WallpaperPrefManagerTest, GetWallpaperInfoNormal) {
   WallpaperInfo expected_info = InfoWithType(WallpaperType::kDaily);
   pref_manager_->SetUserWallpaperInfo(account_id_1, expected_info);
 
@@ -226,7 +178,7 @@ TEST_F(WallpaperPrefManagerTest, GetWallpaperInfo_Normal) {
   EXPECT_TRUE(actual_info.MatchesSelection(expected_info));
 }
 
-TEST_F(WallpaperPrefManagerTest, GetWallpaperInfo_Ephemeral) {
+TEST_F(WallpaperPrefManagerTest, GetWallpaperInfoEphemeral) {
   profile_helper_->is_ephemeral = true;
   WallpaperInfo expected_info = InfoWithType(WallpaperType::kDaily);
   pref_manager_->SetUserWallpaperInfo(account_id_1, expected_info);
@@ -236,12 +188,12 @@ TEST_F(WallpaperPrefManagerTest, GetWallpaperInfo_Ephemeral) {
   EXPECT_TRUE(actual_info.MatchesSelection(expected_info));
 }
 
-TEST_F(WallpaperPrefManagerTest, GetWallpaperInfoNothingToGet_Normal) {
+TEST_F(WallpaperPrefManagerTest, GetWallpaperInfoNothingToGetNormal) {
   WallpaperInfo info;
   EXPECT_FALSE(pref_manager_->GetUserWallpaperInfo(account_id_1, &info));
 }
 
-TEST_F(WallpaperPrefManagerTest, GetWallpaperInfoNothingToGet_Ephemeral) {
+TEST_F(WallpaperPrefManagerTest, GetWallpaperInfoNothingToGetEphemeral) {
   profile_helper_->is_ephemeral = true;
   WallpaperInfo info;
   EXPECT_FALSE(pref_manager_->GetUserWallpaperInfo(account_id_1, &info));
@@ -259,7 +211,17 @@ TEST_F(WallpaperPrefManagerTest,
   EXPECT_TRUE(actual_info.MatchesSelection(expected_info));
 }
 
-TEST_F(WallpaperPrefManagerTest, SetWallpaperInfo_EphemeralDoesNotChangeLocal) {
+TEST_F(WallpaperPrefManagerTest, RemoveUserWallpaperInfoEphemeral) {
+  profile_helper_->is_ephemeral = true;
+  WallpaperInfo expected_info = InfoWithType(WallpaperType::kDaily);
+  pref_manager_->SetUserWallpaperInfo(account_id_1, expected_info);
+
+  pref_manager_->RemoveUserWallpaperInfo(account_id_1);
+  WallpaperInfo actual_info;
+  EXPECT_FALSE(pref_manager_->GetUserWallpaperInfo(account_id_1, &actual_info));
+}
+
+TEST_F(WallpaperPrefManagerTest, SetWallpaperInfoEphemeralDoesNotChangeLocal) {
   profile_helper_->is_ephemeral = true;
   WallpaperInfo expected_info = InfoWithType(WallpaperType::kDaily);
   pref_manager_->SetUserWallpaperInfo(account_id_1, expected_info);
@@ -349,7 +311,7 @@ TEST_F(WallpaperPrefManagerTest, SetWallpaperInfoCustom) {
       prefs::kSyncableWallpaperInfo, account_id_1, synced_info);
 }
 
-TEST_F(WallpaperPrefManagerTest, GetNextDailyRefreshUpdate_Future) {
+TEST_F(WallpaperPrefManagerTest, GetNextDailyRefreshUpdateFuture) {
   profile_helper_->RegisterPrefsForAccount(account_id_1);
   base::Time time = base::Time::Now();
 
@@ -364,7 +326,7 @@ TEST_F(WallpaperPrefManagerTest, GetNextDailyRefreshUpdate_Future) {
                     Lt(base::Days(3) + base::Minutes(1))));
 }
 
-TEST_F(WallpaperPrefManagerTest, GetNextDailyRefreshUpdate_Past) {
+TEST_F(WallpaperPrefManagerTest, GetNextDailyRefreshUpdatePast) {
   profile_helper_->RegisterPrefsForAccount(account_id_1);
   base::Time time = base::Time::Now();
 
@@ -378,7 +340,7 @@ TEST_F(WallpaperPrefManagerTest, GetNextDailyRefreshUpdate_Past) {
             base::TimeDelta());
 }
 
-TEST_F(WallpaperPrefManagerTest, GetNextDailyRefreshUpdate_Recent) {
+TEST_F(WallpaperPrefManagerTest, GetNextDailyRefreshUpdateRecent) {
   profile_helper_->RegisterPrefsForAccount(account_id_1);
   base::Time time = base::Time::Now();
 
@@ -514,6 +476,94 @@ TEST_F(WallpaperPrefManagerTest, ShouldSyncIn) {
                                                   /*is_oobe=*/false));
   EXPECT_TRUE(WallpaperPrefManager::ShouldSyncIn(synced_info, local_info,
                                                  /*is_oobe=*/true));
+}
+
+TEST_F(WallpaperPrefManagerTest, ShouldNotSyncInIfLocalWallpaperIsSeaPen) {
+  WallpaperInfo local_info = InfoWithType(WallpaperType::kSeaPen);
+  WallpaperInfo synced_info = InfoWithType(WallpaperType::kDaily);
+  local_info.location = "6868";
+  EXPECT_FALSE(WallpaperPrefManager::ShouldSyncIn(synced_info, local_info,
+                                                  /*is_oobe=*/false));
+}
+
+// Verifies that creating a wallpaper info from prefs with an invalid layout
+// enum fails.
+TEST_F(WallpaperPrefManagerTest, GetSyncedWallpaperInfoInvalidLayoutEnum) {
+  profile_helper_->RegisterPrefsForAccount(account_id_1);
+
+  WallpaperInfo info = InfoWithType(WallpaperType::kCustomized);
+  base::Value::Dict wallpaper_info_dict = info.ToDict();
+
+  // Mangles pref data with invalid layout.
+  int invalid_layout = 1000;
+  wallpaper_info_dict.Set(WallpaperInfo::kNewWallpaperLayoutNodeName,
+                          invalid_layout);
+
+  PrefService* syncable_prefs =
+      profile_helper_->GetUserPrefServiceSyncable(account_id_1);
+  DCHECK(syncable_prefs);
+  ScopedDictPrefUpdate wallpaper_update(syncable_prefs,
+                                        prefs::kSyncableWallpaperInfo);
+  wallpaper_update->Set(account_id_1.GetUserEmail(),
+                        std::move(wallpaper_info_dict));
+  WallpaperInfo actual_info;
+  EXPECT_FALSE(
+      pref_manager_->GetSyncedWallpaperInfo(account_id_1, &actual_info));
+}
+
+// Verifies that creating a wallpaper info from prefs with an invalid wallpaper
+// type fails.
+TEST_F(WallpaperPrefManagerTest, GetSyncedWallpaperInfoInvalidWallpaperType) {
+  profile_helper_->RegisterPrefsForAccount(account_id_1);
+
+  WallpaperInfo info = InfoWithType(WallpaperType::kCustomized);
+  base::Value::Dict wallpaper_info_dict = info.ToDict();
+
+  // Mangles pref data with invalid wallpaper type.
+  int invalid_wallpaper_type = 1000;
+  wallpaper_info_dict.Set(WallpaperInfo::kNewWallpaperTypeNodeName,
+                          invalid_wallpaper_type);
+
+  PrefService* syncable_prefs =
+      profile_helper_->GetUserPrefServiceSyncable(account_id_1);
+  DCHECK(syncable_prefs);
+  ScopedDictPrefUpdate wallpaper_update(syncable_prefs,
+                                        prefs::kSyncableWallpaperInfo);
+  wallpaper_update->Set(account_id_1.GetUserEmail(),
+                        std::move(wallpaper_info_dict));
+  WallpaperInfo actual_info;
+  EXPECT_FALSE(
+      pref_manager_->GetSyncedWallpaperInfo(account_id_1, &actual_info));
+}
+
+// Verifies that creating a wallpaper info from prefs with an invalid online
+// variant type succeeds.
+TEST_F(WallpaperPrefManagerTest,
+       GetSyncedWallpaperInfo_InvalidOnlineVariantType) {
+  profile_helper_->RegisterPrefsForAccount(account_id_1);
+
+  WallpaperInfo info = InfoWithType(WallpaperType::kOnline);
+  std::vector<OnlineWallpaperVariant> variants;
+  // Mangles pref data with invalid wallpaper type.
+  variants.emplace_back(kAssetId, GURL(kDummyUrl),
+                        static_cast<backdrop::Image::ImageType>(
+                            backdrop::Image::IMAGE_TYPE_LIGHT_MODE + 1000));
+  info.variants = variants;
+  info.collection_id = "_test_collection_id";
+  info.asset_id = kAssetId;
+  info.unit_id = kAssetId;
+  base::Value::Dict wallpaper_info_dict = info.ToDict();
+
+  PrefService* syncable_prefs =
+      profile_helper_->GetUserPrefServiceSyncable(account_id_1);
+  DCHECK(syncable_prefs);
+  ScopedDictPrefUpdate wallpaper_update(syncable_prefs,
+                                        prefs::kSyncableWallpaperInfo);
+  wallpaper_update->Set(account_id_1.GetUserEmail(),
+                        std::move(wallpaper_info_dict));
+  WallpaperInfo actual_info;
+  EXPECT_TRUE(
+      pref_manager_->GetSyncedWallpaperInfo(account_id_1, &actual_info));
 }
 
 }  // namespace

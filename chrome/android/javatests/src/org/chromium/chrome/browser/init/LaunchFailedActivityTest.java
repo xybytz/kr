@@ -12,9 +12,7 @@ import android.os.Bundle;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.ContextUtils;
@@ -24,7 +22,6 @@ import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DoNotBatch;
 import org.chromium.chrome.browser.base.SplitCompatApplication;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.chrome.test.util.browser.Features;
 
 /**
  * Integration test suite for the failure to raise appropriate exceptions and launch a dialog when
@@ -33,7 +30,6 @@ import org.chromium.chrome.test.util.browser.Features;
 @RunWith(ChromeJUnit4ClassRunner.class)
 @DoNotBatch(reason = "This test interacts with startup.")
 public class LaunchFailedActivityTest {
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
 
     private static class MockContext extends ContextWrapper {
         public MockContext(Context context) {

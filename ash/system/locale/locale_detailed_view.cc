@@ -27,6 +27,7 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/styles/cros_tokens_color_mappings.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
@@ -42,9 +43,9 @@ namespace {
 // |display_name| is shown in the middle. A checkmark is shown in the end if
 // |checked| is true.
 class LocaleItemView : public views::Button {
- public:
-  METADATA_HEADER(LocaleItemView);
+  METADATA_HEADER(LocaleItemView, views::Button)
 
+ public:
   LocaleItemView(LocaleDetailedView* locale_detailed_view,
                  const std::string& iso_code,
                  const std::u16string& display_name,
@@ -88,7 +89,11 @@ class LocaleItemView : public views::Button {
           kMenuIconSize));
       tri_view->AddView(TriView::Container::END, checked_image);
     }
-    SetAccessibleName(display_name_view->GetText());
+    GetViewAccessibility().SetName(display_name_view->GetText());
+    GetViewAccessibility().SetRole(ax::mojom::Role::kCheckBox);
+    GetViewAccessibility().SetCheckedState(
+        checked_ ? ax::mojom::CheckedState::kTrue
+                 : ax::mojom::CheckedState::kFalse);
   }
   LocaleItemView(const LocaleItemView&) = delete;
   LocaleItemView& operator=(const LocaleItemView&) = delete;
@@ -104,19 +109,12 @@ class LocaleItemView : public views::Button {
     ScrollViewToVisible();
   }
 
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
-    views::Button::GetAccessibleNodeData(node_data);
-    node_data->role = ax::mojom::Role::kCheckBox;
-    node_data->SetCheckedState(checked_ ? ax::mojom::CheckedState::kTrue
-                                        : ax::mojom::CheckedState::kFalse);
-  }
-
  private:
   raw_ptr<LocaleDetailedView> locale_detailed_view_;
   const bool checked_;
 };
 
-BEGIN_METADATA(LocaleItemView, views::Button)
+BEGIN_METADATA(LocaleItemView)
 END_METADATA
 
 }  // namespace
@@ -150,7 +148,7 @@ void LocaleDetailedView::CreateItems() {
     id_to_locale_[id] = entry.iso_code;
     ++id;
   }
-  Layout();
+  DeprecatedLayoutImmediately();
 }
 
 void LocaleDetailedView::HandleViewClicked(views::View* view) {
@@ -169,7 +167,7 @@ views::View* LocaleDetailedView::GetScrollContentForTest() {
   return scroll_content();
 }
 
-BEGIN_METADATA(LocaleDetailedView, TrayDetailedView)
+BEGIN_METADATA(LocaleDetailedView)
 END_METADATA
 
 }  // namespace ash

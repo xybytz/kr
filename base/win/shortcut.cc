@@ -5,6 +5,7 @@
 #include "base/win/shortcut.h"
 
 #include <objbase.h>
+
 #include <propkey.h>
 #include <shlobj.h>
 #include <wrl/client.h>
@@ -86,7 +87,6 @@ bool CreateOrUpdateShortcutLink(const FilePath& shortcut_path,
   if (operation != ShortcutOperation::kUpdateExisting &&
       !(properties.options & ShortcutProperties::PROPERTIES_TARGET)) {
     NOTREACHED();
-    return false;
   }
 
   bool shortcut_existed = PathExists(shortcut_path);
@@ -204,7 +204,7 @@ bool CreateOrUpdateShortcutLink(const FilePath& shortcut_path,
     return false;
 
   SHChangeNotify(shortcut_existed ? SHCNE_UPDATEITEM : SHCNE_CREATE,
-                 SHCNF_PATH | SHCNF_FLUSHNOWAIT, shortcut_path.value().c_str(),
+                 SHCNF_PATH | SHCNF_FLUSH, shortcut_path.value().c_str(),
                  nullptr);
 
   return true;
@@ -289,15 +289,22 @@ bool ResolveShortcutProperties(const FilePath& shortcut_path,
         return false;
       }
       switch (pv_app_id.get().vt) {
-        case VT_EMPTY:
+        case VT_EMPTY: {
           properties->set_app_id(std::wstring());
           break;
-        case VT_LPWSTR:
+        }
+        case VT_LPWSTR: {
           properties->set_app_id(pv_app_id.get().pwszVal);
           break;
-        default:
+        }
+        case VT_BSTR: {
+          BSTR bs = pv_app_id.get().bstrVal;
+          properties->set_app_id(std::wstring(bs, ::SysStringLen(bs)));
+          break;
+        }
+        default: {
           NOTREACHED() << "Unexpected variant type: " << pv_app_id.get().vt;
-          return false;
+        }
       }
     }
 
@@ -316,7 +323,6 @@ bool ResolveShortcutProperties(const FilePath& shortcut_path,
           break;
         default:
           NOTREACHED() << "Unexpected variant type: " << pv_dual_mode.get().vt;
-          return false;
       }
     }
 
@@ -338,7 +344,6 @@ bool ResolveShortcutProperties(const FilePath& shortcut_path,
         default:
           NOTREACHED() << "Unexpected variant type: "
                        << pv_toast_activator_clsid.get().vt;
-          return false;
       }
     }
   }

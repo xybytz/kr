@@ -9,11 +9,12 @@
 #import "ios/chrome/browser/push_notification/model/push_notification_account_context_manager+testing.h"
 #import "ios/chrome/browser/push_notification/model/push_notification_client_id.h"
 #import "ios/chrome/browser/shared/model/application_context/application_context.h"
-#import "ios/chrome/browser/shared/model/browser_state/browser_state_info_cache.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state_manager.h"
-#import "ios/chrome/test/testing_application_context.h"
+#import "ios/chrome/browser/shared/model/profile/profile_attributes_ios.h"
+#import "ios/chrome/browser/shared/model/profile/profile_attributes_storage_ios.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_manager_ios.h"
+#import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/platform_test.h"
 
@@ -23,20 +24,33 @@ struct TestCase {
   std::string gaia;
 };
 
-// Iterates through the testcases and creates a new BrowserState for each
-// testcase's gaia ID in the info_cache and adds it to the
-// AccountContextManager. In addition, this function validates that the
-// testcases were added to the AccountContextManager.
+// Updates information about a Profile into `storage`.
+void UpdateProfileAuthInfo(ProfileAttributesStorageIOS* storage,
+                           const std::string& profile_name,
+                           const std::string& gaia) {
+  storage->UpdateAttributesForProfileWithName(
+      profile_name, base::BindOnce(
+                        [](const std::string& gaia, ProfileAttributesIOS attr) {
+                          attr.SetAuthenticationInfo(gaia, std::string());
+                          return attr;
+                        },
+                        gaia));
+}
+
+// Iterates through the testcases and creates a new Profile for each
+// testcase's gaia ID in storage and adds it to the AccountContextManager. In
+// addition, this function validates that the testcases were added to the
+// AccountContextManager.
 template <unsigned long N>
 void AddTestCasesToManagerAndValidate(
     PushNotificationAccountContextManager* manager,
     const TestCase (&test_cases)[N],
-    BrowserStateInfoCache* info_cache,
-    base::FilePath path) {
-  // Construct the BrowserStates with the given gaia id and add the gaia id into
+    ProfileAttributesStorageIOS* storage,
+    const std::string& profile_name) {
+  // Construct the Profiles with the given gaia id and add the gaia id into
   // the AccountContextManager.
   for (const TestCase& test_case : test_cases) {
-    info_cache->AddBrowserState(path, test_case.gaia, std::u16string());
+    UpdateProfileAuthInfo(storage, profile_name, test_case.gaia);
     [manager addAccount:test_case.gaia];
   }
 
@@ -58,39 +72,35 @@ void AddTestCasesToManagerAndValidate(
 class PushNotificationAccountContextManagerTest : public PlatformTest {
  public:
   PushNotificationAccountContextManagerTest() {
-    test_chrome_browser_state_ = TestChromeBrowserState::Builder().Build();
-    default_browser_state_file_path_ =
-        test_chrome_browser_state_->GetStatePath();
-    test_manager_ = std::make_unique<TestChromeBrowserStateManager>(
-        std::move(test_chrome_browser_state_));
-    TestingApplicationContext::GetGlobal()->SetChromeBrowserStateManager(
-        test_manager_.get());
+    profile_ =
+        profile_manager_.AddProfileWithBuilder(TestProfileIOS::Builder());
 
-    browser_state_info()->RemoveBrowserState(default_browser_state_file_path_);
     manager_ = [[PushNotificationAccountContextManager alloc]
-        initWithChromeBrowserStateManager:test_manager_.get()];
+        initWithProfileManager:&profile_manager_];
   }
 
-  BrowserStateInfoCache* browser_state_info() const {
+  ProfileAttributesStorageIOS* profile_attributes_storage() const {
     return GetApplicationContext()
-        ->GetChromeBrowserStateManager()
-        ->GetBrowserStateInfoCache();
+        ->GetProfileManager()
+        ->GetProfileAttributesStorage();
   }
+
+  const std::string& profile_name() const { return profile_->GetProfileName(); }
 
  protected:
   web::WebTaskEnvironment task_environment_;
+  IOSChromeScopedTestingLocalState scoped_testing_local_state_;
+  TestProfileManagerIOS profile_manager_;
+  raw_ptr<ProfileIOS> profile_;
   PushNotificationAccountContextManager* manager_;
-  std::unique_ptr<ChromeBrowserState> test_chrome_browser_state_;
-  std::unique_ptr<ios::ChromeBrowserStateManager> test_manager_;
-  base::FilePath default_browser_state_file_path_;
 };
 
 // This test ensures that the AccountContextManager can store a new account ID.
 TEST_F(PushNotificationAccountContextManagerTest, AddAccount) {
   static const TestCase kTestCase[] = {{"0"}};
 
-  AddTestCasesToManagerAndValidate(manager_, kTestCase, browser_state_info(),
-                                   default_browser_state_file_path_);
+  AddTestCasesToManagerAndValidate(
+      manager_, kTestCase, profile_attributes_storage(), profile_name());
 }
 
 // This test ensures that the AccountContextManager can store multiple new
@@ -98,8 +108,8 @@ TEST_F(PushNotificationAccountContextManagerTest, AddAccount) {
 TEST_F(PushNotificationAccountContextManagerTest, AddMultipleAccounts) {
   static const TestCase kTestCase[] = {{"0"}, {"1"}, {"2"}, {"3"}, {"4"}};
 
-  AddTestCasesToManagerAndValidate(manager_, kTestCase, browser_state_info(),
-                                   default_browser_state_file_path_);
+  AddTestCasesToManagerAndValidate(
+      manager_, kTestCase, profile_attributes_storage(), profile_name());
 }
 
 // This test ensures that new entries in the context map are not added for
@@ -109,12 +119,12 @@ TEST_F(PushNotificationAccountContextManagerTest, AddDuplicates) {
 
   static const TestCase kNoDuplicatesTestCase[] = {{"1"}, {"2"}, {"2"}};
 
-  AddTestCasesToManagerAndValidate(manager_, kTestCase, browser_state_info(),
-                                   default_browser_state_file_path_);
+  AddTestCasesToManagerAndValidate(
+      manager_, kTestCase, profile_attributes_storage(), profile_name());
 
   for (const TestCase& test_case : kNoDuplicatesTestCase) {
-    browser_state_info()->AddBrowserState(default_browser_state_file_path_,
-                                          test_case.gaia, std::u16string());
+    UpdateProfileAuthInfo(profile_attributes_storage(), profile_name(),
+                          test_case.gaia);
     [manager_ addAccount:test_case.gaia];
   }
 
@@ -142,13 +152,12 @@ TEST_F(PushNotificationAccountContextManagerTest, RemoveAccount) {
 
   const TestCase kRemovalTestCase = {"5"};
 
-  AddTestCasesToManagerAndValidate(manager_, kTestCase, browser_state_info(),
-                                   default_browser_state_file_path_);
+  AddTestCasesToManagerAndValidate(
+      manager_, kTestCase, profile_attributes_storage(), profile_name());
 
   // Add the testcase we would like to check for its removal into the manager.
-  browser_state_info()->AddBrowserState(default_browser_state_file_path_,
-                                        kRemovalTestCase.gaia,
-                                        std::u16string());
+  UpdateProfileAuthInfo(profile_attributes_storage(), profile_name(),
+                        kRemovalTestCase.gaia);
   [manager_ addAccount:kRemovalTestCase.gaia];
 
   // Remove the testcase
@@ -173,12 +182,12 @@ TEST_F(PushNotificationAccountContextManagerTest, RemoveMultipleAccounts) {
 
   static const TestCase kRemovalTestCase[] = {{"5"}, {"6"}, {"7"}};
 
-  AddTestCasesToManagerAndValidate(manager_, kTestCase, browser_state_info(),
-                                   default_browser_state_file_path_);
+  AddTestCasesToManagerAndValidate(
+      manager_, kTestCase, profile_attributes_storage(), profile_name());
 
   for (const TestCase& test_case : kRemovalTestCase) {
-    browser_state_info()->AddBrowserState(default_browser_state_file_path_,
-                                          test_case.gaia, std::u16string());
+    UpdateProfileAuthInfo(profile_attributes_storage(), profile_name(),
+                          test_case.gaia);
     [manager_ addAccount:test_case.gaia];
   }
   for (const TestCase& test_case : kRemovalTestCase) {
@@ -204,17 +213,16 @@ TEST_F(PushNotificationAccountContextManagerTest, AddDuplicateThenRemove) {
   const TestCase kRemovalTestCase = {"5"};
   static const TestCase kNoDuplicatesTestCase[] = {kRemovalTestCase};
 
-  AddTestCasesToManagerAndValidate(manager_, kTestCase, browser_state_info(),
-                                   default_browser_state_file_path_);
+  AddTestCasesToManagerAndValidate(
+      manager_, kTestCase, profile_attributes_storage(), profile_name());
 
-  browser_state_info()->AddBrowserState(default_browser_state_file_path_,
-                                        kRemovalTestCase.gaia,
-                                        std::u16string());
+  UpdateProfileAuthInfo(profile_attributes_storage(), profile_name(),
+                        kRemovalTestCase.gaia);
   [manager_ addAccount:kRemovalTestCase.gaia];
 
   for (const TestCase& test_case : kNoDuplicatesTestCase) {
-    browser_state_info()->AddBrowserState(default_browser_state_file_path_,
-                                          test_case.gaia, std::u16string());
+    UpdateProfileAuthInfo(profile_attributes_storage(), profile_name(),
+                          test_case.gaia);
     [manager_ addAccount:test_case.gaia];
   }
 
@@ -243,16 +251,16 @@ TEST_F(PushNotificationAccountContextManagerTest, AddDuplicateThenRemove) {
 TEST_F(PushNotificationAccountContextManagerTest, UpdatePreferences) {
   static const TestCase kTestCase[] = {{"0"}, {"1"}, {"2"}, {"3"}, {"4"}};
 
-  AddTestCasesToManagerAndValidate(manager_, kTestCase, browser_state_info(),
-                                   default_browser_state_file_path_);
+  AddTestCasesToManagerAndValidate(
+      manager_, kTestCase, profile_attributes_storage(), profile_name());
 
   static const TestCase kUpdateTestCase[] = {{"0"}, {"2"}, {"4"}};
 
   PushNotificationClientId clientID = PushNotificationClientId::kCommerce;
 
   for (const TestCase& test_case : kTestCase) {
-    browser_state_info()->AddBrowserState(default_browser_state_file_path_,
-                                          test_case.gaia, std::u16string());
+    UpdateProfileAuthInfo(profile_attributes_storage(), profile_name(),
+                          test_case.gaia);
     [manager_ enablePushNotification:clientID forAccount:test_case.gaia];
     ASSERT_EQ([manager_ isPushNotificationEnabledForClient:clientID
                                                 forAccount:test_case.gaia],
@@ -260,8 +268,8 @@ TEST_F(PushNotificationAccountContextManagerTest, UpdatePreferences) {
   }
 
   for (const TestCase& test_case : kUpdateTestCase) {
-    browser_state_info()->AddBrowserState(default_browser_state_file_path_,
-                                          test_case.gaia, std::u16string());
+    UpdateProfileAuthInfo(profile_attributes_storage(), profile_name(),
+                          test_case.gaia);
     [manager_ disablePushNotification:clientID forAccount:test_case.gaia];
     ASSERT_EQ([manager_ isPushNotificationEnabledForClient:clientID
                                                 forAccount:test_case.gaia],

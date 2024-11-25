@@ -23,9 +23,9 @@ class DeskBarViewBase;
 // A button view in the desks bar with an icon. The button have three different
 // states, and the three states are interchangeable.
 class ASH_EXPORT DeskIconButton : public DeskButtonBase {
- public:
-  METADATA_HEADER(DeskIconButton);
+  METADATA_HEADER(DeskIconButton, DeskButtonBase)
 
+ public:
   // The enum class defines three states for the button. The button at different
   // states has different sizes. Any state could be transformed into another
   // state under certain conditions.
@@ -50,7 +50,8 @@ class ASH_EXPORT DeskIconButton : public DeskButtonBase {
                  ui::ColorId icon_color_id,
                  ui::ColorId background_color_id,
                  bool initially_enabled,
-                 base::RepeatingClosure callback);
+                 base::RepeatingClosure callback,
+                 base::RepeatingClosure state_change_callback);
   DeskIconButton(const DeskIconButton&) = delete;
   DeskIconButton& operator=(const DeskIconButton&) = delete;
   ~DeskIconButton() override;
@@ -78,11 +79,15 @@ class ASH_EXPORT DeskIconButton : public DeskButtonBase {
 
   bool IsPointOnButton(const gfx::Point& screen_location) const;
 
+  void UpdateFocusState();
+
   // DeskButtonBase:
-  gfx::Size CalculatePreferredSize() const override;
+  void OnFocus() override;
+  void OnBlur() override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
   // Updates the focus ring based on the dragged item's position and
   // `paint_as_active_`.
-  void UpdateFocusState() override;
   void OnThemeChanged() override;
   void StateChanged(ButtonState old_state) override;
 
@@ -107,6 +112,7 @@ class ASH_EXPORT DeskIconButton : public DeskButtonBase {
   const raw_ptr<const gfx::VectorIcon> button_icon_;
   const ui::ColorId icon_color_id_;
   const ui::ColorId background_color_id_;
+  const base::RepeatingClosure state_change_callback_;
 
   std::optional<ui::ColorId> focus_color_id_;
 

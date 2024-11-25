@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/containers/contains.h"
+#include "base/containers/span.h"
 #include "base/files/file_util.h"
 #include "base/rand_util.h"
 #include "base/strings/strcat.h"
@@ -57,7 +58,6 @@ class HostResolverFactory final : public net::HostResolver::Factory {
       std::string_view host_mapping_rules,
       bool enable_caching) override {
     NOTREACHED();
-    return nullptr;
   }
 
  private:
@@ -112,10 +112,11 @@ mojom::NetworkContextParamsPtr CreateNetworkContextParams() {
 std::string Read(mojo::ScopedDataPipeConsumerHandle readable) {
   std::string output;
   while (true) {
-    char buffer[1024];
-    uint32_t size = sizeof(buffer);
-    MojoResult result =
-        readable->ReadData(buffer, &size, MOJO_READ_DATA_FLAG_NONE);
+    std::string buffer(1024, '\0');
+    size_t actually_read_bytes = 0;
+    MojoResult result = readable->ReadData(MOJO_READ_DATA_FLAG_NONE,
+                                           base::as_writable_byte_span(buffer),
+                                           actually_read_bytes);
     if (result == MOJO_RESULT_SHOULD_WAIT) {
       base::RunLoop run_loop;
       base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
@@ -127,7 +128,7 @@ std::string Read(mojo::ScopedDataPipeConsumerHandle readable) {
       return output;
     }
     DCHECK_EQ(result, MOJO_RESULT_OK);
-    output.append(buffer, size);
+    output.append(std::string_view(buffer).substr(0, actually_read_bytes));
   }
 }
 
@@ -146,8 +147,8 @@ class TestHandshakeClient final : public mojom::WebTransportHandshakeClient {
   void OnConnectionEstablished(
       mojo::PendingRemote<mojom::WebTransport> transport,
       mojo::PendingReceiver<mojom::WebTransportClient> client_receiver,
-      const scoped_refptr<net::HttpResponseHeaders>& response_headers)
-      override {
+      const scoped_refptr<net::HttpResponseHeaders>& response_headers,
+      mojom::WebTransportStatsPtr initial_stats) override {
     transport_ = std::move(transport);
     client_receiver_ = std::move(client_receiver);
     has_seen_connection_establishment_ = true;
@@ -156,7 +157,7 @@ class TestHandshakeClient final : public mojom::WebTransportHandshakeClient {
   }
 
   void OnHandshakeFailed(
-      const absl::optional<net::WebTransportError>& error) override {
+      const std::optional<net::WebTransportError>& error) override {
     has_seen_handshake_failure_ = true;
     handshake_error_ = error;
     receiver_.reset();
@@ -183,7 +184,7 @@ class TestHandshakeClient final : public mojom::WebTransportHandshakeClient {
   bool has_seen_mojo_connection_error() const {
     return has_seen_mojo_connection_error_;
   }
-  absl::optional<net::WebTransportError> handshake_error() const {
+  std::optional<net::WebTransportError> handshake_error() const {
     return handshake_error_;
   }
 
@@ -196,7 +197,7 @@ class TestHandshakeClient final : public mojom::WebTransportHandshakeClient {
   bool has_seen_connection_establishment_ = false;
   bool has_seen_handshake_failure_ = false;
   bool has_seen_mojo_connection_error_ = false;
-  absl::optional<net::WebTransportError> handshake_error_;
+  std::optional<net::WebTransportError> handshake_error_;
 };
 
 class TestClient final : public mojom::WebTransportClient {
@@ -226,7 +227,8 @@ class TestClient final : public mojom::WebTransportClient {
   }
   void OnReceivedResetStream(uint32_t stream_id, uint32_t) override {}
   void OnReceivedStopSending(uint32_t stream_id, uint32_t) override {}
-  void OnClosed(mojom::WebTransportCloseInfoPtr close_info) override {}
+  void OnClosed(mojom::WebTransportCloseInfoPtr close_info,
+                mojom::WebTransportStatsPtr final_stats) override {}
 
   void WaitUntilMojoConnectionError() {
     base::RunLoop run_loop;
@@ -396,8 +398,8 @@ class WebTransportTest : public testing::TestWithParam<std::string_view> {
 
   std::unique_ptr<NetworkContext> network_context_;
 
-  std::unique_ptr<net::QuicSimpleServer> http_server_;
   quic::test::QuicTestBackend backend_;
+  std::unique_ptr<net::QuicSimpleServer> http_server_;
 };
 
 TEST_F(WebTransportTest, ConnectSuccessfully) {
@@ -560,9 +562,11 @@ TEST_F(WebTransportTest, EchoOnUnidirectionalStreams) {
   ASSERT_EQ(MOJO_RESULT_OK,
             mojo::CreateDataPipe(&options, writable_for_outgoing,
                                  readable_for_outgoing));
-  uint32_t size = 5;
-  ASSERT_EQ(MOJO_RESULT_OK, writable_for_outgoing->WriteData(
-                                "hello", &size, MOJO_WRITE_DATA_FLAG_NONE));
+  size_t actually_written_bytes = 0;
+  ASSERT_EQ(MOJO_RESULT_OK,
+            writable_for_outgoing->WriteData(
+                base::byte_span_from_cstring("hello"),
+                MOJO_WRITE_DATA_FLAG_NONE, actually_written_bytes));
 
   base::RunLoop run_loop_for_stream_creation;
   uint32_t stream_id;
@@ -688,9 +692,11 @@ TEST_F(WebTransportTest, DISABLED_EchoOnBidirectionalStream) {
   ASSERT_EQ(MOJO_RESULT_OK,
             mojo::CreateDataPipe(&options, writable_for_incoming,
                                  readable_for_incoming));
-  uint32_t size = 5;
-  ASSERT_EQ(MOJO_RESULT_OK, writable_for_outgoing->WriteData(
-                                "hello", &size, MOJO_WRITE_DATA_FLAG_NONE));
+  size_t actually_written_bytes = 0;
+  ASSERT_EQ(MOJO_RESULT_OK,
+            writable_for_outgoing->WriteData(
+                base::byte_span_from_cstring("hello"),
+                MOJO_WRITE_DATA_FLAG_NONE, actually_written_bytes));
 
   base::RunLoop run_loop_for_stream_creation;
   uint32_t stream_id;

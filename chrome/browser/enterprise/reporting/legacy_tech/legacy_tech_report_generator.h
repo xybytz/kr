@@ -13,7 +13,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "components/enterprise/browser/reporting/real_time_report_generator.h"
-#include "components/enterprise/common/proto/legacy_tech_events.pb.h"
+#include "components/enterprise/common/proto/synced/legacy_tech_events.pb.h"
 #include "content/public/browser/legacy_tech_cookie_issue_details.h"
 #include "url/gurl.h"
 
@@ -24,7 +24,6 @@ class LegacyTechReportGenerator {
   struct LegacyTechData : public RealTimeReportGenerator::Data {
     LegacyTechData();
     LegacyTechData(const std::string& type,
-                   const base::Time& timestamp,
                    const GURL& url,
                    const GURL& frame_url,
                    const std::string& matched_url,
@@ -42,7 +41,6 @@ class LegacyTechReportGenerator {
     bool operator==(const LegacyTechData& other) const;
 
     std::string type;
-    base::Time timestamp;
     GURL url;
     GURL frame_url;
     std::string matched_url;

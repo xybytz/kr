@@ -20,8 +20,11 @@ class FakeAutocompleteControllerObserver
  public:
   void OnResultChanged(AutocompleteController* controller,
                        bool default_match_changed) override;
+  void OnAutocompleteStopTimerTriggered(
+      const AutocompleteInput& input) override;
   int on_result_changed_call_count_ = 0;
   bool last_default_match_changed = false;
+  int on_autocomplete_stop_timer_stopped_call_count = 0;
 };
 
 class FakeAutocompleteController : public AutocompleteController {
@@ -83,7 +86,9 @@ class FakeAutocompleteController : public AutocompleteController {
       AutocompleteController::UpdateType last_update_type);
 
   // Verifies the controller stops after `delay_ms` with no notification.
-  void ExpectStopAfter(int delay_ms);
+  // `explicit_stop` is whether the stop was user triggered, rather than the
+  // stop timer triggering `Stop()`.
+  void ExpectStopAfter(int delay_ms, bool explicit_stop = false);
 
   // Verifies neither a notification nor stop occur.
   void ExpectNoNotificationOrStop();
@@ -93,6 +98,7 @@ class FakeAutocompleteController : public AutocompleteController {
 
   // AutocompleteController (methods):
   using AutocompleteController::MaybeRemoveCompanyEntityImages;
+  using AutocompleteController::ShouldRunProvider;
   using AutocompleteController::UpdateResult;
 
   // AutocompleteController (fields):
@@ -102,6 +108,7 @@ class FakeAutocompleteController : public AutocompleteController {
   using AutocompleteController::metrics_;
   using AutocompleteController::providers_;
   using AutocompleteController::published_result_;
+  using AutocompleteController::template_url_service_;
 
   // Used to verify the correct number of notifications occur.
   std::unique_ptr<FakeAutocompleteControllerObserver> observer_;

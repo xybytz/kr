@@ -56,7 +56,6 @@ static std::string PermissionTypeToString(WebViewPermissionType type) {
       return webview::kPermissionTypePointerLock;
     default:
       NOTREACHED();
-      return std::string();
   }
 }
 
@@ -161,8 +160,7 @@ void RecordUserInitiatedUMA(
 
 WebViewPermissionHelper::WebViewPermissionHelper(WebViewGuest* web_view_guest)
     : next_permission_request_id_(guest_view::kInstanceIDNone),
-      web_view_guest_(web_view_guest),
-      default_media_access_permission_(false) {
+      web_view_guest_(web_view_guest) {
   web_view_permission_helper_delegate_.reset(
       ExtensionsAPIClient::Get()->CreateWebViewPermissionHelperDelegate(this));
 }
@@ -198,7 +196,16 @@ void WebViewPermissionHelper::RequestMediaAccessPermission(
       WEB_VIEW_PERMISSION_TYPE_MEDIA, std::move(request_info),
       base::BindOnce(&WebViewPermissionHelper::OnMediaPermissionResponse,
                      weak_factory_.GetWeakPtr(), request, std::move(callback)),
-      default_media_access_permission_);
+      /*allowed_by_default=*/false);
+}
+
+void WebViewPermissionHelper::RequestMediaAccessPermissionForControlledFrame(
+    content::WebContents* source,
+    const content::MediaStreamRequest& request,
+    content::MediaResponseCallback callback) {
+  web_view_permission_helper_delegate_
+      ->RequestMediaAccessPermissionForControlledFrame(source, request,
+                                                       std::move(callback));
 }
 
 bool WebViewPermissionHelper::CheckMediaAccessPermission(
@@ -216,6 +223,15 @@ bool WebViewPermissionHelper::CheckMediaAccessPermission(
                                        ->GetGuestMainFrame()
                                        ->GetParentOrOuterDocumentOrEmbedder(),
                                    security_origin, type);
+}
+
+bool WebViewPermissionHelper::CheckMediaAccessPermissionForControlledFrame(
+    content::RenderFrameHost* render_frame_host,
+    const url::Origin& security_origin,
+    blink::mojom::MediaStreamType type) {
+  return web_view_permission_helper_delegate_
+      ->CheckMediaAccessPermissionForControlledFrame(render_frame_host,
+                                                     security_origin, type);
 }
 
 void WebViewPermissionHelper::OnMediaPermissionResponse(
@@ -256,10 +272,9 @@ void WebViewPermissionHelper::CanDownload(
 
 void WebViewPermissionHelper::RequestPointerLockPermission(
     bool user_gesture,
-    bool last_unlocked_by_target,
-    base::OnceCallback<void(bool)> callback) {
+    bool last_unlocked_by_target) {
   web_view_permission_helper_delegate_->RequestPointerLockPermission(
-      user_gesture, last_unlocked_by_target, std::move(callback));
+      user_gesture, last_unlocked_by_target);
 }
 
 void WebViewPermissionHelper::RequestGeolocationPermission(
@@ -289,6 +304,13 @@ void WebViewPermissionHelper::RequestFileSystemPermission(
     base::OnceCallback<void(bool)> callback) {
   web_view_permission_helper_delegate_->RequestFileSystemPermission(
       url, allowed_by_default, std::move(callback));
+}
+
+void WebViewPermissionHelper::RequestFullscreenPermission(
+    const url::Origin& requesting_origin,
+    PermissionResponseCallback callback) {
+  web_view_permission_helper_delegate_->RequestFullscreenPermission(
+      requesting_origin, std::move(callback));
 }
 
 int WebViewPermissionHelper::RequestPermission(

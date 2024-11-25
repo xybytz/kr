@@ -90,7 +90,7 @@ constexpr char kHelpMsg[] =
 void ComputeAndPrintMD5hash(const std::vector<uint8_t>& yuv_plane,
                             const base::FilePath md5_log_location) {
   base::MD5Digest md5_digest;
-  base::MD5Sum(yuv_plane.data(), yuv_plane.size(), &md5_digest);
+  base::MD5Sum(yuv_plane, &md5_digest);
   std::string md5_digest_b16 = MD5DigestToBase16(md5_digest);
 
   if (!md5_log_location.empty()) {
@@ -205,8 +205,9 @@ int main(int argc, char** argv) {
     std::vector<uint8_t> u_plane;
     std::vector<uint8_t> v_plane;
     gfx::Size size;
+    VideoDecoder::BitDepth bit_depth;
     const VideoDecoder::Result res =
-        dec->DecodeNextFrame(i, y_plane, u_plane, v_plane, size);
+        dec->DecodeNextFrame(i, y_plane, u_plane, v_plane, size, bit_depth);
     if (res == VideoDecoder::kEOStream) {
       VLOG(1) << "End of stream.";
       break;
@@ -238,7 +239,7 @@ int main(int argc, char** argv) {
                         yuv_plane.size());
     } else {
       std::vector<uint8_t> image_buffer = dec->ConvertYUVToPNG(
-          y_plane.data(), u_plane.data(), v_plane.data(), size);
+          y_plane.data(), u_plane.data(), v_plane.data(), size, bit_depth);
       output_file.Write(0, reinterpret_cast<char*>(image_buffer.data()),
                         image_buffer.size());
     }

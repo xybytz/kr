@@ -13,7 +13,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/sequence_checker.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/sequenced_task_runner.h"
 #include "build/buildflag.h"
@@ -58,20 +57,6 @@ crash_reporter::CrashKeyString<kVariationsKeySize> g_variations_crash_key(
 
 crash_reporter::CrashKeyString<64> g_variations_seed_version_crash_key(
     kVariationsSeedVersionKey);
-
-std::string GetVariationsSeedVersion() {
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  // kVariationsSeedVersion should be set by the browser process in
-  // variations::PopulateLaunchOptionsWithVariationsInfo() before launching the
-  // child process.
-  if (command_line->HasSwitch(variations::switches::kVariationsSeedVersion)) {
-    return command_line->GetSwitchValueASCII(
-        variations::switches::kVariationsSeedVersion);
-  }
-
-  // Only works for the browser process.
-  return GetSeedVersion();
-}
 
 }  // namespace
 
@@ -151,8 +136,8 @@ VariationsCrashKeys::VariationsCrashKeys() {
   // a different thread after starting to observe, but before the call to
   // GetActiveFieldTrialGroups() below. However, this is addressed with the use
   // of |active_trials_|.
-  // TODO(crbug/1440498): This would not be necessary to do assuming this is
-  // called while Chrome is still in single-threaded mode. While this is true
+  // TODO(crbug.com/40266142): This would not be necessary to do assuming this
+  // is called while Chrome is still in single-threaded mode. While this is true
   // for the browser process, child processes call this relatively late (and
   // possibly other platforms as well). Remove |active_trials_| when this is
   // fixed.
@@ -257,7 +242,15 @@ void VariationsCrashKeys::UpdateCrashKeys() {
   }
 
   g_variations_crash_key.Set(info.experiment_list);
-  g_variations_seed_version_crash_key.Set(GetVariationsSeedVersion());
+
+  // If we're in the child process, set the variations seed version from the
+  // command line, which is passed from the browser process. In the browser
+  // process, SetVariationsSeedVersionCrashKey() gets called on startup.
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(variations::switches::kVariationsSeedVersion)) {
+    SetVariationsSeedVersionCrashKey(command_line->GetSwitchValueASCII(
+        variations::switches::kVariationsSeedVersion));
+  }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
   ReportVariationsToChromeOs(background_thread_task_runner_, info);
@@ -299,6 +292,10 @@ void UpdateCrashKeysWithSyntheticTrials(
     const std::vector<SyntheticTrialGroup>& synthetic_trials) {
   DCHECK(g_variations_crash_keys);
   g_variations_crash_keys->OnSyntheticTrialsChanged(synthetic_trials);
+}
+
+void SetVariationsSeedVersionCrashKey(const std::string& seed_version) {
+  g_variations_seed_version_crash_key.Set(seed_version);
 }
 
 void ClearCrashKeysInstanceForTesting() {

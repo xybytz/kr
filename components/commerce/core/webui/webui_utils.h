@@ -7,7 +7,9 @@
 
 #include <memory>
 
-#include "components/commerce/core/mojom/shopping_list.mojom.h"
+#include "components/commerce/core/commerce_types.h"
+#include "components/commerce/core/mojom/shopping_service.mojom.h"
+#include "components/commerce/core/product_specifications/product_specifications_set.h"
 
 class GURL;
 
@@ -17,10 +19,13 @@ struct ProductInfo;
 
 // Returns a mojo ProductInfo for use in IPC constructed from the shopping
 // service's ProductInfo.
-shopping_list::mojom::ProductInfoPtr ProductInfoToMojoProduct(
+shopping_service::mojom::ProductInfoPtr ProductInfoToMojoProduct(
     const GURL& url,
-    const absl::optional<const ProductInfo>& info,
+    const std::optional<const ProductInfo>& info,
     const std::string& locale);
+
+shared::mojom::ProductSpecificationsSetPtr ProductSpecsSetToMojo(
+    const ProductSpecificationsSet& set);
 
 }  // namespace commerce
 

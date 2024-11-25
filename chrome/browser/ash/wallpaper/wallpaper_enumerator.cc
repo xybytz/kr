@@ -10,13 +10,11 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/functional/callback.h"
+#include "base/ranges/algorithm.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/ash/file_manager/path_util.h"
 #include "chrome/browser/ash/file_manager/trash_common_util.h"
-#include "chrome/browser/ui/ash/thumbnail_loader.h"
-#include "third_party/skia/include/core/SkBitmap.h"
-#include "ui/base/webui/web_ui_util.h"
 
 namespace {
 
@@ -80,8 +78,7 @@ void EnumerateLocalWallpaperFiles(
   std::vector<base::FilePath> trash_paths;
   if (file_manager::trash::IsTrashEnabledForProfile(profile)) {
     auto enabled_trash_locations =
-        file_manager::trash::GenerateEnabledTrashLocationsForProfile(
-            profile, /*base_path=*/base::FilePath());
+        file_manager::trash::GenerateEnabledTrashLocationsForProfile(profile);
     for (const auto& it : enabled_trash_locations) {
       base::FilePath trash_path =
           it.first.Append(it.second.relative_folder_path);
@@ -95,23 +92,6 @@ void EnumerateLocalWallpaperFiles(
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&EnumerateAllImages, search_path, trash_paths,
                      search_patterns),
-      std::move(callback));
-}
-
-void EnumerateJpegFilesFromDir(
-    Profile* profile,
-    const base::FilePath& wallpaper_dir,
-    base::OnceCallback<void(const std::vector<base::FilePath>&)> callback) {
-  const std::vector<base::FilePath> trash_paths = {};
-  const std::vector<std::string> jpeg_patterns = {kJpgFilePattern,
-                                                  kJpegFilePattern};
-
-  base::ThreadPool::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      base::BindOnce(&EnumerateAllImages, wallpaper_dir, trash_paths,
-                     jpeg_patterns),
       std::move(callback));
 }
 

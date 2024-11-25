@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 
 #include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
@@ -38,19 +39,19 @@ class FakeDataRetriever : public WebAppDataRetriever {
       CheckInstallabilityCallback callback,
       std::optional<webapps::InstallableParams> params) override;
   void GetIcons(content::WebContents* web_contents,
-                const base::flat_set<GURL>& icon_urls,
+                const IconUrlSizeSet& icon_urls,
                 bool skip_page_favicons,
                 bool fail_all_if_any_fail,
                 GetIconsCallback callback) override;
 
   // Set info to respond on |GetWebAppInstallInfo|.
-  void SetRendererWebAppInstallInfo(
-      std::unique_ptr<WebAppInstallInfo> web_app_info);
-  void SetEmptyRendererWebAppInstallInfo();
+  void SetWebPageMetadata(
+      const GURL& last_committed_url,
+      const std::u16string& title,
+      std::optional<webapps::mojom::WebPageMetadata> opt_metadata);
   // Set arguments to respond on |CheckInstallabilityAndRetrieveManifest|.
   void SetManifest(blink::mojom::ManifestPtr manifest,
-                   webapps::InstallableStatusCode error_code,
-                   GURL manifest_url = GURL());
+                   webapps::InstallableStatusCode error_code);
   // Set icons to respond on |GetIcons|.
   void SetIcons(IconsMap icons_map);
 

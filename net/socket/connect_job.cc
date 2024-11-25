@@ -34,7 +34,7 @@ CommonConnectJobParams::CommonConnectJobParams(
     HttpAuthHandlerFactory* http_auth_handler_factory,
     SpdySessionPool* spdy_session_pool,
     const quic::ParsedQuicVersionVector* quic_supported_versions,
-    QuicStreamFactory* quic_stream_factory,
+    QuicSessionPool* quic_session_pool,
     ProxyDelegate* proxy_delegate,
     const HttpUserAgentSettings* http_user_agent_settings,
     SSLClientContext* ssl_client_context,
@@ -45,14 +45,15 @@ CommonConnectJobParams::CommonConnectJobParams(
     HttpServerProperties* http_server_properties,
     const NextProtoVector* alpn_protos,
     const SSLConfig::ApplicationSettings* application_settings,
-    const bool* ignore_certificate_errors)
+    const bool* ignore_certificate_errors,
+    const bool* enable_early_data)
     : client_socket_factory(client_socket_factory),
       host_resolver(host_resolver),
       http_auth_cache(http_auth_cache),
       http_auth_handler_factory(http_auth_handler_factory),
       spdy_session_pool(spdy_session_pool),
       quic_supported_versions(quic_supported_versions),
-      quic_stream_factory(quic_stream_factory),
+      quic_session_pool(quic_session_pool),
       proxy_delegate(proxy_delegate),
       http_user_agent_settings(http_user_agent_settings),
       ssl_client_context(ssl_client_context),
@@ -63,7 +64,8 @@ CommonConnectJobParams::CommonConnectJobParams(
       http_server_properties(http_server_properties),
       alpn_protos(alpn_protos),
       application_settings(application_settings),
-      ignore_certificate_errors(ignore_certificate_errors) {}
+      ignore_certificate_errors(ignore_certificate_errors),
+      enable_early_data(enable_early_data) {}
 
 CommonConnectJobParams::CommonConnectJobParams(
     const CommonConnectJobParams& other) = default;
@@ -152,13 +154,13 @@ void ConnectJob::set_done_closure(base::OnceClosure done_closure) {
   done_closure_ = base::ScopedClosureRunner(std::move(done_closure));
 }
 
-absl::optional<HostResolverEndpointResult>
+std::optional<HostResolverEndpointResult>
 ConnectJob::GetHostResolverEndpointResult() const {
-  return absl::nullopt;
+  return std::nullopt;
 }
 
 void ConnectJob::SetSocket(std::unique_ptr<StreamSocket> socket,
-                           absl::optional<std::set<std::string>> dns_aliases) {
+                           std::optional<std::set<std::string>> dns_aliases) {
   if (socket) {
     net_log().AddEventReferencingSource(NetLogEventType::CONNECT_JOB_SET_SOCKET,
                                         socket->NetLog().source());
@@ -210,7 +212,7 @@ void ConnectJob::LogConnectCompletion(int net_error) {
 
 void ConnectJob::OnTimeout() {
   // Make sure the socket is NULL before calling into |delegate|.
-  SetSocket(nullptr, absl::nullopt /* dns_aliases */);
+  SetSocket(nullptr, std::nullopt /* dns_aliases */);
 
   OnTimedOutInternal();
 

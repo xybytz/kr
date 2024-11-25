@@ -8,10 +8,10 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
-#include <optional>
 #include "base/component_export.h"
 #include "base/debug/alias.h"
 #include "base/debug/crash_logging.h"
@@ -315,12 +315,12 @@ class COMPONENT_EXPORT(URL) Origin {
   std::string GetDebugString(bool include_nonce = true) const;
 
 #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_ROBOLECTRIC)
-  base::android::ScopedJavaLocalRef<jobject> ToJavaObject() const;
-  static Origin FromJavaObject(
-      const base::android::JavaRef<jobject>& java_origin);
+  jni_zero::ScopedJavaLocalRef<jobject> ToJavaObject(JNIEnv* env) const;
+  static Origin FromJavaObject(JNIEnv* env,
+                               const jni_zero::JavaRef<jobject>& java_origin);
   static jlong CreateNative(JNIEnv* env,
-                            const base::android::JavaRef<jstring>& java_scheme,
-                            const base::android::JavaRef<jstring>& java_host,
+                            const jni_zero::JavaRef<jstring>& java_scheme,
+                            const jni_zero::JavaRef<jstring>& java_host,
                             uint16_t port,
                             bool is_opaque,
                             uint64_t tokenHighBits,
@@ -460,7 +460,7 @@ class COMPONENT_EXPORT(URL) Origin {
 
   // Deserializes an origin from |ToValueWithNonce|. Returns nullopt if the
   // value was invalid in any way.
-  static std::optional<Origin> Deserialize(const std::string& value);
+  static std::optional<Origin> Deserialize(std::string_view value);
 
   // The tuple is used for both tuple origins (e.g. https://example.com:80), as
   // well as for opaque origins, where it tracks the tuple origin from which
@@ -506,5 +506,23 @@ class COMPONENT_EXPORT(URL) ScopedOriginCrashKey {
 }  // namespace debug
 
 }  // namespace url
+
+#if BUILDFLAG(IS_ANDROID)
+namespace jni_zero {
+
+// @JniType conversion function.
+template <>
+inline url::Origin FromJniType<url::Origin>(JNIEnv* env,
+                                            const JavaRef<jobject>& j_obj) {
+  return url::Origin::FromJavaObject(env, j_obj);
+}
+template <>
+inline ScopedJavaLocalRef<jobject> ToJniType(JNIEnv* env,
+                                             const url::Origin& obj) {
+  return obj.ToJavaObject(env);
+}
+
+}  // namespace jni_zero
+#endif
 
 #endif  // URL_ORIGIN_H_

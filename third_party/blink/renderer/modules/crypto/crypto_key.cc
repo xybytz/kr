@@ -28,6 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/modules/crypto/crypto_key.h"
 
 #include "base/numerics/safe_conversions.h"
@@ -54,7 +59,6 @@ const char* KeyTypeToString(WebCryptoKeyType type) {
       return "private";
   }
   NOTREACHED();
-  return nullptr;
 }
 
 struct KeyUsageMapping {
@@ -85,7 +89,6 @@ const char* KeyUsageToString(WebCryptoKeyUsage usage) {
       return kKeyUsageMappings[i].name;
   }
   NOTREACHED();
-  return nullptr;
 }
 
 WebCryptoKeyUsageMask KeyUsageStringToMask(const String& usage_string) {
@@ -122,10 +125,7 @@ class DictionaryBuilder : public WebCryptoKeyAlgorithmDictionary {
 
   void SetUint8Array(const char* property_name,
                      const WebVector<unsigned char>& vector) override {
-    builder_.Add(
-        property_name,
-        DOMUint8Array::Create(vector.data(),
-                              base::checked_cast<wtf_size_t>(vector.size())));
+    builder_.Add(property_name, DOMUint8Array::Create(vector));
   }
 
  private:
@@ -167,8 +167,7 @@ ScriptValue CryptoKey::usages(ScriptState* script_state) {
 
   return ScriptValue(
       script_state->GetIsolate(),
-      ToV8Traits<IDLSequence<IDLString>>::ToV8(script_state, result)
-          .ToLocalChecked());
+      ToV8Traits<IDLSequence<IDLString>>::ToV8(script_state, result));
 }
 
 bool CryptoKey::CanBeUsedForAlgorithm(const WebCryptoAlgorithm& algorithm,
@@ -205,7 +204,7 @@ bool CryptoKey::CanBeUsedForAlgorithm(const WebCryptoAlgorithm& algorithm,
 
 bool CryptoKey::ParseFormat(const String& format_string,
                             WebCryptoKeyFormat& format,
-                            CryptoResult* result) {
+                            ExceptionState& exception_state) {
   // There are few enough values that testing serially is fast enough.
   if (format_string == "raw") {
     format = kWebCryptoKeyFormatRaw;
@@ -224,20 +223,18 @@ bool CryptoKey::ParseFormat(const String& format_string,
     return true;
   }
 
-  result->CompleteWithError(kWebCryptoErrorTypeType,
-                            "Invalid keyFormat argument");
+  exception_state.ThrowTypeError("Invalid keyFormat argument");
   return false;
 }
 
 bool CryptoKey::ParseUsageMask(const Vector<String>& usages,
                                WebCryptoKeyUsageMask& mask,
-                               CryptoResult* result) {
+                               ExceptionState& exception_state) {
   mask = 0;
   for (wtf_size_t i = 0; i < usages.size(); ++i) {
     WebCryptoKeyUsageMask usage = KeyUsageStringToMask(usages[i]);
     if (!usage) {
-      result->CompleteWithError(kWebCryptoErrorTypeType,
-                                "Invalid keyUsages argument");
+      exception_state.ThrowTypeError("Invalid keyUsages argument");
       return false;
     }
     mask |= usage;

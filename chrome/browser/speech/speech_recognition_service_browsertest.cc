@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <algorithm>
+#include <string_view>
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -11,7 +12,6 @@
 #include "base/path_service.h"
 #include "base/sync_socket.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
@@ -33,7 +33,6 @@
 #include "media/audio/audio_device_description.h"
 #include "media/audio/wav_audio_handler.h"
 #include "media/base/audio_bus.h"
-#include "media/base/media_switches.h"
 #include "media/mojo/mojom/audio_data.mojom.h"
 #include "media/mojo/mojom/audio_data_pipe.mojom.h"
 #include "media/mojo/mojom/audio_input_stream.mojom.h"
@@ -79,7 +78,6 @@ class TestStreamFactory : public audio::FakeStreamFactory {
       const media::AudioParameters& params,
       uint32_t shared_memory_count,
       bool enable_agc,
-      base::ReadOnlySharedMemoryRegion key_press_count_buffer,
       media::mojom::AudioProcessingConfigPtr processing_config,
       CreateInputStreamCallback created_callback) override {
     device_id_ = device_id;
@@ -132,10 +130,7 @@ class SpeechRecognitionServiceTest
     : public InProcessBrowserTest,
       public media::mojom::SpeechRecognitionRecognizerClient {
  public:
-  SpeechRecognitionServiceTest() {
-    scoped_feature_list_.InitWithFeatures({media::kLiveCaption}, {});
-  }
-
+  SpeechRecognitionServiceTest() = default;
   SpeechRecognitionServiceTest(const SpeechRecognitionServiceTest&) = delete;
   SpeechRecognitionServiceTest& operator=(const SpeechRecognitionServiceTest&) =
       delete;
@@ -179,7 +174,6 @@ class SpeechRecognitionServiceTest
   // The root directory for test files.
   base::FilePath test_data_dir_;
 
-  base::test::ScopedFeatureList scoped_feature_list_;
   mojo::Remote<media::mojom::AudioSourceSpeechRecognitionContext>
       audio_source_speech_recognition_context_;
   mojo::Remote<media::mojom::SpeechRecognitionContext>
@@ -492,11 +486,11 @@ IN_PROC_BROWSER_TEST_F(SpeechRecognitionServiceTest, CreateAudioSourceFetcher) {
   SetUpPrefs();
   LaunchServiceWithAudioSourceFetcher();
 
-  // TODO(crbug.com/1185978): Check implementation / sandbox policy on Mac and
+  // TODO(crbug.com/40753481): Check implementation / sandbox policy on Mac and
   // Windows.
 #if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX)
   // Check that Start begins audio recording.
-  // TODO(crbug.com/1173135): Try to mock audio input, maybe with
+  // TODO(crbug.com/40166991): Try to mock audio input, maybe with
   // TestStreamFactory::stream_, to test end-to-end.
   std::string device_id = media::AudioDeviceDescription::kDefaultDeviceId;
   media::AudioParameters params(media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
@@ -532,7 +526,7 @@ IN_PROC_BROWSER_TEST_F(SpeechRecognitionServiceTest, CompromisedRenderer) {
   ASSERT_TRUE(base::PathExists(config_dir));
   base::FilePath config_file_path =
       config_dir.Append(FILE_PATH_LITERAL("config_file"));
-  ASSERT_TRUE(base::WriteFile(config_file_path, base::StringPiece()));
+  ASSERT_TRUE(base::WriteFile(config_file_path, std::string_view()));
   ASSERT_TRUE(base::PathExists(config_file_path));
   g_browser_process->local_state()->SetFilePath(prefs::kSodaEnUsConfigPath,
                                                 config_file_path);

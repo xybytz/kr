@@ -16,6 +16,7 @@ import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import static org.mockito.Mockito.doReturn;
 
+import static org.chromium.base.ThreadUtils.runOnUiThreadBlocking;
 import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE;
 
 import android.view.MenuItem;
@@ -41,11 +42,13 @@ import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.ApplicationTestUtils;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DoNotBatch;
+import org.chromium.base.test.util.Features.DisableFeatures;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.bookmarks.BookmarkDelegate;
@@ -54,6 +57,7 @@ import org.chromium.chrome.browser.bookmarks.BookmarkModel;
 import org.chromium.chrome.browser.bookmarks.BookmarkPage;
 import org.chromium.chrome.browser.bookmarks.BookmarkPromoHeader;
 import org.chromium.chrome.browser.bookmarks.BookmarkToolbar;
+import org.chromium.chrome.browser.bookmarks.BookmarkUiPrefs.BookmarkRowDisplayPref;
 import org.chromium.chrome.browser.bookmarks.BookmarkUiState.BookmarkUiMode;
 import org.chromium.chrome.browser.bookmarks.BookmarkUtils;
 import org.chromium.chrome.browser.bookmarks.TestingDelegate;
@@ -67,18 +71,17 @@ import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ActivityTestUtils;
 import org.chromium.chrome.test.util.BookmarkTestUtil;
 import org.chromium.chrome.test.util.MenuUtils;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.components.bookmarks.BookmarkId;
 import org.chromium.components.bookmarks.BookmarkType;
 import org.chromium.components.browser_ui.widget.RecyclerViewTestUtils;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectableListToolbar;
 import org.chromium.components.embedder_support.util.UrlConstants;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.components.sync.SyncFeatureMap;
 import org.chromium.content_public.browser.test.util.TouchCommon;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.accessibility.AccessibilityState;
-import org.chromium.ui.test.util.DisableAnimationsTestRule;
-import org.chromium.ui.test.util.UiRestriction;
+import org.chromium.ui.base.DeviceFormFactor;
+import org.chromium.ui.test.util.DeviceRestriction;
 import org.chromium.url.GURL;
 
 import java.util.concurrent.ExecutionException;
@@ -86,16 +89,20 @@ import java.util.concurrent.ExecutionException;
 /** Tests for the reading list in the bookmark manager. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-@DisableFeatures({ChromeFeatureList.ANDROID_IMPROVED_BOOKMARKS})
+@DisableFeatures({
+    SyncFeatureMap.SYNC_ENABLE_BOOKMARKS_IN_TRANSPORT_MODE,
+    // TODO(crbug.com/344981899): ReplaceSyncPromosWithSigninPromos is disabled because bookmarks
+    // account storage is disabled above, otherwise tests run into assertion failures. Long term,
+    // these tests probably need to be fixed for the bookmarks account storage case rather than
+    // force-disable the feature.
+    ChromeFeatureList.REPLACE_SYNC_PROMOS_WITH_SIGN_IN_PROMOS
+})
 @DoNotBatch(reason = "BookmarkTest has behaviours and thus can't be batched.")
 public class ReadingListTest {
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
 
     @Rule public final MockitoRule mMockitoRule = MockitoJUnit.rule();
-
-    @Rule
-    public final DisableAnimationsTestRule mDisableAnimationsRule = new DisableAnimationsTestRule();
 
     private static final String TEST_PAGE_TITLE_GOOGLE = "The Google";
     private static final int TEST_PORT = 12345;
@@ -112,7 +119,7 @@ public class ReadingListTest {
     @Before
     public void setUp() {
         mActivityTestRule.startMainActivityOnBlankPage();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mBookmarkModel = mActivityTestRule.getActivity().getBookmarkModelForTesting();
                 });
@@ -160,13 +167,13 @@ public class ReadingListTest {
             mBookmarkManagerCoordinator = mBookmarkActivity.getManagerForTesting();
         }
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> AccessibilityState.setIsAnyAccessibilityServiceEnabledForTesting(false));
         RecyclerViewTestUtils.waitForStableRecyclerView(mItemsContainer);
     }
 
     void openRootFolder() {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> getBookmarkDelegate().openFolder(mBookmarkModel.getRootFolderId()));
         RecyclerViewTestUtils.waitForStableRecyclerView(mItemsContainer);
     }
@@ -181,9 +188,14 @@ public class ReadingListTest {
         BookmarkTestUtil.readPartnerBookmarks(mActivityTestRule);
         BookmarkTestUtil.waitForBookmarkModelLoaded();
         BookmarkId bookmarkId =
-                TestThreadUtils.runOnUiThreadBlocking(
+                ThreadUtils.runOnUiThreadBlocking(
                         () -> mBookmarkModel.addToDefaultReadingList(title, url));
         return bookmarkId;
+    }
+
+    private void setReadStatusForReadingList(BookmarkId id, boolean read) {
+        ThreadUtils.runOnUiThreadBlocking(
+                () -> mBookmarkModel.setReadStatusForReadingList(id, read));
     }
 
     private TestingDelegate getTestingDelegate() {
@@ -200,7 +212,7 @@ public class ReadingListTest {
 
     @Test
     @MediumTest
-    @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE})
+    @Restriction({DeviceFormFactor.PHONE})
     public void testOpenBookmarkManagerWhenDefaultToRootEnabled()
             throws InterruptedException, ExecutionException {
         openBookmarkManager();
@@ -213,15 +225,16 @@ public class ReadingListTest {
         Assert.assertEquals("Bookmarks", toolbar.getTitle());
 
         // When opening "Mobile bookmarks", we should come back to it when within the same session.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> delegate.openFolder(mBookmarkModel.getMobileFolderId()));
         Assert.assertEquals("Mobile bookmarks", toolbar.getTitle());
         Assert.assertEquals(
-                SelectableListToolbar.NavigationButton.BACK, toolbar.getNavigationButtonForTests());
+                SelectableListToolbar.NavigationButton.NORMAL_VIEW_BACK,
+                toolbar.getNavigationButtonForTests());
         Assert.assertFalse(toolbar.getMenu().findItem(R.id.edit_menu_id).isVisible());
 
         // Close bookmarks.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> toolbar.onMenuItemClick(toolbar.getMenu().findItem(R.id.close_menu_id)));
         ApplicationTestUtils.waitForActivityState(mBookmarkActivity, Stage.DESTROYED);
 
@@ -241,10 +254,10 @@ public class ReadingListTest {
         openReadingList();
 
         // Open the three-dot menu and verify the menu options being shown.
-        View readingListItem = mItemsContainer.findViewHolderForAdapterPosition(1).itemView;
+        View readingListItem = mItemsContainer.findViewHolderForAdapterPosition(2).itemView;
         View more = readingListItem.findViewById(R.id.more);
 
-        TestThreadUtils.runOnUiThreadBlocking(more::callOnClick);
+        ThreadUtils.runOnUiThreadBlocking(more::callOnClick);
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
 
         onView(withText("Select")).check(matches(isDisplayed()));
@@ -260,7 +273,7 @@ public class ReadingListTest {
     @SmallTest
     public void testReadingListItemMenuItems_ReadItem() throws Exception {
         BookmarkId id = addReadingListBookmark(TEST_PAGE_TITLE_GOOGLE, mTestUrlA);
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mBookmarkModel.setReadStatusForReadingList(id, /* read= */ true);
                 });
@@ -271,10 +284,10 @@ public class ReadingListTest {
         openReadingList();
 
         // Open the three-dot menu and verify the menu options being shown.
-        View readingListItem = mItemsContainer.findViewHolderForAdapterPosition(2).itemView;
+        View readingListItem = mItemsContainer.findViewHolderForAdapterPosition(3).itemView;
         View more = readingListItem.findViewById(R.id.more);
 
-        TestThreadUtils.runOnUiThreadBlocking(more::callOnClick);
+        ThreadUtils.runOnUiThreadBlocking(more::callOnClick);
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
 
         onView(withText("Select")).check(matches(isDisplayed()));
@@ -288,6 +301,7 @@ public class ReadingListTest {
 
     @Test
     @MediumTest
+    @Restriction(DeviceRestriction.RESTRICTION_TYPE_NON_AUTO) // crbug.com/372854032
     public void testSearchReadingList_Deletion() throws Exception {
         addReadingListBookmark(TEST_PAGE_TITLE_GOOGLE, mTestUrlA);
         BookmarkPromoHeader.forcePromoStateForTesting(SyncPromoState.NO_PROMO);
@@ -297,17 +311,23 @@ public class ReadingListTest {
         openReadingList();
 
         // Enter search UI, but don't enter any search key word.
-        TestThreadUtils.runOnUiThreadBlocking(getBookmarkDelegate()::openSearchUi);
+        ThreadUtils.runOnUiThreadBlocking(getBookmarkDelegate()::openSearchUi);
         Assert.assertEquals(
                 "Wrong state, should be searching",
                 BookmarkUiMode.SEARCHING,
                 getBookmarkDelegate().getCurrentUiMode());
+
+        runOnUiThreadBlocking(
+                () ->
+                        mBookmarkManagerCoordinator
+                                .getTestingDelegate()
+                                .searchForTesting(TEST_PAGE_TITLE_GOOGLE));
         RecyclerViewTestUtils.waitForStableRecyclerView(mItemsContainer);
 
         // Delete the reading list page in search state.
-        View readingListItem = mItemsContainer.findViewHolderForAdapterPosition(0).itemView;
+        View readingListItem = mItemsContainer.findViewHolderForAdapterPosition(1).itemView;
         View more = readingListItem.findViewById(R.id.more);
-        TestThreadUtils.runOnUiThreadBlocking(more::callOnClick);
+        ThreadUtils.runOnUiThreadBlocking(more::callOnClick);
         onView(withText("Delete")).check(matches(isDisplayed())).perform(click());
     }
 
@@ -327,7 +347,7 @@ public class ReadingListTest {
                 .check(matches(isDisplayed()));
 
         // Open other folders will show the default empty view text.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> getBookmarkDelegate().openFolder(mBookmarkModel.getMobileFolderId()));
         onView(withId(R.id.empty_state_icon)).check(matches(isDisplayed()));
         onView(withText(R.string.bookmark_manager_empty_state)).check(matches(isDisplayed()));
@@ -337,7 +357,7 @@ public class ReadingListTest {
 
     @Test
     @SmallTest
-    @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE})
+    @Restriction({DeviceFormFactor.PHONE})
     public void testReadingListOpenInRegularTab() throws Exception {
         addReadingListBookmark(TEST_PAGE_TITLE_GOOGLE, mTestUrlA);
 
@@ -346,12 +366,12 @@ public class ReadingListTest {
         openRootFolder();
         openReadingList();
 
-        View readingListRow = mItemsContainer.findViewHolderForAdapterPosition(1).itemView;
+        View readingListRow = mItemsContainer.findViewHolderForAdapterPosition(2).itemView;
         Assert.assertEquals(
                 "The 2nd view should be reading list.",
                 BookmarkType.READING_LIST,
-                getIdByPosition(1).getType());
-        TestThreadUtils.runOnUiThreadBlocking(() -> TouchCommon.singleClickView(readingListRow));
+                getIdByPosition(2).getType());
+        ThreadUtils.runOnUiThreadBlocking(() -> TouchCommon.singleClickView(readingListRow));
 
         ChromeTabbedActivity activity = BookmarkTestUtil.waitForTabbedActivity();
         CriteriaHelper.pollUiThread(
@@ -370,7 +390,7 @@ public class ReadingListTest {
 
     @Test
     @SmallTest
-    @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE})
+    @Restriction({DeviceFormFactor.PHONE})
     public void testReadingListOpenInIncognitoTab() throws Exception {
         addReadingListBookmark(TEST_PAGE_TITLE_GOOGLE, mTestUrlA);
 
@@ -381,12 +401,12 @@ public class ReadingListTest {
         openRootFolder();
         openReadingList();
 
-        View readingListRow = mItemsContainer.findViewHolderForAdapterPosition(1).itemView;
+        View readingListRow = mItemsContainer.findViewHolderForAdapterPosition(2).itemView;
         Assert.assertEquals(
                 "The 2nd view should be reading list.",
                 BookmarkType.READING_LIST,
-                getIdByPosition(1).getType());
-        TestThreadUtils.runOnUiThreadBlocking(() -> TouchCommon.singleClickView(readingListRow));
+                getIdByPosition(2).getType());
+        ThreadUtils.runOnUiThreadBlocking(() -> TouchCommon.singleClickView(readingListRow));
 
         ChromeTabbedActivity activity = BookmarkTestUtil.waitForTabbedActivity();
         CriteriaHelper.pollUiThread(
@@ -403,10 +423,6 @@ public class ReadingListTest {
         onView(withText("Reading list")).check(matches(isDisplayed()));
     }
 
-    /**
-     * Verifies the top level elements with the reading list folder. Layout: - Reading list folder.
-     * - Divider - Mobile bookmark folder.
-     */
     @Test
     @SmallTest
     public void testReadingListFolderShown() throws Exception {
@@ -428,7 +444,7 @@ public class ReadingListTest {
 
                                     @Override
                                     public boolean matchesSafely(View view) {
-                                        return ((View) view.getParent().getParent())
+                                        return ((View) view.getParent().getParent().getParent())
                                                         .findViewById(R.id.more)
                                                         .getVisibility()
                                                 == View.GONE;
@@ -439,27 +455,69 @@ public class ReadingListTest {
     @Test
     @SmallTest
     public void testReadingListFolderShownOneUnreadPage() throws Exception {
-        addReadingListBookmark("a", new GURL("https://a.com/reading_list_0"));
+        // Add two reading list items and set one as read.
+        setReadStatusForReadingList(
+                addReadingListBookmark("a", new GURL("https://a.com/reading_list_0")), true);
+        addReadingListBookmark("b", new GURL("https://b.com/reading_list_0"));
 
         BookmarkPromoHeader.forcePromoStateForTesting(SyncPromoState.NO_PROMO);
         openBookmarkManager();
+        runOnUiThreadBlocking(
+                () -> {
+                    mBookmarkManagerCoordinator
+                            .getBookmarkUiPrefsForTesting()
+                            .setBookmarkRowDisplayPref(BookmarkRowDisplayPref.COMPACT);
+                });
         openRootFolder();
-        onView(withText("Reading list")).check(matches(isDisplayed()));
-        onView(withText("1 unread page")).check(matches(isDisplayed()));
+
+        onView(withText("Reading list (1)")).check(matches(isDisplayed()));
     }
 
     @Test
     @SmallTest
     public void testReadingListFolderShownMultipleUnreadPages() throws Exception {
-        addReadingListBookmark("a", new GURL("https://a.com/reading_list_0"));
-        addReadingListBookmark("b", new GURL("https://a.com/reading_list_1"));
+        // Add three reading list items and set one as read.
+        setReadStatusForReadingList(
+                addReadingListBookmark("a", new GURL("https://a.com/reading_list_0")), true);
+        addReadingListBookmark("b", new GURL("https://b.com/reading_list_1"));
+        addReadingListBookmark("c", new GURL("https://c.com/reading_list_1"));
 
         BookmarkPromoHeader.forcePromoStateForTesting(SyncPromoState.NO_PROMO);
         openBookmarkManager();
+        runOnUiThreadBlocking(
+                () -> {
+                    mBookmarkManagerCoordinator
+                            .getBookmarkUiPrefsForTesting()
+                            .setBookmarkRowDisplayPref(BookmarkRowDisplayPref.COMPACT);
+                });
         openRootFolder();
 
-        onView(withText("Reading list")).check(matches(isDisplayed()));
-        onView(withText("2 unread pages")).check(matches(isDisplayed()));
+        onView(withText("Reading list (2)")).check(matches(isDisplayed()));
+    }
+
+    @Test
+    @SmallTest
+    public void testReadingListFolderShown_SetReadingListStatus() throws Exception {
+        // Add three reading list items and set one as read.
+        BookmarkId id1 = addReadingListBookmark("a", new GURL("https://a.com/reading_list_0"));
+        BookmarkId id2 = addReadingListBookmark("b", new GURL("https://a.com/reading_list_1"));
+
+        BookmarkPromoHeader.forcePromoStateForTesting(SyncPromoState.NO_PROMO);
+        openBookmarkManager();
+        runOnUiThreadBlocking(
+                () -> {
+                    mBookmarkManagerCoordinator
+                            .getBookmarkUiPrefsForTesting()
+                            .setBookmarkRowDisplayPref(BookmarkRowDisplayPref.COMPACT);
+                });
+        openRootFolder();
+        onView(withText("Reading list (2)")).check(matches(isDisplayed()));
+
+        setReadStatusForReadingList(id1, true);
+        onView(withText("Reading list (1)")).check(matches(isDisplayed()));
+
+        setReadStatusForReadingList(id2, true);
+        onView(withText("Reading list (0)")).check(matches(isDisplayed()));
     }
 
     @Test
@@ -491,7 +549,7 @@ public class ReadingListTest {
 
         MenuItem mockMenuItem = Mockito.mock(MenuItem.class);
         doReturn(R.id.reading_list_mark_as_read_id).when(mockMenuItem).getItemId();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     toolbar.onMenuItemClick(mockMenuItem);
                 });
@@ -520,7 +578,7 @@ public class ReadingListTest {
         openRootFolder();
         openReadingList();
 
-        TestThreadUtils.runOnUiThreadBlocking(getBookmarkDelegate()::openSearchUi);
+        ThreadUtils.runOnUiThreadBlocking(getBookmarkDelegate()::openSearchUi);
 
         BookmarkToolbar toolbar = mBookmarkManagerCoordinator.getToolbarForTesting();
         Assert.assertFalse(

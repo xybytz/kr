@@ -35,7 +35,6 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/strings/grit/blink_strings.h"
 #include "third_party/blink/renderer/core/dom/element.h"
-#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/forms/chooser_resource_loader.h"
@@ -44,10 +43,12 @@
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page_popup.h"
+#include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/language.h"
 #include "third_party/blink/renderer/platform/text/date_components.h"
 #include "third_party/blink/renderer/platform/text/platform_locale.h"
 #include "ui/base/ui_base_features.h"
+#include "ui/strings/grit/ax_strings.h"
 
 namespace blink {
 
@@ -111,7 +112,7 @@ static String ValueToDateTimeString(double value, InputType::Type type) {
              : components.ToString();
 }
 
-void DateTimeChooserImpl::WriteDocument(SharedBuffer* data) {
+void DateTimeChooserImpl::WriteDocument(SegmentedBuffer& data) {
   String step_string = String::Number(parameters_->step);
   String step_base_string = String::Number(parameters_->step_base, 11);
   String today_label_string;
@@ -138,16 +139,22 @@ void DateTimeChooserImpl::WriteDocument(SharedBuffer* data) {
       "content='light dark'><style>\n",
       data);
 
-  data->Append(ChooserResourceLoader::GetPickerCommonStyleSheet());
-  data->Append(ChooserResourceLoader::GetSuggestionPickerStyleSheet());
-  if (RuntimeEnabledFeatures::SuggestionPickerDarkModeSupportEnabled()) {
-    data->Append(
-        ChooserResourceLoader::GetSuggestionPickerDarkModeStyleSheet());
-  }
-  data->Append(ChooserResourceLoader::GetCalendarPickerStyleSheet());
+  data.Append(ChooserResourceLoader::GetPickerCommonStyleSheet());
+  data.Append(ChooserResourceLoader::GetSuggestionPickerStyleSheet());
+
+  const String& disabled_color_style =
+      RuntimeEnabledFeatures::
+              CalendarPickerMonthPopupButtonDisabledColorEnabled()
+          ? ":root { --month-popup-button-disabled-color: rgba(16, 16, 16, "
+            "0.9) }"
+          : ":root { --month-popup-button-disabled-color: rgba(16, 16, 16, "
+            "0.3) }";
+  AddString(disabled_color_style, data);
+
+  data.Append(ChooserResourceLoader::GetCalendarPickerStyleSheet());
   if (parameters_->type == InputType::Type::kTime ||
       parameters_->type == InputType::Type::kDateTimeLocal) {
-    data->Append(ChooserResourceLoader::GetTimePickerStyleSheet());
+    data.Append(ChooserResourceLoader::GetTimePickerStyleSheet());
   }
   AddString(
       "</style></head><body><div id=main>Loading...</div><script>\n"
@@ -241,16 +248,16 @@ void DateTimeChooserImpl::WriteDocument(SharedBuffer* data) {
   }
   AddString("}\n", data);
 
-  data->Append(ChooserResourceLoader::GetPickerCommonJS());
-  data->Append(ChooserResourceLoader::GetSuggestionPickerJS());
-  data->Append(ChooserResourceLoader::GetMonthPickerJS());
+  data.Append(ChooserResourceLoader::GetPickerCommonJS());
+  data.Append(ChooserResourceLoader::GetSuggestionPickerJS());
+  data.Append(ChooserResourceLoader::GetMonthPickerJS());
   if (parameters_->type == InputType::Type::kTime) {
-    data->Append(ChooserResourceLoader::GetTimePickerJS());
+    data.Append(ChooserResourceLoader::GetTimePickerJS());
   } else if (parameters_->type == InputType::Type::kDateTimeLocal) {
-    data->Append(ChooserResourceLoader::GetTimePickerJS());
-    data->Append(ChooserResourceLoader::GetDateTimeLocalPickerJS());
+    data.Append(ChooserResourceLoader::GetTimePickerJS());
+    data.Append(ChooserResourceLoader::GetDateTimeLocalPickerJS());
   }
-  data->Append(ChooserResourceLoader::GetCalendarPickerJS());
+  data.Append(ChooserResourceLoader::GetCalendarPickerJS());
   AddString("</script></body>\n", data);
 }
 

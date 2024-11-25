@@ -14,6 +14,7 @@
 #import "ios/chrome/browser/shared/ui/symbols/symbols.h"
 #import "ios/chrome/browser/ui/popup_menu/overflow_menu/destination_usage_history/constants.h"
 #import "ios/chrome/browser/ui/popup_menu/overflow_menu/feature_flags.h"
+#import "ios/chrome/browser/ui/popup_menu/overflow_menu/overflow_menu_action_provider.h"
 #import "ios/chrome/browser/ui/popup_menu/overflow_menu/overflow_menu_constants.h"
 #import "ios/chrome/browser/ui/popup_menu/overflow_menu/overflow_menu_swift.h"
 #import "ios/web/public/test/web_task_environment.h"
@@ -764,8 +765,6 @@ TEST_F(OverflowMenuOrdererTest, MovesBadgedDestinationsWithNoUsageHistory) {
 
 // Tests that the action ranking pref gets populated after sorting once.
 TEST_F(OverflowMenuOrdererTest, StoresInitialActionRanking) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   InitializeOverflowMenuOrderer(NO);
   ActionRanking sample_actions = SampleActions();
   action_provider_.basePageActions = sample_actions;
@@ -779,62 +778,9 @@ TEST_F(OverflowMenuOrdererTest, StoresInitialActionRanking) {
   EXPECT_EQ(stored_ranking.FindList("shown")->size(), sample_actions.size());
 }
 
-// Tests that no destinations are lost if the overflow menu flag is enabled
-// and then disabled
-TEST_F(OverflowMenuOrdererTest,
-       SavesHiddenDestinationsWhenOverflowCustomizationFlagDisabled) {
-  base::test::ScopedFeatureList features;
-  features.InitAndDisableFeature(kOverflowMenuCustomization);
-
-  CreatePrefs();
-
-  // Set the pref state to what it would be with flag enabled and some
-  // destinations hidden.
-  base::Value::List shown_destinations =
-      base::Value::List()
-          .Append(overflow_menu::StringNameForDestination(
-              overflow_menu::Destination::ReadingList))
-          .Append(overflow_menu::StringNameForDestination(
-              overflow_menu::Destination::Downloads));
-  base::Value::List hidden_destinations =
-      base::Value::List()
-          .Append(overflow_menu::StringNameForDestination(
-              overflow_menu::Destination::Bookmarks))
-          .Append(overflow_menu::StringNameForDestination(
-              overflow_menu::Destination::History));
-
-  base::Value::List all_destinations =
-      base::Value::List()
-          .Append(overflow_menu::StringNameForDestination(
-              overflow_menu::Destination::ReadingList))
-          .Append(overflow_menu::StringNameForDestination(
-              overflow_menu::Destination::Downloads))
-          .Append(overflow_menu::StringNameForDestination(
-              overflow_menu::Destination::Bookmarks))
-          .Append(overflow_menu::StringNameForDestination(
-              overflow_menu::Destination::History));
-
-  prefs_->SetList(prefs::kOverflowMenuDestinationsOrder,
-                  std::move(shown_destinations));
-  prefs_->SetList(prefs::kOverflowMenuHiddenDestinations,
-                  std::move(hidden_destinations));
-
-  overflow_menu_orderer_ = [[OverflowMenuOrderer alloc] initWithIsIncognito:NO];
-
-  // Set prefs here to force orderer to load and migrate.
-  overflow_menu_orderer_.localStatePrefs = prefs_.get();
-
-  const base::Value::List& new_order =
-      prefs_->GetList(prefs::kOverflowMenuDestinationsOrder);
-
-  EXPECT_EQ(new_order, all_destinations);
-}
-
 // Tests that reenabling destnation usage history clears the destination usage
 // history and moves all destinations back to shown.
 TEST_F(OverflowMenuOrdererTest, EnablingDestinationUsageHistory) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   CreatePrefs();
 
   // Set the pref state to what it would be with destination usage history
@@ -905,8 +851,6 @@ TEST_F(OverflowMenuOrdererTest, EnablingDestinationUsageHistory) {
 
 // Tests that new actions in code are added to the ranking
 TEST_F(OverflowMenuOrdererTest, AddsNewActionsToRanking) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   CreatePrefs();
 
   // Set the pref state what it would be with a few actions shown and hidden.
@@ -958,8 +902,6 @@ TEST_F(OverflowMenuOrdererTest, AddsNewActionsToRanking) {
 // Tests that when there is a badged item, the overflow menu orderer doesn't
 // change the order via the destination usage history.
 TEST_F(OverflowMenuOrdererTest, NoDestinationUsageHistoryWithBadge) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   DestinationRanking all_destinations = SampleDestinations();
 
   // Destination 6 will be badged and destination 5 will be tapped many times,
@@ -1023,8 +965,6 @@ TEST_F(OverflowMenuOrdererTest, NoDestinationUsageHistoryWithBadge) {
 
 // Tests that a newly added menu item only has a new badge for a short time.
 TEST_F(OverflowMenuOrdererTest, NewItemOnlyHasBadgeForShortTime) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking initial_ranking = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1075,8 +1015,6 @@ TEST_F(OverflowMenuOrdererTest, NewItemOnlyHasBadgeForShortTime) {
 // Tests that if two items are badged, with one being below the threshold, its
 // impression counter doesn't count down until the first item's counter hits 0.
 TEST_F(OverflowMenuOrdererTest, TwoBadgesOnlyOneCountsImpressions) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   DestinationRanking all_destinations = SampleDestinations();
 
   // Destinations 6 and 7 will be badged and destination 5 will be tapped many
@@ -1185,8 +1123,6 @@ TEST_F(OverflowMenuOrdererTest, TwoBadgesOnlyOneCountsImpressions) {
 // Tests that if two items are badged at the front of the list, their impression
 // counters count down simultaneously.
 TEST_F(OverflowMenuOrdererTest, TwoBadgesAtBeginningCountTogether) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   DestinationRanking all_destinations = SampleDestinations();
 
   // Destinations 0 and 1 will be badged and destination 7 will be tapped many
@@ -1258,8 +1194,6 @@ TEST_F(OverflowMenuOrdererTest, TwoBadgesAtBeginningCountTogether) {
 // Tests that if an item has a new badge and the destinations are customized,
 // those badges are cleared
 TEST_F(OverflowMenuOrdererTest, CustomizingDestinationsClearsBadgeImpressions) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   DestinationRanking all_destinations = SampleDestinations();
 
   // Destination 0 will be badged and destination 6 will be tapped many times,
@@ -1326,7 +1260,6 @@ TEST_F(OverflowMenuOrdererTest, CustomizingDestinationsClearsBadgeImpressions) {
 // enabled.
 TEST_F(OverflowMenuOrdererTest,
        Customization_InsertsNewDestinationInMiddleOfRanking) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1367,7 +1300,6 @@ TEST_F(OverflowMenuOrdererTest,
 // enabled.
 TEST_F(OverflowMenuOrdererTest,
        Customization_InsertsNewDestinationsInMiddleOfRanking) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1414,7 +1346,6 @@ TEST_F(OverflowMenuOrdererTest,
 // flag enabled.
 TEST_F(OverflowMenuOrdererTest,
        Customization_InsertsAndRemovesNewDestinationsInRanking) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1462,7 +1393,6 @@ TEST_F(OverflowMenuOrdererTest,
 // Tests that the destinations that have a badge are moved in the middle of the
 // ranking to get the user's attention; before the untapped destinations.
 TEST_F(OverflowMenuOrdererTest, Customization_MoveBadgedDestinationsInRanking) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1511,7 +1441,6 @@ TEST_F(OverflowMenuOrdererTest, Customization_MoveBadgedDestinationsInRanking) {
 // over the other badges when they are moved.
 TEST_F(OverflowMenuOrdererTest,
        Customization_PriorityToErrorBadgeOverOtherBadges) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1556,7 +1485,6 @@ TEST_F(OverflowMenuOrdererTest,
 // demoted.
 TEST_F(OverflowMenuOrdererTest,
        Customization_DontMoveBadgedDestinationWithGoodRanking) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1589,7 +1517,6 @@ TEST_F(OverflowMenuOrdererTest,
 // usage history ranking.
 TEST_F(OverflowMenuOrdererTest,
        Customization_TestNewDestinationsWhenNoHistoryUsageRanking) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1630,7 +1557,6 @@ TEST_F(OverflowMenuOrdererTest,
 // flag enabled.
 TEST_F(OverflowMenuOrdererTest,
        Customization_MovesBadgedDestinationsWithNoUsageHistory) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1674,7 +1600,6 @@ TEST_F(OverflowMenuOrdererTest,
 // Tests that calling the simple `-updateDestinations` method doesn't reorder
 // the menu.
 TEST_F(OverflowMenuOrdererTest, UpdateDoesntReorderMenu) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1702,7 +1627,6 @@ TEST_F(OverflowMenuOrdererTest, UpdateDoesntReorderMenu) {
 // Tests that if a hidden destination gets an error badge, that badge appears on
 // settings instead.
 TEST_F(OverflowMenuOrdererTest, HiddenDestinationPropagatesErrorBadge) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
 
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
@@ -1744,8 +1668,6 @@ TEST_F(OverflowMenuOrdererTest, HiddenDestinationPropagatesErrorBadge) {
 
 // Tests that the overflow menu order loads badge data from prefs.
 TEST_F(OverflowMenuOrdererTest, LoadBadgeDataFromPrefs) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   CreatePrefs();
 
   base::Value::Dict badge_data =
@@ -1816,8 +1738,6 @@ TEST_F(OverflowMenuOrdererTest, LoadBadgeDataFromPrefs) {
 
 // Tests that the overflow menu order saves badge data to prefs.
 TEST_F(OverflowMenuOrdererTest, SaveBadgeDataToPrefs) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1867,8 +1787,6 @@ TEST_F(OverflowMenuOrdererTest, SaveBadgeDataToPrefs) {
 // Tests that correct metrics are fired when the menu is reordered due to a new
 // badge.
 TEST_F(OverflowMenuOrdererTest, Customization_NewBadgeReorderingMetrics) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1904,8 +1822,6 @@ TEST_F(OverflowMenuOrdererTest, Customization_NewBadgeReorderingMetrics) {
 // Tests that correct metrics are fired when the menu is reordered due to an
 // error badge.
 TEST_F(OverflowMenuOrdererTest, Customization_ErrorBadgeReorderingMetrics) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1935,8 +1851,6 @@ TEST_F(OverflowMenuOrdererTest, Customization_ErrorBadgeReorderingMetrics) {
 // new and error badge.
 TEST_F(OverflowMenuOrdererTest,
        Customization_NewAndErrorBadgeReorderingMetrics) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -1978,8 +1892,6 @@ TEST_F(OverflowMenuOrdererTest,
 // Tests that no metrics are fired when there are badges, but they do not cause
 // the menu to be re-ordered.
 TEST_F(OverflowMenuOrdererTest, Customization_BadgeReorderingMetricsNotFired) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -2012,8 +1924,6 @@ TEST_F(OverflowMenuOrdererTest, Customization_BadgeReorderingMetricsNotFired) {
 // Tests that the proper metrics are recorded when destination customization
 // completes.
 TEST_F(OverflowMenuOrdererTest, DestinationCustomizationRecordsMetrics) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -2109,8 +2019,6 @@ TEST_F(OverflowMenuOrdererTest, DestinationCustomizationRecordsMetrics) {
 
 // Tests that no metrics are recorded if there were no actual changes.
 TEST_F(OverflowMenuOrdererTest, DestinationCustomizationNoMetricsIfNoChange) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   DestinationRanking all_destinations = SampleDestinations();
   DestinationRanking current_destinations = {
       all_destinations[0], all_destinations[1], all_destinations[2],
@@ -2148,8 +2056,6 @@ TEST_F(OverflowMenuOrdererTest, DestinationCustomizationNoMetricsIfNoChange) {
 // Tests that the proper metrics are recorded when action customization
 // completes.
 TEST_F(OverflowMenuOrdererTest, ActionCustomizationRecordsMetrics) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   ActionRanking all_actions = SampleActions();
   ActionRanking current_actions = {
       all_actions[0], all_actions[1], all_actions[2],
@@ -2223,8 +2129,6 @@ TEST_F(OverflowMenuOrdererTest, ActionCustomizationRecordsMetrics) {
 
 // Tests that no metrics are recorded if there were no actual changes.
 TEST_F(OverflowMenuOrdererTest, ActionCustomizationNoMetricsIfNoChange) {
-  base::test::ScopedFeatureList features(kOverflowMenuCustomization);
-
   ActionRanking all_actions = SampleActions();
   ActionRanking current_actions = {
       all_actions[0], all_actions[1], all_actions[2],

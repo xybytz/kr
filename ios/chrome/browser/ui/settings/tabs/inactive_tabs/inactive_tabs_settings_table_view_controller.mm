@@ -50,7 +50,6 @@ int InactiveDaysThresholdWithItemType(ItemType item_type) {
       return 21;
     case ItemTypeHeader:
       NOTREACHED();
-      return 0;
   }
 }
 
@@ -156,13 +155,6 @@ int InactiveDaysThresholdWithItemType(ItemType item_type) {
 - (void)tableView:(UITableView*)tableView
     didSelectRowAtIndexPath:(NSIndexPath*)indexPath {
   [self.tableView deselectRowAtIndexPath:indexPath animated:NO];
-  if (@available(iOS 16.0, *)) {
-    return;
-  }
-  int chosenSetting = InactiveDaysThresholdWithItemType(static_cast<ItemType>(
-      [self.tableViewModel itemTypeForIndexPath:indexPath]));
-  [self.delegate inactiveTabsSettingsTableViewController:self
-                          didSelectInactiveDaysThreshold:chosenSetting];
 }
 
 - (void)tableView:(UITableView*)tableView

@@ -75,7 +75,6 @@ class ASH_EXPORT ShelfConfig : public SessionObserver,
   void OnSessionStateChanged(session_manager::SessionState state) override;
 
   // DisplayObserver:
-  void OnDisplayTabletStateChanged(display::TabletState state) override;
   void OnDisplayMetricsChanged(const display::Display& display,
                                uint32_t changed_metrics) override;
 
@@ -84,6 +83,10 @@ class ASH_EXPORT ShelfConfig : public SessionObserver,
 
   // AppListControllerObserver:
   void OnAppListVisibilityWillChange(bool shown, int64_t display_id) override;
+
+  // Updates the shelf configuration to match the provided tablet mode state.
+  // Called during transitions to enter or exit tablet mode.
+  void UpdateForTabletMode(bool in_tablet_mode);
 
   // Whether the shelf control buttons must be shown for accessibility
   // reasons.
@@ -106,6 +109,9 @@ class ASH_EXPORT ShelfConfig : public SessionObserver,
 
   // Returns the shelf shortcut host badge icon border size.
   int GetShelfShortcutHostBadgeBorderSize() const;
+
+  // Returns the shelf shortcut bottom right corner radius.
+  int GetShelfShortcutTeardropCornerRadiusSize() const;
 
   // Returns the hotseat height for the given hotseat density.
   // NOTE: This may not match the actual hotseat size, as hotseat may get scaled
@@ -341,6 +347,9 @@ class ASH_EXPORT ShelfConfig : public SessionObserver,
 
   // Size of the shortcut host badge border.
   const int shelf_shortcut_host_badge_border_size_;
+
+  // Size of the bottom right corner radius of a shortcut.
+  const int shelf_shortcut_teardrop_corner_radius_;
 
   // Size allocated for each app button on the shelf.
   const int shelf_button_size_;

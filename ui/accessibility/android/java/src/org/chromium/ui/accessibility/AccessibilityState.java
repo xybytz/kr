@@ -51,7 +51,7 @@ import java.util.WeakHashMap;
 
 /**
  * Provides utility methods relating to measuring accessibility state on Android. See native
- * counterpart in ui::accessibility::AccessibilityState.
+ * counterpart in accessibility::AccessibilityState.
  */
 @JNINamespace("ui")
 public class AccessibilityState {
@@ -224,6 +224,7 @@ public class AccessibilityState {
 
     private static State sState;
     private static boolean sInitialized;
+    private static boolean sHasRegisteredObservers;
     private static boolean sIsInTestingMode;
     private static Boolean sPreInitCachedValuePerformGesturesEnabled;
     private static List<AccessibilityServiceInfo> sServiceInfoListForTesting;
@@ -639,8 +640,24 @@ public class AccessibilityState {
         // back-off.
         Collections.sort(runningServiceNames);
         Collections.sort(enabledServiceNames);
-        if (runningServiceNames.equals(enabledServiceNames)) {
-            Log.i(TAG, "Enabled accessibility services list updated.");
+
+        // In some cases, Autofill will be running but will not be listed as an enabled service,
+        // such as when some third-party password managers are running. In these cases, we will
+        // have a mismatch between these lists until the max timeout. So try comparing the lists
+        // while ignoring autofill, and if they match, then we can continue.
+        List<String> prunedRunningServiceNames = new ArrayList<String>();
+        for (String service : runningServiceNames) {
+            if (!service.equals(AUTOFILL_COMPAT_ACCESSIBILITY_SERVICE_ID)) {
+                prunedRunningServiceNames.add(service);
+            }
+        }
+
+        if (runningServiceNames.equals(enabledServiceNames)
+                || prunedRunningServiceNames.equals(enabledServiceNames)) {
+            Log.i(
+                    TAG,
+                    "Enabled accessibility services list updated. "
+                            + enabledServiceNames.toString());
             sNextDelayMillis = MIN_DELAY_MILLIS;
         } else {
             Log.i(TAG, "Enabled accessibility services: " + enabledServiceNames.toString());
@@ -714,15 +731,10 @@ public class AccessibilityState {
 
         // Calculate traditional state values.
         boolean isSpokenFeedbackServicePresent = (0 != (sFeedbackTypeMask & FEEDBACK_SPOKEN));
-        boolean isTouchExplorationEnabled;
-        if (UiAccessibilityFeatureMap.isEnabled(
-                UiAccessibilityFeatures.START_SURFACE_ACCESSIBILITY_CHECK)) {
-            isTouchExplorationEnabled =
-                    (0 != (sCapabilitiesMask & CAPABILITY_CAN_REQUEST_TOUCH_EXPLORATION))
-                            && (0 != (sFlagsMask & FLAG_REQUEST_TOUCH_EXPLORATION_MODE));
-        } else {
-            isTouchExplorationEnabled = sAccessibilityManager.isTouchExplorationEnabled();
-        }
+        boolean isTouchExplorationEnabled =
+                (0 != (sCapabilitiesMask & CAPABILITY_CAN_REQUEST_TOUCH_EXPLORATION))
+                        && (0 != (sFlagsMask & FLAG_REQUEST_TOUCH_EXPLORATION_MODE));
+
         boolean isPerformGesturesEnabled =
                 (0 != (sCapabilitiesMask & CAPABILITY_CAN_PERFORM_GESTURES));
 
@@ -780,8 +792,6 @@ public class AccessibilityState {
     /**
      * Return a bitmask containing the union of all event types that running accessibility services
      * listen to.
-     *
-     * @return
      */
     @CalledByNative
     private static int getAccessibilityServiceEventTypeMask() {
@@ -792,7 +802,6 @@ public class AccessibilityState {
     /**
      * Return a bitmask containing the union of all feedback types that running accessibility
      * services provide.
-     * @return
      */
     @CalledByNative
     private static int getAccessibilityServiceFeedbackTypeMask() {
@@ -800,10 +809,7 @@ public class AccessibilityState {
         return sFeedbackTypeMask;
     }
 
-    /**
-     * Return a bitmask containing the union of all flags from running accessibility services.
-     * @return
-     */
+    /** Return a bitmask containing the union of all flags from running accessibility services. */
     @CalledByNative
     private static int getAccessibilityServiceFlagsMask() {
         if (!sInitialized) updateAccessibilityServices();
@@ -811,9 +817,8 @@ public class AccessibilityState {
     }
 
     /**
-     * Return a bitmask containing the union of all service capabilities from running
-     * accessibility services.
-     * @return
+     * Return a bitmask containing the union of all service capabilities from running accessibility
+     * services.
      */
     @CalledByNative
     private static int getAccessibilityServiceCapabilitiesMask() {
@@ -821,10 +826,7 @@ public class AccessibilityState {
         return sCapabilitiesMask;
     }
 
-    /**
-     * Return a list of ids of all running accessibility services.
-     * @return
-     */
+    /** Return a list of ids of all running accessibility services. */
     @CalledByNative
     private static String[] getAccessibilityServiceIds() {
         if (!sInitialized) updateAccessibilityServices();
@@ -834,11 +836,11 @@ public class AccessibilityState {
     /**
      * Register observers of various system properties and initialize a state for clients.
      *
-     * Note: This should only be called once, and before any client queries of accessibility state.
-     *       The first time any client queries the state, |this| will be initialized.
+     * <p>Note: This should only be called once, and before any client queries of accessibility
+     * state. The first time any client queries the state, |this| will be initialized.
      */
     public static void registerObservers() {
-        assert !sInitialized || sIsInTestingMode
+        assert !sInitialized || !sHasRegisteredObservers || sIsInTestingMode
                 : "AccessibilityState has been called to register observers, but observers have"
                         + " already been registered, or, a client has already queried the state."
                         + " Observers should only be registered once during browser init and before"
@@ -901,6 +903,8 @@ public class AccessibilityState {
                         "high_text_contrast_enabled"),
                 false,
                 sTextContrastObserver);
+
+        sHasRegisteredObservers = true;
     }
 
     public static void initializeOnStartup() {
@@ -938,7 +942,8 @@ public class AccessibilityState {
         if (newState != ApplicationState.HAS_RUNNING_ACTIVITIES
                 && newState != ApplicationState.HAS_PAUSED_ACTIVITIES) {
             unregisterObservers();
-        } else if (newState == ApplicationState.HAS_RUNNING_ACTIVITIES && !sInitialized) {
+        } else if (newState == ApplicationState.HAS_RUNNING_ACTIVITIES
+                && (!sInitialized || !sHasRegisteredObservers)) {
             registerObservers();
         }
     }
@@ -952,6 +957,7 @@ public class AccessibilityState {
         sState = null;
         sPreInitCachedValuePerformGesturesEnabled = null;
         sInitialized = false;
+        sHasRegisteredObservers = false;
         sExtraStateInitialized = false;
         sDisplayInversionEnabled = false;
         sHighContrastEnabled = false;

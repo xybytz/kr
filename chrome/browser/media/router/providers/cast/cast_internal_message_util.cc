@@ -5,6 +5,7 @@
 #include "chrome/browser/media/router/providers/cast/cast_internal_message_util.h"
 
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "base/base64url.h"
@@ -12,7 +13,6 @@
 #include "base/json/json_writer.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/escape.h"
-#include "base/strings/string_piece.h"
 #include "components/media_router/common/discovery/media_sink_internal.h"
 #include "components/media_router/common/providers/cast/cast_media_source.h"
 #include "components/media_router/common/providers/cast/channel/cast_device_capability.h"
@@ -112,12 +112,6 @@ CastInternalMessage::Type CastInternalMessageTypeFromString(
       CastInternalMessage::Type::kOther);
 }
 
-std::string CastInternalMessageTypeToString(CastInternalMessage::Type type) {
-  auto found = cast_util::EnumToString(type);
-  DCHECK(found);
-  return std::string(found.value_or(base::StringPiece()));
-}
-
 // Possible types in a receiver_action message.
 constexpr char kReceiverActionTypeCast[] = "cast";
 constexpr char kReceiverActionTypeStop[] = "stop";
@@ -212,8 +206,8 @@ blink::mojom::PresentationConnectionMessagePtr CreateReceiverActionMessage(
 
 base::Value::Dict CreateAppMessageBody(
     const std::string& session_id,
-    const cast::channel::CastMessage& cast_message) {
-  // TODO(https://crbug.com/862532): Investigate whether it is possible to move
+    const openscreen::cast::proto::CastMessage& cast_message) {
+  // TODO(crbug.com/41400942): Investigate whether it is possible to move
   // instead of copying the contents of |cast_message|. Right now copying is
   // done because the message is passed as a const ref at the
   // CastSocket::Observer level.
@@ -221,10 +215,10 @@ base::Value::Dict CreateAppMessageBody(
   message.Set("sessionId", base::Value(session_id));
   message.Set("namespaceName", base::Value(cast_message.namespace_()));
   switch (cast_message.payload_type()) {
-    case cast::channel::CastMessage_PayloadType_STRING:
+    case openscreen::cast::proto::CastMessage_PayloadType_STRING:
       message.Set("message", base::Value(cast_message.payload_utf8()));
       break;
-    case cast::channel::CastMessage_PayloadType_BINARY: {
+    case openscreen::cast::proto::CastMessage_PayloadType_BINARY: {
       const auto& payload = cast_message.payload_binary();
       message.Set("message",
                   base::Value(base::Value::BlobStorage(
@@ -233,7 +227,6 @@ base::Value::Dict CreateAppMessageBody(
     }
     default:
       NOTREACHED();
-      break;
   }
   return message;
 }
@@ -433,6 +426,12 @@ std::unique_ptr<CastSession> CastSession::From(
   return session;
 }
 
+std::string CastInternalMessageTypeToString(CastInternalMessage::Type type) {
+  auto found = cast_util::EnumToString(type);
+  DCHECK(found);
+  return std::string(found.value_or(std::string_view()));
+}
+
 CastSession::CastSession() = default;
 CastSession::~CastSession() = default;
 
@@ -504,7 +503,7 @@ blink::mojom::PresentationConnectionMessagePtr CreateAppMessageAck(
 blink::mojom::PresentationConnectionMessagePtr CreateAppMessage(
     const std::string& session_id,
     const std::string& client_id,
-    const cast::channel::CastMessage& cast_message) {
+    const openscreen::cast::proto::CastMessage& cast_message) {
   return CreateMessageCommon(CastInternalMessage::Type::kAppMessage,
                              CreateAppMessageBody(session_id, cast_message),
                              client_id);

@@ -16,12 +16,13 @@ import androidx.annotation.VisibleForTesting;
 import androidx.preference.Preference;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.browser.notifications.channels.ChromeChannelDefinitions;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.preferences.PrefChangeRegistrar;
 import org.chromium.chrome.browser.settings.ChromeBaseSettingsFragment;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
-import org.chromium.components.browser_ui.notifications.NotificationManagerProxy;
 import org.chromium.components.browser_ui.notifications.NotificationManagerProxyImpl;
 import org.chromium.components.browser_ui.settings.ChromeSwitchPreference;
 import org.chromium.components.browser_ui.settings.SettingsUtils;
@@ -44,16 +45,14 @@ public class PriceNotificationSettingsFragment extends ChromeBaseSettingsFragmen
     private PrefService mPrefService;
     private TextMessagePreference mMobileNotificationsText;
     private ChromeSwitchPreference mEmailNotificationsSwitch;
-    private NotificationManagerProxy mNotificationManagerProxy;
+    private final ObservableSupplierImpl<String> mPageTitle = new ObservableSupplierImpl<>();
 
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
         mPrefService = UserPrefs.get(getProfile());
-        mNotificationManagerProxy =
-                new NotificationManagerProxyImpl(ContextUtils.getApplicationContext());
 
         SettingsUtils.addPreferencesFromResource(this, R.xml.price_notification_preferences);
-        getActivity().setTitle(R.string.price_notifications_settings_detailed_page_title);
+        mPageTitle.set(getString(R.string.price_notifications_settings_detailed_page_title));
 
         mMobileNotificationsText =
                 (TextMessagePreference) findPreference(PREF_MOBILE_NOTIFICATIONS);
@@ -71,7 +70,7 @@ public class PriceNotificationSettingsFragment extends ChromeBaseSettingsFragmen
         CoreAccountInfo info =
                 IdentityServicesProvider.get()
                         .getIdentityManager(getProfile())
-                        .getPrimaryAccountInfo(ConsentLevel.SYNC);
+                        .getPrimaryAccountInfo(ConsentLevel.SIGNIN);
         if (info != null) {
             String email = info.getEmail();
             mEmailNotificationsSwitch.setSummary(
@@ -82,6 +81,11 @@ public class PriceNotificationSettingsFragment extends ChromeBaseSettingsFragmen
         } else {
             mEmailNotificationsSwitch.setVisible(false);
         }
+    }
+
+    @Override
+    public ObservableSupplier<String> getPageTitle() {
+        return mPageTitle;
     }
 
     @Override
@@ -143,9 +147,10 @@ public class PriceNotificationSettingsFragment extends ChromeBaseSettingsFragmen
     private boolean arePriceTrackingNotificationsEnabled() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel =
-                    mNotificationManagerProxy.getNotificationChannel(
-                            ChromeChannelDefinitions.ChannelId.PRICE_DROP_DEFAULT);
-            if (mNotificationManagerProxy.areNotificationsEnabled()
+                    NotificationManagerProxyImpl.getInstance()
+                            .getNotificationChannel(
+                                    ChromeChannelDefinitions.ChannelId.PRICE_DROP_DEFAULT);
+            if (NotificationManagerProxyImpl.getInstance().areNotificationsEnabled()
                     && channel != null
                     && channel.getImportance() != NotificationManager.IMPORTANCE_NONE) {
                 return true;

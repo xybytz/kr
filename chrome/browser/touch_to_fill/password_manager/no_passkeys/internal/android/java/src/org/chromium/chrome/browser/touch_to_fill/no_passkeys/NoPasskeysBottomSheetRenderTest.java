@@ -4,8 +4,8 @@
 
 package org.chromium.chrome.browser.touch_to_fill.no_passkeys;
 
+import static org.chromium.base.ThreadUtils.runOnUiThreadBlocking;
 import static org.chromium.base.test.util.ApplicationTestUtils.finishActivity;
-import static org.chromium.content_public.browser.test.util.TestThreadUtils.runOnUiThreadBlocking;
 import static org.chromium.ui.base.LocalizationUtils.setRtlForTesting;
 
 import android.graphics.Color;
@@ -20,7 +20,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.mockito.quality.Strictness;
@@ -96,7 +95,6 @@ public class NoPasskeysBottomSheetRenderTest {
 
     @Before
     public void setUp() throws InterruptedException {
-        MockitoAnnotations.openMocks(this);
         mActivityRule.launchActivity(null);
         ApplicationTestUtils.waitForActivityState(mActivityRule.getActivity(), Stage.RESUMED);
         runOnUiThreadBlocking(

@@ -23,7 +23,7 @@ import org.chromium.chrome.browser.payments.PaymentRequestTestRule.FactorySpeed;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.R;
 import org.chromium.components.autofill.AutofillProfile;
-import org.chromium.components.payments.Event;
+import org.chromium.components.payments.Event2;
 
 import java.util.concurrent.TimeoutException;
 
@@ -122,7 +122,7 @@ public class PaymentRequestNameTest {
     @MediumTest
     @Feature({"Payments"})
     public void testPay() throws TimeoutException {
-        mPaymentRequestTestRule.runJavaScriptAndWaitForUIEvent(
+        mPaymentRequestTestRule.runJavaScriptAndWaitForUiEvent(
                 "buyWithMethods([{supportedMethods: '" + BOBPAY_TEST + "'}]);",
                 mPaymentRequestTestRule.getReadyToPay());
 
@@ -137,7 +137,7 @@ public class PaymentRequestNameTest {
     @MediumTest
     @Feature({"Payments"})
     public void testAddInvalidNameAndCancel() throws TimeoutException {
-        mPaymentRequestTestRule.runJavaScriptAndWaitForUIEvent(
+        mPaymentRequestTestRule.runJavaScriptAndWaitForUiEvent(
                 "buyWithMethods([{supportedMethods: '" + BOBPAY_TEST + "'}]);",
                 mPaymentRequestTestRule.getReadyToPay());
 
@@ -164,7 +164,7 @@ public class PaymentRequestNameTest {
     @MediumTest
     @Feature({"Payments"})
     public void testAddNameAndPay() throws TimeoutException {
-        mPaymentRequestTestRule.runJavaScriptAndWaitForUIEvent(
+        mPaymentRequestTestRule.runJavaScriptAndWaitForUiEvent(
                 "buyWithMethods([{supportedMethods: '" + BOBPAY_TEST + "'}]);",
                 mPaymentRequestTestRule.getReadyToPay());
 
@@ -190,7 +190,7 @@ public class PaymentRequestNameTest {
     @MediumTest
     @Feature({"Payments"})
     public void testSuggestionsDeduped() throws TimeoutException {
-        mPaymentRequestTestRule.runJavaScriptAndWaitForUIEvent(
+        mPaymentRequestTestRule.runJavaScriptAndWaitForUiEvent(
                 "buyWithMethods([{supportedMethods: '" + BOBPAY_TEST + "'}]);",
                 mPaymentRequestTestRule.getReadyToPay());
 
@@ -209,23 +209,20 @@ public class PaymentRequestNameTest {
     @Feature({"Payments"})
     public void testPaymentRequestEventsMetric() throws TimeoutException {
         int expectedSample =
-                Event.SHOWN
-                        | Event.PAY_CLICKED
-                        | Event.RECEIVED_INSTRUMENT_DETAILS
-                        | Event.COMPLETED
-                        | Event.HAD_INITIAL_FORM_OF_PAYMENT
-                        | Event.HAD_NECESSARY_COMPLETE_SUGGESTIONS
-                        | Event.REQUEST_PAYER_NAME
-                        | Event.REQUEST_METHOD_OTHER
-                        | Event.SELECTED_OTHER
-                        | Event.AVAILABLE_METHOD_OTHER;
+                Event2.SHOWN
+                        | Event2.PAY_CLICKED
+                        | Event2.COMPLETED
+                        | Event2.HAD_INITIAL_FORM_OF_PAYMENT
+                        | Event2.REQUEST_PAYER_DATA
+                        | Event2.REQUEST_METHOD_OTHER
+                        | Event2.SELECTED_OTHER;
         var histogramWatcher =
                 HistogramWatcher.newBuilder()
-                        .expectIntRecord("PaymentRequest.Events", expectedSample)
+                        .expectIntRecord("PaymentRequest.Events2", expectedSample)
                         .build();
 
         // Start and complete the Payment Request.
-        mPaymentRequestTestRule.runJavaScriptAndWaitForUIEvent(
+        mPaymentRequestTestRule.runJavaScriptAndWaitForUiEvent(
                 "buyWithMethods([{supportedMethods: '" + BOBPAY_TEST + "'}]);",
                 mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.clickAndWait(

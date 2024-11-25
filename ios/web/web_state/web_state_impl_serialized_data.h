@@ -5,6 +5,7 @@
 #ifndef IOS_WEB_WEB_STATE_WEB_STATE_IMPL_SERIALIZED_DATA_H_
 #define IOS_WEB_WEB_STATE_WEB_STATE_IMPL_SERIALIZED_DATA_H_
 
+#import "base/memory/raw_ptr.h"
 #import "ios/web/public/favicon/favicon_status.h"
 #import "ios/web/web_state/web_state_impl.h"
 
@@ -49,9 +50,12 @@ class WebStateImpl::SerializedData {
 
   // Getter and setter for the CRWSessionStorage; only available when the
   // session serialization optimisation feature is disabled.
-  // TODO(crbug.com/1383087): remove once the feature is fully launched.
+  // TODO(crbug.com/40245950): remove once the feature is fully launched.
   CRWSessionStorage* GetSessionStorage() const;
   void SetSessionStorage(CRWSessionStorage* storage);
+
+  // Serializes the metadata to `storage`.
+  void SerializeMetadataToProto(proto::WebStateMetadataStorage& storage) const;
 
   // Returns the callback used to load the complete data from disk.
   WebStateStorageLoader TakeStorageLoader();
@@ -82,10 +86,10 @@ class WebStateImpl::SerializedData {
   }
 
   // Owner. Never null. Owns this object.
-  WebStateImpl* const owner_;
+  const raw_ptr<WebStateImpl> owner_;
 
   // The owning BrowserState. Indirectly owns this object.
-  BrowserState* const browser_state_;
+  const raw_ptr<BrowserState> browser_state_;
 
   // The stable and unique identifiers.
   NSString* const stable_identifier_;
@@ -109,7 +113,7 @@ class WebStateImpl::SerializedData {
 
   // Serialized representation of the session; only available when the
   // session serialization optimisation feature is disabled.
-  // TODO(crbug.com/1383087): remove once the feature is fully launched.
+  // TODO(crbug.com/40245950): remove once the feature is fully launched.
   __strong CRWSessionStorage* session_storage_ = nil;
 };
 

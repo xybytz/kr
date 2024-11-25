@@ -7,14 +7,14 @@
  * 'os-settings-sync-subpage' is the settings page containing sync settings.
  */
 
-import '//resources/cr_elements/cr_button/cr_button.js';
-import '//resources/cr_elements/cr_dialog/cr_dialog.js';
-import '//resources/cr_elements/cr_input/cr_input.js';
-import '//resources/cr_elements/cr_link_row/cr_link_row.js';
-import '//resources/cr_elements/icons.html.js';
-import '//resources/cr_elements/cr_shared_style.css.js';
-import '//resources/cr_elements/cr_shared_vars.css.js';
-import '//resources/cr_elements/cr_expand_button/cr_expand_button.js';
+import '//resources/ash/common/cr_elements/cr_button/cr_button.js';
+import '//resources/ash/common/cr_elements/cr_dialog/cr_dialog.js';
+import '//resources/ash/common/cr_elements/cr_input/cr_input.js';
+import '//resources/ash/common/cr_elements/cr_link_row/cr_link_row.js';
+import '//resources/ash/common/cr_elements/icons.html.js';
+import '//resources/ash/common/cr_elements/cr_shared_style.css.js';
+import '//resources/ash/common/cr_elements/cr_shared_vars.css.js';
+import '//resources/ash/common/cr_elements/cr_expand_button/cr_expand_button.js';
 import '//resources/polymer/v3_0/iron-collapse/iron-collapse.js';
 import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
 import '//resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
@@ -25,20 +25,22 @@ import './os_sync_encryption_options.js';
 import '../settings_shared.css.js';
 import '../settings_vars.css.js';
 
-import {CrInputElement} from '//resources/cr_elements/cr_input/cr_input.js';
-import {WebUiListenerMixin} from '//resources/cr_elements/web_ui_listener_mixin.js';
+import type {CrInputElement} from '//resources/ash/common/cr_elements/cr_input/cr_input.js';
+import {WebUiListenerMixin} from '//resources/ash/common/cr_elements/web_ui_listener_mixin.js';
 import {assert, assertNotReached} from '//resources/js/assert.js';
-import {IronCollapseElement} from '//resources/polymer/v3_0/iron-collapse/iron-collapse.js';
+import type {IronCollapseElement} from '//resources/polymer/v3_0/iron-collapse/iron-collapse.js';
 import {PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {PageStatus, StatusAction, SyncBrowserProxy, SyncBrowserProxyImpl, SyncPrefs, SyncStatus} from '/shared/settings/people_page/sync_browser_proxy.js';
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import type {SyncBrowserProxy, SyncPrefs, SyncStatus} from '/shared/settings/people_page/sync_browser_proxy.js';
+import {PageStatus, SignedInState, StatusAction, SyncBrowserProxyImpl} from '/shared/settings/people_page/sync_browser_proxy.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 
 import {RouteOriginMixin} from '../common/route_origin_mixin.js';
-import {Route, Router, routes} from '../router.js';
+import type {Route} from '../router.js';
+import {Router, routes} from '../router.js';
 
-import {OsSettingsPersonalizationOptionsElement} from './os_personalization_options.js';
-import {OsSettingsSyncEncryptionOptionsElement} from './os_sync_encryption_options.js';
+import type {OsSettingsPersonalizationOptionsElement} from './os_personalization_options.js';
+import type {OsSettingsSyncEncryptionOptionsElement} from './os_sync_encryption_options.js';
 import {getTemplate} from './os_sync_subpage.html.js';
 
 export interface OsSettingsSyncSubpageElement {
@@ -124,13 +126,13 @@ export class OsSettingsSyncSubpageElement extends
         type: Boolean,
         value: false,
         computed: 'computeShowExistingPassphraseBelowAccount_(' +
-            'syncStatus.signedIn, syncPrefs.passphraseRequired)',
+            'syncStatus.signedInState, syncPrefs.passphraseRequired)',
       },
 
       signedIn_: {
         type: Boolean,
         value: true,
-        computed: 'computeSignedIn_(syncStatus.signedIn)',
+        computed: 'computeSignedIn_(syncStatus.signedInState)',
       },
 
       syncDisabledByAdmin_: {
@@ -143,7 +145,7 @@ export class OsSettingsSyncSubpageElement extends
         type: Boolean,
         value: false,
         computed: 'computeSyncSectionDisabled_(' +
-            'syncStatus.signedIn, syncStatus.disabled, ' +
+            'syncStatus.signedInState, syncStatus.disabled, ' +
             'syncStatus.hasError, syncStatus.statusAction, ' +
             'syncPrefs.trustedVaultKeysRequired)',
       },
@@ -303,12 +305,13 @@ export class OsSettingsSyncSubpageElement extends
   }
 
   private computeSignedIn_(): boolean {
-    return !!this.syncStatus.signedIn;
+    return this.syncStatus.signedInState === SignedInState.SYNCING;
   }
 
   private computeSyncSectionDisabled_(): boolean {
     return this.syncStatus !== undefined &&
-        (!this.syncStatus.signedIn || !!this.syncStatus.disabled ||
+        (this.syncStatus.signedInState !== SignedInState.SYNCING ||
+         !!this.syncStatus.disabled ||
          (!!this.syncStatus.hasError &&
           this.syncStatus.statusAction !== StatusAction.ENTER_PASSPHRASE &&
           this.syncStatus.statusAction !==
@@ -436,7 +439,7 @@ export class OsSettingsSyncSubpageElement extends
     }
 
     if (!this.syncPrefs.explicitPassphraseTime) {
-      // TODO(crbug.com/1207432): There's no reason why this dateless label
+      // TODO(crbug.com/40765539): There's no reason why this dateless label
       // shouldn't link to 'syncErrorsHelpUrl' like the other one.
       return this.i18nAdvanced('enterPassphraseLabel');
     }
@@ -559,7 +562,8 @@ export class OsSettingsSyncSubpageElement extends
   }
 
   private computeShowExistingPassphraseBelowAccount_(): boolean {
-    return this.syncStatus !== undefined && !!this.syncStatus.signedIn &&
+    return this.syncStatus !== undefined &&
+        this.syncStatus.signedInState === SignedInState.SYNCING &&
         this.syncPrefs !== undefined && !!this.syncPrefs.passphraseRequired;
   }
 

@@ -5,6 +5,7 @@
 #include "chromecast/metrics/cast_metrics_service_client.h"
 
 #include <string>
+#include <string_view>
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
@@ -179,7 +180,6 @@ bool CastMetricsServiceClient::GetBrand(std::string* brand_code) {
       return ::metrics::SystemProfileProto::CHANNEL_STABLE;
   }
   NOTREACHED();
-  return ::metrics::SystemProfileProto::CHANNEL_UNKNOWN;
 #else
   // Use the system (or signed) release channel here to avoid the noise in the
   // metrics caused by the virtual channel which could be temporary or
@@ -246,7 +246,7 @@ std::unique_ptr<::metrics::MetricsLogUploader>
 CastMetricsServiceClient::CreateUploader(
     const GURL& server_url,
     const GURL& insecure_server_url,
-    base::StringPiece mime_type,
+    std::string_view mime_type,
     ::metrics::MetricsLogUploader::MetricServiceType service_type,
     const ::metrics::MetricsLogUploader::UploadCallback& on_upload_complete) {
   return std::make_unique<::metrics::NetMetricsLogUploader>(
@@ -360,13 +360,13 @@ void CastMetricsServiceClient::InitializeMetricsService() {
   // Perform additional setup that should be done after the FieldTrialList, the
   // MetricsStateManager, and its CleanExitBeacon exist. Since the list already
   // exists, the entropy provider type is unused.
-  // TODO(crbug/1249485): Make Chromecast consistent with other platforms. I.e.
-  // create the FieldTrialList and the MetricsStateManager around the same time.
+  // TODO(crbug.com/40791269): Make Chromecast consistent with other platforms.
+  // I.e. create the FieldTrialList and the MetricsStateManager around the same
+  // time.
   metrics_state_manager_->InstantiateFieldTrialList();
 
   synthetic_trial_registry_ =
-      std::make_unique<variations::SyntheticTrialRegistry>(
-          IsExternalExperimentAllowlistEnabled());
+      std::make_unique<variations::SyntheticTrialRegistry>();
   synthetic_trial_observation_.Observe(synthetic_trial_registry_.get());
 
   metrics_service_.reset(new ::metrics::MetricsService(
@@ -391,7 +391,7 @@ void CastMetricsServiceClient::StartMetricsService() {
 #if !BUILDFLAG(IS_ANDROID)
   // Signal that the session has not yet exited cleanly. We later signal that
   // the session exited cleanly via MetricsService::LogCleanShutdown().
-  // TODO(crbug.com/1208587): See whether this can be called even earlier.
+  // TODO(crbug.com/40766116): See whether this can be called even earlier.
   metrics_state_manager_->LogHasSessionShutdownCleanly(false);
 #endif  // !BUILDFLAG(IS_ANDROID)
 

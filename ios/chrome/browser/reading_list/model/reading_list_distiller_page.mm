@@ -22,7 +22,7 @@
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/security/ssl_status.h"
 #import "ios/web/public/web_state.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "net/cert/cert_status_flags.h"
 #import "url/url_constants.h"
 
@@ -194,8 +194,8 @@ void ReadingListDistillerPage::DelayedOnLoadURLDone(int delayed_task_id) {
   }
   if (IsWikipediaPage()) {
     // Workaround for Wikipedia pages.
-    // TODO(crbug.com/647667): remove workaround once DOM distiller handle this
-    // case.
+    // TODO(crbug.com/40485232): remove workaround once DOM distiller handle
+    // this case.
     HandleWikipediaPage();
     return;
   }

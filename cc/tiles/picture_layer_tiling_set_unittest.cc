@@ -56,39 +56,6 @@ std::unique_ptr<TestablePictureLayerTilingSet> CreateTilingSet(
   return CreateTilingSetWithSettings(client, LayerTreeSettings());
 }
 
-TEST(PictureLayerTilingSetTest, NoResources) {
-  FakePictureLayerTilingClient client;
-  gfx::Size layer_bounds(1000, 800);
-  std::unique_ptr<TestablePictureLayerTilingSet> set = CreateTilingSet(&client);
-  client.SetTileSize(gfx::Size(256, 256));
-
-  scoped_refptr<FakeRasterSource> raster_source =
-      FakeRasterSource::CreateEmpty(layer_bounds);
-
-  set->AddTiling(gfx::AxisTransform2d(), raster_source);
-  set->AddTiling(gfx::AxisTransform2d(1.5, gfx::Vector2dF()), raster_source);
-  set->AddTiling(gfx::AxisTransform2d(2.0, gfx::Vector2dF()), raster_source);
-
-  float contents_scale = 2.0;
-  gfx::Size content_bounds(
-      gfx::ScaleToCeiledSize(layer_bounds, contents_scale));
-  gfx::Rect content_rect(content_bounds);
-
-  Region remaining(content_rect);
-  PictureLayerTilingSet::CoverageIterator iter(set.get(), contents_scale,
-                                               content_rect, contents_scale);
-  for (; iter; ++iter) {
-    gfx::Rect geometry_rect = iter.geometry_rect();
-    EXPECT_TRUE(content_rect.Contains(geometry_rect));
-    ASSERT_TRUE(remaining.Contains(geometry_rect));
-    remaining.Subtract(geometry_rect);
-
-    // No tiles have resources, so no iter represents a real tile.
-    EXPECT_FALSE(*iter);
-  }
-  EXPECT_TRUE(remaining.IsEmpty());
-}
-
 TEST(PictureLayerTilingSetTest, TilingRange) {
   FakePictureLayerTilingClient client;
   gfx::Size layer_bounds(10, 10);
@@ -274,9 +241,9 @@ class PictureLayerTilingSetTestWithResources : public testing::Test {
     gfx::Rect content_rect(content_bounds);
 
     Region remaining(content_rect);
-    PictureLayerTilingSet::CoverageIterator iter(
-        set.get(), max_contents_scale, content_rect, ideal_contents_scale);
-    for (; iter; ++iter) {
+    for (auto iter =
+             set->Cover(content_rect, max_contents_scale, ideal_contents_scale);
+         iter; ++iter) {
       gfx::Rect geometry_rect = iter.geometry_rect();
       EXPECT_TRUE(content_rect.Contains(geometry_rect));
       ASSERT_TRUE(remaining.Contains(geometry_rect));
@@ -296,25 +263,25 @@ class PictureLayerTilingSetTestWithResources : public testing::Test {
 TEST_F(PictureLayerTilingSetTestWithResources, NoTilings) {
   RunTest(0, 0.f, 0.f, 2.f, 0.f);
 }
-TEST_F(PictureLayerTilingSetTestWithResources, OneTiling_Smaller) {
+TEST_F(PictureLayerTilingSetTestWithResources, OneTilingSmaller) {
   RunTest(1, 1.f, 0.f, 2.f, 1.f);
 }
-TEST_F(PictureLayerTilingSetTestWithResources, OneTiling_Larger) {
+TEST_F(PictureLayerTilingSetTestWithResources, OneTilingLarger) {
   RunTest(1, 3.f, 0.f, 2.f, 3.f);
 }
-TEST_F(PictureLayerTilingSetTestWithResources, TwoTilings_Smaller) {
+TEST_F(PictureLayerTilingSetTestWithResources, TwoTilingsSmaller) {
   RunTest(2, 1.f, 1.f, 3.f, 2.f);
 }
 
-TEST_F(PictureLayerTilingSetTestWithResources, TwoTilings_SmallerEqual) {
+TEST_F(PictureLayerTilingSetTestWithResources, TwoTilingsSmallerEqual) {
   RunTest(2, 1.f, 1.f, 2.f, 2.f);
 }
 
-TEST_F(PictureLayerTilingSetTestWithResources, TwoTilings_LargerEqual) {
+TEST_F(PictureLayerTilingSetTestWithResources, TwoTilingsLargerEqual) {
   RunTest(2, 1.f, 1.f, 1.f, 1.f);
 }
 
-TEST_F(PictureLayerTilingSetTestWithResources, TwoTilings_Larger) {
+TEST_F(PictureLayerTilingSetTestWithResources, TwoTilingsLarger) {
   RunTest(2, 2.f, 8.f, 1.f, 2.f);
 }
 
@@ -526,7 +493,7 @@ TEST(PictureLayerTilingSetTest, MaxContentScale) {
 
   gfx::Size layer_bounds(100, 105);
   scoped_refptr<FakeRasterSource> raster_source =
-      FakeRasterSource::CreateEmpty(layer_bounds);
+      FakeRasterSource::CreateFilled(layer_bounds);
 
   // Tilings can be added of any scale, the tiling client can controls this.
   pending_set->AddTiling(gfx::AxisTransform2d(), raster_source);

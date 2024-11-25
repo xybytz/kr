@@ -278,7 +278,11 @@ void WebApkInstallTask::Start(ResultCallback callback) {
   // again in case anything changed while the install request was queued.
   // Manifest URL is always set for apps installed or updated in recent
   // versions, but might be missing for older apps.
-  if (!registrar.IsInstalled(app_id_) ||
+  if (!registrar.IsInstallState(
+          app_id_,
+          {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+           web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+           web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}) ||
       !registrar.GetAppShareTarget(app_id_) ||
       registrar.GetAppManifestUrl(app_id_).is_empty()) {
     DeliverResult(WebApkInstallStatus::kAppInvalid);
@@ -526,7 +530,7 @@ void WebApkInstallTask::FetchWebApkInfoFromCrosapi() {
           ->web_app_service_ash()
           ->GetWebAppProviderBridge();
   if (!web_app_provider_bridge) {
-    // TODO(crbug.com/1254199): Consider adding an enum entry for failures
+    // TODO(crbug.com/40199484): Consider adding an enum entry for failures
     // relating to Lacros.
     DeliverResult(WebApkInstallStatus::kAppInvalid);
     return;
@@ -540,7 +544,7 @@ void WebApkInstallTask::FetchWebApkInfoFromCrosapi() {
 
 void WebApkInstallTask::OnWebApkInfoFetchedFromCrosapi(
     crosapi::mojom::WebApkCreationParamsPtr webapk_creation_params) {
-  // TODO(crbug.com/1254199): Consider deserializing on another thread.
+  // TODO(crbug.com/40199484): Consider deserializing on another thread.
 
   std::unique_ptr<webapk::WebApk> webapk;
   if (webapk_creation_params &&
@@ -554,7 +558,7 @@ void WebApkInstallTask::OnWebApkInfoFetchedFromCrosapi(
     }
   }
   if (!webapk) {
-    // TODO(crbug.com/1254199): Consider adding an enum entry for failures
+    // TODO(crbug.com/40199484): Consider adding an enum entry for failures
     // relating to Lacros.
     DeliverResult(WebApkInstallStatus::kAppInvalid);
     return;

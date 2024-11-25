@@ -7,7 +7,8 @@
 
 #include <memory>
 
-#include "base/threading/thread_checker.h"
+#import "base/memory/raw_ptr.h"
+#include "base/sequence_checker.h"
 #include "components/metrics_services_manager/metrics_services_manager_client.h"
 
 class PrefService;
@@ -15,6 +16,10 @@ class PrefService;
 namespace metrics {
 class EnabledStateProvider;
 class MetricsStateManager;
+}
+
+namespace variations {
+class SyntheticTrialRegistry;
 }
 
 // Provides an //ios/chrome-specific implementation of
@@ -31,25 +36,24 @@ class IOSChromeMetricsServicesManagerClient
 
   ~IOSChromeMetricsServicesManagerClient() override;
 
+  // metrics_services_manager::MetricsServicesManagerClient:
+  std::unique_ptr<variations::VariationsService> CreateVariationsService(
+      variations::SyntheticTrialRegistry* synthetic_trial_registry) override;
+  std::unique_ptr<metrics::MetricsServiceClient> CreateMetricsServiceClient(
+      variations::SyntheticTrialRegistry* synthetic_trial_registry) override;
+  metrics::MetricsStateManager* GetMetricsStateManager() override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
+  const metrics::EnabledStateProvider& GetEnabledStateProvider() override;
+  bool IsOffTheRecordSessionActive() override;
+
  private:
   // This is defined as a member class to get access to
   // IOSChromeMetricsServiceAccessor through
   // IOSChromeMetricsServicesManagerClient's friendship.
   class IOSChromeEnabledStateProvider;
 
-  // metrics_services_manager::MetricsServicesManagerClient:
-  std::unique_ptr<variations::VariationsService> CreateVariationsService()
-      override;
-  std::unique_ptr<metrics::MetricsServiceClient> CreateMetricsServiceClient()
-      override;
-  metrics::MetricsStateManager* GetMetricsStateManager() override;
-  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
-  bool IsMetricsReportingEnabled() override;
-  bool IsMetricsConsentGiven() override;
-  bool IsOffTheRecordSessionActive() override;
-
   // Static helper for `IsOffTheRecordSessionActive()`, suitable for binding
-  // into callbacks. `true` if any browser states have any incognito WebStates
+  // into callbacks. `true` if any profiles have any incognito WebStates
   // in any Browser.
   static bool AreIncognitoTabsPresent();
 
@@ -60,11 +64,11 @@ class IOSChromeMetricsServicesManagerClient
   // reporting, and if it's enabled.
   std::unique_ptr<metrics::EnabledStateProvider> enabled_state_provider_;
 
-  // Ensures that all functions are called from the same thread.
-  base::ThreadChecker thread_checker_;
+  // Ensures that all functions are called from the same sequence.
+  SEQUENCE_CHECKER(sequence_checker_);
 
   // Weak pointer to the local state prefs store.
-  PrefService* local_state_;
+  raw_ptr<PrefService> local_state_;
 };
 
 #endif  // IOS_CHROME_BROWSER_METRICS_MODEL_IOS_CHROME_METRICS_SERVICES_MANAGER_CLIENT_H_

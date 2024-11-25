@@ -10,8 +10,8 @@
 #include "base/memory/free_deleter.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/ranges/algorithm.h"
-#include "build/chromeos_buildflags.h"
 #include "ui/events/devices/x11/device_data_manager_x11.h"
 #include "ui/events/devices/x11/touch_factory_x11.h"
 #include "ui/events/event_utils.h"
@@ -34,7 +34,7 @@
 #include "ui/events/platform/x11/x11_event_watcher_fdwatch.h"
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "ui/events/ozone/chromeos/cursor_controller.h"
 #endif
 
@@ -115,6 +115,33 @@ void UpdateDeviceList() {
   DeviceDataManagerX11::GetInstance()->UpdateDeviceList(connection);
 }
 
+std::optional<gfx::Point> GetRootCursorLocationFromEvent(
+    const x11::Event& event) {
+  auto* device = event.As<x11::Input::DeviceEvent>();
+  auto* crossing = event.As<x11::Input::CrossingEvent>();
+  auto* touch_factory = ui::TouchFactory::GetInstance();
+
+  bool is_valid_event = false;
+  if (event.As<x11::ButtonEvent>() || event.As<x11::MotionNotifyEvent>() ||
+      event.As<x11::CrossingEvent>()) {
+    is_valid_event = true;
+  } else if (device &&
+             (device->opcode == x11::Input::DeviceEvent::ButtonPress ||
+              device->opcode == x11::Input::DeviceEvent::ButtonRelease ||
+              device->opcode == x11::Input::DeviceEvent::Motion)) {
+    is_valid_event = touch_factory->ShouldProcessDeviceEvent(*device);
+  } else if (crossing &&
+             (crossing->opcode == x11::Input::CrossingEvent::Enter ||
+              crossing->opcode == x11::Input::CrossingEvent::Leave)) {
+    is_valid_event = touch_factory->ShouldProcessCrossingEvent(*crossing);
+  }
+
+  if (is_valid_event) {
+    return ui::EventSystemLocationFromXEvent(event);
+  }
+  return std::nullopt;
+}
+
 }  // namespace
 
 #if defined(USE_GLIB)
@@ -176,14 +203,14 @@ x11::Time X11EventSource::GetCurrentServerTime() {
   }
 
   // Make a no-op property change on |dummy_window_|.
-  std::vector<uint8_t> data{0};
+  std::vector<uint8_t> data({0});
   connection_->ChangeProperty(x11::ChangePropertyRequest{
       .window = static_cast<x11::Window>(dummy_window_),
       .property = dummy_atom_,
       .type = x11::Atom::STRING,
       .format = CHAR_BIT,
-      .data_len = 1,
-      .data = base::RefCountedBytes::TakeVector(&data),
+      .data_len = base::checked_cast<uint32_t>(data.size()),
+      .data = base::MakeRefCounted<base::RefCountedBytes>(std::move(data)),
   });
 
   // Observe the resulting PropertyNotify event to obtain the timestamp.
@@ -219,42 +246,19 @@ x11::Time X11EventSource::GetTimestamp() {
   return GetCurrentServerTime();
 }
 
-absl::optional<gfx::Point>
-X11EventSource::GetRootCursorLocationFromCurrentEvent() const {
-  auto* event = connection_->dispatching_event();
-  if (!event) {
-    return absl::nullopt;
-  }
-
-  auto* device = event->As<x11::Input::DeviceEvent>();
-  auto* crossing = event->As<x11::Input::CrossingEvent>();
-  auto* touch_factory = ui::TouchFactory::GetInstance();
-
-  bool is_valid_event = false;
-  if (event->As<x11::ButtonEvent>() || event->As<x11::MotionNotifyEvent>() ||
-      event->As<x11::CrossingEvent>()) {
-    is_valid_event = true;
-  } else if (device &&
-             (device->opcode == x11::Input::DeviceEvent::ButtonPress ||
-              device->opcode == x11::Input::DeviceEvent::ButtonRelease ||
-              device->opcode == x11::Input::DeviceEvent::Motion)) {
-    is_valid_event = touch_factory->ShouldProcessDeviceEvent(*device);
-  } else if (crossing &&
-             (crossing->opcode == x11::Input::CrossingEvent::Enter ||
-              crossing->opcode == x11::Input::CrossingEvent::Leave)) {
-    is_valid_event = touch_factory->ShouldProcessCrossingEvent(*crossing);
-  }
-
-  if (is_valid_event) {
-    return ui::EventSystemLocationFromXEvent(*event);
-  }
-  return absl::nullopt;
+void X11EventSource::ClearLastCursorLocation() {
+  last_cursor_location_.reset();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // X11EventSource, protected
 
 void X11EventSource::OnEvent(const x11::Event& x11_event) {
+  auto cursor_location = GetRootCursorLocationFromEvent(x11_event);
+  if (cursor_location.has_value()) {
+    last_cursor_location_ = cursor_location;
+  }
+
   bool should_update_device_list = false;
 
   if (x11_event.As<x11::Input::HierarchyEvent>()) {
@@ -294,8 +298,8 @@ void X11EventSource::OnEvent(const x11::Event& x11_event) {
       translated_event && translated_event->IsMouseEvent()) {
     return;
   }
-  if (translated_event && translated_event->type() != ET_UNKNOWN) {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+  if (translated_event && translated_event->type() != EventType::kUnknown) {
+#if BUILDFLAG(IS_CHROMEOS)
     if (translated_event->IsLocatedEvent()) {
       ui::CursorController::GetInstance()->SetCursorLocation(
           translated_event->AsLocatedEvent()->location_f());

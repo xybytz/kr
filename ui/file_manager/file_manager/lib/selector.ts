@@ -9,7 +9,7 @@
 
 import type {ReactiveController, ReactiveControllerHost} from 'chrome://resources/mwc/lit/index.js';
 
-import {isDebugStoreEnabled} from '../common/js/util.js';
+import {isDebugStoreEnabled} from './base_store.js';
 
 type Callback<T> = (value: T) => void;
 type Unsubscribe = () => void;
@@ -227,8 +227,8 @@ export class SelectorNode<T> implements Selector<T> {
     }
 
     if (isDebugStoreEnabled() && this.name) {
-      console.log(`Selector '${this.name}' emitted a new value:`);
-      console.log(newValue);
+      console.info(`Selector '${this.name}' emitted a new value:`);
+      console.info(newValue);
     }
 
     this.value_ = newValue;

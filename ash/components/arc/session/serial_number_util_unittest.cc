@@ -134,8 +134,7 @@ TEST_F(SerialNumberUtilTest, GetOrCreateSerialNumber) {
   // in local state.
   using std::literals::string_literals::operator""s;
   const std::string salt_on_disk = "BAADDECAFC0\0FFEE"s;
-  const std::string salt_on_disk_hex =
-      base::HexEncode(salt_on_disk.data(), salt_on_disk.size());
+  const std::string salt_on_disk_hex = base::HexEncode(salt_on_disk);
   const std::string serialno_4 =
       GetOrCreateSerialNumber(test_local_state(), chromeos_user, salt_on_disk);
   EXPECT_FALSE(serialno_4.empty());
@@ -163,7 +162,7 @@ TEST_F(SerialNumberUtilTest, GetOrCreateSerialNumber) {
 
 // That shouldn't happen, but verify that the function can recover the state
 // even if local state has an invalid hex salt.
-TEST_F(SerialNumberUtilTest, GetOrCreateSerialNumber_InvalidLocalState) {
+TEST_F(SerialNumberUtilTest, GetOrCreateSerialNumberInvalidLocalState) {
   constexpr size_t kSaltLen = 16;
   const std::string chromeos_user = "user@gmail.com";
 
@@ -218,13 +217,12 @@ TEST_F(SerialNumberUtilTest, GetOrCreateSerialNumber_InvalidLocalState) {
 
 // Verify that GetOrCreateSerialNumber uses decoded salt when computing the
 // serial number.
-TEST_F(SerialNumberUtilTest, GetOrCreateSerialNumber_SerialNumberComputation) {
+TEST_F(SerialNumberUtilTest, GetOrCreateSerialNumberSerialNumberComputation) {
   constexpr size_t kSaltLen = 16;
   const std::string chromeos_user = "user@gmail.com";
 
   // Set the |hex_salt| in local state.
-  const std::string hex_salt =
-      base::HexEncode(std::string(kSaltLen, 'x').data(), kSaltLen);
+  const std::string hex_salt = base::HexEncode(std::string(kSaltLen, 'x'));
   test_local_state()->SetString(prefs::kArcSerialNumberSalt, hex_salt);
 
   // Get a serial number based on the hex salt.

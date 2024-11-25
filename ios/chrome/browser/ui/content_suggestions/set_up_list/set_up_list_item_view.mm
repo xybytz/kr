@@ -3,27 +3,30 @@
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_item_view.h"
-#import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_item_view+Testing.h"
 
 #import "base/feature_list.h"
 #import "base/notreached.h"
 #import "base/task/sequenced_task_runner.h"
 #import "base/time/time.h"
 #import "components/password_manager/core/common/password_manager_features.h"
-#import "components/sync/base/features.h"
+#import "ios/chrome/browser/ntp/model/set_up_list_item.h"
 #import "ios/chrome/browser/ntp/model/set_up_list_item_type.h"
+#import "ios/chrome/browser/segmentation_platform/model/segmented_default_browser_utils.h"
 #import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/shared/ui/elements/crossfade_label.h"
 #import "ios/chrome/browser/shared/ui/symbols/symbols.h"
 #import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_view_controller_audience.h"
 #import "ios/chrome/browser/ui/content_suggestions/set_up_list/constants.h"
 #import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_item_icon.h"
+#import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_item_view+Testing.h"
 #import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_item_view_data.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #import "ios/chrome/common/ui/util/dynamic_type_util.h"
 #import "ios/chrome/grit/ios_branded_strings.h"
 #import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/device_form_factor.h"
 #import "ui/base/l10n/l10n_util.h"
 
 namespace {
@@ -58,7 +61,7 @@ struct ViewConfig {
   int signin_sync_description;
   int default_browser_description;
   int autofill_description;
-  int content_notification_description;
+  int notifications_description;
   NSString* title_font;
   NSString* description_font;
   CGFloat text_spacing;
@@ -81,58 +84,79 @@ struct ViewConfig {
   if (self) {
     _type = data.type;
     _complete = data.complete;
+
     if (data.compactLayout) {
       // ViewConfig for a compact layout.
       int syncString =
-          base::FeatureList::IsEnabled(
-              syncer::kReplaceSyncPromosWithSignInPromos)
-              ? IDS_IOS_SET_UP_LIST_SIGN_IN_SYNC_SHORT_DESCRIPTION_NO_SYNC
-              : IDS_IOS_SET_UP_LIST_SIGN_IN_SYNC_SHORT_DESCRIPTION;
+          IDS_IOS_SET_UP_LIST_SIGN_IN_SYNC_SHORT_DESCRIPTION_NO_SYNC;
+      int notificationsString =
+          IsIOSTipsNotificationsEnabled()
+              ? IDS_IOS_SET_UP_LIST_NOTIFICATIONS_SHORT_DESCRIPTION
+              : IDS_IOS_SET_UP_LIST_CONTENT_NOTIFICATION_SHORT_DESCRIPTION;
+      int defaultBrowserString =
+          IsSegmentedDefaultBrowserPromoEnabled()
+              ? GetSetUpListDefaultBrowserDescriptionStringID(data.userSegment)
+              : IDS_IOS_SET_UP_LIST_DEFAULT_BROWSER_SHORT_DESCRIPTION;
       _config = {
           YES,
           NO,
           syncString,
-          IDS_IOS_SET_UP_LIST_DEFAULT_BROWSER_SHORT_DESCRIPTION,
+          defaultBrowserString,
           IDS_IOS_SET_UP_LIST_AUTOFILL_SHORT_DESCRIPTION,
-          IDS_IOS_SET_UP_LIST_CONTENT_NOTIFICATION_SHORT_DESCRIPTION,
+          notificationsString,
           UIFontTextStyleFootnote,
           UIFontTextStyleCaption2,
           kCompactTextSpacing,
       };
     } else if (data.heroCellMagicStackLayout) {
-      int syncString =
-          base::FeatureList::IsEnabled(
-              syncer::kReplaceSyncPromosWithSignInPromos)
-              ? IDS_IOS_IDENTITY_DISC_SIGN_IN_PROMO_LABEL
-              : IDS_IOS_SET_UP_LIST_SIGN_IN_SYNC_MAGIC_STACK_DESCRIPTION;
+      int syncString = IDS_IOS_IDENTITY_DISC_SIGN_IN_PROMO_LABEL;
+      int notificationsString =
+          IsIOSTipsNotificationsEnabled()
+              ? IDS_IOS_SET_UP_LIST_NOTIFICATIONS_DESCRIPTION
+              : IDS_IOS_SET_UP_LIST_CONTENT_NOTIFICATION_DESCRIPTION;
+      int defaultBrowserString =
+          IsSegmentedDefaultBrowserPromoEnabled()
+              ? GetSetUpListDefaultBrowserDescriptionStringID(data.userSegment)
+              : IDS_IOS_SET_UP_LIST_DEFAULT_BROWSER_MAGIC_STACK_DESCRIPTION;
       _config = {
           NO,
           YES,
           syncString,
-          IDS_IOS_SET_UP_LIST_DEFAULT_BROWSER_MAGIC_STACK_DESCRIPTION,
+          defaultBrowserString,
           IDS_IOS_SET_UP_LIST_AUTOFILL_MAGIC_STACK_DESCRIPTION,
-          IDS_IOS_SET_UP_LIST_CONTENT_NOTIFICATION_DESCRIPTION,
+          notificationsString,
           UIFontTextStyleSubheadline,
           UIFontTextStyleFootnote,
           kTextSpacing,
       };
     } else {
       // Normal ViewConfig.
-      int syncString = base::FeatureList::IsEnabled(
-                           syncer::kReplaceSyncPromosWithSignInPromos)
-                           ? IDS_IOS_IDENTITY_DISC_SIGN_IN_PROMO_LABEL
-                           : IDS_IOS_SET_UP_LIST_SIGN_IN_SYNC_DESCRIPTION;
+      int syncString = IDS_IOS_IDENTITY_DISC_SIGN_IN_PROMO_LABEL;
+      int notificationsString =
+          IsIOSTipsNotificationsEnabled()
+              ? IDS_IOS_SET_UP_LIST_NOTIFICATIONS_DESCRIPTION
+              : IDS_IOS_SET_UP_LIST_CONTENT_NOTIFICATION_DESCRIPTION;
+      int defaultBrowserString =
+          IsSegmentedDefaultBrowserPromoEnabled()
+              ? GetSetUpListDefaultBrowserDescriptionStringID(data.userSegment)
+              : IDS_IOS_SET_UP_LIST_DEFAULT_BROWSER_DESCRIPTION;
       _config = {
           NO,
           NO,
           syncString,
-          IDS_IOS_SET_UP_LIST_DEFAULT_BROWSER_DESCRIPTION,
+          defaultBrowserString,
           IDS_IOS_SET_UP_LIST_AUTOFILL_DESCRIPTION,
-          IDS_IOS_SET_UP_LIST_CONTENT_NOTIFICATION_DESCRIPTION,
+          notificationsString,
           UIFontTextStyleSubheadline,
           UIFontTextStyleFootnote,
           kTextSpacing,
       };
+    }
+    if (@available(iOS 17, *)) {
+      NSArray<UITrait>* traits = TraitCollectionSetForTraits(
+          @[ UITraitPreferredContentSizeCategory.class ]);
+      [self registerForTraitChanges:traits
+                         withAction:@selector(hideDescriptionOnTraitChange)];
     }
   }
   return self;
@@ -153,15 +177,19 @@ struct ViewConfig {
 
 #pragma mark - UITraitEnvironment
 
+#if !defined(__IPHONE_17_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_17_0
 - (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
   [super traitCollectionDidChange:previousTraitCollection];
+  if (@available(iOS 17, *)) {
+    return;
+  }
+
   if (previousTraitCollection.preferredContentSizeCategory !=
       self.traitCollection.preferredContentSizeCategory) {
-    // Force a layout since the size of text components may have changed.
-    [self setNeedsLayout];
-    [self layoutIfNeeded];
+    [self hideDescriptionOnTraitChange];
   }
 }
+#endif
 
 #pragma mark - Public methods
 
@@ -205,10 +233,21 @@ struct ViewConfig {
       }];
 }
 
+#pragma mark - SetUpListConsumer
+
+- (void)setUpListItemDidComplete:(SetUpListItem*)item
+               allItemsCompleted:(BOOL)completed
+                      completion:(ProceduralBlock)completion {
+  if (item.type == _type) {
+    [self markCompleteWithCompletion:completion];
+  }
+}
+
 #pragma mark - Private methods
 
 - (void)handleTap:(UITapGestureRecognizer*)sender {
   if (sender.state == UIGestureRecognizerStateEnded && !self.complete) {
+    [self.commandHandler didTapSetUpListItemView:self];
     [self.tapDelegate didTapSetUpListItemView:self];
   }
 }
@@ -311,7 +350,7 @@ struct ViewConfig {
   CrossfadeLabel* label = [[CrossfadeLabel alloc] init];
   label = [[CrossfadeLabel alloc] init];
   label.text = [self descriptionText];
-  label.numberOfLines = IsMagicStackEnabled() ? 2 : 4;
+  label.numberOfLines = 2;
   label.lineBreakMode = NSLineBreakByTruncatingTail;
   label.font = [UIFont preferredFontForTextStyle:_config.description_font];
   label.adjustsFontForContentSizeCategory = YES;
@@ -330,24 +369,26 @@ struct ViewConfig {
 - (NSString*)titleText {
   switch (_type) {
     case SetUpListItemType::kSignInSync:
-      return base::FeatureList::IsEnabled(
-                 syncer::kReplaceSyncPromosWithSignInPromos)
-                 ? l10n_util::GetNSString(
-                       IDS_IOS_CONSISTENCY_PROMO_DEFAULT_ACCOUNT_TITLE)
-                 : l10n_util::GetNSString(
-                       IDS_IOS_SET_UP_LIST_SIGN_IN_SYNC_TITLE);
+      return l10n_util::GetNSString(
+          IDS_IOS_CONSISTENCY_PROMO_DEFAULT_ACCOUNT_TITLE);
     case SetUpListItemType::kDefaultBrowser:
-      return l10n_util::GetNSString(IDS_IOS_SET_UP_LIST_DEFAULT_BROWSER_TITLE);
+      return l10n_util::GetNSString(
+          ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET
+              ? IDS_IOS_SET_UP_LIST_DEFAULT_BROWSER_TITLE_IPAD
+              : IDS_IOS_SET_UP_LIST_DEFAULT_BROWSER_TITLE);
     case SetUpListItemType::kAutofill:
       return l10n_util::GetNSString(IDS_IOS_SET_UP_LIST_AUTOFILL_TITLE);
-    case SetUpListItemType::kContentNotification:
-      return l10n_util::GetNSString(
-          IDS_IOS_SET_UP_LIST_CONTENT_NOTIFICATION_TITLE);
+    case SetUpListItemType::kNotifications:
+      return IsIOSTipsNotificationsEnabled()
+                 ? l10n_util::GetNSString(
+                       IDS_IOS_SET_UP_LIST_NOTIFICATIONS_TITLE)
+                 : l10n_util::GetNSString(
+                       IDS_IOS_SET_UP_LIST_CONTENT_NOTIFICATION_TITLE);
     case SetUpListItemType::kAllSet:
       return l10n_util::GetNSString(IDS_IOS_SET_UP_LIST_ALL_SET_TITLE);
     case SetUpListItemType::kFollow:
-      // TODO(crbug.com/1428070): Add a Follow item to the Set Up List.
-      NOTREACHED_NORETURN();
+      // TODO(crbug.com/40262090): Add a Follow item to the Set Up List.
+      NOTREACHED();
   }
 }
 
@@ -360,13 +401,13 @@ struct ViewConfig {
       return l10n_util::GetNSString(_config.default_browser_description);
     case SetUpListItemType::kAutofill:
       return l10n_util::GetNSString(_config.autofill_description);
-    case SetUpListItemType::kContentNotification:
-      return l10n_util::GetNSString(_config.content_notification_description);
+    case SetUpListItemType::kNotifications:
+      return l10n_util::GetNSString(_config.notifications_description);
     case SetUpListItemType::kAllSet:
       return l10n_util::GetNSString(IDS_IOS_SET_UP_LIST_ALL_SET_DESCRIPTION);
     case SetUpListItemType::kFollow:
-      // TODO(crbug.com/1428070): Add a Follow item to the Set Up List.
-      NOTREACHED_NORETURN();
+      // TODO(crbug.com/40262090): Add a Follow item to the Set Up List.
+      NOTREACHED();
   }
 }
 
@@ -378,13 +419,23 @@ struct ViewConfig {
       return set_up_list::kDefaultBrowserItemID;
     case SetUpListItemType::kAutofill:
       return set_up_list::kAutofillItemID;
-    case SetUpListItemType::kContentNotification:
+    case SetUpListItemType::kNotifications:
       return set_up_list::kContentNotificationItemID;
     case SetUpListItemType::kAllSet:
       return set_up_list::kAllSetItemID;
     case SetUpListItemType::kFollow:
       return set_up_list::kFollowItemID;
   }
+}
+
+// Hides `_description` if the font size category is larger than
+// extra-extra-large.
+- (void)hideDescriptionOnTraitChange {
+  _description.hidden = self.traitCollection.preferredContentSizeCategory >
+                        UIContentSizeCategoryExtraExtraLarge;
+  // Force a layout since the size of text components may have changed.
+  [self setNeedsLayout];
+  [self layoutIfNeeded];
 }
 
 #pragma mark - Private methods (animation helpers)

@@ -114,16 +114,15 @@ class FileManagerPrivateOpenSettingsSubpageFunction : public ExtensionFunction {
 };
 
 // Implements the chrome.fileManagerPrivate.getMimeType method.
-class FileManagerPrivateInternalGetMimeTypeFunction
-    : public LoggedExtensionFunction {
+class FileManagerPrivateGetMimeTypeFunction : public LoggedExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("fileManagerPrivateInternal.getMimeType",
+  DECLARE_EXTENSION_FUNCTION("fileManagerPrivate.getMimeType",
                              FILEMANAGERPRIVATEINTERNAL_GETMIMETYPE)
 
-  FileManagerPrivateInternalGetMimeTypeFunction();
+  FileManagerPrivateGetMimeTypeFunction();
 
  protected:
-  ~FileManagerPrivateInternalGetMimeTypeFunction() override;
+  ~FileManagerPrivateGetMimeTypeFunction() override;
 
   // ExtensionFunction overrides.
   ResponseAction Run() override;
@@ -430,19 +429,6 @@ class FileManagerPrivateIsTabletModeEnabledFunction : public ExtensionFunction {
 
  protected:
   ~FileManagerPrivateIsTabletModeEnabledFunction() override = default;
-
- private:
-  ResponseAction Run() override;
-};
-
-// Implements the chrome.fileManagerPrivate.openURL method.
-class FileManagerPrivateOpenURLFunction : public ExtensionFunction {
- public:
-  DECLARE_EXTENSION_FUNCTION("fileManagerPrivate.openURL",
-                             FILEMANAGERPRIVATE_OPENURL)
-
- protected:
-  ~FileManagerPrivateOpenURLFunction() override = default;
 
  private:
   ResponseAction Run() override;

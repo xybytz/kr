@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "media/gpu/test/video_encoder/video_encoder_test_environment.h"
 
 #include <iterator>
@@ -132,7 +137,7 @@ VideoBitrateAllocation CreateBitrateAllocation(
     const VideoCodec codec,
     const gfx::Size& resolution,
     uint32_t frame_rate,
-    absl::optional<uint32_t> encode_bitrate,
+    std::optional<uint32_t> encode_bitrate,
     size_t num_spatial_layers,
     size_t num_temporal_layers,
     bool is_vbr,
@@ -216,8 +221,9 @@ VideoEncoderTestEnvironment* VideoEncoderTestEnvironment::Create(
     const base::FilePath& output_folder,
     const std::string& codec,
     const std::string& svc_mode,
+    VideoEncodeAccelerator::Config::ContentType content_type,
     bool save_output_bitstream,
-    absl::optional<uint32_t> encode_bitrate,
+    std::optional<uint32_t> encode_bitrate,
     Bitrate::Mode bitrate_mode,
     bool reverse,
     const FrameOutputConfig& frame_output_config,
@@ -279,12 +285,9 @@ VideoEncoderTestEnvironment* VideoEncoderTestEnvironment::Create(
       enabled_features);
   std::vector<base::test::FeatureRef> combined_disabled_features(
       disabled_features);
-  combined_disabled_features.push_back(media::kFFmpegDecodeOpaqueVP8);
 #if BUILDFLAG(USE_VAAPI)
-  // TODO(crbug.com/828482): remove once enabled by default.
+  // TODO(crbug.com/41380519): remove once enabled by default.
   combined_enabled_features.push_back(media::kVaapiLowPowerEncoderGen9x);
-  // TODO(crbug.com/811912): remove once enabled by default.
-  combined_enabled_features.push_back(media::kVaapiVP9Encoder);
 
   // Disable this feature so that the encoder test can test a resolution
   // which is denied for the sake of performance. See crbug.com/1008491.
@@ -292,15 +295,8 @@ VideoEncoderTestEnvironment* VideoEncoderTestEnvironment::Create(
       media::kVaapiEnforceVideoMinMaxResolution);
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS) && BUILDFLAG(USE_VAAPI)
-  // TODO(b/292462186): remove once enabled by default.
-  combined_enabled_features.push_back(media::kVaapiVp9SModeHWEncoding);
-  // TODO(b/202926617): remove once enabled by default.
-  combined_enabled_features.push_back(media::kVaapiVp8TemporalLayerHWEncoding);
-#endif
-
 #if BUILDFLAG(IS_LINUX) && BUILDFLAG(USE_VAAPI)
-  combined_enabled_features.push_back(media::kVaapiVideoEncodeLinux);
+  combined_enabled_features.push_back(media::kAcceleratedVideoEncodeLinux);
 #endif
 
 #if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
@@ -310,8 +306,9 @@ VideoEncoderTestEnvironment* VideoEncoderTestEnvironment::Create(
   return new VideoEncoderTestEnvironment(
       test_type, std::move(video), output_folder, video_path.BaseName(),
       profile, inter_layer_pred_mode, num_spatial_layers, num_temporal_layers,
-      bitrate_allocation, save_output_bitstream, reverse, frame_output_config,
-      combined_enabled_features, combined_disabled_features);
+      content_type, bitrate_allocation, save_output_bitstream, reverse,
+      frame_output_config, combined_enabled_features,
+      combined_disabled_features);
 }
 
 VideoEncoderTestEnvironment::VideoEncoderTestEnvironment(
@@ -323,6 +320,7 @@ VideoEncoderTestEnvironment::VideoEncoderTestEnvironment(
     SVCInterLayerPredMode inter_layer_pred_mode,
     size_t num_spatial_layers,
     size_t num_temporal_layers,
+    VideoEncodeAccelerator::Config::ContentType content_type,
     const VideoBitrateAllocation& bitrate,
     bool save_output_bitstream,
     bool reverse,
@@ -342,6 +340,7 @@ VideoEncoderTestEnvironment::VideoEncoderTestEnvironment(
                                               video_->FrameRate(),
                                               num_spatial_layers,
                                               num_temporal_layers)),
+      content_type_(content_type),
       save_output_bitstream_(save_output_bitstream),
       reverse_(reverse),
       frame_output_config_(frame_output_config),
@@ -384,6 +383,11 @@ SVCInterLayerPredMode VideoEncoderTestEnvironment::InterLayerPredMode() const {
   return inter_layer_pred_mode_;
 }
 
+VideoEncodeAccelerator::Config::ContentType
+VideoEncoderTestEnvironment::ContentType() const {
+  return content_type_;
+}
+
 const VideoBitrateAllocation& VideoEncoderTestEnvironment::BitrateAllocation()
     const {
   return bitrate_;
@@ -406,10 +410,10 @@ base::FilePath VideoEncoderTestEnvironment::OutputFilePath(
           .Append(GetTestOutputFilePath())
           .Append(output_bitstream_file_base_name_.ReplaceExtension(extension));
   if (svc_enable) {
+    auto file_name_suffix =
+        base::StringPrintf(".SL%d.TL%d", spatial_idx, temporal_idx);
     output_bitstream_filepath =
-        output_bitstream_filepath.InsertBeforeExtensionASCII(
-            FILE_PATH_LITERAL(".SL") + base::NumberToString(spatial_idx) +
-            FILE_PATH_LITERAL(".TL") + base::NumberToString(temporal_idx));
+        output_bitstream_filepath.InsertBeforeExtensionASCII(file_name_suffix);
   }
 
   return output_bitstream_filepath;

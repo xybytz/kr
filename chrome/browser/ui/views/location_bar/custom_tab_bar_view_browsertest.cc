@@ -13,7 +13,7 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
-#include "chrome/browser/ui/web_applications/web_app_controller_browsertest.h"
+#include "chrome/browser/ui/web_applications/web_app_browsertest_base.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -25,7 +25,6 @@
 #include "components/security_interstitials/core/metrics_helper.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
-#include "content/public/browser/notification_service.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_mock_cert_verifier.h"
@@ -33,6 +32,7 @@
 #include "net/dns/mock_host_resolver.h"
 #include "third_party/blink/public/common/features.h"
 #include "ui/base/clipboard/clipboard.h"
+#include "ui/base/mojom/menu_source_type.mojom.h"
 #include "ui/views/controls/button/image_button.h"
 
 namespace {
@@ -174,8 +174,7 @@ class UrlHidingWebContentsObserver : public content::WebContentsObserver {
 
 }  // namespace
 
-class CustomTabBarViewBrowserTest
-    : public web_app::WebAppControllerBrowserTest {
+class CustomTabBarViewBrowserTest : public web_app::WebAppBrowserTestBase {
  public:
   CustomTabBarViewBrowserTest() = default;
 
@@ -188,7 +187,7 @@ class CustomTabBarViewBrowserTest
  protected:
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    web_app::WebAppControllerBrowserTest::SetUpCommandLine(command_line);
+    web_app::WebAppBrowserTestBase::SetUpCommandLine(command_line);
     // Browser will both run and display insecure content.
     command_line->AppendSwitch(switches::kAllowRunningInsecureContent);
   }
@@ -196,11 +195,11 @@ class CustomTabBarViewBrowserTest
   void SetUp() override {
     feature_list_.InitAndDisableFeature(
         blink::features::kMixedContentAutoupgrade);
-    web_app::WebAppControllerBrowserTest::SetUp();
+    web_app::WebAppBrowserTestBase::SetUp();
   }
 
   void SetUpOnMainThread() override {
-    web_app::WebAppControllerBrowserTest::SetUpOnMainThread();
+    web_app::WebAppBrowserTestBase::SetUpOnMainThread();
 
     browser_view_ = BrowserView::GetBrowserViewForBrowser(browser());
 
@@ -209,8 +208,8 @@ class CustomTabBarViewBrowserTest
   }
 
   void InstallPWA(const GURL& start_url) {
-    auto web_app_info = std::make_unique<web_app::WebAppInstallInfo>();
-    web_app_info->start_url = start_url;
+    auto web_app_info =
+        web_app::WebAppInstallInfo::CreateWithStartUrlForTesting(start_url);
     web_app_info->scope = start_url.GetWithoutFilename();
     web_app_info->user_display_mode =
         web_app::mojom::UserDisplayMode::kStandalone;
@@ -218,8 +217,8 @@ class CustomTabBarViewBrowserTest
   }
 
   void InstallBookmark(const GURL& start_url) {
-    auto web_app_info = std::make_unique<web_app::WebAppInstallInfo>();
-    web_app_info->start_url = start_url;
+    auto web_app_info =
+        web_app::WebAppInstallInfo::CreateWithStartUrlForTesting(start_url);
     web_app_info->scope = start_url.DeprecatedGetOriginAsURL();
     web_app_info->user_display_mode =
         web_app::mojom::UserDisplayMode::kStandalone;
@@ -235,11 +234,10 @@ class CustomTabBarViewBrowserTest
 
  private:
   void Install(std::unique_ptr<web_app::WebAppInstallInfo> web_app_info) {
-    const GURL start_url = web_app_info->start_url;
+    const GURL start_url = web_app_info->start_url();
     webapps::AppId app_id = InstallWebApp(std::move(web_app_info));
 
-    ui_test_utils::UrlLoadObserver url_observer(
-        start_url, content::NotificationService::AllSources());
+    ui_test_utils::UrlLoadObserver url_observer(start_url);
     app_browser_ = LaunchWebAppBrowser(app_id);
     url_observer.Wait();
 
@@ -450,8 +448,8 @@ IN_PROC_BROWSER_TEST_F(CustomTabBarViewBrowserTest,
   EXPECT_TRUE(app_controller_->ShouldShowCustomTabBar());
 
   // Show the right-click context menu.
-  app_view->toolbar()->custom_tab_bar()->ShowContextMenu(gfx::Point(),
-                                                         ui::MENU_SOURCE_MOUSE);
+  app_view->toolbar()->custom_tab_bar()->ShowContextMenu(
+      gfx::Point(), ui::mojom::MenuSourceType::kMouse);
 
   content::BrowserTestClipboardScope test_clipboard_scope;
   // Activate the first and only context menu item: IDC_COPY_URL.

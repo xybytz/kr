@@ -5,6 +5,7 @@
 #include "components/permissions/permission_util.h"
 
 #include "base/check.h"
+#include "base/containers/contains.h"
 #include "base/feature_list.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
@@ -20,6 +21,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_features.h"
 #include "third_party/blink/public/common/permissions/permission_utils.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom.h"
@@ -51,9 +53,9 @@ enum class PermissionDelegationMode {
 
 PermissionDelegationMode GetPermissionDelegationMode(
     ContentSettingsType permission) {
-  // TODO(crbug.com/987654): Generalize this to other "background permissions",
-  // that is, permissions that can be used by a service worker. This includes
-  // durable storage, background sync, etc.
+  // TODO(crbug.com/40637582): Generalize this to other "background
+  // permissions", that is, permissions that can be used by a service worker.
+  // This includes durable storage, background sync, etc.
   if (permission == ContentSettingsType::NOTIFICATIONS)
     return PermissionDelegationMode::kUndelegated;
   if (permission == ContentSettingsType::STORAGE_ACCESS ||
@@ -85,7 +87,7 @@ PermissionRequestGestureType PermissionUtil::GetGestureType(bool user_gesture) {
                       : PermissionRequestGestureType::NO_GESTURE;
 }
 
-absl::optional<blink::mojom::PermissionsPolicyFeature>
+std::optional<blink::mojom::PermissionsPolicyFeature>
 PermissionUtil::GetPermissionsPolicyFeature(ContentSettingsType permission) {
   PermissionType permission_type;
   bool success =
@@ -93,7 +95,7 @@ PermissionUtil::GetPermissionsPolicyFeature(ContentSettingsType permission) {
   DCHECK(success);
   return success
              ? blink::PermissionTypeToPermissionsPolicyFeature(permission_type)
-             : absl::nullopt;
+             : std::nullopt;
 }
 
 bool PermissionUtil::GetPermissionType(ContentSettingsType type,
@@ -132,9 +134,6 @@ bool PermissionUtil::GetPermissionType(ContentSettingsType type,
     case ContentSettingsType::SENSORS:
       *out = PermissionType::SENSORS;
       break;
-    case ContentSettingsType::ACCESSIBILITY_EVENTS:
-      *out = PermissionType::ACCESSIBILITY_EVENTS;
-      break;
     case ContentSettingsType::CLIPBOARD_READ_WRITE:
       *out = PermissionType::CLIPBOARD_READ_WRITE;
       break;
@@ -165,6 +164,9 @@ bool PermissionUtil::GetPermissionType(ContentSettingsType type,
     case ContentSettingsType::AR:
       *out = PermissionType::AR;
       break;
+    case ContentSettingsType::HAND_TRACKING:
+      *out = PermissionType::HAND_TRACKING;
+      break;
     case ContentSettingsType::SMART_CARD_DATA:
       *out = PermissionType::SMART_CARD;
       break;
@@ -194,6 +196,21 @@ bool PermissionUtil::GetPermissionType(ContentSettingsType type,
       break;
     case ContentSettingsType::WEB_PRINTING:
       *out = PermissionType::WEB_PRINTING;
+      break;
+    case ContentSettingsType::SPEAKER_SELECTION:
+      *out = PermissionType::SPEAKER_SELECTION;
+      break;
+    case ContentSettingsType::KEYBOARD_LOCK:
+      *out = PermissionType::KEYBOARD_LOCK;
+      break;
+    case ContentSettingsType::POINTER_LOCK:
+      *out = PermissionType::POINTER_LOCK;
+      break;
+    case ContentSettingsType::AUTOMATIC_FULLSCREEN:
+      *out = PermissionType::AUTOMATIC_FULLSCREEN;
+      break;
+    case ContentSettingsType::WEB_APP_INSTALLATION:
+      *out = PermissionType::WEB_APP_INSTALLATION;
       break;
     default:
       return false;
@@ -227,17 +244,13 @@ bool PermissionUtil::IsGuardContentSetting(ContentSettingsType type) {
   }
 }
 
-bool PermissionUtil::CanPermissionBeAllowedOnce(ContentSettingsType type) {
-  switch (type) {
-    case ContentSettingsType::GEOLOCATION:
-    case ContentSettingsType::MEDIASTREAM_MIC:
-    case ContentSettingsType::MEDIASTREAM_CAMERA:
-    case ContentSettingsType::SMART_CARD_DATA:
-      return base::FeatureList::IsEnabled(
-          permissions::features::kOneTimePermission);
-    default:
-      return false;
-  }
+bool PermissionUtil::DoesSupportTemporaryGrants(ContentSettingsType type) {
+  return base::Contains(content_settings::GetTypesWithTemporaryGrants(), type);
+}
+
+bool PermissionUtil::DoesStoreTemporaryGrantsInHcsm(ContentSettingsType type) {
+  return base::Contains(content_settings::GetTypesWithTemporaryGrantsInHcsm(),
+                        type);
 }
 
 // Due to dependency issues, this method is duplicated in
@@ -246,9 +259,9 @@ GURL PermissionUtil::GetLastCommittedOriginAsURL(
     content::RenderFrameHost* render_frame_host) {
   DCHECK(render_frame_host);
 
-#if BUILDFLAG(IS_ANDROID)
   content::WebContents* web_contents =
       content::WebContents::FromRenderFrameHost(render_frame_host);
+#if BUILDFLAG(IS_ANDROID)
   // If `allow_universal_access_from_file_urls` flag is enabled, a file:/// can
   // change its url via history.pushState/replaceState to any other url,
   // including about:blank. To avoid user confusion we should always use a
@@ -263,10 +276,15 @@ GURL PermissionUtil::GetLastCommittedOriginAsURL(
   }
 #endif
 
+  if (render_frame_host->GetLastCommittedOrigin().GetURL().is_empty()) {
+    if (!web_contents->GetVisibleURL().is_empty()) {
+      return web_contents->GetVisibleURL();
+    }
+  }
   return render_frame_host->GetLastCommittedOrigin().GetURL();
 }
 
-ContentSettingsType PermissionUtil::PermissionTypeToContentSettingTypeSafe(
+ContentSettingsType PermissionUtil::PermissionTypeToContentSettingsTypeSafe(
     PermissionType permission) {
   switch (permission) {
     case PermissionType::MIDI:
@@ -294,8 +312,6 @@ ContentSettingsType PermissionUtil::PermissionTypeToContentSettingTypeSafe(
       return ContentSettingsType::BACKGROUND_SYNC;
     case PermissionType::SENSORS:
       return ContentSettingsType::SENSORS;
-    case PermissionType::ACCESSIBILITY_EVENTS:
-      return ContentSettingsType::ACCESSIBILITY_EVENTS;
     case PermissionType::CLIPBOARD_READ_WRITE:
       return ContentSettingsType::CLIPBOARD_READ_WRITE;
     case PermissionType::CLIPBOARD_SANITIZED_WRITE:
@@ -314,6 +330,8 @@ ContentSettingsType PermissionUtil::PermissionTypeToContentSettingTypeSafe(
       return ContentSettingsType::WAKE_LOCK_SYSTEM;
     case PermissionType::NFC:
       return ContentSettingsType::NFC;
+    case PermissionType::HAND_TRACKING:
+      return ContentSettingsType::HAND_TRACKING;
     case PermissionType::VR:
       return ContentSettingsType::VR;
     case PermissionType::AR:
@@ -336,6 +354,16 @@ ContentSettingsType PermissionUtil::PermissionTypeToContentSettingTypeSafe(
       return ContentSettingsType::CAPTURED_SURFACE_CONTROL;
     case PermissionType::WEB_PRINTING:
       return ContentSettingsType::WEB_PRINTING;
+    case PermissionType::SPEAKER_SELECTION:
+      return ContentSettingsType::SPEAKER_SELECTION;
+    case PermissionType::KEYBOARD_LOCK:
+      return ContentSettingsType::KEYBOARD_LOCK;
+    case PermissionType::POINTER_LOCK:
+      return ContentSettingsType::POINTER_LOCK;
+    case PermissionType::AUTOMATIC_FULLSCREEN:
+      return ContentSettingsType::AUTOMATIC_FULLSCREEN;
+    case PermissionType::WEB_APP_INSTALLATION:
+      return ContentSettingsType::WEB_APP_INSTALLATION;
     case PermissionType::NUM:
       break;
   }
@@ -343,17 +371,17 @@ ContentSettingsType PermissionUtil::PermissionTypeToContentSettingTypeSafe(
   return ContentSettingsType::DEFAULT;
 }
 
-ContentSettingsType PermissionUtil::PermissionTypeToContentSettingType(
+ContentSettingsType PermissionUtil::PermissionTypeToContentSettingsType(
     PermissionType permission) {
   ContentSettingsType content_setting =
-      PermissionTypeToContentSettingTypeSafe(permission);
+      PermissionTypeToContentSettingsTypeSafe(permission);
   DCHECK_NE(content_setting, ContentSettingsType::DEFAULT)
       << "Unknown content setting for permission "
       << static_cast<int>(permission);
   return content_setting;
 }
 
-PermissionType PermissionUtil::ContentSettingTypeToPermissionType(
+PermissionType PermissionUtil::ContentSettingsTypeToPermissionType(
     ContentSettingsType permission) {
   PermissionType permission_type;
   bool success =
@@ -376,7 +404,6 @@ ContentSetting PermissionUtil::PermissionStatusToContentSetting(
   }
 
   NOTREACHED();
-  return CONTENT_SETTING_DEFAULT;
 }
 
 blink::mojom::PermissionStatus PermissionUtil::ContentSettingToPermissionStatus(
@@ -396,7 +423,6 @@ blink::mojom::PermissionStatus PermissionUtil::ContentSettingToPermissionStatus(
   }
 
   NOTREACHED();
-  return blink::mojom::PermissionStatus::DENIED;
 }
 
 bool PermissionUtil::IsPermissionBlockedInPartition(
@@ -410,7 +436,7 @@ bool PermissionUtil::IsPermissionBlockedInPartition(
     case PermissionDelegationMode::kDoubleKeyed:
       return false;
     case PermissionDelegationMode::kUndelegated:
-      // TODO(crbug.com/1312218): This will create |requesting_origin|'s home
+      // TODO(crbug.com/40220503): This will create |requesting_origin|'s home
       // StoragePartition if it doesn't already exist. Given how
       // StoragePartitions are used today, this shouldn't actually be a
       // problem, but ideally we'd compare StoragePartitionConfigs.
@@ -425,7 +451,7 @@ bool PermissionUtil::IsPermissionBlockedInPartition(
 GURL PermissionUtil::GetCanonicalOrigin(ContentSettingsType permission,
                                         const GURL& requesting_origin,
                                         const GURL& embedding_origin) {
-  absl::optional<GURL> override_origin =
+  std::optional<GURL> override_origin =
       PermissionsClient::Get()->OverrideCanonicalOrigin(requesting_origin,
                                                         embedding_origin);
   if (override_origin)

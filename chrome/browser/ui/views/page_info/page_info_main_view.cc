@@ -12,6 +12,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lookalikes/safety_tip_ui_helper.h"
 #include "chrome/browser/page_info/page_info_features.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/page_info/chrome_page_info_ui_delegate.h"
 #include "chrome/browser/ui/ui_features.h"
@@ -60,14 +61,7 @@ namespace {
 
 constexpr int kMinPermissionRowHeight = 40;
 constexpr float kMaxPermissionRowCount = 10.5;
-
-// Used to experiment with different icons through a finch parameter.
-enum class AboutThisSiteSeconaryIcon {
-  kNewTabIcon = 0,
-  kArrowIcon = 1,
-  kSidePanelIcon = 2,
-  kNoIcon = 3,
-};
+constexpr int kContainerExtraRightMargin = 2;
 
 }  // namespace
 
@@ -76,15 +70,18 @@ DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(PageInfoMainView, kMainLayoutElementId);
 DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(PageInfoMainView, kPermissionsElementId);
 
 PageInfoMainView::ContainerView::ContainerView() {
-  SetLayoutManager(std::make_unique<views::BoxLayout>(
-      views::BoxLayout::Orientation::kVertical));
+  auto box_layout = std::make_unique<views::BoxLayout>(
+      views::BoxLayout::Orientation::kVertical);
+  box_layout->set_inside_border_insets(
+      gfx::Insets::TLBR(0, 0, 0, kContainerExtraRightMargin));
+  SetLayoutManager(std::move(box_layout));
 }
 
 void PageInfoMainView::ContainerView::Update() {
   PreferredSizeChanged();
 }
 
-BEGIN_METADATA(PageInfoMainView, ContainerView, views::View)
+BEGIN_METADATA(PageInfoMainView, ContainerView)
 END_METADATA
 
 PageInfoMainView::PageInfoMainView(
@@ -92,7 +89,8 @@ PageInfoMainView::PageInfoMainView(
     ChromePageInfoUiDelegate* ui_delegate,
     PageInfoNavigationHandler* navigation_handler,
     PageInfoHistoryController* history_controller,
-    base::OnceClosure initialized_callback)
+    base::OnceClosure initialized_callback,
+    bool allow_about_this_site)
     : presenter_(presenter),
       ui_delegate_(ui_delegate),
       navigation_handler_(navigation_handler) {
@@ -142,14 +140,17 @@ PageInfoMainView::PageInfoMainView(
         std::u16string(), PageInfoViewFactory::GetLaunchIcon()));
     site_settings_link_->SetID(
         PageInfoViewFactory::VIEW_ID_PAGE_INFO_LINK_OR_BUTTON_SITE_SETTINGS);
+    site_settings_link_->SetProperty(
+        views::kMarginsKey,
+        gfx::Insets::TLBR(0, 0, 0, kContainerExtraRightMargin));
   }
 
   if (base::FeatureList::IsEnabled(page_info::kPageInfoHistoryDesktop)) {
     history_controller->InitRow(AddChildView(CreateContainerView()));
   }
 
-  if (page_info::IsAboutThisSiteFeatureEnabled(
-          g_browser_process->GetApplicationLocale())) {
+  if (allow_about_this_site && page_info::IsAboutThisSiteFeatureEnabled(
+                                   g_browser_process->GetApplicationLocale())) {
     about_this_site_section_ = AddChildView(CreateContainerView());
   }
 
@@ -163,51 +164,29 @@ void PageInfoMainView::SetCookieInfo(const CookiesNewInfo& cookie_info) {
   if (cookie_button_ != nullptr) {
     return;
   }
-  PageInfo::PermissionInfo info;
-  info.type = ContentSettingsType::COOKIES;
-  info.setting = CONTENT_SETTING_ALLOW;
 
-  ui::ImageModel icon;
-  std::u16string tooltip, title, label = std::u16string();
-
-  // Check if 3PCD blocking status is initialized.
-  if (cookie_info.blocking_status != CookieBlocking3pcdStatus::kNotIn3pcd) {
-    icon = PageInfoViewFactory::GetBlockingThirdPartyCookiesIcon();
-    title = l10n_util::GetStringUTF16(
-        IDS_PAGE_INFO_TRACKING_PROTECTION_SITE_INFO_BUTTON_NAME);
-    tooltip = l10n_util::GetStringUTF16(
-        IDS_PAGE_INFO_TRACKING_PROTECTION_COOKIES_TOOLTIP);
-
-    if (cookie_info.status == CookieControlsStatus::kDisabledForSite) {
-      label = l10n_util::GetStringUTF16(
-          IDS_PAGE_INFO_TRACKING_PROTECTION_SITE_INFO_BUTTON_LABEL_ALLOWED);
-    } else if (cookie_info.blocking_status == CookieBlocking3pcdStatus::kAll) {
-      label = l10n_util::GetStringUTF16(
-          IDS_PAGE_INFO_TRACKING_PROTECTION_SITE_INFO_BUTTON_LABEL_BLOCKED);
-    } else if (cookie_info.blocking_status ==
-               CookieBlocking3pcdStatus::kLimited) {
-      label = l10n_util::GetStringUTF16(
-          IDS_PAGE_INFO_TRACKING_PROTECTION_SITE_INFO_BUTTON_LABEL_LIMITED);
-    }
-  } else {
-    icon = PageInfoViewFactory::GetCookiesAndSiteDataIcon();
-    title = l10n_util::GetStringUTF16(IDS_PAGE_INFO_COOKIES_HEADER);
-    tooltip = l10n_util::GetStringUTF16(IDS_PAGE_INFO_COOKIES_TOOLTIP);
-  }
-
-  // Create a cookie button that opens a cookies subpage (or Tracking Protection
-  // subpage in the case of 3PCD).
+  // Create a cookie button that opens a cookies subpage.
   cookie_button_ =
       site_settings_view_->AddChildView(std::make_unique<RichHoverButton>(
           base::BindRepeating(&PageInfoNavigationHandler::OpenCookiesPage,
                               base::Unretained(navigation_handler_)),
-          icon, title,
-          /*secondary_text=*/std::u16string(), tooltip, label,
+          PageInfoViewFactory::GetCookiesAndSiteDataIcon(),
+          l10n_util::GetStringUTF16(IDS_PAGE_INFO_COOKIES_HEADER),
+          /*secondary_text=*/std::u16string(),
+          l10n_util::GetStringUTF16(IDS_PAGE_INFO_COOKIES_TOOLTIP),
+          /*subtitle_text=*/std::u16string(),
           PageInfoViewFactory::GetOpenSubpageIcon()));
   cookie_button_->SetID(
       PageInfoViewFactory::VIEW_ID_PAGE_INFO_LINK_OR_BUTTON_COOKIES_SUBPAGE);
   cookie_button_->SetProperty(views::kElementIdentifierKey,
                               kCookieButtonElementId);
+  cookie_button_->title()->SetTextStyle(views::style::STYLE_BODY_3_MEDIUM);
+  cookie_button_->title()->SetEnabledColorId(kColorPageInfoForeground);
+  if (cookie_button_->subtitle()) {
+    cookie_button_->subtitle()->SetTextStyle(views::style::STYLE_BODY_4);
+    cookie_button_->subtitle()->SetEnabledColorId(
+        kColorPageInfoSubtitleForeground);
+  }
 }
 
 void PageInfoMainView::SetPermissionInfo(
@@ -218,6 +197,18 @@ void PageInfoMainView::SetPermissionInfo(
     return;
   }
 
+  // When LHS indicators are enabled, permissions usage in PageInfo should be
+  // updated to reflect activity indicators.
+  if (base::FeatureList::IsEnabled(
+          content_settings::features::kLeftHandSideActivityIndicators)) {
+    for (const auto& permission : permission_info_list) {
+      auto it = syncable_permission_rows_.find(permission.type);
+      if (it != syncable_permission_rows_.end()) {
+        it->second->UpdatePermission(permission);
+      }
+    }
+  }
+
   // This method is called when Page Info is constructed/displayed, then called
   // again whenever permissions/chosen objects change while the bubble is still
   // opened. Once Page Info is displaying a non-zero number of permissions, all
@@ -226,8 +217,6 @@ void PageInfoMainView::SetPermissionInfo(
   // assumption is incorrect and it is actually possible that the number of
   // permission rows will need to change, but this should be an extremely rare
   // case that can be recovered from by closing & reopening the bubble.
-  // TODO(patricialor): Investigate removing callsites to this method other than
-  // the constructor.
   if (!permissions_view_->children().empty()) {
     UpdateResetButton(permission_info_list);
     return;
@@ -254,20 +243,21 @@ void PageInfoMainView::SetPermissionInfo(
   // permissions to align toggles.
   bool should_show_spacer = false;
   for (const auto& permission : permission_info_list) {
-    if (permissions::PermissionUtil::CanPermissionBeAllowedOnce(
+    if (permissions::PermissionUtil::DoesSupportTemporaryGrants(
             permission.type)) {
       should_show_spacer = true;
     }
   }
 
   for (const auto& permission : permission_info_list) {
-    auto* toggle_row =
+    PermissionToggleRowView* toggle_row =
         content_view->AddChildView(std::make_unique<PermissionToggleRowView>(
             ui_delegate_, navigation_handler_, permission, should_show_spacer));
     toggle_row->AddObserver(this);
     toggle_row->SetProperty(views::kCrossAxisAlignmentKey,
                             views::LayoutAlignment::kStretch);
-    toggle_rows_.push_back(std::move(toggle_row));
+    syncable_permission_rows_.emplace(permission.type, toggle_row);
+    toggle_rows_.push_back(toggle_row);
   }
 
   for (auto& object : chosen_object_info_list) {
@@ -295,7 +285,7 @@ void PageInfoMainView::SetPermissionInfo(
             view->chosen_object_rows_.clear();
             view->PreferredSizeChanged();
             view->presenter_->RecordPageInfoAction(
-                PageInfo::PageInfoAction::PAGE_INFO_PERMISSIONS_CLEARED);
+                page_info::PAGE_INFO_PERMISSIONS_CLEARED);
           },
           base::Unretained(this))));
   reset_button_->SetProperty(views::kCrossAxisAlignmentKey,
@@ -332,7 +322,7 @@ void PageInfoMainView::UpdateResetButton(
   int num_permissions = 0;
   for (const auto& permission : permission_info_list) {
     const bool is_permission_user_managed =
-        permission.source == content_settings::SETTING_SOURCE_USER &&
+        permission.source == content_settings::SettingSource::kUser &&
         (ui_delegate_->ShouldShowAllow(permission.type) ||
          ui_delegate_->ShouldShowAsk(permission.type));
     if (is_permission_user_managed &&
@@ -378,11 +368,12 @@ void PageInfoMainView::SetIdentityInfo(const IdentityInfo& identity_info) {
         PageInfoViewFactory::
             VIEW_ID_PAGE_INFO_LINK_OR_BUTTON_SECURITY_INFORMATION);
     connection_button_->SetTitleText(security_description->summary);
+    connection_button_->title()->SetTextStyle(
+        views::style::STYLE_BODY_3_MEDIUM);
 
     // Show "About this site" section only if connection is secure, because
     // security information has higher priority.
-    if (page_info::IsAboutThisSiteFeatureEnabled(
-            g_browser_process->GetApplicationLocale())) {
+    if (about_this_site_section_) {
       auto info = ui_delegate_->GetAboutThisSiteInfo();
       if (info.has_value()) {
         about_this_site_section_->RemoveAllChildViews();
@@ -404,8 +395,9 @@ void PageInfoMainView::SetIdentityInfo(const IdentityInfo& identity_info) {
 void PageInfoMainView::SetPageFeatureInfo(const PageFeatureInfo& info) {
 #if BUILDFLAG(IS_WIN) && BUILDFLAG(ENABLE_VR)
   // For now, this has only VR settings.
-  if (!info.is_vr_presentation_in_headset)
+  if (!info.is_vr_presentation_in_headset) {
     return;
+  }
 
   ChromeLayoutProvider* layout_provider = ChromeLayoutProvider::Get();
   page_feature_info_view_
@@ -477,8 +469,9 @@ void PageInfoMainView::SetAdPersonalizationInfo(
 
   ads_personalization_section_->RemoveAllChildViews();
 
-  if (info.is_empty())
+  if (info.is_empty()) {
     return;
+  }
 
   ads_personalization_section_->AddChildView(CreateAdPersonalizationSection());
 
@@ -521,14 +514,15 @@ void PageInfoMainView::HandleMoreInfoRequestAsync(int view_id) {
       presenter_->OpenSiteSettingsView();
       break;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 
-gfx::Size PageInfoMainView::CalculatePreferredSize() const {
+gfx::Size PageInfoMainView::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
   if (site_settings_view_ == nullptr && permissions_view_ == nullptr &&
       security_container_view_ == nullptr) {
-    return views::View::CalculatePreferredSize();
+    return views::View::CalculatePreferredSize(available_size);
   }
 
   int width = 0;
@@ -544,7 +538,8 @@ gfx::Size PageInfoMainView::CalculatePreferredSize() const {
     width =
         std::max(width, security_container_view_->GetPreferredSize().width());
   }
-  return gfx::Size(width, views::View::GetHeightForWidth(width));
+  return gfx::Size(width,
+                   GetLayoutManager()->GetPreferredHeightForWidth(this, width));
 }
 
 void PageInfoMainView::ChildPreferredSizeChanged(views::View* child) {
@@ -552,40 +547,38 @@ void PageInfoMainView::ChildPreferredSizeChanged(views::View* child) {
 }
 
 std::unique_ptr<views::View> PageInfoMainView::CreateBubbleHeaderView() {
-  auto header = std::make_unique<views::View>();
-  header->SetLayoutManager(std::make_unique<views::FlexLayout>())
-      ->SetInteriorMargin(
-          gfx::Insets::VH(0, features::IsChromeRefresh2023() ? 20 : 16));
-  title_ = header->AddChildView(std::make_unique<views::Label>(
-      std::u16string(), views::style::CONTEXT_DIALOG_TITLE,
-      views::style::STYLE_PRIMARY,
-      gfx::DirectionalityMode::DIRECTIONALITY_AS_URL));
-  title_->SetMultiLine(true);
-  title_->SetAllowCharacterBreak(true);
-  title_->SetProperty(
-      views::kFlexBehaviorKey,
-      views::FlexSpecification(views::MinimumFlexSizeRule::kScaleToZero,
-                               views::MaximumFlexSizeRule::kUnbounded,
-                               /*adjust_height_for_width =*/true)
-          .WithWeight(1));
-  title_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  if (features::IsChromeRefresh2023()) {
-    title_->SetTextStyle(views::style::STYLE_HEADLINE_4);
-  }
-  auto close_button = views::BubbleFrameView::CreateCloseButton(
-      base::BindRepeating(&PageInfoNavigationHandler::CloseBubble,
-                          base::Unretained(navigation_handler_)));
-
-  close_button->SetVisible(true);
-  close_button->SetProperty(views::kCrossAxisAlignmentKey,
-                            views::LayoutAlignment::kStart);
-  // Set views::kInternalPaddingKey for flex layout to account for internal
-  // button padding when calculating margins.
-  close_button->SetProperty(views::kInternalPaddingKey,
-                            close_button->GetInsets());
-  header->AddChildView(close_button.release());
-
-  return header;
+  return views::Builder<views::FlexLayoutView>()
+      .SetInteriorMargin(gfx::Insets::VH(0, 20))
+      .AddChildren(
+          views::Builder<views::Label>(
+              std::make_unique<views::Label>(
+                  std::u16string(), views::style::CONTEXT_DIALOG_TITLE,
+                  views::style::STYLE_HEADLINE_4,
+                  gfx::DirectionalityMode::DIRECTIONALITY_AS_URL))
+              .CopyAddressTo(&title_)
+              .SetMultiLine(true)
+              .SetAllowCharacterBreak(true)
+              .SetHorizontalAlignment(gfx::ALIGN_LEFT)
+              .SetProperty(views::kFlexBehaviorKey,
+                           views::FlexSpecification(
+                               views::LayoutOrientation::kHorizontal,
+                               views::MinimumFlexSizeRule::kScaleToZero,
+                               views::MaximumFlexSizeRule::kUnbounded)
+                               .WithWeight(1)),
+          views::Builder<views::View>(
+              views::BubbleFrameView::CreateCloseButton(
+                  base::BindRepeating(&PageInfoNavigationHandler::CloseBubble,
+                                      base::Unretained(navigation_handler_))))
+              .SetVisible(true)
+              .SetProperty(views::kCrossAxisAlignmentKey,
+                           views::LayoutAlignment::kStart)
+              .CustomConfigure(base::BindOnce([](views::View* button) {
+                // Set views::kInternalPaddingKey for flex layout to account for
+                // internal button padding when calculating margins.
+                button->SetProperty(views::kInternalPaddingKey,
+                                    button->GetInsets());
+              })))
+      .Build();
 }
 
 std::unique_ptr<views::View> PageInfoMainView::CreateAboutThisSiteSection(
@@ -612,8 +605,7 @@ std::unique_ptr<views::View> PageInfoMainView::CreateAboutThisSiteSection(
                 page_info::AboutThisSiteService::OnAboutThisSiteRowClicked(
                     has_description);
                 view->presenter_->RecordPageInfoAction(
-                    PageInfo::PageInfoAction::
-                        PAGE_INFO_ABOUT_THIS_SITE_PAGE_OPENED);
+                    page_info::PAGE_INFO_ABOUT_THIS_SITE_PAGE_OPENED);
                 view->ui_delegate_->OpenMoreAboutThisPageUrl(more_info_url,
                                                              event);
                 view->GetWidget()->Close();
@@ -627,6 +619,12 @@ std::unique_ptr<views::View> PageInfoMainView::CreateAboutThisSiteSection(
   about_this_site_button->SetID(
       PageInfoViewFactory::VIEW_ID_PAGE_INFO_ABOUT_THIS_SITE_BUTTON);
   about_this_site_button->SetSubtitleMultiline(false);
+  about_this_site_button->title()->SetTextStyle(
+      views::style::STYLE_BODY_3_MEDIUM);
+  about_this_site_button->title()->SetEnabledColorId(kColorPageInfoForeground);
+  about_this_site_button->subtitle()->SetTextStyle(views::style::STYLE_BODY_4);
+  about_this_site_button->subtitle()->SetEnabledColorId(
+      kColorPageInfoSubtitleForeground);
 
   return about_this_site_section;
 }
@@ -637,19 +635,32 @@ PageInfoMainView::CreateAdPersonalizationSection() {
   ads_personalization_section
       ->SetLayoutManager(std::make_unique<views::FlexLayout>())
       ->SetOrientation(views::LayoutOrientation::kVertical);
-  ads_personalization_section
-      ->AddChildView(std::make_unique<RichHoverButton>(
-          base::BindRepeating(
-              [](PageInfoMainView* view) {
-                view->navigation_handler_->OpenAdPersonalizationPage();
-              },
-              this),
-          PageInfoViewFactory::GetAdPersonalizationIcon(),
-          l10n_util::GetStringUTF16(IDS_PAGE_INFO_AD_PRIVACY_HEADER),
-          std::u16string(),
-          l10n_util::GetStringUTF16(IDS_PAGE_INFO_AD_PRIVACY_TOOLTIP),
-          std::u16string(), PageInfoViewFactory::GetOpenSubpageIcon()))
-      ->SetID(PageInfoViewFactory::VIEW_ID_PAGE_INFO_AD_PERSONALIZATION_BUTTON);
+  RichHoverButton* ads_personalization_button =
+      ads_personalization_section->AddChildView(
+          std::make_unique<RichHoverButton>(
+              base::BindRepeating(
+                  [](PageInfoMainView* view) {
+                    view->navigation_handler_->OpenAdPersonalizationPage();
+                  },
+                  this),
+              PageInfoViewFactory::GetAdPersonalizationIcon(),
+              l10n_util::GetStringUTF16(IDS_PAGE_INFO_AD_PRIVACY_HEADER),
+              std::u16string(),
+              l10n_util::GetStringUTF16(IDS_PAGE_INFO_AD_PRIVACY_TOOLTIP),
+              std::u16string(), PageInfoViewFactory::GetOpenSubpageIcon()));
+  ads_personalization_button->SetID(
+      PageInfoViewFactory::VIEW_ID_PAGE_INFO_AD_PERSONALIZATION_BUTTON);
+
+  ads_personalization_button->title()->SetTextStyle(
+      views::style::STYLE_BODY_3_MEDIUM);
+  ads_personalization_button->title()->SetEnabledColorId(
+      kColorPageInfoForeground);
+  if (ads_personalization_button->subtitle()) {
+    ads_personalization_button->subtitle()->SetTextStyle(
+        views::style::STYLE_BODY_4);
+    ads_personalization_button->subtitle()->SetEnabledColorId(
+        kColorPageInfoSubtitleForeground);
+  }
 
   return ads_personalization_section;
 }

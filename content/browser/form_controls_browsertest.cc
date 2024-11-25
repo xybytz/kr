@@ -24,7 +24,7 @@
 #include "base/android/build_info.h"
 #endif
 
-// TODO(crbug.com/958242): Move the baselines to skia gold for easier
+// TODO(crbug.com/40625383): Move the baselines to skia gold for easier
 //   rebaselining when all platforms are supported.
 
 // To rebaseline this test on all platforms:
@@ -45,8 +45,6 @@ class FormControlsBrowserTest : public ContentBrowserTest {
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    ContentBrowserTest::SetUpCommandLine(command_line);
-
     // The --disable-lcd-text flag helps text render more similarly on
     // different bots and platform.
     command_line->AppendSwitch(switches::kDisableLCDText);
@@ -72,8 +70,8 @@ class FormControlsBrowserTest : public ContentBrowserTest {
     platform_suffix = "_chromeos";
 #elif BUILDFLAG(IS_ANDROID)
     int sdk_int = base::android::BuildInfo::GetInstance()->sdk_int();
-    if (sdk_int == base::android::SDK_VERSION_KITKAT) {
-      platform_suffix = "_android_kitkat";
+    if (sdk_int >= base::android::SDK_VERSION_T) {
+      platform_suffix = "_android_T";
     } else {
       platform_suffix = "_android";
     }
@@ -145,7 +143,10 @@ class FormControlsBrowserTest : public ContentBrowserTest {
 };
 
 // Checkbox renders differently on Android x86. crbug.com/1238283
+// Checkbox renders differently on Windows. See: crbug.com/377986468
 #if BUILDFLAG(IS_ANDROID) && defined(ARCH_CPU_X86)
+#define MAYBE_Checkbox DISABLED_Checkbox
+#elif BUILDFLAG(IS_WIN)
 #define MAYBE_Checkbox DISABLED_Checkbox
 #else
 #define MAYBE_Checkbox Checkbox
@@ -232,7 +233,15 @@ IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, Input) {
           /* screenshot_height */ 330);
 }
 
-IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, Textarea) {
+// Renders differently on Windows. See: crbug.com/377986468
+#if (BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHROMEOS))
+#define MAYBE_Textarea DISABLED_Textarea
+#elif BUILDFLAG(IS_WIN)
+#define MAYBE_Textarea DISABLED_Textarea
+#else
+#define MAYBE_Textarea Textarea
+#endif
+IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, MAYBE_Textarea) {
   if (SkipTestForOldAndroidVersions())
     return;
 
@@ -279,7 +288,10 @@ IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, Button) {
 // TODO(crbug.com/1160104/#25) This test creates large average_error_rate on
 // Android FYI SkiaRenderer Vulkan. Disable it until a resolution for is
 // found.
+// Also renders differently on Windows. See: crbug.com/377986468
 #if BUILDFLAG(IS_ANDROID)
+#define MAYBE_ColorInput DISABLED_ColorInput
+#elif BUILDFLAG(IS_WIN)
 #define MAYBE_ColorInput DISABLED_ColorInput
 #else
 #define MAYBE_ColorInput ColorInput
@@ -326,7 +338,13 @@ IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, Select) {
           /* screenshot_height */ 200);
 }
 
-IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, MultiSelect) {
+// Renders differently on Windows. See: crbug.com/377986468
+#if BUILDFLAG(IS_WIN)
+#define MAYBE_MultiSelect DISABLED_MultiSelect
+#else
+#define MAYBE_MultiSelect MultiSelect
+#endif
+IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, MAYBE_MultiSelect) {
   if (SkipTestForOldAndroidVersions())
     return;
 
@@ -359,7 +377,7 @@ IN_PROC_BROWSER_TEST_F(FormControlsBrowserTest, Progress) {
 #if BUILDFLAG(IS_MAC) && !defined(ARCH_CPU_ARM64)
   // The pixel comparison fails on Mac Intel GPUs with Graphite due to MSAA
   // issues.
-  // TODO(crbug.com/1500259): Re-enable test if possible.
+  // TODO(crbug.com/40940637): Re-enable test if possible.
   if (features::IsSkiaGraphiteEnabled(base::CommandLine::ForCurrentProcess())) {
     return;
   }

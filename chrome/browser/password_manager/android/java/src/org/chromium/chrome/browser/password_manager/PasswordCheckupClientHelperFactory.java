@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.password_manager;
 import android.content.Context;
 
 import org.chromium.base.ResettersForTesting;
+import org.chromium.base.ServiceLoaderUtil;
 import org.chromium.chrome.browser.password_manager.CredentialManagerLauncher.CredentialManagerError;
 import org.chromium.chrome.browser.password_manager.PasswordCheckupClientHelper.PasswordCheckBackendException;
 
@@ -22,7 +23,12 @@ public abstract class PasswordCheckupClientHelperFactory {
      * created.
      */
     public static PasswordCheckupClientHelperFactory getInstance() {
-        if (sInstance == null) sInstance = new PasswordCheckupClientHelperFactoryImpl();
+        if (sInstance == null) {
+            sInstance = ServiceLoaderUtil.maybeCreate(PasswordCheckupClientHelperFactory.class);
+        }
+        if (sInstance == null) {
+            sInstance = new PasswordCheckupClientHelperFactoryUpstreamImpl();
+        }
         return sInstance;
     }
 
@@ -30,8 +36,7 @@ public abstract class PasswordCheckupClientHelperFactory {
      * Returns the downstream implementation provided by subclasses.
      *
      * @return An implementation of the {@link PasswordCheckupClientHelper} if one exists.
-     *
-     * TODO(crbug.com/1346239): Check if backend could be instantiated and throw error
+     *     <p>TODO(crbug.com/40854052): Check if backend could be instantiated and throw error
      */
     public PasswordCheckupClientHelper createHelper() throws PasswordCheckBackendException {
         return null;

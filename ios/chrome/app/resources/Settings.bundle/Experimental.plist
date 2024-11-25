@@ -152,16 +152,6 @@
 			<key>Type</key>
 			<string>PSToggleSwitchSpecifier</string>
 			<key>Title</key>
-			<string>Force Search Engine Choice</string>
-			<key>Key</key>
-			<string>SearchEngineForceEnabled</string>
-			<key>DefaultValue</key>
-			<false/>
-		</dict>
-		<dict>
-			<key>Type</key>
-			<string>PSToggleSwitchSpecifier</string>
-			<key>Title</key>
 			<string>Force Upgrade Promo</string>
 			<key>Key</key>
 			<string>UpgradePromoForceEnabled</string>
@@ -182,18 +172,20 @@
 				<string></string>
 				<string>promos_manager::Promo::AppStoreRating</string>
 				<string>promos_manager::Promo::DefaultBrowser</string>
-				<string>promos_manager::Promo::Choice</string>
 				<string>promos_manager::Promo::PostRestoreDefaultBrowserAlert</string>
 				<string>promos_manager::Promo::OmniboxPosition</string>
+				<string>promos_manager::Promo::DockingPromo</string>
+				<string>promos_manager::Promo::PostDefaultAbandonment</string>
 			</array>
 			<key>Titles</key>
 			<array>
 				<string>Disabled (No Promos Forced)</string>
 				<string>App Store Rating</string>
 				<string>Default Browser</string>
-				<string>Waffle</string>
 				<string>Post Restore Default Browser Alert</string>
 				<string>Omnibox Position</string>
+				<string>Docking Promo</string>
+				<string>Post-Default Browser Abandonment Alert</string>
 			</array>
 		</dict>
 		<dict>
@@ -208,15 +200,27 @@
 			<key>Values</key>
 			<array>
 				<string></string>
+				<string>Desktop</string>
 				<string>AndroidPhone</string>
 				<string>SyncedAndFirstDevice</string>
 			</array>
 			<key>Titles</key>
 			<array>
 				<string>Disabled</string>
+				<string>Desktop</string>
 				<string>Android Phone</string>
 				<string>Synced And First Device</string>
 			</array>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
+			<string>Force Shopper Experience</string>
+			<key>Key</key>
+			<string>ForceExperienceForShopper</string>
+			<key>DefaultValue</key>
+			<false/>
 		</dict>
 		<dict>
 			<key>Type</key>
@@ -370,6 +374,30 @@
 		</dict>
 		<dict>
 			<key>Type</key>
+			<string>PSMultiValueSpecifier</string>
+			<key>Title</key>
+			<string>Safety Check Notifications (Inactivity Threshold)</string>
+			<key>Key</key>
+			<string>SafetyCheckNotificationsInactivityThreshold</string>
+			<key>DefaultValue</key>
+			<integer>0</integer>
+			<key>Values</key>
+			<array>
+				<integer>0</integer>
+				<integer>30</integer>
+				<integer>300</integer>
+				<integer>3600</integer>
+			</array>
+			<key>Titles</key>
+			<array>
+				<string>Unset</string>
+				<string>30 seconds</string>
+				<string>5 minutes</string>
+				<string>1 hour</string>
+			</array>
+		</dict>
+		<dict>
+			<key>Type</key>
 			<string>PSToggleSwitchSpecifier</string>
 			<key>Title</key>
 			<string>WidgetKit refresh 5 minutes</string>
@@ -377,6 +405,86 @@
 			<string>WidgetKitRefreshFiveMinutes</string>
 			<key>DefaultValue</key>
 			<false/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSMultiValueSpecifier</string>
+			<key>Title</key>
+			<string>Tab Resumption force Decoration</string>
+			<key>Key</key>
+			<string>TabResumptionDecorationOverride</string>
+			<key>DefaultValue</key>
+			<string></string>
+			<key>Values</key>
+			<array>
+				<string></string>
+				<string>MostRecent</string>
+				<string>FrequentlyVisited</string>
+				<string>FrequentlyVisitedAtTime</string>
+				<string>VisitedSomeTimeAgoRecent</string>
+				<string>VisitedSomeTimeAgoOld</string>
+			</array>
+			<key>Titles</key>
+			<array>
+				<string>Unset</string>
+				<string>Most recent</string>
+				<string>Frequently visited</string>
+				<string>Frequently visited at time</string>
+				<string>Visited some time ago (recent)</string>
+				<string>Visited some time ago (old)</string>
+			</array>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSMultiValueSpecifier</string>
+			<key>Title</key>
+			<string>Tips (Magic Stack) State</string>
+			<key>Key</key>
+			<string>TipsMagicStackStateOverride</string>
+			<key>DefaultValue</key>
+			<integer>0</integer>
+			<key>Values</key>
+			<array>
+				<integer>0</integer>
+				<integer>1</integer>
+				<integer>2</integer>
+				<integer>3</integer>
+				<integer>4</integer>
+				<integer>5</integer>
+				<integer>6</integer>
+				<integer>7</integer>
+			</array>
+			<key>Titles</key>
+			<array>
+				<string>None</string>
+				<string>Lens Search</string>
+				<string>Lens Shop</string>
+				<string>Lens Translate</string>
+				<string>Address Bar Position</string>
+				<string>Save Passwords</string>
+				<string>Autofill Passwords</string>
+				<string>Enhanced Safe Browsing</string>
+			</array>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
+			<string>Force product image in Lens Shop Tip</string>
+			<key>Key</key>
+			<string>TipsMagicStackLensShopWithImage</string>
+			<key>DefaultValue</key>
+			<false/>
+		</dict>
+		<dict>
+			<key>DefaultValue</key>
+			<false/>
+			<key>Key</key>
+			<string>InactiveTabsDemoMode</string>
+			<key>Title</key>
+			<string>Force inactive tabs threshold (1min)</string>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
 		</dict>
 		<dict>
 			<key>Type</key>

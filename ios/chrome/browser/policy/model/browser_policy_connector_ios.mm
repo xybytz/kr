@@ -52,7 +52,7 @@ BrowserPolicyConnectorIOS::~BrowserPolicyConnectorIOS() {}
 ConfigurationPolicyProvider* BrowserPolicyConnectorIOS::GetPlatformProvider() {
   ConfigurationPolicyProvider* provider =
       BrowserPolicyConnectorBase::GetPolicyProviderForTesting();
-  return provider ? provider : platform_provider_;
+  return provider ? provider : platform_provider_.get();
 }
 
 base::flat_set<std::string>
@@ -103,7 +103,6 @@ void BrowserPolicyConnectorIOS::Init(
 
 bool BrowserPolicyConnectorIOS::IsDeviceEnterpriseManaged() const {
   NOTREACHED() << "This method is only defined for Chrome OS";
-  return false;
 }
 
 bool BrowserPolicyConnectorIOS::HasMachineLevelPolicies() {

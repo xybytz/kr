@@ -162,7 +162,7 @@ sync_pb::NigoriSpecifics BuildTrustedVaultNigoriSpecifics(
 
 sync_pb::NigoriSpecifics BuildCustomPassphraseNigoriSpecifics(
     const KeyParamsForTesting& passphrase_key_params,
-    const absl::optional<KeyParamsForTesting>& old_key_params) {
+    const std::optional<KeyParamsForTesting>& old_key_params) {
   KeyDerivationMethod method = passphrase_key_params.derivation_params.method();
 
   sync_pb::NigoriSpecifics nigori;
@@ -181,16 +181,16 @@ sync_pb::NigoriSpecifics BuildCustomPassphraseNigoriSpecifics(
       // Nigori.
       break;
     case KeyDerivationMethod::SCRYPT_8192_8_11:
-      base::Base64Encode(passphrase_key_params.derivation_params.scrypt_salt(),
-                         &encoded_salt);
+      encoded_salt = base::Base64Encode(
+          passphrase_key_params.derivation_params.scrypt_salt());
       nigori.set_custom_passphrase_key_derivation_salt(encoded_salt);
       break;
   }
 
   // Create the cryptographer, which encrypts with the key derived from
-  // |passphrase_key_params| and can decrypt with the key derived from
-  // |old_key_params| if given. |encryption_keybag| is a serialized version
-  // of this cryptographer |key_bag| encrypted with its encryption key.
+  // `passphrase_key_params` and can decrypt with the key derived from
+  // `old_key_params` if given. `encryption_keybag` is a serialized version
+  // of this cryptographer `key_bag` encrypted with its encryption key.
   auto cryptographer = CryptographerImpl::FromSingleKeyForTesting(
       passphrase_key_params.password, passphrase_key_params.derivation_params);
   if (old_key_params) {
@@ -207,7 +207,7 @@ sync_pb::NigoriSpecifics BuildCustomPassphraseNigoriSpecifics(
 
 KeyDerivationParams InitCustomPassphraseKeyDerivationParamsFromNigori(
     const sync_pb::NigoriSpecifics& nigori) {
-  absl::optional<KeyDerivationMethod> key_derivation_method =
+  std::optional<KeyDerivationMethod> key_derivation_method =
       ProtoKeyDerivationMethodToEnum(
           nigori.custom_passphrase_key_derivation_method());
   if (!key_derivation_method.has_value()) {

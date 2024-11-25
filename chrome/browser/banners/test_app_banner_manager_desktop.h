@@ -14,10 +14,6 @@ namespace content {
 class WebContents;
 }
 
-namespace segmentation_platform {
-class MockSegmentationPlatformService;
-}  // namespace segmentation_platform
-
 namespace webapps {
 
 // Provides the ability to await the results of the installability check that
@@ -55,26 +51,27 @@ class TestAppBannerManagerDesktop : public AppBannerManagerDesktop {
   // Block until the current app has been installed.
   void AwaitAppInstall();
 
-  segmentation_platform::MockSegmentationPlatformService*
-  GetMockSegmentationPlatformService();
-
   // AppBannerManager:
   void OnDidGetManifest(const InstallableData& result) override;
   void OnDidPerformInstallableWebAppCheck(
       const InstallableData& result) override;
   void ResetCurrentPageData() override;
-  segmentation_platform::SegmentationPlatformService*
-  GetSegmentationPlatformService() override;
 
   // AppBannerManagerDesktop:
   TestAppBannerManagerDesktop* AsTestAppBannerManagerDesktopForTesting()
       override;
 
+  const base::Value::List& debug_log() const { return debug_log_; }
+
  protected:
   // AppBannerManager:
-  void OnInstall(blink::mojom::DisplayMode display) override;
-  void DidFinishCreatingWebApp(const webapps::AppId& app_id,
-                               webapps::InstallResultCode code) override;
+  void OnInstall(blink::mojom::DisplayMode display,
+                 bool set_current_web_app_not_installable) override;
+  void DidFinishCreatingWebApp(
+      const webapps::ManifestId& manifest_id,
+      base::WeakPtr<AppBannerManagerDesktop> is_navigation_current,
+      const webapps::AppId& app_id,
+      webapps::InstallResultCode code) override;
   void DidFinishLoad(content::RenderFrameHost* render_frame_host,
                      const GURL& validated_url) override;
   void UpdateState(AppBannerManager::State state) override;
@@ -92,8 +89,6 @@ class TestAppBannerManagerDesktop : public AppBannerManagerDesktop {
   base::OnceClosure promotable_quit_closure_;
   base::OnceClosure on_done_;
   base::OnceClosure on_install_;
-  std::unique_ptr<segmentation_platform::MockSegmentationPlatformService>
-      segmentation_platform_service_;
 };
 
 }  // namespace webapps

@@ -10,18 +10,15 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/signin_util.h"
 #include "chrome/browser/sync/sync_service_factory.h"
-#include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_navigator.h"
-#include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/grit/branded_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/password_manager/core/browser/features/password_manager_features_util.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/public/base/signin_switches.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/sync/base/features.h"
@@ -36,8 +33,11 @@
 #include "ash/constants/ash_features.h"
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS)
-#include "chrome/browser/ui/webui/trusted_vault/trusted_vault_dialog_delegate.h"
+#if !BUILDFLAG(IS_ANDROID)
+#include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/singleton_tabs.h"
 #endif
 
 namespace {
@@ -68,8 +68,8 @@ SyncStatusLabels GetSyncStatusLabelsImpl(
   DCHECK(!auth_error.IsTransientError());
 
   if (!service->HasSyncConsent()) {
-    return {SyncStatusMessageType::kPreSynced, IDS_SETTINGS_EMPTY_STRING,
-            IDS_SETTINGS_EMPTY_STRING, SyncStatusActionType::kNoAction};
+    return {SyncStatusMessageType::kPreSynced, IDS_SYNC_EMPTY_STRING,
+            IDS_SYNC_EMPTY_STRING, SyncStatusActionType::kNoAction};
   }
 
   // If local Sync were enabled, then the SyncService shouldn't report having a
@@ -99,11 +99,11 @@ SyncStatusLabels GetSyncStatusLabelsImpl(
   // Check if Sync is disabled by policy.
   if (service->HasDisableReason(
           syncer::SyncService::DISABLE_REASON_ENTERPRISE_POLICY)) {
-    // TODO(crbug.com/911153): Is SyncStatusMessageType::kSynced correct for
+    // TODO(crbug.com/41429548): Is SyncStatusMessageType::kSynced correct for
     // this case?
     return {SyncStatusMessageType::kSynced,
-            IDS_SIGNED_IN_WITH_SYNC_DISABLED_BY_POLICY,
-            IDS_SETTINGS_EMPTY_STRING, SyncStatusActionType::kNoAction};
+            IDS_SIGNED_IN_WITH_SYNC_DISABLED_BY_POLICY, IDS_SYNC_EMPTY_STRING,
+            SyncStatusActionType::kNoAction};
   }
 
   // Check to see if sync has been disabled via the dashboard and needs to be
@@ -112,7 +112,7 @@ SyncStatusLabels GetSyncStatusLabelsImpl(
   if (service->GetUserSettings()->IsSyncFeatureDisabledViaDashboard()) {
     return {SyncStatusMessageType::kSyncError,
             IDS_SIGNED_IN_WITH_SYNC_STOPPED_VIA_DASHBOARD,
-            IDS_SETTINGS_EMPTY_STRING, SyncStatusActionType::kNoAction};
+            IDS_SYNC_EMPTY_STRING, SyncStatusActionType::kNoAction};
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -134,7 +134,7 @@ SyncStatusLabels GetSyncStatusLabelsImpl(
       return {service->GetUserSettings()->IsEncryptEverythingEnabled()
                   ? SyncStatusMessageType::kSyncError
                   : SyncStatusMessageType::kPasswordsOnlySyncError,
-              IDS_SETTINGS_EMPTY_STRING, IDS_SYNC_STATUS_NEEDS_KEYS_BUTTON,
+              IDS_SYNC_EMPTY_STRING, IDS_SYNC_STATUS_NEEDS_KEYS_BUTTON,
               SyncStatusActionType::kRetrieveTrustedVaultKeys};
     }
 
@@ -144,18 +144,18 @@ SyncStatusLabels GetSyncStatusLabelsImpl(
               service->GetUserSettings()->IsSyncEverythingEnabled()
                   ? IDS_SYNC_ACCOUNT_SYNCING
                   : IDS_SYNC_ACCOUNT_SYNCING_CUSTOM_DATA_TYPES,
-              IDS_SETTINGS_EMPTY_STRING, SyncStatusActionType::kNoAction};
+              IDS_SYNC_EMPTY_STRING, SyncStatusActionType::kNoAction};
     } else {
       // Sync is still initializing.
-      return {SyncStatusMessageType::kSynced, IDS_SETTINGS_EMPTY_STRING,
-              IDS_SETTINGS_EMPTY_STRING, SyncStatusActionType::kNoAction};
+      return {SyncStatusMessageType::kSynced, IDS_SYNC_EMPTY_STRING,
+              IDS_SYNC_EMPTY_STRING, SyncStatusActionType::kNoAction};
     }
   }
 
   // If first setup is in progress, show an "in progress" message.
   if (service->IsSetupInProgress()) {
     return {SyncStatusMessageType::kPreSynced, IDS_SYNC_SETUP_IN_PROGRESS,
-            IDS_SETTINGS_EMPTY_STRING, SyncStatusActionType::kNoAction};
+            IDS_SYNC_EMPTY_STRING, SyncStatusActionType::kNoAction};
   }
 
   // At this point we've ruled out all other cases - all that's left is a
@@ -166,6 +166,7 @@ SyncStatusLabels GetSyncStatusLabelsImpl(
           SyncStatusActionType::kConfirmSyncSettings};
 }
 
+#if !BUILDFLAG(IS_ANDROID)
 void FocusWebContents(Browser* browser) {
   content::WebContents* const contents =
       browser->tab_strip_model()->GetActiveWebContents();
@@ -203,6 +204,7 @@ std::optional<AvatarSyncErrorType> GetTrustedVaultError(
 
   return std::nullopt;
 }
+#endif  // !BUILDFLAG(IS_ANDROID)
 
 }  // namespace
 
@@ -212,8 +214,8 @@ SyncStatusLabels GetSyncStatusLabels(
     bool is_user_clear_primary_account_allowed) {
   if (!sync_service) {
     // This can happen if Sync is disabled via the command line.
-    return {SyncStatusMessageType::kPreSynced, IDS_SETTINGS_EMPTY_STRING,
-            IDS_SETTINGS_EMPTY_STRING, SyncStatusActionType::kNoAction};
+    return {SyncStatusMessageType::kPreSynced, IDS_SYNC_EMPTY_STRING,
+            IDS_SYNC_EMPTY_STRING, SyncStatusActionType::kNoAction};
   }
   DCHECK(identity_manager);
   CoreAccountInfo account_info = sync_service->GetAccountInfo();
@@ -240,6 +242,7 @@ SyncStatusMessageType GetSyncStatusMessageType(Profile* profile) {
   return GetSyncStatusLabels(profile).message_type;
 }
 
+#if !BUILDFLAG(IS_ANDROID)
 std::optional<AvatarSyncErrorType> GetAvatarSyncErrorType(Profile* profile) {
   const syncer::SyncService* service =
       SyncServiceFactory::GetForProfile(profile);
@@ -248,11 +251,23 @@ std::optional<AvatarSyncErrorType> GetAvatarSyncErrorType(Profile* profile) {
   }
 
   if (!service->HasSyncConsent()) {
-    // Only trusted vault errors can be shown if the account isn't a consented
-    // primary account.
+    // Only some errors can be shown if the account isn't a consented primary
+    // account.
     // Note the condition checked is not IsInitialSyncFeatureSetupComplete(),
     // because the setup incomplete case is treated separately below. See the
     // comment in ShouldRequestSyncConfirmation() about dashboard resets.
+
+    if (switches::IsImprovedSigninUIOnDesktopEnabled()) {
+      if (service->RequiresClientUpgrade()) {
+        return AvatarSyncErrorType::kUpgradeClientError;
+      }
+
+      if (service->GetUserSettings()
+              ->IsPassphraseRequiredForPreferredDataTypes()) {
+        return AvatarSyncErrorType::kPassphraseError;
+      }
+    }
+
     return GetTrustedVaultError(service);
   }
 
@@ -312,15 +327,31 @@ std::u16string GetAvatarSyncErrorDescription(AvatarSyncErrorType error,
         kTrustedVaultRecoverabilityDegradedForEverythingError:
       return l10n_util::GetStringUTF16(
           IDS_SYNC_ERROR_RECOVERABILITY_DEGRADED_FOR_EVERYTHING_USER_MENU_TITLE);
+    case AvatarSyncErrorType::kPassphraseError:
+      if (switches::IsImprovedSigninUIOnDesktopEnabled()) {
+        return l10n_util::GetStringUTF16(
+            is_sync_feature_enabled
+                ? IDS_SYNC_STATUS_NEEDS_PASSWORD
+                : IDS_SYNC_ERROR_PASSPHRASE_USER_MENU_TITLE_SIGNED_IN_ONLY);
+      } else {
+        return l10n_util::GetStringUTF16(IDS_SYNC_ERROR_USER_MENU_TITLE);
+      }
+    case AvatarSyncErrorType::kUpgradeClientError:
+      if (switches::IsImprovedSigninUIOnDesktopEnabled() &&
+          !is_sync_feature_enabled) {
+        return l10n_util::GetStringUTF16(
+            IDS_SYNC_ERROR_UPGRADE_CLIENT_USER_MENU_TITLE);
+      } else {
+        return l10n_util::GetStringUTF16(IDS_SYNC_ERROR_USER_MENU_TITLE);
+      }
     case AvatarSyncErrorType::kSettingsUnconfirmedError:
     case AvatarSyncErrorType::kManagedUserUnrecoverableError:
     case AvatarSyncErrorType::kUnrecoverableError:
-    case AvatarSyncErrorType::kUpgradeClientError:
-    case AvatarSyncErrorType::kPassphraseError:
     case AvatarSyncErrorType::kTrustedVaultKeyMissingForEverythingError:
       return l10n_util::GetStringUTF16(IDS_SYNC_ERROR_USER_MENU_TITLE);
   }
 }
+#endif  // !BUILDFLAG(IS_ANDROID)
 
 bool ShouldRequestSyncConfirmation(const syncer::SyncService* service) {
   // This method mainly handles the situation where the initial Sync setup was
@@ -338,6 +369,7 @@ bool ShouldShowSyncPassphraseError(const syncer::SyncService* service) {
          settings->IsPassphraseRequiredForPreferredDataTypes();
 }
 
+#if !BUILDFLAG(IS_ANDROID)
 void OpenTabForSyncKeyRetrieval(
     Browser* browser,
     syncer::TrustedVaultUserActionTriggerForUMA trigger) {
@@ -366,23 +398,4 @@ void OpenTabForSyncKeyRecoverabilityDegraded(
   }
   OpenTabForSyncTrustedVaultUserAction(browser, url);
 }
-
-#if BUILDFLAG(IS_CHROMEOS)
-void OpenDialogForSyncKeyRetrieval(
-    Profile* profile,
-    syncer::TrustedVaultUserActionTriggerForUMA trigger) {
-  RecordKeyRetrievalTrigger(trigger);
-  TrustedVaultDialogDelegate::ShowDialogForProfile(
-      profile,
-      GaiaUrls::GetInstance()->signin_chrome_sync_keys_retrieval_url());
-}
-
-void OpenDialogForSyncKeyRecoverabilityDegraded(
-    Profile* profile,
-    syncer::TrustedVaultUserActionTriggerForUMA trigger) {
-  RecordRecoverabilityDegradedFixTrigger(trigger);
-  TrustedVaultDialogDelegate::ShowDialogForProfile(
-      profile, GaiaUrls::GetInstance()
-                   ->signin_chrome_sync_keys_recoverability_degraded_url());
-}
-#endif
+#endif  // !BUILDFLAG(IS_ANDROID)

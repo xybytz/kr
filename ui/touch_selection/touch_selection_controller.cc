@@ -42,7 +42,6 @@ TouchHandleOrientation ToTouchHandleOrientation(
       return TouchHandleOrientation::UNDEFINED;
   }
   NOTREACHED() << "Invalid selection bound type: " << type;
-  return TouchHandleOrientation::UNDEFINED;
 }
 
 }  // namespace

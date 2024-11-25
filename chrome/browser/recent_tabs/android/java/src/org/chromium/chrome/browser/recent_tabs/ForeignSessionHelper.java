@@ -7,9 +7,11 @@ package org.chromium.chrome.browser.recent_tabs;
 import androidx.annotation.VisibleForTesting;
 
 import org.jni_zero.CalledByNative;
+import org.jni_zero.JniType;
 import org.jni_zero.NativeMethods;
 
 import org.chromium.base.CollectionUtil;
+import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
@@ -100,13 +102,16 @@ public class ForeignSessionHelper {
         public final GURL url;
         public final String title;
         public final long timestamp;
+        public final long lastActiveTime;
         public final int id;
 
         @VisibleForTesting
-        public ForeignSessionTab(GURL url, String title, long timestamp, int id) {
+        public ForeignSessionTab(
+                GURL url, String title, long timestamp, long lastActiveTime, int id) {
             this.url = url;
             this.title = title;
             this.timestamp = timestamp;
+            this.lastActiveTime = lastActiveTime;
             this.id = id;
         }
     }
@@ -133,8 +138,14 @@ public class ForeignSessionHelper {
 
     @CalledByNative
     private static void pushTab(
-            ForeignSessionWindow window, GURL url, String title, long timestamp, int sessionId) {
-        ForeignSessionTab tab = new ForeignSessionTab(url, title, timestamp, sessionId);
+            ForeignSessionWindow window,
+            GURL url,
+            String title,
+            long timestamp,
+            long lastActiveTime,
+            int sessionId) {
+        ForeignSessionTab tab =
+                new ForeignSessionTab(url, title, timestamp, lastActiveTime, sessionId);
         window.tabs.add(tab);
     }
 
@@ -276,6 +287,7 @@ public class ForeignSessionHelper {
 
         for (ForeignSessionTab tab : sessionTabs) {
             tabIds.add(tab.id);
+            RecordUserAction.record("MobileCrossDeviceTabJourney");
         }
         if (tabIds.size() == 0) {
             return 0;
@@ -291,7 +303,7 @@ public class ForeignSessionHelper {
 
     @NativeMethods
     interface Natives {
-        long init(Profile profile);
+        long init(@JniType("Profile*") Profile profile);
 
         void destroy(long nativeForeignSessionHelper);
 

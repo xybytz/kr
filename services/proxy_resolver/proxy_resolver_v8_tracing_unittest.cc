@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "services/proxy_resolver/proxy_resolver_v8_tracing.h"
 
 #include <string>
@@ -11,6 +16,7 @@
 #include "base/files/file_util.h"
 #include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
+#include "base/notreached.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
@@ -589,7 +595,7 @@ TEST_F(ProxyResolverV8TracingTest, DnsDuringInit) {
 
 void CrashCallback(int) {
   // Be extra sure that if the callback ever gets invoked, the test will fail.
-  CHECK(false);
+  NOTREACHED();
 }
 
 // Start some requests, cancel them all, and then destroy the resolver.

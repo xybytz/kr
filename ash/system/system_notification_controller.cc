@@ -28,37 +28,25 @@
 
 namespace ash {
 
-namespace {
-
-std::unique_ptr<PowerSoundsController> MaybeCreatePowerSoundsController() {
-  return features::AreSystemSoundsEnabled()
-             ? std::make_unique<PowerSoundsController>()
-             : nullptr;
-}
-
-}  // namespace
-
 SystemNotificationController::SystemNotificationController()
     : auto_connect_(std::make_unique<AutoConnectNotifier>()),
       caps_lock_(std::make_unique<CapsLockNotificationController>()),
       cast_(std::make_unique<CastNotificationController>()),
       cellular_setup_notifier_(std::make_unique<ash::CellularSetupNotifier>()),
       do_not_disturb_(std::make_unique<DoNotDisturbNotificationController>()),
+      hotspot_notifier_(std::make_unique<ash::HotspotNotifier>()),
       lock_screen_(std::make_unique<LockScreenNotificationController>()),
+      managed_sim_lock_notifier_(
+          std::make_unique<ash::ManagedSimLockNotifier>()),
       power_(std::make_unique<PowerNotificationController>(
           message_center::MessageCenter::Get())),
-      power_sounds_(MaybeCreatePowerSoundsController()),
+      power_sounds_(std::make_unique<PowerSoundsController>()),
       privacy_hub_(std::make_unique<PrivacyHubNotificationController>()),
       screen_security_controller_(std::make_unique<ScreenSecurityController>()),
       session_limit_(std::make_unique<SessionLimitNotificationController>()),
       tracing_(std::make_unique<TracingNotificationController>()),
       update_(std::make_unique<UpdateNotificationController>()),
       wifi_toggle_(std::make_unique<WifiToggleNotificationController>()) {
-  managed_sim_lock_notifier_ = std::make_unique<ash::ManagedSimLockNotifier>();
-  if (features::IsHotspotEnabled()) {
-    hotspot_notifier_ = std::make_unique<ash::HotspotNotifier>();
-  }
-
   // Privacy indicator is only enabled when Video Conference is disabled.
   if (!features::IsVideoConferenceEnabled()) {
     privacy_indicators_controller_ =

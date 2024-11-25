@@ -19,7 +19,6 @@ api::audio::StreamType ConvertStreamTypeFromMojom(
       return api::audio::StreamType::kOutput;
   }
   NOTREACHED();
-  return api::audio::StreamType::kNone;
 }
 
 crosapi::mojom::StreamType ConvertStreamTypeToMojom(
@@ -33,7 +32,6 @@ crosapi::mojom::StreamType ConvertStreamTypeToMojom(
       return crosapi::mojom::StreamType::kOutput;
   }
   NOTREACHED();
-  return crosapi::mojom::StreamType::kNone;
 }
 
 api::audio::DeviceType ConvertDeviceTypeFromMojom(
@@ -75,7 +73,6 @@ api::audio::DeviceType ConvertDeviceTypeFromMojom(
       return api::audio::DeviceType::kOther;
   }
   NOTREACHED();
-  return api::audio::DeviceType::kNone;
 }
 
 crosapi::mojom::DeviceType ConvertDeviceTypeToMojom(
@@ -117,7 +114,6 @@ crosapi::mojom::DeviceType ConvertDeviceTypeToMojom(
       return crosapi::mojom::DeviceType::kOther;
   }
   NOTREACHED();
-  return crosapi::mojom::DeviceType::kNone;
 }
 
 std::unique_ptr<api::audio::DeviceFilter> ConvertDeviceFilterFromMojom(

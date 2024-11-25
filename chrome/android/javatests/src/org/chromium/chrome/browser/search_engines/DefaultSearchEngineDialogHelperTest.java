@@ -9,6 +9,7 @@ import android.text.TextUtils;
 import android.widget.Button;
 import android.widget.RadioButton;
 
+import androidx.test.annotation.UiThreadTest;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.SmallTest;
 
@@ -17,7 +18,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.UiThreadTest;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.components.browser_ui.widget.RadioButtonLayout;
 import org.chromium.components.search_engines.TemplateUrl;
@@ -47,7 +47,7 @@ public class DefaultSearchEngineDialogHelperTest {
         }
     }
 
-    private class TestTemplateUrl extends TemplateUrl {
+    private static class TestTemplateUrl extends TemplateUrl {
         private String mShortName;
         private String mKeyword;
 
@@ -76,7 +76,7 @@ public class DefaultSearchEngineDialogHelperTest {
         }
     }
 
-    private class TestDialogHelper extends DefaultSearchEngineDialogHelper {
+    private static class TestDialogHelper extends DefaultSearchEngineDialogHelper {
         public final TestDelegate delegate;
 
         public TestDialogHelper(

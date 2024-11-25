@@ -212,7 +212,7 @@ TEST_F(QuickSettingsFooterTest, ButtonStatesGuestMode) {
 }
 
 TEST_F(QuickSettingsFooterTest, ButtonStatesPublicAccount) {
-  SimulateUserLogin("foo@example.com", user_manager::USER_TYPE_PUBLIC_ACCOUNT);
+  SimulateUserLogin("foo@example.com", user_manager::UserType::kPublicAccount);
   SetUpView();
 
   ASSERT_TRUE(GetSettingsButton());
@@ -246,6 +246,11 @@ TEST_F(QuickSettingsFooterTest, SignOutShowsWithMultipleAccounts) {
 }
 
 TEST_F(QuickSettingsFooterTest, SignOutButtonRecordsUmaAndSignsOut) {
+  // TODO(minch): Re-enable this test.
+  if (features::IsForestFeatureEnabled()) {
+    GTEST_SKIP() << "Skipping test body for forest feature.";
+  }
+
   GetSessionControllerClient()->set_existing_users_count(2);
   CreateUserSessions(1);
   SetUpView();
@@ -264,8 +269,8 @@ TEST_F(QuickSettingsFooterTest, SignOutButtonRecordsUmaAndSignsOut) {
 
 // Settings button is disabled when kSettingsIconDisabled is set.
 TEST_F(QuickSettingsFooterTest, DisableSettingsIconPolicy) {
-  GetSessionControllerClient()->AddUserSession("foo@example.com",
-                                               user_manager::USER_TYPE_REGULAR);
+  GetSessionControllerClient()->AddUserSession(
+      "foo@example.com", user_manager::UserType::kRegular);
   GetSessionControllerClient()->SetSessionState(
       session_manager::SessionState::ACTIVE);
   SetUpView();

@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chromeos/ash/components/dbus/shill/shill_client_unittest_base.h"
 
 #include <stddef.h>
@@ -201,6 +206,16 @@ void ShillClientUnittestBase::ExpectUint32Argument(
 }
 
 // static
+void ShillClientUnittestBase::ExpectIntArgument(
+    int expected_value,
+    dbus::MessageReader* reader) {
+  int value;
+  ASSERT_TRUE(reader->PopInt32(&value));
+  EXPECT_EQ(expected_value, value);
+  EXPECT_FALSE(reader->HasMoreData());
+}
+
+// static
 void ShillClientUnittestBase::ExpectArrayOfBytesArgument(
     const std::string& expected_bytes,
     dbus::MessageReader* reader) {
@@ -311,8 +326,7 @@ base::Value::Dict ShillClientUnittestBase::CreateExampleServiceProperties() {
   properties.Set(shill::kModeProperty, base::Value(shill::kModeManaged));
   properties.Set(shill::kTypeProperty, base::Value(shill::kTypeWifi));
   const std::string ssid = "testssid";
-  properties.Set(shill::kWifiHexSsid,
-                 base::Value(base::HexEncode(ssid.c_str(), ssid.size())));
+  properties.Set(shill::kWifiHexSsid, base::Value(base::HexEncode(ssid)));
   properties.Set(shill::kSecurityClassProperty,
                  base::Value(shill::kSecurityClassPsk));
   return properties;

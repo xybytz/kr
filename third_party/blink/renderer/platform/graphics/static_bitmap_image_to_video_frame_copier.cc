@@ -87,21 +87,17 @@ void StaticBitmapImageToVideoFrameCopier::Convert(
     return;
   }
 
-  auto* context_provider = context_provider_wrapper->ContextProvider();
-  if (!context_provider) {
-    DLOG(ERROR) << "Context lost, skipping frame";
-    return;
-  }
+  auto& context_provider = context_provider_wrapper->ContextProvider();
 
   // Readback to YUV is only used when result is opaque.
   const bool result_is_opaque =
       image->CurrentFrameKnownToBeOpaque() || can_discard_alpha_;
 
   const bool supports_yuv_readback =
-      context_provider->GetCapabilities().supports_yuv_readback;
+      context_provider.GetCapabilities().supports_yuv_readback;
   // If supports_rgb_to_yuv_conversion is true, supports_yuv_readback must also
   // be.
-  CHECK(!context_provider->GetCapabilities().supports_rgb_to_yuv_conversion ||
+  CHECK(!context_provider.GetCapabilities().supports_rgb_to_yuv_conversion ||
         supports_yuv_readback);
 
   // Try async reading if image is texture backed.
@@ -115,18 +111,10 @@ void StaticBitmapImageToVideoFrameCopier::Convert(
             std::make_unique<WebGraphicsContext3DVideoFramePool>(
                 context_provider_wrapper);
       }
-      // TODO(https://crbug.com/1224279): This assumes that all
-      // StaticBitmapImages are 8-bit sRGB. Expose the color space and pixel
-      // format that is backing `image->GetMailboxHolder()`, or, alternatively,
-      // expose an accelerated SkImage.
       if (accelerated_frame_pool_->CopyRGBATextureToVideoFrame(
-              viz::SkColorTypeToSinglePlaneSharedImageFormat(
-                  kRGBA_8888_SkColorType),
               gfx::Size(image->width(), image->height()),
-              gfx::ColorSpace::CreateSRGB(),
-              image->IsOriginTopLeft() ? kTopLeft_GrSurfaceOrigin
-                                       : kBottomLeft_GrSurfaceOrigin,
-              image->GetMailboxHolder(), gfx::ColorSpace::CreateREC709(),
+              image->GetSharedImage(), image->GetSyncToken(),
+              gfx::ColorSpace::CreateREC709(),
               std::move(split_callback.first))) {
         TRACE_EVENT1("blink", "StaticBitmapImageToVideoFrameCopier::Convert",
                      "accelerated_frame_pool_copy", true);
@@ -134,10 +122,10 @@ void StaticBitmapImageToVideoFrameCopier::Convert(
         return;
       }
     }
-    ReadYUVPixelsAsync(image, context_provider,
+    ReadYUVPixelsAsync(image, &context_provider,
                        std::move(split_callback.second));
   } else {
-    ReadARGBPixelsAsync(image, context_provider, std::move(callback));
+    ReadARGBPixelsAsync(image, &context_provider, std::move(callback));
   }
 
   TRACE_EVENT1("blink", "StaticBitmapImageToVideoFrameCopier::Convert",
@@ -167,8 +155,8 @@ void StaticBitmapImageToVideoFrameCopier::ReadARGBPixelsSync(
   if (!paint_image.readPixels(
           image_info,
           temp_argb_frame->GetWritableVisibleData(
-              media::VideoFrame::kARGBPlane),
-          temp_argb_frame->stride(media::VideoFrame::kARGBPlane), 0 /*srcX*/,
+              media::VideoFrame::Plane::kARGB),
+          temp_argb_frame->stride(media::VideoFrame::Plane::kARGB), 0 /*srcX*/,
           0 /*srcY*/)) {
     DLOG(ERROR) << "Couldn't read pixels from PaintImage";
     return;
@@ -214,8 +202,8 @@ void StaticBitmapImageToVideoFrameCopier::ReadARGBPixelsAsync(
   context_provider->RasterInterface()->ReadbackARGBPixelsAsync(
       mailbox_holder.mailbox, mailbox_holder.texture_target, image_origin,
       image_size, src_point, info,
-      temp_argb_frame->stride(media::VideoFrame::kARGBPlane),
-      temp_argb_frame->GetWritableVisibleData(media::VideoFrame::kARGBPlane),
+      temp_argb_frame->stride(media::VideoFrame::Plane::kARGB),
+      temp_argb_frame->GetWritableVisibleData(media::VideoFrame::Plane::kARGB),
       WTF::BindOnce(&StaticBitmapImageToVideoFrameCopier::OnARGBPixelsReadAsync,
                     weak_ptr_factory_.GetWeakPtr(), image, temp_argb_frame,
                     std::move(callback)));
@@ -246,12 +234,12 @@ void StaticBitmapImageToVideoFrameCopier::ReadYUVPixelsAsync(
   context_provider->RasterInterface()->ReadbackYUVPixelsAsync(
       mailbox_holder.mailbox, mailbox_holder.texture_target, image_size,
       gfx::Rect(image_size), !image->IsOriginTopLeft(),
-      output_frame->stride(media::VideoFrame::kYPlane),
-      output_frame->GetWritableVisibleData(media::VideoFrame::kYPlane),
-      output_frame->stride(media::VideoFrame::kUPlane),
-      output_frame->GetWritableVisibleData(media::VideoFrame::kUPlane),
-      output_frame->stride(media::VideoFrame::kVPlane),
-      output_frame->GetWritableVisibleData(media::VideoFrame::kVPlane),
+      output_frame->stride(media::VideoFrame::Plane::kY),
+      output_frame->GetWritableVisibleData(media::VideoFrame::Plane::kY),
+      output_frame->stride(media::VideoFrame::Plane::kU),
+      output_frame->GetWritableVisibleData(media::VideoFrame::Plane::kU),
+      output_frame->stride(media::VideoFrame::Plane::kV),
+      output_frame->GetWritableVisibleData(media::VideoFrame::Plane::kV),
       gfx::Point(0, 0),
       WTF::BindOnce(&StaticBitmapImageToVideoFrameCopier::OnReleaseMailbox,
                     weak_ptr_factory_.GetWeakPtr(), image),

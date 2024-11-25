@@ -9,7 +9,6 @@ import static org.chromium.content.browser.accessibility.AccessibilityContentShe
 import static org.chromium.content.browser.accessibility.AccessibilityContentShellTestUtils.sClassNameMatcher;
 
 import android.annotation.SuppressLint;
-import android.os.Build.VERSION_CODES;
 
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.test.filters.SmallTest;
@@ -19,20 +18,26 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
-import org.chromium.base.test.util.DoNotBatch;
+import org.chromium.base.test.util.Features.DisableFeatures;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.base.test.util.Restriction;
+import org.chromium.base.test.util.TestAnimations;
+import org.chromium.content_public.browser.ContentFeatureList;
 import org.chromium.content_public.browser.test.ContentJUnit4ClassRunner;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.test.util.DeviceRestriction;
 
 /** Tests for WebContentsAccessibilityImpl integration with accessibility services. */
 @RunWith(ContentJUnit4ClassRunner.class)
 @SuppressLint("VisibleForTests")
-@DoNotBatch(reason = "Flaky tests")
+@Batch(Batch.PER_CLASS)
 @Restriction(DeviceRestriction.RESTRICTION_TYPE_NON_AUTO)
+@DisableFeatures(ContentFeatureList.ACCESSIBILITY_UNIFIED_SNAPSHOTS)
+@TestAnimations.EnableAnimations
 public class WebContentsAccessibilityTreeTest {
     // File path that holds all the relevant tests.
     private static final String BASE_ACCNAME_FILE_PATH = "content/test/data/accessibility/accname/";
@@ -41,6 +46,9 @@ public class WebContentsAccessibilityTreeTest {
     private static final String BASE_HTML_FILE_PATH = "content/test/data/accessibility/html/";
     private static final String DEFAULT_FILE_SUFFIX = "-expected-android-external.txt";
     private static final String ASSIST_DATA_FILE_SUFFIX = "-expected-android-assist-data.txt";
+
+    // Debug flag to print bounding boxes etc which are normally excluded in test outputs.
+    private static final boolean sIncludeScreenSizeDependentAttributes = false;
 
     @Rule
     public AccessibilityContentShellActivityTestRule mActivityTestRule =
@@ -69,13 +77,13 @@ public class WebContentsAccessibilityTreeTest {
                         inputFile,
                         expectationFilePath,
                         expectationFile + DEFAULT_FILE_SUFFIX);
-        String assistDataErrorPrefix =
-                String.format(
-                        "\n\nTesting: %s%s\nExpected output: %s%s",
-                        expectationFilePath,
-                        inputFile,
-                        expectationFilePath,
-                        expectationFile + ASSIST_DATA_FILE_SUFFIX);
+        // String assistDataErrorPrefix =
+        //         String.format(
+        //                 "\n\nTesting: %s%s\nExpected output: %s%s",
+        //                 expectationFilePath,
+        //                 inputFile,
+        //                 expectationFilePath,
+        //                 expectationFile + ASSIST_DATA_FILE_SUFFIX);
 
         // Generate full AccessibilityNodeInfo and AssistData trees
         String accessibilityNodeInfoTree = generateAccessibilityNodeInfoTree();
@@ -89,11 +97,11 @@ public class WebContentsAccessibilityTreeTest {
                         .readExpectationFile(
                                 expectationFilePath + expectationFile + DEFAULT_FILE_SUFFIX)
                         .trim();
-        String assistDataTreeExpectedResults =
-                mActivityTestRule
-                        .readExpectationFile(
-                                expectationFilePath + expectationFile + ASSIST_DATA_FILE_SUFFIX)
-                        .trim();
+        // String assistDataTreeExpectedResults =
+        //         mActivityTestRule
+        //                 .readExpectationFile(
+        //                         expectationFilePath + expectationFile + ASSIST_DATA_FILE_SUFFIX)
+        //                 .trim();
 
         // We want to test both trees so that the rebase tree only needs to be run once for newly
         // added tests, so we will first check equivalency without using Assert and create an error
@@ -109,21 +117,23 @@ public class WebContentsAccessibilityTreeTest {
                             + accessibilityNodeInfoTree
                             + "\n<-- End-of-file -->\n\n\n";
         }
-        if (!assistDataTree.equals(assistDataTreeExpectedResults)) {
-            outputError +=
-                    NODE_ERROR
-                            + assistDataErrorPrefix
-                            + "\n\nExpected\n--------\n"
-                            + assistDataTreeExpectedResults
-                            + "\n\nActual\n------\n"
-                            + assistDataTree
-                            + "\n<-- End-of-file -->\n\n\n";
-        }
+        // TODO(mschillaci): Re-enable once full unification path is complete.
+        // if (!assistDataTree.equals(assistDataTreeExpectedResults)) {
+        //     outputError +=
+        //             NODE_ERROR
+        //                     + assistDataErrorPrefix
+        //                     + "\n\nExpected\n--------\n"
+        //                     + assistDataTreeExpectedResults
+        //                     + "\n\nActual\n------\n"
+        //                     + assistDataTree
+        //                     + "\n<-- End-of-file -->\n\n\n";
+        // }
 
         // Assert expectations and print error if needed.
         Assert.assertEquals(
                 outputError, accessibilityNodeInfoTreeExpectedResults, accessibilityNodeInfoTree);
-        Assert.assertEquals(outputError, assistDataTreeExpectedResults, assistDataTree);
+        // TODO(mschillaci): Re-enable once full unification path is complete.
+        // Assert.assertEquals(outputError, assistDataTreeExpectedResults, assistDataTree);
     }
 
     // Helper methods to pass-through to the performTest method so each individual test does
@@ -176,7 +186,9 @@ public class WebContentsAccessibilityTreeTest {
         int rootNodevvId =
                 mActivityTestRule.waitForNodeMatching(sClassNameMatcher, "android.webkit.WebView");
         AccessibilityNodeInfoCompat nodeInfo = createAccessibilityNodeInfo(rootNodevvId);
-        builder.append(AccessibilityNodeInfoUtils.toString(nodeInfo));
+        builder.append(
+                AccessibilityNodeInfoUtils.toString(
+                        nodeInfo, sIncludeScreenSizeDependentAttributes));
 
         // Recursively generate strings for all descendants.
         for (int i = 0; i < nodeInfo.getChildCount(); ++i) {
@@ -190,7 +202,9 @@ public class WebContentsAccessibilityTreeTest {
 
     private String generateViewStructureTree() {
         TestViewStructure testViewStructure = new TestViewStructure();
-        TestThreadUtils.runOnUiThreadBlocking(
+        testViewStructure.setShouldIncludeScreenSizeDependentAttributes(
+                sIncludeScreenSizeDependentAttributes);
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> mActivityTestRule.mWcax.onProvideVirtualStructure(testViewStructure, false));
         CriteriaHelper.pollUiThread(
                 mActivityTestRule.mWcax::hasFinishedLatestAccessibilitySnapshotForTesting,
@@ -207,7 +221,11 @@ public class WebContentsAccessibilityTreeTest {
      */
     private void recursivelyFormatTree(
             AccessibilityNodeInfoCompat node, StringBuilder builder, String indent) {
-        builder.append("\n").append(indent).append(AccessibilityNodeInfoUtils.toString(node));
+        builder.append("\n")
+                .append(indent)
+                .append(
+                        AccessibilityNodeInfoUtils.toString(
+                                node, sIncludeScreenSizeDependentAttributes));
         for (int j = 0; j < node.getChildCount(); ++j) {
             int childId = mActivityTestRule.getChildId(node, j);
             AccessibilityNodeInfoCompat childNodeInfo = createAccessibilityNodeInfo(childId);
@@ -217,7 +235,7 @@ public class WebContentsAccessibilityTreeTest {
 
     // Helper method to create an AccessibilityNodeInfo object.
     private AccessibilityNodeInfoCompat createAccessibilityNodeInfo(int virtualViewId) {
-        return TestThreadUtils.runOnUiThreadBlockingNoException(
+        return ThreadUtils.runOnUiThreadBlocking(
                 () -> mActivityTestRule.mNodeProvider.createAccessibilityNodeInfo(virtualViewId));
     }
 
@@ -600,6 +618,12 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
+    public void test_ariaLabelWithTabIndex() {
+        performAriaTest("aria-label-with-tabindex.html");
+    }
+
+    @Test
+    @SmallTest
     public void test_ariaLabelAugmentInnerText() {
         performAriaTest("aria-label-augment-inner-text.html");
     }
@@ -642,14 +666,30 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
+    @DisableFeatures(ContentFeatureList.ACCESSIBILITY_DEPRECATE_TYPE_ANNOUNCE)
     public void test_ariaLive() {
         performAriaTest("aria-live.html");
     }
 
     @Test
     @SmallTest
+    @EnableFeatures(ContentFeatureList.ACCESSIBILITY_DEPRECATE_TYPE_ANNOUNCE)
+    public void test_ariaLive_exp() {
+        performAriaTest("aria-live.html", "aria-live-exp");
+    }
+
+    @Test
+    @SmallTest
+    @DisableFeatures(ContentFeatureList.ACCESSIBILITY_DEPRECATE_TYPE_ANNOUNCE)
     public void test_ariaLiveWithContent() {
         performAriaTest("aria-live-with-content.html");
+    }
+
+    @Test
+    @SmallTest
+    @EnableFeatures(ContentFeatureList.ACCESSIBILITY_DEPRECATE_TYPE_ANNOUNCE)
+    public void test_ariaLiveWithContent_exp() {
+        performAriaTest("aria-live-with-content.html", "aria-live-with-content-exp");
     }
 
     @Test
@@ -762,6 +802,7 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
+    @DisableIf.Build(supported_abis_includes = "x86_64", message = "https://crbug.com/349962563")
     public void test_ariaOption() {
         performAriaTest("aria-option.html");
     }
@@ -1140,6 +1181,48 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
+    public void test_supplementalDescriptionAnnotate() {
+        performAriaTest("supplemental-description-annotate.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_supplementalDescriptionButtonLabel() {
+        performAriaTest("supplemental-description-button-label.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_supplementalDescriptionImageButton() {
+        performAriaTest("supplemental-description-image-button.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_supplementalDescriptionLinks() {
+        performAriaTest("supplemental-description-links.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_supplementalDescriptionNav() {
+        performAriaTest("supplemental-description-nav.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_supplementalDescriptionRegion() {
+        performAriaTest("supplemental-description-region.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_supplementalDescriptionSelect() {
+        performAriaTest("supplemental-description-select.html");
+    }
+
+    @Test
+    @SmallTest
     public void test_toggleButtonExpandCollapse() {
         performAriaTest("toggle-button-expand-collapse.html");
     }
@@ -1468,6 +1551,30 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
+    public void test_customSelect() {
+        performHtmlTest("custom-select.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_customSelectOpen() {
+        performHtmlTest("custom-select-open.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_customSelectSimple() {
+        performHtmlTest("custom-select-simple.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_customSelectSimpleOpen() {
+        performHtmlTest("custom-select-simple-open.html");
+    }
+
+    @Test
+    @SmallTest
     public void test_dd() {
         performHtmlTest("dd.html");
     }
@@ -1528,8 +1635,8 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
-    public void test_elementClassIdSrcAttr() {
-        performHtmlTest("element-class-id-src-attr.html");
+    public void test_elementClassIdAttr() {
+        performHtmlTest("element-class-id-attr.html");
     }
 
     @Test
@@ -1562,7 +1669,6 @@ public class WebContentsAccessibilityTreeTest {
         performHtmlTest("figure.html");
     }
 
-    @DisableIf.Build(sdk_is_less_than = VERSION_CODES.O, message = "https://crbug.com/1376954")
     @Test
     @SmallTest
     public void test_fixedWidthText() {
@@ -1931,6 +2037,30 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
+    public void test_inputTypesWithPlaceholder() {
+        performHtmlTest("input-types-with-placeholder.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_inputTypesWithValueAndPlaceholder() {
+        performHtmlTest("input-types-with-value-and-placeholder.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_inputTypesWithValue() {
+        performHtmlTest("input-types-with-value.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_inputTypes() {
+        performHtmlTest("input-types.html");
+    }
+
+    @Test
+    @SmallTest
     public void test_inputUrl() {
         performHtmlTest("input-url.html");
     }
@@ -2058,6 +2188,7 @@ public class WebContentsAccessibilityTreeTest {
 
     @Test
     @SmallTest
+    @DisableIf.Build(supported_abis_includes = "x86_64", message = "https://crbug.com/349962563")
     public void test_nestedlist() {
         performHtmlTest("nestedlist.html");
     }
@@ -2096,6 +2227,18 @@ public class WebContentsAccessibilityTreeTest {
     @SmallTest
     public void test_optgroup() {
         performHtmlTest("optgroup.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_optgroupMenulist() {
+        performHtmlTest("optgroup-menulist.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_optgroupCustomMenulist() {
+        performHtmlTest("optgroup-custom-menulist.html");
     }
 
     @Test
@@ -2397,6 +2540,12 @@ public class WebContentsAccessibilityTreeTest {
     @SmallTest
     public void test_tableTheadTbodyTfoot() {
         performHtmlTest("table-thead-tbody-tfoot.html");
+    }
+
+    @Test
+    @SmallTest
+    public void test_tabPanel() {
+        performHtmlTest("tab-panel.html");
     }
 
     @Test

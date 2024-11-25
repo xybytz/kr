@@ -6,6 +6,8 @@ package org.chromium.chrome.browser.autofill;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -18,31 +20,39 @@ import android.graphics.drawable.BitmapDrawable;
 import androidx.appcompat.content.res.AppCompatResources;
 import androidx.test.filters.SmallTest;
 
+import org.hamcrest.Description;
+import org.hamcrest.Matcher;
+import org.hamcrest.TypeSafeMatcher;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Features.DisableFeatures;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.base.test.util.HistogramWatcher;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
+import org.chromium.chrome.browser.autofill.PersonalDataManager.Iban;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.test.ChromeBrowserTestRule;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.autofill.AutofillProfile;
+import org.chromium.components.autofill.IbanRecordType;
+import org.chromium.components.autofill.ImageSize;
 import org.chromium.components.autofill.VerificationStatus;
+import org.chromium.components.autofill.payments.BankAccount;
+import org.chromium.components.autofill.payments.Ewallet;
+import org.chromium.components.autofill.payments.PaymentInstrument;
 import org.chromium.components.image_fetcher.test.TestImageFetcher;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.url.GURL;
 
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
@@ -53,19 +63,16 @@ import java.util.concurrent.TimeoutException;
 public class PersonalDataManagerTest {
     private static final Bitmap TEST_CARD_ART_IMAGE =
             Bitmap.createBitmap(100, 200, Bitmap.Config.ARGB_8888);
-
     @Rule public final ChromeBrowserTestRule mChromeBrowserTestRule = new ChromeBrowserTestRule();
-
-    @Rule public final TestRule mFeaturesProcessorRule = new Features.InstrumentationProcessor();
 
     private AutofillTestHelper mHelper;
 
     @Before
     public void setUp() {
         mHelper = new AutofillTestHelper();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () ->
-                        PersonalDataManager.getInstance()
+                        AutofillTestHelper.getPersonalDataManagerForLastUsedProfile()
                                 .setImageFetcherForTesting(
                                         new TestImageFetcher(TEST_CARD_ART_IMAGE)));
     }
@@ -87,6 +94,25 @@ public class PersonalDataManagerTest {
                 .setPhoneNumber("555 123-4567")
                 .setEmailAddress("jm@example.com")
                 .build();
+    }
+
+    private static Matcher<Iban> ibanMatcher(
+            final @IbanRecordType int recordType, final String nickname) {
+        return new TypeSafeMatcher<Iban>() {
+            @Override
+            protected boolean matchesSafely(Iban iban) {
+                return iban.getRecordType() == recordType && iban.getNickname().equals(nickname);
+            }
+
+            @Override
+            public void describeTo(Description description) {
+                description
+                        .appendText("an Iban with recordType ")
+                        .appendValue(recordType)
+                        .appendText(" and nickname ")
+                        .appendValue(nickname);
+            }
+        };
     }
 
     @Test
@@ -248,17 +274,16 @@ public class PersonalDataManagerTest {
     public void testAddCreditCardWithCardArtUrl_imageDownloaded() throws TimeoutException {
         AutofillUiUtils.CardIconSpecs cardIconSpecsLarge =
                 AutofillUiUtils.CardIconSpecs.create(
-                        ContextUtils.getApplicationContext(), AutofillUiUtils.CardIconSize.LARGE);
+                        ContextUtils.getApplicationContext(), ImageSize.LARGE);
         AutofillUiUtils.CardIconSpecs cardIconSpecsSmall =
                 AutofillUiUtils.CardIconSpecs.create(
-                        ContextUtils.getApplicationContext(), AutofillUiUtils.CardIconSize.LARGE);
+                        ContextUtils.getApplicationContext(), ImageSize.LARGE);
         GURL cardArtUrl = new GURL("http://google.com/test.png");
         CreditCard cardWithCardArtUrl =
                 new CreditCard(
                         /* guid= */ "serverGuid",
                         /* origin= */ "",
                         /* isLocal= */ false,
-                        /* isCached= */ false,
                         "John Doe Server",
                         "41111111111111111",
                         /* obfuscatedCardNumber= */ "",
@@ -274,7 +299,7 @@ public class PersonalDataManagerTest {
         mHelper.addServerCreditCard(cardWithCardArtUrl);
 
         // Verify card art images are fetched in both small and large sizes.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     assertTrue(
                             AutofillUiUtils.resizeAndAddRoundedCornersAndGreyBorder(
@@ -285,7 +310,8 @@ public class PersonalDataManagerTest {
                                                             ChromeFeatureList
                                                                     .AUTOFILL_ENABLE_NEW_CARD_ART_AND_NETWORK_IMAGES))
                                     .sameAs(
-                                            PersonalDataManager.getInstance()
+                                            AutofillTestHelper
+                                                    .getPersonalDataManagerForLastUsedProfile()
                                                     .getCustomImageForAutofillSuggestionIfAvailable(
                                                             cardArtUrl, cardIconSpecsLarge)
                                                     .get()));
@@ -298,7 +324,8 @@ public class PersonalDataManagerTest {
                                                             ChromeFeatureList
                                                                     .AUTOFILL_ENABLE_NEW_CARD_ART_AND_NETWORK_IMAGES))
                                     .sameAs(
-                                            PersonalDataManager.getInstance()
+                                            AutofillTestHelper
+                                                    .getPersonalDataManagerForLastUsedProfile()
                                                     .getCustomImageForAutofillSuggestionIfAvailable(
                                                             cardArtUrl, cardIconSpecsSmall)
                                                     .get()));
@@ -322,23 +349,16 @@ public class PersonalDataManagerTest {
                                 capitalOneIconUrl, widthPixels, heightPixels))
                 .isEqualTo(
                         new GURL(
-                                new StringBuilder(capitalOneIconUrl.getSpec())
-                                        .append("=w")
-                                        .append(widthPixels)
-                                        .append("-h")
-                                        .append(heightPixels)
-                                        .toString()));
+                                capitalOneIconUrl.getSpec()
+                                        + "=w"
+                                        + widthPixels
+                                        + "-h"
+                                        + heightPixels));
         assertThat(
                         AutofillUiUtils.getCreditCardIconUrlWithParams(
                                 cardArtUrl, widthPixels, heightPixels))
                 .isEqualTo(
-                        new GURL(
-                                new StringBuilder(cardArtUrl.getSpec())
-                                        .append("=w")
-                                        .append(widthPixels)
-                                        .append("-h")
-                                        .append(heightPixels)
-                                        .toString()));
+                        new GURL(cardArtUrl.getSpec() + "=w" + widthPixels + "-h" + heightPixels));
     }
 
     @Test
@@ -358,25 +378,23 @@ public class PersonalDataManagerTest {
                                 capitalOneIconUrl, widthPixels, heightPixels))
                 .isEqualTo(
                         new GURL(
-                                new StringBuilder(capitalOneIconUrl.getSpec())
-                                        .append("=w")
-                                        .append(widthPixels)
-                                        .append("-h")
-                                        .append(heightPixels)
-                                        .append("-s")
-                                        .toString()));
+                                capitalOneIconUrl.getSpec()
+                                        + "=w"
+                                        + widthPixels
+                                        + "-h"
+                                        + heightPixels
+                                        + "-s"));
         assertThat(
                         AutofillUiUtils.getCreditCardIconUrlWithParams(
                                 cardArtUrl, widthPixels, heightPixels))
                 .isEqualTo(
                         new GURL(
-                                new StringBuilder(cardArtUrl.getSpec())
-                                        .append("=w")
-                                        .append(widthPixels)
-                                        .append("-h")
-                                        .append(heightPixels)
-                                        .append("-s")
-                                        .toString()));
+                                cardArtUrl.getSpec()
+                                        + "=w"
+                                        + widthPixels
+                                        + "-h"
+                                        + heightPixels
+                                        + "-s"));
     }
 
     @Test
@@ -442,7 +460,6 @@ public class PersonalDataManagerTest {
         AutofillProfile profileWithDifferentStatuses =
                 AutofillProfile.builder()
                         .setGUID("")
-                        .setHonorificPrefix("", VerificationStatus.NO_STATUS)
                         .setFullName("John Smith", VerificationStatus.PARSED)
                         .setCompanyName("", VerificationStatus.NO_STATUS)
                         .setStreetAddress("1 Main\nApt A", VerificationStatus.FORMATTED)
@@ -785,7 +802,6 @@ public class PersonalDataManagerTest {
                         /* guid= */ "",
                         /* origin= */ "",
                         /* isLocal= */ true,
-                        /* isCached= */ false,
                         "John Doe",
                         "1234123412341234",
                         "",
@@ -801,7 +817,6 @@ public class PersonalDataManagerTest {
                         /* guid= */ "",
                         /* origin= */ "",
                         /* isLocal= */ false,
-                        /* isCached= */ false,
                         "John Doe",
                         "1234123412341234",
                         "",
@@ -851,7 +866,6 @@ public class PersonalDataManagerTest {
                                 /* guid= */ "",
                                 /* origin= */ "",
                                 /* isLocal= */ true,
-                                /* isCached= */ false,
                                 "John Doe",
                                 "1234123412341234",
                                 "",
@@ -910,7 +924,6 @@ public class PersonalDataManagerTest {
                                 /* guid= */ "",
                                 /* origin= */ "",
                                 /* isLocal= */ true,
-                                /* isCached= */ false,
                                 "John Doe",
                                 "1234123412341234",
                                 "",
@@ -975,7 +988,6 @@ public class PersonalDataManagerTest {
                         /* guid= */ "",
                         /* origin= */ "",
                         /* isLocal= */ true,
-                        /* isCached= */ false,
                         "John Doe",
                         "1234123412341234",
                         "",
@@ -990,7 +1002,6 @@ public class PersonalDataManagerTest {
                         /* guid= */ "serverGuid",
                         /* origin= */ "",
                         /* isLocal= */ false,
-                        /* isCached= */ false,
                         "John Doe Server",
                         "41111111111111111",
                         "",
@@ -1027,14 +1038,13 @@ public class PersonalDataManagerTest {
             throws TimeoutException {
         Context context = ContextUtils.getApplicationContext();
         AutofillUiUtils.CardIconSpecs cardIconSpecs =
-                AutofillUiUtils.CardIconSpecs.create(context, AutofillUiUtils.CardIconSize.LARGE);
+                AutofillUiUtils.CardIconSpecs.create(context, ImageSize.LARGE);
         GURL cardArtUrl = new GURL("http://google.com/test.png");
         CreditCard cardWithCardArtUrl =
                 new CreditCard(
                         /* guid= */ "serverGuid",
                         /* origin= */ "",
                         /* isLocal= */ false,
-                        /* isCached= */ false,
                         "John Doe Server",
                         "41111111111111111",
                         /* obfuscatedCardNumber= */ "",
@@ -1049,7 +1059,7 @@ public class PersonalDataManagerTest {
         // Adding a server card triggers card art image fetching for all server credit cards.
         mHelper.addServerCreditCard(cardWithCardArtUrl);
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     // The custom icon is already cached, and gets returned.
                     assertTrue(
@@ -1061,11 +1071,12 @@ public class PersonalDataManagerTest {
                                             ((BitmapDrawable)
                                                             AutofillUiUtils.getCardIcon(
                                                                     context,
+                                                                    AutofillTestHelper
+                                                                            .getPersonalDataManagerForLastUsedProfile(),
                                                                     new GURL(
                                                                             "http://google.com/test.png"),
                                                                     R.drawable.mc_card,
-                                                                    AutofillUiUtils.CardIconSize
-                                                                            .LARGE,
+                                                                    ImageSize.LARGE,
                                                                     /* showCustomIcon= */ true))
                                                     .getBitmap()));
                 });
@@ -1082,7 +1093,6 @@ public class PersonalDataManagerTest {
                         /* guid= */ "serverGuid",
                         /* origin= */ "",
                         /* isLocal= */ false,
-                        /* isCached= */ false,
                         "John Doe Server",
                         "41111111111111111",
                         /* obfuscatedCardNumber= */ "",
@@ -1096,7 +1106,7 @@ public class PersonalDataManagerTest {
         // Adding a server card triggers card art image fetching for all server credit cards.
         mHelper.addServerCreditCard(cardWithoutCardArtUrl);
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     // In the absence of custom icon URL, the default icon is returned.
                     assertTrue(
@@ -1108,10 +1118,11 @@ public class PersonalDataManagerTest {
                                             ((BitmapDrawable)
                                                             AutofillUiUtils.getCardIcon(
                                                                     context,
+                                                                    AutofillTestHelper
+                                                                            .getPersonalDataManagerForLastUsedProfile(),
                                                                     new GURL(""),
                                                                     R.drawable.mc_card,
-                                                                    AutofillUiUtils.CardIconSize
-                                                                            .LARGE,
+                                                                    ImageSize.LARGE,
                                                                     true))
                                                     .getBitmap()));
                 });
@@ -1127,7 +1138,6 @@ public class PersonalDataManagerTest {
                         /* guid= */ "serverGuid",
                         /* origin= */ "",
                         /* isLocal= */ false,
-                        /* isCached= */ false,
                         "John Doe Server",
                         "41111111111111111",
                         /* obfuscatedCardNumber= */ "",
@@ -1141,7 +1151,7 @@ public class PersonalDataManagerTest {
         // Adding a server card triggers card art image fetching for all server credit cards.
         mHelper.addServerCreditCard(cardWithoutDefaultIconIdAndCardArtUrl);
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     // If neither the custom icon nor the default icon is available, null is
                     // returned.
@@ -1149,9 +1159,10 @@ public class PersonalDataManagerTest {
                             null,
                             AutofillUiUtils.getCardIcon(
                                     ContextUtils.getApplicationContext(),
+                                    AutofillTestHelper.getPersonalDataManagerForLastUsedProfile(),
                                     new GURL(""),
                                     0,
-                                    AutofillUiUtils.CardIconSize.LARGE,
+                                    ImageSize.LARGE,
                                     true));
                 });
     }
@@ -1165,14 +1176,14 @@ public class PersonalDataManagerTest {
         GURL cardArtUrl = new GURL("http://google.com/test.png");
         AutofillUiUtils.CardIconSpecs cardIconSpecs =
                 AutofillUiUtils.CardIconSpecs.create(
-                        ContextUtils.getApplicationContext(), AutofillUiUtils.CardIconSize.LARGE);
+                        ContextUtils.getApplicationContext(), ImageSize.LARGE);
 
         HistogramWatcher expectedHistogram =
                 HistogramWatcher.newSingleRecordWatcher("Autofill.ImageFetcher.Result", true);
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
-                    PersonalDataManager.getInstance()
+                    AutofillTestHelper.getPersonalDataManagerForLastUsedProfile()
                             .getCustomImageForAutofillSuggestionIfAvailable(
                                     cardArtUrl, cardIconSpecs);
                     expectedHistogram.assertExpected();
@@ -1188,19 +1199,210 @@ public class PersonalDataManagerTest {
         GURL cardArtUrl = new GURL("http://google.com/test.png");
         AutofillUiUtils.CardIconSpecs cardIconSpecs =
                 AutofillUiUtils.CardIconSpecs.create(
-                        ContextUtils.getApplicationContext(), AutofillUiUtils.CardIconSize.LARGE);
+                        ContextUtils.getApplicationContext(), ImageSize.LARGE);
 
         HistogramWatcher expectedHistogram =
                 HistogramWatcher.newSingleRecordWatcher("Autofill.ImageFetcher.Result", false);
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
-                    PersonalDataManager.getInstance()
+                    AutofillTestHelper.getPersonalDataManagerForLastUsedProfile()
                             .setImageFetcherForTesting(new TestImageFetcher(null));
-                    PersonalDataManager.getInstance()
+                    AutofillTestHelper.getPersonalDataManagerForLastUsedProfile()
                             .getCustomImageForAutofillSuggestionIfAvailable(
                                     cardArtUrl, cardIconSpecs);
                     expectedHistogram.assertExpected();
                 });
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Autofill"})
+    public void testAddIban() throws TimeoutException {
+        Iban iban =
+                new Iban.Builder()
+                        .setLabel("")
+                        .setNickname("My IBAN")
+                        .setRecordType(IbanRecordType.UNKNOWN)
+                        .setValue("FR76 3000 6000 0112 3456 7890 189")
+                        .build();
+        String ibanGuid = mHelper.addOrUpdateLocalIban(iban);
+
+        Iban storedLocalIban = mHelper.getIban(ibanGuid);
+        Assert.assertEquals("My IBAN", storedLocalIban.getNickname());
+        Assert.assertEquals("FR7630006000011234567890189", storedLocalIban.getValue());
+        Assert.assertEquals(IbanRecordType.LOCAL_IBAN, storedLocalIban.getRecordType());
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Autofill"})
+    public void testAddAndEditIban() throws TimeoutException {
+        // Test "add IBAN" workflow.
+        Iban iban =
+                new Iban.Builder()
+                        .setLabel("")
+                        .setNickname("My IBAN")
+                        .setRecordType(IbanRecordType.UNKNOWN)
+                        .setValue("FR76 3000 6000 0112 3456 7890 189")
+                        .build();
+        String ibanGuid = mHelper.addOrUpdateLocalIban(iban);
+
+        Iban storedLocalIban = mHelper.getIban(ibanGuid);
+        Assert.assertEquals("My IBAN", storedLocalIban.getNickname());
+        Assert.assertEquals("FR7630006000011234567890189", storedLocalIban.getValue());
+        Assert.assertEquals(IbanRecordType.LOCAL_IBAN, storedLocalIban.getRecordType());
+
+        // Test "edit IBAN" workflow.
+        storedLocalIban.updateNickname("My alternative IBAN");
+        storedLocalIban.updateValue("DE91 1000 0000 0123 4567 89");
+        mHelper.addOrUpdateLocalIban(storedLocalIban);
+
+        Iban updatedLocalIban = mHelper.getIban(ibanGuid);
+        Assert.assertEquals("My alternative IBAN", updatedLocalIban.getNickname());
+        Assert.assertEquals("DE91100000000123456789", updatedLocalIban.getValue());
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Autofill"})
+    public void testAddingServerIban() {
+        Iban.Builder ibanBuilder =
+                new Iban.Builder()
+                        .setInstrumentId(123456L)
+                        .setLabel("CH •••8009")
+                        .setNickname("My IBAN")
+                        .setRecordType(IbanRecordType.SERVER_IBAN)
+                        .setValue("");
+
+        ibanBuilder.build();
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Autofill"})
+    public void testGetIbanLabelReturnsObfuscatedIbanValue() throws TimeoutException {
+        Iban iban =
+                new Iban.Builder()
+                        .setLabel("")
+                        .setNickname("My IBAN")
+                        .setRecordType(IbanRecordType.UNKNOWN)
+                        .setValue("CH56 0483 5012 3456 7800 9")
+                        .build();
+        String ibanGuid = mHelper.addOrUpdateLocalIban(iban);
+
+        Iban storedLocalIban = mHelper.getIban(ibanGuid);
+        String dot = "\u2022";
+        // \u2022 is Bullet and \u2006 is SIX-PER-EM SPACE (small space between
+        // bullets). The expected string is 'CH •••8009'.
+        Assert.assertEquals("CH" + "\u2006" + dot.repeat(2) + "8009", storedLocalIban.getLabel());
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Autofill"})
+    public void testGetIbansForSettings() throws TimeoutException {
+        Iban ibanOne =
+                new Iban.Builder()
+                        .setLabel("")
+                        .setNickname("My local IBAN")
+                        .setRecordType(IbanRecordType.UNKNOWN)
+                        .setValue("CH56 0483 5012 3456 7800 9")
+                        .build();
+        Iban ibanTwo =
+                Iban.createServer(
+                        /* instrumentId= */ 100L,
+                        /* label= */ "CH •••8009",
+                        /* nickname= */ "My server IBAN",
+                        /* value= */ "");
+
+        mHelper.addOrUpdateLocalIban(ibanOne);
+        mHelper.addServerIban(ibanTwo);
+
+        Iban[] actualIbans = mHelper.getIbansForSettings();
+
+        assertThat(
+                Arrays.asList(actualIbans),
+                containsInAnyOrder(
+                        ibanMatcher(IbanRecordType.LOCAL_IBAN, "My local IBAN"),
+                        ibanMatcher(IbanRecordType.SERVER_IBAN, "My server IBAN")));
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Autofill"})
+    public void testGetMaskedBankAccounts() throws TimeoutException {
+        BankAccount bankAccount1 =
+                new BankAccount.Builder()
+                        .setPaymentInstrument(
+                                new PaymentInstrument.Builder()
+                                        .setInstrumentId(100)
+                                        .setNickname("nickname")
+                                        .setSupportedPaymentRails(new int[] {1})
+                                        .build())
+                        .setBankName("bank name")
+                        .build();
+        BankAccount bankAccount2 =
+                new BankAccount.Builder()
+                        .setPaymentInstrument(
+                                new PaymentInstrument.Builder()
+                                        .setInstrumentId(200)
+                                        .setNickname("nickname2")
+                                        .setSupportedPaymentRails(new int[] {1})
+                                        .setDisplayIconUrl(new GURL("http://example.com"))
+                                        .build())
+                        .setBankName("bank name 2")
+                        .build();
+        AutofillTestHelper.addMaskedBankAccount(bankAccount1);
+        AutofillTestHelper.addMaskedBankAccount(bankAccount2);
+
+        ThreadUtils.runOnUiThreadBlocking(
+                () ->
+                        assertThat(new BankAccount[] {bankAccount1, bankAccount2})
+                                .isEqualTo(
+                                        AutofillTestHelper
+                                                .getPersonalDataManagerForLastUsedProfile()
+                                                .getMaskedBankAccounts()));
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Autofill"})
+    public void testGetEwallet() throws TimeoutException {
+        Ewallet ewallet1 =
+                new Ewallet.Builder()
+                        .setPaymentInstrument(
+                                new PaymentInstrument.Builder()
+                                        .setInstrumentId(100)
+                                        .setNickname("nickname")
+                                        .setSupportedPaymentRails(new int[] {2})
+                                        .setIsFidoEnrolled(true)
+                                        .build())
+                        .setEwalletName("eWallet name 1")
+                        .setAccountDisplayName("account display name 1")
+                        .build();
+        Ewallet ewallet2 =
+                new Ewallet.Builder()
+                        .setPaymentInstrument(
+                                new PaymentInstrument.Builder()
+                                        .setInstrumentId(200)
+                                        .setNickname("nickname2")
+                                        .setSupportedPaymentRails(new int[] {2})
+                                        .setDisplayIconUrl(new GURL("http://example.com"))
+                                        .setIsFidoEnrolled(false)
+                                        .build())
+                        .setEwalletName("eWallet name 2")
+                        .setAccountDisplayName("account display name 2")
+                        .build();
+        AutofillTestHelper.addEwallet(ewallet1);
+        AutofillTestHelper.addEwallet(ewallet2);
+
+        ThreadUtils.runOnUiThreadBlocking(
+                () ->
+                        assertThat(new Ewallet[] {ewallet1, ewallet2})
+                                .isEqualTo(
+                                        AutofillTestHelper
+                                                .getPersonalDataManagerForLastUsedProfile()
+                                                .getEwallets()));
     }
 }

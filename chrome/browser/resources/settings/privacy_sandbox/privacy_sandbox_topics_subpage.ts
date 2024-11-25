@@ -2,37 +2,39 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_components/settings_prefs/prefs.js';
+import '/shared/settings/prefs/prefs.js';
 import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_collapse/cr_collapse.js';
 import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/cr_elements/cr_toast/cr_toast.js';
 import 'chrome://resources/cr_elements/cr_expand_button/cr_expand_button.js';
 import 'chrome://resources/cr_elements/cr_shared_style.css.js';
-import 'chrome://resources/polymer/v3_0/iron-collapse/iron-collapse.js';
-import '/shared/settings/controls/settings_toggle_button.js';
+import '../controls/settings_toggle_button.js';
 import './privacy_sandbox_interest_item.js';
 
-import {SettingsToggleButtonElement} from '/shared/settings/controls/settings_toggle_button.js';
-import {PrefsMixin} from 'chrome://resources/cr_components/settings_prefs/prefs_mixin.js';
+import {PrefsMixin} from '/shared/settings/prefs/prefs_mixin.js';
 import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {focusWithoutInk} from 'chrome://resources/js/focus_without_ink.js';
 import {afterNextRender, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {FocusConfig} from '../focus_config.js';
-import {HatsBrowserProxyImpl, TrustSafetyInteraction} from '../hats_browser_proxy.js';
+import type {SettingsToggleButtonElement} from '../controls/settings_toggle_button.js';
+import type {FocusConfig} from '../focus_config.js';
 import {loadTimeData} from '../i18n_setup.js';
-import {MetricsBrowserProxy, MetricsBrowserProxyImpl} from '../metrics_browser_proxy.js';
+import type {MetricsBrowserProxy} from '../metrics_browser_proxy.js';
+import {MetricsBrowserProxyImpl} from '../metrics_browser_proxy.js';
 import {routes} from '../route.js';
-import {Route, RouteObserverMixin, Router} from '../router.js';
+import type {Route} from '../router.js';
+import {RouteObserverMixin, Router} from '../router.js';
+import type {SettingsSimpleConfirmationDialogElement} from '../simple_confirmation_dialog.js';
 
-import {PrivacySandboxBrowserProxy, PrivacySandboxBrowserProxyImpl, PrivacySandboxInterest, TopicsState} from './privacy_sandbox_browser_proxy.js';
+import type {CanonicalTopic, PrivacySandboxBrowserProxy, PrivacySandboxInterest, TopicsState} from './privacy_sandbox_browser_proxy.js';
+import {PrivacySandboxBrowserProxyImpl} from './privacy_sandbox_browser_proxy.js';
 import {getTemplate} from './privacy_sandbox_topics_subpage.html.js';
-
 export interface SettingsPrivacySandboxTopicsSubpageElement {
   $: {
     topicsToggle: SettingsToggleButtonElement,
     footer: HTMLElement,
-    footerPTB: HTMLElement,
   };
 }
 
@@ -85,11 +87,6 @@ export class SettingsPrivacySandboxTopicsSubpageElement extends
         value: false,
       },
 
-      isLearnMoreDialogOpen_: {
-        type: Boolean,
-        value: false,
-      },
-
       blockedTopicsExpanded_: {
         type: Boolean,
         value: false,
@@ -100,25 +97,58 @@ export class SettingsPrivacySandboxTopicsSubpageElement extends
         type: Object,
         observer: 'focusConfigChanged_',
       },
-      isProactiveTopicsBlockingEnabled_: {
+
+      blockTopicDialogTitle_: {
+        type: String,
+        value: '',
+      },
+
+      blockTopicDialogBody_: {
+        type: String,
+        value: '',
+      },
+
+      shouldShowBlockTopicDialog_: {
         type: Boolean,
-        value: () =>
-            loadTimeData.getBoolean('isProactiveTopicsBlockingEnabled'),
+        value: false,
+      },
+
+      emptyState_: {
+        type: Boolean,
+        computed: 'computeEmptyState_(' +
+            'prefs.privacy_sandbox.m1.topics_enabled.value)',
+      },
+
+      /**
+       * If true, the Ads API UX Enhancement should be shown.
+       */
+      shouldShowV2_: {
+        type: Boolean,
+        value: () => {
+          return loadTimeData.getBoolean(
+              'isPrivacySandboxAdsApiUxEnhancementsEnabled');
+        },
       },
     };
   }
 
-  private focusConfig: FocusConfig;
-  private topicsList_: PrivacySandboxInterest[];
-  private blockedTopicsList_: PrivacySandboxInterest[];
-  private isTopicsListLoaded_: boolean;
-  private isLearnMoreDialogOpen_: boolean;
-  private isProactiveTopicsBlockingEnabled_: boolean;
-  private blockedTopicsExpanded_: boolean;
   private privacySandboxBrowserProxy_: PrivacySandboxBrowserProxy =
       PrivacySandboxBrowserProxyImpl.getInstance();
   private metricsBrowserProxy_: MetricsBrowserProxy =
       MetricsBrowserProxyImpl.getInstance();
+  private topicsList_: PrivacySandboxInterest[];
+  private blockedTopicsList_: PrivacySandboxInterest[];
+  private currentChildTopics_: CanonicalTopic[];
+  private currentInterest_?: PrivacySandboxInterest;
+  private focusConfig: FocusConfig;
+
+  private isTopicsListLoaded_: boolean;
+  private emptyState_: boolean;
+  private blockedTopicsExpanded_: boolean;
+
+  private shouldShowBlockTopicDialog_: boolean;
+  private blockTopicDialogTitle_: string;
+  private blockTopicDialogBody_: string;
 
   override ready() {
     super.ready();
@@ -129,15 +159,21 @@ export class SettingsPrivacySandboxTopicsSubpageElement extends
     this.$.footer.querySelectorAll('a').forEach(
         link =>
             link.setAttribute('aria-description', this.i18n('opensInNewTab')));
-    this.$.footerPTB.querySelectorAll('a').forEach(
-        link =>
-            link.setAttribute('aria-description', this.i18n('opensInNewTab')));
+  }
+
+  // Goal is to not show anything but the toggle and disclaimer when the pref is
+  // false.
+  private computeEmptyState_(): boolean {
+    return !this.getPref('privacy_sandbox.m1.topics_enabled').value;
   }
 
   override currentRouteChanged(newRoute: Route) {
     if (newRoute === routes.PRIVACY_SANDBOX_TOPICS) {
-      HatsBrowserProxyImpl.getInstance().trustSafetyInteractionOccurred(
-          TrustSafetyInteraction.OPENED_TOPICS_SUBPAGE);
+      // Updating the TopicsState because it can be changed by being
+      // blocked/unblocked in the Manage Topics Page. Need to keep the data
+      // between the two pages up to date.
+      this.privacySandboxBrowserProxy_.getTopicsState().then(
+          state => this.onTopicsStateChanged_(state));
     }
   }
 
@@ -170,11 +206,8 @@ export class SettingsPrivacySandboxTopicsSubpageElement extends
     return this.topicsList_.length === 0;
   }
 
-  private computeBlockedTopicsDescription_(): string {
-    return this.i18n(
-        this.blockedTopicsList_.length === 0 ?
-            'topicsPageBlockedTopicsDescriptionEmpty' :
-            'topicsPageBlockedTopicsDescription');
+  private isBlockedTopicsListEmpty_(): boolean {
+    return this.blockedTopicsList_.length === 0;
   }
 
   private getBlockedTopicsDescriptionClass_(): string {
@@ -198,48 +231,34 @@ export class SettingsPrivacySandboxTopicsSubpageElement extends
     this.topicsList_ = [];
   }
 
-  private onLearnMoreClick_() {
-    this.metricsBrowserProxy_.recordAction(
-        'Settings.PrivacySandbox.Topics.LearnMoreClicked');
-    this.isLearnMoreDialogOpen_ = true;
-  }
-
-  private onCloseDialog_() {
-    this.isLearnMoreDialogOpen_ = false;
-    afterNextRender(this, async () => {
-      // `learnMoreLink` might be null if the toggle was disabled after the
-      // dialog was opened.
-      this.shadowRoot!.querySelector<HTMLElement>('#learnMoreLink')?.focus();
-    });
-  }
-
-  private onInterestChanged_(e: CustomEvent<PrivacySandboxInterest>) {
-    const interest = e.detail;
-    assert(!interest.site);
-    if (interest.removed) {
-      this.blockedTopicsList_.splice(
-          this.blockedTopicsList_.indexOf(interest), 1);
-    } else {
-      this.topicsList_.splice(this.topicsList_.indexOf(interest), 1);
-      // Move the blocked topic to the blocked section.
-      this.blockedTopicsList_.push({topic: interest.topic, removed: true});
-      this.blockedTopicsList_.sort(
-          (first, second) =>
-              first.topic!.displayString < second.topic!.displayString ? -1 :
-                                                                         1);
+  private onBlockTopicDialogClose_() {
+    const dialog =
+        this.shadowRoot!.querySelector<SettingsSimpleConfirmationDialogElement>(
+            'settings-simple-confirmation-dialog');
+    assert(dialog);
+    assert(this.currentInterest_);
+    if (dialog.wasConfirmed()) {
+      this.updateTopicsStateForSelectedTopic_(this.currentInterest_!);
     }
-    // This causes the lists to be fully re-rendered, in order to reflect the
-    /// interest changes.
-    this.topicsList_ = this.topicsList_.slice();
-    this.blockedTopicsList_ = this.blockedTopicsList_.slice();
-    // If the interest was previously removed, set it to allowed, and vice
-    // versa.
+    this.blockTopicDialogBody_ = '';
+    this.blockTopicDialogTitle_ = '';
+    this.currentChildTopics_ = [];
+    this.shouldShowBlockTopicDialog_ = false;
+    this.currentInterest_ = undefined;
+  }
+
+  private updateTopicsStateForSelectedTopic_(currentSelectedInterest:
+                                                 PrivacySandboxInterest) {
     this.privacySandboxBrowserProxy_.setTopicAllowed(
-        interest.topic!, /*allowed=*/ interest.removed);
+        currentSelectedInterest.topic!,
+        /*allowed=*/ currentSelectedInterest.removed);
+    this.privacySandboxBrowserProxy_.getTopicsState().then(
+        state => this.onTopicsStateChanged_(state));
 
     this.metricsBrowserProxy_.recordAction(
-        interest.removed ? 'Settings.PrivacySandbox.Topics.TopicAdded' :
-                           'Settings.PrivacySandbox.Topics.TopicRemoved');
+        currentSelectedInterest.removed ?
+            'Settings.PrivacySandbox.Topics.TopicAdded' :
+            'Settings.PrivacySandbox.Topics.TopicRemoved');
 
     // After allowing or blocking the last item, the focus is lost after the
     // item is removed. Set the focus to the #blockedTopicsRow element.
@@ -249,6 +268,45 @@ export class SettingsPrivacySandboxTopicsSubpageElement extends
             ?.focus();
       }
     });
+  }
+
+  // This function is run anytime the interest item changes. Which means that it
+  // runs when a user blocks/allows a topic.
+  private async onInterestChanged_(e: CustomEvent<PrivacySandboxInterest>) {
+    this.currentInterest_ = e.detail;
+    assert(!this.currentInterest_.site);
+
+    assert(this.currentInterest_!.topic);
+    assert(this.currentInterest_!.topic!.displayString);
+
+    // If topic is being unblocked, show toast and update topic state.
+    if (this.currentInterest_!.removed) {
+      const toast = this.shadowRoot!.querySelector('cr-toast');
+      assert(toast);
+      toast.show();
+      this.updateTopicsStateForSelectedTopic_(this.currentInterest_!);
+      return;
+    }
+
+    this.currentChildTopics_ =
+        await this.privacySandboxBrowserProxy_.getChildTopicsCurrentlyAssigned(
+            this.currentInterest_!.topic!);
+    // Check if currently selected topic to block has active child topics
+    // if it does, show simple confirmation dialog.
+    if (this.currentChildTopics_.length !== 0) {
+      this.blockTopicDialogTitle_ = loadTimeData.getStringF(
+          'manageTopicsDialogTitle',
+          this.currentInterest_!.topic!.displayString);
+      this.blockTopicDialogBody_ = loadTimeData.getStringF(
+          'manageTopicsDialogBody',
+          this.currentInterest_!.topic!.displayString);
+      this.shouldShowBlockTopicDialog_ = true;
+      return;
+    }
+    // Currently selected topic doesn't have active child topics.
+    // Update topics state.
+    this.updateTopicsStateForSelectedTopic_(this.currentInterest_!);
+    this.blockedTopicsExpanded_ = true;
   }
 
   private onBlockedTopicsExpanded_() {
@@ -263,7 +321,6 @@ export class SettingsPrivacySandboxTopicsSubpageElement extends
   }
 
   private focusConfigChanged_(_newConfig: FocusConfig, oldConfig: FocusConfig) {
-    // TODO: focusConfig does not work for manage topics subpage
     assert(!oldConfig);
     if (routes.PRIVACY_SANDBOX_MANAGE_TOPICS) {
       this.focusConfig.set(routes.PRIVACY_SANDBOX_MANAGE_TOPICS.path, () => {
@@ -275,43 +332,14 @@ export class SettingsPrivacySandboxTopicsSubpageElement extends
     }
   }
 
-  private computeTopicsPageToggleSubLabel_(): string {
-    return this.i18n(
-        this.isProactiveTopicsBlockingEnabled_ ? 'topicsPageToggleSubLabelPTB' :
-                                                 'topicsPageToggleSubLabel');
+  private onHideToastClick_() {
+    const toast = this.shadowRoot!.querySelector('cr-toast');
+    assert(toast);
+    toast.hide();
   }
 
-  private computeTopicsPageCurrentTopicsHeading_(): string {
-    return this.i18n(
-        this.isProactiveTopicsBlockingEnabled_ ?
-            'topicsPageCurrentTopicsHeadingPTB' :
-            'topicsPageCurrentTopicsHeading');
-  }
-
-  private computeTopicsPageCurrentTopicsDescription_(): string {
-    return this.i18n(
-        this.isProactiveTopicsBlockingEnabled_ ?
-            'topicsPageCurrentTopicsDescriptionPTB' :
-            'topicsPageCurrentTopicsDescription');
-  }
-
-  private computeTopicsPageCurrentTopicsDescriptionEmpty_(): string {
-    return this.i18n(
-        this.isProactiveTopicsBlockingEnabled_ ?
-            'topicsPageCurrentTopicsDescriptionEmptyPTB' :
-            'topicsPageCurrentTopicsDescriptionEmpty');
-  }
-
-  private computeTopicsPageBlockedTopicsHeading_(): string {
-    return this.i18n(
-        this.isProactiveTopicsBlockingEnabled_ ?
-            'topicsPageBlockedTopicsHeadingPTB' :
-            'topicsPageBlockedTopicsHeading');
-  }
-
-  private shouldShowManageTopics_(): boolean {
-    return this.isProactiveTopicsBlockingEnabled_ &&
-        !loadTimeData.getBoolean('isPrivacySandboxRestricted');
+  private onPrivacyPolicyLinkClicked_() {
+    // TODO(crbug.com/377977285): Add metrics
   }
 }
 

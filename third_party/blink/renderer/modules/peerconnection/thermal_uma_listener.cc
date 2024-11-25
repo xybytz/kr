@@ -39,7 +39,6 @@ ThermalStateUMA ToThermalStateUMA(mojom::blink::DeviceThermalState state) {
       return ThermalStateUMA::kCritical;
     default:
       NOTREACHED();
-      return ThermalStateUMA::kNominal;
   }
 }
 

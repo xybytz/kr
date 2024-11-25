@@ -28,6 +28,7 @@
 #include "content/browser/devtools/protocol/background_service_handler.h"
 #include "content/browser/devtools/protocol/browser_handler.h"
 #include "content/browser/devtools/protocol/device_access_handler.h"
+#include "content/browser/devtools/protocol/device_orientation_handler.h"
 #include "content/browser/devtools/protocol/dom_handler.h"
 #include "content/browser/devtools/protocol/emulation_handler.h"
 #include "content/browser/devtools/protocol/fedcm_handler.h"
@@ -59,6 +60,7 @@
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/browser/web_package/signed_exchange_envelope.h"
+#include "content/browser/worker_host/dedicated_worker_hosts_for_document.h"
 #include "content/public/browser/back_forward_cache.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -313,8 +315,7 @@ WebContents* RenderFrameDevToolsAgentHost::GetWebContents() {
   return web_contents();
 }
 
-bool RenderFrameDevToolsAgentHost::AttachSession(DevToolsSession* session,
-                                                 bool acquire_wake_lock) {
+bool RenderFrameDevToolsAgentHost::AttachSession(DevToolsSession* session) {
   if (!ShouldAllowSession(frame_host_, session)) {
     return false;
   }
@@ -337,6 +338,7 @@ bool RenderFrameDevToolsAgentHost::AttachSession(DevToolsSession* session,
       session->CreateAndAddHandler<protocol::BrowserHandler>(
           session->GetClient()->MayWriteLocalFiles());
   session->CreateAndAddHandler<protocol::DeviceAccessHandler>();
+  session->CreateAndAddHandler<protocol::DeviceOrientationHandler>();
   session->CreateAndAddHandler<protocol::DOMHandler>(
       session->GetClient()->MayReadLocalFiles());
   auto* emulation_handler =
@@ -360,8 +362,7 @@ bool RenderFrameDevToolsAgentHost::AttachSession(DevToolsSession* session,
       base::BindRepeating(
           &RenderFrameDevToolsAgentHost::UpdateResourceLoaderFactories,
           base::Unretained(this)),
-      session->GetClient()->MayReadLocalFiles(),
-      session->GetClient()->IsTrusted());
+      session->GetClient());
   session->CreateAndAddHandler<protocol::FetchHandler>(
       GetIOContext(), base::BindRepeating(
                           [](RenderFrameDevToolsAgentHost* self,
@@ -371,22 +372,17 @@ bool RenderFrameDevToolsAgentHost::AttachSession(DevToolsSession* session,
                           },
                           base::Unretained(this)));
   session->CreateAndAddHandler<protocol::SchemaHandler>();
-  const bool may_attach_to_brower = session->GetClient()->IsTrusted();
+  const bool may_attach_to_browser = session->GetClient()->IsTrusted();
   session->CreateAndAddHandler<protocol::ServiceWorkerHandler>(
-      /* allow_inspect_worker= */ may_attach_to_brower);
-  session->CreateAndAddHandler<protocol::StorageHandler>(
-      session->GetClient()->IsTrusted());
+      /* allow_inspect_worker= */ may_attach_to_browser);
+  session->CreateAndAddHandler<protocol::StorageHandler>(session->GetClient());
   session->CreateAndAddHandler<protocol::SystemInfoHandler>(
       /* is_browser_session= */ false);
-  auto* target_handler = session->CreateAndAddHandler<protocol::TargetHandler>(
-      may_attach_to_brower
+  session->CreateAndAddHandler<protocol::TargetHandler>(
+      may_attach_to_browser
           ? protocol::TargetHandler::AccessMode::kRegular
           : protocol::TargetHandler::AccessMode::kAutoAttachOnly,
       GetId(), auto_attacher_.get(), session);
-  if (session->session_mode() !=
-      DevToolsSession::Mode::kDoesNotSupportTabTarget) {
-    target_handler->DisableAutoAttachOfPortals();
-  }
   session->CreateAndAddHandler<protocol::PreloadHandler>();
   session->CreateAndAddHandler<protocol::PageHandler>(
       emulation_handler, browser_handler,
@@ -410,8 +406,7 @@ bool RenderFrameDevToolsAgentHost::AttachSession(DevToolsSession* session,
   if (sessions().empty()) {
     UpdateRawHeadersAccess(frame_host_);
 #if BUILDFLAG(IS_ANDROID)
-    if (acquire_wake_lock)
-      GetWakeLock()->RequestWakeLock();
+    GetWakeLock()->RequestWakeLock();
 #endif
   }
   return true;
@@ -440,18 +435,12 @@ void RenderFrameDevToolsAgentHost::InspectElement(RenderFrameHost* frame_host,
   // so we need to transform the coordinates from the root space
   // to the local frame root widget's space.
   if (host->frame_host_) {
-    if (RenderWidgetHostView* view = host->frame_host_->GetView()) {
+    if (RenderWidgetHostViewBase* view = host->frame_host_->GetView()) {
       point = gfx::ToRoundedPoint(
           view->TransformRootPointToViewCoordSpace(gfx::PointF(point)));
     }
   }
   host->GetRendererChannel()->InspectElement(point);
-}
-
-void RenderFrameDevToolsAgentHost::GetUniqueFormControlId(
-    int node_id,
-    GetUniqueFormControlIdCallback callback) {
-  GetRendererChannel()->GetUniqueFormControlId(node_id, std::move(callback));
 }
 
 RenderFrameDevToolsAgentHost::~RenderFrameDevToolsAgentHost() {
@@ -500,9 +489,16 @@ void RenderFrameDevToolsAgentHost::DidFinishNavigation(
     if (IsAttached()) {
       UpdateRawHeadersAccess(frame_tree_node_->current_frame_host());
     }
-    // UpdateFrameHost may destruct |this|.
-    protect = this;
-    UpdateFrameHost(frame_tree_node_->current_frame_host());
+
+    // Same-document navigations don't get a new RFH, so there isn't really
+    // anything to update here. Eagerly updating the tracked RFH is harmful,
+    // since the same-document navigation may interleave with cross-document
+    // navigations, e.g. if triggered from an unload handler.
+    if (!request->IsSameDocument()) {
+      // UpdateFrameHost may destruct |this|.
+      protect = this;
+      UpdateFrameHost(frame_tree_node_->current_frame_host());
+    }
 
     if (navigation_requests_.empty()) {
       for (DevToolsSession* session : sessions())
@@ -570,7 +566,8 @@ void RenderFrameDevToolsAgentHost::RenderFrameHostChanged(
   // UpdateFrameHost may destruct |this|.
 }
 
-void RenderFrameDevToolsAgentHost::FrameDeleted(int frame_tree_node_id) {
+void RenderFrameDevToolsAgentHost::FrameDeleted(
+    FrameTreeNodeId frame_tree_node_id) {
   for (auto* tracing : protocol::TracingHandler::ForAgentHost(this))
     tracing->FrameDeleted(frame_tree_node_id);
   if (frame_tree_node_ &&
@@ -702,10 +699,6 @@ void RenderFrameDevToolsAgentHost::OnNavigationRequestWillBeSent(
   }
   if (!restricted_sessions.empty())
     ForceDetachRestrictedSessions(restricted_sessions);
-}
-
-void RenderFrameDevToolsAgentHost::UpdatePortals() {
-  auto_attacher_->UpdatePages();
 }
 
 void RenderFrameDevToolsAgentHost::DidCreateFencedFrame(
@@ -870,7 +863,7 @@ bool RenderFrameDevToolsAgentHost::Close() {
 
 base::TimeTicks RenderFrameDevToolsAgentHost::GetLastActivityTime() {
   if (WebContents* contents = web_contents())
-    return contents->GetLastActiveTime();
+    return contents->GetLastActiveTimeTicks();
   return base::TimeTicks();
 }
 
@@ -914,6 +907,7 @@ std::string RenderFrameDevToolsAgentHost::GetSubtype() {
 
   switch (frame_tree_node_->GetFrameType()) {
     case FrameType::kPrimaryMainFrame:
+    case FrameType::kGuestMainFrame:
     // TODO(caseq): figure out what's best to return for subframes in a tree
     // other than primary.
     case FrameType::kSubframe:
@@ -1012,6 +1006,11 @@ void RenderFrameDevToolsAgentHost::UpdateResourceLoaderFactories() {
       return content::RenderFrameHost::FrameIterationAction::kSkipChildren;
     }
     rfh->UpdateSubresourceLoaderFactories();
+    // Network requests from dedicated workers are intercepted through the owner
+    // frame target, so we should update loader factories when interception
+    // parameters change.
+    DedicatedWorkerHostsForDocument::GetOrCreateForCurrentDocument(rfh)
+        ->UpdateSubresourceLoaderFactories();
     return content::RenderFrameHost::FrameIterationAction::kContinue;
   });
 }

@@ -7,13 +7,15 @@
 
 #import <UIKit/UIKit.h>
 
+#import <optional>
+
 #import "ios/chrome/browser/ui/content_suggestions/magic_stack/magic_stack_module.h"
 
 namespace base {
 class Time;
 }  // namespace base
 
-@protocol ContentSuggestionsCommands;
+@protocol ParcelTrackingCommands;
 class GURL;
 
 // The carrier type for a given tracked parcel.
@@ -51,7 +53,7 @@ enum class ParcelState {
 @property(nonatomic, assign) ParcelType parcelType;
 
 // Estimated delivery time of the parcel.
-@property(nonatomic, assign) base::Time estimatedDeliveryTime;
+@property(nonatomic, assign) std::optional<base::Time> estimatedDeliveryTime;
 
 // The id of the tracked parcel.
 @property(nonatomic, copy) NSString* parcelID;
@@ -63,7 +65,7 @@ enum class ParcelState {
 @property(nonatomic, assign) GURL trackingURL;
 
 // Command handler for user actions.
-@property(nonatomic, weak) id<ContentSuggestionsCommands> commandHandler;
+@property(nonatomic, weak) id<ParcelTrackingCommands> commandHandler;
 
 @end
 

@@ -10,6 +10,7 @@
 
 #include "base/check_op.h"
 #include "base/containers/contains.h"
+#include "base/containers/to_value_list.h"
 #include "base/functional/bind.h"
 #include "base/json/json_writer.h"
 #include "base/notreached.h"
@@ -95,13 +96,6 @@ MenuItem::OwnedList MenuItemsFromValue(
     items.push_back(std::move(item));
   }
   return items;
-}
-
-base::Value::List MenuItemsToValue(const MenuItem::List& items) {
-  base::Value::List list;
-  for (const auto* item : items)
-    list.Append(item->ToValue());
-  return list;
 }
 
 bool GetStringList(const base::Value::Dict& dict,
@@ -430,7 +424,6 @@ bool MenuManager::DescendantOf(MenuItem* item,
     MenuItem* next = GetItemById(*id);
     if (!next) {
       NOTREACHED();
-      return false;
     }
     id = next->parent_id();
   }
@@ -455,7 +448,6 @@ bool MenuManager::ChangeParent(const MenuItem::Id& child_id,
     MenuItem* old_parent = GetItemById(*old_parent_id);
     if (!old_parent) {
       NOTREACHED();
-      return false;
     }
     child = old_parent->ReleaseChild(child_id, false /* non-recursive search*/);
     DCHECK(child.get() == child_ptr);
@@ -467,14 +459,12 @@ bool MenuManager::ChangeParent(const MenuItem::Id& child_id,
     auto i = context_items_.find(child_key);
     if (i == context_items_.end()) {
       NOTREACHED();
-      return false;
     }
     MenuItem::OwnedList& list = i->second;
     auto j =
         base::ranges::find(list, child_ptr, &std::unique_ptr<MenuItem>::get);
     if (j == list.end()) {
       NOTREACHED();
-      return false;
     }
     child = std::move(*j);
     list.erase(j);
@@ -503,7 +493,6 @@ bool MenuManager::RemoveContextMenuItem(const MenuItem::Id& id) {
   auto i = context_items_.find(extension_key);
   if (i == context_items_.end()) {
     NOTREACHED();
-    return false;
   }
 
   bool result = false;
@@ -586,14 +575,12 @@ void MenuManager::RadioItemSelected(MenuItem* item) {
     MenuItem* parent = GetItemById(*item->parent_id());
     if (!parent) {
       NOTREACHED();
-      return;
     }
     list = &(parent->children());
   } else {
     const MenuItem::ExtensionKey& key = item->id().extension_key;
     if (context_items_.find(key) == context_items_.end()) {
       NOTREACHED();
-      return;
     }
     list = &context_items_[key];
   }
@@ -607,7 +594,6 @@ void MenuManager::RadioItemSelected(MenuItem* item) {
   }
   if (item_location == list->end()) {
     NOTREACHED();  // We should have found the item.
-    return;
   }
 
   // Iterate backwards from |item| and uncheck any adjacent radio items.
@@ -824,7 +810,6 @@ bool MenuManager::ItemUpdated(const MenuItem::Id& id) {
     auto i = context_items_.find(menu_item->id().extension_key);
     if (i == context_items_.end()) {
       NOTREACHED();
-      return false;
     }
   }
 
@@ -874,8 +859,9 @@ void MenuManager::WriteToStorageInternal(
     observer.WillWriteToStorage(extension_key.extension_id);
 
   if (store_) {
-    store_->SetExtensionValue(extension_key.extension_id, kContextMenusKey,
-                              base::Value(MenuItemsToValue(all_items)));
+    store_->SetExtensionValue(
+        extension_key.extension_id, kContextMenusKey,
+        base::Value(base::ToValueList(all_items, &MenuItem::ToValue)));
   }
 }
 

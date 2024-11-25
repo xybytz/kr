@@ -6,7 +6,7 @@
 #define CONTENT_PUBLIC_TEST_MOCK_CAPTURED_SURFACE_CONTROLLER_H_
 
 #include "base/functional/callback.h"
-#include "content/browser/renderer_host/media/captured_surface_controller.h"
+#include "content/browser/media/captured_surface_controller.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom.h"
 
@@ -36,16 +36,18 @@ class MockCapturedSurfaceController final : public CapturedSurfaceController {
       std::optional<int> get_zoom_level_value,
       blink::mojom::CapturedSurfaceControlResult get_zoom_level_result);
 
-  void GetZoomLevel(base::OnceCallback<
-                    void(std::optional<int> zoom_level,
-                         blink::mojom::CapturedSurfaceControlResult result)>
-                        reply_callback) override;
-
   void SetSetZoomLevelResponse(
       blink::mojom::CapturedSurfaceControlResult set_zoom_level_result);
 
   void SetZoomLevel(
       int zoom_level,
+      base::OnceCallback<void(blink::mojom::CapturedSurfaceControlResult)>
+          reply_callback) override;
+
+  void SetRequestPermissionResponse(
+      blink::mojom::CapturedSurfaceControlResult request_permission_result);
+
+  void RequestPermission(
       base::OnceCallback<void(blink::mojom::CapturedSurfaceControlResult)>
           reply_callback) override;
 
@@ -56,6 +58,8 @@ class MockCapturedSurfaceController final : public CapturedSurfaceController {
       get_zoom_level_result_;
   std::optional<blink::mojom::CapturedSurfaceControlResult>
       set_zoom_level_result_;
+  std::optional<blink::mojom::CapturedSurfaceControlResult>
+      request_permission_result_;
 };
 
 }  // namespace content

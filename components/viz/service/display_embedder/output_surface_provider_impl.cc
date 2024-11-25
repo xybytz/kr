@@ -16,7 +16,6 @@
 #include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "build/chromecast_buildflags.h"
-#include "build/chromeos_buildflags.h"
 #include "cc/base/switches.h"
 #include "components/viz/common/display/renderer_settings.h"
 #include "components/viz/common/features.h"
@@ -28,6 +27,7 @@
 #include "components/viz/service/display_embedder/software_output_surface.h"
 #include "components/viz/service/gl/gpu_service_impl.h"
 #include "gpu/command_buffer/client/shared_memory_limits.h"
+#include "gpu/command_buffer/service/scheduler.h"
 #include "gpu/command_buffer/service/scheduler_sequence.h"
 #include "gpu/config/gpu_finch_features.h"
 #include "gpu/ipc/common/surface_handle.h"
@@ -54,7 +54,7 @@
 #include "ui/ozone/public/surface_ozone_canvas.h"
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "components/viz/service/display_embedder/output_surface_unified.h"
 #endif
 
@@ -95,7 +95,7 @@ std::unique_ptr<OutputSurface> OutputSurfaceProviderImpl::CreateOutputSurface(
     DisplayCompositorMemoryAndTaskController* gpu_dependency,
     const RendererSettings& renderer_settings,
     const DebugRendererSettings* debug_settings) {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   if (surface_handle == gpu::kNullSurfaceHandle)
     return std::make_unique<OutputSurfaceUnified>();
 #endif
@@ -124,8 +124,7 @@ std::unique_ptr<OutputSurface> OutputSurfaceProviderImpl::CreateOutputSurface(
 #endif  // BUILDFLAG(IS_ANDROID)
 
     if (!output_surface) {
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CASTOS) || \
-    BUILDFLAG(IS_CAST_ANDROID)
+#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CASTOS)
       // GPU compositing is expected to always work on Chrome OS and Cast
       // devices, so we should never encounter fatal context error. This could
       // be an unrecoverable hardware error or a bug.
@@ -154,7 +153,6 @@ OutputSurfaceProviderImpl::CreateSoftwareOutputDeviceForPlatform(
 #elif BUILDFLAG(IS_ANDROID)
   // Android does not do software compositing, so we can't get here.
   NOTREACHED();
-  return nullptr;
 #elif BUILDFLAG(IS_OZONE)
   ui::SurfaceFactoryOzone* factory =
       ui::OzonePlatform::GetInstance()->GetSurfaceFactoryOzone();
@@ -167,20 +165,19 @@ OutputSurfaceProviderImpl::CreateSoftwareOutputDeviceForPlatform(
       std::move(platform_window_surface), std::move(surface_ozone));
 #else
   NOTREACHED();
-  return nullptr;
 #endif
 }
 
 gpu::SharedImageManager* OutputSurfaceProviderImpl::GetSharedImageManager() {
-  static const bool use_shared_image =
-      base::FeatureList::IsEnabled(features::kSharedBitmapToSharedImage);
-  return use_shared_image ? gpu_service_impl_->shared_image_manager() : nullptr;
+  return gpu_service_impl_->shared_image_manager();
 }
 
 gpu::SyncPointManager* OutputSurfaceProviderImpl::GetSyncPointManager() {
-  static const bool use_shared_image =
-      base::FeatureList::IsEnabled(features::kSharedBitmapToSharedImage);
-  return use_shared_image ? gpu_service_impl_->sync_point_manager() : nullptr;
+  return gpu_service_impl_->sync_point_manager();
+}
+
+gpu::Scheduler* OutputSurfaceProviderImpl::GetGpuScheduler() {
+  return gpu_service_impl_->gpu_scheduler();
 }
 
 }  // namespace viz

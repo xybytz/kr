@@ -8,9 +8,10 @@
 #import "base/test/task_environment.h"
 #import "components/signin/public/identity_manager/identity_test_environment.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/public/commands/application_commands.h"
 #import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
+#import "ios/chrome/browser/shared/public/commands/settings_commands.h"
 #import "ios/chrome/browser/shared/public/commands/show_signin_command.h"
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service_factory.h"
 #import "ios/chrome/browser/signin/model/fake_system_identity.h"
@@ -18,7 +19,6 @@
 #import "ios/chrome/browser/signin/model/identity_manager_factory.h"
 #import "ios/chrome/browser/signin/model/identity_test_environment_browser_state_adaptor.h"
 #import "ios/chrome/browser/signin/model/system_identity.h"
-#import "ios/chrome/browser/ui/authentication/signin/signin_completion_info.h"
 #import "ios/chrome/browser/ui/authentication/signin/signin_constants.h"
 #import "ios/chrome/browser/ui/settings/downloads/downloads_settings_table_view_controller.h"
 #import "ios/chrome/browser/ui/settings/downloads/downloads_settings_table_view_controller_action_delegate.h"
@@ -41,13 +41,13 @@ class DownloadsSettingsCoordinatorTest : public PlatformTest {
   void SetUp() final {
     PlatformTest::SetUp();
 
-    TestChromeBrowserState::Builder builder;
+    TestProfileIOS::Builder builder;
     builder.AddTestingFactory(
         IdentityManagerFactory::GetInstance(),
         base::BindRepeating(IdentityTestEnvironmentBrowserStateAdaptor::
                                 BuildIdentityManagerForTests));
-    browser_state_ = builder.Build();
-    browser_ = std::make_unique<TestBrowser>(browser_state_.get());
+    profile_ = std::move(builder).Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get());
 
     base_navigation_controller_ = [[FakeUINavigationController alloc] init];
 
@@ -56,11 +56,11 @@ class DownloadsSettingsCoordinatorTest : public PlatformTest {
     [browser_->GetCommandDispatcher()
         startDispatchingToTarget:mock_application_commands_handler_
                      forProtocol:@protocol(ApplicationCommands)];
-    mock_application_settings_commands_handler_ =
-        OCMStrictProtocolMock(@protocol(ApplicationSettingsCommands));
+    mock_settings_commands_handler_ =
+        OCMStrictProtocolMock(@protocol(SettingsCommands));
     [browser_->GetCommandDispatcher()
-        startDispatchingToTarget:mock_application_settings_commands_handler_
-                     forProtocol:@protocol(ApplicationSettingsCommands)];
+        startDispatchingToTarget:mock_settings_commands_handler_
+                     forProtocol:@protocol(SettingsCommands)];
   }
 
   void TearDown() final {
@@ -87,14 +87,13 @@ class DownloadsSettingsCoordinatorTest : public PlatformTest {
     if (stubbed) {
       OCMStub([mock_save_to_photos_settings_mediator_ alloc])
           .andReturn(mock_save_to_photos_settings_mediator_);
-      OCMStub([mock_save_to_photos_settings_mediator_
-                  initWithAccountManagerService:
-                      ChromeAccountManagerServiceFactory::GetForBrowserState(
-                          browser_state_.get())
-                                    prefService:browser_state_->GetPrefs()
-                                identityManager:IdentityManagerFactory::
-                                                    GetForBrowserState(
-                                                        browser_state_.get())])
+      OCMStub(
+          [mock_save_to_photos_settings_mediator_
+              initWithAccountManagerService:ChromeAccountManagerServiceFactory::
+                                                GetForProfile(profile_.get())
+                                prefService:profile_->GetPrefs()
+                            identityManager:IdentityManagerFactory::
+                                                GetForProfile(profile_.get())])
           .andReturn(mock_save_to_photos_settings_mediator_);
     }
   }
@@ -134,7 +133,7 @@ class DownloadsSettingsCoordinatorTest : public PlatformTest {
   }
 
   base::test::TaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<TestBrowser> browser_;
   FakeUINavigationController* base_navigation_controller_;
 
@@ -142,7 +141,7 @@ class DownloadsSettingsCoordinatorTest : public PlatformTest {
   id mock_downloads_settings_table_view_controller_;
   id mock_save_to_photos_settings_account_selection_view_controller_;
   id mock_application_commands_handler_;
-  id mock_application_settings_commands_handler_;
+  id mock_settings_commands_handler_;
 };
 
 #pragma mark - Tests
@@ -159,14 +158,13 @@ TEST_F(DownloadsSettingsCoordinatorTest,
   CreateMockSaveToPhotosSettingsMediatorStubbed(false);
   OCMExpect([mock_save_to_photos_settings_mediator_ alloc])
       .andReturn(mock_save_to_photos_settings_mediator_);
-  OCMExpect([mock_save_to_photos_settings_mediator_
-                initWithAccountManagerService:
-                    ChromeAccountManagerServiceFactory::GetForBrowserState(
-                        browser_state_.get())
-                                  prefService:browser_state_->GetPrefs()
-                              identityManager:IdentityManagerFactory::
-                                                  GetForBrowserState(
-                                                      browser_state_.get())])
+  OCMExpect(
+      [mock_save_to_photos_settings_mediator_
+          initWithAccountManagerService:ChromeAccountManagerServiceFactory::
+                                            GetForProfile(profile_.get())
+                            prefService:profile_->GetPrefs()
+                        identityManager:IdentityManagerFactory::GetForProfile(
+                                            profile_.get())])
       .andReturn(mock_save_to_photos_settings_mediator_);
 
   // Mock VC and expect it is created and initialized as expected.
@@ -312,12 +310,12 @@ TEST_F(DownloadsSettingsCoordinatorTest,
   // Expect that a ShowSigninCommand is dispatched to show the Add account view
   // when -saveToPhotosSettingsAccountSelectionViewControllerAddAccount is
   // called.
-  __block ShowSigninCommandCompletionCallback show_signin_callback = nil;
+  __block SigninCoordinatorCompletionCallback show_signin_callback = nil;
   OCMExpect([mock_application_commands_handler_
               showSignin:[OCMArg checkWithBlock:^BOOL(
                                      ShowSigninCommand* command) {
-                EXPECT_TRUE(command.callback);
-                show_signin_callback = command.callback;
+                EXPECT_TRUE(command.completion);
+                show_signin_callback = command.completion;
                 EXPECT_EQ(AuthenticationOperation::kAddAccount,
                           command.operation);
                 EXPECT_FALSE(command.identity);
@@ -349,9 +347,7 @@ TEST_F(DownloadsSettingsCoordinatorTest,
   ASSERT_TRUE(show_signin_callback);
   OCMExpect([mock_save_to_photos_settings_mediator_
       setSelectedIdentityGaiaID:added_identity.gaiaID]);
-  show_signin_callback(
-      SigninCoordinatorResultSuccess,
-      [SigninCompletionInfo signinCompletionInfoWithIdentity:added_identity]);
+  show_signin_callback(SigninCoordinatorResultSuccess, added_identity);
   EXPECT_OCMOCK_VERIFY(mock_save_to_photos_settings_mediator_);
 
   [coordinator stop];

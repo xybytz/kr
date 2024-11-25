@@ -65,12 +65,12 @@ class MockVideoCaptureDeviceSharedAccessTest : public ::testing::Test {
         service_device_factory_.get(), base::DoNothing());
 
     // Obtain the mock device backed source from |source_provider_|.
-    base::MockCallback<DeviceFactory::GetDeviceInfosCallback>
-        device_infos_receiver;
+    base::MockCallback<mojom::VideoSourceProvider::GetSourceInfosCallback>
+        source_infos_receiver;
     base::RunLoop wait_loop;
-    EXPECT_CALL(device_infos_receiver, Run(_))
+    EXPECT_CALL(source_infos_receiver, Run)
         .WillOnce(InvokeWithoutArgs([&wait_loop]() { wait_loop.Quit(); }));
-    source_provider_->GetSourceInfos(device_infos_receiver.Get());
+    source_provider_->GetSourceInfos(source_infos_receiver.Get());
     // We must wait for the response to GetDeviceInfos before calling
     // CreateDevice.
     wait_loop.Run();
@@ -89,6 +89,20 @@ class MockVideoCaptureDeviceSharedAccessTest : public ::testing::Test {
         media::ResolutionChangePolicy::FIXED_RESOLUTION;
     requestable_settings_.power_line_frequency =
         media::PowerLineFrequency::kDefault;
+  }
+
+  void TearDown() override {
+    service_device_factory_.reset();
+
+    // Some parts of video capture stack submit tasks to the current sequence
+    // in their destructors. Make sure those tasks run before we start tearing
+    // down the rest of the test harness - otherwise, we may end up with LSAN
+    // warnings.
+    task_environment_.GetMainThreadTaskRunner()->PostTask(
+        FROM_HERE, task_environment_.QuitClosure());
+    task_environment_.RunUntilQuit();
+
+    ::testing::Test::TearDown();
   }
 
   void LetClient1ConnectWithRequestableSettingsAndExpectToGetThem() {

@@ -37,8 +37,8 @@ import org.chromium.url.GURL;
         manifest = Config.NONE,
         shadows = {ShadowOmniboxResourceProvider.class})
 public class UrlBarMediatorUnitTest {
-    @Mock UrlBar.UrlTextChangeListener mMockUrlTextListener;
-    @Mock UrlBar.UrlTextChangeListener mAnotherUrlTextMockListener;
+    @Mock Callback<String> mMockUrlTextListener;
+    @Mock Callback<String> mAnotherUrlTextMockListener;
     @Mock Callback<Boolean> mFocusChangeCallback;
 
     PropertyModel mModel;
@@ -319,18 +319,12 @@ public class UrlBarMediatorUnitTest {
     }
 
     @Test
-    public void urlTextChangeListenerCompositeObserver() {
-        mMediator.addUrlTextChangeListener(mMockUrlTextListener);
-
-        String text = "foo";
-        String textWithAutocomplete = "foo.bar";
-        mMediator.onTextChanged(text);
-        Mockito.verify(mMockUrlTextListener, Mockito.times(1)).onTextChanged(text);
-
-        mMediator.addUrlTextChangeListener(mAnotherUrlTextMockListener);
-        mMediator.onTextChanged(text);
-        Mockito.verify(mMockUrlTextListener, Mockito.times(2)).onTextChanged(text);
-        Mockito.verify(mAnotherUrlTextMockListener, Mockito.times(1)).onTextChanged(text);
+    public void setUrlBarHintText() {
+        mMediator.setUrlBarHintText(R.string.hub_search_empty_hint);
+        Assert.assertEquals(R.string.hub_search_empty_hint, mModel.get(UrlBarProperties.HINT_TEXT));
+        mMediator.setUrlBarHintText(R.string.hub_search_empty_hint_incognito);
+        Assert.assertEquals(
+                R.string.hub_search_empty_hint_incognito, mModel.get(UrlBarProperties.HINT_TEXT));
     }
 
     private static SpannableStringBuilder spannable(String text) {

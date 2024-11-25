@@ -7,6 +7,7 @@
 #include "ash/style/ash_color_id.h"
 #include "ash/style/dark_light_mode_controller_impl.h"
 #include "ash/style/harmonized_colors.h"
+#include "ash/style/sparkle_colors.h"
 #include "ash/style/style_util.h"
 #include "ash/system/tray/tray_constants.h"
 #include "chromeos/constants/chromeos_features.h"
@@ -594,6 +595,14 @@ void RemapIllustrationColors(ui::ColorMixer& mixer) {
   mixer[ui::kColorNativeColor6] = {cros_tokens::kCrosSysIlloColor6};
   mixer[ui::kColorNativeBaseColor] = {cros_tokens::kCrosSysIlloBase};
   mixer[ui::kColorNativeSecondaryColor] = {cros_tokens::kCrosSysIlloSecondary};
+  mixer[ui::kColorNativeOnPrimaryContainerColor] = {
+      cros_tokens::kCrosSysIlloOnPrimaryContainer};
+  mixer[ui::kColorNativeAnalogColor] = {cros_tokens::kCrosSysIlloAnalog};
+  mixer[ui::kColorNativeMutedColor] = {cros_tokens::kCrosSysIlloMuted};
+  mixer[ui::kColorNativeComplementColor] = {
+      cros_tokens::kCrosSysIlloComplement};
+  mixer[ui::kColorNativeOnGradientColor] = {
+      cros_tokens::kCrosSysIlloOnGradient};
 }
 
 // Maps colors specific to gaming features. Colors are specified in
@@ -632,6 +641,8 @@ void AddCrosStylesColorMixer(ui::ColorProvider* provider,
   }
   // Add after ref colors since it needs to override them.
   AddHarmonizedColors(mixer, key);
+  AddSparkleColors(mixer, key);
+
   cros_tokens::AddCrosSysColorsToMixer(mixer, dark_mode);
   // Gaming colors override sys colors (so need to be added later).
   AddGamingColors(mixer, key);
@@ -702,7 +713,10 @@ void AddAshColorMixer(ui::ColorProvider* provider,
 
   mixer[ui::kColorAshSystemUIMenuBackground] = {
       is_jelly_enabled
-          ? static_cast<ui::ColorId>(cros_tokens::kCrosSysSystemBaseElevated)
+          ? static_cast<ui::ColorId>(
+                chromeos::features::IsSystemBlurEnabled()
+                    ? cros_tokens::kCrosSysSystemBaseElevated
+                    : cros_tokens::kCrosSysSystemBaseElevatedOpaque)
           : kColorAshShieldAndBase80};
   mixer[ui::kColorAshSystemUIMenuIcon] = {kColorAshIconColorPrimary};
   mixer[ui::kColorAshSystemUIMenuItemBackgroundSelected] = {
@@ -710,7 +724,7 @@ void AddAshColorMixer(ui::ColorProvider* provider,
           ? static_cast<ui::ColorId>(cros_tokens::kCrosSysHoverOnSubtle)
           : kColorAshInkDrop};
 
-  mixer[ui::kColorAshSystemUIMenuSeparator] = {kColorAshSeparatorColor};
+  mixer[ui::kColorAshSystemUIMenuSeparator] = {cros_tokens::kCrosSysSeparator};
 
   mixer[kColorAshDialogBackgroundColor] =
       use_dark_color ? ui::ColorTransform(SkColorSetRGB(0x32, 0x33, 0x36))

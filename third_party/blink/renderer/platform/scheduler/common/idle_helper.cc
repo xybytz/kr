@@ -515,7 +515,6 @@ const char* IdleHelper::IdlePeriodStateToString(
       return "in_long_idle_period_paused";
     default:
       NOTREACHED();
-      return nullptr;
   }
 }
 

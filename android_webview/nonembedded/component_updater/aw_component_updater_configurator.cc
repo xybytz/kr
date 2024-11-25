@@ -40,8 +40,11 @@ AwComponentUpdaterConfigurator::AwComponentUpdaterConfigurator(
           component_updater::ComponentUpdaterCommandLineConfigPolicy(cmdline),
           false),
       pref_service_(pref_service),
-      persisted_data_(
-          update_client::CreatePersistedData(pref_service, nullptr)) {}
+      persisted_data_(update_client::CreatePersistedData(
+          base::BindRepeating(
+              [](PrefService* pref_service) { return pref_service; },
+              pref_service),
+          nullptr)) {}
 
 AwComponentUpdaterConfigurator::~AwComponentUpdaterConfigurator() = default;
 
@@ -52,7 +55,7 @@ base::TimeDelta AwComponentUpdaterConfigurator::InitialDelay() const {
   // WebView has a short list of components and components registration happens
   // in an android background service so we want to start the update as soon as
   // possible.
-  // TODO(crbug.com/1181094): get rid of dependency in initial delay for
+  // TODO(crbug.com/40750670): get rid of dependency in initial delay for
   // WebView.
   return base::Seconds(10);
 }
@@ -152,10 +155,6 @@ AwComponentUpdaterConfigurator::GetPatcherFactory() {
         base::MakeRefCounted<update_client::InProcessPatcherFactory>();
   }
   return patch_factory_;
-}
-
-bool AwComponentUpdaterConfigurator::EnabledDeltas() const {
-  return configurator_impl_.EnabledDeltas();
 }
 
 bool AwComponentUpdaterConfigurator::EnabledBackgroundDownloader() const {

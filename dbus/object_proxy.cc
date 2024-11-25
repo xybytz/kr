@@ -111,7 +111,7 @@ ObjectProxy::ReplyCallbackHolder::ReleaseCallback() {
 }
 
 ObjectProxy::ObjectProxy(Bus* bus,
-                         const std::string& service_name,
+                         std::string_view service_name,
                          const ObjectPath& object_path,
                          int options)
     : bus_(bus),
@@ -296,7 +296,7 @@ void ObjectProxy::Detach() {
   }
   match_rules_.clear();
 
-  for (auto* pending_call : pending_calls_) {
+  for (DBusPendingCall* pending_call : pending_calls_) {
     base::ScopedBlockingCall scoped_blocking_call(
         FROM_HERE, base::BlockingType::MAY_BLOCK);
 

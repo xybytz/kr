@@ -4,6 +4,7 @@
 
 #include "ash/webui/common/shortcut_input_key_strings.h"
 
+#include "ash/shell.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "ui/base/webui/web_ui_util.h"
@@ -14,6 +15,8 @@ namespace common {
 
 void AddShortcutInputKeyStrings(content::WebUIDataSource* html_source) {
   static constexpr webui::LocalizedString kLocalizedStrings[] = {
+      {"iconLabelAccessibility",
+       IDS_SHORTCUT_CUSTOMIZATION_ICON_LABEL_ACCESSIBILITY},
       {"iconLabelArrowDown", IDS_SHORTCUT_CUSTOMIZATION_ICON_LABEL_ARROW_DOWN},
       {"iconLabelArrowLeft", IDS_SHORTCUT_CUSTOMIZATION_ICON_LABEL_ARROW_LEFT},
       {"iconLabelArrowRight",
@@ -89,7 +92,16 @@ void AddShortcutInputKeyStrings(content::WebUIDataSource* html_source) {
        IDS_SHORTCUT_CUSTOMIZATION_ICON_LABEL_VIEW_ALL_APPS},
       {"iconLabelZoomToggle",
        IDS_SHORTCUT_CUSTOMIZATION_ICON_LABEL_ZOOM_TOGGLE},
+      {"inputKeyPlaceholder", IDS_SHORTCUT_CUSTOMIZATION_INPUT_KEY_PLACEHOLDER},
   };
+
+  if (features::IsModifierSplitEnabled()) {
+    html_source->AddLocalizedString("iconLabelRightAlt",
+                                    IDS_KEYBOARD_QUICK_INSERT_LABEL);
+  } else {
+    html_source->AddLocalizedString(
+        "iconLabelRightAlt", IDS_SHORTCUT_CUSTOMIZATION_INPUT_KEY_PLACEHOLDER);
+  }
 
   html_source->AddLocalizedStrings(kLocalizedStrings);
   html_source->UseStringsJs();

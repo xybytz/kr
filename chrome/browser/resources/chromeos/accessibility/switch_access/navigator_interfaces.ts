@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {constants} from '../common/constants.js';
+import {constants} from '/common/constants.js';
 
 import {SAChildNode, SANode, SARootNode} from './nodes/switch_access_node.js';
 
@@ -85,6 +85,12 @@ export abstract class ItemNavigatorInterface {
 
   /** Saves the current focus and group, and then exits the group. */
   abstract suspendCurrentGroup(): void;
+
+  /**
+   * Called when everything has been initialized to add the listeners and find
+   * the initial focus.
+   */
+   abstract start(): void;
 
   // =============== Getter Methods ==============
 

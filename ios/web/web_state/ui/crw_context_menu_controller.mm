@@ -45,18 +45,25 @@ void __attribute__((noinline)) ContextMenuNestedCFRunLoop() {
 
 @end
 
-@implementation CRWContextMenuController
+@implementation CRWContextMenuController {
+  // Whether params are already being fetched.
+  BOOL _fetchingParams;
+}
 
 @synthesize screenshotView = _screenshotView;
 
 - (instancetype)initWithWebView:(WKWebView*)webView
-                       webState:(web::WebState*)webState {
+                       webState:(web::WebState*)webState
+                  containerView:(UIView*)containerView {
   self = [super init];
   if (self) {
     _contextMenu = [[UIContextMenuInteraction alloc] initWithDelegate:self];
 
     _webView = webView;
-    [webView addInteraction:_contextMenu];
+
+    // Do not add the interaction to the WKWebView itself as this may interfer
+    // with the JS touch event. see crbug/351696381.
+    [containerView addInteraction:_contextMenu];
 
     _webState = webState;
 
@@ -94,6 +101,9 @@ void __attribute__((noinline)) ContextMenuNestedCFRunLoop() {
   CGPoint locationInWebView =
       [self.webView.scrollView convertPoint:location fromView:interaction.view];
 
+  locationInWebView.x /= self.webView.scrollView.zoomScale;
+  locationInWebView.y /= self.webView.scrollView.zoomScale;
+
   std::optional<web::ContextMenuParams> optionalParams =
       [self fetchContextMenuParamsAtLocation:locationInWebView];
 
@@ -111,11 +121,13 @@ void __attribute__((noinline)) ContextMenuNestedCFRunLoop() {
   params.location = [self.webView convertPoint:location
                                       fromView:interaction.view];
 
-  __block UIContextMenuConfiguration* configuration;
-  self.webState->GetDelegate()->ContextMenuConfiguration(
-      self.webState, params, ^(UIContextMenuConfiguration* conf) {
-        configuration = conf;
-      });
+  __block UIContextMenuConfiguration* configuration = nil;
+  if (self.webState && self.webState->GetDelegate()) {
+    self.webState->GetDelegate()->ContextMenuConfiguration(
+        self.webState, params, ^(UIContextMenuConfiguration* conf) {
+          configuration = conf;
+        });
+  }
 
   if (configuration) {
     // User long pressed on a link or an image. Cancelling all touches will
@@ -168,8 +180,10 @@ void __attribute__((noinline)) ContextMenuNestedCFRunLoop() {
         (UIContextMenuConfiguration*)configuration
                                             animator:
         (id<UIContextMenuInteractionCommitAnimating>)animator {
-  self.webState->GetDelegate()->ContextMenuWillCommitWithAnimator(self.webState,
-                                                                  animator);
+  if (self.webState && self.webState->GetDelegate()) {
+    self.webState->GetDelegate()->ContextMenuWillCommitWithAnimator(
+        self.webState, animator);
+  }
 }
 
 - (void)contextMenuInteraction:(UIContextMenuInteraction*)interaction
@@ -204,6 +218,14 @@ void __attribute__((noinline)) ContextMenuNestedCFRunLoop() {
 // returned params can be empty.
 - (std::optional<web::ContextMenuParams>)fetchContextMenuParamsAtLocation:
     (CGPoint)locationInWebView {
+  if (_fetchingParams) {
+    // Fetching params is done synchronously and spins the runloop, so it is
+    // possible that a second context menu is triggered.
+    // Add a guard to avoid this.
+    return std::nullopt;
+  }
+  base::AutoReset<BOOL> reentrancyGuard(&_fetchingParams, YES);
+
   // While traditionally using dispatch_async would be used here, we have to
   // instead use CFRunLoop because dispatch_async blocks the thread. As this
   // function is called by iOS when it detects the user's force touch, it is on

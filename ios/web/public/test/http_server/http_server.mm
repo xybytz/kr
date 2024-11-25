@@ -14,7 +14,7 @@
 #import "base/strings/string_number_conversions.h"
 #import "base/strings/sys_string_conversions.h"
 #import "ios/net/url_test_util.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "net/test/embedded_test_server/embedded_test_server.h"
 #import "net/test/embedded_test_server/http_request.h"
 #import "net/test/embedded_test_server/http_response.h"
@@ -122,7 +122,7 @@ void HttpServer::Stop() {
   DCHECK([NSThread isMainThread]);
   DCHECK(IsRunning()) << "Cannot stop an already stopped server.";
   RemoveAllResponseProviders();
-  // TODO(crbug.com/711723): Re-write the Stop() function when shutting down
+  // TODO(crbug.com/41313142): Re-write the Stop() function when shutting down
   // server works for iOS.
   embedded_test_server_.release();
   SetPort(0);

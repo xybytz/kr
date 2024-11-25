@@ -3,6 +3,10 @@
 // found in the LICENSE file.
 
 #include "components/signin/internal/identity_manager/account_capabilities_fetcher.h"
+
+#include <optional>
+#include <string_view>
+
 #include "account_capabilities_fetcher.h"
 #include "base/notreached.h"
 #include "base/strings/stringprintf.h"
@@ -17,7 +21,6 @@
 #include "google_apis/gaia/core_account_id.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if BUILDFLAG(IS_ANDROID)
 #include <jni.h>
@@ -26,7 +29,7 @@
 #include "components/signin/internal/identity_manager/account_capabilities_fetcher_android.h"
 #include "components/signin/public/android/test_support_jni_headers/AccountCapabilitiesFetcherTestUtil_jni.h"
 #else
-#include "base/strings/string_piece.h"
+
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "components/prefs/testing_pref_service.h"
@@ -127,17 +130,17 @@ const char kAccountCapabilitiesResponseFormat[] =
     R"({"accountCapabilities": [%s]})";
 
 const char kSingleCapabilitiyResponseFormat[] =
-    R"({"name": "%s", "booleanValue": %s})";
+    R"({"name": "%.*s", "booleanValue": %s})";
 
 const char kCapabilityParamName[] = "names=";
 
 std::string GenerateValidAccountCapabilitiesResponse(bool capability_value) {
   std::vector<std::string> dict_array;
-  for (const std::string& name :
+  for (std::string_view name :
        AccountCapabilitiesTestMutator::GetSupportedAccountCapabilityNames()) {
     dict_array.push_back(
-        base::StringPrintf(kSingleCapabilitiyResponseFormat, name.c_str(),
-                           capability_value ? "true" : "false"));
+        base::StringPrintf(kSingleCapabilitiyResponseFormat, name.size(),
+                           name.data(), capability_value ? "true" : "false"));
   }
   return base::StringPrintf(kAccountCapabilitiesResponseFormat,
                             base::JoinString(dict_array, ",").c_str());
@@ -145,13 +148,13 @@ std::string GenerateValidAccountCapabilitiesResponse(bool capability_value) {
 
 void VerifyAccountCapabilitiesRequest(const network::ResourceRequest& request) {
   EXPECT_EQ(request.method, "POST");
-  base::StringPiece request_string = request.request_body->elements()
-                                         ->at(0)
-                                         .As<network::DataElementBytes>()
-                                         .AsStringPiece();
+  std::string_view request_string = request.request_body->elements()
+                                        ->at(0)
+                                        .As<network::DataElementBytes>()
+                                        .AsStringPiece();
   // The request body should look like:
   // "names=Name1&names=Name2&names=Name3"
-  std::vector<std::string> requested_capabilities = base::SplitString(
+  std::vector<std::string_view> requested_capabilities = base::SplitStringPiece(
       request_string, "&", base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
   for (auto& name : requested_capabilities) {
     EXPECT_TRUE(base::StartsWith(name, kCapabilityParamName));
@@ -350,9 +353,9 @@ TEST_F(AccountCapabilitiesFetcherTest, FetchFailure) {
   base::HistogramTester tester;
 
   fetcher->Start();
-  absl::optional<AccountCapabilities> expected_capabilities;
+  std::optional<AccountCapabilities> expected_capabilities;
 #if BUILDFLAG(IS_ANDROID)
-  // Android never returns absl::nullopt even if the fetcher has failed to get
+  // Android never returns std::nullopt even if the fetcher has failed to get
   // all capabilities.
   expected_capabilities = AccountCapabilities();
 #endif
@@ -380,7 +383,7 @@ TEST_F(AccountCapabilitiesFetcherTest, TokenFailure) {
   base::HistogramTester tester;
 
   fetcher->Start();
-  EXPECT_CALL(callback, Run(account_id(), Eq(absl::nullopt)));
+  EXPECT_CALL(callback, Run(account_id(), Eq(std::nullopt)));
   SimulateIssueAccessTokenPersistentError();
 
   tester.ExpectTotalCount(

@@ -5,25 +5,20 @@
 #ifndef IOS_CHROME_BROWSER_SIGNIN_MODEL_ABOUT_SIGNIN_INTERNALS_FACTORY_H_
 #define IOS_CHROME_BROWSER_SIGNIN_MODEL_ABOUT_SIGNIN_INTERNALS_FACTORY_H_
 
-#include <memory>
+#import <memory>
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
 class AboutSigninInternals;
-class ChromeBrowserState;
+class ProfileIOS;
 
 namespace ios {
 // Singleton that owns all AboutSigninInternals and associates them with browser
 // states.
 class AboutSigninInternalsFactory : public BrowserStateKeyedServiceFactory {
  public:
-  // Returns the instance of AboutSigninInternals associated with this browser
-  // state, creating one if none exists.
-  static AboutSigninInternals* GetForBrowserState(
-      ChromeBrowserState* browser_state);
-
-  // Returns an instance of the AboutSigninInternalsFactory singleton.
+  static AboutSigninInternals* GetForProfile(ProfileIOS* profile);
   static AboutSigninInternalsFactory* GetInstance();
 
   AboutSigninInternalsFactory(const AboutSigninInternalsFactory&) = delete;

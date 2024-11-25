@@ -16,12 +16,12 @@
 #import "base/strings/string_util.h"
 #import "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
+#import "ios/chrome/browser/ntp/ui_bundled/new_tab_page_feature.h"
 #import "ios/chrome/browser/policy/model/policy_earl_grey_utils.h"
-#import "ios/chrome/browser/ui/ntp/new_tab_page_feature.h"
 #import "ios/chrome/browser/web/model/features.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
-#import "ios/chrome/test/earl_grey/chrome_earl_grey_app_interface.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
+#import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case_app_interface.h"
 #import "ios/chrome/test/earl_grey/scoped_allow_crash_on_startup.h"
 #import "ios/testing/earl_grey/app_launch_manager.h"
@@ -54,7 +54,7 @@ NSArray* multitaskingTests() {
     @"testContextMenuOpenInNewTab",     // ContextMenuTestCase
     @"testContextMenuOpenInNewWindow",  // ContextMenuTestCase
     @"testSwitchToMain",                // CookiesTestCase
-    // TODO(crbug.com/1422238) Re-enable this flaky test on multitasking.
+    // TODO(crbug.com/40896793) Re-enable this flaky test on multitasking.
     // @"testSwitchToIncognito",              // CookiesTestCase
     @"testFindDefaultFormAssistControls",  // FormInputTestCase
     @"testTabDeletion",                    // TabUsageRecorderTestCase
@@ -64,22 +64,21 @@ NSArray* multitaskingTests() {
     @"testSignInPopUpAccountOnSyncSettings",   // AccountCollectionsTestCase
     @"testAutofillProfileEditing",             // AutofillSettingsTestCase
     @"testAccessibilityOfBlockPopupSettings",  // BlockPopupsTestCase
-    // TODO(crbug.com/1485297): Failing on ios-simulator-full-configs.
-    // @"testClearCookies",                       // SettingsTestCase
-    @"testAccessibilityOfTranslateSettings",  // TranslateUITestCase
+    @"testClearCookies",                       // SettingsTestCase
+    @"testAccessibilityOfTranslateSettings",   // TranslateUITestCase
 
     // UI tests
     @"testActivityServiceControllerPrintAfterRedirectionToUnprintablePage",
     // ActivityServiceControllerTestCase
     @"testDismissOnDestroy",  // AlertCoordinatorTestCase
-    // TODO(crbug.com/1475206): Re-enable this test.
+    // TODO(crbug.com/40927812): Re-enable this test.
     // @"testAddRemoveBookmark",       // BookmarksTestCase
     @"testJavaScriptInOmnibox",        // BrowserViewControllerTestCase
     @"testChooseCastReceiverChooser",  // CastReceiverTestCase
     @"testErrorPage",                  // ErrorPageTestCase
     @"testFindInPage",                 // FindInPageTestCase
     @"testDismissFirstRun",            // FirstRunTestCase
-    // TODO(crbug.com/872788) Failing after move to Xcode 10.
+    // TODO(crbug.com/41407180) Failing after move to Xcode 10.
     // @"testLongPDFScroll",                         // FullscreenTestCase
     @"testDeleteHistory",                         // HistoryUITestCase
     @"testInfobarsDismissOnNavigate",             // InfobarTestCase
@@ -103,7 +102,7 @@ NSArray* multitaskingTests() {
   ]];
 
   if (base::ios::IsRunningOnIOS17OrLater()) {
-    // TODO(crbug.com/1469233): Test is failing on iOS17.
+    // TODO(crbug.com/40925281): Test is failing on iOS17.
     [tests removeObject:@"testQRScannerUIIsShown"];
   }
   return tests;
@@ -120,7 +119,7 @@ bool IsMockAuthenticationSetUp() {
   // `SetUpMockAuthentication` enables the fake sync server so checking
   // `isFakeSyncServerSetUp` here is sufficient to determine mock authentication
   // state.
-  return [ChromeEarlGreyAppInterface isFakeSyncServerSetUp];
+  return [ChromeEarlGrey isFakeSyncServerSetUp];
 }
 
 void SetUpMockAuthentication() {
@@ -157,9 +156,8 @@ void ResetAuthentication() {
 // Sets up mock authentication.
 + (void)enableMockAuthentication;
 
-// Returns a NSArray of test names in this class that contain the prefix
-// "FLAKY_".
-+ (NSArray*)flakyTestNames;
+// Returns a NSArray of test names in this class that contain the given prefix
++ (NSArray*)testNamesWithPrefix:(NSString*)prefix;
 
 // Returns a NSArray of test names in this class for multitasking test suite.
 + (NSArray*)multitaskingTestNames;
@@ -175,10 +173,13 @@ void ResetAuthentication() {
   NSString* targetName = [NSBundle mainBundle].infoDictionary[@"CFBundleName"];
   if ([targetName hasSuffix:kFlakyEarlGreyTestTargetSuffix]) {
     // Only run FLAKY_ tests for flaky test suites.
-    return [self flakyTestNames];
+    return [self testNamesWithPrefix:@"FLAKY"];
   } else if ([targetName isEqualToString:kMultitaskingEarlGreyTestTargetName]) {
     // Only run white listed tests for the multitasking test suite.
     return [self multitaskingTestNames];
+  } else if ([[NSProcessInfo.processInfo.environment
+                 objectForKey:@"RUN_DISABLED_EARL_GREY_TESTS"] boolValue]) {
+    return [self testNamesWithPrefix:@"DISABLED"];
   } else {
     return [super testInvocations];
   }
@@ -222,16 +223,28 @@ void ResetAuthentication() {
   ResetAuthentication();
 
   // Reset any remaining sign-in state from previous tests.
-  [ChromeEarlGrey signOutAndClearIdentities];
-  if (![ChromeTestCase isStartupTest]) {
-    [ChromeEarlGrey openNewTab];
+  if (![ChromeTestCase forceRestartAndWipe]) {
+    [ChromeEarlGrey killWebKitNetworkProcess];
+    [ChromeEarlGrey signOutAndClearIdentities];
+    if (![ChromeTestCase isStartupTest]) {
+      [ChromeEarlGrey openNewTab];
+    }
   }
   _executedTestMethodSetUp = YES;
+
+  [ChromeTestCaseAppInterface blockSigninIPH];
+}
+
+- (void)tearDownHelper {
 }
 
 // Tear down called once per test, to close all tabs and menus, and clear the
 // tracked tests accounts. It also makes sure mock authentication is running.
 - (void)tearDown {
+  if (![ChromeTestCase forceRestartAndWipe]) {
+    [self tearDownHelper];
+  }
+
   const bool appShouldBeRunning = !IsAppInAllowedCrashState();
 
   if (appShouldBeRunning) {
@@ -246,12 +259,13 @@ void ResetAuthentication() {
     _tearDownHandler();
   }
 
-  if (appShouldBeRunning) {
+  if (![ChromeTestCase forceRestartAndWipe] && appShouldBeRunning) {
     // EG syncs with WKWebView loading. Stops all loadings to prevent these from
     // failing rest of tearDown actions.
     [ChromeEarlGrey stopAllWebStatesLoading];
 
     // Clear any remaining test accounts and signed in users.
+    [ChromeEarlGrey killWebKitNetworkProcess];
     [ChromeEarlGrey signOutAndClearIdentities];
 
     [[self class] enableMockAuthentication];
@@ -276,8 +290,8 @@ void ResetAuthentication() {
     // attempt to run in other orientations.
     [EarlGrey rotateDeviceToOrientation:_originalOrientation error:nil];
   }
-  [super tearDown];
   _executedTestMethodSetUp = NO;
+  [super tearDown];
 }
 
 #pragma mark - Public methods
@@ -376,24 +390,23 @@ void ResetAuthentication() {
   [ChromeEarlGrey setUpFakeSyncServer];
 }
 
-+ (NSArray*)flakyTestNames {
-  const char kFlakyTestPrefix[] = "FLAKY";
++ (NSArray*)testNamesWithPrefix:(NSString*)prefix {
   unsigned int count = 0;
   Method* methods = class_copyMethodList(self, &count);
-  NSMutableArray* flakyTestNames = [NSMutableArray array];
+  NSMutableArray* testNames = [NSMutableArray array];
   for (unsigned int i = 0; i < count; i++) {
     SEL selector = method_getName(methods[i]);
-    if (base::StartsWith(sel_getName(selector), kFlakyTestPrefix)) {
+    if (base::StartsWith(sel_getName(selector), prefix.UTF8String)) {
       NSMethodSignature* methodSignature =
           [self instanceMethodSignatureForSelector:selector];
       NSInvocation* invocation =
           [NSInvocation invocationWithMethodSignature:methodSignature];
       invocation.selector = selector;
-      [flakyTestNames addObject:invocation];
+      [testNames addObject:invocation];
     }
   }
   free(methods);
-  return flakyTestNames;
+  return testNames;
 }
 
 + (NSArray*)multitaskingTestNames {
@@ -427,7 +440,8 @@ void ResetAuthentication() {
 
   // Sometimes on start up there can be infobars (e.g. restore session), so
   // ensure the UI is in a clean state.
-  if (![ChromeTestCase isStartupTest]) {
+  if (![ChromeTestCase isStartupTest] &&
+      ![ChromeTestCase forceRestartAndWipe]) {
     [[self class] removeAnyOpenMenusAndInfoBars];
     [self closeAllTabs];
   }
@@ -496,10 +510,12 @@ void ResetAuthentication() {
 
       ResetAuthentication();
 
-      // Reset any remaining sign-in state from previous tests.
-      [ChromeEarlGrey signOutAndClearIdentities];
-      if (![ChromeTestCase isStartupTest]) {
-        [ChromeEarlGrey openNewTab];
+      if (![ChromeTestCase forceRestartAndWipe]) {
+        // Reset any remaining sign-in state from previous tests.
+        [ChromeEarlGrey signOutAndClearIdentities];
+        if (![ChromeTestCase isStartupTest]) {
+          [ChromeEarlGrey openNewTab];
+        }
       }
     }
   }

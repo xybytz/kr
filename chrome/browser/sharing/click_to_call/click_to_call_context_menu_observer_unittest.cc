@@ -15,11 +15,11 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/renderer_context_menu/mock_render_view_context_menu.h"
 #include "chrome/browser/sharing/click_to_call/click_to_call_utils.h"
-#include "chrome/browser/sharing/features.h"
-#include "chrome/browser/sharing/mock_sharing_service.h"
-#include "chrome/browser/sharing/sharing_constants.h"
 #include "chrome/browser/sharing/sharing_service_factory.h"
-#include "chrome/browser/sharing/sharing_target_device_info.h"
+#include "components/sharing_message/features.h"
+#include "components/sharing_message/mock_sharing_service.h"
+#include "components/sharing_message/sharing_constants.h"
+#include "components/sharing_message/sharing_target_device_info.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_renderer_host.h"
 #include "content/public/test/web_contents_tester.h"
@@ -34,7 +34,7 @@ using ::testing::NiceMock;
 using ::testing::Property;
 using ::testing::Return;
 
-using SharingMessage = chrome_browser_sharing::SharingMessage;
+using SharingMessage = components_sharing_message::SharingMessage;
 
 namespace {
 
@@ -72,11 +72,10 @@ class ClickToCallContextMenuObserverTest : public testing::Test {
         phone_number);
   }
 
-  std::vector<std::unique_ptr<SharingTargetDeviceInfo>> CreateFakeDevices(
-      int count) {
-    std::vector<std::unique_ptr<SharingTargetDeviceInfo>> devices;
+  std::vector<SharingTargetDeviceInfo> CreateFakeDevices(int count) {
+    std::vector<SharingTargetDeviceInfo> devices;
     for (int i = 0; i < count; i++) {
-      devices.emplace_back(std::make_unique<SharingTargetDeviceInfo>(
+      devices.emplace_back(SharingTargetDeviceInfo(
           base::StrCat({"guid", base::NumberToString(i)}), "name",
           SharingDevicePlatform::kUnknown,
           /*pulse_interval=*/base::TimeDelta(),
@@ -122,7 +121,7 @@ TEST_F(ClickToCallContextMenuObserverTest, NoDevices_DoNotShowMenu) {
 
 TEST_F(ClickToCallContextMenuObserverTest, SingleDevice_ShowMenu) {
   auto devices = CreateFakeDevices(1);
-  auto guid = devices[0]->guid();
+  auto guid = devices[0].guid();
 
   EXPECT_CALL(*service(), GetDeviceCandidates(_))
       .WillOnce(Return(ByMove(std::move(devices))));
@@ -149,8 +148,9 @@ TEST_F(ClickToCallContextMenuObserverTest, MultipleDevices_ShowMenu) {
   constexpr int device_count = 3;
   auto devices = CreateFakeDevices(device_count);
   std::vector<std::string> guids;
-  for (auto& device : devices)
-    guids.push_back(device->guid());
+  for (const SharingTargetDeviceInfo& device : devices) {
+    guids.push_back(device.guid());
+  }
 
   EXPECT_CALL(*service(), GetDeviceCandidates(_))
       .WillOnce(Return(ByMove(std::move(devices))));
@@ -191,8 +191,9 @@ TEST_F(ClickToCallContextMenuObserverTest,
   int device_count = kMaxDevicesShown + 1;
   auto devices = CreateFakeDevices(device_count);
   std::vector<std::string> guids;
-  for (auto& device : devices)
-    guids.push_back(device->guid());
+  for (const SharingTargetDeviceInfo& device : devices) {
+    guids.push_back(device.guid());
+  }
 
   EXPECT_CALL(*service(), GetDeviceCandidates(_))
       .WillOnce(Return(ByMove(std::move(devices))));

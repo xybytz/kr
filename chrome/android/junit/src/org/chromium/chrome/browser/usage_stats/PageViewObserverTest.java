@@ -37,13 +37,13 @@ import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.browser.app.ChromeActivity;
-import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabHidingType;
 import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.chrome.browser.tab.TabSelectionType;
 import org.chromium.chrome.browser.tab.TabViewManager;
 import org.chromium.chrome.browser.tab.TabViewProvider;
+import org.chromium.chrome.browser.tab_ui.TabContentManager;
 import org.chromium.ui.base.TestActivity;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.url.GURL;
@@ -78,7 +78,7 @@ public final class PageViewObserverTest {
     private UserDataHost mDestroyedUserDataHost;
     private WeakReference<Activity> mActivityRef;
 
-    private class MockTabViewManager implements TabViewManager {
+    private static class MockTabViewManager implements TabViewManager {
         private TabViewProvider mTabViewProvider;
 
         @Override

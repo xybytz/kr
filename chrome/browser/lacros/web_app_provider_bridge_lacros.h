@@ -40,12 +40,10 @@ class WebAppProviderBridgeLacros : public mojom::WebAppProviderBridge {
       const GURL& install_url,
       const GURL& origin_url,
       bool is_renderer_initiated) override;
-  void GetSubAppIds(const webapps::AppId& app_id,
-                    GetSubAppIdsCallback callback) override;
   void GetSubAppToParentMap(GetSubAppToParentMapCallback callback) override;
-  void InstallPreloadWebApp(
-      mojom::PreloadWebAppInstallInfoPtr preload_install_info,
-      InstallPreloadWebAppCallback callback) override;
+  void InstallWebAppFromVerifiedManifest(
+      mojom::WebAppVerifiedManifestInstallInfoPtr preload_install_info,
+      InstallWebAppFromVerifiedManifestCallback callback) override;
   void LaunchIsolatedWebAppInstaller(
       const base::FilePath& bundle_path) override;
 
@@ -74,9 +72,9 @@ class WebAppProviderBridgeLacros : public mojom::WebAppProviderBridge {
                                Profile* profile);
   static void GetSubAppToParentMapImpl(GetSubAppToParentMapCallback callback,
                                        Profile* profile);
-  static void InstallPreloadWebAppImpl(
-      mojom::PreloadWebAppInstallInfoPtr preload_install_info,
-      InstallPreloadWebAppCallback callback,
+  static void InstallWebAppFromVerifiedManifestImpl(
+      mojom::WebAppVerifiedManifestInstallInfoPtr preload_install_info,
+      InstallWebAppFromVerifiedManifestCallback callback,
       Profile* profile);
   static void LaunchIsolatedWebAppInstallerImpl(
       const base::FilePath& bundle_path,

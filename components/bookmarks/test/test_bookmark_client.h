@@ -11,6 +11,8 @@
 #include <map>
 #include <memory>
 
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "components/bookmarks/browser/bookmark_client.h"
 
@@ -34,32 +36,28 @@ class TestBookmarkClient : public BookmarkClient {
   // Returns a new BookmarkModel using a TestBookmarkClient.
   static std::unique_ptr<BookmarkModel> CreateModel();
 
-  // Returns a new BookmarkModel using |client|.
+  // Returns a new BookmarkModel using `client`.
   static std::unique_ptr<BookmarkModel> CreateModelWithClient(
       std::unique_ptr<TestBookmarkClient> client);
-
-  // Allows the creation of account permanent nodes (they are disallowed by
-  // default).
-  void AllowFoldersForAccountStorage();
 
   // Causes the the next call to CreateModel() or GetLoadManagedNodeCallback()
   // to return a node representing managed bookmarks. The raw pointer of this
   // node is returned for convenience.
   BookmarkPermanentNode* EnableManagedNode();
 
-  // Returns true if |node| is the |managed_node_|.
+  // Returns true if `node` is the `managed_node_`.
   bool IsManagedNodeRoot(const BookmarkNode* node);
 
   // Mimics the completion of a previously-triggered GetFaviconImageForPageURL()
-  // call for |page_url|, usually invoked by BookmarkModel. Returns false if no
+  // call for `page_url`, usually invoked by BookmarkModel. Returns false if no
   // such a call is pending completion. The completion returns a favicon with
-  // URL |icon_url| and a single-color 16x16 image using |color|.
+  // URL `icon_url` and a single-color 16x16 image using `color`.
   bool SimulateFaviconLoaded(const GURL& page_url,
                              const GURL& icon_url,
                              const gfx::Image& color);
 
   // Mimics the completion of a previously-triggered GetFaviconImageForPageURL()
-  // call for |page_url|, usually invoked by BookmarkModel. Returns false if no
+  // call for `page_url`, usually invoked by BookmarkModel. Returns false if no
   // such a call is pending completion. The completion returns an empty image
   // for the favicon.
   bool SimulateEmptyFaviconLoaded(const GURL& page_url);
@@ -67,17 +65,31 @@ class TestBookmarkClient : public BookmarkClient {
   // Returns true if there is at least one active favicon loading task.
   bool HasFaviconLoadTasks() const;
 
-  // Sets |storage_state_for_uma_| returned by |GetStorageStateForUma()|.
-  void SetStorageStateForUma(metrics::StorageStateForUma storage_state);
+  // Sets the value returned by
+  // `IsSyncFeatureEnabledIncludingBookmarks()`.
+  void SetIsSyncFeatureEnabledIncludingBookmarks(bool value);
+
+  // Returns sync metadata for account bookmarks,  received via
+  // DecodeAccountBookmarkSyncMetadata() or modified via
+  // SetAccountBookmarkSyncMetadataAndScheduleWrite().
+  const std::string& account_bookmark_sync_metadata() const {
+    return account_bookmark_sync_metadata_;
+  }
+
+  void SetAccountBookmarkSyncMetadataAndScheduleWrite(
+      const std::string& account_bookmark_sync_metadata);
 
   // BookmarkClient:
-  bool AreFoldersForAccountStorageAllowed() override;
   LoadManagedNodeCallback GetLoadManagedNodeCallback() override;
-  metrics::StorageStateForUma GetStorageStateForUma() override;
+  bool IsSyncFeatureEnabledIncludingBookmarks() override;
   bool CanSetPermanentNodeTitle(const BookmarkNode* permanent_node) override;
   bool IsNodeManaged(const BookmarkNode* node) override;
-  std::string EncodeBookmarkSyncMetadata() override;
-  void DecodeBookmarkSyncMetadata(
+  std::string EncodeLocalOrSyncableBookmarkSyncMetadata() override;
+  std::string EncodeAccountBookmarkSyncMetadata() override;
+  void DecodeLocalOrSyncableBookmarkSyncMetadata(
+      const std::string& metadata_str,
+      const base::RepeatingClosure& schedule_save_closure) override;
+  void DecodeAccountBookmarkSyncMetadata(
       const std::string& metadata_str,
       const base::RepeatingClosure& schedule_save_closure) override;
   base::CancelableTaskTracker::TaskId GetFaviconImageForPageURL(
@@ -85,7 +97,6 @@ class TestBookmarkClient : public BookmarkClient {
       favicon_base::FaviconImageCallback callback,
       base::CancelableTaskTracker* tracker) override;
   void OnBookmarkNodeRemovedUndoable(
-      BookmarkModel* model,
       const BookmarkNode* parent,
       size_t index,
       std::unique_ptr<BookmarkNode> node) override;
@@ -95,9 +106,6 @@ class TestBookmarkClient : public BookmarkClient {
   static std::unique_ptr<BookmarkPermanentNode> LoadManagedNode(
       std::unique_ptr<BookmarkPermanentNode> managed_node,
       int64_t* next_id);
-
-  // Whether or not the creation of account bookmarks is allowed.
-  bool are_folders_for_account_storage_allowed_ = false;
 
   // managed_node_ exists only until GetLoadManagedNodeCallback gets called, but
   // unowned_managed_node_ stays around after that.
@@ -109,8 +117,11 @@ class TestBookmarkClient : public BookmarkClient {
   std::map<GURL, std::list<favicon_base::FaviconImageCallback>>
       requests_per_page_url_;
 
-  metrics::StorageStateForUma storage_state_for_uma_ =
-      metrics::StorageStateForUma::kLocalOnly;
+  bool is_sync_feature_enabled_including_bookmarks_for_uma = false;
+
+  std::string account_bookmark_sync_metadata_;
+  base::RepeatingClosure account_bookmark_sync_metadata_save_closure_ =
+      base::DoNothing();
 };
 
 }  // namespace bookmarks

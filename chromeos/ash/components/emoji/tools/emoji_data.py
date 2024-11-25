@@ -196,7 +196,6 @@ def transform_emoji_data(metadata, names, keywords, first_only):
         out.append({'emoji': newGroup})
     return out
 
-
 def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument('--metadata',
@@ -212,7 +211,7 @@ def main(args):
     parser.add_argument(
         '--firstgroup',
         required=True,
-        help='Only output the first group, otherwise output all groups')
+        help='Only output the first group, otherwise only output other groups')
 
     options = parser.parse_args(args)
 

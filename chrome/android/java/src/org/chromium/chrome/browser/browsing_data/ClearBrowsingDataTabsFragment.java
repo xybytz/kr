@@ -11,7 +11,6 @@ import android.view.ViewGroup;
 
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
-import androidx.fragment.app.FragmentManager;
 import androidx.viewpager2.adapter.FragmentStateAdapter;
 import androidx.viewpager2.widget.ViewPager2;
 
@@ -20,37 +19,53 @@ import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.tabs.TabLayoutMediator;
 
 import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.settings.ProfileDependentSetting;
 import org.chromium.chrome.browser.settings.SettingsActivity;
+import org.chromium.components.browser_ui.settings.EmbeddableSettingsPage;
 
 /**
  * Fragment with a {@link TabLayout} containing a basic and an advanced version of the CBD dialog.
  */
-public class ClearBrowsingDataTabsFragment extends Fragment {
+public class ClearBrowsingDataTabsFragment extends Fragment
+        implements ProfileDependentSetting, EmbeddableSettingsPage {
     public static final int CBD_TAB_COUNT = 2;
 
+    private Profile mProfile;
     private ClearBrowsingDataFetcher mFetcher;
+
+    private final ObservableSupplierImpl<String> mPageTitle = new ObservableSupplierImpl<>();
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        if (savedInstanceState == null) {
-            mFetcher = new ClearBrowsingDataFetcher();
-            mFetcher.fetchImportantSites();
-            mFetcher.requestInfoAboutOtherFormsOfBrowsingHistory();
-        } else {
-            mFetcher =
-                    savedInstanceState.getParcelable(
-                            ClearBrowsingDataFragment.CLEAR_BROWSING_DATA_FETCHER);
-        }
-
         RecordUserAction.record("ClearBrowsingData_DialogCreated");
     }
 
     @Override
     public View onCreateView(
             LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        mPageTitle.set(getString(R.string.clear_browsing_data_title));
+
+        if (savedInstanceState == null) {
+            mFetcher = new ClearBrowsingDataFetcher();
+            mFetcher.fetchImportantSites(mProfile);
+            mFetcher.requestInfoAboutOtherFormsOfBrowsingHistory(mProfile);
+        } else {
+            mFetcher =
+                    savedInstanceState.getParcelable(
+                            ClearBrowsingDataFragment.CLEAR_BROWSING_DATA_FETCHER);
+        }
+
+        Bundle fragmentArgs = getArguments();
+        assert fragmentArgs != null : "A valid fragment argument is required.";
+        String referrer =
+                fragmentArgs.getString(
+                        ClearBrowsingDataFragment.CLEAR_BROWSING_DATA_REFERRER, null);
+
         // Inflate the layout for this fragment.
         View view = inflater.inflate(R.layout.clear_browsing_data_tabs, container, false);
 
@@ -58,7 +73,7 @@ public class ClearBrowsingDataTabsFragment extends Fragment {
         ViewPager2 viewPager = view.findViewById(R.id.clear_browsing_data_viewpager);
         viewPager.setAdapter(
                 new ClearBrowsingDataPagerAdapter(
-                        mFetcher, getFragmentManager(), (FragmentActivity) getActivity()));
+                        mFetcher, (FragmentActivity) getActivity(), referrer));
 
         // Give the TabLayout the ViewPager.
         TabLayout tabLayout = view.findViewById(R.id.clear_browsing_data_tabs);
@@ -69,12 +84,13 @@ public class ClearBrowsingDataTabsFragment extends Fragment {
                             tab.setText(getTabTitle(position));
                         })
                 .attach();
-        int tabIndex = BrowsingDataBridge.getInstance().getLastSelectedClearBrowsingDataTab();
+        int tabIndex =
+                BrowsingDataBridge.getForProfile(mProfile).getLastSelectedClearBrowsingDataTab();
         TabLayout.Tab tab = tabLayout.getTabAt(tabIndex);
         if (tab != null) {
             tab.select();
         }
-        tabLayout.addOnTabSelectedListener(new TabSelectListener());
+        tabLayout.addOnTabSelectedListener(new TabSelectListener(mProfile));
 
         // Set outline provider to null to prevent shadow from being drawn between title and tabs.
         SettingsActivity activity = (SettingsActivity) getActivity();
@@ -82,6 +98,17 @@ public class ClearBrowsingDataTabsFragment extends Fragment {
         appBarLayout.setOutlineProvider(null);
 
         return view;
+    }
+
+    /**
+     * A method to create the {@link ClearBrowsingDataTabsFragment} arguments.
+     *
+     * @param referrer The name of the referrer activity.
+     */
+    public static Bundle createFragmentArgs(String referrer) {
+        Bundle bundle = new Bundle();
+        bundle.putString(ClearBrowsingDataFragment.CLEAR_BROWSING_DATA_REFERRER, referrer);
+        return bundle;
     }
 
     private String getTabTitle(int position) {
@@ -96,6 +123,11 @@ public class ClearBrowsingDataTabsFragment extends Fragment {
     }
 
     @Override
+    public ObservableSupplier<String> getPageTitle() {
+        return mPageTitle;
+    }
+
+    @Override
     public void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         // mFetcher acts as a cache for important sites and history data. If the activity gets
@@ -103,13 +135,21 @@ public class ClearBrowsingDataTabsFragment extends Fragment {
         outState.putParcelable(ClearBrowsingDataFragment.CLEAR_BROWSING_DATA_FETCHER, mFetcher);
     }
 
+    @Override
+    public void setProfile(Profile profile) {
+        assert profile != null;
+        mProfile = profile;
+    }
+
     private static class ClearBrowsingDataPagerAdapter extends FragmentStateAdapter {
         private final ClearBrowsingDataFetcher mFetcher;
+        private final String mReferrer;
 
         ClearBrowsingDataPagerAdapter(
-                ClearBrowsingDataFetcher fetcher, FragmentManager fm, FragmentActivity activity) {
+                ClearBrowsingDataFetcher fetcher, FragmentActivity activity, String referrer) {
             super(activity);
             mFetcher = fetcher;
+            mReferrer = referrer;
         }
 
         @Override
@@ -133,17 +173,25 @@ public class ClearBrowsingDataTabsFragment extends Fragment {
             // We supply the fetcher in the next line.
             fragment.setArguments(
                     ClearBrowsingDataFragment.createFragmentArgs(
-                            /* isFetcherSuppliedFromOutside= */ true));
+                            mReferrer, /* isFetcherSuppliedFromOutside= */ true));
             fragment.setClearBrowsingDataFetcher(mFetcher);
             return fragment;
         }
     }
 
     private static class TabSelectListener implements TabLayout.OnTabSelectedListener {
+        private final Profile mProfile;
+
+        TabSelectListener(Profile profile) {
+            assert profile != null;
+            mProfile = profile;
+        }
+
         @Override
         public void onTabSelected(TabLayout.Tab tab) {
             int tabIndex = tab.getPosition();
-            BrowsingDataBridge.getInstance().setLastSelectedClearBrowsingDataTab(tabIndex);
+            BrowsingDataBridge.getForProfile(mProfile)
+                    .setLastSelectedClearBrowsingDataTab(tabIndex);
             if (tabIndex == ClearBrowsingDataTab.BASIC) {
                 RecordUserAction.record("ClearBrowsingData_SwitchTo_BasicTab");
             } else {

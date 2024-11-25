@@ -32,10 +32,12 @@ import androidx.test.filters.SmallTest;
 
 import org.hamcrest.Matcher;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 import org.robolectric.Robolectric;
 import org.robolectric.annotation.Config;
 
@@ -57,7 +59,6 @@ import org.chromium.ui.modelutil.PropertyModel;
 public class ContactEditorTest {
     private static final AutofillProfile sProfile =
             AutofillProfile.builder()
-                    .setHonorificPrefix("Mr")
                     .setFullName("John Doe")
                     .setCompanyName("Google")
                     .setStreetAddress("Lake Street 123")
@@ -70,6 +71,8 @@ public class ContactEditorTest {
                     .setLanguageCode("de")
                     .build();
 
+    @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
+
     @Mock private PersonalDataManager mPersonalDataManager;
     @Mock private EditorDialogView mEditorDialog;
 
@@ -77,9 +80,6 @@ public class ContactEditorTest {
 
     @Before
     public void setUp() {
-        MockitoAnnotations.initMocks(this);
-        PersonalDataManager.setInstanceForTesting(mPersonalDataManager);
-
         mActivity = Robolectric.setupActivity(TestActivity.class);
 
         when(mEditorDialog.getContext()).thenReturn(mActivity);
@@ -117,7 +117,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ true,
                         /* requestPayerPhone= */ false,
                         /* requestPayerEmail= */ false,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         editor.edit(null, unused -> {});
 
@@ -133,7 +134,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ true,
                         /* requestPayerPhone= */ false,
                         /* requestPayerEmail= */ false,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         editor.edit(null, unused -> {});
 
@@ -157,7 +159,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ false,
                         /* requestPayerPhone= */ true,
                         /* requestPayerEmail= */ false,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         editor.edit(null, unused -> {});
 
@@ -181,7 +184,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ false,
                         /* requestPayerPhone= */ false,
                         /* requestPayerEmail= */ true,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         editor.edit(null, unused -> {});
 
@@ -205,7 +209,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ true,
                         /* requestPayerPhone= */ true,
                         /* requestPayerEmail= */ true,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         editor.edit(null, unused -> {});
 
@@ -239,7 +244,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ true,
                         /* requestPayerPhone= */ false,
                         /* requestPayerEmail= */ false,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(
@@ -274,7 +280,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ false,
                         /* requestPayerPhone= */ true,
                         /* requestPayerEmail= */ false,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(
@@ -309,7 +316,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ false,
                         /* requestPayerPhone= */ false,
                         /* requestPayerEmail= */ true,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(
@@ -344,7 +352,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ true,
                         /* requestPayerPhone= */ true,
                         /* requestPayerEmail= */ true,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(
@@ -389,7 +398,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ true,
                         /* requestPayerPhone= */ false,
                         /* requestPayerEmail= */ false,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(
@@ -426,7 +436,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ false,
                         /* requestPayerPhone= */ true,
                         /* requestPayerEmail= */ false,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(
@@ -463,7 +474,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ false,
                         /* requestPayerPhone= */ false,
                         /* requestPayerEmail= */ true,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(
@@ -500,7 +512,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ true,
                         /* requestPayerPhone= */ false,
                         /* requestPayerEmail= */ false,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(
@@ -537,7 +550,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ false,
                         /* requestPayerPhone= */ true,
                         /* requestPayerEmail= */ false,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(
@@ -574,7 +588,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ false,
                         /* requestPayerPhone= */ false,
                         /* requestPayerEmail= */ true,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(
@@ -611,7 +626,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ true,
                         /* requestPayerPhone= */ true,
                         /* requestPayerEmail= */ true,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(
@@ -652,7 +668,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ true,
                         /* requestPayerPhone= */ true,
                         /* requestPayerEmail= */ true,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(
@@ -678,7 +695,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ true,
                         /* requestPayerPhone= */ true,
                         /* requestPayerEmail= */ true,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         PayerErrors errors = new PayerErrors();
         errors.email = "email error";
         errors.name = "name error";
@@ -709,7 +727,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ true,
                         /* requestPayerPhone= */ true,
                         /* requestPayerEmail= */ true,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(
@@ -735,7 +754,8 @@ public class ContactEditorTest {
                         /* requestPayerName= */ true,
                         /* requestPayerPhone= */ true,
                         /* requestPayerEmail= */ true,
-                        /* saveToDisk= */ false);
+                        /* saveToDisk= */ false,
+                        mPersonalDataManager);
         editor.setEditorDialog(mEditorDialog);
         AutofillContact contact =
                 new AutofillContact(

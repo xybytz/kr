@@ -25,9 +25,11 @@
 
 #include "third_party/blink/renderer/platform/graphics/decoding_image_generator.h"
 
+#include <array>
 #include <memory>
 #include <utility>
 
+#include "base/containers/heap_array.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/graphics/image_frame_generator.h"
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
@@ -69,7 +71,7 @@ DecodingImageGenerator::CreateAsSkImageGenerator(sk_sp<SkData> data) {
   std::unique_ptr<ImageDecoder> decoder = ImageDecoder::Create(
       segment_reader, data_complete, ImageDecoder::kAlphaPremultiplied,
       ImageDecoder::kDefaultBitDepth, ColorBehavior::kTag,
-      Platform::GetMaxDecodedImageBytes());
+      cc::AuxImage::kDefault, Platform::GetMaxDecodedImageBytes());
   if (!decoder || !decoder->IsSizeAvailable())
     return nullptr;
 
@@ -80,7 +82,8 @@ DecodingImageGenerator::CreateAsSkImageGenerator(sk_sp<SkData> data) {
 
   scoped_refptr<ImageFrameGenerator> frame = ImageFrameGenerator::Create(
       SkISize::Make(size.width(), size.height()), false,
-      decoder->GetColorBehavior(), decoder->GetSupportedDecodeSizes());
+      decoder->GetColorBehavior(), cc::AuxImage::kDefault,
+      decoder->GetSupportedDecodeSizes());
   if (!frame)
     return nullptr;
 
@@ -159,7 +162,7 @@ bool DecodingImageGenerator::GetPixels(SkPixmap dst_pixmap,
   // the requested color type from N32.
   SkImageInfo target_info = dst_info;
   char* memory = static_cast<char*>(dst_pixmap.writable_addr());
-  std::unique_ptr<char[]> memory_ref_ptr;
+  base::HeapArray<char> adjusted_memory;
   size_t adjusted_row_bytes = dst_pixmap.rowBytes();
   if ((target_info.colorType() != kN32_SkColorType) &&
       (target_info.colorType() != kRGBA_F16_SkColorType)) {
@@ -171,8 +174,9 @@ bool DecodingImageGenerator::GetPixels(SkPixmap dst_pixmap,
     DCHECK_EQ(0ul, dst_pixmap.rowBytes() % dst_info.bytesPerPixel());
     adjusted_row_bytes = target_info.bytesPerPixel() *
                          (dst_pixmap.rowBytes() / dst_info.bytesPerPixel());
-    memory_ref_ptr.reset(new char[target_info.computeMinByteSize()]);
-    memory = memory_ref_ptr.get();
+    adjusted_memory =
+        base::HeapArray<char>::Uninit(target_info.computeMinByteSize());
+    memory = adjusted_memory.data();
   }
 
   // Skip the check for alphaType.  blink::ImageFrame may have changed the
@@ -269,9 +273,9 @@ bool DecodingImageGenerator::GetYUVAPlanes(
   TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"),
                "Decode LazyPixelRef", "LazyPixelRef", lazy_pixel_ref);
 
-  SkISize plane_sizes[3];
-  wtf_size_t plane_row_bytes[3];
-  void* plane_addrs[3];
+  std::array<SkISize, 3> plane_sizes;
+  std::array<wtf_size_t, 3> plane_row_bytes;
+  std::array<void*, 3> plane_addrs;
 
   // Verify sizes and extract DecodeToYUV parameters
   for (int i = 0; i < 3; ++i) {

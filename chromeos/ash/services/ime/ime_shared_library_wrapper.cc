@@ -8,6 +8,7 @@
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
+#include "base/system/sys_info.h"
 #include "chromeos/ash/services/ime/constants.h"
 
 namespace ash {
@@ -28,9 +29,11 @@ base::FilePath GetImeDecoderLibPath() {
 
 // Simple bridge between logging in the loaded shared library and logging in
 // Chrome.
+// Severity comes from the LogSeverity enum in absl logging.
 void ImeLoggerBridge(int severity, const char* message) {
   switch (severity) {
     case logging::LOGGING_INFO:
+      // Silently ignore.
       break;
     case logging::LOGGING_WARNING:
       LOG(WARNING) << message;
@@ -41,7 +44,9 @@ void ImeLoggerBridge(int severity, const char* message) {
     case logging::LOGGING_FATAL:
       LOG(FATAL) << message;
     default:
-      break;
+      // There's no LOGGING_VERBOSE level in absl logging. Nothing should reach
+      // here.
+      NOTREACHED();
   }
 }
 
@@ -60,8 +65,9 @@ ImeSharedLibraryWrapperImpl::MaybeLoadThenReturnEntryPoints() {
   // Add dlopen flags (RTLD_LAZY | RTLD_NODELETE) later.
   base::ScopedNativeLibrary library = base::ScopedNativeLibrary(path);
   if (!library.is_valid()) {
-    LOG(ERROR) << "Failed to load decoder shared library from: " << path
-               << ", error: " << library.GetError()->ToString();
+    LOG_IF(ERROR, base::SysInfo::IsRunningOnChromeOS())
+        << "Failed to load decoder shared library from: " << path
+        << ", error: " << library.GetError()->ToString();
     return std::nullopt;
   }
 
@@ -86,9 +92,17 @@ ImeSharedLibraryWrapperImpl::MaybeLoadThenReturnEntryPoints() {
       .mojo_mode_is_input_method_connected =
           reinterpret_cast<IsInputMethodConnectedFn>(
               library.GetFunctionPointer(kIsInputMethodConnectedFnName)),
+      .init_user_data_service = reinterpret_cast<InitUserDataServiceFn>(
+          library.GetFunctionPointer(kInitUserDataServiceFnName)),
+      .process_user_data_request = reinterpret_cast<ProcessUserDataRequestFn>(
+          library.GetFunctionPointer(kProcessUserDataRequestFnName)),
+      .delete_serialized_proto = reinterpret_cast<DeleteSerializedProtoFn>(
+          library.GetFunctionPointer(kDeleteSerializedProtoFnName)),
   };
 
   // Checking if entry_points are loaded.
+  // TODO(b/328997024): Add .init_user_data_service check once implemented in
+  // sharedlib.
   if (!entry_points.init_proto_mode || !entry_points.close_proto_mode ||
       !entry_points.proto_mode_supports ||
       !entry_points.proto_mode_activate_ime ||

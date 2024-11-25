@@ -4,16 +4,14 @@
 
 #include "components/policy/core/common/features.h"
 
-#include "google_apis/gaia/gaia_constants.h"
+namespace policy::features {
 
-namespace policy {
-
-namespace features {
-
-BASE_FEATURE(kEnablePolicyTestPage,
-             "EnablePolicyTestPage",
+BASE_FEATURE(kPolicyBlocklistProceedUntilResponse,
+             "PolicyBlocklistProceedUntilResponse",
              base::FEATURE_DISABLED_BY_DEFAULT);
 
-}  // namespace features
+BASE_FEATURE(kProfileSeparationDomainExceptionListRetroactive,
+             "ProfileSeparationDomainExceptionListRetroactive",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-}  // namespace policy
+}  // namespace policy::features

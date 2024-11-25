@@ -9,12 +9,13 @@
 #import <memory>
 #import <tuple>
 
+#import "base/memory/raw_ptr.h"
 #import "base/metrics/histogram_samples.h"
 #import "base/test/metrics/histogram_tester.h"
 #import "base/test/task_environment.h"
 #import "components/previous_session_info/previous_session_info.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
 #import "ios/web/public/test/fakes/fake_navigation_manager.h"
@@ -47,8 +48,8 @@ class TabUsageRecorderBrowserAgentTest : public PlatformTest {
  protected:
   TabUsageRecorderBrowserAgentTest()
       : application_(OCMClassMock([UIApplication class])) {
-    browser_state_ = TestChromeBrowserState::Builder().Build();
-    browser_ = std::make_unique<TestBrowser>(browser_state_.get());
+    profile_ = TestProfileIOS::Builder().Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get());
     TabUsageRecorderBrowserAgent::CreateForBrowser(browser_.get());
     tab_usage_recorder_ =
         TabUsageRecorderBrowserAgent::FromBrowser(browser_.get());
@@ -70,9 +71,8 @@ class TabUsageRecorderBrowserAgentTest : public PlatformTest {
     fake_web_state->SetIsEvicted(in_memory == NOT_IN_MEMORY);
     fake_web_state->SetVisibleURL(GURL(url));
 
-    const int insertion_index = browser_->GetWebStateList()->InsertWebState(
-        WebStateList::kInvalidIndex, std::move(fake_web_state),
-        WebStateList::INSERT_NO_FLAGS, WebStateOpener());
+    const int insertion_index =
+        browser_->GetWebStateList()->InsertWebState(std::move(fake_web_state));
 
     return static_cast<web::FakeWebState*>(
         browser_->GetWebStateList()->GetWebStateAt(insertion_index));
@@ -93,10 +93,10 @@ class TabUsageRecorderBrowserAgentTest : public PlatformTest {
   }
 
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<TestBrowser> browser_;
   base::HistogramTester histogram_tester_;
-  TabUsageRecorderBrowserAgent* tab_usage_recorder_;
+  raw_ptr<TabUsageRecorderBrowserAgent> tab_usage_recorder_;
   id application_;
 };
 

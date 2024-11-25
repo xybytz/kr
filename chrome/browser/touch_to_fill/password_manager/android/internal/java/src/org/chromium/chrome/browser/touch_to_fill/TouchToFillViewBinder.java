@@ -236,7 +236,8 @@ class TouchToFillViewBinder {
             TextView usernameText = view.findViewById(R.id.username);
             usernameText.setText(credential.getUsername());
             TextView descriptionText = view.findViewById(R.id.password_or_context);
-            descriptionText.setText(R.string.touch_to_fill_sheet_webauthn_credential_context);
+
+            descriptionText.setText(R.string.touch_to_fill_sheet_passkey_credential_context);
 
             String label =
                     view.getContext()

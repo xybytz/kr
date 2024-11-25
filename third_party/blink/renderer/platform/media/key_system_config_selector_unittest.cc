@@ -4,6 +4,7 @@
 
 #include "third_party/blink/public/platform/media/key_system_config_selector.h"
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -19,7 +20,6 @@
 #include "media/base/mime_util.h"
 #include "media/cdm/clear_key_cdm_common.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/platform/web_content_settings_client.h"
 #include "third_party/blink/public/platform/web_encrypted_media_types.h"
 #include "third_party/blink/public/platform/web_media_key_system_configuration.h"
@@ -102,7 +102,6 @@ media::EncryptionScheme ConvertEncryptionScheme(
   }
 
   NOTREACHED();
-  return media::EncryptionScheme::kUnencrypted;
 }
 
 WebString MakeCodecs(const std::string& a, const std::string& b) {
@@ -243,7 +242,6 @@ class FakeKeySystems : public media::KeySystems {
         return init_data_type_keyids_supported_;
     }
     NOTREACHED();
-    return false;
   }
 
   EmeConfig::Rule GetEncryptionSchemeConfigRule(
@@ -349,7 +347,6 @@ class FakeKeySystems : public media::KeySystems {
     }
 
     NOTREACHED();
-    return EmeConfig::UnsupportedRule();
   }
 
   EmeConfig::Rule GetPersistentLicenseSessionSupport(

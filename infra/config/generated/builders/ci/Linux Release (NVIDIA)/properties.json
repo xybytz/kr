@@ -19,11 +19,13 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "apply_configs": [
-                  "use_clang_coverage"
+                  "use_clang_coverage",
+                  "chromium_with_telemetry_dependencies"
                 ],
                 "config": "chromium"
               }
@@ -45,7 +47,8 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "apply_configs": [
@@ -79,14 +82,15 @@
           "group": "tryserver.chromium.linux"
         },
         {
-          "builder": "linux-mbi-mode-per-render-process-host-rel",
+          "builder": "linux-full-remote-rel",
           "group": "tryserver.chromium.linux"
         },
         {
           "builder": "linux-rel",
           "group": "tryserver.chromium.linux"
         }
-      ]
+      ],
+      "targets_spec_directory": "src/infra/config/generated/builders/ci/Linux Release (NVIDIA)/targets"
     }
   },
   "$recipe_engine/resultdb/test_presentation": {
@@ -97,6 +101,9 @@
     ]
   },
   "builder_group": "chromium.gpu",
+  "gardener_rotations": [
+    "chromium.gpu"
+  ],
   "recipe": "chromium",
   "sheriff_rotations": [
     "chromium.gpu"

@@ -13,9 +13,7 @@ import static org.mockito.Mockito.verify;
 
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -29,7 +27,6 @@ import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabHidingType;
 import org.chromium.chrome.browser.tab.TabObserver;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.content_public.browser.NavigationHandle;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.url.GURL;
@@ -39,7 +36,6 @@ import org.chromium.url.GURL;
 @Config(manifest = Config.NONE)
 @SuppressWarnings("DoNotMock") // Mocking GURL
 public class MerchantTrustSignalsMediatorTest {
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
 
     @Mock private MerchantTrustSignalsMediator.MerchantTrustSignalsCallback mMockDelegate;
 

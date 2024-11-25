@@ -94,6 +94,10 @@ class NameLast : public AddressComponent {
  private:
   // As the fallback, write everything to the second last name.
   void ParseValueAndAssignSubcomponentsByFallbackMethod() override;
+
+  NameLastFirst last_first_;
+  NameLastConjunction last_conjuntion_;
+  NameLastSecond last_second_;
 };
 
 // Compound that represents a full name. It contains a honorific, a first
@@ -130,56 +134,61 @@ class NameFull : public AddressComponent {
 
   // Returns the format string to create the full name from its subcomponents.
   std::u16string GetFormatString() const override;
+
+  NameFirst first_;
+  NameMiddle middle_;
+  NameLast last_;
 };
 
-// Atomic component that represents a honorific prefix.
-// Without the second generation of the structured name tree, honorific
-// prefixes and the name including the prefix are unsupported types.
-class NameHonorificPrefix : public FeatureGuardedAddressComponent {
+// Atomic component that represents the first part of an alternative name(e.g.
+// Japanese phonetic given name).
+class AlternativeGivenName : public AddressComponent {
  public:
-  NameHonorificPrefix();
-  ~NameHonorificPrefix() override;
+  AlternativeGivenName();
+  ~AlternativeGivenName() override;
 };
 
-// Compound that represent a full name and a honorific prefix.
-//
-//             +-----------------------+
-//             | NAME_FULL_WITH_PREFIX |
-//             +-----------------------+
-//                   /            \
-//                  /              \
-//                 /                \
-//                /                  \
-//   +-------------------+      +------------+
-//   | HONORIFIC_PREFIX  |      | NAME_FULL  |
-//   +-------------------+      +------------+
-//                             /       |      \
-//                            /        |       \
-//                           /         |        \
-//             +------------+  +-------------+   +-----------+
-//             | NAME_FIRST |  | NAME_MIDDLE |   | NAME_LAST |
-//             +------------+  +-------------+   +-----------+
-//                                              /      |      \
-//                                             /       |       \
-//                                            /        |        \
-//                                           /         |         \
-//                                   +--------+ +--------------+ +---------+
-//                                   | _FIRST | | _CONJUNCTION | | _SECOND |
-//                                   +--------+ +--------------+ +---------+
-//
-// Without the second generation of the structured name tree, honorific
-// prefixes and the name including the prefix are unsupported types.
-class NameFullWithPrefix : public FeatureGuardedAddressComponent {
+// Atomic component that represents the last part of an alternative name(e.g.
+// Japanese phonetic last name).
+class AlternativeFamilyName : public AddressComponent {
  public:
-  NameFullWithPrefix();
-  NameFullWithPrefix(const NameFullWithPrefix& other);
-  ~NameFullWithPrefix() override;
+  AlternativeFamilyName();
+  ~AlternativeFamilyName() override;
+};
 
-  void MigrateLegacyStructure() override;
+// Compound node that represents an alternative full name (e.g. full phonetic
+// name in Japanese). It contains a given name and a family name.
+// TODO(crbug.com/359768803): This class is currently mainly focused on
+// supporting Japanese phonetic names, but its logic should be extended to
+// handle alternative name expressions in different languages as well (e.g.
+// latin names in Greek).
+//
+//                   +-----------------------+
+//                   | ALTERNATIVE_FULL_NAME |
+//                   +-----------------------+
+//                    /                   \
+//                   /                     \
+//                  /                       \
+//    +------------------------+     +-------------------------+
+//    | ALTERNATIVE_GIVEN_NAME |     | ALTERNATIVE_FAMILY_NAME |
+//    +------------------------+     +-------------------------+
+//
+class AlternativeFullName : public AddressComponent {
+ public:
+  AlternativeFullName();
+  AlternativeFullName(const AlternativeFullName& other);
+  ~AlternativeFullName() override;
 
  protected:
   std::vector<const re2::RE2*> GetParseRegularExpressionsByRelevance()
       const override;
+
+  // Returns the format string to create the full alternative name from its
+  // subcomponents.
+  std::u16string GetFormatString() const override;
+
+  AlternativeGivenName given_name_;
+  AlternativeFamilyName family_name_;
 };
 
 }  // namespace autofill

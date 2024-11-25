@@ -2,33 +2,33 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_input/cr_input.js';
+import 'chrome://resources/ash/common/cr_elements/cr_input/cr_input.js';
 
+import type {CrButtonElement} from 'chrome://resources/ash/common/cr_elements/cr_button/cr_button.js';
 import {loadTimeData} from 'chrome://resources/ash/common/load_time_data.m.js';
-import {CrButtonElement} from 'chrome://resources/cr_elements/cr_button/cr_button.js';
 import {assert} from 'chrome://resources/js/assert.js';
 
 import type {VolumeInfo} from '../../background/js/volume_info.js';
 import type {VolumeManager} from '../../background/js/volume_manager.js';
 import {getDlpRestrictionDetails, getHoldingSpaceState, startIOTask} from '../../common/js/api.js';
 import {isModal} from '../../common/js/dialog_type.js';
-import {getFocusedTreeItem, isDirectoryTree, isDirectoryTreeItem} from '../../common/js/dom_utils.js';
-import {entriesToURLs, getTreeItemEntry, isDirectoryEntry, isFakeEntry, isGrandRootEntryInDrives, isNonModifiable, isRecentRootType, isTeamDriveRoot, isTeamDrivesGrandRoot, isTrashEntry, isTrashRoot, unwrapEntry} from '../../common/js/entry_utils.js';
+import {getFocusedTreeItem} from '../../common/js/dom_utils.js';
+import {entriesToURLs, getTreeItemEntry, isDirectoryEntry, isFakeEntry, isGrandRootEntryInDrive, isNonModifiable, isReadOnlyForDelete, isRecentRootType, isTeamDriveRoot, isTeamDrivesGrandRoot, isTrashEntry, isTrashRoot, unwrapEntry} from '../../common/js/entry_utils.js';
 import {getExtension, getType, isEncrypted} from '../../common/js/file_type.js';
-import {EntryList, FakeEntry, FilesAppDirEntry, FilesAppEntry} from '../../common/js/files_app_entry_types.js';
-import {isDlpEnabled, isDriveFsBulkPinningEnabled, isMirrorSyncEnabled, isNewDirectoryTreeEnabled, isSinglePartitionFormatEnabled} from '../../common/js/flags.js';
+import type {FakeEntry, FilesAppDirEntry, FilesAppEntry} from '../../common/js/files_app_entry_types.js';
+import {EntryList} from '../../common/js/files_app_entry_types.js';
+import {isDlpEnabled, isDriveFsBulkPinningEnabled, isMirrorSyncEnabled, isSinglePartitionFormatEnabled} from '../../common/js/flags.js';
 import {recordEnum, recordUserAction} from '../../common/js/metrics.js';
 import {getFileErrorString, str, strf} from '../../common/js/translations.js';
 import type {TrashEntry} from '../../common/js/trash.js';
 import {deleteIsForever, RestoreFailedType, RestoreFailedTypesUMA, RestoreFailedUMA, shouldMoveToTrash} from '../../common/js/trash.js';
-import {isNullOrUndefined, visitURL} from '../../common/js/util.js';
+import {debug, isNullOrUndefined, visitURL} from '../../common/js/util.js';
 import {FileSystemType, isRecentArcEntry, RootType, VolumeError, VolumeType} from '../../common/js/volume_manager_types.js';
 import {readSubDirectories, updateFileData} from '../../state/ducks/all_entries.js';
 import {changeDirectory} from '../../state/ducks/current_directory.js';
 import {DialogType} from '../../state/state.js';
 import {getStore} from '../../state/store.js';
-import type {XfTree} from '../../widgets/xf_tree.js';
-import type {XfTreeItem} from '../../widgets/xf_tree_item.js';
+import {isTreeItem, isXfTree} from '../../widgets/xf_tree_util.js';
 import type {FilesTooltip} from '../elements/files_tooltip.js';
 
 import {type ActionsModel, CommonActionId, InternalActionId} from './actions_model.js';
@@ -37,17 +37,9 @@ import {canExecuteVisibleOnDriveInNormalAppModeOnly, containsNonInteractiveEntry
 import type {PasteWithDestDirectoryEvent} from './file_transfer_controller.js';
 import {getAllowedVolumeTypes, maybeStoreTimeOfFirstPin} from './holding_space_util.js';
 import {PathComponent} from './path_component.js';
-import {type CanExecuteEvent, Command, type CommandEvent} from './ui/command.js';
-import type {DirectoryItem, DirectoryTree} from './ui/directory_tree.js';
+import type {Command} from './ui/command.js';
+import {type CanExecuteEvent, type CommandEvent} from './ui/command.js';
 import type {FilesConfirmDialog} from './ui/files_confirm_dialog.js';
-
-/**
- * Type predicate to assert that the supplied `_tree` is of type `XfTree` if the
- * new directory tree flag is enabled.
- */
-function isXfTree(_tree: XfTree|DirectoryTree|null): _tree is XfTree|null {
-  return isNewDirectoryTreeEnabled();
-}
 
 /**
  * Used to filter out `VolumeInfo` that don't exist and maintain the return
@@ -132,7 +124,7 @@ export class UnmountCommand extends FilesCommand {
         await fileManager.volumeManager.unmount(volume);
       } catch (error) {
         console.warn('Cannot unmount (redacted):', error);
-        console.debug(`Cannot unmount '${volume.volumeId}':`, error);
+        debug(`Cannot unmount '${volume.volumeId}':`, error);
         if (error !== VolumeError.PATH_NOT_MOUNTED) {
           errorCallback(volume.volumeType);
         }
@@ -259,8 +251,7 @@ export class EraseDeviceCommand extends FilesCommand {
     const root = getEventEntry(event, fileManager);
 
     if (root && root instanceof EntryList) {
-      /** @type {FilesFormatDialog} */ (fileManager.ui.formatDialog)
-          .showEraseModal(root);
+      fileManager.ui.formatDialog.showEraseModal(root);
     }
   }
 
@@ -306,12 +297,12 @@ export class NewFolderCommand extends FilesCommand {
     let targetDirectory: DirectoryEntry|FilesAppDirEntry|null|undefined;
     let executedFromDirectoryTree: boolean;
 
-    if (isDirectoryTree(event.target)) {
+    if (isXfTree(event.target)) {
       const focusedTreeItem = getFocusedTreeItem(event.target);
       targetDirectory = getTreeItemEntry(focusedTreeItem) as DirectoryEntry |
           FilesAppDirEntry | null;
       executedFromDirectoryTree = true;
-    } else if (isDirectoryTreeItem(event.target)) {
+    } else if (isTreeItem(event.target)) {
       targetDirectory = getTreeItemEntry(event.target) as DirectoryEntry |
           FilesAppDirEntry | null;
       executedFromDirectoryTree = true;
@@ -340,26 +331,18 @@ export class NewFolderCommand extends FilesCommand {
 
                 // Select new directory and start rename operation.
                 if (executedFromDirectoryTree) {
-                  const directoryTree = fileManager.ui.directoryTree;
-                  if (isXfTree(directoryTree)) {
-                    // After new directory is created on parent directory, we
-                    // need to expand it otherwise the new child item won't
-                    // show, and also trigger a re-scan for the parent
-                    // directory.
-                    getStore().dispatch(updateFileData({
-                      key: directoryEntry.toURL(),
-                      partialFileData: {expanded: true},
-                    }));
-                    getStore().dispatch(readSubDirectories(directoryEntry));
-                    fileManager.ui.directoryTreeContainer
-                        ?.renameItemWithKeyWhenRendered(newDirectory.toURL());
-                  } else {
-                    directoryTree?.updateAndSelectNewDirectory(
-                        directoryEntry, newDirectory);
-                    assert(directoryTree.selectedItem);
-                    fileManager.directoryTreeNamingController.attachAndStart(
-                        directoryTree.selectedItem, false, null);
-                  }
+                  const parentFileKey = directoryEntry.toURL();
+                  // After new directory is created on parent directory, we
+                  // need to expand it otherwise the new child item won't
+                  // show, and also trigger a re-scan for the parent
+                  // directory.
+                  getStore().dispatch(updateFileData({
+                    key: parentFileKey,
+                    partialFileData: {expanded: true},
+                  }));
+                  getStore().dispatch(readSubDirectories(parentFileKey));
+                  fileManager.ui.directoryTreeContainer
+                      ?.renameItemWithKeyWhenRendered(newDirectory.toURL());
                   this.busy_ = false;
                 } else {
                   directoryModel.updateAndSelectNewDirectory(newDirectory)
@@ -423,7 +406,7 @@ export class NewFolderCommand extends FilesCommand {
       event.command.setHidden(true);
       return;
     }
-    if (isDirectoryTree(event.target) || isDirectoryTreeItem(event.target)) {
+    if (isXfTree(event.target) || isTreeItem(event.target)) {
       const entry = entries[0];
       if (!entry || isFakeEntry(entry) || isTeamDrivesGrandRoot(entry)) {
         event.canExecute = false;
@@ -586,16 +569,6 @@ export class DeleteCommand extends FilesCommand {
       return;
     }
 
-    // Block fusebox volumes in SelectFileAsh (Lacros) file picker mode.
-    if (fileManager.volumeManager.getFuseBoxOnlyFilterEnabled()) {
-      // TODO(crbug/1292825) Make it work with fusebox volumes: MTP, etc.
-      if (fileManager.directoryModel.isOnFuseBox()) {
-        event.canExecute = false;
-        event.command.setHidden(true);
-        return;
-      }
-    }
-
     event.canExecute = this.canDeleteEntries_(entries, fileManager);
 
     // Remove if nothing is selected, e.g. user clicked in an empty
@@ -647,7 +620,7 @@ export class DeleteCommand extends FilesCommand {
         shouldMoveToTrash(entries, fileManager.volumeManager) &&
         fileManager.trashEnabled) {
       startIOTask(
-          chrome.fileManagerPrivate.IOTaskType.TRASH, entries,
+          chrome.fileManagerPrivate.IoTaskType.TRASH, entries,
           /*params=*/ {});
       return;
     }
@@ -667,7 +640,7 @@ export class DeleteCommand extends FilesCommand {
       dialogDoneCallback();
       // Start the permanent delete.
       startIOTask(
-          chrome.fileManagerPrivate.IOTaskType.DELETE, entries, /*params=*/ {});
+          chrome.fileManagerPrivate.IoTaskType.DELETE, entries, /*params=*/ {});
     };
 
     const cancelAction = () => {
@@ -709,7 +682,6 @@ export class DeleteCommand extends FilesCommand {
       fileManager: CommandHandlerDeps): boolean {
     return entries.length > 0 &&
         !this.containsReadOnlyEntry_(entries, fileManager) &&
-        fileManager.directoryModel.canDeleteEntries() &&
         hasCapability(fileManager, entries, 'canDelete');
   }
 
@@ -737,11 +709,8 @@ export class DeleteCommand extends FilesCommand {
   private containsReadOnlyEntry_(
       entries: Array<Entry|FilesAppEntry>,
       fileManager: CommandHandlerDeps): boolean {
-    return entries.some(entry => {
-      const locationInfo = fileManager.volumeManager.getLocationInfo(entry);
-      return (locationInfo && locationInfo.isReadOnly) ||
-          isNonModifiable(fileManager.volumeManager, entry);
-    });
+    return entries.some(
+        entry => isReadOnlyForDelete(fileManager.volumeManager, entry));
   }
 }
 
@@ -811,7 +780,7 @@ export class RestoreFromTrashCommand extends FilesCommand {
       return;
     }
     startIOTask(
-        chrome.fileManagerPrivate.IOTaskType.RESTORE, infoEntries,
+        chrome.fileManagerPrivate.IoTaskType.RESTORE, infoEntries,
         /*params=*/ {});
   }
 
@@ -866,7 +835,7 @@ export class EmptyTrashCommand extends FilesCommand {
         str('CONFIRM_EMPTY_TRASH_TITLE'), str('CONFIRM_EMPTY_TRASH_DESC'),
         () => {
           startIOTask(
-              chrome.fileManagerPrivate.IOTaskType.EMPTY_TRASH, /*entries=*/[],
+              chrome.fileManagerPrivate.IoTaskType.EMPTY_TRASH, /*entries=*/[],
               /*params=*/ {});
         });
   }
@@ -1034,8 +1003,8 @@ export class CutCopyCommand extends FilesCommand {
     const volumeManager = fileManager.volumeManager;
     command.setHidden(false);
 
-    /** @returns {boolean} If the operation is allowed in the Directory Tree. */
-    function canDoDirectoryTree() {
+    /** If the operation is allowed in the Directory Tree. */
+    function canDoDirectoryTree(): boolean {
       let entry: Entry|FilesAppEntry|null;
       if (target && 'entry' in target) {
         entry = target.entry as Entry | FilesAppEntry;
@@ -1140,18 +1109,17 @@ export class RenameCommand extends FilesCommand {
         isRemovableRoot = true;
       }
     }
-    if (isDirectoryTree(event.target) || isDirectoryTreeItem(event.target)) {
+    if (isXfTree(event.target) || isTreeItem(event.target)) {
       assert(fileManager.directoryTreeNamingController);
       assert(volumeInfo);
-      if (isDirectoryTree(event.target)) {
+      if (isXfTree(event.target)) {
         const treeItem = getFocusedTreeItem(event.target);
         assert(treeItem);
         fileManager.directoryTreeNamingController.attachAndStart(
             treeItem, isRemovableRoot, volumeInfo);
-      } else if (isDirectoryTreeItem(event.target)) {
-        const directoryItem = event.target as DirectoryItem | XfTreeItem;
+      } else if (isTreeItem(event.target)) {
         fileManager.directoryTreeNamingController.attachAndStart(
-            directoryItem, isRemovableRoot, volumeInfo);
+            event.target, isRemovableRoot, volumeInfo);
       }
     } else {
       fileManager.namingController.initiateRename(isRemovableRoot, volumeInfo);
@@ -1159,16 +1127,6 @@ export class RenameCommand extends FilesCommand {
   }
 
   override canExecute(event: CanExecuteEvent, fileManager: CommandHandlerDeps) {
-    // Block fusebox volumes in SelectFileAsh (Lacros) file picker mode.
-    if (fileManager.volumeManager.getFuseBoxOnlyFilterEnabled()) {
-      // TODO(crbug/1292825) Make it work with fusebox volumes: MTP, etc.
-      if (fileManager.directoryModel.isOnFuseBox()) {
-        event.canExecute = false;
-        event.command.setHidden(true);
-        return;
-      }
-    }
-
     if (isOnTrashRoot(fileManager)) {
       event.canExecute = false;
       event.command.setHidden(true);
@@ -1228,7 +1186,7 @@ export class RenameCommand extends FilesCommand {
     // ARC doesn't support rename for now. http://b/232152680
     const recentArcEntry = isRecentArcEntry(unwrapEntry(entries[0]!) as Entry);
     // Drive grand roots do not support rename.
-    const isDriveGrandRoot = isGrandRootEntryInDrives(entries[0]!);
+    const isDriveGrandRoot = isGrandRootEntryInDrive(entries[0]!);
 
     event.canExecute = entries.length === 1 && volumeIsNotReadOnly &&
         !recentArcEntry && !isDriveGrandRoot &&
@@ -1358,14 +1316,9 @@ export class InvokeSharesheetCommand extends FilesCommand {
     const dlpSourceUrls =
         fileManager.metadataModel.getCache(entries, ['sourceUrl'])
             .map(m => m.sourceUrl || '');
-    chrome.fileManagerPrivate.invokeSharesheet(
-        entries.map(e => unwrapEntry(e)) as Entry[], launchSource,
-        dlpSourceUrls, () => {
-          if (chrome.runtime.lastError) {
-            console.warn(chrome.runtime.lastError.message);
-            return;
-          }
-        });
+    chrome.fileManagerPrivate
+        .invokeSharesheet(entriesToURLs(entries), launchSource, dlpSourceUrls)
+        .catch(console.warn);
   }
 
   override canExecute(event: CanExecuteEvent, fileManager: CommandHandlerDeps) {
@@ -1393,16 +1346,13 @@ export class InvokeSharesheetCommand extends FilesCommand {
     event.command.disabled =
         !fileManager.ui.actionbar.contains(event.target as Node);
 
-    chrome.fileManagerPrivate.sharesheetHasTargets(
-        entries.map(e => unwrapEntry(e)) as Entry[], (hasTargets: boolean) => {
-          if (chrome.runtime.lastError) {
-            console.warn(chrome.runtime.lastError.message);
-            return;
-          }
+    chrome.fileManagerPrivate.sharesheetHasTargets(entriesToURLs(entries))
+        .then((hasTargets: boolean) => {
           event.command.setHidden(!hasTargets);
           event.canExecute = hasTargets;
           event.command.disabled = !hasTargets;
-        });
+        })
+        .catch(console.warn);
   }
 }
 
@@ -1648,14 +1598,10 @@ export class VolumeSwitchCommand extends FilesCommand {
 
   execute(_event: CommandEvent, fileManager: CommandHandlerDeps) {
     const directoryTree = fileManager.ui.directoryTree;
-    if (isXfTree(directoryTree)) {
-      const items = directoryTree?.items;
-      const treeItemEntry = getTreeItemEntry(items && items[this.index_ - 1]);
-      if (treeItemEntry) {
-        getStore().dispatch(changeDirectory({toKey: treeItemEntry.toURL()}));
-      }
-    } else {
-      directoryTree?.activateByIndex(this.index_ - 1);
+    const items = directoryTree?.items;
+    const treeItemEntry = getTreeItemEntry(items && items[this.index_ - 1]);
+    if (treeItemEntry) {
+      getStore().dispatch(changeDirectory({toKey: treeItemEntry.toURL()}));
     }
   }
 
@@ -1817,7 +1763,7 @@ export class ZipSelectionCommand extends FilesCommand {
 
     const selectionEntries = fileManager.getSelection().entries;
     startIOTask(
-        chrome.fileManagerPrivate.IOTaskType.ZIP, selectionEntries,
+        chrome.fileManagerPrivate.IoTaskType.ZIP, selectionEntries,
         {destinationFolder: dirEntry as DirectoryEntry});
   }
 
@@ -1865,64 +1811,6 @@ export class ZipSelectionCommand extends FilesCommand {
     event.canExecute = !!dirEntry && !fileManager.directoryModel.isReadOnly() &&
         isOnEligibleLocation && selection && selection.totalCount > 0 &&
         !hasEncryptedFile;
-  }
-}
-
-/**
- * Shows the share dialog for the current selection (single only).
- */
-export class ShareCommand extends FilesCommand {
-  execute(event: CommandEvent, fileManager: CommandHandlerDeps) {
-    const entries = getCommandEntries(fileManager, event.target);
-    const actionsController = fileManager.actionsController;
-
-    fileManager.actionsController.getActionsForEntries(entries).then(
-        (actionsModel: ActionsModel|void) => {
-          if (!actionsModel) {
-            return;
-          }
-          const action = actionsModel.getAction(CommonActionId.SHARE);
-          if (action) {
-            actionsController.executeAction(action);
-          }
-        });
-  }
-
-  override canExecute(event: CanExecuteEvent, fileManager: CommandHandlerDeps) {
-    const entries = getCommandEntries(fileManager, event.target);
-    const command = event.command;
-    const actionsController = fileManager.actionsController;
-
-    // Avoid flickering menu height: synchronously define command visibility.
-    if (!isDriveEntries(entries, fileManager.volumeManager)) {
-      command.setHidden(true);
-      return;
-    }
-
-    command.setHidden(false);
-
-    function canExecuteShare(actionsModel: ActionsModel|void) {
-      if (!actionsModel) {
-        return;
-      }
-      const action = actionsModel.getAction(CommonActionId.SHARE);
-      event.canExecute = !!action && action.canExecute();
-      command.disabled = !event.canExecute;
-      command.setHidden(!action);
-    }
-
-    // Run synchrounously if possible.
-    const actionsModel =
-        actionsController.getInitializedActionsForEntries(entries);
-    if (actionsModel) {
-      canExecuteShare(actionsModel);
-      return;
-    }
-
-    event.canExecute = true;
-    command.setHidden(false);
-    // Run async, otherwise.
-    actionsController.getActionsForEntries(entries).then(canExecuteShare);
   }
 }
 
@@ -2113,6 +2001,7 @@ export class GuestOsShareCommand extends FilesCommand {
     // Must be single directory not already shared.
     const entries = getCommandEntries(fileManager, event.target);
     event.canExecute = entries.length === 1 && entries[0]!.isDirectory &&
+        !isFakeEntry(entries[0]!) &&
         !fileManager.crostini.isPathShared(this.vmName_, entries[0]!) &&
         fileManager.crostini.canSharePath(
             this.vmName_, entries[0]!, true /* persist */);
@@ -2437,7 +2326,7 @@ export class BrowserBackCommand extends FilesCommand {
     // TODO(fukino): It should be better to minimize Files app only when there
     // is no back stack, and otherwise use BrowserBack for history navigation.
     // https://crbug.com/624100.
-    // TODO(https://crbug.com/1097066): Implement minimize for files SWA, then
+    // TODO(crbug.com/40701086): Implement minimize for files SWA, then
     // call its minimize() function here.
   }
 }

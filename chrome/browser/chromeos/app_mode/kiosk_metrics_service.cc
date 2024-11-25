@@ -214,6 +214,10 @@ void KioskMetricsService::RecordKioskSessionWebStarted() {
   RecordKioskSessionStarted(KioskSessionState::kWebStarted);
 }
 
+void KioskMetricsService::RecordKioskSessionIwaStarted() {
+  RecordKioskSessionStarted(KioskSessionState::kIwaStarted);
+}
+
 void KioskMetricsService::RecordKioskSessionStopped() {
   if (!IsKioskSessionRunning()) {
     return;
@@ -257,6 +261,7 @@ void KioskMetricsService::RestartRequested(
     case power_manager::REQUEST_RESTART_FOR_USER:
     case power_manager::REQUEST_RESTART_FOR_UPDATE:
     case power_manager::REQUEST_RESTART_OTHER:
+    case power_manager::REQUEST_RESTART_HEARTD:
       return;
     case power_manager::REQUEST_RESTART_SCHEDULED_REBOOT_POLICY:
       SaveSessionEndReason(KioskSessionEndReason::kRebootPolicy);

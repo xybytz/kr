@@ -20,6 +20,9 @@ import androidx.interpolator.view.animation.LinearOutSlowInInterpolator;
 public class Interpolators {
     public static final Interpolator STANDARD_INTERPOLATOR =
             PathInterpolatorCompat.create(0.2f, 0f, 0f, 1f);
+    public static final Interpolator STANDARD_ACCELERATE =
+            PathInterpolatorCompat.create(0.3f, 0f, 1f, 1f);
+
     public static final AccelerateInterpolator ACCELERATE_INTERPOLATOR =
             new AccelerateInterpolator();
     public static final DecelerateInterpolator DECELERATE_INTERPOLATOR =
@@ -30,6 +33,11 @@ public class Interpolators {
             PathInterpolatorCompat.create(0.3f, 0f, 0.8f, 0.15f);
     public static final Interpolator EMPHASIZED_DECELERATE =
             PathInterpolatorCompat.create(0.05f, 0.7f, 0.1f, 1f);
+
+    public static final Interpolator LEGACY_ACCELERATE =
+            PathInterpolatorCompat.create(0.4f, 0f, 1f, 1f);
+    public static final Interpolator LEGACY_DECELERATE =
+            PathInterpolatorCompat.create(0f, 0f, 0.2f, 1f);
 
     /** For fading out. Formerly FADE_OUT_CURVE. **/
     public static final FastOutLinearInInterpolator FAST_OUT_LINEAR_IN_INTERPOLATOR =

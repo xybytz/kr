@@ -20,7 +20,6 @@ import android.util.Base64;
 
 import androidx.test.filters.SmallTest;
 
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -28,6 +27,7 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.PackageManagerWrapper;
 import org.chromium.chrome.browser.browserservices.TrustedWebActivityTestUtil;
@@ -63,7 +63,6 @@ public class WebappDefaultOfflineTwaTest {
 
     private EmbeddedTestServer mTestServer;
     private TestContext mTestContext;
-    private Context mContextToRestore;
 
     private static BitmapDrawable getTestIconDrawable(Resources resources, String imageAsString) {
         byte[] bytes = Base64.decode(imageAsString.getBytes(), Base64.DEFAULT);
@@ -108,16 +107,8 @@ public class WebappDefaultOfflineTwaTest {
         NativeLibraryTestUtils.loadNativeLibraryNoBrowserProcess();
 
         // Setup the context for our custom PackageManager.
-        mContextToRestore = ContextUtils.getApplicationContext();
-        mTestContext = new TestContext(mContextToRestore);
+        mTestContext = new TestContext(ContextUtils.getApplicationContext());
         ContextUtils.initApplicationContextForTests(mTestContext);
-    }
-
-    @After
-    public void tearDown() {
-        if (mContextToRestore != null) {
-            ContextUtils.initApplicationContextForTests(mContextToRestore);
-        }
     }
 
     @Rule
@@ -146,10 +137,11 @@ public class WebappDefaultOfflineTwaTest {
 
         // Ensure that web_app_default_offline.html is showing the correct values.
         Tab tab = mCustomTabActivityTestRule.getActivity().getActivityTab();
-        assertEquals(
-                "\"shortname\"",
-                JavaScriptUtils.executeJavaScriptAndWaitForResult(
-                        tab.getWebContents(), "document.title;"));
+        CriteriaHelper.pollInstrumentationThread(
+                () ->
+                        JavaScriptUtils.executeJavaScriptAndWaitForResult(
+                                        tab.getWebContents(), "document.title;")
+                                .equals("\"shortname\""));
         assertEquals(
                 "\"You're offline\"",
                 JavaScriptUtils.executeJavaScriptAndWaitForResult(

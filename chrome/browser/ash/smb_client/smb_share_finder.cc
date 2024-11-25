@@ -6,15 +6,16 @@
 
 #include <vector>
 
+#include "ash/constants/ash_features.h"
 #include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/ash/smb_client/discovery/mdns_host_locator.h"
 #include "chrome/browser/ash/smb_client/smb_constants.h"
 #include "chrome/browser/ash/smb_client/smb_errors.h"
+#include "chromeos/ash/components/dbus/upstart/upstart_client.h"
 
-namespace ash {
-namespace smb_client {
+namespace ash::smb_client {
 
 SmbShareFinder::SmbShareFinder(SmbProviderClient* client) : client_(client) {}
 SmbShareFinder::~SmbShareFinder() = default;
@@ -164,6 +165,16 @@ void SmbShareFinder::OnSharesFound(
 
   if (host_counter_ == 0) {
     RunSharesCallbacks(shares_);
+    if (base::FeatureList::IsEnabled(features::kSmbproviderdOnDemand)) {
+      // Stops smbproviderd Upstart job only after all hosts have been
+      // processed.
+      UpstartClient* client = UpstartClient::Get();
+      client->StopJob(kSmbProviderdUpstartJobName, /*upstart_env=*/{},
+                      base::BindOnce([](bool success) {
+                        LOG_IF(ERROR, !success)
+                            << "Failed to stop smbproviderd";
+                      }));
+    }
   }
 }
 
@@ -203,5 +214,4 @@ void SmbShareFinder::InsertDiscoveryCallback(
   discovery_callbacks_.push_back(std::move(discovery_callback));
 }
 
-}  // namespace smb_client
-}  // namespace ash
+}  // namespace ash::smb_client

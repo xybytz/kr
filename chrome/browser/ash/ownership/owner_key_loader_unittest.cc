@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/ash/ownership/owner_key_loader.h"
 
 #include <memory>
@@ -130,7 +135,7 @@ class OwnerKeyLoaderTestBase : public testing::Test {
 class RegularOwnerKeyLoaderTest : public OwnerKeyLoaderTestBase {
  public:
   RegularOwnerKeyLoaderTest()
-      : OwnerKeyLoaderTestBase(user_manager::USER_TYPE_REGULAR) {}
+      : OwnerKeyLoaderTestBase(user_manager::UserType::kRegular) {}
 };
 
 // Test that the first user generates a new owner key in the public slot (when
@@ -667,7 +672,7 @@ TEST_F(RegularOwnerKeyLoaderTest, ExitOnShutdown) {
 class ChildOwnerKeyLoaderTest : public OwnerKeyLoaderTestBase {
  public:
   ChildOwnerKeyLoaderTest()
-      : OwnerKeyLoaderTestBase(user_manager::USER_TYPE_CHILD) {}
+      : OwnerKeyLoaderTestBase(user_manager::UserType::kChild) {}
 };
 
 // Test that the first user generates a new owner key (when the user is a

@@ -16,7 +16,6 @@
 
 namespace autofill {
 
-class AutofillField;
 class AutofillScanner;
 
 // Price fields are not filled by autofill, but identifying them will help to
@@ -25,7 +24,7 @@ class PriceFieldParser : public FormFieldParser {
  public:
   static std::unique_ptr<FormFieldParser> Parse(ParsingContext& context,
                                                 AutofillScanner* scanner);
-  explicit PriceFieldParser(const AutofillField* field);
+  explicit PriceFieldParser(FieldAndMatchInfo match);
 
   PriceFieldParser(const PriceFieldParser&) = delete;
   PriceFieldParser& operator=(const PriceFieldParser&) = delete;
@@ -34,10 +33,10 @@ class PriceFieldParser : public FormFieldParser {
   void AddClassifications(FieldCandidatesMap& field_candidates) const override;
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(PriceFieldTest, ParsePrice);
-  FRIEND_TEST_ALL_PREFIXES(PriceFieldTest, ParseNonPrice);
+  FRIEND_TEST_ALL_PREFIXES(PriceFieldParserTest, ParsePrice);
+  FRIEND_TEST_ALL_PREFIXES(PriceFieldParserTest, ParseNonPrice);
 
-  raw_ptr<const AutofillField> field_;
+  FieldAndMatchInfo match_;
 };
 
 }  // namespace autofill

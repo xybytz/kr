@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "media/gpu/test/video_encoder/bitstream_file_writer.h"
 
 #include "base/files/file_util.h"
@@ -41,8 +46,8 @@ class BitstreamFileWriter::FrameFileWriter {
 
 BitstreamFileWriter::BitstreamFileWriter(
     std::unique_ptr<FrameFileWriter> frame_file_writer,
-    absl::optional<size_t> spatial_layer_index_to_write,
-    absl::optional<size_t> temporal_layer_index_to_write,
+    std::optional<size_t> spatial_layer_index_to_write,
+    std::optional<size_t> temporal_layer_index_to_write,
     const std::vector<gfx::Size>& spatial_layer_resolutions)
     : frame_file_writer_(std::move(frame_file_writer)),
       spatial_layer_index_to_write_(spatial_layer_index_to_write),
@@ -69,8 +74,8 @@ std::unique_ptr<BitstreamFileWriter> BitstreamFileWriter::Create(
     const gfx::Size& resolution,
     uint32_t frame_rate,
     uint32_t num_frames,
-    absl::optional<size_t> spatial_layer_index_to_write,
-    absl::optional<size_t> temporal_layer_index_to_write,
+    std::optional<size_t> spatial_layer_index_to_write,
+    std::optional<size_t> temporal_layer_index_to_write,
     const std::vector<gfx::Size>& spatial_layer_resolutions) {
   std::unique_ptr<FrameFileWriter> frame_file_writer;
   if (!base::DirectoryExists(output_filepath.DirName()))
@@ -163,8 +168,8 @@ void BitstreamFileWriter::WriteBitstreamTask(
   DCHECK_CALLED_ON_VALID_SEQUENCE(writer_thread_sequence_checker_);
   const DecoderBuffer& buffer = *bitstream->buffer.get();
   bool success = frame_file_writer_->WriteFrame(
-      static_cast<uint32_t>(buffer.data_size()),
-      static_cast<uint64_t>(frame_index), buffer.data());
+      static_cast<uint32_t>(buffer.size()), static_cast<uint64_t>(frame_index),
+      buffer.data());
 
   base::AutoLock auto_lock(writer_lock_);
   num_errors_ += !success;

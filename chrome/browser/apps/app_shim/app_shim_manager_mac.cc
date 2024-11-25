@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/apps/app_shim/app_shim_manager_mac.h"
 
 #include <CoreFoundation/CoreFoundation.h>
@@ -15,6 +20,7 @@
 #include "base/apple/bundle_locations.h"
 #include "base/apple/foundation_util.h"
 #include "base/apple/osstatus_logging.h"
+#include "base/apple/scoped_cftyperef.h"
 #include "base/barrier_closure.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/feature_list.h"
@@ -24,19 +30,24 @@
 #include "base/functional/callback_helpers.h"
 #include "base/hash/sha1.h"
 #include "base/logging.h"
+#include "base/mac/code_signature.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
+#include "base/not_fatal_until.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/task/single_thread_task_runner.h"
+#include "base/types/expected.h"
+#include "base/types/expected_macros.h"
 #include "chrome/browser/app_controller_mac.h"
 #include "chrome/browser/apps/app_shim/app_shim_host_bootstrap_mac.h"
 #include "chrome/browser/apps/app_shim/app_shim_host_mac.h"
 #include "chrome/browser/apps/app_shim/app_shim_listener.h"
 #include "chrome/browser/apps/app_shim/app_shim_termination_manager.h"
+#include "chrome/browser/apps/app_shim/code_signature_mac.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
+#include "chrome/browser/notifications/mac/notification_platform_bridge_mac.h"
 #include "chrome/browser/notifications/mac/notification_utils.h"
 #include "chrome/browser/profiles/avatar_menu.h"
 #include "chrome/browser/profiles/profile.h"
@@ -46,14 +57,16 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/profiles/profiles_state.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/profiles/profile_picker.h"
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
-#include "chrome/browser/web_applications/app_shim_registry_mac.h"
-#include "chrome/browser/web_applications/os_integration/web_app_shortcut_mac.h"
+#include "chrome/browser/web_applications/os_integration/mac/app_shim_registry.h"
+#include "chrome/browser/web_applications/os_integration/mac/web_app_shortcut_mac.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
@@ -63,19 +76,12 @@
 #include "components/crash/core/common/crash_key.h"
 #include "components/crx_file/id_util.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/browser/notification_service.h"
+#include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/base/filename_util.h"
 
 namespace {
-
-// A feature to control whether or not the profile icons are sent over mojo.
-// This is used to debug crashes that are only seen in release builds.
-// https://crbug.com/1274236
-BASE_FEATURE(kAppShimProfileMenuIcons,
-             "AppShimProfileMenuIcons",
-             base::FEATURE_ENABLED_BY_DEFAULT);
 
 // A crash key that is used when dumping because of errors when building and
 // verifying the app shim requirement.
@@ -106,152 +112,60 @@ void DumpError(std::string error_details) {
 
 // Creates a requirement for the app shim based on the framework bundle's
 // designated requirement.
-// If the returned optional:
-//   * "has_value() == true" app shim validation should occur.
-//   * "has_value() == false" app shim validation should be skipped.
-//   * "has_value() == true && value() == null" validation should always fail.
-std::optional<base::apple::ScopedCFTypeRef<SecRequirementRef>>
+//
+// Returns a non-null requirement or the reason why the requirement could not
+// be created.
+base::expected<base::apple::ScopedCFTypeRef<SecRequirementRef>,
+               apps::MissingRequirementReason>
 CreateAppShimRequirement() {
-  // Note: Don't validate |framework_code|: We don't need to waste time
-  // validating. We are only interested in discovering if the framework bundle
-  // is code-signed, and if so what the designated requirement is.
-  base::apple::ScopedCFTypeRef<CFURLRef> framework_url =
-      base::apple::FilePathToCFURL(base::apple::FrameworkBundlePath());
-  base::apple::ScopedCFTypeRef<SecStaticCodeRef> framework_code;
-  OSStatus status = SecStaticCodeCreateWithPath(
-      framework_url.get(), kSecCSDefaultFlags, framework_code.InitializeInto());
+  ASSIGN_OR_RETURN(auto framework_requirement_string,
+                   apps::FrameworkBundleDesignatedRequirementString());
 
-  // If the framework bundle is unsigned there is nothing else to do. We treat
-  // this as success because there’s no identity to protect or even match, so
-  // it’s not dangerous to let the shim connect.
-  if (status == errSecCSUnsigned) {
-    return std::nullopt;  // has_value() == false
+  base::apple::ScopedCFTypeRef<CFStringRef> app_shim_requirement_string =
+      apps::AppShimManager::
+          BuildAppShimRequirementStringFromFrameworkRequirementString(
+              framework_requirement_string.get());
+  if (!app_shim_requirement_string) {
+    return base::unexpected(apps::MissingRequirementReason::Error);
   }
 
-  // If there was an error obtaining the SecStaticCodeRef something is very
-  // broken or something bad is happening, deny.
-  if (status != errSecSuccess) {
-    DumpOSStatusError(status, "SecStaticCodeCreateWithPath");
-    // has_value() == true
-    return base::apple::ScopedCFTypeRef<SecRequirementRef>(nullptr);
-  }
-
-  // Copy the signing info from the SecStaticCodeRef.
-  base::apple::ScopedCFTypeRef<CFDictionaryRef> framework_signing_info;
-  status = SecCodeCopySigningInformation(
-      framework_code.get(), kSecCSSigningInformation,
-      framework_signing_info.InitializeInto());
-  if (status != errSecSuccess) {
-    DumpOSStatusError(status, "SecCodeCopySigningInformation");
-    // has_value() == true
-    return base::apple::ScopedCFTypeRef<SecRequirementRef>(nullptr);
-  }
-
-  // Look up the code signing flags. If the flags are absent treat this as
-  // unsigned. This decision is consistent with the StaticCode source:
-  // https://github.com/apple-oss-distributions/Security/blob/Security-60157.40.30.0.1/OSX/libsecurity_codesigning/lib/StaticCode.cpp#L2270
-  CFNumberRef framework_signing_info_flags =
-      base::apple::GetValueFromDictionary<CFNumberRef>(
-          framework_signing_info.get(), kSecCodeInfoFlags);
-  if (!framework_signing_info_flags) {
-    return std::nullopt;  // has_value() == false
-  }
-
-  // If the framework bundle is ad-hoc signed there is nothing else to
-  // do. While the framework bundle is code-signed an ad-hoc signature does not
-  // contain any identities to match against. Treat this as a success.
-  //
-  // Note: Using a long long to extract the value from the CFNumberRef to be
-  // consistent with how it was packed by Security.framework.
-  // https://github.com/apple-oss-distributions/Security/blob/Security-60157.40.30.0.1/OSX/libsecurity_utilities/lib/cfutilities.h#L262
-  long long flags;
-  if (!CFNumberGetValue(framework_signing_info_flags, kCFNumberLongLongType,
-                        &flags)) {
-    DumpError("CFNumberGetValue");
-    // has_value() == true
-    return base::apple::ScopedCFTypeRef<SecRequirementRef>(nullptr);
-  }
-  if (static_cast<uint32_t>(flags) & kSecCodeSignatureAdhoc) {
-    return std::nullopt;  // has_value() == false
-  }
-
-  // Moving on. Time to start building a requirement that we will use to
-  // validate the app shim's code signature. First let's get the framework
-  // bundle requirement. We will build a suitable requirement for the app shim
-  // based off that.
-  base::apple::ScopedCFTypeRef<SecRequirementRef> framework_requirement;
-  status =
-      SecCodeCopyDesignatedRequirement(framework_code.get(), kSecCSDefaultFlags,
-                                       framework_requirement.InitializeInto());
-  if (status != errSecSuccess) {
-    DumpOSStatusError(status, "SecCodeCopyDesignatedRequirement");
-    // has_value() == true
-    return base::apple::ScopedCFTypeRef<SecRequirementRef>(nullptr);
-  }
-
-  base::apple::ScopedCFTypeRef<CFStringRef> framework_requirement_string;
-  status =
-      SecRequirementCopyString(framework_requirement.get(), kSecCSDefaultFlags,
-                               framework_requirement_string.InitializeInto());
-  if (status != errSecSuccess) {
-    DumpOSStatusError(status, "SecRequirementCopyString");
-    // has_value() == true
-    return base::apple::ScopedCFTypeRef<SecRequirementRef>(nullptr);
-  }
-
-  // Always returns has_value() == true.
-  return apps::AppShimManager::
-      BuildAppShimRequirementFromFrameworkRequirementString(
-          framework_requirement_string.get());
+  return apps::RequirementFromString(app_shim_requirement_string.get());
 }
 
-// Returns whether |app_shim_pid|'s code signature is trusted:
+// Returns whether |app_shim_audit_token|'s code signature is trusted:
 // - True if the framework bundle is unsigned (there's nothing to verify).
-// - True if |app_shim_pid| satisfies the constructed designated requirement
-// tailored for the app shim based on the framework bundle's requirement.
-// - False otherwise (|app_shim_pid| does not satisfy the constructed designated
-// requirement).
+// - True if |app_shim_audit_token| satisfies the constructed designated
+// requirement tailored for the app shim based on the framework bundle's
+// requirement.
+// - False otherwise (|app_shim_audit_token| does not satisfy the constructed
+// designated requirement).
 //
 // This is used prior to macOS 11.7 where it is not possible to ad-hoc code sign
 // the app shim at runtime.
-bool IsAcceptablyCodeSignedLegacy(pid_t app_shim_pid) {
+bool IsAcceptablyCodeSignedLegacy(audit_token_t app_shim_audit_token) {
   static base::NoDestructor<
-      std::optional<base::apple::ScopedCFTypeRef<SecRequirementRef>>>
+      base::expected<base::apple::ScopedCFTypeRef<SecRequirementRef>,
+                     apps::MissingRequirementReason>>
       app_shim_requirement(CreateAppShimRequirement());
   if (!app_shim_requirement->has_value()) {
-    // App shim validation is not required because framework bundle is not
-    // code-signed or is ad-hoc code-signed.
-    return true;
-  }
-  if (!app_shim_requirement->value()) {
-    // Framework bundle is code-signed however we were unable to create the app
-    // shim requirement. Deny.
-    // apps::AppShimManager::BuildAppShimRequirementStringFromFrameworkRequirementString
-    // already did the base::debug::DumpWithoutCrashing, possibly on a previous
-    // call. We can return false here without any additional explanation.
-    return false;
+    switch (app_shim_requirement->error()) {
+      case apps::MissingRequirementReason::NoOrAdHocSignature:
+        // App shim validation is not required because framework bundle is not
+        // code-signed or is ad-hoc code-signed.
+        return true;
+      case apps::MissingRequirementReason::Error:
+        // Framework bundle is code-signed however we were unable to create the
+        // app shim requirement. Deny.
+        // apps::AppShimManager::BuildAppShimRequirementStringFromFrameworkRequirementString
+        // already did the base::debug::DumpWithoutCrashing, possibly on a
+        // previous call. We can return false here without any additional
+        // explanation.
+        return false;
+    }
   }
 
-  // Verify the app shim.
-  base::apple::ScopedCFTypeRef<CFNumberRef> app_shim_pid_cf(
-      CFNumberCreate(nullptr, kCFNumberIntType, &app_shim_pid));
-  const void* app_shim_attribute_keys[] = {kSecGuestAttributePid};
-  const void* app_shim_attribute_values[] = {app_shim_pid_cf.get()};
-  base::apple::ScopedCFTypeRef<CFDictionaryRef> app_shim_attributes(
-      CFDictionaryCreate(
-          nullptr, app_shim_attribute_keys, app_shim_attribute_values,
-          std::size(app_shim_attribute_keys), &kCFTypeDictionaryKeyCallBacks,
-          &kCFTypeDictionaryValueCallBacks));
-  base::apple::ScopedCFTypeRef<SecCodeRef> app_shim_code;
-  OSStatus status = SecCodeCopyGuestWithAttributes(
-      nullptr, app_shim_attributes.get(), kSecCSDefaultFlags,
-      app_shim_code.InitializeInto());
-  if (status != errSecSuccess) {
-    DumpOSStatusError(status, "SecCodeCopyGuestWithAttributes");
-    return false;
-  }
-  status = SecCodeCheckValidity(app_shim_code.get(), kSecCSDefaultFlags,
-                                app_shim_requirement->value().get());
+  OSStatus status = base::mac::ProcessIsSignedAndFulfillsRequirement(
+      app_shim_audit_token, app_shim_requirement->value().get());
   if (status != errSecSuccess) {
     if (status == errSecCSReqFailed &&
         AppShimRegistry::Get()->HasSavedAnyCdHashes()) {
@@ -297,21 +211,21 @@ bool VerifyCodeDirectoryHash(
   }
 
   return AppShimRegistry::Get()->VerifyCdHashForApp(
-      base::SysCFStringRefToUTF8(app_id),
-      base::make_span(CFDataGetBytePtr(cd_hash),
-                      base::checked_cast<size_t>(CFDataGetLength(cd_hash))));
+      base::SysCFStringRefToUTF8(app_id), base::apple::CFDataToSpan(cd_hash));
 }
 
-// Returns whether |app_shim_pid|'s code signature is trusted. Since an ad-hoc
-// code signature is used on macOS 11.7 and above, the verification consists of:
+// Returns whether |app_shim_audit_token|'s code signature is trusted. Since an
+// ad-hoc code signature is used on macOS 11.7 and above, the verification
+// consists of:
 //  - verifying the signature is valid.
 //  - verifying the code directory hash in the signature matches the value
 //    stored for this app at signing time.
-bool IsAcceptablyAdHocCodeSigned(pid_t app_shim_pid) {
-  base::apple::ScopedCFTypeRef<CFNumberRef> app_shim_pid_cf(
-      CFNumberCreate(nullptr, kCFNumberIntType, &app_shim_pid));
-  const void* app_shim_attribute_keys[] = {kSecGuestAttributePid};
-  const void* app_shim_attribute_values[] = {app_shim_pid_cf.get()};
+bool IsAcceptablyAdHocCodeSigned(audit_token_t app_shim_audit_token) {
+  base::apple::ScopedCFTypeRef<CFDataRef> audit_token_cf(CFDataCreate(
+      nullptr, reinterpret_cast<const UInt8*>(&app_shim_audit_token),
+      sizeof(audit_token_t)));
+  const void* app_shim_attribute_keys[] = {kSecGuestAttributeAudit};
+  const void* app_shim_attribute_values[] = {audit_token_cf.get()};
   base::apple::ScopedCFTypeRef<CFDictionaryRef> app_shim_attributes(
       CFDictionaryCreate(
           nullptr, app_shim_attribute_keys, app_shim_attribute_values,
@@ -356,6 +270,11 @@ base::OnceClosure TakeShimStartupDoneCallbackOrDoNothing() {
 }  // namespace
 
 namespace apps {
+
+bool AppShimManager::AppShimObserver::OnNotificationAction(
+    mac_notifications::mojom::NotificationActionInfoPtr& info) {
+  return true;
+}
 
 void SetMacShimStartupDoneCallbackForTesting(base::OnceClosure callback) {
   DCHECK(!GetShimStartupDoneCallback());
@@ -426,6 +345,12 @@ struct AppShimManager::AppState {
   // shutdown some browser windows/profiles might have already closed by the
   // time OnShimProcessDisconnected runs.
   bool did_save_last_active_profiles_on_terminate = false;
+
+  // Sometimes, for example when we have a pending notification permission
+  // prompt, we want to keep alive an app shim process even though no windows
+  // are open. This counter keep tracks of the number of outstanding
+  // ScopedAppShimKeepAlive instances.
+  int keep_alive_count = 0;
 };
 
 AppShimManager::ProfileState::ProfileState(
@@ -470,7 +395,7 @@ bool AppShimManager::AppState::ShouldDeleteAppState() const {
 
   // The old behavior, and the behavior for single-profile apps, is to close
   // only when all profiles are closed.
-  return profiles.empty();
+  return profiles.empty() && keep_alive_count == 0;
 }
 
 void AppShimManager::AppState::MaybeSaveLastActiveProfiles() const {
@@ -484,6 +409,37 @@ void AppShimManager::AppState::MaybeSaveLastActiveProfiles() const {
   }
   AppShimRegistry::Get()->SaveLastActiveProfilesForApp(
       app_id, last_active_profile_paths);
+}
+
+class ScopedAppShimKeepAlive {
+ public:
+  ScopedAppShimKeepAlive(AppShimManager* manager, const webapps::AppId& app_id);
+  ~ScopedAppShimKeepAlive();
+
+  ScopedAppShimKeepAlive(const ScopedAppShimKeepAlive&) = delete;
+  ScopedAppShimKeepAlive& operator=(const ScopedAppShimKeepAlive&) = delete;
+
+ private:
+  base::WeakPtr<AppShimManager> manager_;
+  const webapps::AppId app_id_;
+};
+
+ScopedAppShimKeepAlive::ScopedAppShimKeepAlive(AppShimManager* manager,
+                                               const webapps::AppId& app_id)
+    : manager_(manager->weak_factory_.GetWeakPtr()), app_id_(app_id) {
+  auto app = manager_->apps_.find(app_id_);
+  CHECK(app != manager_->apps_.end());
+  app->second->keep_alive_count++;
+}
+
+ScopedAppShimKeepAlive::~ScopedAppShimKeepAlive() {
+  if (manager_) {
+    auto app = manager_->apps_.find(app_id_);
+    if (app != manager_->apps_.end()) {
+      CHECK_GT(app->second->keep_alive_count, 0);
+      app->second->keep_alive_count--;
+    }
+  }
 }
 
 AppShimManager::AppShimManager(std::unique_ptr<Delegate> delegate)
@@ -530,7 +486,7 @@ void AppShimManager::UpdateAppBadge(
     Profile* profile,
     const webapps::AppId& app_id,
     const std::optional<badging::BadgeManager::BadgeValue>& badge) {
-  // TODO(https://crbug.com/1199624): Support updating the app badge for apps
+  // TODO(crbug.com/40761338): Support updating the app badge for apps
   // that aren't currently running.
   auto found_app = apps_.find(app_id);
   if (found_app == apps_.end()) {
@@ -589,6 +545,54 @@ AppShimManager::LaunchNotificationProvider(const webapps::AppId& app_id) {
   return remote;
 }
 
+void AppShimManager::ShowNotificationPermissionRequest(
+    const webapps::AppId& app_id,
+    RequestNotificationPermissionCallback callback) {
+  CHECK(
+      base::FeatureList::IsEnabled(features::kAppShimNotificationAttribution));
+
+  if (notification_permission_result_for_testing_.has_value()) {
+    std::move(callback).Run(*notification_permission_result_for_testing_);
+    return;
+  }
+
+  auto request_permission = base::BindOnce(
+      [](base::WeakPtr<AppShimManager> manager, const webapps::AppId& app_id,
+         RequestNotificationPermissionCallback callback, AppShimHost* host) {
+        if (!host) {
+          LOG(ERROR)
+              << "Failed to launch app shim for notifications permissions";
+          std::move(callback).Run(mac_notifications::mojom::
+                                      RequestPermissionResult::kRequestFailed);
+          return;
+        }
+        std::unique_ptr<ScopedAppShimKeepAlive> keep_alive;
+        if (manager) {
+          keep_alive =
+              std::make_unique<ScopedAppShimKeepAlive>(manager.get(), app_id);
+        }
+        // Wrap callback with default invoke to correctly report a failure if
+        // the app shim fails to launch.
+        host->GetAppShim()->RequestNotificationPermission(
+            mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+                std::move(callback).Then(base::OnceClosure(
+                    base::DoNothingWithBoundArgs(std::move(keep_alive)))),
+                mac_notifications::mojom::RequestPermissionResult::
+                    kRequestFailed));
+      },
+      weak_factory_.GetWeakPtr(), app_id, std::move(callback));
+
+  auto found_app = apps_.find(app_id);
+  if (found_app == apps_.end()) {
+    LaunchShimInBackgroundMode(app_id, std::move(request_permission));
+    return;
+  }
+
+  AppState* app_state = found_app->second.get();
+  CHECK(app_state->IsMultiProfile());
+  std::move(request_permission).Run(app_state->multi_profile_host.get());
+}
+
 Profile* AppShimManager::ProfileForBackgroundShimLaunch(
     const webapps::AppId& app_id) {
   if (profile_manager_) {
@@ -638,8 +642,24 @@ void AppShimManager::BindNotificationService(
 
 void AppShimManager::OnNotificationAction(
     mac_notifications::mojom::NotificationActionInfoPtr info) {
-  ProcessMacNotificationResponse(mac_notifications::NotificationStyle::kAppShim,
-                                 std::move(info));
+  if (!app_shim_observer_ || app_shim_observer_->OnNotificationAction(info)) {
+    ProcessMacNotificationResponse(
+        mac_notifications::NotificationStyle::kAppShim, std::move(info),
+        notification_action_handler_receivers_.current_context());
+  }
+
+  auto it = bootstraps_pending_notification_actions_.find(
+      notification_action_handler_receivers_.current_receiver());
+  if (it != bootstraps_pending_notification_actions_.end()) {
+    // ProcessMacNotificationResponse posts a task to the UI thread to handle
+    // the response. OnShimProcessConnectedForRegisterOnly needs to run after
+    // that task, so post a task here as well.
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
+        base::BindOnce(&AppShimManager::OnShimProcessConnectedForRegisterOnly,
+                       base::Unretained(this), std::move(it->second)));
+    bootstraps_pending_notification_actions_.erase(it);
+  }
 }
 
 void AppShimManager::UpdateApplicationBadge(ProfileState* profile_state) {
@@ -703,9 +723,19 @@ void AppShimManager::OnShimLaunchRequested(
   Profile* profile = nullptr;
   {
     auto found_app = apps_.find(host->GetAppId());
-    DCHECK(found_app != apps_.end());
+    CHECK(found_app != apps_.end(), base::NotFatalUntil::M130);
     AppState* app_state = found_app->second.get();
     if (app_state->IsMultiProfile()) {
+      // It is possible for `profiles` to be empty if the profile was closed
+      // while an initial launch attempt took place (and then failed, triggering
+      // a second launch attempt). In that case, simply fail the second launch
+      // as well.
+      if (app_state->profiles.empty()) {
+        LOG(ERROR)
+            << "Attempting to launch shim for which no profiles are loaded.";
+        std::move(terminated_callback).Run();
+        return;
+      }
       DCHECK(!app_state->profiles.empty());
       profile = app_state->profiles.begin()->first;
     } else {
@@ -719,7 +749,9 @@ void AppShimManager::OnShimLaunchRequested(
   // TODO(mek): Rather than this workaround, we should make sure to destroy
   // AppShimHost and terminate app shims when an app is uninstalled.
   if (web_app::RecreateShimsRequested(update_behavior) &&
-      !delegate_->AppIsInstalled(profile, host->GetAppId())) {
+      (!delegate_->AppIsInstalled(profile, host->GetAppId()) ||
+       !AppShimRegistry::Get()->IsAppInstalledInProfile(host->GetAppId(),
+                                                        profile->GetPath()))) {
     LOG(ERROR)
         << "Attempting to launch shim for an app that is no longer installed.";
     std::move(terminated_callback).Run();
@@ -739,10 +771,13 @@ void AppShimManager::OnShimProcessConnected(
   }
 
   auto notification_action_handler = bootstrap->TakeNotificationActionHandler();
+  std::optional<mojo::ReceiverId> notification_action_receiver_id;
   if (base::FeatureList::IsEnabled(features::kAppShimNotificationAttribution) &&
       notification_action_handler) {
-    notification_action_handler_receivers_.Add(
-        this, std::move(notification_action_handler));
+    notification_action_receiver_id =
+        notification_action_handler_receivers_.Add(
+            this, std::move(notification_action_handler),
+            bootstrap->GetAppId());
   }
 
   switch (bootstrap->GetLaunchType()) {
@@ -759,6 +794,18 @@ void AppShimManager::OnShimProcessConnected(
       LoadAndLaunchApp(profile_path, params, std::move(launch_callback));
       break;
     }
+    case chrome::mojom::AppShimLaunchType::kNotificationAction:
+      if (base::FeatureList::IsEnabled(
+              features::kAppShimNotificationAttribution) &&
+          notification_action_receiver_id.has_value()) {
+        // Wait for the notification action to be handled before finishing up
+        // the connection process to ensure Chrome and the App Shim stay alive
+        // long enough.
+        bootstraps_pending_notification_actions_.emplace(
+            *notification_action_receiver_id, std::move(bootstrap));
+        break;
+      }
+      [[fallthrough]];
     case chrome::mojom::AppShimLaunchType::kRegisterOnly:
       OnShimProcessConnectedForRegisterOnly(std::move(bootstrap));
       break;
@@ -768,8 +815,11 @@ void AppShimManager::OnShimProcessConnected(
 void AppShimManager::OnShimProcessConnectedForRegisterOnly(
     std::unique_ptr<AppShimHostBootstrap> bootstrap) {
   const webapps::AppId& app_id = bootstrap->GetAppId();
-  DCHECK_EQ(bootstrap->GetLaunchType(),
-            chrome::mojom::AppShimLaunchType::kRegisterOnly);
+  DCHECK(bootstrap->GetLaunchType() ==
+             chrome::mojom::AppShimLaunchType::kRegisterOnly ||
+         bootstrap->GetLaunchType() ==
+             chrome::mojom::AppShimLaunchType::kNotificationAction)
+      << bootstrap->GetLaunchType();
 
   // Create a ProfileState the specified profile (if there is one). We should
   // not do this (if there exists no ProfileState, then the shim should just
@@ -787,8 +837,12 @@ void AppShimManager::OnShimProcessConnectedForRegisterOnly(
   if (found_app != apps_.end()) {
     AppState* app_state = found_app->second.get();
     if (app_state->IsMultiProfile()) {
-      DCHECK(!app_state->profiles.empty());
-      profile_state = app_state->profiles.begin()->second.get();
+      // While generally `profiles` should never be empty, sometimes we keep
+      // alive app shims even when no profiles have windows open for the app
+      // (for example when we have a pending notification permission request).
+      if (!app_state->profiles.empty()) {
+        profile_state = app_state->profiles.begin()->second.get();
+      }
     } else {
       auto found_profile = app_state->profiles.find(profile);
       if (found_profile != app_state->profiles.end()) {
@@ -935,7 +989,7 @@ bool AppShimManager::LoadAndLaunchApp_TryExistingProfileStates(
       // If `profiles_with_handlers` is empty, either because `params` does not
       // contains files or urls, or because there are no profiles that can
       // handle the files or urls, select the first open profile encountered.
-      // TODO(https://crbug.com/829689): This should select the
+      // TODO(crbug.com/40570436): This should select the
       // most-recently-used profile, not the first profile encountered.
       auto it = app_state->profiles.begin();
       if (it != app_state->profiles.end()) {
@@ -1090,7 +1144,7 @@ void AppShimManager::OnShimProcessConnectedAndAllLaunchesDone(
   // If the connecting shim process doesn't have an acceptable code
   // signature, reject the connection and re-launch the shim. The internal
   // re-launch will likely fail, whereupon the shim will be recreated.
-  if (!IsAcceptablyCodeSigned(bootstrap->GetAppShimPid())) {
+  if (!IsAcceptablyCodeSigned(bootstrap->GetAppShimAuditToken())) {
     LOG(ERROR) << "The attaching app shim's code signature is invalid.";
     bootstrap->OnFailedToConnectToHost(
         chrome::mojom::AppShimLaunchResult::kFailedValidation);
@@ -1111,6 +1165,9 @@ void AppShimManager::LoadAndLaunchApp_LaunchIfAppropriate(
   bool do_launch = params.HasFilesOrURLs();
 
   // Otherwise, only launch if there are no open windows.
+  // TODO(https://crbug.com/331931430): This code should ignore browsers that
+  // are closing (where IsBrowserClosing() returns true), but doing so is
+  // tricky.
   if (!do_launch) {
     bool had_windows = delegate_->ShowAppWindows(profile, params.app_id);
     if (!had_windows && profile_state && !profile_state->browsers.empty()) {
@@ -1248,16 +1305,16 @@ void RecordSignatureValidationResult(SignatureValidationResult result) {
   base::UmaHistogramEnumeration(kAppShimSignatureValidationResult, result);
 }
 
-bool AppShimManager::IsAcceptablyCodeSigned(pid_t pid) const {
+bool AppShimManager::IsAcceptablyCodeSigned(audit_token_t audit_token) const {
   static const bool requires_adhoc_signature =
-      app_mode::UseAdHocSigningForWebAppShims();
+      web_app::UseAdHocSigningForWebAppShims();
 
-  if (requires_adhoc_signature && IsAcceptablyAdHocCodeSigned(pid)) {
+  if (requires_adhoc_signature && IsAcceptablyAdHocCodeSigned(audit_token)) {
     RecordSignatureValidationResult(SignatureValidationResult::kSuccessAdHoc);
     return true;
   }
 
-  if (IsAcceptablyCodeSignedLegacy(pid)) {
+  if (IsAcceptablyCodeSignedLegacy(audit_token)) {
     if (requires_adhoc_signature) {
       RecordSignatureValidationResult(
           SignatureValidationResult::kExpectedAdHocGotLegacy);
@@ -1349,7 +1406,7 @@ void AppShimManager::OnShimProcessDisconnected(AppShimHost* host) {
   const std::string app_id = host->GetAppId();
 
   auto found_app = apps_.find(app_id);
-  DCHECK(found_app != apps_.end());
+  CHECK(found_app != apps_.end(), base::NotFatalUntil::M130);
   AppState* app_state = found_app->second.get();
   DCHECK(app_state);
 
@@ -1374,7 +1431,7 @@ void AppShimManager::OnShimProcessDisconnected(AppShimHost* host) {
   // Erase the ProfileState, which will delete |host|.
   Profile* profile = ProfileForPath(host->GetProfilePath());
   auto found_profile = app_state->profiles.find(profile);
-  DCHECK(found_profile != app_state->profiles.end());
+  CHECK(found_profile != app_state->profiles.end(), base::NotFatalUntil::M130);
   ProfileState* profile_state = found_profile->second.get();
   DCHECK_EQ(host, profile_state->single_profile_host.get());
   app_state->profiles.erase(found_profile);
@@ -1405,7 +1462,7 @@ void AppShimManager::OnShimReopen(AppShimHost* host) {
     app_shim_observer_->OnShimReopen(host->GetAppShimPid());
   }
   auto found_app = apps_.find(host->GetAppId());
-  DCHECK(found_app != apps_.end());
+  CHECK(found_app != apps_.end(), base::NotFatalUntil::M130);
   AppState* app_state = found_app->second.get();
   LoadAndLaunchAppParams params;
   params.app_id = host->GetAppId();
@@ -1418,7 +1475,7 @@ void AppShimManager::OnShimOpenedFiles(
     AppShimHost* host,
     const std::vector<base::FilePath>& files) {
   auto found_app = apps_.find(host->GetAppId());
-  DCHECK(found_app != apps_.end());
+  CHECK(found_app != apps_.end(), base::NotFatalUntil::M130);
   AppState* app_state = found_app->second.get();
   LoadAndLaunchAppParams params;
   params.app_id = host->GetAppId();
@@ -1433,8 +1490,13 @@ void AppShimManager::OnShimOpenedFiles(
 
 void AppShimManager::OnShimSelectedProfile(AppShimHost* host,
                                            const base::FilePath& profile_path) {
+  LaunchAppInProfile(host->GetAppId(), profile_path);
+}
+
+void AppShimManager::LaunchAppInProfile(const webapps::AppId& app_id,
+                                        const base::FilePath& profile_path) {
   LoadAndLaunchAppParams params;
-  params.app_id = host->GetAppId();
+  params.app_id = app_id;
   LoadAndLaunchApp(profile_path, params, base::DoNothing());
 }
 
@@ -1468,7 +1530,7 @@ void AppShimManager::OnShimOpenedAppSettings(AppShimHost* host) {
 void AppShimManager::OnShimOpenedUrls(AppShimHost* host,
                                       const std::vector<GURL>& urls) {
   auto found_app = apps_.find(host->GetAppId());
-  DCHECK(found_app != apps_.end());
+  CHECK(found_app != apps_.end(), base::NotFatalUntil::M130);
   AppState* app_state = found_app->second.get();
   LoadAndLaunchAppParams params;
   params.app_id = host->GetAppId();
@@ -1484,7 +1546,7 @@ void AppShimManager::OnShimOpenedUrls(AppShimHost* host,
 void AppShimManager::OnShimOpenAppWithOverrideUrl(AppShimHost* host,
                                                   const GURL& override_url) {
   auto found_app = apps_.find(host->GetAppId());
-  DCHECK(found_app != apps_.end());
+  CHECK(found_app != apps_.end(), base::NotFatalUntil::M130);
   AppState* app_state = found_app->second.get();
   LoadAndLaunchAppParams params;
   params.app_id = host->GetAppId();
@@ -1496,13 +1558,24 @@ void AppShimManager::OnShimOpenAppWithOverrideUrl(AppShimHost* host,
 
 void AppShimManager::OnShimWillTerminate(AppShimHost* host) {
   auto found_app = apps_.find(host->GetAppId());
-  DCHECK(found_app != apps_.end());
+  CHECK(found_app != apps_.end(), base::NotFatalUntil::M130);
   AppState* app_state = found_app->second.get();
   DCHECK(app_state);
+
+  auto* notification_bridge = static_cast<NotificationPlatformBridgeMac*>(
+      g_browser_process->notification_platform_bridge());
+  notification_bridge->AppShimWillTerminate(host->GetAppId());
 
   DCHECK(!app_state->did_save_last_active_profiles_on_terminate);
   app_state->MaybeSaveLastActiveProfiles();
   app_state->did_save_last_active_profiles_on_terminate = true;
+}
+
+void AppShimManager::OnNotificationPermissionStatusChanged(
+    AppShimHost* host,
+    mac_notifications::mojom::PermissionStatus status) {
+  AppShimRegistry::Get()->SaveNotificationPermissionStatusForApp(
+      host->GetAppId(), status);
 }
 
 void AppShimManager::OnProfileAdded(Profile* profile) {
@@ -1528,25 +1601,15 @@ void AppShimManager::OnProfileMarkedForPermanentDeletion(Profile* profile) {
     app_lifetime_monitor->RemoveObserver(this);
   }
 
-  // Close app shims that were kept alive only for this profile. Note that this
-  // must be done as a posted task because closing shims may result in closing
-  // windows midway through BrowserList::TryToCloseBrowserList, which does not
-  // expect that behavior, and may result in crashes.
-  auto close_shims_lambda = [](base::WeakPtr<AppShimManager> manager) {
-    if (!manager)
-      return;
-    for (auto iter_app = manager->apps_.begin();
-         iter_app != manager->apps_.end();) {
-      AppState* app_state = iter_app->second.get();
-      if (app_state->ShouldDeleteAppState())
-        iter_app = manager->apps_.erase(iter_app);
-      else
-        ++iter_app;
+  // Close app shims that were kept alive only for this profile.
+  for (auto iter_app = apps_.begin(); iter_app != apps_.end();) {
+    AppState* app_state = iter_app->second.get();
+    if (app_state->ShouldDeleteAppState()) {
+      iter_app = apps_.erase(iter_app);
+    } else {
+      ++iter_app;
     }
-  };
-  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
-      FROM_HERE,
-      base::BindOnce(close_shims_lambda, weak_factory_.GetWeakPtr()));
+  }
 }
 
 void AppShimManager::OnAppStart(content::BrowserContext* context,
@@ -1585,7 +1648,7 @@ void AppShimManager::OnAppDeactivated(content::BrowserContext* context,
   // Check the integrity of AppState::profiles across all apps. Include the app
   // ID in the dump, to help pin down the cause.
   //
-  // TODO(crbug.com/1302722): Remove this once we're confident this never
+  // TODO(crbug.com/40217091): Remove this once we're confident this never
   // happens.
   std::string inconsistent_app_ids;
   for (const auto& [id, state] : apps_) {
@@ -1718,10 +1781,8 @@ void AppShimManager::RebuildProfileMenuItemsFromAvatarMenu() {
     mojo_item->menu_index = item.menu_index;
     mojo_item->active = item.active;
     mojo_item->profile_path = item.profile_path;
-    if (base::FeatureList::IsEnabled(kAppShimProfileMenuIcons)) {
-      mojo_item->icon =
-          profiles::GetAvatarIconForNSMenu(item.profile_path).ToImageSkia()[0];
-    }
+    mojo_item->icon =
+        profiles::GetAvatarIconForNSMenu(item.profile_path).ToImageSkia()[0];
     profile_menu_items_.push_back(std::move(mojo_item));
   }
 }
@@ -1883,8 +1944,8 @@ bool AppShimManager::LoadAndLaunchAppParams::HasFilesOrURLs() const {
   return !files.empty() || !urls.empty() || !override_url.is_empty();
 }
 
-base::apple::ScopedCFTypeRef<SecRequirementRef>
-AppShimManager::BuildAppShimRequirementFromFrameworkRequirementString(
+base::apple::ScopedCFTypeRef<CFStringRef>
+AppShimManager::BuildAppShimRequirementStringFromFrameworkRequirementString(
     CFStringRef framwork_requirement) {
   // Make sure the framework bundle requirement is in the expected format.
   // It should start with 'identifier "' and have at least 2 quotes. This allows
@@ -1898,7 +1959,7 @@ AppShimManager::BuildAppShimRequirementFromFrameworkRequirementString(
   if (!CFStringHasPrefix(framwork_requirement, CFSTR("identifier \"")) ||
       !quote_ranges || CFArrayGetCount(quote_ranges.get()) < 2) {
     DumpError("Framework bundle requirement is malformed.");
-    return base::apple::ScopedCFTypeRef<SecRequirementRef>(nullptr);
+    return base::apple::ScopedCFTypeRef<CFStringRef>(nullptr);
   }
 
   // Get the index of the second quote.
@@ -1909,7 +1970,7 @@ AppShimManager::BuildAppShimRequirementFromFrameworkRequirementString(
   // Make sure there is something to read after the second quote.
   if (second_quote_index + 1 >= len) {
     DumpError("Framework bundle requirement is too short");
-    return base::apple::ScopedCFTypeRef<SecRequirementRef>(nullptr);
+    return base::apple::ScopedCFTypeRef<CFStringRef>(nullptr);
   }
 
   // Build the app shim requirement. Keep the data from the framework bundle
@@ -1922,19 +1983,7 @@ AppShimManager::BuildAppShimRequirementFromFrameworkRequirementString(
       CFStringCreateMutableCopy(nullptr, 0,
                                 CFSTR("identifier \"app_mode_loader\"")));
   CFStringAppend(shim_requirement_string.get(), right_of_second_quote.get());
-
-  // Parse the requirement.
-  base::apple::ScopedCFTypeRef<SecRequirementRef> shim_requirement;
-  OSStatus status = SecRequirementCreateWithString(
-      shim_requirement_string.get(), kSecCSDefaultFlags,
-      shim_requirement.InitializeInto());
-  if (status != errSecSuccess) {
-    DumpOSStatusError(
-        status, std::string("SecRequirementCreateWithString: ") +
-                    base::SysCFStringRefToUTF8(shim_requirement_string.get()));
-    return base::apple::ScopedCFTypeRef<SecRequirementRef>(nullptr);
-  }
-  return shim_requirement;
+  return shim_requirement_string;
 }
 
 }  // namespace apps

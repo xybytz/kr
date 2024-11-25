@@ -39,7 +39,7 @@ NetworkStateInformer::State GetStateForNetwork(const NetworkState* network) {
   if (!network->IsConnectedState()) {
     return NetworkStateInformer::OFFLINE;
   }
-  switch (network->GetPortalState()) {
+  switch (network->portal_state()) {
     case NetworkState::PortalState::kUnknown:
       return NetworkStateInformer::UNKNOWN;
     case NetworkState::PortalState::kOnline:
@@ -47,8 +47,6 @@ NetworkStateInformer::State GetStateForNetwork(const NetworkState* network) {
     case NetworkState::PortalState::kPortalSuspected:
     case NetworkState::PortalState::kPortal:
       return NetworkStateInformer::CAPTIVE_PORTAL;
-    case NetworkState::PortalState::kProxyAuthRequired:
-      return NetworkStateInformer::PROXY_AUTH_REQUIRED;
     case NetworkState::PortalState::kNoInternet:
       return NetworkStateInformer::OFFLINE;
   }

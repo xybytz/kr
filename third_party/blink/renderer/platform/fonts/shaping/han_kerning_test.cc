@@ -10,12 +10,9 @@
 #include "third_party/blink/renderer/platform/fonts/font.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/font_features.h"
 #include "third_party/blink/renderer/platform/testing/font_test_helpers.h"
-#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 
 namespace blink {
-
-namespace {
 
 Font CreateNotoCjk() {
   return blink::test::CreateTestFont(
@@ -25,10 +22,35 @@ Font CreateNotoCjk() {
       16.0);
 }
 
-class HanKerningTest : public testing::Test, ScopedCSSTextSpacingTrimForTest {
- public:
-  explicit HanKerningTest() : ScopedCSSTextSpacingTrimForTest(true) {}
-};
+class HanKerningTest : public testing::Test {};
+
+TEST_F(HanKerningTest, MayApply) {
+  Font noto_cjk = CreateNotoCjk();
+  const SimpleFontData* noto_cjk_data = noto_cjk.PrimaryFont();
+  EXPECT_TRUE(noto_cjk_data);
+  scoped_refptr<LayoutLocale> ja =
+      LayoutLocale::CreateForTesting(AtomicString("ja"));
+  HanKerning::FontData ja_data(*noto_cjk_data, *ja, true);
+
+  for (UChar32 ch = 0; ch < kMaxCodepoint; ++ch) {
+    StringBuilder builder;
+    builder.Append(ch);
+    String text = builder.ToString();
+
+    for (wtf_size_t i = 0; i < text.length(); ++i) {
+      const HanKerning::CharType type =
+          HanKerning::GetCharType(text[i], ja_data);
+      if (type == HanKerning::CharType::kOpen ||
+          type == HanKerning::CharType::kOpenQuote ||
+          type == HanKerning::CharType::kClose ||
+          type == HanKerning::CharType::kCloseQuote) {
+        EXPECT_EQ(HanKerning::MayApply(text), true)
+            << String::Format("U+%06X", ch);
+        break;
+      }
+    }
+  }
+}
 
 TEST_F(HanKerningTest, FontDataHorizontal) {
   Font noto_cjk = CreateNotoCjk();
@@ -98,6 +120,54 @@ TEST_F(HanKerningTest, FontDataVertical) {
   EXPECT_TRUE(zht_data.is_quote_fullwidth);
 }
 
+#if BUILDFLAG(IS_WIN)
+// A test case of CJK fullwidth punctuation has slightly different widths from
+// the `IdeographicInlineSize` (the width of U+0x6C34). crbug.com/1519775
+// https://collabo-cafe.com/events/collabo/shingeki-anime-completed-hajime-isayama-illust2023/
+TEST_F(HanKerningTest, FontDataSizeError) {
+  class EnableAntialiasedText {
+   public:
+    EnableAntialiasedText()
+        : is_antialiased_text_enabled_(
+              FontCache::Get().AntialiasedTextEnabled()) {
+      FontCache::Get().SetAntialiasedTextEnabled(true);
+    }
+    ~EnableAntialiasedText() {
+      FontCache::Get().SetAntialiasedTextEnabled(is_antialiased_text_enabled_);
+    }
+
+   private:
+    bool is_antialiased_text_enabled_;
+  } enable_antialias_text;
+
+  FontDescription font_description;
+  font_description.SetFamily(
+      FontFamily(AtomicString("Yu Gothic"), FontFamily::Type::kFamilyName));
+  const float specified_size = 16.f * 1.03f;
+  font_description.SetSpecifiedSize(specified_size);
+  const float computed_size = specified_size * 1.25f;
+  font_description.SetComputedSize(computed_size);
+  font_description.SetFontSmoothing(FontSmoothingMode::kAntialiased);
+  Font font(font_description);
+  const SimpleFontData* primary_font = font.PrimaryFont();
+
+  SkString name;
+  primary_font->PlatformData().Typeface()->getPostScriptName(&name);
+  if (!name.equals("YuGothic-Regular")) {
+    return;
+  }
+
+  scoped_refptr<LayoutLocale> locale =
+      LayoutLocale::CreateForTesting(AtomicString("ja"));
+  HanKerning::FontData data(*font.PrimaryFont(), *locale, true);
+  EXPECT_TRUE(data.has_alternate_spacing);
+  EXPECT_EQ(data.type_for_dot, HanKerning::CharType::kClose);
+  EXPECT_EQ(data.type_for_colon, HanKerning::CharType::kMiddle);
+  EXPECT_EQ(data.type_for_semicolon, HanKerning::CharType::kMiddle);
+  EXPECT_FALSE(data.is_quote_fullwidth);
+}
+#endif  // BUILDFLAG(IS_WIN)
+
 TEST_F(HanKerningTest, ResetFeatures) {
   Font noto_cjk = CreateNotoCjk();
   const SimpleFontData* noto_cjk_data = noto_cjk.PrimaryFont();
@@ -115,7 +185,5 @@ TEST_F(HanKerningTest, ResetFeatures) {
   }
   EXPECT_EQ(features.size(), 1u);
 }
-
-}  // namespace
 
 }  // namespace blink

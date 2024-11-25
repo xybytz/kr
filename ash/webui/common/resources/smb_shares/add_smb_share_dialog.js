@@ -9,15 +9,15 @@
  * destroyed when finished, and re-created when shown again.
  */
 
-import '//resources/cr_elements/cr_button/cr_button.js';
-import '//resources/cr_elements/cr_checkbox/cr_checkbox.js';
-import '//resources/cr_elements/cr_dialog/cr_dialog.js';
-import '//resources/cr_elements/cr_input/cr_input.js';
-import '//resources/cr_elements/cr_searchable_drop_down/cr_searchable_drop_down.js';
-import '//resources/cr_elements/icons.html.js';
-import '//resources/cr_elements/cr_shared_style.css.js';
-import '//resources/cr_elements/cr_shared_vars.css.js';
-import '//resources/cr_elements/md_select.css.js';
+import '//resources/ash/common/cr_elements/cr_button/cr_button.js';
+import '//resources/ash/common/cr_elements/cr_checkbox/cr_checkbox.js';
+import '//resources/ash/common/cr_elements/cr_dialog/cr_dialog.js';
+import '//resources/ash/common/cr_elements/cr_input/cr_input.js';
+import '//resources/ash/common/cr_elements/cr_searchable_drop_down/cr_searchable_drop_down.js';
+import '//resources/ash/common/cr_elements/icons.html.js';
+import '//resources/ash/common/cr_elements/cr_shared_style.css.js';
+import '//resources/ash/common/cr_elements/cr_shared_vars.css.js';
+import '//resources/ash/common/cr_elements/md_select.css.js';
 import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
 import '//resources/cros_components/checkbox/checkbox.js';
 
@@ -104,14 +104,6 @@ Polymer({
     },
 
     /** @private */
-    isActiveDirectory_: {
-      type: Boolean,
-      value() {
-        return loadTimeData.getBoolean('isActiveDirectoryUser');
-      },
-    },
-
-    /** @private */
     isKerberosEnabled_: {
       type: Boolean,
       value() {
@@ -137,9 +129,8 @@ Polymer({
           return SmbAuthMethod.CREDENTIALS;
         }
 
-        // SSO only supported on ChromAD or Kerberos.
-        if (loadTimeData.getBoolean('isActiveDirectoryUser') ||
-            loadTimeData.getBoolean('isKerberosEnabled')) {
+        // SSO only supported if Kerberos is enabled by policy.
+        if (loadTimeData.getBoolean('isKerberosEnabled')) {
           return SmbAuthMethod.KERBEROS;
         }
 
@@ -262,8 +253,8 @@ Polymer({
       return false;
     }
 
-    // SSO only supported on ChromAD or Kerberos.
-    return this.isActiveDirectory_ || this.isKerberosEnabled_;
+    // SSO only supported if Kerberos is enabled by policy.
+    return this.isKerberosEnabled_;
   },
 
   /**
@@ -399,10 +390,6 @@ Polymer({
       return false;
     }
     return SMB_SHARE_URL_REGEX.test(this.mountUrl_);
-  },
-
-  isJellyEnabled_() {
-    return !!loadTimeData.getBoolean('isJellyEnabled');
   },
 
   isCrosComponentsEnabled_() {

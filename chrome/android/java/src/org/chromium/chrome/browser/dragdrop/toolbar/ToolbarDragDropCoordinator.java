@@ -18,6 +18,7 @@ import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.omnibox.OmniboxFocusReason;
 import org.chromium.chrome.browser.omnibox.OmniboxStub;
 import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteDelegate;
+import org.chromium.chrome.browser.omnibox.suggestions.OmniboxLoadUrlParams;
 import org.chromium.components.search_engines.TemplateUrlService;
 import org.chromium.ui.base.MimeTypeUtils;
 import org.chromium.ui.base.PageTransition;
@@ -55,7 +56,7 @@ public class ToolbarDragDropCoordinator implements OnDragListener {
         int NUM_ENTRIES = 5;
     }
 
-    // TODO(crbug.com/1469224): Swap error message to a translated string.
+    // TODO(crbug.com/40277406): Swap error message to a translated string.
     private static final String ERROR_MESSAGE = "Unable to handle drop";
     private AutocompleteDelegate mAutocompleteDelegate;
     private PropertyModelChangeProcessor mModelChangeProcessor;
@@ -136,23 +137,21 @@ public class ToolbarDragDropCoordinator implements OnDragListener {
             // Try to get the byte array needed for image search from local state. If drag and drop
             // is started from the same Chrome activity, then DropDataAndroid should be set as a
             // local state.
-            //  TODO(crbug.com/1469084): Read the image bytes from localState using a util method
+            //  TODO(crbug.com/40277338): Read the image bytes from localState using a util method
             Object dropData = event.getLocalState();
             TemplateUrlService urlService = mTemplateUrlServiceSupplier.get();
-            if (!urlService.isSearchByImageAvailable()
-                    || (!(dropData instanceof DropDataAndroid))) {
+            if (!urlService.isSearchByImageAvailable() || !(dropData instanceof DropDataAndroid)) {
                 handleErrorToast();
                 return;
             }
             String[] postData = urlService.getImageUrlAndPostContent();
-            // TODO(crbug.com/1473127): Pass in correct imageByteArray to AutocompleteDelegate
+            // TODO(crbug.com/40278861): Pass in correct imageByteArray to AutocompleteDelegate
             byte[] imageByteArray = new byte[0];
-            mAutocompleteDelegate.loadUrlWithPostData(
-                    postData[0],
-                    PageTransition.GENERATED,
-                    SystemClock.uptimeMillis(),
-                    postData[1],
-                    imageByteArray);
+            mAutocompleteDelegate.loadUrl(
+                    new OmniboxLoadUrlParams.Builder(postData[0], PageTransition.GENERATED)
+                            .setInputStartTimestamp(SystemClock.uptimeMillis())
+                            .setpostDataAndType(imageByteArray, postData[1])
+                            .build());
             recordDropType(DropType.CHROME_IMAGE);
         } else if (event.getClipDescription().hasMimeType(MimeTypeUtils.CHROME_MIMETYPE_TEXT)) {
             mOmniboxStub.setUrlBarFocus(
@@ -164,19 +163,18 @@ public class ToolbarDragDropCoordinator implements OnDragListener {
                     OmniboxFocusReason.DRAG_DROP_TO_OMNIBOX);
             recordDropType(DropType.CHROME_TEXT);
         } else if (event.getClipDescription().hasMimeType(MimeTypeUtils.CHROME_MIMETYPE_LINK)) {
-            /**
-             * This parsing is based on the implementation in
-             * DragAndDropDelegateImpl#BuildClipData. Ideally we should handle build / parsing
-             * in a similar place to keep things consistent.
-             * TODO(crbug.com/1469084): Build ClipData and parse link URL using a static helper
-             * method
+            /*
+             * This parsing is based on the implementation in DragAndDropDelegateImpl#BuildClipData.
+             * Ideally we should handle build / parsing in a similar place to keep things
+             * consistent. TODO(crbug.com/40277338): Build ClipData and parse link URL using a
+             * static helper method
              */
             String url = event.getClipData().getItemAt(0).getIntent().getData().toString();
             mAutocompleteDelegate.loadUrl(
-                    url,
-                    PageTransition.TYPED,
-                    SystemClock.uptimeMillis(),
-                    /* openInNewTab= */ false);
+                    new OmniboxLoadUrlParams.Builder(url, PageTransition.TYPED)
+                            .setInputStartTimestamp(SystemClock.uptimeMillis())
+                            .setOpenInNewTab(false)
+                            .build());
             recordDropType(DropType.CHROME_LINK);
         } else {
             // case where dragged object is not from Chrome

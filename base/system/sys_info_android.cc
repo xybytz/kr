@@ -12,7 +12,6 @@
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info_internal.h"
@@ -75,6 +74,12 @@ std::string SysInfo::HardwareModelName() {
   char device_model_str[PROP_VALUE_MAX];
   __system_property_get("ro.product.model", device_model_str);
   return std::string(device_model_str);
+}
+
+std::string SysInfo::SocManufacturer() {
+  char soc_manufacturer_str[PROP_VALUE_MAX];
+  __system_property_get("ro.soc.manufacturer", soc_manufacturer_str);
+  return std::string(soc_manufacturer_str);
 }
 
 std::string SysInfo::OperatingSystemName() {

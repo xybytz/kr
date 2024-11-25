@@ -6,11 +6,13 @@
 
 #include "base/feature_list.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/loader/lcp_critical_path_predictor_util.h"
 #include "third_party/blink/public/mojom/script/script_type.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/referrer_script_info.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_streamer.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_compile_hints_common.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/scriptable_document_parser.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -35,7 +37,6 @@
 #include "third_party/blink/renderer/platform/loader/fetch/raw_resource.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_client.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
@@ -45,8 +46,9 @@ InlineScriptStreamer* GetInlineScriptStreamer(const String& source,
                                               Document& document) {
   ScriptableDocumentParser* scriptable_parser =
       document.GetScriptableDocumentParser();
-  if (!scriptable_parser)
+  if (!scriptable_parser) {
     return nullptr;
+  }
 
   // The inline script streamers are keyed by the full source text to make sure
   // the script that was parsed in the background scanner exactly matches the
@@ -104,8 +106,10 @@ ClassicPendingScript* ClassicPendingScript::Fetch(
   }
 
   ScriptResource::Fetch(params, element_document.Fetcher(), pending_script,
-                        ScriptResource::kAllowStreaming, compile_hints_producer,
-                        compile_hints_consumer);
+                        context->GetIsolate(), ScriptResource::kAllowStreaming,
+                        compile_hints_producer, compile_hints_consumer,
+                        v8_compile_hints::GetMagicCommentMode(
+                            element_document.GetExecutionContext()));
   pending_script->CheckState();
   return pending_script;
 }
@@ -181,49 +185,55 @@ NOINLINE void ClassicPendingScript::CheckState() const {
   }
 }
 
-
 void ClassicPendingScript::RecordThirdPartyRequestWithCookieIfNeeded(
     const ResourceResponse& response) const {
   // Can be null in some cases where loading failed.
-  if (response.IsNull())
-    return;
-
-  ExecutionContext* execution_context = OriginalExecutionContext();
-  Document* element_document = OriginalElementDocument();
-  if (!execution_context || !element_document)
-    return;
-
-  scoped_refptr<SecurityOrigin> script_origin =
-      SecurityOrigin::Create(response.ResponseUrl());
-  const SecurityOrigin* doc_origin = execution_context->GetSecurityOrigin();
-  scoped_refptr<const SecurityOrigin> top_frame_origin =
-      element_document->TopFrameOrigin();
-
-  // The use counter is meant to gather data for prerendering: how often do
-  // pages make credentialed requests to third parties from first-party frames,
-  // that cannot be delayed during prerendering until the page is navigated to.
-  // Therefore...
-
-  // Ignore third-party frames.
-  if (!top_frame_origin || top_frame_origin->RegistrableDomain() !=
-                               doc_origin->RegistrableDomain()) {
+  if (response.IsNull()) {
     return;
   }
 
-  // Ignore first-party requests.
-  if (doc_origin->RegistrableDomain() == script_origin->RegistrableDomain())
-    return;
-
   // Ignore cookie-less requests.
-  if (!response.WasCookieInRequest())
+  if (!response.WasCookieInRequest()) {
     return;
+  }
 
   // Ignore scripts that can be delayed. This is only async scripts currently.
   // kDefer and kForceDefer don't count as delayable since delaying them
   // artificially further while prerendering would prevent the page from making
   // progress.
-  if (GetSchedulingType() == ScriptSchedulingType::kAsync)
+  if (GetSchedulingType() == ScriptSchedulingType::kAsync) {
     return;
+  }
+
+  ExecutionContext* execution_context = OriginalExecutionContext();
+  Document* element_document = OriginalElementDocument();
+  if (!execution_context || !element_document) {
+    return;
+  }
+
+  scoped_refptr<const SecurityOrigin> top_frame_origin =
+      element_document->TopFrameOrigin();
+  if (!top_frame_origin) {
+    return;
+  }
+
+  // The use counter is meant to gather data for prerendering: how often do
+  // pages make credentialed requests to third parties from first-party frames,
+  // that cannot be delayed during prerendering until the page is navigated to.
+  // Therefore...
+  String doc_registrable_domain =
+      execution_context->GetSecurityOrigin()->RegistrableDomain();
+  // Ignore third-party frames.
+  if (top_frame_origin->RegistrableDomain() != doc_registrable_domain) {
+    return;
+  }
+
+  scoped_refptr<SecurityOrigin> script_origin =
+      SecurityOrigin::Create(response.ResponseUrl());
+  // Ignore first-party requests.
+  if (doc_registrable_domain == script_origin->RegistrableDomain()) {
+    return;
+  }
 
   execution_context->CountUse(
       mojom::blink::WebFeature::
@@ -240,22 +250,25 @@ bool ClassicPendingScript::IsEligibleForLowPriorityAsyncScriptExecution()
 
   static const bool feature_enabled =
       base::FeatureList::IsEnabled(features::kLowPriorityAsyncScriptExecution);
-  if (!feature_enabled)
+  if (!feature_enabled) {
     return false;
+  }
 
   Document* element_document = OriginalElementDocument();
 
-  if (!IsA<HTMLDocument>(element_document))
+  if (!IsA<HTMLDocument>(element_document)) {
     return false;
+  }
 
   // Most LCP elements are provided by the main frame, and delaying subframe's
   // resources seems not to improve LCP.
-  static const bool main_frame_only =
+  const bool main_frame_only =
       features::kLowPriorityAsyncScriptExecutionMainFrameOnlyParam.Get();
-  if (main_frame_only && !element_document->IsInOutermostMainFrame())
+  if (main_frame_only && !element_document->IsInOutermostMainFrame()) {
     return false;
+  }
 
-  static const base::TimeDelta feature_limit =
+  const base::TimeDelta feature_limit =
       features::kLowPriorityAsyncScriptExecutionFeatureLimitParam.Get();
   if (!feature_limit.is_zero() &&
       element_document->GetStartTime().Elapsed() > feature_limit) {
@@ -272,11 +285,10 @@ bool ClassicPendingScript::IsEligibleForLowPriorityAsyncScriptExecution()
   }
 
   // Check if LCP influencing scripts are to be excluded.
-  static const bool exclude_lcp_influencers =
+  const bool exclude_lcp_influencers =
       features::kLowPriorityAsyncScriptExecutionExcludeLcpInfluencersParam
           .Get();
-  if (exclude_lcp_influencers &&
-      base::FeatureList::IsEnabled(features::kLCPScriptObserver)) {
+  if (exclude_lcp_influencers && LcppScriptObserverEnabled()) {
     if (LCPCriticalPathPredictor* lcpp = top_document.GetFrame()->GetLCPP()) {
       if (lcpp->IsLcpInfluencerScript(GetResource()->Url())) {
         return false;
@@ -284,7 +296,7 @@ bool ClassicPendingScript::IsEligibleForLowPriorityAsyncScriptExecution()
     }
   }
 
-  static const bool disable_when_lcp_not_in_html =
+  const bool disable_when_lcp_not_in_html =
       features::kLowPriorityAsyncScriptExecutionDisableWhenLcpNotInHtmlParam
           .Get();
   if (disable_when_lcp_not_in_html && !top_document.IsLcpElementFoundInHtml()) {
@@ -293,7 +305,7 @@ bool ClassicPendingScript::IsEligibleForLowPriorityAsyncScriptExecution()
     return false;
   }
 
-  static const bool cross_site_only =
+  const bool cross_site_only =
       features::kLowPriorityAsyncScriptExecutionCrossSiteOnlyParam.Get();
   if (cross_site_only && GetResource() &&
       element_document->GetExecutionContext()) {
@@ -305,15 +317,77 @@ bool ClassicPendingScript::IsEligibleForLowPriorityAsyncScriptExecution()
     }
   }
 
-  if (GetElement() && GetElement()->IsPotentiallyRenderBlocking())
+  if (GetElement() && GetElement()->IsPotentiallyRenderBlocking()) {
     return false;
+  }
 
   // We don't delay async scripts that have matched a resource in the preload
   // cache, because we're using <link rel=preload> as a signal that the script
   // is higher-than-usual priority, and therefore should be executed earlier
   // rather than later.
-  if (GetResource() && GetResource()->IsLinkPreload())
+  if (GetResource() && GetResource()->IsLinkPreload()) {
     return false;
+  }
+
+  bool is_ad_resource =
+      GetResource() && GetResource()->GetResourceRequest().IsAdResource();
+  switch (features::kLowPriorityAsyncScriptExecutionTargetParam.Get()) {
+    case features::AsyncScriptExperimentalSchedulingTarget::kAds:
+      if (!is_ad_resource) {
+        return false;
+      }
+      break;
+    case features::AsyncScriptExperimentalSchedulingTarget::kNonAds:
+      if (is_ad_resource) {
+        return false;
+      }
+      break;
+    case features::AsyncScriptExperimentalSchedulingTarget::kBoth:
+      break;
+  }
+
+  const bool exclude_non_parser_inserted =
+      features::kLowPriorityAsyncScriptExecutionExcludeNonParserInsertedParam
+          .Get();
+  if (exclude_non_parser_inserted && !parser_inserted()) {
+    return false;
+  }
+
+  const bool exclude_scripts_via_document_write =
+      features::kLowPriorityAsyncScriptExecutionExcludeDocumentWriteParam.Get();
+  if (exclude_scripts_via_document_write && is_in_document_write()) {
+    return false;
+  }
+
+  const bool opt_out_low =
+      features::kLowPriorityAsyncScriptExecutionOptOutLowFetchPriorityHintParam
+          .Get();
+  const bool opt_out_auto =
+      features::kLowPriorityAsyncScriptExecutionOptOutAutoFetchPriorityHintParam
+          .Get();
+  const bool opt_out_high =
+      features::kLowPriorityAsyncScriptExecutionOptOutHighFetchPriorityHintParam
+          .Get();
+
+  if (GetResource()) {
+    switch (GetResource()->GetResourceRequest().GetFetchPriorityHint()) {
+      case mojom::blink::FetchPriorityHint::kLow:
+        if (opt_out_low) {
+          return false;
+        }
+        break;
+      case mojom::blink::FetchPriorityHint::kAuto:
+        if (opt_out_auto) {
+          return false;
+        }
+        break;
+      case mojom::blink::FetchPriorityHint::kHigh:
+        if (opt_out_high) {
+          return false;
+        }
+        break;
+    }
+  }
 
   return true;
 }
@@ -358,17 +432,10 @@ void ClassicPendingScript::NotifyFinished(Resource* resource) {
   SubresourceIntegrityHelper::DoReport(*execution_context,
                                        resource->IntegrityReportInfo());
 
-  // It is possible to get back a script resource with integrity metadata
-  // for a request with an empty integrity attribute. In that case, the
-  // integrity check should be skipped, as the integrity may not have been
-  // "meant" for this specific request. If the resource is being served from
-  // the preload cache however, we know any associated integrity metadata and
-  // checks were destined for this request, so we cannot skip the integrity
-  // check.
   bool integrity_failure = false;
-  if (!options_.GetIntegrityMetadata().empty() || resource->IsLinkPreload()) {
-    integrity_failure = resource->IntegrityDisposition() !=
-                        ResourceIntegrityDisposition::kPassed;
+  if (!options_.GetIntegrityMetadata().empty() ||
+      resource->ForceIntegrityChecks()) {
+    integrity_failure = !resource->PassedIntegrityChecks();
   }
 
   if (intervened_) {
@@ -449,8 +516,9 @@ ClassicScript* ClassicPendingScript::GetSource() const {
   CheckState();
   DCHECK(IsReady());
 
-  if (ready_state_ == kErrorOccurred)
+  if (ready_state_ == kErrorOccurred) {
     return nullptr;
+  }
 
   TRACE_EVENT0("blink", "ClassicPendingScript::GetSource");
   if (!is_external_) {
@@ -532,7 +600,6 @@ void ClassicPendingScript::AdvanceReadyState(ReadyState new_ready_state) {
     case kReady:
     case kErrorOccurred:
       NOTREACHED();
-      break;
   }
 
   // All the ready states are marked not reachable above, so we can't have been
@@ -542,19 +609,22 @@ void ClassicPendingScript::AdvanceReadyState(ReadyState new_ready_state) {
   ready_state_ = new_ready_state;
 
   // Did we transition into a 'ready' state?
-  if (IsReady() && IsWatchingForLoad())
+  if (IsReady() && IsWatchingForLoad()) {
     PendingScriptFinished();
+  }
 }
 
 bool ClassicPendingScript::WasCanceled() const {
-  if (!is_external_)
+  if (!is_external_) {
     return false;
+  }
   return GetResource()->WasCanceled();
 }
 
 KURL ClassicPendingScript::UrlForTracing() const {
-  if (!is_external_ || !GetResource())
+  if (!is_external_ || !GetResource()) {
     return NullURL();
+  }
 
   return GetResource()->Url();
 }

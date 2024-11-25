@@ -12,9 +12,7 @@ import android.content.Intent;
 import android.net.Uri;
 
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
@@ -23,14 +21,12 @@ import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.JniMocker;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.chrome.browser.feed.FeedServiceBridge;
 import org.chromium.chrome.browser.feed.FeedServiceBridgeJni;
 import org.chromium.chrome.browser.feed.StreamKind;
 import org.chromium.chrome.browser.feed.v2.FeedUserActionType;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
 
 /** Tests {@link FeedManagementMediator}. */
@@ -43,13 +39,7 @@ public class FeedManagementMediatorTest {
     private ModelList mModelList;
     private FeedManagementMediator mFeedManagementMediator;
 
-    @Rule public JniMocker mocker = new JniMocker();
-
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
-
     @Mock private FeedServiceBridge.Natives mFeedServiceBridgeJniMock;
-
-    @Mock private FeedManagementMediator.FollowManagementLauncher mFollowManagementLauncher;
 
     @Before
     public void setUpTest() {
@@ -57,11 +47,10 @@ public class FeedManagementMediatorTest {
         mShadowActivity = Shadows.shadowOf(mActivity);
         mModelList = new ModelList();
         MockitoAnnotations.initMocks(this);
-        mocker.mock(FeedServiceBridgeJni.TEST_HOOKS, mFeedServiceBridgeJniMock);
+        FeedServiceBridgeJni.setInstanceForTesting(mFeedServiceBridgeJniMock);
 
         mFeedManagementMediator =
-                new FeedManagementMediator(
-                        mActivity, mModelList, mFollowManagementLauncher, TEST_STREAM_KIND);
+                new FeedManagementMediator(mActivity, mModelList, TEST_STREAM_KIND);
     }
 
     @Test
@@ -78,9 +67,9 @@ public class FeedManagementMediatorTest {
     }
 
     @Test
-    public void testHandleInterestsClick() {
+    public void testHandleFollowingClick() {
         // Act
-        mFeedManagementMediator.handleInterestsClick(null);
+        mFeedManagementMediator.handleFollowingClick(null);
 
         // Assert
         Intent intent = mShadowActivity.peekNextStartedActivityForResult().intent;
@@ -105,17 +94,5 @@ public class FeedManagementMediatorTest {
         verify(mFeedServiceBridgeJniMock)
                 .reportOtherUserAction(
                         TEST_STREAM_KIND, FeedUserActionType.TAPPED_MANAGE_INTERESTS);
-    }
-
-    @Test
-    public void testHandleFollowingClick() {
-        // Act
-        mFeedManagementMediator.handleFollowingClick(null);
-
-        // Assert
-        verify(mFollowManagementLauncher).launchFollowManagement(mActivity);
-        verify(mFeedServiceBridgeJniMock)
-                .reportOtherUserAction(
-                        TEST_STREAM_KIND, FeedUserActionType.TAPPED_MANAGE_FOLLOWING);
     }
 }

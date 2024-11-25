@@ -8,7 +8,7 @@
 
 #include "ash/constants/ash_pref_names.h"
 #include "ash/constants/notifier_catalogs.h"
-#include "ash/focus_cycler.h"
+#include "ash/focus/focus_cycler.h"
 #include "ash/login/security_token_request_controller.h"
 #include "ash/login/ui/lock_screen.h"
 #include "ash/login/ui/login_data_dispatcher.h"
@@ -32,6 +32,7 @@
 #include "base/functional/callback.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/syslog_logging.h"
 #include "base/task/single_thread_task_runner.h"
 #include "components/account_id/account_id.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -232,13 +233,6 @@ void LoginScreenController::OnMaxIncorrectPasswordAttempted(
   client_->OnMaxIncorrectPasswordAttempted(account_id);
 }
 
-void LoginScreenController::FocusLockScreenApps(bool reverse) {
-  if (!client_) {
-    return;
-  }
-  client_->FocusLockScreenApps(reverse);
-}
-
 void LoginScreenController::ShowGaiaSignin(const AccountId& prefilled_account) {
   if (!client_) {
     return;
@@ -282,6 +276,7 @@ void LoginScreenController::LaunchPublicSession(
   if (!client_) {
     return;
   }
+  SYSLOG(INFO) << "MGS: Requesting manual launch";
   client_->LaunchPublicSession(account_id, locale, input_method);
 }
 
@@ -296,6 +291,16 @@ void LoginScreenController::RequestPublicSessionKeyboardLayouts(
 
 void LoginScreenController::SetClient(LoginScreenClient* client) {
   client_ = client;
+}
+
+ManagementDisclosureClient*
+LoginScreenController::GetManagementDisclosureClient() {
+  return management_disclosure_client_;
+}
+
+void LoginScreenController::SetManagementDisclosureClient(
+    ManagementDisclosureClient* client) {
+  management_disclosure_client_ = client;
 }
 
 LoginScreenModel* LoginScreenController::GetModel() {
@@ -326,14 +331,9 @@ void LoginScreenController::FocusLoginShelf(bool reverse) {
     Shell::Get()->focus_cycler()->FocusWidget(shelf->GetStatusAreaWidget());
   } else if (shelf->shelf_widget()->GetLoginShelfView()->IsFocusable()) {
     // Otherwise focus goes to login shelf buttons when there is any.
-    if (features::IsUseLoginShelfWidgetEnabled()) {
-      LoginShelfWidget* login_shelf_widget = shelf->login_shelf_widget();
-      login_shelf_widget->SetDefaultLastFocusableChild(reverse);
-      Shell::Get()->focus_cycler()->FocusWidget(login_shelf_widget);
-    } else {
-      shelf->shelf_widget()->set_default_last_focusable_child(reverse);
-      Shell::Get()->focus_cycler()->FocusWidget(shelf->shelf_widget());
-    }
+    LoginShelfWidget* login_shelf_widget = shelf->login_shelf_widget();
+    login_shelf_widget->SetDefaultLastFocusableChild(reverse);
+    Shell::Get()->focus_cycler()->FocusWidget(login_shelf_widget);
   } else {
     // No elements to focus on the shelf.
     //
@@ -534,7 +534,7 @@ void LoginScreenController::OnLockScreenDestroyed() {
                  << authentication_stage_;
   }
 
-  // Dimiss the toast created by `ShowKioskAppError`, if any.
+  // Dismiss the toast created by `ShowKioskAppError`, if any.
   Shell::Get()->toast_manager()->Cancel(kKioskToastId);
 
   // Still handle it to avoid crashes during Login/Lock/Unlock flows.

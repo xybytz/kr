@@ -1,4 +1,4 @@
-(async function(testRunner) {
+(async function(/** @type {import('test_runner').TestRunner} */ testRunner) {
   const {page, session, dp} = await testRunner.startBlank(
       'Tests that one can evaluate in worker while main page is paused.');
 
@@ -13,15 +13,15 @@
   `);
   testRunner.log('Started worker');
 
+  const messageObject = await attachedPromise;
+  testRunner.log('Worker created');
+  testRunner.log('didConnectToWorker');
+
   await dp.Debugger.enable();
   const pausedPromise = dp.Debugger.oncePaused();
   dp.Runtime.evaluate({expression: 'debugger;' });
   await pausedPromise;
   testRunner.log(`Paused on 'debugger;'`);
-
-  const messageObject = await attachedPromise;
-  testRunner.log('Worker created');
-  testRunner.log('didConnectToWorker');
 
   const childSession = session.createChild(messageObject.params.sessionId);
   const result = await childSession.evaluateAsync('1+1');

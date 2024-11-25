@@ -81,9 +81,6 @@ void It2MeCliHost::Start() {
   ui_task_runner_ = new AutoThreadTaskRunner(
       base::SingleThreadTaskRunner::GetCurrentDefault(), ui_loop.QuitClosure());
 
-  token_getter_->CallWithToken(base::BindOnce(
-      &It2MeCliHost::StartCRDHostAndGetCode, base::Unretained(this)));
-
   std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier(
       net::NetworkChangeNotifier::CreateIfNeeded());
   ui_loop.Run();
@@ -171,7 +168,8 @@ void It2MeCliHost::OnProtocolBroken(const std::string& message) {
 
 void It2MeCliHost::StartCRDHostAndGetCode(OAuthTokenGetter::Status status,
                                           const std::string& user_email,
-                                          const std::string& access_token) {
+                                          const std::string& access_token,
+                                          const std::string& scopes) {
   DCHECK(!host_);
 
   // Store all parameters for future connect call.

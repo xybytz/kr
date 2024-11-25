@@ -10,7 +10,7 @@
 #import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_model.h"
-#import "ios/web/common/features.h"
+#import "ios/public/provider/chrome/browser/fullscreen/fullscreen_api.h"
 #import "ios/web/public/ui/crw_web_view_proxy.h"
 #import "ios/web/public/ui/crw_web_view_scroll_view_proxy.h"
 #import "ios/web/public/web_state.h"
@@ -84,7 +84,7 @@
 // the application is in fullscreen, 1 that it is out of fullscreen.
 - (void)updateForFullscreenProgress:(CGFloat)progress {
   if (!self.webState || !self.webState->GetView().superview ||
-      self.model->IsForceFullscreenMode()) {
+      !self.model->IsInsetsUpdateEnabled()) {
     return;
   }
 
@@ -124,7 +124,7 @@
   CGFloat currentTopInset = webView.frame.origin.y;
   CGPoint newContentOffset = scrollViewProxy.contentOffset;
   newContentOffset.y += insets.top - currentTopInset;
-  if (!base::FeatureList::IsEnabled(kFullscreenImprovement)) {
+  if (ios::provider::IsFullscreenSmoothScrollingSupported()) {
     // Update the content offset of the scroll view to match the padding
     // that will be included in the frame.
     if (self.compensateFrameChangeByOffset) {
@@ -134,10 +134,10 @@
 
   webView.frame = newFrame;
 
-  if (!base::FeatureList::IsEnabled(kFullscreenImprovement)) {
+  if (ios::provider::IsFullscreenSmoothScrollingSupported()) {
     // Setting WKWebView frame can mistakenly reset contentOffset. Change it
     // back to the initial value if necessary.
-    // TODO(crbug.com/645857): Remove this workaround once WebKit bug is
+    // TODO(crbug.com/40484457): Remove this workaround once WebKit bug is
     // fixed.
     if (self.compensateFrameChangeByOffset &&
         [scrollViewProxy contentOffset].y != newContentOffset.y) {
@@ -148,15 +148,12 @@
 
 // Observes the frame property of the view of the `webState` using KVO.
 - (void)observeWebStateViewFrame:(web::WebState*)webState {
-  if (base::FeatureList::IsEnabled(kFullscreenImprovement) ||
+  if (!ios::provider::IsFullscreenSmoothScrollingSupported() ||
       _installedObserver || !webState->GetView()) {
     return;
   }
 
   NSKeyValueObservingOptions options = 0;
-  if (!base::FeatureList::IsEnabled(web::features::kSmoothScrollingDefault)) {
-    options = NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld;
-  }
   [webState->GetView() addObserver:self
                         forKeyPath:@"frame"
                            options:options
@@ -169,21 +166,9 @@
                       ofObject:(id)object
                         change:(NSDictionary*)change
                        context:(void*)context {
-  if (base::FeatureList::IsEnabled(kFullscreenImprovement) ||
+  if (!ios::provider::IsFullscreenSmoothScrollingSupported() ||
       ![keyPath isEqualToString:@"frame"] || object != _webState->GetView()) {
     return;
-  }
-
-  if (!base::FeatureList::IsEnabled(web::features::kSmoothScrollingDefault)) {
-    NSValue* oldValue =
-        base::apple::ObjCCast<NSValue>(change[NSKeyValueChangeOldKey]);
-    NSValue* newValue =
-        base::apple::ObjCCast<NSValue>(change[NSKeyValueChangeNewKey]);
-    // If the value is unchanged -- if the old and new values are equal --
-    // then return without notifying observers.
-    if (oldValue && newValue && [newValue isEqualToValue:oldValue]) {
-      return;
-    }
   }
 
   [self updateForCurrentState];

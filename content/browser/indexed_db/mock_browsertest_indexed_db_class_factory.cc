@@ -5,7 +5,9 @@
 #include "content/browser/indexed_db/mock_browsertest_indexed_db_class_factory.h"
 
 #include <stddef.h>
+
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "base/logging.h"
@@ -16,7 +18,6 @@
 #include "components/services/storage/indexed_db/transactional_leveldb/transactional_leveldb_database.h"
 #include "components/services/storage/indexed_db/transactional_leveldb/transactional_leveldb_iterator.h"
 #include "components/services/storage/indexed_db/transactional_leveldb/transactional_leveldb_transaction.h"
-#include "content/browser/indexed_db/indexed_db_transaction.h"
 #include "third_party/leveldatabase/env_chromium.h"
 #include "third_party/leveldatabase/src/include/leveldb/status.h"
 
@@ -50,7 +51,7 @@ class FunctionTracer {
 
 }  // namespace
 
-namespace content {
+namespace content::indexed_db {
 
 class LevelDBTestDatabase : public TransactionalLevelDBDatabase {
  public:
@@ -258,11 +259,11 @@ class LevelDBTraceIterator : public TransactionalLevelDBIterator {
     prev_tracer_.log_call();
     return TransactionalLevelDBIterator::Prev();
   }
-  base::StringPiece Key() const override {
+  std::string_view Key() const override {
     key_tracer_.log_call();
     return TransactionalLevelDBIterator::Key();
   }
-  base::StringPiece Value() const override {
+  std::string_view Value() const override {
     value_tracer_.log_call();
     return TransactionalLevelDBIterator::Value();
   }
@@ -276,7 +277,7 @@ class LevelDBTraceIterator : public TransactionalLevelDBIterator {
   mutable FunctionTracer value_tracer_;
 };
 
-class LevelDBTestIterator : public content::TransactionalLevelDBIterator {
+class LevelDBTestIterator : public TransactionalLevelDBIterator {
  public:
   LevelDBTestIterator(std::unique_ptr<leveldb::Iterator> iterator,
                       base::WeakPtr<TransactionalLevelDBDatabase> db,
@@ -306,10 +307,11 @@ class LevelDBTestIterator : public content::TransactionalLevelDBIterator {
   int current_call_num_;
 };
 
-MockBrowserTestIndexedDBClassFactory::MockBrowserTestIndexedDBClassFactory()
-    : failure_class_(FailClass::NOTHING),
-      failure_method_(FailMethod::NOTHING),
-      only_trace_calls_(false) {}
+MockBrowserTestIndexedDBClassFactory::MockBrowserTestIndexedDBClassFactory(
+    mojo::PendingReceiver<storage::mojom::MockFailureInjector> pending)
+    : failure_class_(FailClass::NOTHING), failure_method_(FailMethod::NOTHING) {
+  receiver_.Bind(std::move(pending));
+}
 
 MockBrowserTestIndexedDBClassFactory::~MockBrowserTestIndexedDBClassFactory() =
     default;
@@ -399,8 +401,7 @@ void MockBrowserTestIndexedDBClassFactory::FailOperation(
     storage::mojom::FailClass failure_class,
     storage::mojom::FailMethod failure_method,
     int fail_on_instance_num,
-    int fail_on_call_num,
-    base::OnceClosure callback) {
+    int fail_on_call_num) {
   VLOG(0) << "FailOperation: class=" << failure_class
           << ", method=" << failure_method
           << ", instanceNum=" << fail_on_instance_num
@@ -412,16 +413,6 @@ void MockBrowserTestIndexedDBClassFactory::FailOperation(
   fail_on_instance_num_[failure_class_] = fail_on_instance_num;
   fail_on_call_num_[failure_class_] = fail_on_call_num;
   instance_count_.clear();
-
-  std::move(callback).Run();
 }
 
-void MockBrowserTestIndexedDBClassFactory::Reset() {
-  failure_class_ = FailClass::NOTHING;
-  failure_method_ = FailMethod::NOTHING;
-  instance_count_.clear();
-  fail_on_instance_num_.clear();
-  fail_on_call_num_.clear();
-}
-
-}  // namespace content
+}  // namespace content::indexed_db

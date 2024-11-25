@@ -7,7 +7,6 @@
 #include "third_party/blink/renderer/core/css/document_style_environment_variables.h"
 #include "third_party/blink/renderer/core/css/properties/longhands.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
-#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
@@ -16,7 +15,6 @@
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
-#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 
 namespace blink {
 
@@ -78,8 +76,7 @@ class StyleEnvironmentVariablesTest : public PageTestBase {
   void SimulateNavigation() {
     const KURL& url = KURL(NullURL(), "https://www.example.com");
     GetDocument().GetFrame()->Loader().CommitNavigation(
-        WebNavigationParams::CreateWithHTMLBufferForTesting(
-            SharedBuffer::Create(), url),
+        WebNavigationParams::CreateWithEmptyHTMLForTesting(url),
         nullptr /* extra_data */);
     blink::test::RunPendingTasks();
     ASSERT_EQ(url.GetString(), GetDocument().Url().GetString());
@@ -118,7 +115,7 @@ class StyleEnvironmentVariablesTest : public PageTestBase {
                                        unsigned second_dimension,
                                        const String& value) {
     StyleEnvironmentVariables::GetRootInstance().SetVariable(
-        variable, first_dimension, second_dimension, value);
+        variable, first_dimension, second_dimension, value, nullptr);
   }
 };
 
@@ -372,21 +369,6 @@ TEST_F(StyleEnvironmentVariablesTest, GlobalVariable_Remove) {
   // Check that the element does not have the background color any more.
   EXPECT_NE(kTestColorRed, target->ComputedStyleRef().VisitedDependentColor(
                                GetCSSPropertyBackgroundColor()));
-}
-
-TEST_F(StyleEnvironmentVariablesTest,
-       DISABLED_PrintExpectedVariableNameHashes) {
-  const UADefinedVariable variables[] = {
-      UADefinedVariable::kSafeAreaInsetTop,
-      UADefinedVariable::kSafeAreaInsetLeft,
-      UADefinedVariable::kSafeAreaInsetRight,
-      UADefinedVariable::kSafeAreaInsetBottom};
-  for (const auto& variable : variables) {
-    const AtomicString name = StyleEnvironmentVariables::GetVariableName(
-        variable, /*feature_context=*/nullptr);
-    printf("0x%x\n",
-           DocumentStyleEnvironmentVariables::GenerateHashFromName(name));
-  }
 }
 
 TEST_F(StyleEnvironmentVariablesTest, RecordUseCounter_IgnoreMediaControls) {
@@ -699,10 +681,8 @@ TEST_F(StyleEnvironmentVariablesTest, TwoDimensionalVariables_Removal) {
 #if !BUILDFLAG(IS_ANDROID)
 TEST_F(StyleEnvironmentVariablesTest, TitlebarArea_AfterLoad) {
   // This test asserts that the titlebar area environment variables should be
-  // loaded when UpdateWindowControlsOverlay is invoked in LocalFrame when the
-  // WindowControlsOverlay runtime flag is set for PWAs with display_override
-  // "window-controls-overlay".
-  ScopedWebAppWindowControlsOverlayForTest scoped_feature(true);
+  // loaded when UpdateWindowControlsOverlay is invoked in LocalFrame for PWAs
+  // with display_override "window-controls-overlay".
 
   // Simulate browser sending the titlebar area bounds.
   GetFrame().UpdateWindowControlsOverlay(gfx::Rect(0, 0, 100, 10));
@@ -742,9 +722,8 @@ TEST_F(StyleEnvironmentVariablesTest, TitlebarArea_AfterLoad) {
 
 TEST_F(StyleEnvironmentVariablesTest, TitlebarArea_AfterNavigation) {
   // This test asserts that the titlebar area environment variables should be
-  // set after a navigation when the WindowControlsOverlay runtime flag is set
-  // for PWAs with display_override "window-controls-overlay".
-  ScopedWebAppWindowControlsOverlayForTest scoped_feature(true);
+  // set after a navigation for PWAs with display_override
+  // "window-controls-overlay".
 
   // Simulate browser sending the titlebar area bounds.
   GetFrame().UpdateWindowControlsOverlay(gfx::Rect(0, 0, 100, 10));
@@ -784,5 +763,32 @@ TEST_F(StyleEnvironmentVariablesTest, TitlebarArea_AfterNavigation) {
   EXPECT_EQ(data->Serialize(), "10px");
 }
 #endif  // !BUILDFLAG(IS_ANDROID)
+
+TEST_F(StyleEnvironmentVariablesTest, TargetedInvalidation) {
+  GetDocument().body()->setInnerHTML(R"HTML(
+  <style>
+    #target1 { left: env(unknown, 1px); }
+    #target2 { left: 1px; }
+  </style>
+  <div id=target1></div>
+  <div id=target2></div>
+  )HTML");
+  UpdateAllLifecyclePhasesForTest();
+
+  Element* target1 = GetDocument().getElementById(AtomicString("target1"));
+  Element* target2 = GetDocument().getElementById(AtomicString("target2"));
+  ASSERT_TRUE(target1);
+  ASSERT_TRUE(target2);
+
+  EXPECT_FALSE(target1->NeedsStyleRecalc());
+  EXPECT_FALSE(target2->NeedsStyleRecalc());
+
+  GetStyleEngine().EnvironmentVariableChanged();
+  GetStyleEngine().InvalidateEnvDependentStylesIfNeeded();
+
+  EXPECT_TRUE(target1->NeedsStyleRecalc());
+  EXPECT_FALSE(target2->NeedsStyleRecalc());
+  EXPECT_FALSE(GetDocument().body()->NeedsStyleRecalc());
+}
 
 }  // namespace blink

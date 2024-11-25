@@ -84,7 +84,7 @@ void OnSodaResponse(const char* serialized_proto,
   }
 
   if (response.soda_type() == soda::chrome::SodaResponse::LANGID) {
-    // TODO(crbug.com/1175357): Use the langid event to prompt users to switch
+    // TODO(crbug.com/40167928): Use the langid event to prompt users to switch
     // languages.
     soda::chrome::SodaLangIdEvent event = response.langid_event();
 
@@ -386,18 +386,18 @@ void SpeechRecognitionRecognizerImpl::OnLanguageChanged(
   scoped_refptr<base::SequencedTaskRunner> current_task_runner =
       base::SequencedTaskRunner::GetCurrentDefault();
 
-  base::FilePath config_file_path =
-      GetLatestSodaLanguagePackDirectory(language);
-
   task_runner_->PostTaskAndReplyWithResult(
       FROM_HERE,
       base::BindOnce(
-          [](base::FilePath config_path) {
-            return base::PathExists(config_path);
+          [](const std::string& language) {
+            base::FilePath config_file_path =
+                GetLatestSodaLanguagePackDirectory(language);
+            return std::make_pair(config_file_path,
+                                  base::PathExists(config_file_path));
           },
-          config_file_path),
+          language),
       base::BindOnce(&SpeechRecognitionRecognizerImpl::ResetSodaWithNewLanguage,
-                     weak_factory_.GetWeakPtr(), config_file_path,
+                     weak_factory_.GetWeakPtr(),
                      language_component_config.value().language_name));
 }
 
@@ -408,11 +408,10 @@ void SpeechRecognitionRecognizerImpl::OnMaskOffensiveWordsChanged(
 }
 
 void SpeechRecognitionRecognizerImpl::ResetSodaWithNewLanguage(
-    base::FilePath config_path,
     std::string language_name,
-    bool config_exists) {
-  if (config_exists) {
-    config_paths_[language_name] = config_path;
+    std::pair<base::FilePath, bool> config_and_exists) {
+  if (config_and_exists.second) {
+    config_paths_[language_name] = config_and_exists.first;
     primary_language_name_ = language_name;
     ResetSoda();
   }
@@ -441,7 +440,7 @@ void SpeechRecognitionRecognizerImpl::ResetSoda() {
   // Initialize the SODA instance.
   auto api_key = google_apis::GetSodaAPIKey();
 
-  // TODO(crbug.com/1161569): Use language from SpeechRecognitionOptions
+  // TODO(crbug.com/40162502): Use language from SpeechRecognitionOptions
   // to determine the appropriate language pack path. Note that
   // SodaInstaller::GetLanguagePath() is not implemented outside of Chrome OS,
   // and options_->language is not set for Live Caption.

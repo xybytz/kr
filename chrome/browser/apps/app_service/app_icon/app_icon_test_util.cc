@@ -10,6 +10,7 @@
 #include "extensions/grit/extensions_browser_resources.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/resource/resource_scale_factor.h"
+#include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_rep.h"
 #include "ui/gfx/image/image_unittest_util.h"
@@ -69,7 +70,15 @@ void VerifyCompressedIcon(const std::vector<uint8_t>& src_data,
   ASSERT_EQ(apps::IconType::kCompressed, icon.icon_type);
   ASSERT_FALSE(icon.is_placeholder_icon);
   ASSERT_FALSE(icon.compressed.empty());
-  ASSERT_EQ(src_data, icon.compressed);
+
+  // Decompress each PNG and make sure the contents are the same. Comparing the
+  // compressed bits directly is too strict, since there are many valid ways to
+  // represent the same image using different bits.
+  SkBitmap src_bitmap = gfx::PNGCodec::Decode(src_data);
+  SkBitmap icon_bitmap = gfx::PNGCodec::Decode(icon.compressed);
+  ASSERT_FALSE(src_bitmap.isNull());
+  ASSERT_FALSE(icon_bitmap.isNull());
+  ASSERT_TRUE(gfx::test::AreBitmapsEqual(src_bitmap, icon_bitmap));
 }
 
 gfx::ImageSkia CreateSquareIconImageSkia(int size_dp, SkColor solid_color) {

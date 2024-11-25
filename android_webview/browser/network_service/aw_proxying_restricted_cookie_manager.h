@@ -8,17 +8,25 @@
 #include <optional>
 #include <string>
 
+#include "android_webview/browser/aw_cookie_access_policy.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "content/public/browser/global_routing_id.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "net/base/network_delegate.h"
+#include "net/storage_access_api/status.h"
 #include "services/network/public/mojom/restricted_cookie_manager.mojom.h"
 
 class GURL;
 
 namespace android_webview {
 
-// A RestrictedCookieManager which conditionally proxies to an underlying
-// RestrictedCookieManager, first consulting WebView's cookie settings.
+// A RestrictedCookieManager conditionally returns cookies from an underlying
+// RestrictedCookieManager, after consulting WebView's cookie settings.
+// We need to do this because Chromium typically configures this per
+// BrowserContext but Android developers can set cookie permissions per WebView.
+// To work around this, we need to feed down to the restricted cookie manager
+// if we wish to disable 3PCs _per_ request.
 class AwProxyingRestrictedCookieManager
     : public network::mojom::RestrictedCookieManager {
  public:
@@ -34,7 +42,8 @@ class AwProxyingRestrictedCookieManager
       bool is_service_worker,
       int process_id,
       int frame_id,
-      mojo::PendingReceiver<network::mojom::RestrictedCookieManager> receiver);
+      mojo::PendingReceiver<network::mojom::RestrictedCookieManager> receiver,
+      AwCookieAccessPolicy* aw_cookie_access_policy);
 
   AwProxyingRestrictedCookieManager(const AwProxyingRestrictedCookieManager&) =
       delete;
@@ -47,50 +56,54 @@ class AwProxyingRestrictedCookieManager
   void GetAllForUrl(const GURL& url,
                     const net::SiteForCookies& site_for_cookies,
                     const url::Origin& top_frame_origin,
-                    bool has_storage_access,
+                    net::StorageAccessApiStatus storage_access_api_status,
                     network::mojom::CookieManagerGetOptionsPtr options,
                     bool is_ad_tagged,
+                    bool force_disable_third_party_cookies,
                     GetAllForUrlCallback callback) override;
   void SetCanonicalCookie(const net::CanonicalCookie& cookie,
                           const GURL& url,
                           const net::SiteForCookies& site_for_cookies,
                           const url::Origin& top_frame_origin,
-                          bool has_storage_access,
+                          net::StorageAccessApiStatus storage_access_api_status,
                           net::CookieInclusionStatus status,
                           SetCanonicalCookieCallback callback) override;
   void AddChangeListener(
       const GURL& url,
       const net::SiteForCookies& site_for_cookies,
       const url::Origin& top_frame_origin,
-      bool has_storage_access,
+      net::StorageAccessApiStatus storage_access_api_status,
       mojo::PendingRemote<network::mojom::CookieChangeListener> listener,
       AddChangeListenerCallback callback) override;
 
-  void SetCookieFromString(const GURL& url,
-                           const net::SiteForCookies& site_for_cookies,
-                           const url::Origin& top_frame_origin,
-                           bool has_storage_access,
-                           const std::string& cookie,
-                           SetCookieFromStringCallback callback) override;
+  void SetCookieFromString(
+      const GURL& url,
+      const net::SiteForCookies& site_for_cookies,
+      const url::Origin& top_frame_origin,
+      net::StorageAccessApiStatus storage_access_api_status,
+      const std::string& cookie,
+      SetCookieFromStringCallback callback) override;
 
   void GetCookiesString(const GURL& url,
                         const net::SiteForCookies& site_for_cookies,
                         const url::Origin& top_frame_origin,
-                        bool has_storage_access,
+                        net::StorageAccessApiStatus storage_access_api_status,
                         bool get_version_shared_memory,
                         bool is_ad_tagged,
+                        bool force_disable_third_party_cookies,
                         GetCookiesStringCallback callback) override;
 
   void CookiesEnabledFor(const GURL& url,
                          const net::SiteForCookies& site_for_cookies,
                          const url::Origin& top_frame_origin,
-                         bool has_storage_access,
+                         net::StorageAccessApiStatus storage_access_api_status,
                          CookiesEnabledForCallback callback) override;
 
   // This one is internal.
-  bool AllowCookies(const GURL& url,
-                    const net::SiteForCookies& site_for_cookies,
-                    bool has_storage_access) const;
+  net::NetworkDelegate::PrivacySetting AllowCookies(
+      const GURL& url,
+      const net::SiteForCookies& site_for_cookies,
+      net::StorageAccessApiStatus storage_access_api_status) const;
 
  private:
   AwProxyingRestrictedCookieManager(
@@ -98,7 +111,8 @@ class AwProxyingRestrictedCookieManager
           underlying_restricted_cookie_manager,
       bool is_service_worker,
       const std::optional<const content::GlobalRenderFrameHostToken>&
-          global_frame_token);
+          global_frame_token,
+      AwCookieAccessPolicy* cookie_access_policy);
 
   static void CreateAndBindOnIoThread(
       mojo::PendingRemote<network::mojom::RestrictedCookieManager>
@@ -106,12 +120,15 @@ class AwProxyingRestrictedCookieManager
       bool is_service_worker,
       const std::optional<const content::GlobalRenderFrameHostToken>&
           global_frame_token,
-      mojo::PendingReceiver<network::mojom::RestrictedCookieManager> receiver);
+      mojo::PendingReceiver<network::mojom::RestrictedCookieManager> receiver,
+      AwCookieAccessPolicy* cookie_access_policy);
 
   mojo::Remote<network::mojom::RestrictedCookieManager>
       underlying_restricted_cookie_manager_;
   bool is_service_worker_;
   std::optional<const content::GlobalRenderFrameHostToken> global_frame_token_;
+
+  raw_ref<AwCookieAccessPolicy> cookie_access_policy_;
 
   base::WeakPtrFactory<AwProxyingRestrictedCookieManager> weak_factory_{this};
 };

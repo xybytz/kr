@@ -7,6 +7,8 @@
 #include <stddef.h>
 
 #include <iterator>
+#include <optional>
+#include <string_view>
 
 #include "base/check.h"
 #include "base/debug/dump_without_crashing.h"
@@ -26,7 +28,6 @@
 #include "components/translate/core/browser/translate_url_util.h"
 #include "components/translate/core/common/translate_util.h"
 #include "net/base/url_util.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
 
@@ -339,7 +340,7 @@ TranslateLanguageList::TranslateLanguageList()
   language_list_fetcher_->set_max_retry_on_5xx(kMaxRetryOn5xx);
 }
 
-TranslateLanguageList::~TranslateLanguageList() {}
+TranslateLanguageList::~TranslateLanguageList() = default;
 
 void TranslateLanguageList::GetSupportedLanguages(
     bool translate_allowed,
@@ -365,7 +366,7 @@ void TranslateLanguageList::GetSupportedPartialTranslateLanguages(
       std::end(kDefaultSupportedPartialTranslateLanguages));
 }
 
-std::string TranslateLanguageList::GetLanguageCode(base::StringPiece language) {
+std::string TranslateLanguageList::GetLanguageCode(std::string_view language) {
   // Only remove the country code for country specific languages we don't
   // support specifically yet.
   if (IsSupportedLanguage(language))
@@ -373,13 +374,13 @@ std::string TranslateLanguageList::GetLanguageCode(base::StringPiece language) {
   return std::string(language::ExtractBaseLanguage(language));
 }
 
-bool TranslateLanguageList::IsSupportedLanguage(base::StringPiece language) {
+bool TranslateLanguageList::IsSupportedLanguage(std::string_view language) {
   return base::ranges::binary_search(supported_languages_, language);
 }
 
 // static
 bool TranslateLanguageList::IsSupportedPartialTranslateLanguage(
-    base::StringPiece language) {
+    std::string_view language) {
   return base::ranges::binary_search(kDefaultSupportedPartialTranslateLanguages,
                                      language);
 }
@@ -478,14 +479,14 @@ void TranslateLanguageList::NotifyEvent(int line, std::string message) {
 }
 
 bool TranslateLanguageList::SetSupportedLanguages(
-    base::StringPiece language_list) {
+    std::string_view language_list) {
   // The format is in JSON as:
   // {
   //   "sl": {"XX": "LanguageName", ...},
   //   "tl": {"XX": "LanguageName", ...}
   // }
   // Where "tl" is set in kTargetLanguagesKey.
-  absl::optional<base::Value> json_value =
+  std::optional<base::Value> json_value =
       base::JSONReader::Read(language_list, base::JSON_ALLOW_TRAILING_COMMAS);
 
   if (!json_value || !json_value->is_dict()) {

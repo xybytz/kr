@@ -5,6 +5,7 @@
 #include "chrome/browser/safe_browsing/chrome_safe_browsing_blocking_page_factory.h"
 
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/enterprise/connectors/interstitials/enterprise_block_controller_client.h"
 #include "chrome/browser/enterprise/connectors/interstitials/enterprise_block_page.h"
 #include "chrome/browser/enterprise/connectors/interstitials/enterprise_warn_controller_client.h"
@@ -16,7 +17,9 @@
 #include "chrome/browser/safe_browsing/safe_browsing_metrics_collector_factory.h"
 #include "chrome/browser/safe_browsing/safe_browsing_navigation_observer_manager_factory.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "chrome/browser/ui/safety_hub/safety_hub_util.h"
 #include "components/prefs/pref_service.h"
+#include "components/safe_browsing/core/common/features.h"
 #include "components/security_interstitials/content/content_metrics_helper.h"
 #include "components/security_interstitials/content/security_interstitial_controller_client.h"
 #include "content/public/browser/web_contents.h"
@@ -33,13 +36,29 @@ const char kHelpCenterLink[] = "cpn_safe_browsing";
 
 }  // namespace
 
+void MaybeIgnoreAbusiveNotificationAutoRevocation(
+    scoped_refptr<HostContentSettingsMap> hcsm,
+    GURL url,
+    bool did_proceed,
+    SBThreatType threat_type) {
+  // Set REVOKED_ABUSIVE_NOTIFICATION_PERMISSIONS to ignore only if the URL is
+  // valid and the user bypassed a phishing interstitial.
+  if (!url.is_valid() || !did_proceed ||
+      threat_type != SBThreatType::SB_THREAT_TYPE_URL_PHISHING) {
+    return;
+  }
+  safety_hub_util::SetRevokedAbusiveNotificationPermission(hcsm.get(), url,
+                                                           /*is_ignored=*/true);
+}
+
 SafeBrowsingBlockingPage*
 ChromeSafeBrowsingBlockingPageFactory::CreateSafeBrowsingPage(
     BaseUIManager* ui_manager,
     content::WebContents* web_contents,
     const GURL& main_frame_url,
     const SafeBrowsingBlockingPage::UnsafeResourceList& unsafe_resources,
-    bool should_trigger_reporting) {
+    bool should_trigger_reporting,
+    std::optional<base::TimeTicks> blocked_page_shown_timestamp) {
   auto* profile =
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
   // Create appropriate display options for this blocking page.
@@ -55,10 +74,9 @@ ChromeSafeBrowsingBlockingPageFactory::CreateSafeBrowsingPage(
 
   security_interstitials::BaseSafeBrowsingErrorUI::SBErrorDisplayOptions
       display_options(BaseBlockingPage::IsMainPageLoadPending(unsafe_resources),
-                      BaseBlockingPage::IsSubresource(unsafe_resources),
                       is_extended_reporting_opt_in_allowed,
                       web_contents->GetBrowserContext()->IsOffTheRecord(),
-                      IsExtendedReportingEnabled(*prefs),
+                      IsExtendedReportingEnabledBypassDeprecationFlag(*prefs),
                       IsExtendedReportingPolicyManaged(*prefs),
                       IsEnhancedProtectionEnabled(*prefs),
                       is_proceed_anyway_disabled,
@@ -82,7 +100,8 @@ ChromeSafeBrowsingBlockingPageFactory::CreateSafeBrowsingPage(
   // browser context.
   return new SafeBrowsingBlockingPage(
       ui_manager, web_contents, main_frame_url, unsafe_resources,
-      CreateControllerClient(web_contents, unsafe_resources, ui_manager),
+      CreateControllerClient(web_contents, unsafe_resources, ui_manager,
+                             blocked_page_shown_timestamp),
       display_options, should_trigger_reporting,
       HistoryServiceFactory::GetForProfile(profile,
                                            ServiceAccessType::EXPLICIT_ACCESS),
@@ -101,6 +120,14 @@ ChromeSafeBrowsingBlockingPageFactory::CreateSafeBrowsingPage(
 #else
       base::NullCallback(),
 #endif
+      base::FeatureList::IsEnabled(
+          safe_browsing::kSafetyHubAbusiveNotificationRevocation)
+          ? base::BindOnce(
+                &MaybeIgnoreAbusiveNotificationAutoRevocation,
+                base::WrapRefCounted(
+                    HostContentSettingsMapFactory::GetForProfile(profile)),
+                main_frame_url)
+          : base::NullCallback(),
       /*url_loader_for_testing=*/nullptr);
 }
 
@@ -124,7 +151,7 @@ ChromeSafeBrowsingBlockingPageFactory::CreateEnterpriseBlockPage(
     const GURL& main_frame_url,
     const SafeBrowsingBlockingPage::UnsafeResourceList& unsafe_resources) {
   return new EnterpriseBlockPage(
-      web_contents, main_frame_url,
+      web_contents, main_frame_url, unsafe_resources,
       std::make_unique<EnterpriseBlockControllerClient>(web_contents,
                                                         main_frame_url));
 }
@@ -138,7 +165,8 @@ std::unique_ptr<security_interstitials::SecurityInterstitialControllerClient>
 ChromeSafeBrowsingBlockingPageFactory::CreateControllerClient(
     content::WebContents* web_contents,
     const SafeBrowsingBlockingPage::UnsafeResourceList& unsafe_resources,
-    const BaseUIManager* ui_manager) {
+    const BaseUIManager* ui_manager,
+    std::optional<base::TimeTicks> blocked_page_shown_timestamp) {
   Profile* profile =
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
   DCHECK(profile);
@@ -149,7 +177,8 @@ ChromeSafeBrowsingBlockingPageFactory::CreateControllerClient(
               Profile::FromBrowserContext(web_contents->GetBrowserContext()),
               ServiceAccessType::EXPLICIT_ACCESS),
           unsafe_resources[0].url,
-          BaseBlockingPage::GetReportingInfo(unsafe_resources));
+          BaseBlockingPage::GetReportingInfo(unsafe_resources,
+                                             blocked_page_shown_timestamp));
 
   auto chrome_settings_page_helper =
       std::make_unique<security_interstitials::ChromeSettingsPageHelper>();

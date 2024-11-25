@@ -88,7 +88,6 @@ CGFloat kSectionFooterHeight = 8.;
       break;
     case ItemTypeRestrictedAccountsFooter:
       NOTREACHED();
-      break;
   }
 }
 

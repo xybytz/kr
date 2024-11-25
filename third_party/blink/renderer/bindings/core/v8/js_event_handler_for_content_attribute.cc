@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/bindings/core/v8/js_event_handler_for_content_attribute.h"
 
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
@@ -76,7 +81,7 @@ v8::Local<v8::Value> JSEventHandlerForContentAttribute::GetCompiledHandler(
     return v8::Null(GetIsolate());
 
   ScriptState* script_state_of_event_target =
-      ScriptState::From(v8_context_of_event_target);
+      ScriptState::From(GetIsolate(), v8_context_of_event_target);
   if (!script_state_of_event_target->ContextIsValid())
     return v8::Null(GetIsolate());
 
@@ -192,25 +197,22 @@ v8::Local<v8::Value> JSEventHandlerForContentAttribute::GetCompiledHandler(
   if (element) {
     scopes[scopes_size++] =
         ToV8Traits<Document>::ToV8(script_state_of_event_target, document)
-            .ToLocalChecked()
             .As<v8::Object>();
   }
   if (form_owner) {
     scopes[scopes_size++] = ToV8Traits<HTMLFormElement>::ToV8(
                                 script_state_of_event_target, form_owner)
-                                .ToLocalChecked()
                                 .As<v8::Object>();
   }
   if (element) {
     scopes[scopes_size++] =
         ToV8Traits<Element>::ToV8(script_state_of_event_target, element)
-            .ToLocalChecked()
             .As<v8::Object>();
   }
   DCHECK_LE(scopes_size, std::size(scopes));
 
   v8::ScriptOrigin origin(
-      isolate, V8String(isolate, source_url_), position_.line_.ZeroBasedInt(),
+      V8String(isolate, source_url_), position_.line_.ZeroBasedInt(),
       position_.column_.ZeroBasedInt(),
       true);  // true as |SanitizeScriptErrors::kDoNotSanitize|
   v8::ScriptCompiler::Source source(V8String(isolate, script_body_), origin);

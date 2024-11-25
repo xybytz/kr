@@ -10,23 +10,16 @@
 
 namespace chromeos {
 
-// Provides access to the browser's initialization parameters,
-// dispatching to either BrowserInitParams or BrowserPostLoginParams.
+// Provides access to the browser's initialization parameters.
 class COMPONENT_EXPORT(CHROMEOS_STARTUP) BrowserParamsProxy {
  public:
   static BrowserParamsProxy* Get();
 
-  // Wait for the user to login and post-login parameters to be available.
-  // NOTE: This needs to be called before post-login parameters are accessed.
-  // Please note that this method is not thread-safe and should be called
-  // before any threads are created in the browser process.
-  static void WaitForLogin();
+  // See documentation in browser_init_params.h.
+  static bool IsCrosapiDisabledForTesting();
+  static void DisableCrosapiForTesting();
 
-  // Returns true if the user has logged in, false if not.
-  static bool IsLoggedIn();
-
-  // Init and post-login parameters' accessors are listed starting from here.
-  bool IsCrosapiDisabledForTesting() const;
+  // Init parameters' accessors are listed starting from here.
 
   uint32_t CrosapiVersion() const;
 
@@ -74,13 +67,13 @@ class COMPONENT_EXPORT(CHROMEOS_STARTUP) BrowserParamsProxy {
 
   const std::optional<std::string>& MetricsServiceClientId() const;
 
+  uint64_t LimitedEntropySyntheticTrialSeed() const;
+
   const crosapi::mojom::EntropySourcePtr& EntropySource() const;
 
   uint64_t UkmClientId() const;
 
   bool PublishChromeApps() const;
-
-  bool PublishHostedApps() const;
 
   crosapi::mojom::BrowserInitParams::InitialKeepAlive InitialKeepAlive() const;
 
@@ -109,11 +102,11 @@ class COMPONENT_EXPORT(CHROMEOS_STARTUP) BrowserParamsProxy {
 
   bool IsFlossAvailabilityCheckNeeded() const;
 
+  bool IsLLPrivacyAvailable() const;
+
   bool IsCurrentUserDeviceOwner() const;
 
   bool IsCurrentUserEphemeral() const;
-
-  bool EnableLacrosTtsSupport() const;
 
   crosapi::mojom::BrowserInitParams::LacrosSelection LacrosSelection() const;
 
@@ -143,19 +136,27 @@ class COMPONENT_EXPORT(CHROMEOS_STARTUP) BrowserParamsProxy {
 
   bool IsDriveFsBulkPinningAvailable() const;
 
-  bool IsSysUiDownloadsIntegrationV2Enabled() const;
-
   bool IsCrosBatterySaverAvailable() const;
 
   bool IsAppInstallServiceUriEnabled() const;
 
   bool IsDeskProfilesEnabled() const;
 
-  bool IsCrosWebAppShortcutUiUpdateEnabled() const;
-
-  bool IsCrosShortstandEnabled() const;
-
   bool ShouldDisableChromeComposeOnChromeOS() const;
+
+  bool IsFileSystemProviderCloudFileSystemEnabled() const;
+
+  bool IsFileSystemProviderContentCacheEnabled() const;
+
+  bool IsOrcaEnabled() const;
+
+  bool IsCrosMallWebAppEnabled() const;
+
+  bool IsMahiEnabled() const;
+
+  bool IsOrcaUseL10nStringsEnabled() const;
+
+  bool IsOrcaInternationalizeEnabled() const;
 
  private:
   friend base::NoDestructor<BrowserParamsProxy>;

@@ -15,7 +15,6 @@
 #include "ash/public/cpp/pagination/pagination_model.h"
 #include "ash/public/cpp/pagination/pagination_model_observer.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/raw_ptr_exclusion.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
@@ -32,7 +31,6 @@ namespace ash {
 
 class AppListPage;
 class AppListView;
-class ApplicationDragAndDropHost;
 class AppListMainView;
 class AppsContainerView;
 class AssistantPageView;
@@ -67,9 +65,7 @@ class ASH_EXPORT ContentsView : public views::View,
     }
 
    private:
-    // This field is not a raw_ptr<> because it was filtered by the rewriter
-    // for: #union
-    RAW_PTR_EXCLUSION ContentsView* const contents_view_;
+    const raw_ptr<ContentsView> contents_view_;
   };
 
   explicit ContentsView(AppListView* app_list_view);
@@ -92,11 +88,6 @@ class ASH_EXPORT ContentsView : public views::View,
 
   // The app list gets closed and drag and drop operations need to be cancelled.
   void CancelDrag();
-
-  // If |drag_and_drop| is not nullptr it will be called upon drag and drop
-  // operations outside the application list.
-  void SetDragAndDropHostOfCurrentAppList(
-      ApplicationDragAndDropHost* drag_and_drop_host);
 
   // Called when the target state of AppListView changes.
   void OnAppListViewTargetStateChanged(AppListViewState target_state);
@@ -167,7 +158,7 @@ class ASH_EXPORT ContentsView : public views::View,
   bool Back();
 
   // Overridden from views::View:
-  void Layout() override;
+  void Layout(PassKey) override;
 
   // Overridden from PaginationModelObserver:
   void TotalPagesChanged(int previous_page_count, int new_page_count) override;

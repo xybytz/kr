@@ -110,7 +110,10 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
       frame_origin: 'https://a.test',
       top_frame_site: 'https://b.test',
       match: '/p*',
+      match_dest: ['', 'document'],
+      id: 'test_dictionary_id',
       dictionary_url: 'https://d.test/d',
+      last_fetch_time: '3 Jul 2023 13:01 GMT',
       response_time: '3 Jul 2023 13:00 GMT',
       expiration: 1000,
       last_used_time: '3 Jul 2023 14:00 GMT',
@@ -130,8 +133,14 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
             '    "hash": "' +
             '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f' +
             '",\n' +
+            '    "id": "test_dictionary_id",\n' +
+            '    "last_fetch_time": "Mon, 03 Jul 2023 13:01:00 GMT",\n' +
             '    "last_used_time": "Mon, 03 Jul 2023 14:00:00 GMT",\n' +
             '    "match": "/p*",\n' +
+            '    "match_dest": [\n' +
+            '      "",\n' +
+            '      "document"\n' +
+            '    ],\n' +
             '    "response_time": "Mon, 03 Jul 2023 13:00:00 GMT",\n' +
             '    "size": "123"\n' +
             '  }\n' +
@@ -154,6 +163,7 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
           top_frame_site: 'https://b.test',
           match: '/p1*',
           dictionary_url: 'https://d.test/d1',
+          last_fetch_time: '3 Jul 2023 13:01 GMT',
           response_time: '3 Jul 2023 13:00 GMT',
           expiration: 1000,
           last_used_time: '3 Jul 2023 14:00 GMT',
@@ -166,6 +176,7 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
           top_frame_site: 'https://b.test',
           match: '/p2*',
           dictionary_url: 'https://d.test/d2',
+          last_fetch_time: '3 Jul 2023 15:01 GMT',
           response_time: '3 Jul 2023 15:00 GMT',
           expiration: 2000,
           last_used_time: '3 Jul 2023 16:00 GMT',
@@ -186,8 +197,11 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
                 '    "hash": "' +
                 '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f' +
                 '",\n' +
+                '    "id": "",\n' +
+                '    "last_fetch_time": "Mon, 03 Jul 2023 13:01:00 GMT",\n' +
                 '    "last_used_time": "Mon, 03 Jul 2023 14:00:00 GMT",\n' +
                 '    "match": "/p1*",\n' +
+                '    "match_dest": [],\n' +
                 '    "response_time": "Mon, 03 Jul 2023 13:00:00 GMT",\n' +
                 '    "size": "123"\n' +
                 '  },\n' +
@@ -197,8 +211,11 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
                 '    "hash": "' +
                 '202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f' +
                 '",\n' +
+                '    "id": "",\n' +
+                '    "last_fetch_time": "Mon, 03 Jul 2023 15:01:00 GMT",\n' +
                 '    "last_used_time": "Mon, 03 Jul 2023 16:00:00 GMT",\n' +
                 '    "match": "/p2*",\n' +
+                '    "match_dest": [],\n' +
                 '    "response_time": "Mon, 03 Jul 2023 15:00:00 GMT",\n' +
                 '    "size": "234"\n' +
                 '  }\n' +
@@ -220,6 +237,7 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
       top_frame_site: 'https://b.test',
       match: '/p1*',
       dictionary_url: 'https://d.test/d1',
+      last_fetch_time: '3 Jul 2023 13:01 GMT',
       response_time: '3 Jul 2023 13:00 GMT',
       expiration: 1000,
       last_used_time: '3 Jul 2023 14:00 GMT',
@@ -231,6 +249,7 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
       top_frame_site: 'https://b.test',
       match: '/p2*',
       dictionary_url: 'https://d.test/d2',
+      last_fetch_time: '3 Jul 2023 15:01 GMT',
       response_time: '3 Jul 2023 15:00 GMT',
       expiration: 2000,
       last_used_time: '3 Jul 2023 16:00 GMT',
@@ -242,6 +261,7 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
       top_frame_site: 'https://y.test',
       match: '/p3*',
       dictionary_url: 'https://d.test/d3',
+      last_fetch_time: '3 Jul 2023 16:01 GMT',
       response_time: '3 Jul 2023 16:00 GMT',
       expiration: 3000,
       last_used_time: '3 Jul 2023 18:00 GMT',
@@ -261,8 +281,11 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
             '    "hash": "' +
             '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f' +
             '",\n' +
+            '    "id": "",\n' +
+            '    "last_fetch_time": "Mon, 03 Jul 2023 13:01:00 GMT",\n' +
             '    "last_used_time": "Mon, 03 Jul 2023 14:00:00 GMT",\n' +
             '    "match": "/p1*",\n' +
+            '    "match_dest": [],\n' +
             '    "response_time": "Mon, 03 Jul 2023 13:00:00 GMT",\n' +
             '    "size": "123"\n' +
             '  },\n' +
@@ -272,8 +295,11 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
             '    "hash": "' +
             '202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f' +
             '",\n' +
+            '    "id": "",\n' +
+            '    "last_fetch_time": "Mon, 03 Jul 2023 15:01:00 GMT",\n' +
             '    "last_used_time": "Mon, 03 Jul 2023 16:00:00 GMT",\n' +
             '    "match": "/p2*",\n' +
+            '    "match_dest": [],\n' +
             '    "response_time": "Mon, 03 Jul 2023 15:00:00 GMT",\n' +
             '    "size": "234"\n' +
             '  }\n' +
@@ -289,8 +315,11 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
             '    "hash": "' +
             '404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f' +
             '",\n' +
+            '    "id": "",\n' +
+            '    "last_fetch_time": "Mon, 03 Jul 2023 16:01:00 GMT",\n' +
             '    "last_used_time": "Mon, 03 Jul 2023 18:00:00 GMT",\n' +
             '    "match": "/p3*",\n' +
+            '    "match_dest": [],\n' +
             '    "response_time": "Mon, 03 Jul 2023 16:00:00 GMT",\n' +
             '    "size": "345"\n' +
             '  }\n' +
@@ -312,6 +341,7 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
       top_frame_site: 'https://b.test',
       match: '/p1*',
       dictionary_url: 'https://d.test/d1',
+      last_fetch_time: '3 Jul 2023 13:01 GMT',
       response_time: '3 Jul 2023 13:00 GMT',
       expiration: 1000,
       last_used_time: '3 Jul 2023 14:00 GMT',
@@ -323,6 +353,7 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
       top_frame_site: 'https://b.test',
       match: '/p2*',
       dictionary_url: 'https://d.test/d2',
+      last_fetch_time: '3 Jul 2023 15:01 GMT',
       response_time: '3 Jul 2023 15:00 GMT',
       expiration: 2000,
       last_used_time: '3 Jul 2023 16:00 GMT',
@@ -334,6 +365,7 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
       top_frame_site: 'https://y.test',
       match: '/p3*',
       dictionary_url: 'https://d.test/d3',
+      last_fetch_time: '3 Jul 2023 16:01 GMT',
       response_time: '3 Jul 2023 16:00 GMT',
       expiration: 3000,
       last_used_time: '3 Jul 2023 18:00 GMT',
@@ -353,8 +385,11 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
             '    "hash": "' +
             '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f' +
             '",\n' +
+            '    "id": "",\n' +
+            '    "last_fetch_time": "Mon, 03 Jul 2023 13:01:00 GMT",\n' +
             '    "last_used_time": "Mon, 03 Jul 2023 14:00:00 GMT",\n' +
             '    "match": "/p1*",\n' +
+            '    "match_dest": [],\n' +
             '    "response_time": "Mon, 03 Jul 2023 13:00:00 GMT",\n' +
             '    "size": "123"\n' +
             '  },\n' +
@@ -364,8 +399,11 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
             '    "hash": "' +
             '202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f' +
             '",\n' +
+            '    "id": "",\n' +
+            '    "last_fetch_time": "Mon, 03 Jul 2023 15:01:00 GMT",\n' +
             '    "last_used_time": "Mon, 03 Jul 2023 16:00:00 GMT",\n' +
             '    "match": "/p2*",\n' +
+            '    "match_dest": [],\n' +
             '    "response_time": "Mon, 03 Jul 2023 15:00:00 GMT",\n' +
             '    "size": "234"\n' +
             '  }\n' +
@@ -381,8 +419,11 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
             '    "hash": "' +
             '404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f' +
             '",\n' +
+            '    "id": "",\n' +
+            '    "last_fetch_time": "Mon, 03 Jul 2023 16:01:00 GMT",\n' +
             '    "last_used_time": "Mon, 03 Jul 2023 18:00:00 GMT",\n' +
             '    "match": "/p3*",\n' +
+            '    "match_dest": [],\n' +
             '    "response_time": "Mon, 03 Jul 2023 16:00:00 GMT",\n' +
             '    "size": "345"\n' +
             '  }\n' +
@@ -401,8 +442,11 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
             '    "hash": "' +
             '404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f' +
             '",\n' +
+            '    "id": "",\n' +
+            '    "last_fetch_time": "Mon, 03 Jul 2023 16:01:00 GMT",\n' +
             '    "last_used_time": "Mon, 03 Jul 2023 18:00:00 GMT",\n' +
             '    "match": "/p3*",\n' +
+            '    "match_dest": [],\n' +
             '    "response_time": "Mon, 03 Jul 2023 16:00:00 GMT",\n' +
             '    "size": "345"\n' +
             '  }\n' +
@@ -427,6 +471,7 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
       top_frame_site: 'https://b.test',
       match: '/p1*',
       dictionary_url: 'https://d.test/d1',
+      last_fetch_time: '3 Jul 2023 13:01 GMT',
       response_time: '3 Jul 2023 13:00 GMT',
       expiration: 1000,
       last_used_time: '3 Jul 2023 14:00 GMT',
@@ -438,6 +483,7 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
       top_frame_site: 'https://b.test',
       match: '/p2*',
       dictionary_url: 'https://d.test/d2',
+      last_fetch_time: '3 Jul 2023 15:01 GMT',
       response_time: '3 Jul 2023 15:00 GMT',
       expiration: 2000,
       last_used_time: '3 Jul 2023 16:00 GMT',
@@ -449,6 +495,7 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
       top_frame_site: 'https://y.test',
       match: '/p3*',
       dictionary_url: 'https://d.test/d3',
+      last_fetch_time: '3 Jul 2023 16:01 GMT',
       response_time: '3 Jul 2023 16:00 GMT',
       expiration: 3000,
       last_used_time: '3 Jul 2023 18:00 GMT',
@@ -468,8 +515,11 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
             '    "hash": "' +
             '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f' +
             '",\n' +
+            '    "id": "",\n' +
+            '    "last_fetch_time": "Mon, 03 Jul 2023 13:01:00 GMT",\n' +
             '    "last_used_time": "Mon, 03 Jul 2023 14:00:00 GMT",\n' +
             '    "match": "/p1*",\n' +
+            '    "match_dest": [],\n' +
             '    "response_time": "Mon, 03 Jul 2023 13:00:00 GMT",\n' +
             '    "size": "123"\n' +
             '  },\n' +
@@ -479,8 +529,11 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
             '    "hash": "' +
             '202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f' +
             '",\n' +
+            '    "id": "",\n' +
+            '    "last_fetch_time": "Mon, 03 Jul 2023 15:01:00 GMT",\n' +
             '    "last_used_time": "Mon, 03 Jul 2023 16:00:00 GMT",\n' +
             '    "match": "/p2*",\n' +
+            '    "match_dest": [],\n' +
             '    "response_time": "Mon, 03 Jul 2023 15:00:00 GMT",\n' +
             '    "size": "234"\n' +
             '  }\n' +
@@ -496,8 +549,11 @@ suite('NetInternalsSharedDictionaryViewTest', function() {
             '    "hash": "' +
             '404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f' +
             '",\n' +
+            '    "id": "",\n' +
+            '    "last_fetch_time": "Mon, 03 Jul 2023 16:01:00 GMT",\n' +
             '    "last_used_time": "Mon, 03 Jul 2023 18:00:00 GMT",\n' +
             '    "match": "/p3*",\n' +
+            '    "match_dest": [],\n' +
             '    "response_time": "Mon, 03 Jul 2023 16:00:00 GMT",\n' +
             '    "size": "345"\n' +
             '  }\n' +

@@ -91,6 +91,7 @@ class COMPONENT_EXPORT(AX_PLATFORM) __declspec(uuid(
   IFACEMETHODIMP GetChildren(SAFEARRAY** children) override;
 
   AXPlatformNodeWin* GetOwner() const;
+  AXPlatformNodeDelegate* GetDelegate() const;
   void SetOwnerForTesting(AXPlatformNodeWin* owner);
 
  private:
@@ -190,7 +191,7 @@ class COMPONENT_EXPORT(AX_PLATFORM) __declspec(uuid(
   static void NormalizeAsUnignoredTextRange(AXPositionInstance& start,
                                             AXPositionInstance& end);
 
-  AXPlatformNodeDelegate* GetRootDelegate(const ui::AXTreeID tree_id);
+  AXPlatformNodeDelegate* GetRootDelegate(const AXTreeID tree_id);
   AXNode* GetSelectionCommonAnchor();
   void RemoveFocusFromPreviousSelectionIfNeeded(
       const AXNodeRange& new_selection);
@@ -328,8 +329,8 @@ class COMPONENT_EXPORT(AX_PLATFORM) __declspec(uuid(
     AXPositionInstance start_;
     AXPositionInstance end_;
 
-    absl::optional<DeletionOfInterest> validation_necessary_for_start_;
-    absl::optional<DeletionOfInterest> validation_necessary_for_end_;
+    std::optional<DeletionOfInterest> validation_necessary_for_start_;
+    std::optional<DeletionOfInterest> validation_necessary_for_end_;
   };
   // This is marked as mutable since endpoints will lazily validate their
   // positions after a deletion of interest was actually deleted.

@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_traits.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_composite_operation.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_effect_timing.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_keyframe_effect_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_object_builder.h"
@@ -25,12 +26,10 @@
 #include "third_party/blink/renderer/core/animation/timing.h"
 #include "third_party/blink/renderer/core/css/properties/longhands.h"
 #include "third_party/blink/renderer/core/dom/document.h"
-#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "v8/include/v8.h"
 
 namespace blink {
@@ -137,8 +136,7 @@ TEST_F(AnimationKeyframeEffectV8Test, CanCreateAnAnimation) {
 
   ScriptValue js_keyframes(
       scope.GetIsolate(),
-      ToV8Traits<IDLSequence<IDLObject>>::ToV8(script_state, blink_keyframes)
-          .ToLocalChecked());
+      ToV8Traits<IDLSequence<IDLObject>>::ToV8(script_state, blink_keyframes));
 
   KeyframeEffect* animation =
       CreateAnimationFromTiming(script_state, element.Get(), js_keyframes, 0);
@@ -186,11 +184,13 @@ TEST_F(AnimationKeyframeEffectV8Test, SetAndRetrieveEffectComposite) {
       script_state, element.Get(), js_keyframes, effect_options_dictionary);
   EXPECT_EQ("add", effect->composite());
 
-  effect->setComposite("replace");
-  EXPECT_EQ("replace", effect->composite());
+  effect->setComposite(
+      V8CompositeOperation(V8CompositeOperation::Enum::kReplace));
+  EXPECT_EQ("replace", effect->composite().AsString());
 
-  effect->setComposite("accumulate");
-  EXPECT_EQ("accumulate", effect->composite());
+  effect->setComposite(
+      V8CompositeOperation(V8CompositeOperation::Enum::kAccumulate));
+  EXPECT_EQ("accumulate", effect->composite().AsString());
 }
 
 TEST_F(AnimationKeyframeEffectV8Test, KeyframeCompositeOverridesEffect) {
@@ -215,8 +215,7 @@ TEST_F(AnimationKeyframeEffectV8Test, KeyframeCompositeOverridesEffect) {
 
   ScriptValue js_keyframes(
       scope.GetIsolate(),
-      ToV8Traits<IDLSequence<IDLObject>>::ToV8(script_state, blink_keyframes)
-          .ToLocalChecked());
+      ToV8Traits<IDLSequence<IDLObject>>::ToV8(script_state, blink_keyframes));
 
   KeyframeEffect* effect = CreateAnimationFromOption(
       script_state, element.Get(), js_keyframes, effect_options_dictionary);

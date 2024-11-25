@@ -13,14 +13,16 @@
 #include "ui/views/accessible_pane_view.h"
 
 namespace views {
-class FlexLayout;
 class Button;
 }
 
+class GlicButton;
 class NewTabButton;
 class TabSearchButton;
 class TabStrip;
 class TabStripScrollContainer;
+class ProductSpecificationsButton;
+class TabSearchPositionMetricsLogger;
 
 // Container for the tabstrip and the other views sharing space with it -
 // with the exception of the caption buttons.
@@ -28,6 +30,17 @@ class TabStripRegionView final : public views::AccessiblePaneView {
   METADATA_HEADER(TabStripRegionView, views::AccessiblePaneView)
 
  public:
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  //
+  // LINT.IfChange(TabSearchPositionEnum)
+  enum class TabSearchPositionEnum {
+    kLeading = 0,
+    kTrailing = 1,
+    kMaxValue = kTrailing,
+  };
+  // LINT.ThenChange(//tools/metrics/histograms/metadata/tab/enums.xml:TabSearchPosition)
+
   explicit TabStripRegionView(std::unique_ptr<TabStrip> tab_strip);
   TabStripRegionView(const TabStripRegionView&) = delete;
   TabStripRegionView& operator=(const TabStripRegionView&) = delete;
@@ -47,6 +60,12 @@ class TabStripRegionView final : public views::AccessiblePaneView {
 
   TabSearchContainer* tab_search_container() { return tab_search_container_; }
 
+  ProductSpecificationsButton* product_specifications_button() {
+    return product_specifications_button_;
+  }
+
+  GlicButton* glic_button() { return glic_button_; }
+
   views::View* reserved_grab_handle_space_for_testing() {
     return reserved_grab_handle_space_;
   }
@@ -59,11 +78,13 @@ class TabStripRegionView final : public views::AccessiblePaneView {
 
   // Calls the parent Layout, but in some cases may also need to manually
   // position the TabSearchButton to layer over the TabStrip.
-  void Layout() override;
+  void Layout(PassKey) override;
 
   // These system drag & drop methods forward the events to TabDragController to
   // support its fallback tab dragging mode in the case where the platform
   // can't support the usual run loop based mode.
+  // We need to handle this here instead of in TabStrip, because TabStrip's
+  // bounds don't contain the empty space to the right of the last tab.
   bool CanDrop(const OSExchangeData& data) override;
   bool GetDropFormats(int* formats,
                       std::set<ui::ClipboardFormatType>* format_types) override;
@@ -76,7 +97,6 @@ class TabStripRegionView final : public views::AccessiblePaneView {
   // views::AccessiblePaneView:
   void ChildPreferredSizeChanged(views::View* child) override;
   gfx::Size GetMinimumSize() const override;
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   views::View* GetDefaultFocusableChild() override;
 
   // Reports to UMA if a HTCAPTION hit test was in the grab handle or other
@@ -85,8 +105,9 @@ class TabStripRegionView final : public views::AccessiblePaneView {
   static void ReportCaptionHitTestInReservedGrabHandleSpace(
       bool in_reserved_grab_handle_space);
 
-  views::FlexLayout* layout_manager_for_testing() { return layout_manager_; }
   views::View* GetTabStripContainerForTesting() { return tab_strip_container_; }
+
+  const Profile* profile() { return profile_; }
 
  private:
   // Updates the border padding for `new_tab_button_` and
@@ -99,27 +120,27 @@ class TabStripRegionView final : public views::AccessiblePaneView {
   // `render_tab_search_before_tab_strip_` is true.
   void UpdateTabStripMargin();
 
-  raw_ptr<views::FlexLayout, DanglingUntriaged> layout_manager_ = nullptr;
-  raw_ptr<views::View, AcrossTasksDanglingUntriaged> tab_strip_container_ =
-      nullptr;
-  raw_ptr<views::View, DanglingUntriaged> reserved_grab_handle_space_ = nullptr;
-  raw_ptr<TabStrip, AcrossTasksDanglingUntriaged> tab_strip_ = nullptr;
-  raw_ptr<TabStripScrollContainer, DanglingUntriaged>
-      tab_strip_scroll_container_ = nullptr;
-  raw_ptr<views::Button, DanglingUntriaged> new_tab_button_ = nullptr;
-  raw_ptr<TabSearchContainer, DanglingUntriaged> tab_search_container_ =
-      nullptr;
+  // Gets called on `Layout` and adjusts the x-axis position of the `view` based
+  // on `offset`. This should only used for views that show before tab strip.
+  void AdjustViewBoundsRect(View* view, int offset);
+
+  raw_ptr<const Profile> profile_ = nullptr;
+  raw_ptr<views::View> tab_strip_container_ = nullptr;
+  raw_ptr<views::View> reserved_grab_handle_space_ = nullptr;
+  raw_ptr<TabStrip> tab_strip_ = nullptr;
+  raw_ptr<TabStripScrollContainer> tab_strip_scroll_container_ = nullptr;
+  raw_ptr<views::Button> new_tab_button_ = nullptr;
+  raw_ptr<TabSearchContainer> tab_search_container_ = nullptr;
+  raw_ptr<ProductSpecificationsButton> product_specifications_button_ = nullptr;
+  raw_ptr<GlicButton> glic_button_ = nullptr;
 
   // On some platforms for Chrome Refresh, the TabSearchButton should be
   // laid out before the TabStrip. Storing this configuration prevents
   // rechecking the child order on every layout.
   const bool render_tab_search_before_tab_strip_;
 
-  // For ChromeRefresh2023, the new tab button should be rendered above the
-  // tab strip to support shorter paddings than possible with flexlayout.
-  // if this bool is true then the new tab button will be manually layed out
-  // and rendered to its own layer.
-  const bool render_new_tab_button_over_tab_strip_;
+  std::unique_ptr<TabSearchPositionMetricsLogger>
+      tab_search_position_metrics_logger_;
 
   const base::CallbackListSubscription subscription_ =
       ui::TouchUiController::Get()->RegisterCallback(

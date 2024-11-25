@@ -35,7 +35,7 @@
       [[computeOnOffText_(prefs.ash.user.camera_allowed.value)]]
     </div>
     <div id="onOffSubtext" class="secondary">
-      [[computeOnOffSubtext_(prefs.ash.user.camera_allowed.value)]]
+      [[cameraAccessStateText_]]
     </div>
   </div>
   <div id="cameraToggleWrapper">
@@ -43,27 +43,33 @@
         id="cameraToggle"
         checked="{{prefs.ash.user.camera_allowed.value}}"
         disabled="[[shouldDisableCameraToggle_]]"
-        on-click="onCameraToggleClick_">
+        on-click="onCameraToggleClick_"
+        aria-label="$i18n{cameraToggleTitle}"
+        aria-description="[[cameraAccessStateText_]]">
     </cr-toggle>
   </div>
 </div>
-<template is="dom-if" if="[[prefs.ash.user.camera_allowed.value]]" restamp>
-  <div id="cameraListSection" class="list-frame">
-    <template is="dom-if" if="[[isCameraListEmpty_]]" restamp>
-      <div id="noCameraText" class="list-item">
-        $i18n{noCameraConnectedText}
+<div id="cameraListSection" class="list-frame">
+  <template is="dom-if" if="[[isCameraListEmpty_]]" restamp>
+    <div id="noCameraText" class="list-item">
+      $i18n{noCameraConnectedText}
+    </div>
+  </template>
+  <template is="dom-if" if="[[!isCameraListEmpty_]]" restamp>
+    <template id="cameraList" is="dom-repeat" items="[[connectedCameraNames_]]">
+      <div class="list-item">
+        <span id="cameraName"
+            hidden$="[[!prefs.ash.user.camera_allowed.value]]">
+          [[item]]
+        </span>
+        <span id="cameraNameWithBlockedSuffix"
+            hidden$="[[prefs.ash.user.camera_allowed.value]]">
+          [[i18n('privacyHubSensorNameWithBlockedSuffix', item)]]
+        </span>
       </div>
     </template>
-    <template is="dom-if" if="[[!isCameraListEmpty_]]" restamp>
-      <template id="cameraList" is="dom-repeat"
-          items="[[connectedCameras_]]">
-        <div class="list-item">
-          [[item]]
-        </div>
-      </template>
-    </template>
-  </div>
-</template>
+  </template>
+</div>
 <div class="hr"></div>
 <div id="appsSection">
   <h2 id="appsSectionTitle">$i18n{privacyHubAppsSectionTitle}</h2>

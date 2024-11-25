@@ -38,17 +38,6 @@ public class WebApkUmaRecorder {
     }
 
     // This enum is used to back UMA histograms, and should therefore be treated as append-only.
-    // The queued request times shouldn't exceed three.
-    @IntDef({UpdateRequestQueued.ONCE, UpdateRequestQueued.TWICE, UpdateRequestQueued.THREE_TIMES})
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface UpdateRequestQueued {
-        int ONCE = 0;
-        int TWICE = 1;
-        int THREE_TIMES = 2;
-        int NUM_ENTRIES = 3;
-    }
-
-    // This enum is used to back UMA histograms, and should therefore be treated as append-only.
     @IntDef({
         GooglePlayInstallResult.SUCCESS,
         GooglePlayInstallResult.FAILED_NO_DELEGATE,
@@ -90,17 +79,10 @@ public class WebApkUmaRecorder {
         int NUM_ENTRIES = 16;
     }
 
-    // This enum is used to back UMA histograms, and should therefore be treated as append-only.
-    @IntDef({WebApkUserTheme.LIGHT_THEME, WebApkUserTheme.DARK_THEME, WebApkUserTheme.NUM_ENTRIES})
-    public @interface WebApkUserTheme {
-        int LIGHT_THEME = 0;
-        int DARK_THEME = 1;
-        int NUM_ENTRIES = 2;
-    }
-
     public static final String HISTOGRAM_UPDATE_REQUEST_SENT = "WebApk.Update.RequestSent";
 
-    public static final String HISTOGRAM_UPDATE_REQUEST_QUEUED = "WebApk.Update.RequestQueued";
+    public static final String HISTOGRAM_UPDATE_REQUEST_SHELL_VERSION =
+            "WebApk.Update.ShellVersion";
 
     private static final String HISTOGRAM_LAUNCH_TO_SPLASHSCREEN_VISIBLE =
             "WebApk.Startup.Cold.ShellLaunchToSplashscreenVisible";
@@ -126,28 +108,30 @@ public class WebApkUmaRecorder {
     /**
      * Records the times that an update request has been queued once, twice and three times before
      * sending to WebAPK server.
+     *
      * @param times representing the times that an update has been queued.
      */
-    public static void recordUpdateRequestQueued(@UpdateRequestQueued int times) {
-        RecordHistogram.recordEnumeratedHistogram(
-                HISTOGRAM_UPDATE_REQUEST_QUEUED, times, UpdateRequestQueued.NUM_ENTRIES);
+    public static void recordQueuedUpdateShellVersion(int shellApkVersion) {
+        RecordHistogram.recordSparseHistogram(
+                HISTOGRAM_UPDATE_REQUEST_SHELL_VERSION, shellApkVersion);
     }
 
     /**
      * Records duration between starting the WebAPK shell until the splashscreen is shown.
+     *
      * @param durationMs duration in milliseconds
      */
     public static void recordShellApkLaunchToSplashVisible(long durationMs) {
-        RecordHistogram.recordMediumTimesHistogram(
+        RecordHistogram.deprecatedRecordMediumTimesHistogram(
                 HISTOGRAM_LAUNCH_TO_SPLASHSCREEN_VISIBLE, durationMs);
     }
 
     /**
-     * Records duration between starting the WebAPK shell until the shell displays the
-     * splashscreen for new-style WebAPKs.
+     * Records duration between starting the WebAPK shell until the shell displays the splashscreen
+     * for new-style WebAPKs.
      */
     public static void recordNewStyleShellApkLaunchToSplashVisible(long durationMs) {
-        RecordHistogram.recordMediumTimesHistogram(
+        RecordHistogram.deprecatedRecordMediumTimesHistogram(
                 HISTOGRAM_NEW_STYLE_LAUNCH_TO_SPLASHSCREEN_VISIBLE, durationMs);
     }
 
@@ -293,14 +277,12 @@ public class WebApkUmaRecorder {
         final String sysStorageThresholdMaxBytes = "sys_storage_threshold_max_bytes";
 
         ContentResolver resolver = ContextUtils.getApplicationContext().getContentResolver();
-        int minFreePercent = 0;
-        long minFreeBytes = 0;
 
         // Retrieve platform-appropriate values first
-        minFreePercent =
+        int minFreePercent =
                 Settings.Global.getInt(
                         resolver, sysStorageThresholdPercentage, defaultThresholdPercentage);
-        minFreeBytes =
+        long minFreeBytes =
                 Settings.Global.getLong(
                         resolver, sysStorageThresholdMaxBytes, defaultThresholdMaxBytes);
 

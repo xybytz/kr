@@ -6,6 +6,7 @@
 
 #include <sstream>
 #include <string>
+#include <string_view>
 
 #include "base/base64url.h"
 #include "base/containers/contains.h"
@@ -146,9 +147,6 @@ CSPDirectiveName ToCSPDirectiveName(std::string_view name) {
   if (base::EqualsCaseInsensitiveASCII(name, "report-to")) {
     return CSPDirectiveName::ReportTo;
   }
-  if (base::EqualsCaseInsensitiveASCII(name, "navigate-to")) {
-    return CSPDirectiveName::NavigateTo;
-  }
 
   return CSPDirectiveName::Unknown;
 }
@@ -173,7 +171,6 @@ bool SupportedInReportOnly(CSPDirectiveName directive) {
     case CSPDirectiveName::ImgSrc:
     case CSPDirectiveName::ManifestSrc:
     case CSPDirectiveName::MediaSrc:
-    case CSPDirectiveName::NavigateTo:
     case CSPDirectiveName::ObjectSrc:
     case CSPDirectiveName::ReportTo:
     case CSPDirectiveName::ReportURI:
@@ -211,7 +208,6 @@ bool SupportedInMeta(CSPDirectiveName directive) {
     case CSPDirectiveName::ImgSrc:
     case CSPDirectiveName::ManifestSrc:
     case CSPDirectiveName::MediaSrc:
-    case CSPDirectiveName::NavigateTo:
     case CSPDirectiveName::ObjectSrc:
     case CSPDirectiveName::ReportTo:
     case CSPDirectiveName::RequireTrustedTypesFor:
@@ -246,9 +242,6 @@ const char* ErrorMessage(CSPDirectiveName directive) {
     case CSPDirectiveName::FrameSrc:
       return "Refused to frame '$1' because it violates the "
              "following Content Security Policy directive: \"$2\".";
-    case CSPDirectiveName::NavigateTo:
-      return "Refused to navigate to '$1' because it violates the "
-             "following Content Security Policy directive: \"$2\".";
     case CSPDirectiveName::ConnectSrc:
       return "Refused to connect to '$1' because it violates the "
              "following Content Security Policy directive: \"$2\".";
@@ -278,7 +271,6 @@ const char* ErrorMessage(CSPDirectiveName directive) {
     case CSPDirectiveName::WorkerSrc:
     case CSPDirectiveName::Unknown:
       NOTREACHED();
-      return nullptr;
   };
 }
 
@@ -423,7 +415,8 @@ bool ParseScheme(std::string_view scheme, mojom::CSPSource* csp_source) {
   if (!std::all_of(scheme.begin() + 1, scheme.end(), is_scheme_character))
     return false;
 
-  csp_source->scheme = std::string(scheme);
+  csp_source->scheme = base::ToLowerASCII(scheme);
+
 
   return true;
 }
@@ -450,14 +443,19 @@ bool ParseHost(std::string_view host, mojom::CSPSource* csp_source) {
   if (host.empty())
     return false;
 
-  for (const std::string_view& piece : base::SplitStringPiece(
-           host, ".", base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL)) {
-    if (piece.empty() || !base::ranges::all_of(piece, [](auto c) {
+  std::vector<std::string_view> host_pieces = base::SplitStringPiece(
+      host, ".", base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
+  for (int i = 0; std::string_view piece : host_pieces) {
+    // Only a trailing dot is allowed.
+    if ((piece.empty() && i + 1 < std::ssize(host_pieces)) ||
+        !base::ranges::all_of(piece, [](auto c) {
           return base::IsAsciiAlpha(c) || base::IsAsciiDigit(c) || c == '-';
-        }))
+        })) {
       return false;
+    }
+    ++i;
   }
-  csp_source->host = std::string(host);
+  csp_source->host = base::ToLowerASCII(host);
 
   return true;
 }
@@ -499,7 +497,9 @@ bool IsBase64Char(char c) {
          c == '-' || c == '_' || c == '/';
 }
 
-int EatChar(const char** it, const char* end, bool (*predicate)(char)) {
+int EatChar(std::string_view::const_iterator* it,
+            std::string_view::const_iterator end,
+            bool (*predicate)(char)) {
   int count = 0;
   while (*it != end) {
     if (!predicate(**it))
@@ -516,8 +516,8 @@ bool IsBase64(std::string_view expression) {
   if (expression.empty())
     return false;
 
-  auto* it = expression.begin();
-  auto* end = expression.end();
+  std::string_view::const_iterator it = expression.begin();
+  std::string_view::const_iterator end = expression.end();
 
   int count_1 = EatChar(&it, end, IsBase64Char);
   int count_2 = EatChar(&it, end, [](char c) -> bool { return c == '='; });
@@ -690,13 +690,6 @@ mojom::CSPSourceListPtr ParseSourceList(
 
     if (base::EqualsCaseInsensitiveASCII(expression, "'wasm-unsafe-eval'")) {
       directive->allow_wasm_unsafe_eval = true;
-      continue;
-    }
-
-    if (base::EqualsCaseInsensitiveASCII(expression,
-                                         "'unsafe-allow-redirects'") &&
-        directive_name == CSPDirectiveName::NavigateTo) {
-      directive->allow_response_redirects = true;
       continue;
     }
 
@@ -1030,7 +1023,6 @@ void AddContentSecurityPolicyFromHeader(
       case CSPDirectiveName::ImgSrc:
       case CSPDirectiveName::ManifestSrc:
       case CSPDirectiveName::MediaSrc:
-      case CSPDirectiveName::NavigateTo:
       case CSPDirectiveName::ObjectSrc:
       case CSPDirectiveName::ScriptSrc:
       case CSPDirectiveName::ScriptSrcAttr:
@@ -1226,7 +1218,6 @@ CSPDirectiveName CSPFallbackDirective(CSPDirectiveName directive,
     case CSPDirectiveName::DefaultSrc:
     case CSPDirectiveName::FormAction:
     case CSPDirectiveName::FrameAncestors:
-    case CSPDirectiveName::NavigateTo:
     case CSPDirectiveName::ReportTo:
     case CSPDirectiveName::ReportURI:
     case CSPDirectiveName::RequireTrustedTypesFor:
@@ -1237,7 +1228,6 @@ CSPDirectiveName CSPFallbackDirective(CSPDirectiveName directive,
       return CSPDirectiveName::Unknown;
     case CSPDirectiveName::Unknown:
       NOTREACHED();
-      return CSPDirectiveName::Unknown;
   }
 }
 
@@ -1246,22 +1236,23 @@ void AddContentSecurityPolicyFromHeaders(
     const GURL& base_url,
     std::vector<mojom::ContentSecurityPolicyPtr>* out) {
   size_t iter = 0;
-  std::string header_value;
-  while (headers.EnumerateHeader(&iter, "content-security-policy",
-                                 &header_value)) {
+
+  while (std::optional<std::string_view> header_value =
+             headers.EnumerateHeader(&iter, "content-security-policy")) {
     std::vector<mojom::ContentSecurityPolicyPtr> parsed =
         ParseContentSecurityPolicies(
-            header_value, mojom::ContentSecurityPolicyType::kEnforce,
+            *header_value, mojom::ContentSecurityPolicyType::kEnforce,
             mojom::ContentSecurityPolicySource::kHTTP, base_url);
     out->insert(out->end(), std::make_move_iterator(parsed.begin()),
                 std::make_move_iterator(parsed.end()));
   }
+
   iter = 0;
-  while (headers.EnumerateHeader(&iter, "content-security-policy-report-only",
-                                 &header_value)) {
+  while (std::optional<std::string_view> header_value = headers.EnumerateHeader(
+             &iter, "content-security-policy-report-only")) {
     std::vector<mojom::ContentSecurityPolicyPtr> parsed =
         ParseContentSecurityPolicies(
-            header_value, mojom::ContentSecurityPolicyType::kReport,
+            *header_value, mojom::ContentSecurityPolicyType::kReport,
             mojom::ContentSecurityPolicySource::kHTTP, base_url);
     out->insert(out->end(), std::make_move_iterator(parsed.begin()),
                 std::make_move_iterator(parsed.end()));
@@ -1292,12 +1283,14 @@ std::vector<mojom::ContentSecurityPolicyPtr> ParseContentSecurityPolicies(
 
 mojom::AllowCSPFromHeaderValuePtr ParseAllowCSPFromHeader(
     const net::HttpResponseHeaders& headers) {
-  std::string allow_csp_from;
-  if (!headers.GetNormalizedHeader("Allow-CSP-From", &allow_csp_from))
+  std::optional<std::string> allow_csp_from =
+      headers.GetNormalizedHeader("Allow-CSP-From");
+  if (!allow_csp_from) {
     return nullptr;
+  }
 
   std::string_view trimmed =
-      base::TrimWhitespaceASCII(allow_csp_from, base::TRIM_ALL);
+      base::TrimWhitespaceASCII(*allow_csp_from, base::TRIM_ALL);
 
   if (trimmed == "*")
     return mojom::AllowCSPFromHeaderValue::NewAllowStar(true);
@@ -1397,7 +1390,6 @@ CSPCheckResult CheckContentSecurityPolicy(
     const GURL& url,
     const GURL& url_before_redirects,
     bool has_followed_redirect,
-    bool is_response_check,
     CSPContext* context,
     const mojom::SourceLocationPtr& source_location,
     bool is_form_submission,
@@ -1413,13 +1405,6 @@ CSPCheckResult CheckContentSecurityPolicy(
     return CSPCheckResult::Allowed();
   }
 
-  // 'navigate-to' has no effect when doing a form submission and a
-  // 'form-action' directive is present.
-  if (is_form_submission && directive_name == CSPDirectiveName::NavigateTo &&
-      policy->directives.count(CSPDirectiveName::FormAction)) {
-    return CSPCheckResult::Allowed();
-  }
-
   for (CSPDirectiveName effective_directive_name = directive_name;
        effective_directive_name != CSPDirectiveName::Unknown;
        effective_directive_name =
@@ -1431,7 +1416,7 @@ CSPCheckResult CheckContentSecurityPolicy(
     const auto& source_list = directive->second;
     CSPCheckResult result = CheckCSPSourceList(
         directive_name, *source_list, url, *(policy->self_origin),
-        has_followed_redirect, is_response_check, is_opaque_fenced_frame);
+        has_followed_redirect, is_opaque_fenced_frame);
 
     if (!result) {
       ReportViolation(
@@ -1545,7 +1530,7 @@ bool Subsumes(const mojom::ContentSecurityPolicy& policy_a,
       CSPDirectiveName::StyleSrcAttr,   CSPDirectiveName::StyleSrcElem,
       CSPDirectiveName::WorkerSrc,      CSPDirectiveName::BaseURI,
       CSPDirectiveName::FrameAncestors, CSPDirectiveName::FormAction,
-      CSPDirectiveName::NavigateTo,     CSPDirectiveName::FencedFrameSrc};
+      CSPDirectiveName::FencedFrameSrc};
 
   return base::ranges::all_of(directives, [&](CSPDirectiveName directive) {
     auto required = GetSourceList(directive, policy_a);
@@ -1565,8 +1550,7 @@ bool Subsumes(const mojom::ContentSecurityPolicy& policy_a,
       if (source_list.second)
         returned.push_back(source_list.second);
     }
-    // TODO(amalika): Add checks for sandbox, disown-opener,
-    // navigation-to.
+    // TODO(amalika): Add checks for sandbox, disown-opener.
     return CSPSourceListSubsumes(*required.second, returned, required.first,
                                  origin_b);
   });
@@ -1630,13 +1614,10 @@ std::string ToString(CSPDirectiveName name) {
       return "worker-src";
     case CSPDirectiveName::ReportTo:
       return "report-to";
-    case CSPDirectiveName::NavigateTo:
-      return "navigate-to";
     case CSPDirectiveName::Unknown:
       return "";
   }
   NOTREACHED();
-  return "";
 }
 
 bool AllowCspFromAllowOrigin(

@@ -48,7 +48,7 @@ Corresponding DEPS entry would look like:
 
 ## How to avoid accidental Git submodule updates?
 
-The simplest approach is to always run gclient sync after updated chromium
+The simplest approach is to always run gclient sync after updating chromium
 checkout (e.g. after `git pull`, or `git checkout`). You can automate that by
 adding post-checkout hook (example below). To confirm there are no changes, run
 `git status`. If you use `git commit -a`, check the "Changes to be committed"
@@ -98,21 +98,6 @@ git add <file> # for each file you want to stage
 git commit -v -m "Fix foo/bar"
 ```
 
-NOTE: due to a bug in gclient (crbug.com/1475448), it's possible that gclient
-left unmanaged git repository. You may need to manually remove those unmanaged
-repositories.
-
-```
-# Inside chromium/src checkout:
-# This ensures that all managed dependencies are in sync:
-gclient sync -D
-# This moves all unused dependencies to ../unused directory in gclient root
-# (just outside of src directory). It then tells git to restore gitlink.
-for f in $( git status | grep '(new commits)' | awk '{print $2}' ); do mkdir -p "../unused/`dirname $f`" && mv $f "../unused/$f" && git checkout -- $f; done
-# inspect ../unused/ if you'd like, and remove it there's nothing useful there,
-# e.g. no non-uploaded commits.
-```
-
 If a submodule has uncommitted changes (i.e. you made some manual changes to the
 affected submodule), running `git status` in its parent repo will show them as
 unstaged changes:
@@ -148,30 +133,66 @@ are updating v8, the command would be `gclient setdep -r src/v8@<hash>.
 
 ## Workflows with submodules
 
-### Submodules during 'git status' and 'git commit'
-Submodules that show up under `Changes not staged for commit` when you run
-`git status` can be hidden with `git -c diff.ignoreSubmodules=all status`
+### Submodules during 'git status', 'git commit', and 'git add'
 
-You can also `git commit -a` your changes while excluding all submodules with
+For `git status`, submodules that show up under `Changes not staged for commit`
+can be hidden with `git -c diff.ignoreSubmodules=all status`
+
+For `git commit -a` you can exclude all submodules with
 `git -c diff.ignoreSubmodules=all commit -a`.
 
+`git add` does NOT support `diff.ignoreSubmodules`. Submodules that were
+hidden from you with `git -c diff.ignoreSubmodules=all status` would still
+be staged with `git add .|--all|-A` and therefore committed with
+`git -c diff.ignoreSubmodules=all commit`.
+
+Instead you can run `git add ':(exclude,attr:builtin_objectmode=160000)'` which
+will stage all changes except for submodules.
+
+(git assigns `160000` as the objectmode submodules. You can read more about
+[`builtin_objectmode`](https://kernel.googlesource.com/pub/scm/git/git/+/refs/heads/next/Documentation/gitattributes.txt#110)
+and magic [pathspecs](https://git-scm.com/docs/gitglossary#Documentation/gitglossary.txt-aiddefpathspecapathspec))
+
 To make these commands shorter, you can create git aliases for them by adding
-the following to your src/.git/commit file:
+the following to your $HOME/.gitconfig (globally) or src/.git/config file (just
+chromium/src):
 ```
 [alias]
         # 's', 'c', or whatever alias you want for each command
         s = -c diff.ignoreSubmodules=all status
         c = -c diff.ignoreSubmodules=all commit -a
         d = -c diff.ignoreSubmodules=all difftool --dir-diff
+        a = add ':(exclude,attr:builtin_objectmode=160000)'
 ```
-With the above, you can execute these commands by running `git s` and `git c`
+With the above, you can execute these commands by running `git s`, `git c`, etc.
+Or you may also use the pre-commit git hook detailed below.
 
-NOTE: `diff.ignoreSubmodules` is not supported with `git add`. If you are hiding
-subodules from your view with something like `git s`, running
-`git add .|--all|-A` will still stage any submodules you do not see for commit.
-Then running `git c` will still include these submodules in your commit.
+### Understanding diff.ignoreSubmodules
 
-We recommend you use the pre-commit git hook detailed below.
+`git config diff.ignoreSubmodules` sets a default behavior for `diff`, `status`,
+and several other git subcommands, using one of the [supported values of
+`--ignore-submodules`](https://www.git-scm.com/docs/git-diff/#Documentation/git-diff.txt---ignore-submodulesltwhengt).
+
+By default, `gclient sync` sets this to `dirty` as a local config in the
+chromium checkout. This elides submodule output for `git status` in a clean
+checkout, but will show submodules as modified when developers locally touch
+them.
+
+Manually setting this to `all` elides such output in all cases. This also omits
+submodule changes from `git commit -a`, which can decrease the likelihood of
+accidental submodule commits. However, it does not omit such changes from
+`git add -A`, meaning developers who use this flow are actually _more_ likely to
+commit accidental changes, since they'll be invisible beforehand unless
+developers manually set `--ignore-submodules=dirty` or use a lower-level command
+such as `git diff-tree`.
+
+Because `all` can result in misleading output and doesn't fully prevent
+accidental submodule commits, typical developers are likely better-served by
+leaving this configured to `dirty` and installing the
+[commit hook described below](#install-hook) to prevent such commits.
+Accordingly, `gclient sync` will warn if it detects a different setting locally;
+developers who understand the consequences can silence the warning via the
+`GCLIENT_SUPPRESS_SUBMODULE_WARNING` environment variable.
 
 ### Submodules during a 'git rebase-update'
 While resolving merge conflicts during a `git rebase-update` you may see
@@ -200,7 +221,7 @@ If you DID intentionally roll submodules, you can resolve this conflict just by
 resetting it:
 `gclient setdep -r {path}@{hash}`
 
-## BETA: Install a hook to help detect unintentional submodule commits
+## Install a hook to help detect unintentional submodule commits {#install-hook}
 
 depot_tools provides an opt-in pre-commit hook to detect unintentional submodule
  changes during `git commit` and remove them from the commit.
@@ -269,4 +290,3 @@ If you want to keep your gitlink, then run `git add <affected path>`.
 
 Please file [a bug under Infra>SDK
 component](https://bugs.chromium.org/p/chromium/issues/entry?components=Infra%3ESDK).
-

@@ -77,8 +77,8 @@ class RoundedScrollBarTest : public views::ViewsTestBase,
 
     // Add a vertical scrollbar along the right edge.
     auto* contents = widget_->SetContentsView(std::make_unique<views::View>());
-    scroll_bar_ = contents->AddChildView(
-        std::make_unique<RoundedScrollBar>(/*horizontal=*/false));
+    scroll_bar_ = contents->AddChildView(std::make_unique<RoundedScrollBar>(
+        views::ScrollBar::Orientation::kVertical));
     scroll_bar_->set_controller(&controller_);
     scroll_bar_->SetBounds(90, 0, kScrollBarWidth, kViewportHeight);
     scroll_bar_->Update(kViewportHeight, kContentHeight,
@@ -133,6 +133,17 @@ TEST_P(RoundedScrollBarTest, FadesAfterScroll) {
   scroll_bar_->ScrollByAmount(views::ScrollBar::ScrollAmount::kNextLine);
   task_environment()->FastForwardBy(base::Seconds(1));
   EXPECT_EQ(thumb_->layer()->GetTargetOpacity(), 0.f);
+}
+
+TEST_P(RoundedScrollBarTest, AlwaysShowThumbIsTrue) {
+  scroll_bar_->SetAlwaysShowThumb(true);
+  EXPECT_EQ(thumb_->layer()->GetTargetOpacity(),
+            GetParam() ? kActiveOpacity : kDefaultOpacity);
+  scroll_bar_->ScrollByAmount(views::ScrollBar::ScrollAmount::kNextLine);
+  EXPECT_EQ(thumb_->layer()->GetTargetOpacity(),
+            GetParam() ? kActiveOpacity : kDefaultOpacity);
+  generator_->MoveMouseTo(thumb_->GetBoundsInScreen().CenterPoint());
+  EXPECT_EQ(thumb_->layer()->GetTargetOpacity(), kActiveOpacity);
 }
 
 TEST_P(RoundedScrollBarTest, MoveToThumbShowsActiveOpacity) {

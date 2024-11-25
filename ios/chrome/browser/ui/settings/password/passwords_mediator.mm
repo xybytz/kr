@@ -12,16 +12,16 @@
 #import "components/password_manager/core/browser/leak_detection_dialog_utils.h"
 #import "components/password_manager/core/browser/password_manager_client.h"
 #import "components/password_manager/core/browser/password_sync_util.h"
+#import "components/sync/base/passphrase_enums.h"
 #import "components/sync/service/sync_service_utils.h"
-#import "ios/chrome/browser/favicon/favicon_loader.h"
+#import "components/sync/service/sync_user_settings.h"
+#import "ios/chrome/browser/favicon/model/favicon_loader.h"
 #import "ios/chrome/browser/net/model/crurl.h"
 #import "ios/chrome/browser/passwords/model/password_check_observer_bridge.h"
 #import "ios/chrome/browser/passwords/model/password_checkup_utils.h"
 #import "ios/chrome/browser/passwords/model/password_manager_util_ios.h"
 #import "ios/chrome/browser/passwords/model/save_passwords_consumer.h"
-#import "ios/chrome/browser/signin/model/authentication_service.h"
 #import "ios/chrome/browser/sync/model/sync_observer_bridge.h"
-#import "ios/chrome/browser/sync/model/sync_setup_service.h"
 #import "ios/chrome/browser/ui/settings/password/account_storage_utils.h"
 #import "ios/chrome/browser/ui/settings/password/passwords_consumer.h"
 #import "ios/chrome/browser/ui/settings/password/passwords_table_view_constants.h"
@@ -32,11 +32,27 @@
 #import "ios/chrome/common/ui/favicon/favicon_constants.h"
 #import "ios/chrome/grit/ios_branded_strings.h"
 #import "ios/chrome/grit/ios_strings.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "ui/base/l10n/l10n_util_mac.h"
 #import "url/gurl.h"
 
 using password_manager::WarningType;
+
+namespace {
+
+// Struct used to count and store the number of active Password Manager widget
+// promos, as the FET does not support showing multiple promos for the same FET
+// feature at the same time.
+struct PasswordManagerActiveWidgetPromoData
+    : public base::SupportsUserData::Data {
+  // The number of active promos.
+  int active_promos = 0;
+
+  // Key to use for this type in SupportsUserData
+  static constexpr char key[] = "PasswordManagerActiveWidgetPromoData";
+};
+
+}  // namespace
 
 @interface PasswordsMediator () <PasswordCheckObserver,
                                  SavedPasswordsPresenterObserver,
@@ -84,16 +100,21 @@ using password_manager::WarningType;
 
   // Service to know whether passwords are synced.
   raw_ptr<syncer::SyncService> _syncService;
+
+  // The user pref service.
+  raw_ptr<PrefService> _prefService;
 }
 
 - (instancetype)initWithPasswordCheckManager:
                     (scoped_refptr<IOSChromePasswordCheckManager>)
                         passwordCheckManager
                                faviconLoader:(FaviconLoader*)faviconLoader
-                                 syncService:(syncer::SyncService*)syncService {
+                                 syncService:(syncer::SyncService*)syncService
+                                 prefService:(PrefService*)prefService {
   self = [super init];
   if (self) {
     _syncService = syncService;
+    _prefService = prefService;
     _faviconLoader = faviconLoader;
 
     _syncObserver = std::make_unique<SyncObserverBridge>(self, syncService);
@@ -122,15 +143,14 @@ using password_manager::WarningType;
   _currentState = _passwordCheckManager->GetPasswordCheckState();
   [self updateConsumerPasswordCheckState:_currentState];
   [self.consumer
-      setSavingPasswordsToAccount:password_manager::sync_util::
-                                      GetPasswordSyncState(_syncService) !=
-                                  password_manager::SyncState::kNotSyncing];
+      setSavingPasswordsToAccount:
+          password_manager::sync_util::GetPasswordSyncState(_syncService) !=
+          password_manager::sync_util::SyncState::kNotActive];
 }
 
 - (void)disconnect {
   if (_shouldNotifyFETToDismissPasswordManagerWidgetPromo && _tracker) {
-    _tracker->Dismissed(
-        feature_engagement::kIPHiOSPromoPasswordManagerWidgetFeature);
+    [self dismissFETIfNeeded];
   }
   _tracker = nullptr;
   _syncObserver.reset();
@@ -139,6 +159,7 @@ using password_manager::WarningType;
   _passwordCheckManager.reset();
   _savedPasswordsPresenter = nullptr;
   _faviconLoader = nullptr;
+  _prefService = nullptr;
   _syncService = nullptr;
 }
 
@@ -159,7 +180,8 @@ using password_manager::WarningType;
 }
 
 - (void)startPasswordCheck {
-  _passwordCheckManager->StartPasswordCheck();
+  _passwordCheckManager->StartPasswordCheck(
+      password_manager::LeakDetectionInitiator::kBulkSyncedPasswordsCheck);
 }
 
 - (NSString*)formattedElapsedTimeSinceLastCheck {
@@ -241,8 +263,7 @@ using password_manager::WarningType;
   if (self.tracker) {
     self.tracker->NotifyEvent(
         feature_engagement::events::kPasswordManagerWidgetPromoClosed);
-    self.tracker->Dismissed(
-        feature_engagement::kIPHiOSPromoPasswordManagerWidgetFeature);
+    [self dismissFETIfNeeded];
   }
   _shouldNotifyFETToDismissPasswordManagerWidgetPromo = NO;
 }
@@ -263,6 +284,10 @@ using password_manager::WarningType;
     return;
 
   [self updateConsumerPasswordCheckState:_currentState];
+}
+
+- (void)passwordCheckManagerWillShutdown {
+  _passwordCheckObserver.reset();
 }
 
 #pragma mark - Private Methods
@@ -344,18 +369,57 @@ using password_manager::WarningType;
 
 // Compute whether user is capable to run password check in Google Account.
 - (BOOL)canUseAccountPasswordCheckup {
-  return password_manager::sync_util::GetAccountForSaving(_syncService) &&
+  return password_manager::sync_util::GetAccountForSaving(_prefService,
+                                                          _syncService) &&
          !_syncService->GetUserSettings()->IsEncryptEverythingEnabled();
 }
 
 - (BOOL)shouldShowPasswordManagerWidgetPromo {
-  if (self.tracker &&
-      self.tracker->ShouldTriggerHelpUI(
-          feature_engagement::kIPHiOSPromoPasswordManagerWidgetFeature)) {
-    self.shouldNotifyFETToDismissPasswordManagerWidgetPromo = YES;
-    return YES;
+  if (self.tracker) {
+    // First check if another active Password Manager page (e.g. in another
+    // window) has an active promo. If so, just return that the promo should be
+    // shown here without querying the FET. Only query the FET if there is no
+    // currently active promo.
+    PasswordManagerActiveWidgetPromoData* data =
+        static_cast<PasswordManagerActiveWidgetPromoData*>(
+            self.tracker->GetUserData(
+                PasswordManagerActiveWidgetPromoData::key));
+    if (data) {
+      data->active_promos++;
+      self.shouldNotifyFETToDismissPasswordManagerWidgetPromo = YES;
+      return YES;
+    } else if (self.tracker->ShouldTriggerHelpUI(
+                   feature_engagement::
+                       kIPHiOSPromoPasswordManagerWidgetFeature)) {
+      std::unique_ptr<PasswordManagerActiveWidgetPromoData> new_data =
+          std::make_unique<PasswordManagerActiveWidgetPromoData>();
+      new_data->active_promos++;
+      self.tracker->SetUserData(PasswordManagerActiveWidgetPromoData::key,
+                                std::move(new_data));
+      self.shouldNotifyFETToDismissPasswordManagerWidgetPromo = YES;
+      return YES;
+    }
   }
   return NO;
+}
+
+// Check if this is the last active Password Manager showing the widget promo
+// and dismisses the FET if so.
+- (void)dismissFETIfNeeded {
+  PasswordManagerActiveWidgetPromoData* data =
+      static_cast<PasswordManagerActiveWidgetPromoData*>(
+          _tracker->GetUserData(PasswordManagerActiveWidgetPromoData::key));
+  if (data) {
+    data->active_promos--;
+    if (data->active_promos <= 0) {
+      _tracker->Dismissed(
+          feature_engagement::kIPHiOSPromoPasswordManagerWidgetFeature);
+      _tracker->RemoveUserData(PasswordManagerActiveWidgetPromoData::key);
+    }
+  } else {
+    _tracker->Dismissed(
+        feature_engagement::kIPHiOSPromoPasswordManagerWidgetFeature);
+  }
 }
 
 #pragma mark - SavedPasswordsPresenterObserver
@@ -390,9 +454,9 @@ using password_manager::WarningType;
 
 - (void)onSyncStateChanged {
   [self.consumer
-      setSavingPasswordsToAccount:password_manager::sync_util::
-                                      GetPasswordSyncState(_syncService) !=
-                                  password_manager::SyncState::kNotSyncing];
+      setSavingPasswordsToAccount:
+          password_manager::sync_util::GetPasswordSyncState(_syncService) !=
+          password_manager::sync_util::SyncState::kNotActive];
 }
 
 @end

@@ -2,18 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #ifndef MEDIA_GPU_TEST_VIDEO_ENCODER_DECODER_BUFFER_VALIDATOR_H_
 #define MEDIA_GPU_TEST_VIDEO_ENCODER_DECODER_BUFFER_VALIDATOR_H_
 
 #include <stdint.h>
 
+#include <optional>
+
 #include "base/memory/scoped_refptr.h"
-#include "media/filters/vp9_parser.h"
 #include "media/gpu/h264_dpb.h"
 #include "media/gpu/test/bitstream_helpers.h"
+#include "media/parsers/h264_parser.h"
 #include "media/parsers/vp8_parser.h"
-#include "media/video/h264_parser.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "media/parsers/vp9_parser.h"
 #include "third_party/libgav1/src/src/obu_parser.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -51,7 +57,7 @@ class DecoderBufferValidator : public BitstreamProcessor {
                          size_t num_temporal_layers);
 
   // Returns true if decoder_buffer is valid and expected, otherwise false.
-  virtual bool Validate(const DecoderBuffer& decoder_buffer,
+  virtual bool Validate(const DecoderBuffer* buffer,
                         const BitstreamBufferMetadata& metadata) = 0;
 
   // The expected visible rectangle that |decoder_buffer| has.
@@ -71,11 +77,11 @@ class H264Validator : public DecoderBufferValidator {
   H264Validator(VideoCodecProfile profile,
                 const gfx::Rect& visible_rect,
                 const size_t num_temporal_layers,
-                absl::optional<uint8_t> level = absl::nullopt);
+                std::optional<uint8_t> level = std::nullopt);
   ~H264Validator() override;
 
  private:
-  bool Validate(const DecoderBuffer& decoder_buffer,
+  bool Validate(const DecoderBuffer* buffer,
                 const BitstreamBufferMetadata& metadata) override;
 
   // Returns whether the |slice_hdr| is the first slice of a new frame.
@@ -101,8 +107,8 @@ class H264Validator : public DecoderBufferValidator {
   // The expected h264 profile of |decoder_buffer|.
   const int profile_;
   // The expected h264 level of |decoder_buffer|. Check if it is not
-  // absl::nullopt.
-  absl::optional<uint8_t> level_;
+  // std::nullopt.
+  std::optional<uint8_t> level_;
 };
 
 class VP8Validator : public DecoderBufferValidator {
@@ -111,7 +117,7 @@ class VP8Validator : public DecoderBufferValidator {
   ~VP8Validator() override;
 
  private:
-  bool Validate(const DecoderBuffer& decoder_buffer,
+  bool Validate(const DecoderBuffer* buffer,
                 const BitstreamBufferMetadata& metadata) override;
 
   Vp8Parser parser_;
@@ -136,7 +142,7 @@ class VP9Validator : public DecoderBufferValidator {
     uint8_t temporal_id = 0;
   };
 
-  bool Validate(const DecoderBuffer& decoder_buffer,
+  bool Validate(const DecoderBuffer* buffer,
                 const BitstreamBufferMetadata& metadata) override;
 
   // Validate DecoderBuffer for a vanilla stream.
@@ -168,10 +174,10 @@ class VP9Validator : public DecoderBufferValidator {
   // An optional state for each specified VP9 reference buffer.
   // A nullopt indicates either keyframe not yet seen, or that a
   // buffer has been invalidated (e.g. due to sync points).
-  std::vector<std::array<absl::optional<BufferState>, kVp9NumRefFrames>>
+  std::vector<std::array<std::optional<BufferState>, kVp9NumRefFrames>>
       reference_buffers_;
 
-  absl::optional<base::TimeDelta> dropped_superframe_timestamp_;
+  std::optional<base::TimeDelta> dropped_superframe_timestamp_;
 };
 
 class AV1Validator : public DecoderBufferValidator {
@@ -182,13 +188,13 @@ class AV1Validator : public DecoderBufferValidator {
   ~AV1Validator() override = default;
 
  private:
-  bool Validate(const DecoderBuffer& decoder_buffer,
+  bool Validate(const DecoderBuffer* buffer,
                 const BitstreamBufferMetadata& metadata) override;
 
   libgav1::InternalFrameBufferList buffer_list_;
   libgav1::BufferPool buffer_pool_;
   libgav1::DecoderState decoder_state_;
-  absl::optional<libgav1::ObuSequenceHeader> sequence_header_ = absl::nullopt;
+  std::optional<libgav1::ObuSequenceHeader> sequence_header_ = std::nullopt;
   uint64_t frame_num_ = 0;
 };
 }  // namespace test

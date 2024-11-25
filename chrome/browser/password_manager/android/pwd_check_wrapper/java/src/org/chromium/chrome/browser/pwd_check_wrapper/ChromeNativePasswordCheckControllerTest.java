@@ -13,7 +13,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.mockito.quality.Strictness;
@@ -25,7 +24,6 @@ import org.chromium.chrome.browser.password_check.PasswordCheckFactory;
 import org.chromium.chrome.browser.password_check.PasswordCheckUIStatus;
 import org.chromium.chrome.browser.pwd_check_wrapper.PasswordCheckController.PasswordCheckResult;
 import org.chromium.chrome.browser.pwd_check_wrapper.PasswordCheckController.PasswordStorageType;
-import org.chromium.components.browser_ui.settings.SettingsLauncher;
 
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
@@ -37,15 +35,13 @@ import java.util.concurrent.ExecutionException;
 public class ChromeNativePasswordCheckControllerTest {
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule().strictness(Strictness.STRICT_STUBS);
 
-    @Mock private SettingsLauncher mSettingsLauncher;
     @Mock private PasswordCheck mPasswordCheck;
     private ChromeNativePasswordCheckController mController;
 
     @Before
     public void setUp() {
-        MockitoAnnotations.openMocks(this);
         PasswordCheckFactory.setPasswordCheckForTesting(mPasswordCheck);
-        mController = new ChromeNativePasswordCheckController(mSettingsLauncher);
+        mController = new ChromeNativePasswordCheckController();
     }
 
     /**
@@ -147,6 +143,7 @@ public class ChromeNativePasswordCheckControllerTest {
     public void getBreachedCredentialsCountTest() throws ExecutionException, InterruptedException {
         // Set fake to return 1 breached credential.
         final int breachedCount = 1;
+        when(mPasswordCheck.hasAccountForRequest()).thenReturn(true);
         when(mPasswordCheck.getCompromisedCredentialsCount()).thenReturn(breachedCount);
         when(mPasswordCheck.getSavedPasswordsCount()).thenReturn(10);
 
@@ -170,5 +167,20 @@ public class ChromeNativePasswordCheckControllerTest {
         mController.destroy();
         verify(mPasswordCheck).stopCheck();
         verify(mPasswordCheck).removeObserver(mController);
+    }
+
+    @Test
+    public void getBreachedCredentialsCountReturnsSignedOutError()
+            throws ExecutionException, InterruptedException {
+        when(mPasswordCheck.hasAccountForRequest()).thenReturn(false);
+
+        PasswordCheckResult passwordCheckResult =
+                mController.getBreachedCredentialsCount(PasswordStorageType.LOCAL_STORAGE).get();
+
+        assertEquals(OptionalInt.empty(), passwordCheckResult.getBreachedCount());
+        assertEquals(OptionalInt.empty(), passwordCheckResult.getTotalPasswordsCount());
+        assertEquals(
+                PasswordCheckUIStatus.ERROR_SIGNED_OUT,
+                ((PasswordCheckNativeException) passwordCheckResult.getError()).errorCode);
     }
 }

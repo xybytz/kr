@@ -37,7 +37,7 @@ class GpuServiceTest : public testing::Test {
   GpuServiceTest(const GpuServiceTest&) = delete;
   GpuServiceTest& operator=(const GpuServiceTest&) = delete;
 
-  ~GpuServiceTest() override {}
+  ~GpuServiceTest() override = default;
 
   GpuServiceImpl* gpu_service() { return gpu_service_.get(); }
 
@@ -63,12 +63,12 @@ class GpuServiceTest : public testing::Test {
     ASSERT_TRUE(io_thread_.Start());
     gpu::GPUInfo gpu_info;
     gpu_info.in_process_gpu = false;
+    GpuServiceImpl::InitParams init_params;
+    init_params.io_runner = io_thread_.task_runner();
+    init_params.exit_callback = base::DoNothing();
     gpu_service_ = std::make_unique<GpuServiceImpl>(
-        gpu_info, /*watchdog_thread=*/nullptr, io_thread_.task_runner(),
-        gpu::GpuFeatureInfo(), gpu::GpuPreferences(), gpu::GPUInfo(),
-        gpu::GpuFeatureInfo(), gfx::GpuExtraInfo(),
-        /*vulkan_implementation=*/nullptr,
-        /*exit_callback=*/base::DoNothing());
+        gpu::GpuPreferences(), gpu_info, gpu::GpuFeatureInfo(), gpu::GPUInfo(),
+        gpu::GpuFeatureInfo(), gfx::GpuExtraInfo(), std::move(init_params));
   }
 
   void TearDown() override {
@@ -78,7 +78,7 @@ class GpuServiceTest : public testing::Test {
     io_thread_.Stop();
   }
 
-  absl::optional<bool> visible_;
+  std::optional<bool> visible_;
 
  private:
   base::Thread io_thread_;
@@ -122,8 +122,7 @@ TEST_F(GpuServiceTest, LoseAllContexts) {
   gpu_service()->InitializeWithHost(
       std::move(gpu_host_proxy), gpu::GpuProcessShmCount(),
       gl::init::CreateOffscreenGLSurface(gl::GetDefaultDisplay(), gfx::Size()),
-      /*sync_point_manager=*/nullptr, /*shared_image_manager=*/nullptr,
-      /*shutdown_event=*/nullptr);
+      mojom::GpuServiceCreationParams::New());
   gpu_service_remote.FlushForTesting();
 
   gpu_service()->MaybeExitOnContextLost(
@@ -141,8 +140,7 @@ TEST_F(GpuServiceTest, VisibilityCallbackCalled) {
   gpu_service()->InitializeWithHost(
       std::move(gpu_host_proxy), gpu::GpuProcessShmCount(),
       gl::init::CreateOffscreenGLSurface(gl::GetDefaultDisplay(), gfx::Size()),
-      /*sync_point_manager=*/nullptr, /*shared_image_manager=*/nullptr,
-      /*shutdown_event=*/nullptr);
+      mojom::GpuServiceCreationParams::New());
   gpu_service_remote.FlushForTesting();
 
   gpu_service()->SetVisibilityChangedCallback(base::BindRepeating(

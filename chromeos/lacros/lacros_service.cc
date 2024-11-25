@@ -28,12 +28,13 @@
 #include "chromeos/crosapi/mojom/authentication.mojom.h"
 #include "chromeos/crosapi/mojom/automation.mojom.h"
 #include "chromeos/crosapi/mojom/browser_app_instance_registry.mojom.h"
+#include "chromeos/crosapi/mojom/browser_service.mojom.h"
 #include "chromeos/crosapi/mojom/browser_version.mojom.h"
+#include "chromeos/crosapi/mojom/cec_private.mojom.h"
 #include "chromeos/crosapi/mojom/cert_database.mojom.h"
 #include "chromeos/crosapi/mojom/cert_provisioning.mojom.h"
 #include "chromeos/crosapi/mojom/chaps_service.mojom.h"
 #include "chromeos/crosapi/mojom/chrome_app_kiosk_service.mojom.h"
-#include "chromeos/crosapi/mojom/clipboard.mojom.h"
 #include "chromeos/crosapi/mojom/clipboard_history.mojom.h"
 #include "chromeos/crosapi/mojom/content_protection.mojom.h"
 #include "chromeos/crosapi/mojom/cros_display_config.mojom.h"
@@ -50,7 +51,6 @@
 #include "chromeos/crosapi/mojom/dlp.mojom.h"
 #include "chromeos/crosapi/mojom/document_scan.mojom.h"
 #include "chromeos/crosapi/mojom/download_controller.mojom.h"
-#include "chromeos/crosapi/mojom/download_status_updater.mojom.h"
 #include "chromeos/crosapi/mojom/drive_integration_service.mojom.h"
 #include "chromeos/crosapi/mojom/echo_private.mojom.h"
 #include "chromeos/crosapi/mojom/editor_panel.mojom.h"
@@ -61,17 +61,17 @@
 #include "chromeos/crosapi/mojom/feedback.mojom.h"
 #include "chromeos/crosapi/mojom/field_trial.mojom.h"
 #include "chromeos/crosapi/mojom/file_change_service_bridge.mojom.h"
-#include "chromeos/crosapi/mojom/file_manager.mojom.h"
 #include "chromeos/crosapi/mojom/file_system_access_cloud_identifier.mojom.h"
 #include "chromeos/crosapi/mojom/file_system_provider.mojom.h"
 #include "chromeos/crosapi/mojom/firewall_hole.mojom.h"
 #include "chromeos/crosapi/mojom/force_installed_tracker.mojom.h"
+#include "chromeos/crosapi/mojom/full_restore.mojom.h"
 #include "chromeos/crosapi/mojom/fullscreen_controller.mojom.h"
 #include "chromeos/crosapi/mojom/geolocation.mojom.h"
 #include "chromeos/crosapi/mojom/guest_os_sk_forwarder.mojom.h"
-#include "chromeos/crosapi/mojom/holding_space_service.mojom.h"
 #include "chromeos/crosapi/mojom/identity_manager.mojom.h"
 #include "chromeos/crosapi/mojom/image_writer.mojom.h"
+#include "chromeos/crosapi/mojom/input_methods.mojom.h"
 #include "chromeos/crosapi/mojom/kerberos_in_browser.mojom.h"
 #include "chromeos/crosapi/mojom/keystore_service.mojom.h"
 #include "chromeos/crosapi/mojom/kiosk_session_service.mojom.h"
@@ -81,31 +81,33 @@
 #include "chromeos/crosapi/mojom/login.mojom.h"
 #include "chromeos/crosapi/mojom/login_screen_storage.mojom.h"
 #include "chromeos/crosapi/mojom/login_state.mojom.h"
+#include "chromeos/crosapi/mojom/magic_boost.mojom.h"
+#include "chromeos/crosapi/mojom/mahi.mojom.h"
+#include "chromeos/crosapi/mojom/media_app.mojom.h"
 #include "chromeos/crosapi/mojom/media_ui.mojom.h"
-#include "chromeos/crosapi/mojom/message_center.mojom.h"
 #include "chromeos/crosapi/mojom/metrics.mojom.h"
-#include "chromeos/crosapi/mojom/metrics_reporting.mojom.h"
 #include "chromeos/crosapi/mojom/multi_capture_service.mojom.h"
 #include "chromeos/crosapi/mojom/network_change.mojom.h"
 #include "chromeos/crosapi/mojom/network_settings_service.mojom.h"
 #include "chromeos/crosapi/mojom/networking_attributes.mojom.h"
 #include "chromeos/crosapi/mojom/networking_private.mojom.h"
 #include "chromeos/crosapi/mojom/nonclosable_app_toast_service.mojom.h"
+#include "chromeos/crosapi/mojom/one_drive_integration_service.mojom.h"
 #include "chromeos/crosapi/mojom/one_drive_notification_service.mojom.h"
 #include "chromeos/crosapi/mojom/parent_access.mojom.h"
 #include "chromeos/crosapi/mojom/policy_service.mojom.h"
 #include "chromeos/crosapi/mojom/power.mojom.h"
 #include "chromeos/crosapi/mojom/prefs.mojom.h"
+#include "chromeos/crosapi/mojom/print_preview_cros.mojom.h"
 #include "chromeos/crosapi/mojom/printing_metrics.mojom.h"
 #include "chromeos/crosapi/mojom/probe_service.mojom.h"
 #include "chromeos/crosapi/mojom/remoting.mojom.h"
 #include "chromeos/crosapi/mojom/resource_manager.mojom.h"
 #include "chromeos/crosapi/mojom/screen_ai_downloader.mojom.h"
 #include "chromeos/crosapi/mojom/screen_manager.mojom.h"
-#include "chromeos/crosapi/mojom/select_file.mojom.h"
 #include "chromeos/crosapi/mojom/sharesheet.mojom.h"
 #include "chromeos/crosapi/mojom/smart_reader.mojom.h"
-#include "chromeos/crosapi/mojom/speech_recognition.mojom.h"
+#include "chromeos/crosapi/mojom/suggestion_service.mojom.h"
 #include "chromeos/crosapi/mojom/sync.mojom.h"
 #include "chromeos/crosapi/mojom/task_manager.mojom.h"
 #include "chromeos/crosapi/mojom/telemetry_diagnostic_routine_service.mojom.h"
@@ -114,7 +116,6 @@
 #include "chromeos/crosapi/mojom/test_controller.mojom.h"
 #include "chromeos/crosapi/mojom/timezone.mojom.h"
 #include "chromeos/crosapi/mojom/trusted_vault.mojom.h"
-#include "chromeos/crosapi/mojom/tts.mojom.h"
 #include "chromeos/crosapi/mojom/url_handler.mojom.h"
 #include "chromeos/crosapi/mojom/video_conference.mojom.h"
 #include "chromeos/crosapi/mojom/virtual_keyboard.mojom.h"
@@ -124,10 +125,10 @@
 #include "chromeos/crosapi/mojom/wallpaper.mojom.h"
 #include "chromeos/crosapi/mojom/web_app_service.mojom.h"
 #include "chromeos/crosapi/mojom/web_kiosk_service.mojom.h"
-#include "chromeos/crosapi/mojom/web_page_info.mojom.h"
 #include "chromeos/lacros/lacros_service_never_blocking_state.h"
 #include "chromeos/lacros/native_theme_cache.h"
 #include "chromeos/lacros/system_idle_cache.h"
+#include "chromeos/services/chromebox_for_meetings/public/mojom/cfm_service_manager.mojom.h"
 #include "chromeos/services/machine_learning/public/mojom/machine_learning_service.mojom.h"
 #include "chromeos/startup/browser_params_proxy.h"
 #include "components/crash/core/common/crash_key.h"
@@ -257,7 +258,7 @@ LacrosService::LacrosService()
   // available, close --mojo-platform-channel-handle, and remove it
   // from command line. It is for backward compatibility support by
   // ash-chrome.
-  // TODO(crbug.com/1180712): Remove this, when ash-chrome stops to support
+  // TODO(crbug.com/40170079): Remove this, when ash-chrome stops to support
   // legacy invitation flow.
   auto* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(crosapi::kCrosapiMojoPlatformChannelHandle) &&
@@ -282,10 +283,8 @@ LacrosService::LacrosService()
                   Crosapi::MethodMinVersions::kBindAppServiceProxyMinVersion>();
   ConstructRemote<crosapi::mojom::AudioService, &Crosapi::BindAudioService,
                   Crosapi::MethodMinVersions::kBindAudioServiceMinVersion>();
-  ConstructRemote<
-      crosapi::mojom::AppShortcutPublisher,
-      &Crosapi::BindBrowserShortcutPublisher,
-      Crosapi::MethodMinVersions::kBindBrowserShortcutPublisherMinVersion>();
+  ConstructRemote<crosapi::mojom::CecPrivate, &Crosapi::BindCecPrivate,
+                  Crosapi::MethodMinVersions::kBindCecPrivateMinVersion>();
   ConstructRemote<
       crosapi::mojom::AppWindowTracker, &Crosapi::BindChromeAppWindowTracker,
       Crosapi::MethodMinVersions::kBindChromeAppWindowTrackerMinVersion>();
@@ -305,10 +304,12 @@ LacrosService::LacrosService()
   ConstructRemote<
       crosapi::mojom::CertProvisioning, &Crosapi::BindCertProvisioning,
       Crosapi::MethodMinVersions::kBindCertProvisioningMinVersion>();
+  ConstructRemote<
+      chromeos::cfm::mojom::CfmServiceContext,
+      &crosapi::mojom::Crosapi::BindCfmServiceContext,
+      Crosapi::MethodMinVersions::kBindCfmServiceContextMinVersion>();
   ConstructRemote<crosapi::mojom::ChapsService, &Crosapi::BindChapsService,
                   Crosapi::MethodMinVersions::kBindChapsServiceMinVersion>();
-  ConstructRemote<crosapi::mojom::Clipboard, &Crosapi::BindClipboard,
-                  Crosapi::MethodMinVersions::kBindClipboardMinVersion>();
   ConstructRemote<
       crosapi::mojom::ClipboardHistory, &Crosapi::BindClipboardHistory,
       Crosapi::MethodMinVersions::kBindClipboardHistoryMinVersion>();
@@ -356,10 +357,6 @@ LacrosService::LacrosService()
       crosapi::mojom::DownloadController, &Crosapi::BindDownloadController,
       Crosapi::MethodMinVersions::kBindDownloadControllerMinVersion>();
   ConstructRemote<
-      crosapi::mojom::DownloadStatusUpdater,
-      &Crosapi::BindDownloadStatusUpdater,
-      Crosapi::MethodMinVersions::kBindDownloadStatusUpdaterMinVersion>();
-  ConstructRemote<
       crosapi::mojom::DriveIntegrationService,
       &crosapi::mojom::Crosapi::BindDriveIntegrationService,
       Crosapi::MethodMinVersions::kBindDriveIntegrationServiceMinVersion>();
@@ -392,9 +389,6 @@ LacrosService::LacrosService()
       crosapi::mojom::FileChangeServiceBridge,
       &crosapi::mojom::Crosapi::BindFileChangeServiceBridge,
       Crosapi::MethodMinVersions::kBindFileChangeServiceBridgeMinVersion>();
-  ConstructRemote<crosapi::mojom::FileManager,
-                  &crosapi::mojom::Crosapi::BindFileManager,
-                  Crosapi::MethodMinVersions::kBindFileManagerMinVersion>();
   ConstructRemote<
       crosapi::mojom::FileSystemProviderService,
       &crosapi::mojom::Crosapi::BindFileSystemProviderService,
@@ -407,6 +401,8 @@ LacrosService::LacrosService()
       crosapi::mojom::ForceInstalledTracker,
       &crosapi::mojom::Crosapi::BindForceInstalledTracker,
       Crosapi::MethodMinVersions::kBindForceInstalledTrackerMinVersion>();
+  ConstructRemote<crosapi::mojom::FullRestore, &Crosapi::BindFullRestore,
+                  Crosapi::MethodMinVersions::kBindFullRestoreMinVersion>();
   ConstructRemote<
       crosapi::mojom::FullscreenController, &Crosapi::BindFullscreenController,
       Crosapi::MethodMinVersions::kBindFullscreenControllerMinVersion>();
@@ -421,10 +417,6 @@ LacrosService::LacrosService()
   ConstructRemote<device::mojom::HidManager,
                   &crosapi::mojom::Crosapi::BindHidManager,
                   Crosapi::MethodMinVersions::kBindHidManagerMinVersion>();
-  ConstructRemote<
-      crosapi::mojom::HoldingSpaceService,
-      &crosapi::mojom::Crosapi::BindHoldingSpaceService,
-      Crosapi::MethodMinVersions::kBindHoldingSpaceServiceMinVersion>();
   ConstructRemote<crosapi::mojom::IdentityManager,
                   &crosapi::mojom::Crosapi::BindIdentityManager,
                   Crosapi::MethodMinVersions::kBindIdentityManagerMinVersion>();
@@ -478,12 +470,17 @@ LacrosService::LacrosService()
       chromeos::machine_learning::mojom::MachineLearningService,
       &crosapi::mojom::Crosapi::BindMachineLearningService,
       Crosapi::MethodMinVersions::kBindMachineLearningServiceMinVersion>();
+  ConstructRemote<
+      crosapi::mojom::MagicBoostController,
+      &crosapi::mojom::Crosapi::BindMagicBoostController,
+      Crosapi::MethodMinVersions::kBindMagicBoostControllerMinVersion>();
+  ConstructRemote<
+      crosapi::mojom::MahiBrowserDelegate,
+      &crosapi::mojom::Crosapi::BindMahiBrowserDelegate,
+      Crosapi::MethodMinVersions::kBindMahiBrowserDelegateMinVersion>();
   ConstructRemote<crosapi::mojom::MediaUI,
                   &crosapi::mojom::Crosapi::BindMediaUI,
                   Crosapi::MethodMinVersions::kBindMediaUIMinVersion>();
-  ConstructRemote<crosapi::mojom::MessageCenter,
-                  &crosapi::mojom::Crosapi::BindMessageCenter,
-                  Crosapi::MethodMinVersions::kBindMessageCenterMinVersion>();
   ConstructRemote<crosapi::mojom::Metrics,
                   &crosapi::mojom::Crosapi::BindMetrics,
                   Crosapi::MethodMinVersions::kBindMetricsMinVersion>();
@@ -513,6 +510,11 @@ LacrosService::LacrosService()
       &crosapi::mojom::Crosapi::BindOneDriveNotificationService,
       Crosapi::MethodMinVersions::kBindOneDriveNotificationServiceMinVersion>();
 
+  ConstructRemote<
+      crosapi::mojom::OneDriveIntegrationService,
+      &crosapi::mojom::Crosapi::BindOneDriveIntegrationService,
+      Crosapi::MethodMinVersions::kBindOneDriveIntegrationServiceMinVersion>();
+
   ConstructRemote<crosapi::mojom::Prefs, &crosapi::mojom::Crosapi::BindPrefs,
                   Crosapi::MethodMinVersions::kBindPrefsMinVersion>();
   ConstructRemote<
@@ -538,6 +540,10 @@ LacrosService::LacrosService()
   ConstructRemote<crosapi::mojom::PolicyService, &Crosapi::BindPolicyService,
                   Crosapi::MethodMinVersions::kBindPolicyServiceMinVersion>();
   ConstructRemote<
+      crosapi::mojom::PrintPreviewCrosDelegate,
+      &crosapi::mojom::Crosapi::BindPrintPreviewCrosDelegate,
+      Crosapi::MethodMinVersions::kBindPrintPreviewCrosDelegateMinVersion>();
+  ConstructRemote<
       chromeos::remote_apps::mojom::RemoteAppsLacrosBridge,
       &crosapi::mojom::Crosapi::BindRemoteAppsLacrosBridge,
       Crosapi::MethodMinVersions::kBindRemoteAppsLacrosBridgeMinVersion>();
@@ -553,9 +559,6 @@ LacrosService::LacrosService()
   ConstructRemote<crosapi::mojom::ScreenManager,
                   &crosapi::mojom::Crosapi::BindScreenManager,
                   Crosapi::MethodMinVersions::kBindScreenManagerMinVersion>();
-  ConstructRemote<crosapi::mojom::SelectFile,
-                  &crosapi::mojom::Crosapi::BindSelectFile,
-                  Crosapi::MethodMinVersions::kBindSelectFileMinVersion>();
   ConstructRemote<
       crosapi::mojom::SearchControllerRegistry,
       &crosapi::mojom::Crosapi::BindSearchControllerRegistry,
@@ -564,13 +567,13 @@ LacrosService::LacrosService()
                   &crosapi::mojom::Crosapi::BindSharesheet,
                   Crosapi::MethodMinVersions::kBindSharesheetMinVersion>();
   ConstructRemote<
-      crosapi::mojom::SpeechRecognition,
-      &crosapi::mojom::Crosapi::BindSpeechRecognition,
-      Crosapi::MethodMinVersions::kBindSpeechRecognitionMinVersion>();
-  ConstructRemote<
       crosapi::mojom::StructuredMetricsService,
       &crosapi::mojom::Crosapi::BindStructuredMetricsService,
       Crosapi::MethodMinVersions::kBindStructuredMetricsServiceMinVersion>();
+  ConstructRemote<
+      crosapi::mojom::SuggestionService,
+      &crosapi::mojom::Crosapi::BindSuggestionService,
+      Crosapi::MethodMinVersions::kBindSuggestionServiceMinVersion>();
   ConstructRemote<crosapi::mojom::SyncService,
                   &crosapi::mojom::Crosapi::BindSyncService,
                   Crosapi::MethodMinVersions::kBindSyncServiceMinVersion>();
@@ -600,6 +603,10 @@ LacrosService::LacrosService()
       crosapi::mojom::TrustedVaultBackend,
       &crosapi::mojom::Crosapi::BindTrustedVaultBackend,
       Crosapi::MethodMinVersions::kBindTrustedVaultBackendMinVersion>();
+  ConstructRemote<
+      crosapi::mojom::TrustedVaultBackendService,
+      &crosapi::mojom::Crosapi::BindTrustedVaultBackendService,
+      Crosapi::MethodMinVersions::kBindTrustedVaultBackendServiceMinVersion>();
   ConstructRemote<crosapi::mojom::Tts, &crosapi::mojom::Crosapi::BindTts,
                   Crosapi::MethodMinVersions::kBindTtsMinVersion>();
   ConstructRemote<crosapi::mojom::UrlHandler,
@@ -617,10 +624,6 @@ LacrosService::LacrosService()
   ConstructRemote<crosapi::mojom::WebAppService,
                   &crosapi::mojom::Crosapi::BindWebAppService,
                   Crosapi::MethodMinVersions::kBindWebAppServiceMinVersion>();
-  ConstructRemote<
-      crosapi::mojom::WebPageInfoFactory,
-      &crosapi::mojom::Crosapi::BindWebPageInfoFactory,
-      Crosapi::MethodMinVersions::kBindWebPageInfoFactoryMinVersion>();
   ConstructRemote<crosapi::mojom::VolumeManager,
                   &crosapi::mojom::Crosapi::BindVolumeManager,
                   Crosapi::MethodMinVersions::kBindVolumeManagerMinVersion>();
@@ -637,6 +640,8 @@ LacrosService::LacrosService()
       &crosapi::mojom::Crosapi::BindFileSystemAccessCloudIdentifierProvider,
       Crosapi::MethodMinVersions::
           kBindFileSystemAccessCloudIdentifierProviderMinVersion>();
+  ConstructRemote<crosapi::mojom::InputMethods, &Crosapi::BindInputMethods,
+                  Crosapi::MethodMinVersions::kBindInputMethodsMinVersion>();
 
 #if !BUILDFLAG(IS_CHROMEOS_DEVICE)
   // The test controller is not available on production devices as tests only
@@ -732,6 +737,15 @@ void LacrosService::BindBrowserCdmFactory(
       std::move(receiver));
 }
 
+void LacrosService::BindCfmServiceContext(
+    mojo::PendingReceiver<chromeos::cfm::mojom::CfmServiceContext> receiver) {
+  DCHECK(IsSupported<chromeos::cfm::mojom::CfmServiceContext>());
+
+  BindPendingReceiverOrRemote<
+      mojo::PendingReceiver<chromeos::cfm::mojom::CfmServiceContext>,
+      &crosapi::mojom::Crosapi::BindCfmServiceContext>(std::move(receiver));
+}
+
 void LacrosService::BindGeolocationService(
     mojo::PendingReceiver<crosapi::mojom::GeolocationService>
         pending_receiver) {
@@ -756,6 +770,26 @@ void LacrosService::BindMachineLearningService(
       std::move(receiver));
 }
 
+void LacrosService::BindMagicBoostController(
+    mojo::PendingReceiver<crosapi::mojom::MagicBoostController>
+        pending_receiver) {
+  DCHECK(IsSupported<crosapi::mojom::MagicBoostController>());
+  BindPendingReceiverOrRemote<
+      mojo::PendingReceiver<crosapi::mojom::MagicBoostController>,
+      &crosapi::mojom::Crosapi::BindMagicBoostController>(
+      std::move(pending_receiver));
+}
+
+void LacrosService::BindMahiBrowserDelegate(
+    mojo::PendingReceiver<crosapi::mojom::MahiBrowserDelegate>
+        pending_receiver) {
+  DCHECK(IsSupported<crosapi::mojom::MahiBrowserDelegate>());
+  BindPendingReceiverOrRemote<
+      mojo::PendingReceiver<crosapi::mojom::MahiBrowserDelegate>,
+      &crosapi::mojom::Crosapi::BindMahiBrowserDelegate>(
+      std::move(pending_receiver));
+}
+
 void LacrosService::BindMediaControllerManager(
     mojo::PendingReceiver<media_session::mojom::MediaControllerManager>
         remote) {
@@ -766,12 +800,14 @@ void LacrosService::BindMediaControllerManager(
       &crosapi::mojom::Crosapi::BindMediaSessionController>(std::move(remote));
 }
 
-void LacrosService::BindMetricsReporting(
-    mojo::PendingReceiver<crosapi::mojom::MetricsReporting> receiver) {
-  DCHECK(IsSupported<crosapi::mojom::MetricsReporting>());
+void LacrosService::BindPrintPreviewCrosDelegate(
+    mojo::PendingReceiver<crosapi::mojom::PrintPreviewCrosDelegate>
+        pending_receiver) {
+  DCHECK(IsSupported<crosapi::mojom::PrintPreviewCrosDelegate>());
   BindPendingReceiverOrRemote<
-      mojo::PendingReceiver<crosapi::mojom::MetricsReporting>,
-      &crosapi::mojom::Crosapi::BindMetricsReporting>(std::move(receiver));
+      mojo::PendingReceiver<crosapi::mojom::PrintPreviewCrosDelegate>,
+      &crosapi::mojom::Crosapi::BindPrintPreviewCrosDelegate>(
+      std::move(pending_receiver));
 }
 
 void LacrosService::BindRemoteAppsLacrosBridge(
@@ -800,6 +836,14 @@ void LacrosService::BindSensorHalClient(
   BindPendingReceiverOrRemote<
       mojo::PendingRemote<chromeos::sensors::mojom::SensorHalClient>,
       &crosapi::mojom::Crosapi::BindSensorHalClient>(std::move(remote));
+}
+
+void LacrosService::BindMediaApp(
+    mojo::PendingRemote<crosapi::mojom::MediaApp> remote) {
+  DCHECK(IsSupported<crosapi::mojom::MediaApp>());
+  BindPendingReceiverOrRemote<mojo::PendingRemote<crosapi::mojom::MediaApp>,
+                              &crosapi::mojom::Crosapi::BindMediaApp>(
+      std::move(remote));
 }
 
 bool LacrosService::IsOnBrowserStartupAvailable() const {
@@ -839,11 +883,21 @@ void LacrosService::BindStableVideoDecoderFactory(
 }
 
 std::optional<uint32_t> LacrosService::CrosapiVersion() const {
-  if (chromeos::BrowserParamsProxy::Get()->IsCrosapiDisabledForTesting()) {
-    return std::nullopt;
-  }
   DCHECK(did_bind_receiver_);
   return chromeos::BrowserParamsProxy::Get()->CrosapiVersion();
+}
+
+int LacrosService::GetInterfaceVersion(base::Token interface_uuid) const {
+  if (!chromeos::BrowserParamsProxy::Get()->InterfaceVersions()) {
+    return -1;
+  }
+  const base::flat_map<base::Token, uint32_t>& versions =
+      chromeos::BrowserParamsProxy::Get()->InterfaceVersions().value();
+  auto it = versions.find(interface_uuid);
+  if (it == versions.end()) {
+    return -1;
+  }
+  return it->second;
 }
 
 void LacrosService::StartSystemIdleCache() {
@@ -862,22 +916,6 @@ void LacrosService::ConstructRemote() {
   interfaces_.emplace(CrosapiInterface::Uuid_,
                       std::make_unique<LacrosService::InterfaceEntry<
                           CrosapiInterface, bind_func, MethodMinVersion>>());
-}
-
-int LacrosService::GetInterfaceVersionImpl(base::Token interface_uuid) const {
-  if (chromeos::BrowserParamsProxy::Get()->IsCrosapiDisabledForTesting()) {
-    return -1;
-  }
-  if (!chromeos::BrowserParamsProxy::Get()->InterfaceVersions()) {
-    return -1;
-  }
-  const base::flat_map<base::Token, uint32_t>& versions =
-      chromeos::BrowserParamsProxy::Get()->InterfaceVersions().value();
-  auto it = versions.find(interface_uuid);
-  if (it == versions.end()) {
-    return -1;
-  }
-  return it->second;
 }
 
 void LacrosService::AddObserver(Observer* obs) {

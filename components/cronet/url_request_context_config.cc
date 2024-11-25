@@ -14,12 +14,10 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "components/cronet/stale_host_resolver.h"
 #include "net/base/address_family.h"
 #include "net/cert/caching_cert_verifier.h"
 #include "net/cert/cert_verifier.h"
@@ -28,6 +26,7 @@
 #include "net/dns/context_host_resolver.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/mapped_host_resolver.h"
+#include "net/dns/stale_host_resolver.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_server_properties.h"
 #include "net/log/net_log.h"
@@ -84,8 +83,6 @@ const char kQuicMigrateSessionsEarlyV2[] = "migrate_sessions_early_v2";
 const char kQuicRetryOnAlternateNetworkBeforeHandshake[] =
     "retry_on_alternate_network_before_handshake";
 const char kQuicHostWhitelist[] = "host_whitelist";
-const char kQuicEnableSocketRecvOptimization[] =
-    "enable_socket_recv_optimization";
 const char kQuicVersion[] = "quic_version";
 const char kQuicFlags[] = "set_quic_flags";
 const char kRetryWithoutAltSvcOnQuicErrors[] =
@@ -226,10 +223,10 @@ ParseNetworkErrorLoggingHeaders(
 // Applies |f| to the value contained by |maybe|, returns empty optional
 // otherwise.
 template <typename T, typename F>
-auto map(absl::optional<T> maybe, F&& f) {
+auto map(std::optional<T> maybe, F&& f) {
   if (!maybe)
-    return absl::optional<std::invoke_result_t<F, T>>();
-  return absl::optional<std::invoke_result_t<F, T>>(f(maybe.value()));
+    return std::optional<std::invoke_result_t<F, T>>();
+  return std::optional<std::invoke_result_t<F, T>>(f(maybe.value()));
 }
 
 }  // namespace
@@ -239,7 +236,7 @@ URLRequestContextConfig::QuicHint::QuicHint(const std::string& host,
                                             int alternate_port)
     : host(host), port(port), alternate_port(alternate_port) {}
 
-URLRequestContextConfig::QuicHint::~QuicHint() {}
+URLRequestContextConfig::QuicHint::~QuicHint() = default;
 
 URLRequestContextConfig::Pkp::Pkp(const std::string& host,
                                   bool include_subdomains,
@@ -248,7 +245,7 @@ URLRequestContextConfig::Pkp::Pkp(const std::string& host,
       include_subdomains(include_subdomains),
       expiration_date(expiration_date) {}
 
-URLRequestContextConfig::Pkp::~Pkp() {}
+URLRequestContextConfig::Pkp::~Pkp() = default;
 
 URLRequestContextConfig::PreloadedNelAndReportingHeader::
     PreloadedNelAndReportingHeader(const url::Origin& origin, std::string value)
@@ -271,7 +268,7 @@ URLRequestContextConfig::URLRequestContextConfig(
     std::unique_ptr<net::CertVerifier> mock_cert_verifier,
     bool enable_network_quality_estimator,
     bool bypass_public_key_pinning_for_local_trust_anchors,
-    absl::optional<double> network_thread_priority)
+    std::optional<int> network_thread_priority)
     : enable_quic(enable_quic),
       enable_spdy(enable_spdy),
       enable_brotli(enable_brotli),
@@ -293,7 +290,7 @@ URLRequestContextConfig::URLRequestContextConfig(
   SetContextConfigExperimentalOptions();
 }
 
-URLRequestContextConfig::~URLRequestContextConfig() {}
+URLRequestContextConfig::~URLRequestContextConfig() = default;
 
 // static
 std::unique_ptr<URLRequestContextConfig>
@@ -311,8 +308,8 @@ URLRequestContextConfig::CreateURLRequestContextConfig(
     std::unique_ptr<net::CertVerifier> mock_cert_verifier,
     bool enable_network_quality_estimator,
     bool bypass_public_key_pinning_for_local_trust_anchors,
-    absl::optional<double> network_thread_priority) {
-  absl::optional<base::Value::Dict> experimental_options =
+    std::optional<int> network_thread_priority) {
+  std::optional<base::Value::Dict> experimental_options =
       ParseExperimentalOptions(unparsed_experimental_options);
   if (!experimental_options) {
     // For the time being maintain backward compatibility by only failing to
@@ -332,7 +329,7 @@ URLRequestContextConfig::CreateURLRequestContextConfig(
 }
 
 // static
-absl::optional<base::Value::Dict>
+std::optional<base::Value::Dict>
 URLRequestContextConfig::ParseExperimentalOptions(
     std::string unparsed_experimental_options) {
   // From a user perspective no experimental options means an empty string. The
@@ -346,14 +343,14 @@ URLRequestContextConfig::ParseExperimentalOptions(
     LOG(ERROR) << "Parsing experimental options failed: '"
                << unparsed_experimental_options << "', error "
                << parsed_json.error().message;
-    return absl::nullopt;
+    return std::nullopt;
   }
 
   base::Value::Dict* experimental_options_dict = parsed_json->GetIfDict();
   if (!experimental_options_dict) {
     LOG(ERROR) << "Experimental options string is not a dictionary: "
                << *parsed_json;
-    return absl::nullopt;
+    return std::nullopt;
   }
 
   return std::move(*experimental_options_dict);
@@ -389,9 +386,9 @@ void URLRequestContextConfig::SetContextBuilderExperimentalOptions(
   bool disable_ipv6_on_wifi = false;
   bool nel_enable = false;
   bool is_network_bound = bound_network != net::handles::kInvalidNetworkHandle;
-  absl::optional<net::HostResolver::HttpsSvcbOptions> https_svcb_options;
+  std::optional<net::HostResolver::HttpsSvcbOptions> https_svcb_options;
 
-  StaleHostResolver::StaleOptions stale_dns_options;
+  net::StaleHostResolver::StaleOptions stale_dns_options;
   const std::string* host_resolver_rules_string;
 
   for (auto iter = experimental_options.begin();
@@ -477,11 +474,7 @@ void URLRequestContextConfig::SetContextBuilderExperimentalOptions(
           quic_args.FindBool(kQuicAllowServerMigration)
               .value_or(quic_params->allow_server_migration);
 
-      quic_params->enable_socket_recv_optimization =
-          quic_args.FindBool(kQuicEnableSocketRecvOptimization)
-              .value_or(quic_params->enable_socket_recv_optimization);
-
-      absl::optional<bool> quic_migrate_sessions_on_network_change_v2_in =
+      std::optional<bool> quic_migrate_sessions_on_network_change_v2_in =
           quic_args.FindBool(kQuicMigrateSessionsOnNetworkChangeV2);
       if (quic_migrate_sessions_on_network_change_v2_in.has_value()) {
         quic_params->migrate_sessions_on_network_change_v2 =
@@ -503,7 +496,7 @@ void URLRequestContextConfig::SetContextBuilderExperimentalOptions(
                         ->max_migrations_to_non_default_network_on_path_degrading);
       }
 
-      absl::optional<bool> quic_migrate_idle_sessions_in =
+      std::optional<bool> quic_migrate_idle_sessions_in =
           quic_args.FindBool(kQuicMigrateIdleSessions);
       if (quic_migrate_idle_sessions_in.has_value()) {
         quic_params->migrate_idle_sessions =
@@ -737,11 +730,11 @@ void URLRequestContextConfig::SetContextBuilderExperimentalOptions(
 
     if (!is_network_bound) {
       std::unique_ptr<net::HostResolver> host_resolver;
-      // TODO(crbug.com/934402): Consider using a shared HostResolverManager for
-      // Cronet HostResolvers.
+      // TODO(crbug.com/40614970): Consider using a shared HostResolverManager
+      // for Cronet HostResolvers.
       if (stale_dns_enable) {
         DCHECK(!disable_ipv6_on_wifi);
-        host_resolver = std::make_unique<StaleHostResolver>(
+        host_resolver = std::make_unique<net::StaleHostResolver>(
             net::HostResolver::CreateStandaloneContextResolver(
                 net::NetLog::Get(), std::move(host_resolver_manager_options)),
             stale_dns_options);
@@ -828,8 +821,8 @@ void URLRequestContextConfig::ConfigureURLRequestContextBuilder(
   // TODO(mef): Use |config| to set cookies.
 }
 
-URLRequestContextConfigBuilder::URLRequestContextConfigBuilder() {}
-URLRequestContextConfigBuilder::~URLRequestContextConfigBuilder() {}
+URLRequestContextConfigBuilder::URLRequestContextConfigBuilder() = default;
+URLRequestContextConfigBuilder::~URLRequestContextConfigBuilder() = default;
 
 std::unique_ptr<URLRequestContextConfig>
 URLRequestContextConfigBuilder::Build() {

@@ -38,7 +38,6 @@
 #include "chrome/browser/ash/app_list/app_list_client_impl.h"
 #include "chrome/browser/ash/app_list/app_list_syncable_service_factory.h"
 #include "chrome/browser/ash/login/test/session_manager_state_waiter.h"
-#include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/ash/policy/core/device_policy_cros_browser_test.h"
 #include "chrome/browser/ash/policy/test_support/embedded_policy_test_server_mixin.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
@@ -64,6 +63,7 @@
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
 #include "content/public/test/browser_test.h"
+#include "content/public/test/test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/resource/resource_scale_factor.h"
@@ -365,7 +365,9 @@ IN_PROC_BROWSER_TEST_F(RemoteAppsManagerBrowsertest, DISABLED_AddApp) {
 
 // Adds an app with an empty icon URL and checks if the app gets assigned the
 // default placeholder icon.
-IN_PROC_BROWSER_TEST_F(RemoteAppsManagerBrowsertest, AddAppPlaceholderIcon) {
+// Flaky (b/41483673)
+IN_PROC_BROWSER_TEST_F(RemoteAppsManagerBrowsertest,
+                       DISABLED_AddAppPlaceholderIcon) {
   // Show launcher UI so that app icons are loaded.
   ShowLauncherAppsGrid(/*wait_for_opening_animation=*/true);
 

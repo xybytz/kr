@@ -96,7 +96,6 @@ std::u16string WebauthnDialogModel::GetStepTitle() const {
       break;
   }
   NOTREACHED();
-  return std::u16string();
 }
 
 std::u16string WebauthnDialogModel::GetStepDescription() const {
@@ -115,7 +114,6 @@ std::u16string WebauthnDialogModel::GetStepDescription() const {
       break;
   }
   NOTREACHED();
-  return std::u16string();
 }
 
 void WebauthnDialogModel::SetIllustrationsFromState() {

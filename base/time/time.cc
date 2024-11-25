@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <ostream>
 #include <tuple>
 #include <utility>
@@ -17,7 +18,6 @@
 #include "base/third_party/nspr/prtime.h"
 #include "base/time/time_override.h"
 #include "build/build_config.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 
@@ -37,6 +37,10 @@ std::atomic<TimeNowFunction> g_time_now_from_system_time_function{
 
 std::atomic<TimeTicksNowFunction> g_time_ticks_now_function{
     &subtle::TimeTicksNowIgnoringOverride};
+
+std::atomic<TimeTicksLowResolutionNowFunction>
+    g_time_ticks_low_resolution_now_function{
+        &subtle::TimeTicksLowResolutionNowIgnoringOverride};
 
 std::atomic<LiveTicksNowFunction> g_live_ticks_now_function{
     &subtle::LiveTicksNowIgnoringOverride};
@@ -116,7 +120,7 @@ Time Time::Midnight(bool is_local) const {
   [[maybe_unused]] const bool result =
       FromExploded(is_local, exploded, &out_time);
 #if BUILDFLAG(IS_CHROMEOS_ASH) && defined(ARCH_CPU_ARM_FAMILY)
-  // TODO(crbug.com/1263873): DCHECKs have limited coverage during automated
+  // TODO(crbug.com/40800460): DCHECKs have limited coverage during automated
   // testing on CrOS and this check failed when tested on an experimental
   // builder. Testing for ARCH_CPU_ARM_FAMILY prevents regressing coverage on
   // x86_64, which is already enabled. See go/chrome-dcheck-on-cros or
@@ -210,6 +214,12 @@ TimeTicks TimeTicks::Now() {
 }
 
 // static
+TimeTicks TimeTicks::LowResolutionNow() {
+  return internal::g_time_ticks_low_resolution_now_function.load(
+      std::memory_order_relaxed)();
+}
+
+// static
 // This method should be called once at process start and before
 // TimeTicks::UnixEpoch is accessed. It is intended to make the offset between
 // unix time and monotonic time consistent across processes.
@@ -279,6 +289,11 @@ LiveTicks LiveTicksNowIgnoringOverride() {
 }  // namespace subtle
 
 #endif
+
+std::ostream& operator<<(std::ostream& os, LiveTicks live_ticks) {
+  const TimeDelta as_time_delta = live_ticks - LiveTicks();
+  return os << as_time_delta.InMicroseconds() << " bogo-live-microseconds";
+}
 
 // ThreadTicks ----------------------------------------------------------------
 

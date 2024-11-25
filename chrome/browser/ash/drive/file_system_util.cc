@@ -15,6 +15,7 @@
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
 #include "base/command_line.h"
+#include "base/containers/fixed_flat_set.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/system/sys_info.h"
@@ -42,6 +43,50 @@ namespace drive::util {
 
 using user_manager::User;
 using user_manager::UserManager;
+
+namespace {
+
+ConnectionStatus GetDeviceOnlineStatus() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  using enum ConnectionStatus;
+
+  if (!ash::NetworkHandler::IsInitialized()) {
+    VLOG(1) << "GetDeviceOnlineStatus: no network handler";
+    return kNoNetwork;
+  }
+
+  ash::NetworkStateHandler* const handler =
+      ash::NetworkHandler::Get()->network_state_handler();
+  DCHECK(handler);
+
+  const ash::NetworkState* const network = handler->DefaultNetwork();
+  if (!network) {
+    VLOG(1) << "GetDeviceOnlineStatus: no network";
+    return kNoNetwork;
+  }
+
+  if (!network->IsOnline()) {
+    VLOG(1) << "GetDeviceOnlineStatus: not ready: network is "
+            << network->connection_state();
+    return kNotReady;
+  }
+
+  using PortalState = ash::NetworkState::PortalState;
+  if (const PortalState portal_state = network->portal_state();
+      portal_state != PortalState::kOnline) {
+    VLOG(1) << "GetDeviceOnlineStatus: not ready: portal is " << portal_state;
+    return kNotReady;
+  }
+
+  if (handler->default_network_is_metered()) {
+    VLOG(1) << "GetDeviceOnlineStatus: metered";
+    return kMetered;
+  }
+
+  return kConnected;
+}
+
+}  // namespace
 
 DriveIntegrationService* GetIntegrationServiceByProfile(Profile* profile) {
   DriveIntegrationService* service =
@@ -85,54 +130,59 @@ base::FilePath GetCacheRootPath(const Profile* const profile) {
   return cache_root_path.Append(kFileCacheVersionDir);
 }
 
-bool IsDriveAvailableForProfile(const Profile* const profile) {
+DriveAvailability CheckDriveAvailabilityForProfile(
+    const Profile* const profile) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   // Disable Drive for non-Gaia accounts.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           ash::switches::kDisableGaiaServices)) {
-    return false;
+    return DriveAvailability::kNotAvailableForAccountType;
   }
   if (!ash::LoginState::IsInitialized()) {
-    return false;
+    return DriveAvailability::kNotAvailableForUninitialisedLoginState;
   }
   // Disable Drive for incognito profiles.
   if (profile->IsOffTheRecord()) {
-    return false;
+    return DriveAvailability::kNotAvailableInIncognito;
   }
   const User* const user = ash::ProfileHelper::Get()->GetUserByProfile(profile);
   if (!user || !user->HasGaiaAccount()) {
-    return false;
+    return DriveAvailability::kNotAvailableForAccountType;
   }
 
   // Disable Drive if the flag has been passed and it is a test image.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           ash::switches::kDisableDriveFsForTesting)) {
     base::SysInfo::CrashIfChromeOSNonTestImage();
-    return false;
+    return DriveAvailability::kNotAvailableForTestImage;
   }
 
-  return true;
+  return DriveAvailability::kAvailable;
 }
 
-bool IsDriveEnabledForProfile(const Profile* const profile) {
+bool IsDriveAvailableForProfile(const Profile* const profile) {
+  return CheckDriveAvailabilityForProfile(profile) ==
+         DriveAvailability::kAvailable;
+}
+
+DriveAvailability CheckDriveEnabledAndDriveAvailabilityForProfile(
+    const Profile* const profile) {
   // Disable Drive if preference is set. This can happen with commandline flag
   // --disable-drive or enterprise policy, or with user settings.
   if (profile->GetPrefs()->GetBoolean(prefs::kDisableDrive)) {
-    return false;
+    return DriveAvailability::kNotAvailableWhenDisableDrivePreferenceSet;
   }
 
-  return IsDriveAvailableForProfile(profile);
+  return CheckDriveAvailabilityForProfile(profile);
+}
+
+bool IsDriveEnabledForProfile(const Profile* const profile) {
+  return CheckDriveEnabledAndDriveAvailabilityForProfile(profile) ==
+         DriveAvailability::kAvailable;
 }
 
 bool IsDriveFsBulkPinningAvailable(const Profile* const profile) {
-  // Check the "DriveFsBulkPinning" Chrome feature. If this feature is disabled,
-  // then it probably means that the kill switch has been activated, and the
-  // bulk-pinning feature should not be available.
-  if (!base::FeatureList::IsEnabled(ash::features::kDriveFsBulkPinning)) {
-    return false;
-  }
-
   // Check the "drivefs.bulk_pinning.visible" boolean pref. If this pref is
   // false, then it probably means that it has been turned down by an enterprise
   // policy, and the bulk-pinning feature should not be available.
@@ -181,6 +231,10 @@ bool IsOobeDrivePinningScreenEnabled() {
          ash::features::IsOobeChoobeEnabled();
 }
 
+bool IsDriveFsMirrorSyncAvailable(const Profile* const profile) {
+  return base::FeatureList::IsEnabled(ash::features::kDriveFsMirroring);
+}
+
 std::ostream& operator<<(std::ostream& out, const ConnectionStatus status) {
   switch (status) {
 #define PRINT(s)               \
@@ -210,7 +264,8 @@ void SetDriveConnectionStatusForTesting(const ConnectionStatus status) {
   has_connection_status_for_testing = true;
 }
 
-ConnectionStatus GetDriveConnectionStatus(Profile* const profile) {
+ConnectionStatus GetDriveConnectionStatus(Profile* const profile,
+                                          bool* is_online) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   using enum ConnectionStatus;
 
@@ -220,60 +275,37 @@ ConnectionStatus GetDriveConnectionStatus(Profile* const profile) {
     return connection_status_for_testing;
   }
 
+  ConnectionStatus online_status = GetDeviceOnlineStatus();
+  if (is_online != nullptr) {
+    *is_online = online_status == kConnected || online_status == kMetered;
+  }
+
   if (!GetIntegrationServiceByProfile(profile)) {
     VLOG(1) << "GetDriveConnectionStatus: no Drive integration service";
     return kNoService;
   }
 
-  if (!ash::NetworkHandler::IsInitialized()) {
-    VLOG(1) << "GetDriveConnectionStatus: no network handler";
-    return kNoNetwork;
-  }
-
-  ash::NetworkStateHandler* const handler =
-      ash::NetworkHandler::Get()->network_state_handler();
-  DCHECK(handler);
-
-  const ash::NetworkState* const network = handler->DefaultNetwork();
-  if (!network) {
-    VLOG(1) << "GetDriveConnectionStatus: no network";
-    return kNoNetwork;
-  }
-
-  if (!network->IsOnline()) {
-    VLOG(1) << "GetDriveConnectionStatus: not ready: network is "
-            << network->connection_state();
-    return kNotReady;
-  }
-
-  using PortalState = ash::NetworkState::PortalState;
-  if (const PortalState portal_state = network->GetPortalState();
-      portal_state != PortalState::kOnline) {
-    VLOG(1) << "GetDriveConnectionStatus: not ready: portal is "
-            << portal_state;
-    return kNotReady;
-  }
-
   DCHECK(profile);
-  if (profile->GetPrefs()->GetBoolean(prefs::kDisableDriveOverCellular) &&
-      handler->default_network_is_metered()) {
-    VLOG(1) << "GetDriveConnectionStatus: metered";
-    return kMetered;
+  if (online_status == kMetered &&
+      !profile->GetPrefs()->GetBoolean(prefs::kDisableDriveOverCellular)) {
+    VLOG(1) << "GetDriveConnectionStatus: metered, but still enabled";
+    return kConnected;
   }
 
-  VLOG(1) << "GetDriveConnectionStatus: connected";
-  return kConnected;
+  VLOG(1) << "GetDriveConnectionStatus: " << online_status;
+  return online_status;
 }
 
 bool IsPinnableGDocMimeType(const std::string& mime_type) {
-  static const char* const kPinnableGDocMimeTypes[] = {
-      "application/vnd.google-apps.document",
-      "application/vnd.google-apps.drawing",
-      "application/vnd.google-apps.presentation",
-      "application/vnd.google-apps.spreadsheet",
-  };
+  constexpr auto kPinnableGDocMimeTypes =
+      base::MakeFixedFlatSet<std::string_view>({
+          "application/vnd.google-apps.document",
+          "application/vnd.google-apps.drawing",
+          "application/vnd.google-apps.presentation",
+          "application/vnd.google-apps.spreadsheet",
+      });
 
-  return base::Contains(kPinnableGDocMimeTypes, mime_type);
+  return kPinnableGDocMimeTypes.contains(mime_type);
 }
 
 int64_t ComputeDriveFsContentCacheSize(const base::FilePath& path) {

@@ -4,7 +4,7 @@
 
 #import "base/ios/ios_util.h"
 #import "components/strings/grit/components_strings.h"
-#import "ios/chrome/browser/ui/autofill/autofill_app_interface.h"
+#import "ios/chrome/browser/autofill/ui_bundled/autofill_app_interface.h"
 #import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
@@ -80,10 +80,10 @@ id<GREYMatcher> YearOfExpiryTextField() {
       performAction:grey_tap()];
 }
 
-- (void)tearDown {
+- (void)tearDownHelper {
   [AutofillAppInterface clearCreditCardStore];
   [AutofillAppInterface clearMockReauthenticationModule];
-  [super tearDown];
+  [super tearDownHelper];
 }
 
 #pragma mark - Test that all fields on the 'Add Credit Card' screen appear

@@ -181,7 +181,7 @@ TEST_F(FastPairDiscoverableScannerImplTest,
   scanner_->NotifyDeviceFound(device);
 }
 
-TEST_F(FastPairDiscoverableScannerImplTest, UtilityProcessStopped_DeviceLost) {
+TEST_F(FastPairDiscoverableScannerImplTest, UtilityProcessStoppedDeviceLost) {
   auto device = std::make_unique<device::MockBluetoothDevice>(
       adapter_.get(), 0, "test_name", kAddress, /*paired=*/false,
       /*connected=*/false);
@@ -198,7 +198,7 @@ TEST_F(FastPairDiscoverableScannerImplTest, UtilityProcessStopped_DeviceLost) {
   scanner_->NotifyDeviceFound(device_ptr);
 }
 
-TEST_F(FastPairDiscoverableScannerImplTest, ValidModelId_FactoryCreate) {
+TEST_F(FastPairDiscoverableScannerImplTest, ValidModelIdFactoryCreate) {
   discoverable_scanner_.reset();
   std::unique_ptr<FastPairDiscoverableScanner>
       discoverable_scanner_from_factory =
@@ -377,12 +377,49 @@ TEST_F(FastPairDiscoverableScannerImplTest, WrongInteractionType) {
   base::RunLoop().RunUntilIdle();
 }
 
-TEST_F(FastPairDiscoverableScannerImplTest,
-       InputDeviceDisallowedWhenHIDDisabled) {
+TEST_F(FastPairDiscoverableScannerImplTest, MouseDisallowedWhenHIDDisabled) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{},
       /*disabled_features=*/{features::kFastPairHID});
+  nearby::fastpair::Device metadata;
+  nearby::fastpair::Status* status = metadata.mutable_status();
+  status->set_status_type(nearby::fastpair::StatusType::PUBLISHED);
+  metadata.set_trigger_distance(2);
+  metadata.set_device_type(nearby::fastpair::DeviceType::MOUSE);
+  repository_->SetFakeMetadata(kValidModelId, metadata);
+
+  EXPECT_CALL(found_device_callback_, Run).Times(0);
+  device::BluetoothDevice* device = GetDevice(kValidModelId);
+  scanner_->NotifyDeviceFound(device);
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(FastPairDiscoverableScannerImplTest, MouseAllowedWhenHIDEnabled) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{features::kFastPairHID,
+                            floss::features::kFlossEnabled},
+      /*disabled_features=*/{});
+  nearby::fastpair::Device metadata;
+  nearby::fastpair::Status* status = metadata.mutable_status();
+  status->set_status_type(nearby::fastpair::StatusType::PUBLISHED);
+  metadata.set_trigger_distance(2);
+  metadata.set_device_type(nearby::fastpair::DeviceType::MOUSE);
+  repository_->SetFakeMetadata(kValidModelId, metadata);
+
+  EXPECT_CALL(found_device_callback_, Run).Times(1);
+  device::BluetoothDevice* device = GetDevice(kValidModelId);
+  scanner_->NotifyDeviceFound(device);
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(FastPairDiscoverableScannerImplTest,
+       InputDeviceDisallowedWhenKeyboardsDisabled) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{},
+      /*disabled_features=*/{features::kFastPairKeyboards});
   nearby::fastpair::Device metadata;
   nearby::fastpair::Status* status = metadata.mutable_status();
   status->set_status_type(nearby::fastpair::StatusType::PUBLISHED);
@@ -396,10 +433,11 @@ TEST_F(FastPairDiscoverableScannerImplTest,
   base::RunLoop().RunUntilIdle();
 }
 
-TEST_F(FastPairDiscoverableScannerImplTest, InputDeviceAllowedWhenHIDEnabled) {
+TEST_F(FastPairDiscoverableScannerImplTest,
+       InputDeviceAllowedWhenKeyboardsEnabled) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
-      /*enabled_features=*/{features::kFastPairHID,
+      /*enabled_features=*/{features::kFastPairKeyboards,
                             floss::features::kFlossEnabled},
       /*disabled_features=*/{});
   nearby::fastpair::Device metadata;
@@ -483,7 +521,7 @@ TEST_F(FastPairDiscoverableScannerImplTest, NearbyShareModelId) {
   base::RunLoop().RunUntilIdle();
 }
 
-TEST_F(FastPairDiscoverableScannerImplTest, InvokesLostCallbackAfterFound_v1) {
+TEST_F(FastPairDiscoverableScannerImplTest, InvokesLostCallbackAfterFoundV1) {
   device::BluetoothDevice* device = GetDevice(kValidModelId);
 
   EXPECT_CALL(found_device_callback_, Run).Times(1);
@@ -544,7 +582,7 @@ TEST_F(FastPairDiscoverableScannerImplTest,
   base::RunLoop().RunUntilIdle();
 }
 
-TEST_F(FastPairDiscoverableScannerImplTest, InvokesLostCallbackAfterFound_v2) {
+TEST_F(FastPairDiscoverableScannerImplTest, InvokesLostCallbackAfterFoundV2) {
   nearby::fastpair::Device metadata;
   metadata.set_trigger_distance(2);
   nearby::fastpair::Status* status = metadata.mutable_status();

@@ -4,6 +4,7 @@
 
 #import "ios/chrome/app/application_delegate/metric_kit_subscriber.h"
 
+#import "base/apple/foundation_util.h"
 #import "base/files/file_path.h"
 #import "base/files/file_util.h"
 #import "base/metrics/histogram_base.h"
@@ -96,8 +97,7 @@ void SendDiagnostic(MXDiagnostic* diagnostic, const std::string& type) {
   }
 
   if (crash_reporter::IsCrashpadRunning()) {
-    base::span<const uint8_t> spanpayload(
-        reinterpret_cast<const uint8_t*>(payload.bytes), payload.length);
+    base::span<const uint8_t> spanpayload = base::apple::NSDataToSpan(payload);
 
     std::map<std::string, std::string> override_annotations = {
         {"ver",
@@ -162,21 +162,13 @@ std::string HistogramPrefix(bool include_mismatch) {
 }
 
 + (void)createExtendedLaunchTask {
-#if defined(__IPHONE_16_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_16_0
-  if (@available(iOS 16.0, *)) {
-    [MXMetricManager extendLaunchMeasurementForTaskID:kMainLaunchTaskId
-                                                error:nil];
-  }
-#endif
+  [MXMetricManager extendLaunchMeasurementForTaskID:kMainLaunchTaskId
+                                              error:nil];
 }
 
 + (void)endExtendedLaunchTask {
-#if defined(__IPHONE_16_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_16_0
-  if (@available(iOS 16.0, *)) {
-    [MXMetricManager finishExtendedLaunchMeasurementForTaskID:kMainLaunchTaskId
-                                                        error:nil];
-  }
-#endif
+  [MXMetricManager finishExtendedLaunchMeasurementForTaskID:kMainLaunchTaskId
+                                                      error:nil];
 }
 
 - (void)setEnabled:(BOOL)enable {
@@ -313,19 +305,15 @@ std::string HistogramPrefix(bool include_mismatch) {
   [self logStartupDurationMXHistogram:histogrammedTimeToFirstDraw
                        toUMAHistogram:prefix + "TimeToFirstDraw"];
 
-#if defined(__IPHONE_16_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_16_0
-  if (@available(iOS 16.0, *)) {
-    MXHistogram* histogrammedOptimizedTimeToFirstDraw =
-        payload.applicationLaunchMetrics.histogrammedOptimizedTimeToFirstDraw;
-    [self logStartupDurationMXHistogram:histogrammedOptimizedTimeToFirstDraw
-                         toUMAHistogram:prefix + "OptimizedTimeToFirstDraw"];
+  MXHistogram* histogrammedOptimizedTimeToFirstDraw =
+      payload.applicationLaunchMetrics.histogrammedOptimizedTimeToFirstDraw;
+  [self logStartupDurationMXHistogram:histogrammedOptimizedTimeToFirstDraw
+                       toUMAHistogram:prefix + "OptimizedTimeToFirstDraw"];
 
-    MXHistogram* histogrammedExtendedLaunch =
-        payload.applicationLaunchMetrics.histogrammedExtendedLaunch;
-    [self logStartupDurationMXHistogram:histogrammedExtendedLaunch
-                         toUMAHistogram:prefix + "ExtendedLaunch"];
-  }
-#endif
+  MXHistogram* histogrammedExtendedLaunch =
+      payload.applicationLaunchMetrics.histogrammedExtendedLaunch;
+  [self logStartupDurationMXHistogram:histogrammedExtendedLaunch
+                       toUMAHistogram:prefix + "ExtendedLaunch"];
 
   MXHistogram* histogrammedApplicationHangTime =
       payload.applicationResponsivenessMetrics.histogrammedApplicationHangTime;

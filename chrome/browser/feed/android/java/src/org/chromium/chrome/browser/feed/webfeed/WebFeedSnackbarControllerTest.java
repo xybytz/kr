@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.view.View;
 import android.widget.TextView;
 
@@ -24,7 +25,6 @@ import androidx.test.filters.SmallTest;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -38,10 +38,13 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowLog;
 
+import org.chromium.base.LocaleUtils;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.JniMocker;
+import org.chromium.base.test.util.Features.DisableFeatures;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.feed.FeedServiceBridge;
+import org.chromium.chrome.browser.feed.FeedServiceBridgeJni;
 import org.chromium.chrome.browser.feed.FeedSurfaceTracker;
 import org.chromium.chrome.browser.feed.StreamKind;
 import org.chromium.chrome.browser.feed.test.R;
@@ -49,12 +52,11 @@ import org.chromium.chrome.browser.feed.v2.FeedUserActionType;
 import org.chromium.chrome.browser.feed.webfeed.WebFeedSnackbarController.FeedLauncher;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.chrome.browser.ui.messages.snackbar.Snackbar;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.components.feature_engagement.FeatureConstants;
 import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.feature_engagement.TriggerDetails;
@@ -64,17 +66,18 @@ import org.chromium.ui.modaldialog.ModalDialogProperties;
 import org.chromium.url.GURL;
 import org.chromium.url.JUnitTestGURLs;
 
+import java.util.Locale;
+
 /** Tests {@link WebFeedSnackbarController}. */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(
         manifest = Config.NONE,
         shadows = {})
 @DisableFeatures(ChromeFeatureList.FEED_FOLLOW_UI_UPDATE)
+@EnableFeatures(ChromeFeatureList.FEED_LOW_MEMORY_IMPROVEMENT)
 @SmallTest
 public final class WebFeedSnackbarControllerTest {
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
-    @Rule public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
-    @Rule public JniMocker mJniMocker = new JniMocker();
 
     private static final GURL sTestUrl = JUnitTestGURLs.EXAMPLE_URL;
     private static final GURL sFaviconUrl = JUnitTestGURLs.RED_1;
@@ -103,14 +106,20 @@ public final class WebFeedSnackbarControllerTest {
         // Print logs to stdout.
         ShadowLog.stream = System.out;
 
-        Profile.setLastUsedProfileForTesting(mProfile);
+        // Set default locale to other country in order not to make
+        // FeedFeatures.isFeedFollowUiUpdateEnabled always return true.
+        Configuration config = new Configuration();
+        config.setLocale(new Locale("tl", "PH"));
+        LocaleUtils.setDefaultLocalesFromConfiguration(config);
+
+        ProfileManager.setLastUsedProfileForTesting(mProfile);
         MockitoAnnotations.initMocks(this);
-        mJniMocker.mock(WebFeedBridge.getTestHooksForTesting(), mWebFeedBridgeJniMock);
-        mJniMocker.mock(FeedServiceBridge.getTestHooksForTesting(), mFeedServideBridgeJniMock);
+        WebFeedBridgeJni.setInstanceForTesting(mWebFeedBridgeJniMock);
+        FeedServiceBridgeJni.setInstanceForTesting(mFeedServideBridgeJniMock);
         mContext = Robolectric.setupActivity(Activity.class);
-        when(mTracker.shouldTriggerHelpUI(FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
+        when(mTracker.shouldTriggerHelpUi(FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
                 .thenReturn(false);
-        when(mTracker.shouldTriggerHelpUIWithSnooze(
+        when(mTracker.shouldTriggerHelpUiWithSnooze(
                         FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
                 .thenReturn(new TriggerDetails(false, false));
         when(mTab.getOriginalUrl()).thenReturn(sTestUrl);
@@ -264,9 +273,9 @@ public final class WebFeedSnackbarControllerTest {
 
     @Test
     public void showPromoDialogForFollow_successful_active() {
-        when(mTracker.shouldTriggerHelpUI(FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
+        when(mTracker.shouldTriggerHelpUi(FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
                 .thenReturn(true);
-        when(mTracker.shouldTriggerHelpUIWithSnooze(
+        when(mTracker.shouldTriggerHelpUiWithSnooze(
                         FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
                 .thenReturn(new TriggerDetails(true, false));
         WebFeedBridge.FollowResults followResults = getSuccessfulFollowResult();
@@ -296,9 +305,9 @@ public final class WebFeedSnackbarControllerTest {
 
     @Test
     public void showPostSuccessfulFollowHelp_Dialog_FromForYouFeed() {
-        when(mTracker.shouldTriggerHelpUI(FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
+        when(mTracker.shouldTriggerHelpUi(FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
                 .thenReturn(true);
-        when(mTracker.shouldTriggerHelpUIWithSnooze(
+        when(mTracker.shouldTriggerHelpUiWithSnooze(
                         FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
                 .thenReturn(new TriggerDetails(true, false));
 
@@ -318,9 +327,9 @@ public final class WebFeedSnackbarControllerTest {
 
     @Test
     public void showPostSuccessfulFollowHelp_DialogAndSnackbar_FromFollowingFeed() {
-        when(mTracker.shouldTriggerHelpUI(FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
+        when(mTracker.shouldTriggerHelpUi(FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
                 .thenReturn(true);
-        when(mTracker.shouldTriggerHelpUIWithSnooze(
+        when(mTracker.shouldTriggerHelpUiWithSnooze(
                         FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
                 .thenReturn(new TriggerDetails(true, false));
 
@@ -356,9 +365,9 @@ public final class WebFeedSnackbarControllerTest {
 
     @Test
     public void showPromoDialogForFollow_successful_notActive() {
-        when(mTracker.shouldTriggerHelpUI(FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
+        when(mTracker.shouldTriggerHelpUi(FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
                 .thenReturn(true);
-        when(mTracker.shouldTriggerHelpUIWithSnooze(
+        when(mTracker.shouldTriggerHelpUiWithSnooze(
                         FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
                 .thenReturn(new TriggerDetails(true, false));
         WebFeedBridge.FollowResults followResults =
@@ -398,9 +407,9 @@ public final class WebFeedSnackbarControllerTest {
 
     @Test
     public void showPromoDialogForFollow_successful_noMetadata() {
-        when(mTracker.shouldTriggerHelpUI(FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
+        when(mTracker.shouldTriggerHelpUi(FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
                 .thenReturn(true);
-        when(mTracker.shouldTriggerHelpUIWithSnooze(
+        when(mTracker.shouldTriggerHelpUiWithSnooze(
                         FeatureConstants.IPH_WEB_FEED_POST_FOLLOW_DIALOG_FEATURE))
                 .thenReturn(new TriggerDetails(true, false));
         WebFeedBridge.FollowResults followResults =

@@ -7,8 +7,10 @@
 #include <memory>
 #include <set>
 
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
+#include "ui/base/mojom/window_show_state.mojom.h"
 
 class BrowserListUnitTest : public BrowserWithTestWindowTest {
  public:
@@ -28,7 +30,7 @@ TEST_F(BrowserListUnitTest, TestMinimized) {
   // Create a minimized browser window. It should be prepended to the active
   // list, so browser() should still be at the end of the list.
   Browser::CreateParams native_params(profile(), true);
-  native_params.initial_show_state = ui::SHOW_STATE_MINIMIZED;
+  native_params.initial_show_state = ui::mojom::WindowShowState::kMinimized;
   std::unique_ptr<Browser> browser2(
       CreateBrowserWithTestWindowForParams(native_params));
   EXPECT_EQ(2U, browser_list->size());
@@ -45,7 +47,7 @@ TEST_F(BrowserListUnitTest, TestInactive) {
   // |BrowserList::browsers_ordered_by_activation_| so the default browser
   // should still be the last active.
   Browser::CreateParams native_params(profile(), true);
-  native_params.initial_show_state = ui::SHOW_STATE_INACTIVE;
+  native_params.initial_show_state = ui::mojom::WindowShowState::kInactive;
   std::unique_ptr<Browser> browser2(
       CreateBrowserWithTestWindowForParams(native_params));
   EXPECT_EQ(2U, browser_list->size());
@@ -117,7 +119,7 @@ class BrowserObserverChild : public BrowserListObserver, TabStripModelObserver {
   }
 
  private:
-  std::set<Browser*> observed_browsers_;
+  std::set<raw_ptr<Browser, SetExperimental>> observed_browsers_;
   raw_ptr<Browser, DanglingUntriaged> created_for_browser_;
 };
 

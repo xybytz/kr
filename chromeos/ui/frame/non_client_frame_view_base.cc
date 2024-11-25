@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "chromeos/ui/base/window_properties.h"
+#include "chromeos/ui/base/window_state_type.h"
 #include "chromeos/ui/frame/default_frame_header.h"
 #include "chromeos/ui/frame/frame_utils.h"
 #include "chromeos/ui/frame/header_view.h"
@@ -14,6 +15,7 @@
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/color/color_id.h"
 #include "ui/display/screen.h"
+#include "ui/display/tablet_state.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/views/view.h"
@@ -29,10 +31,10 @@ NonClientFrameViewBase::OverlayView::OverlayView(HeaderView* header_view)
 
 NonClientFrameViewBase::OverlayView::~OverlayView() = default;
 
-void NonClientFrameViewBase::OverlayView::Layout() {
+void NonClientFrameViewBase::OverlayView::Layout(PassKey) {
   // Layout |header_view_| because layout affects the result of
   // GetPreferredOnScreenHeight().
-  header_view_->Layout();
+  header_view_->DeprecatedLayoutImmediately();
 
   int onscreen_height = header_view_->GetPreferredOnScreenHeight();
   int height = header_view_->GetPreferredHeight();
@@ -56,7 +58,7 @@ bool NonClientFrameViewBase::OverlayView::DoesIntersectRect(
   return header_view_->HitTestRect(rect);
 }
 
-BEGIN_METADATA(NonClientFrameViewBase, OverlayView, views::View)
+BEGIN_METADATA(NonClientFrameViewBase, OverlayView)
 END_METADATA
 
 NonClientFrameViewBase::NonClientFrameViewBase(views::Widget* frame)
@@ -88,13 +90,20 @@ HeaderView* NonClientFrameViewBase::GetHeaderView() {
 }
 
 int NonClientFrameViewBase::NonClientTopBorderHeight() const {
+  const aura::Window* frame_window = frame_->GetNativeWindow();
+  const WindowStateType window_state_type =
+      frame_window->GetProperty(kWindowStateTypeKey);
+  const bool is_in_tablet_mode = display::Screen::GetScreen()->InTabletMode();
+  const bool should_have_frame_in_tablet =
+      window_state_type == chromeos::WindowStateType::kFloated ||
+      window_state_type == chromeos::WindowStateType::kNormal;
   // The frame should not occupy the window area when it's in fullscreen,
   // not visible, disabled, in immersive mode or in tablet mode.
-  // TODO(crbug.com/1385920): Support NonClientFrameViewAshImmersiveHelper on
+  // TODO(crbug.com/40879470): Support NonClientFrameViewAshImmersiveHelper on
   // Lacros so that we can remove InTabletMode() && IsMaximized() condition.
   if (frame_->IsFullscreen() || !GetFrameEnabled() ||
       header_view_->in_immersive_mode() ||
-      (display::Screen::GetScreen()->InTabletMode() && frame_->IsMaximized())) {
+      (is_in_tablet_mode && !should_have_frame_in_tablet)) {
     return 0;
   }
   return header_view_->GetPreferredHeight();
@@ -140,16 +149,17 @@ views::View::Views NonClientFrameViewBase::GetChildrenInZOrder() {
   return header_view_->GetFrameHeader()->GetAdjustedChildrenInZOrder(this);
 }
 
-gfx::Size NonClientFrameViewBase::CalculatePreferredSize() const {
-  gfx::Size pref = frame_->client_view()->GetPreferredSize();
+gfx::Size NonClientFrameViewBase::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
+  gfx::Size pref = frame_->client_view()->GetPreferredSize(available_size);
   gfx::Rect bounds(0, 0, pref.width(), pref.height());
   return frame_->non_client_view()
       ->GetWindowBoundsForClientBounds(bounds)
       .size();
 }
 
-void NonClientFrameViewBase::Layout() {
-  views::NonClientFrameView::Layout();
+void NonClientFrameViewBase::Layout(PassKey) {
+  LayoutSuperclass<views::NonClientFrameView>(this);
   if (!GetFrameEnabled())
     return;
   aura::Window* frame_window = frame_->GetNativeWindow();
@@ -217,7 +227,26 @@ bool NonClientFrameViewBase::DoesIntersectRect(const views::View* target,
 
 void NonClientFrameViewBase::PaintAsActiveChanged() {
   header_view_->GetFrameHeader()->SetPaintAsActive(ShouldPaintAsActive());
-  frame_->non_client_view()->Layout();
+  frame_->non_client_view()->DeprecatedLayoutImmediately();
 }
+
+void NonClientFrameViewBase::OnDisplayTabletStateChanged(
+    display::TabletState state) {
+  switch (state) {
+    case display::TabletState::kEnteringTabletMode:
+    case display::TabletState::kExitingTabletMode:
+      break;
+    case display::TabletState::kInTabletMode:
+    case display::TabletState::kInClamshellMode:
+      // Without this, Layout is not guaranteed to be called when the tablet
+      // state changes. Layout must be called so that the header view can hide
+      // or unhide as appropriate.
+      InvalidateLayout();
+      break;
+  }
+}
+
+BEGIN_METADATA(NonClientFrameViewBase)
+END_METADATA
 
 }  // namespace chromeos

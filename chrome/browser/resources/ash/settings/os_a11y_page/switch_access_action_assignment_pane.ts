@@ -9,20 +9,21 @@
  * UI.
  */
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.js';
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
-import 'chrome://resources/cr_elements/cr_shared_style.css.js';
+import 'chrome://resources/ash/common/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/ash/common/cr_elements/cr_shared_style.css.js';
 import '../os_settings_icons.html.js';
 
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
-import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
+import {WebUiListenerMixin} from 'chrome://resources/ash/common/cr_elements/web_ui_listener_mixin.js';
 import {assertNotReached} from 'chrome://resources/js/assert.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {getTemplate} from './switch_access_action_assignment_pane.html.js';
 import {actionToPref, AssignmentContext, SwitchAccessCommand, SwitchAccessDeviceType} from './switch_access_constants.js';
-import {SwitchAccessSubpageBrowserProxy, SwitchAccessSubpageBrowserProxyImpl} from './switch_access_subpage_browser_proxy.js';
-import {KeyAssignment, SwitchAccessAssignmentsChangedValue} from './switch_access_types.js';
+import type {SwitchAccessSubpageBrowserProxy} from './switch_access_subpage_browser_proxy.js';
+import {SwitchAccessSubpageBrowserProxyImpl} from './switch_access_subpage_browser_proxy.js';
+import type {KeyAssignment, SwitchAccessAssignmentsChangedValue} from './switch_access_types.js';
 
 /**
  * Different states of the assignment flow dictating which overall view should

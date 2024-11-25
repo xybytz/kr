@@ -10,18 +10,14 @@
 #include "base/no_destructor.h"
 #include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-namespace web {
-class BrowserState;
-}  // namespace web
-
+class ProfileIOS;
 class SafeBrowsingClient;
 
 // Singleton that owns all SafeBrowsingClients and associates them with
-// a browser state.
+// a profile.
 class SafeBrowsingClientFactory : public BrowserStateKeyedServiceFactory {
  public:
-  static SafeBrowsingClient* GetForBrowserState(
-      web::BrowserState* browser_state);
+  static SafeBrowsingClient* GetForProfile(ProfileIOS* profile);
   static SafeBrowsingClientFactory* GetInstance();
 
   SafeBrowsingClientFactory(const SafeBrowsingClientFactory&) = delete;

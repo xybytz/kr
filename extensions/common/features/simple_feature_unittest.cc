@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "extensions/common/features/simple_feature.h"
 
 #include <stddef.h>
@@ -19,7 +24,7 @@
 #include "content/public/common/content_features.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/common/extension_builder.h"
-#include "extensions/common/extension_features.h"
+#include "extensions/common/extension_id.h"
 #include "extensions/common/features/complex_feature.h"
 #include "extensions/common/features/feature.h"
 #include "extensions/common/features/feature_channel.h"
@@ -41,7 +46,7 @@ namespace extensions {
 namespace {
 
 struct IsAvailableTestData {
-  std::string extension_id;
+  ExtensionId extension_id;
   Manifest::Type extension_type;
   ManifestLocation location;
   Feature::Platform platform;
@@ -420,27 +425,6 @@ TEST_F(SimpleFeatureTest, Context) {
                 .IsAvailableToContext(extension.get(),
                                       mojom::ContextType::kPrivilegedExtension,
                                       Feature::UNSPECIFIED_PLATFORM,
-                                      kUnspecifiedContextId, TestContextData())
-                .result());
-
-  {
-    Feature::Availability availability = feature.IsAvailableToContext(
-        extension.get(), mojom::ContextType::kLockscreenExtension,
-        Feature::CHROMEOS_PLATFORM, kUnspecifiedContextId, TestContextData());
-    EXPECT_EQ(Feature::INVALID_CONTEXT, availability.result());
-    EXPECT_EQ(
-        "'somefeature' is only allowed to run in privileged pages, "
-        "but this is a lock screen app",
-        availability.message());
-  }
-
-  feature.set_contexts({mojom::ContextType::kLockscreenExtension});
-
-  EXPECT_EQ(Feature::IS_AVAILABLE,
-            feature
-                .IsAvailableToContext(extension.get(),
-                                      mojom::ContextType::kLockscreenExtension,
-                                      Feature::CHROMEOS_PLATFORM,
                                       kUnspecifiedContextId, TestContextData())
                 .result());
 
@@ -1002,6 +986,9 @@ TEST(SimpleFeatureUnitTest, TestRequiresDelegatedAvailabilityCheck) {
   SimpleFeature feature;
   feature.set_requires_delegated_availability_check(true);
   feature.set_contexts({mojom::ContextType::kWebPage});
+
+  const GURL kTestPage = GURL("https://www.example.com");
+  feature.set_matches({kTestPage.spec().c_str()});
   {
     // Test a feature that requires a delegated availability check but is
     // missing the check handler.
@@ -1009,7 +996,7 @@ TEST(SimpleFeatureUnitTest, TestRequiresDelegatedAvailabilityCheck) {
               feature
                   .IsAvailableToContext(
                       /*extension=*/nullptr, mojom::ContextType::kWebPage,
-                      kUnspecifiedContextId, TestContextData())
+                      kTestPage, kUnspecifiedContextId, TestContextData())
                   .result());
   }
 
@@ -1022,7 +1009,7 @@ TEST(SimpleFeatureUnitTest, TestRequiresDelegatedAvailabilityCheck) {
               feature
                   .IsAvailableToContext(
                       /*extension=*/nullptr, mojom::ContextType::kWebPage,
-                      kUnspecifiedContextId, TestContextData())
+                      kTestPage, kUnspecifiedContextId, TestContextData())
                   .result());
     EXPECT_EQ(1u, delegated_availability_check_call_count);
   }
@@ -1036,7 +1023,7 @@ TEST(SimpleFeatureUnitTest, TestRequiresDelegatedAvailabilityCheck) {
               feature
                   .IsAvailableToContext(
                       /*extension=*/nullptr, mojom::ContextType::kWebPage,
-                      kUnspecifiedContextId, TestContextData())
+                      kTestPage, kUnspecifiedContextId, TestContextData())
                   .result());
     EXPECT_EQ(2u, delegated_availability_check_call_count);
   }
@@ -1051,7 +1038,7 @@ TEST(SimpleFeatureUnitTest, TestRequiresDelegatedAvailabilityCheck) {
               feature
                   .IsAvailableToContext(
                       /*extension=*/nullptr, mojom::ContextType::kWebPage,
-                      kUnspecifiedContextId, TestContextData())
+                      kTestPage, kUnspecifiedContextId, TestContextData())
                   .result());
     EXPECT_EQ(2u, delegated_availability_check_call_count);
   }
@@ -1065,9 +1052,23 @@ TEST(SimpleFeatureUnitTest, TestRequiresDelegatedAvailabilityCheck) {
               feature
                   .IsAvailableToContext(
                       /*extension=*/nullptr, mojom::ContextType::kWebPage,
-                      kUnspecifiedContextId, TestContextData())
+                      kTestPage, kUnspecifiedContextId, TestContextData())
                   .result());
     EXPECT_EQ(3u, delegated_availability_check_call_count);
+  }
+
+  const GURL kTestPageNotInMatchList = GURL("https://www.not.example.com");
+  {
+    // Test a feature that requires a delegated availability check and the check
+    // would be successful, but the URL is not contained in the matchlist.
+    EXPECT_EQ(Feature::INVALID_URL,
+              feature
+                  .IsAvailableToContext(
+                      /*extension=*/nullptr, mojom::ContextType::kWebPage,
+                      kTestPageNotInMatchList, kUnspecifiedContextId,
+                      TestContextData())
+                  .result());
+    EXPECT_EQ(4u, delegated_availability_check_call_count);
   }
 }
 
@@ -1177,11 +1178,7 @@ TEST(SimpleFeatureUnitTest, TestExperimentalExtensionApisSwitch) {
   }
 }
 
-TEST_F(SimpleFeatureTest, EnableRestrictDeveloperModeAPIs) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      extensions_features::kRestrictDeveloperModeAPIs);
-
+TEST_F(SimpleFeatureTest, RestrictDeveloperModeAPIs) {
   constexpr int kContextId1 = 1;
   constexpr int kContextId2 = 2;
   SimpleFeature dev_mode_only_feature;
@@ -1214,46 +1211,6 @@ TEST_F(SimpleFeatureTest, EnableRestrictDeveloperModeAPIs) {
   SetCurrentDeveloperMode(kContextId2, false);
   EXPECT_EQ(
       Feature::REQUIRES_DEVELOPER_MODE,
-      dev_mode_only_feature.IsAvailableToEnvironment(kContextId2).result());
-  EXPECT_EQ(Feature::IS_AVAILABLE,
-            other_feature.IsAvailableToEnvironment(kContextId2).result());
-}
-
-TEST_F(SimpleFeatureTest, DisableRestrictDeveloperModeAPIs) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(
-      extensions_features::kRestrictDeveloperModeAPIs);
-
-  constexpr int kContextId1 = 1;
-  constexpr int kContextId2 = 2;
-  SimpleFeature dev_mode_only_feature;
-  dev_mode_only_feature.set_developer_mode_only(true);
-  SimpleFeature other_feature;
-
-  SetCurrentDeveloperMode(kContextId1, true);
-  EXPECT_EQ(
-      Feature::IS_AVAILABLE,
-      dev_mode_only_feature.IsAvailableToEnvironment(kContextId1).result());
-  EXPECT_EQ(Feature::IS_AVAILABLE,
-            other_feature.IsAvailableToEnvironment(kContextId1).result());
-
-  SetCurrentDeveloperMode(kContextId1, false);
-  EXPECT_EQ(
-      Feature::IS_AVAILABLE,
-      dev_mode_only_feature.IsAvailableToEnvironment(kContextId1).result());
-  EXPECT_EQ(Feature::IS_AVAILABLE,
-            other_feature.IsAvailableToEnvironment(kContextId1).result());
-
-  SetCurrentDeveloperMode(kContextId2, true);
-  EXPECT_EQ(
-      Feature::IS_AVAILABLE,
-      dev_mode_only_feature.IsAvailableToEnvironment(kContextId2).result());
-  EXPECT_EQ(Feature::IS_AVAILABLE,
-            other_feature.IsAvailableToEnvironment(kContextId2).result());
-
-  SetCurrentDeveloperMode(kContextId2, false);
-  EXPECT_EQ(
-      Feature::IS_AVAILABLE,
       dev_mode_only_feature.IsAvailableToEnvironment(kContextId2).result());
   EXPECT_EQ(Feature::IS_AVAILABLE,
             other_feature.IsAvailableToEnvironment(kContextId2).result());

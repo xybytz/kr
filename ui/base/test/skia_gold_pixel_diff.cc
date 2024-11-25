@@ -5,6 +5,7 @@
 #include "ui/base/test/skia_gold_pixel_diff.h"
 
 #include <memory>
+#include <string_view>
 
 #if BUILDFLAG(IS_WIN)
 #include <windows.h>
@@ -28,14 +29,12 @@
 #include "base/process/launch.h"
 #include "base/process/process.h"
 #include "base/sequence_checker.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/test/test_switches.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/test/skia_gold_matching_algorithm.h"
@@ -113,13 +112,9 @@ const char* GetPlatformName() {
   return "windows";
 #elif BUILDFLAG(IS_APPLE)
   return "macOS";
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
 #elif BUILDFLAG(IS_LINUX)
   return "linux";
-#elif BUILDFLAG(IS_CHROMEOS_LACROS)
-  return "lacros";
-#elif BUILDFLAG(IS_CHROMEOS_ASH)
+#elif BUILDFLAG(IS_CHROMEOS)
   return "ash";
 #endif
 }
@@ -166,7 +161,7 @@ const char* TestEnvironmentKeyToString(TestEnvironmentKey key) {
       return "gl_renderer";
   }
 
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 bool WriteTestEnvironmentToFile(const TestEnvironmentMap& test_environment,
@@ -182,12 +177,11 @@ bool WriteTestEnvironmentToFile(const TestEnvironmentMap& test_environment,
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::File file(keys_file, base::File::Flags::FLAG_CREATE_ALWAYS |
                                  base::File::Flags::FLAG_WRITE);
-  int ret_code = file.Write(0, content.c_str(), content.size());
+  bool ok = file.WriteAndCheck(0, base::as_byte_span(content));
   file.Close();
-  if (ret_code <= 0) {
+  if (!ok) {
     LOG(ERROR) << "Writing the keys file to temporary file failed."
-               << "File path:" << keys_file.AsUTF8Unsafe()
-               << ". Return code: " << ret_code;
+               << "File path:" << keys_file.AsUTF8Unsafe();
     return false;
   }
   return true;
@@ -257,7 +251,7 @@ SkiaGoldPixelDiff::ScopedSessionCacheForTesting::
 
 // static
 SkiaGoldPixelDiff* SkiaGoldPixelDiff::GetSession(
-    const absl::optional<std::string>& corpus,
+    const std::optional<std::string>& corpus,
     TestEnvironmentMap test_environment) {
   FillInSystemEnvironment(test_environment);
   const std::string corpus_name = corpus.value_or("gtest-pixeltests");
@@ -439,8 +433,8 @@ bool SkiaGoldPixelDiff::UploadToSkiaGoldServer(
 std::string SkiaGoldPixelDiff::GetGoldenImageName(
     const std::string& test_suite_name,
     const std::string& test_name,
-    const absl::optional<std::string>& suffix) {
-  std::vector<base::StringPiece> parts;
+    const std::optional<std::string>& suffix) {
+  std::vector<std::string_view> parts;
 
   // Test suites can have "/" in their names from a parameterization
   // instantiation, which isn't allowed in file names.
@@ -470,7 +464,7 @@ std::string SkiaGoldPixelDiff::GetGoldenImageName(
 // static
 std::string SkiaGoldPixelDiff::GetGoldenImageName(
     const ::testing::TestInfo* test_info,
-    const absl::optional<std::string>& suffix) {
+    const std::optional<std::string>& suffix) {
   return GetGoldenImageName(test_info->test_suite_name(), test_info->name(),
                             suffix);
 }
@@ -481,9 +475,9 @@ bool SkiaGoldPixelDiff::CompareScreenshot(
     const SkiaGoldMatchingAlgorithm* algorithm) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   CHECK(initialized_) << "Initialize the class before using this method.";
-  std::vector<unsigned char> output;
-  bool ret = gfx::PNGCodec::EncodeBGRASkBitmap(bitmap, true, &output);
-  if (!ret) {
+  std::optional<std::vector<uint8_t>> output =
+      gfx::PNGCodec::EncodeBGRASkBitmap(bitmap, /*discard_transparency=*/true);
+  if (!output) {
     LOG(ERROR) << "Encoding SkBitmap to PNG format failed.";
     return false;
   }
@@ -497,12 +491,11 @@ bool SkiaGoldPixelDiff::CompareScreenshot(
       base::FilePath::FromUTF8Unsafe(golden_image_name + ".png"));
   base::File file(temporary_path, base::File::Flags::FLAG_CREATE_ALWAYS |
                                       base::File::Flags::FLAG_WRITE);
-  int ret_code = file.Write(0, (char*)output.data(), output.size());
+  bool ok = file.WriteAndCheck(0, output.value());
   file.Close();
-  if (ret_code <= 0) {
+  if (!ok) {
     LOG(ERROR) << "Writing the PNG image to temporary file failed."
-               << "File path:" << temporary_path.AsUTF8Unsafe()
-               << ". Return code: " << ret_code;
+               << "File path:" << temporary_path.AsUTF8Unsafe();
     return false;
   }
   bool success =
@@ -576,12 +569,12 @@ void SkiaGoldPixelDiff::GenerateLocalDiff(
     base::Time mtime;
   };
   struct DiffLinks {
-    absl::optional<DiffLink> given_image;
-    absl::optional<DiffLink> closest_image;
-    absl::optional<DiffLink> diff_image;
+    std::optional<DiffLink> given_image;
+    std::optional<DiffLink> closest_image;
+    std::optional<DiffLink> diff_image;
   };
 
-  auto AssignIfNewer = [](absl::optional<DiffLink>& image,
+  auto AssignIfNewer = [](std::optional<DiffLink>& image,
                           const base::FilePath& png_path,
                           const base::Time& mtime) {
     if (!image.has_value() || mtime > image->mtime) {
@@ -608,7 +601,7 @@ void SkiaGoldPixelDiff::GenerateLocalDiff(
   }
 
   auto FormatPathForTerminalOutput =
-      [](absl::optional<DiffLink>& path) -> absl::optional<std::string> {
+      [](std::optional<DiffLink>& path) -> std::optional<std::string> {
     if (path.has_value()) {
       base::FilePath path_absolute = path.value().png_path;
       if (!path_absolute.IsAbsolute()) {
@@ -625,7 +618,7 @@ void SkiaGoldPixelDiff::GenerateLocalDiff(
               path_normalized.NormalizePathSeparatorsTo(FILE_PATH_LITERAL('/'))
                   .MaybeAsASCII()};
     } else {
-      return absl::nullopt;
+      return std::nullopt;
     }
   };
 

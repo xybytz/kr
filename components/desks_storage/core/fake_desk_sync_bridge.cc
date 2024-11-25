@@ -18,7 +18,6 @@
 #include "components/app_constants/constants.h"
 #include "components/desks_storage/core/desk_model_observer.h"
 #include "components/desks_storage/core/desk_template_util.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/ui_base_types.h"
 
 #if !BUILDFLAG(IS_CHROMEOS_LACROS)
@@ -161,6 +160,10 @@ size_t FakeDeskSyncBridge::GetDeskTemplateEntryCount() const {
   return template_count + policy_entries_.size();
 }
 
+size_t FakeDeskSyncBridge::GetCoralEntryCount() const {
+  return 0u;
+}
+
 // Chrome sync does not support save and recall desks yet. Return 0 for max
 // count.
 size_t FakeDeskSyncBridge::GetMaxSaveAndRecallDeskEntryCount() const {
@@ -169,6 +172,10 @@ size_t FakeDeskSyncBridge::GetMaxSaveAndRecallDeskEntryCount() const {
 
 size_t FakeDeskSyncBridge::GetMaxDeskTemplateEntryCount() const {
   return 6u + policy_entries_.size();
+}
+
+size_t FakeDeskSyncBridge::GetMaxCoralEntryCount() const {
+  return 0u;
 }
 
 std::set<base::Uuid> FakeDeskSyncBridge::GetAllEntryUuids() const {

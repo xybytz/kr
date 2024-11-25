@@ -16,6 +16,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/browser/process_manager_observer.h"
+#include "extensions/common/extension_id.h"
 
 namespace content {
 class BrowserContext;
@@ -36,6 +37,9 @@ class ExtensionTestNotificationObserver {
 
   ~ExtensionTestNotificationObserver();
 
+  // Waits for all extension views to load.
+  bool WaitForExtensionViewsToLoad();
+
  protected:
   class NotificationSet : public extensions::ProcessManagerObserver {
    public:
@@ -55,7 +59,7 @@ class ExtensionTestNotificationObserver {
 
     // extensions::ProcessManagerObserver:
     void OnExtensionFrameUnregistered(
-        const std::string& extension_id,
+        const ExtensionId& extension_id,
         content::RenderFrameHost* render_frame_host) override;
 
     void OnWebContentsCreated(content::WebContents* web_contents);

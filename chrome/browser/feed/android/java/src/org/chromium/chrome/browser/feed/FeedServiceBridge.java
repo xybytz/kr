@@ -19,49 +19,13 @@ import org.chromium.chrome.browser.xsurface.ImageCacheHelper;
 import org.chromium.chrome.browser.xsurface.ProcessScope;
 import org.chromium.chrome.browser.xsurface_provider.XSurfaceProcessScopeProvider;
 
-import java.lang.reflect.InvocationTargetException;
 import java.util.Locale;
 
 /** Bridge for FeedService-related calls. */
 @JNINamespace("feed")
 public final class FeedServiceBridge {
-    // Access to JNI test hooks for other libraries. This can go away once more Feed code is
-    // migrated to chrome/browser/feed.
-    public static org.jni_zero.JniStaticTestMocker<FeedServiceBridge.Natives>
-            getTestHooksForTesting() {
-        return FeedServiceBridgeJni.TEST_HOOKS;
-    }
-
-    private static FeedServiceDependencyProviderFactory getDependencyProviderFactory() {
-        Class<?> dependencyProviderFactoryClazz;
-        try {
-            dependencyProviderFactoryClazz =
-                    Class.forName(
-                            "org.chromium.chrome.browser.app.feed.FeedServiceDependencyProviderFactoryImpl");
-        } catch (ClassNotFoundException e) {
-            return null;
-        }
-        try {
-            return (FeedServiceDependencyProviderFactory)
-                    dependencyProviderFactoryClazz.getDeclaredMethod("getInstance").invoke(null);
-        } catch (NoSuchMethodException e) {
-        } catch (InvocationTargetException e) {
-        } catch (IllegalAccessException e) {
-        }
-        return null;
-    }
-
     public static ProcessScope xSurfaceProcessScope() {
         return XSurfaceProcessScopeProvider.getProcessScope();
-    }
-
-    private static FeedServiceUtil sFeedServiceUtil;
-
-    public static FeedServiceUtil feedServiceUtil() {
-        if (sFeedServiceUtil == null) {
-            sFeedServiceUtil = getDependencyProviderFactory().createFeedServiceUtil();
-        }
-        return sFeedServiceUtil;
     }
 
     public static boolean isEnabled() {
@@ -101,11 +65,6 @@ public final class FeedServiceBridge {
                 imageCacheHelper.prefetchImage(url);
             }
         }
-    }
-
-    @CalledByNative
-    public static @TabGroupEnabledState int getTabGroupEnabledState() {
-        return feedServiceUtil().getTabGroupEnabledState();
     }
 
     /** Called at startup to trigger creation of |FeedService|. */

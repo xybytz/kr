@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/shared/model/prefs/pref_names.h"
-#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
@@ -49,19 +48,6 @@ id<GREYMatcher> BottomAddressBarOptionSelected() {
   return grey_allOf(grey_selected(), BottomAddressBarOption(), nil);
 }
 
-id<GREYMatcher> BottomOmnibox() {
-  return grey_allOf(
-      chrome_test_util::DefocusedLocationView(),
-      grey_ancestor(grey_kindOfClassName(@"SecondaryToolbarView")),
-      grey_sufficientlyVisible(), nil);
-}
-
-id<GREYMatcher> TopOmnibox() {
-  return grey_allOf(chrome_test_util::DefocusedLocationView(),
-                    grey_ancestor(grey_kindOfClassName(@"PrimaryToolbarView")),
-                    grey_sufficientlyVisible(), nil);
-}
-
 }  // namespace
 
 @interface AddressBarPreferenceTestCase : ChromeTestCase
@@ -69,22 +55,16 @@ id<GREYMatcher> TopOmnibox() {
 
 @implementation AddressBarPreferenceTestCase
 
-- (AppLaunchConfiguration)appConfigurationForTestCase {
-  AppLaunchConfiguration config;
-  config.features_enabled.push_back(kBottomOmniboxSteadyState);
-  return config;
-}
-
 - (void)setUp {
   [super setUp];
   // Resets the address bar position preference to be on top.
-  [ChromeEarlGrey setBoolValue:NO forUserPref:prefs::kBottomOmnibox];
+  [ChromeEarlGrey setBoolValue:NO forLocalStatePref:prefs::kBottomOmnibox];
 }
 
-- (void)tearDown {
+- (void)tearDownHelper {
   // Resets the address bar position preference to be on top.
-  [ChromeEarlGrey setBoolValue:NO forUserPref:prefs::kBottomOmnibox];
-  [super tearDown];
+  [ChromeEarlGrey setBoolValue:NO forLocalStatePref:prefs::kBottomOmnibox];
+  [super tearDownHelper];
 }
 
 // Tests that when we select the bottom address bar view. It becomes selected
@@ -97,7 +77,7 @@ id<GREYMatcher> TopOmnibox() {
 
   [ChromeEarlGrey loadURL:GURL("about:blank")];
   // The address bar should be on top.
-  [[EarlGrey selectElementWithMatcher:TopOmnibox()]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OmniboxOnTop()]
       assertWithMatcher:grey_notNil()];
 
   [self openAddressBarPreferenceSettingPage];
@@ -118,9 +98,9 @@ id<GREYMatcher> TopOmnibox() {
       performAction:grey_tap()];
 
   // The address bar should be now on bottom.
-  [[EarlGrey selectElementWithMatcher:BottomOmnibox()]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OmniboxAtBottom()]
       assertWithMatcher:grey_notNil()];
-  [[EarlGrey selectElementWithMatcher:TopOmnibox()]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OmniboxOnTop()]
       assertWithMatcher:grey_nil()];
 }
 

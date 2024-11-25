@@ -14,9 +14,10 @@
 
 import 'chrome://flags/app.js';
 
-import {FlagsAppElement} from 'chrome://flags/app.js';
-import {FlagsExperimentElement} from 'chrome://flags/experiment.js';
-import {ExperimentalFeaturesData, Feature, FlagsBrowserProxyImpl} from 'chrome://flags/flags_browser_proxy.js';
+import type {FlagsAppElement} from 'chrome://flags/app.js';
+import type {ExperimentElement} from 'chrome://flags/experiment.js';
+import type {ExperimentalFeaturesData, Feature} from 'chrome://flags/flags_browser_proxy.js';
+import {FlagsBrowserProxyImpl} from 'chrome://flags/flags_browser_proxy.js';
 import {assertEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
 
 import {TestFlagsBrowserProxy} from './test_flags_browser_proxy.js';
@@ -28,8 +29,10 @@ const experimentalFeaturesData: ExperimentalFeaturesData = {
   'needsRestart': false,
   'showBetaChannelPromotion': false,
   'showDevChannelPromotion': false,
+  // <if expr="chromeos_ash">
   'showOwnerWarning': false,
   'showSystemFlagsLink': true,
+  // </if>
 };
 const mockFeatures: Feature[] = [
   {
@@ -63,11 +66,11 @@ suite('UrlWithSupportedFeatureTest', function() {
   let browserProxy: TestFlagsBrowserProxy;
 
   setup(async function() {
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     browserProxy = new TestFlagsBrowserProxy();
     browserProxy.setFeatureData(Object.assign(
         {}, experimentalFeaturesData, {supportedFeatures: mockFeatures}));
     FlagsBrowserProxyImpl.setInstance(browserProxy);
-    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     app = document.createElement('flags-app');
     document.body.appendChild(app);
     app.setAnnounceStatusDelayMsForTesting(0);
@@ -77,11 +80,11 @@ suite('UrlWithSupportedFeatureTest', function() {
 
   test('check referenced experiment is highlighted', async function() {
     // check the available tab is selected
-    assertTrue(app.getRequiredElement('#tab-available')
-                   .classList.contains('selected'));
+    const crTabs = app.getRequiredElement('cr-tabs');
+    assertEquals(0, crTabs.selected);
 
     const referencedExperiment =
-        app.getRequiredElement<FlagsExperimentElement>(window.location.hash);
+        app.getRequiredElement<ExperimentElement>(window.location.hash);
     assertTrue(!!referencedExperiment);
     assertEquals(referencedFlagName, referencedExperiment.id);
 
@@ -95,11 +98,11 @@ suite('UrlWithUnsupportedFeatureTest', function() {
   let browserProxy: TestFlagsBrowserProxy;
 
   setup(async function() {
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     browserProxy = new TestFlagsBrowserProxy();
     browserProxy.setFeatureData(Object.assign(
         {}, experimentalFeaturesData, {unsupportedFeatures: mockFeatures}));
     FlagsBrowserProxyImpl.setInstance(browserProxy);
-    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     app = document.createElement('flags-app');
     document.body.appendChild(app);
     app.setAnnounceStatusDelayMsForTesting(0);
@@ -109,11 +112,11 @@ suite('UrlWithUnsupportedFeatureTest', function() {
 
   test('check referenced experiment is highlighted', async function() {
     // check the unavailable tab is selected
-    assertTrue(app.getRequiredElement('#tab-unavailable')
-                   .classList.contains('selected'));
+    const crTabs = app.getRequiredElement('cr-tabs');
+    assertEquals(1, crTabs.selected);
 
     const referencedExperiment =
-        app.getRequiredElement<FlagsExperimentElement>(window.location.hash);
+        app.getRequiredElement<ExperimentElement>(window.location.hash);
     assertTrue(!!referencedExperiment);
     assertEquals(referencedFlagName, referencedExperiment.id);
 

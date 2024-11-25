@@ -11,6 +11,7 @@
 #import "base/notreached.h"
 #import "base/strings/sys_string_conversions.h"
 #import "components/autofill/ios/browser/suggestion_controller_java_script_feature.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/web/public/js_messaging/web_frames_manager.h"
 #import "ios/web/public/web_state.h"
@@ -181,7 +182,6 @@ NSArray* FindDescendantToolbarItemsForActionName(
     [[item target] performSelector:[item action] withObject:item];
   } @catch (NSException* exception) {
     NOTREACHED() << exception.debugDescription;
-    return NO;
   }
 #pragma clang diagnostic pop
   return YES;
@@ -225,7 +225,7 @@ NSArray* FindDescendantToolbarItemsForActionName(
     (void (^)(bool, bool))completionHandler {
   DCHECK(completionHandler);
 
-  if (!_webState) {
+  if (!_webState || IsKeyboardAccessoryUpgradeEnabled()) {
     completionHandler(false, false);
     return;
   }

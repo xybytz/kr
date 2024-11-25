@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/ash/file_system_provider/mount_path_util.h"
 
 #include <stddef.h>
@@ -38,8 +43,7 @@ const base::FilePath::CharType kProvidedMountPointRoot[] =
 // This is based on net/base/escape.cc: net::(anonymous namespace)::Escape
 std::string EscapeFileSystemId(const std::string& file_system_id) {
   std::string escaped;
-  for (size_t i = 0; i < file_system_id.size(); ++i) {
-    const char c = file_system_id[i];
+  for (char c : file_system_id) {
     if (c == '%' || c == '.' || c == '/') {
       base::StringAppendF(&escaped, "%%%02X", c);
     } else {

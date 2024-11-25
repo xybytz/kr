@@ -77,9 +77,7 @@ class WebDatabaseHostImplTest : public ::testing::Test {
         base::SingleThreadTaskRunner::GetCurrentDefault());
 
     db_tracker_ = storage::DatabaseTracker::Create(
-        data_dir_.GetPath(),
-        /*is_incognito=*/false,
-        /*special_storage_policy=*/nullptr, quota_manager_proxy_);
+        data_dir_.GetPath(), /*is_incognito=*/false, quota_manager_proxy_);
     // Raw pointer usage is safe because `host_` stores a reference to the
     // DatabaseTracker, keeping it alive for the duration of the test.
     task_runner_ = db_tracker_->task_runner();
@@ -147,6 +145,10 @@ class WebDatabaseHostImplTest : public ::testing::Test {
             OriginAgentClusterIsolationState::CreateForDefaultIsolation(
                 &browser_context_)),
         process_id(), url);
+    // All tests in this file assume that they have committed an origin
+    // corresponding to `url`.
+    ChildProcessSecurityPolicyImpl::GetInstance()->AddCommittedOrigin(
+        process_id(), url::Origin::Create(url));
   }
 
   storage::MockQuotaManager* quota_manager() { return quota_manager_.get(); }
@@ -277,11 +279,6 @@ TEST_F(WebDatabaseHostImplTest, BadMessagesUnauthorized) {
 
   CheckUnauthorizedOrigin([&]() {
     host()->GetFileAttributes(bad_vfs_file_name, base::DoNothing());
-  });
-
-  CheckUnauthorizedOrigin([&]() {
-    host()->SetFileSize(bad_vfs_file_name, /*expected_size=*/0,
-                        base::DoNothing());
   });
 
   CheckUnauthorizedOrigin([&]() {

@@ -38,6 +38,9 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
+#include "services/metrics/public/cpp/metrics_utils.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
+#include "services/metrics/public/cpp/ukm_recorder.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(IS_ANDROID)
@@ -54,7 +57,7 @@ std::unique_ptr<supervised_user::WebContentHandler> CreateWebContentHandler(
     content::WebContents* web_contents,
     GURL url,
     Profile* profile,
-    int frame_id,
+    content::FrameTreeNodeId frame_id,
     int navigation_id) {
 #if BUILDFLAG(IS_CHROMEOS)
   return std::make_unique<SupervisedUserWebContentHandlerImpl>(
@@ -113,7 +116,7 @@ void SupervisedUserNavigationObserver::OnRequestBlocked(
     const GURL& url,
     supervised_user::FilteringBehaviorReason reason,
     int64_t navigation_id,
-    int frame_id,
+    content::FrameTreeNodeId frame_id,
     const OnInterstitialResultCallback& callback) {
   SupervisedUserNavigationObserver* navigation_observer =
       SupervisedUserNavigationObserver::FromWebContents(web_contents);
@@ -130,19 +133,12 @@ void SupervisedUserNavigationObserver::OnRequestBlocked(
                                                 frame_id, callback);
 }
 
-void SupervisedUserNavigationObserver::UpdateMainFrameFilteringStatus(
-    supervised_user::FilteringBehavior behavior,
-    supervised_user::FilteringBehaviorReason reason) {
-  main_frame_filtering_behavior_ = behavior;
-  main_frame_filtering_behavior_reason_ = reason;
-}
-
 void SupervisedUserNavigationObserver::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
   if (!navigation_handle->HasCommitted())
     return;
 
-  int frame_id = navigation_handle->GetFrameTreeNodeId();
+  content::FrameTreeNodeId frame_id = navigation_handle->GetFrameTreeNodeId();
   int64_t navigation_id = navigation_handle->GetNavigationId();
 
   // If this is a different navigation than the one that triggered the
@@ -174,7 +170,8 @@ void SupervisedUserNavigationObserver::DidFinishNavigation(
   }
 }
 
-void SupervisedUserNavigationObserver::FrameDeleted(int frame_tree_node_id) {
+void SupervisedUserNavigationObserver::FrameDeleted(
+    content::FrameTreeNodeId frame_tree_node_id) {
   supervised_user_interstitials_.erase(frame_tree_node_id);
 }
 
@@ -188,16 +185,51 @@ void SupervisedUserNavigationObserver::DidFinishLoad(
     int count = supervised_user_interstitials_.size();
     if (main_frame_blocked) {
       count = 0;
-      supervised_user_service_->MarkFirstTimeInterstitialBannerShown();
     }
 
     UMA_HISTOGRAM_COUNTS_1000("ManagedUsers.BlockedIframeCount", count);
+    RecordPageLoadUKM(render_frame_host);
   }
 
-  if (base::Contains(supervised_user_interstitials_,
-                     render_frame_host->GetFrameTreeNodeId())) {
-    UMA_HISTOGRAM_COUNTS_1000("ManagedUsers.BlockedFrameDepth",
-                              render_frame_host->GetFrameDepth());
+}
+
+void SupervisedUserNavigationObserver::RecordPageLoadUKM(
+    content::RenderFrameHost* render_frame_host) {
+  ukm::UkmRecorder* ukm_recorder = ukm::UkmRecorder::Get();
+  ukm::SourceId source_id = render_frame_host->GetPageUkmSourceId();
+
+  // To avoid the user potentially being identified based on parent-configured
+  // allow/block lists, only output a UKM for page loads that were blocked or
+  // partially blocked due to the aync checks (but not due to allow/block list
+  // configuration).
+  const content::FrameTreeNodeId main_frame_id =
+      render_frame_host->GetFrameTreeNodeId();
+  if (base::Contains(supervised_user_interstitials_, main_frame_id)) {
+    // The main frame was blocked.
+    if (supervised_user_interstitials_[main_frame_id]
+            ->filtering_behavior_reason() ==
+        supervised_user::FilteringBehaviorReason::ASYNC_CHECKER) {
+      ukm::builders::FamilyLinkUser_BlockedContent(source_id)
+          .SetMainFrameBlocked(true)
+          .SetNumBlockedIframes(ukm::GetExponentialBucketMinForCounts1000(0))
+          .Record(ukm_recorder);
+    }
+  } else {
+    // The main frame was not blocked. Check for any blocked iframes.
+    size_t blocked_frame_count = base::ranges::count_if(
+        supervised_user_interstitials_, [](const auto& entry) {
+          return entry.second->filtering_behavior_reason() ==
+                 supervised_user::FilteringBehaviorReason::ASYNC_CHECKER;
+        });
+
+    // If there were any blocked iframes, output a UKM.
+    if (blocked_frame_count > 0) {
+      ukm::builders::FamilyLinkUser_BlockedContent(source_id)
+          .SetMainFrameBlocked(false)
+          .SetNumBlockedIframes(
+              ukm::GetExponentialBucketMinForCounts1000(blocked_frame_count))
+          .Record(ukm_recorder);
+    }
   }
 }
 
@@ -225,7 +257,8 @@ void SupervisedUserNavigationObserver::OnURLFilterChanged() {
       });
 }
 
-void SupervisedUserNavigationObserver::OnInterstitialDone(int frame_id) {
+void SupervisedUserNavigationObserver::OnInterstitialDone(
+    content::FrameTreeNodeId frame_id) {
   supervised_user_interstitials_.erase(frame_id);
 }
 
@@ -233,7 +266,7 @@ void SupervisedUserNavigationObserver::OnRequestBlockedInternal(
     const GURL& url,
     supervised_user::FilteringBehaviorReason reason,
     int64_t navigation_id,
-    int frame_id,
+    content::FrameTreeNodeId frame_id,
     const OnInterstitialResultCallback& callback) {
   // TODO(bauerb): Use SaneTime when available.
   base::Time timestamp = base::Time::Now();
@@ -249,8 +282,9 @@ void SupervisedUserNavigationObserver::OnRequestBlockedInternal(
       /*referrer=*/url, history::RedirectList(), ui::PAGE_TRANSITION_BLOCKED,
       /*hidden=*/false, history::SOURCE_BROWSED,
       /*did_replace_entry=*/false, /*consider_for_ntp_most_visited=*/true,
+      /*is_ephemeral=*/false,
       /*title=*/std::nullopt,
-      // TODO(crbug.com/1475695): Investigate whether we want to record blocked
+      // TODO(crbug.com/40279734): Investigate whether we want to record blocked
       // navigations in the VisitedLinkDatabase, and if so, populate
       // top_level_url with a real value.
       /*top_level_url=*/std::nullopt);
@@ -297,7 +331,7 @@ void SupervisedUserNavigationObserver::URLFilterCheckCallback(
     return;
   }
 
-  int frame_id = render_frame_host->GetFrameTreeNodeId();
+  content::FrameTreeNodeId frame_id = render_frame_host->GetFrameTreeNodeId();
   bool is_showing_interstitial =
       base::Contains(supervised_user_interstitials_, frame_id);
   bool should_show_interstitial =
@@ -322,7 +356,7 @@ void SupervisedUserNavigationObserver::MaybeShowInterstitial(
     supervised_user::FilteringBehaviorReason reason,
     bool initial_page_load,
     int64_t navigation_id,
-    int frame_id,
+    content::FrameTreeNodeId frame_id,
     const OnInterstitialResultCallback& callback) {
   Profile* profile =
       Profile::FromBrowserContext(web_contents()->GetBrowserContext());
@@ -380,7 +414,7 @@ void SupervisedUserNavigationObserver::GoBack() {
 void SupervisedUserNavigationObserver::RequestUrlAccessRemote(
     RequestUrlAccessRemoteCallback callback) {
   auto* render_frame_host = receivers_.GetCurrentTargetFrame();
-  int id = render_frame_host->GetFrameTreeNodeId();
+  content::FrameTreeNodeId id = render_frame_host->GetFrameTreeNodeId();
 
   if (!base::Contains(supervised_user_interstitials_, id)) {
     DLOG(WARNING) << "Interstitial with id not found: " << id;
@@ -399,7 +433,7 @@ void SupervisedUserNavigationObserver::RequestUrlAccessLocal(
     RequestUrlAccessLocalCallback callback) {
   content::RenderFrameHost* render_frame_host =
       receivers_.GetCurrentTargetFrame();
-  int id = render_frame_host->GetFrameTreeNodeId();
+  content::FrameTreeNodeId id = render_frame_host->GetFrameTreeNodeId();
 
   if (!base::Contains(supervised_user_interstitials_, id)) {
     DLOG(WARNING) << "Interstitial with id not found: " << id;

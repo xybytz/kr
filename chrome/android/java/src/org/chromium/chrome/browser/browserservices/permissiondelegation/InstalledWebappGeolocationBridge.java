@@ -11,11 +11,11 @@ import androidx.annotation.Nullable;
 import androidx.browser.trusted.TrustedWebActivityCallback;
 
 import org.jni_zero.CalledByNative;
+import org.jni_zero.JniType;
 import org.jni_zero.NativeMethods;
 
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
-import org.chromium.chrome.browser.ChromeApplicationImpl;
 import org.chromium.chrome.browser.browserservices.TrustedWebActivityClient;
 import org.chromium.url.GURL;
 
@@ -35,8 +35,6 @@ public class InstalledWebappGeolocationBridge {
 
     private long mNativePointer;
     private final GURL mUrl;
-
-    private final TrustedWebActivityClient mTwaClient;
 
     private final TrustedWebActivityCallback mLocationUpdateCallback =
             new TrustedWebActivityCallback() {
@@ -59,32 +57,29 @@ public class InstalledWebappGeolocationBridge {
                 }
             };
 
-    InstalledWebappGeolocationBridge(long nativePtr, GURL url, TrustedWebActivityClient client) {
+    InstalledWebappGeolocationBridge(long nativePtr, GURL url) {
         mNativePointer = nativePtr;
         mUrl = url;
-        mTwaClient = client;
     }
 
     @CalledByNative
     public static @Nullable InstalledWebappGeolocationBridge create(long nativePtr, GURL url) {
         if (url == null) return null;
 
-        return new InstalledWebappGeolocationBridge(
-                nativePtr,
-                url,
-                ChromeApplicationImpl.getComponent().resolveTrustedWebActivityClient());
+        return new InstalledWebappGeolocationBridge(nativePtr, url);
     }
 
     @CalledByNative
     public void start(boolean highAccuracy) {
-        mTwaClient.startListeningLocationUpdates(
-                mUrl.getSpec(), highAccuracy, mLocationUpdateCallback);
+        TrustedWebActivityClient.getInstance()
+                .startListeningLocationUpdates(
+                        mUrl.getSpec(), highAccuracy, mLocationUpdateCallback);
     }
 
     @CalledByNative
     public void stopAndDestroy() {
         mNativePointer = 0;
-        mTwaClient.stopLocationUpdates(mUrl.getSpec());
+        TrustedWebActivityClient.getInstance().stopLocationUpdates(mUrl.getSpec());
     }
 
     private void notifyNewGeoposition(@Nullable Bundle bundle) {
@@ -140,6 +135,8 @@ public class InstalledWebappGeolocationBridge {
                 boolean hasSpeed,
                 double speed);
 
-        void onNewErrorAvailable(long nativeInstalledWebappGeolocationBridge, String message);
+        void onNewErrorAvailable(
+                long nativeInstalledWebappGeolocationBridge,
+                @JniType("std::string") String message);
     }
 }

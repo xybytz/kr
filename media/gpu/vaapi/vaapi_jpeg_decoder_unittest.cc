@@ -13,8 +13,6 @@
 
 // This has to be included first.
 // See http://code.google.com/p/googletest/issues/detail?id=371
-#include "testing/gtest/include/gtest/gtest.h"
-
 #include "base/containers/span.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -25,13 +23,13 @@
 #include "media/base/video_types.h"
 #include "media/gpu/test/local_gpu_memory_buffer_manager.h"
 #include "media/gpu/vaapi/test_utils.h"
-#include "media/gpu/vaapi/va_surface.h"
 #include "media/gpu/vaapi/vaapi_image_decoder.h"
 #include "media/gpu/vaapi/vaapi_image_decoder_test_common.h"
 #include "media/gpu/vaapi/vaapi_jpeg_decoder.h"
 #include "media/gpu/vaapi/vaapi_utils.h"
 #include "media/gpu/vaapi/vaapi_wrapper.h"
 #include "media/parsers/jpeg_parser.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/libyuv/include/libyuv.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkImageInfo.h"
@@ -174,12 +172,11 @@ std::vector<unsigned char> GenerateJpegImage(
   // size), it will be decoded incorrectly in AMD Stoney Ridge (see
   // b/127874877). When that's resolved, change the quality here to 100 so that
   // the generated JPEG is large.
-  std::vector<unsigned char> jpeg_data;
-  if (gfx::JPEGCodec::Encode(
-          SkPixmap(image_info, rgba_data.data(), stride) /* input */,
-          95 /* quality */, subsampling /* downsample */,
-          &jpeg_data /* output */)) {
-    return jpeg_data;
+  std::optional<std::vector<uint8_t>> jpeg_data = gfx::JPEGCodec::Encode(
+      /*input=*/SkPixmap(image_info, rgba_data.data(), stride),
+      /*quality=*/95, /*downsample=*/subsampling);
+  if (jpeg_data) {
+    return jpeg_data.value();
   }
   return {};
 }
@@ -469,7 +466,7 @@ class VaapiJpegDecoderWithDmaBufsTest : public VaapiJpegDecoderTest {
 TEST_P(VaapiJpegDecoderWithDmaBufsTest, DecodeSucceeds) {
   ASSERT_NE(VAImplementation::kInvalid, VaapiWrapper::GetImplementationType());
   if (VaapiWrapper::GetImplementationType() == VAImplementation::kMesaGallium) {
-    // TODO(crbug.com/974438): until we support surfaces with multiple buffer
+    // TODO(crbug.com/40632250): until we support surfaces with multiple buffer
     // objects, the AMD driver fails this test.
     GTEST_SKIP();
   }

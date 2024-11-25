@@ -13,6 +13,9 @@
 
 namespace first_run {
 
+// Histogram for first run stage. Related to `enum FirstRunStage`.
+extern const char kFirstRunStageHistogram[];
+
 // The different ways to interact with the sign-in flow during First Run.
 enum SignInAttemptStatus {
   // The user did not attempt to sign in.
@@ -77,7 +80,7 @@ enum ExternalLaunch {
 
 // The different stages of the first run experience. This is mapped to the
 // FirstRunStageResult enum in enums.xml for metrics.
-// TODO(crbug.com/1189815): Add welcome stage and record metrics.
+// TODO(crbug.com/40755663): Add welcome stage and record metrics.
 enum FirstRunStage {
   // The first run experience has started.
   kStart = 0,

@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "ash/webui/shortcut_customization_ui/shortcut_customization_app_ui.h"
 
 #include <memory>
@@ -53,9 +58,16 @@ void AddLocalizedStrings(content::WebUIDataSource* source) {
       {"keyboardSettings", IDS_SHORTCUT_CUSTOMIZATION_KEYBOARD_SETTINGS},
       {"addShortcut", IDS_SHORTCUT_CUSTOMIZATION_ADD_SHORTCUT},
       {"restoreDefaults", IDS_SHORTCUT_CUSTOMIZATION_RESTORE_DEFAULTS},
-      {"edit", IDS_SHORTCUT_CUSTOMIZATION_EDIT},
+      {"editable", IDS_SHORTCUT_CUSTOMIZATION_ROW_STATUS_EDITABLE},
+      {"editButtonForRow", IDS_SHORTCUT_CUSTOMIZATION_EDIT_BUTTON_FOR_ROW},
+      {"editButtonForAction",
+       IDS_SHORTCUT_CUSTOMIZATION_EDIT_BUTTON_FOR_ACTION},
+      {"deleteButtonForAction",
+       IDS_SHORTCUT_CUSTOMIZATION_DELETE_BUTTON_FOR_ACTION},
       {"editShortcut", IDS_SHORTCUT_CUSTOMIZATION_EDIT_SHORTCUT},
       {"editDialogDone", IDS_SHORTCUT_CUSTOMIZATION_EDIT_DIALOG_DONE},
+      {"lock", IDS_SHORTCUT_CUSTOMIZATION_LOCK},
+      {"locked", IDS_SHORTCUT_CUSTOMIZATION_ROW_STATUS_LOCKED},
       {"cancel", IDS_SHORTCUT_CUSTOMIZATION_CANCEL},
       {"editViewStatusMessage",
        IDS_SHORTCUT_CUSTOMIZATION_EDIT_VIEW_STATUS_MESSAGE},
@@ -96,6 +108,8 @@ void AddLocalizedStrings(content::WebUIDataSource* source) {
        IDS_SHORTCUT_CUSTOMIZATION_NON_SEARCH_SHORTCUT_WARNING},
       {"reservedKeyNotAllowedStatusMessage",
        IDS_SHORTCUT_CUSTOMIZATION_RESERVED_KEY_NOT_ALLOWED_STATUS_MESSAGE},
+      {"nonStandardNotAllowedWithSearchMessage",
+       IDS_SHORTCUT_CUSTOMIZATION_NON_STANDARD_KEY_WITH_SEARCH_MODIFIER},
       {"searchNoResults", IDS_SHORTCUT_CUSTOMIZATION_SEARCH_NO_RESULTS},
       {"searchClearQueryLabel",
        IDS_SHORTCUT_CUSTOMIZATION_SEARCH_CLEAR_QUERY_LABEL},
@@ -105,12 +119,16 @@ void AddLocalizedStrings(content::WebUIDataSource* source) {
        IDS_SHORTCUT_CUSTOMIZATION_ACCELERATOR_TEXT_DIVIDER},
       {"acceleratorRowAriaLabel",
        IDS_SHORTCUT_CUSTOMIZATION_ACCELERATOR_ROW_A11Y},
+      {"acceleratorRowAriaLabelReadOnly",
+       IDS_SHORTCUT_CUSTOMIZATION_ACCELERATOR_ROW_READ_ONLY_A11Y},
       {"editButtonAriaLabel", IDS_SHORTCUT_CUSTOMIZATION_EDIT_BUTTON_A11Y},
       {"cancelButtonAriaLabel", IDS_SHORTCUT_CUSTOMIZATION_CANCEL_BUTTON_A11Y},
       {"deleteButtonAriaLabel", IDS_SHORTCUT_CUSTOMIZATION_DELETE_BUTTON_A11Y},
       {"editDialogAriaLabel", IDS_SHORTCUT_CUSTOMIZATION_EDIT_DIALOG_A11Y},
       {"shortcutAdded", IDS_SHORTCUT_CUSTOMIZATION_SHORTCUT_ADDED_A11Y},
       {"shortcutEdited", IDS_SHORTCUT_CUSTOMIZATION_SHORTCUT_EDITED_A11Y},
+      {"shortcutDeleted", IDS_SHORTCUT_CUSTOMIZATION_SHORTCUT_DELETED_A11Y},
+      {"shortcutRestored", IDS_SHORTCUT_CUSTOMIZATION_SHORTCUT_RESTORED_A11Y},
       {"searchResultSelectedAriaLabel",
        IDS_SHORTCUT_CUSTOMIZATION_SEARCH_RESULT_ROW_A11Y_RESULT_SELECTED},
       {"inputKeyPlaceholder", IDS_SHORTCUT_CUSTOMIZATION_INPUT_KEY_PLACEHOLDER},
@@ -137,11 +155,15 @@ void AddLocalizedStrings(content::WebUIDataSource* source) {
       {"subcategoryDesks", IDS_SHORTCUT_CUSTOMIZATION_SUBCATEGORY_DESKS},
       {"subcategoryChromeVox",
        IDS_SHORTCUT_CUSTOMIZATION_SUBCATEGORY_CHROMEVOX},
+      {"subcategoryMouseKeys",
+       IDS_SHORTCUT_CUSTOMIZATION_SUBCATEGORY_MOUSE_KEYS},
       {"subcategoryVisibility",
        IDS_SHORTCUT_CUSTOMIZATION_SUBCATEGORY_VISIBILITY},
       {"subcategoryAccessibilityNavigation",
        IDS_SHORTCUT_CUSTOMIZATION_SUBCATEGORY_ACCESSIBILITY_NAVIGATION},
       {"noShortcutAssigned", IDS_SHORTCUT_CUSTOMIZATION_NO_SHORTCUT_ASSIGNED},
+      {"iconLabelAccessibility",
+       IDS_SHORTCUT_CUSTOMIZATION_ICON_LABEL_ACCESSIBILITY},
       {"iconLabelArrowDown", IDS_SHORTCUT_CUSTOMIZATION_ICON_LABEL_ARROW_DOWN},
       {"iconLabelArrowLeft", IDS_SHORTCUT_CUSTOMIZATION_ICON_LABEL_ARROW_LEFT},
       {"iconLabelArrowRight",
@@ -169,6 +191,8 @@ void AddLocalizedStrings(content::WebUIDataSource* source) {
        IDS_SHORTCUT_CUSTOMIZATION_ICON_LABEL_BROWSER_SEARCH},
       {"iconLabelContextMenu",
        IDS_SHORTCUT_CUSTOMIZATION_ICON_LABEL_CONTEXT_MENU},
+      {"iconLabelEnableSelectToSpeak",
+       IDS_SHORTCUT_CUSTOMIZATION_ICON_LABEL_ENABLE_SELECT_TO_SPEAK},
       {"iconLabelEnableOrToggleDictation",
        IDS_SHORTCUT_CUSTOMIZATION_ICON_LABEL_ENABLE_OR_TOGGLE_DICTATION},
       {"iconLabelEmojiPicker",
@@ -219,7 +243,23 @@ void AddLocalizedStrings(content::WebUIDataSource* source) {
        IDS_SHORTCUT_CUSTOMIZATION_ICON_LABEL_ZOOM_TOGGLE},
   };
 
+  // For official builds, only add the real string if the feature is enabled.
+  if (features::IsModifierSplitEnabled()) {
+    source->AddLocalizedString(
+        "blockRightAltKey",
+        IDS_SHORTCUT_CUSTOMIZATION_BLOCK_QUICK_INSERT_KEY_ERROR_MESSAGE);
+    source->AddLocalizedString("iconLabelRightAlt",
+                               IDS_KEYBOARD_QUICK_INSERT_LABEL);
+  } else {
+    source->AddLocalizedString("blockRightAltKey",
+                               IDS_SHORTCUT_CUSTOMIZATION_BLOCK_RIGHT_ALT_KEY);
+    source->AddLocalizedString(
+        "iconLabelRightAlt", IDS_SHORTCUT_CUSTOMIZATION_INPUT_KEY_PLACEHOLDER);
+  }
+
   source->AddLocalizedStrings(kLocalizedStrings);
+  source->AddString("shortcutCustomizationLearnMoreUrl",
+                    kShortcutCustomizationLearnMoreURL);
   source->UseStringsJs();
 }
 
@@ -232,6 +272,9 @@ void AddFeatureFlags(content::WebUIDataSource* html_source) {
       ash::features::IsJellyEnabledForShortcutCustomization());
   html_source->AddBoolean("isInputDeviceSettingsSplitEnabled",
                           features::IsInputDeviceSettingsSplitEnabled());
+  html_source->AddBoolean(
+      "hasFunctionKey",
+      Shell::Get()->keyboard_capability()->HasFunctionKeyOnAnyKeyboard());
 }
 
 }  // namespace

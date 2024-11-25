@@ -10,7 +10,7 @@
 #include "base/auto_reset.h"
 #include "base/test/test_future.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/web_applications/web_app_controller_browsertest.h"
+#include "chrome/browser/ui/web_applications/web_app_browsertest_base.h"
 #include "chrome/browser/web_applications/policy/web_app_policy_constants.h"
 #include "chrome/browser/web_applications/preinstalled_web_app_manager.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
@@ -47,7 +47,7 @@ constexpr char kApp4InstallURL[] = "https://example_url4.com/install";
 
 }  // namespace
 
-class WebAppCleanupHandlerBrowserTest : public WebAppControllerBrowserTest {
+class WebAppCleanupHandlerBrowserTest : public WebAppBrowserTestBase {
  protected:
   WebAppCleanupHandlerBrowserTest()
       : skip_preinstalled_web_app_startup_(
@@ -58,10 +58,8 @@ class WebAppCleanupHandlerBrowserTest : public WebAppControllerBrowserTest {
                                GURL start_url,
                                GURL install_url,
                                webapps::WebappInstallSource install_source) {
-    auto app_info = std::make_unique<WebAppInstallInfo>(
-        GenerateManifestIdFromStartUrlOnly(start_url));
+    auto app_info = WebAppInstallInfo::CreateWithStartUrlForTesting(start_url);
     app_info->title = title;
-    app_info->start_url = start_url;
     app_info->install_url = install_url;
     return test::InstallWebApp(profile(), std::move(app_info),
                                /*overwrite_existing_manifest_fields=*/false,
@@ -86,6 +84,8 @@ class WebAppCleanupHandlerBrowserTest : public WebAppControllerBrowserTest {
   chromeos::WebAppCleanupHandler web_app_cleanup_handler_;
 };
 
+// TODO(crbug.com/379136842): Verify and reduce the allowed states called within
+// IsInstallState() if needed.
 IN_PROC_BROWSER_TEST_F(WebAppCleanupHandlerBrowserTest,
                        NoUserInstalledWebApps) {
   webapps::AppId app_id1 =
@@ -93,15 +93,27 @@ IN_PROC_BROWSER_TEST_F(WebAppCleanupHandlerBrowserTest,
                     webapps::WebappInstallSource::EXTERNAL_DEFAULT);
   webapps::AppId app_id2 = InstallWebAppFromPolicy(kApp2InstallURL);
 
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id1));
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id2));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id1, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id2, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 
   base::test::TestFuture<const std::optional<std::string>&> future;
   web_app_cleanup_handler_.Cleanup(future.GetCallback());
   EXPECT_EQ(future.Get(), std::nullopt);
 
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id1));
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id2));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id1, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id2, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 }
 
 IN_PROC_BROWSER_TEST_F(WebAppCleanupHandlerBrowserTest,
@@ -119,19 +131,43 @@ IN_PROC_BROWSER_TEST_F(WebAppCleanupHandlerBrowserTest,
       InstallWebApp(kApp4Title, GURL(kApp4StartURL), GURL(kApp4InstallURL),
                     webapps::WebappInstallSource::SYNC);
 
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id1));
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id2));
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id3));
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id4));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id1, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id2, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id3, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id4, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 
   base::test::TestFuture<const std::optional<std::string>&> future;
   web_app_cleanup_handler_.Cleanup(future.GetCallback());
   EXPECT_EQ(future.Get(), std::nullopt);
 
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id1));
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id2));
-  EXPECT_FALSE(registrar_unsafe().IsInstalled(app_id3));
-  EXPECT_FALSE(registrar_unsafe().IsInstalled(app_id4));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id1, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id2, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_FALSE(registrar_unsafe().IsInstallState(
+      app_id3, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_FALSE(registrar_unsafe().IsInstallState(
+      app_id4, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 }
 
 IN_PROC_BROWSER_TEST_F(WebAppCleanupHandlerBrowserTest,
@@ -153,10 +189,22 @@ IN_PROC_BROWSER_TEST_F(WebAppCleanupHandlerBrowserTest,
       InstallWebApp(kApp4Title, GURL(kApp4StartURL), GURL(kApp4InstallURL),
                     webapps::WebappInstallSource::AUTOMATIC_PROMPT_BROWSER_TAB);
 
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id1));
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id2));
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id3));
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id4));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id1, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id2, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id3, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id4, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 
   // Web App 3 has two install sources out if which one is a user install source
   // (kSync).
@@ -168,10 +216,22 @@ IN_PROC_BROWSER_TEST_F(WebAppCleanupHandlerBrowserTest,
   web_app_cleanup_handler_.Cleanup(future.GetCallback());
   EXPECT_EQ(future.Get(), std::nullopt);
 
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id1));
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id2));
-  EXPECT_TRUE(registrar_unsafe().IsInstalled(app_id3));
-  EXPECT_FALSE(registrar_unsafe().IsInstalled(app_id4));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id1, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id2, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_TRUE(registrar_unsafe().IsInstallState(
+      app_id3, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
+  EXPECT_FALSE(registrar_unsafe().IsInstallState(
+      app_id4, {web_app::proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                web_app::proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                web_app::proto::InstallState::INSTALLED_WITH_OS_INTEGRATION}));
 
   // Web App 3 is still installed but the user install source (kSync) is
   // removed.

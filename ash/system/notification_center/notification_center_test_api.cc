@@ -7,7 +7,7 @@
 #include <cstdint>
 
 #include "ash/constants/ash_features.h"
-#include "ash/focus_cycler.h"
+#include "ash/focus/focus_cycler.h"
 #include "ash/root_window_controller.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
@@ -79,26 +79,37 @@ std::string NotificationCenterTestApi::AddNotification() {
                                /*message=*/u"test_message");
 }
 
+std::string NotificationCenterTestApi::AddPinnedNotification() {
+  message_center::RichNotificationData optional_fields;
+  optional_fields.pinned = true;
+  return AddCustomNotification(
+      /*title=*/u"test_title",
+      /*message=*/u"test_message", ui::ImageModel(), std::u16string(), GURL(),
+      message_center::NotifierId(), optional_fields);
+}
+
 std::string NotificationCenterTestApi::AddNotificationWithSourceUrl(
     const std::string& url) {
   const std::string id = GenerateNotificationId();
 
   GURL gurl = GURL(url);
   message_center::MessageCenter::Get()->AddNotification(CreateNotification(
-      id, u"test_title", u"test_message", ui::ImageModel(),
-      base::EmptyString16(), gurl, message_center::NotifierId(gurl),
+      id, u"test_title", u"test_message", ui::ImageModel(), std::u16string(),
+      gurl, message_center::NotifierId(gurl),
       message_center::RichNotificationData()));
 
   return id;
 }
 
-std::string NotificationCenterTestApi::AddPinnedNotification() {
+std::string NotificationCenterTestApi::AddPinnedNotificationWithSourceUrl(
+    const std::string& url) {
   message_center::RichNotificationData optional_fields;
   optional_fields.pinned = true;
+  GURL gurl = GURL(url);
   return AddCustomNotification(
       /*title=*/u"test_title",
-      /*message=*/u"test_message", ui::ImageModel(), base::EmptyString16(),
-      GURL(), message_center::NotifierId(), optional_fields);
+      /*message=*/u"test_message", ui::ImageModel(), std::u16string(), gurl,
+      message_center::NotifierId(gurl), optional_fields);
 }
 
 std::string NotificationCenterTestApi::AddSystemNotification() {
@@ -109,18 +120,17 @@ std::string NotificationCenterTestApi::AddSystemNotification() {
       message_center::NotificationPriority::SYSTEM_PRIORITY;
   return AddCustomNotification(
       /*title=*/u"test_title",
-      /*message=*/u"test_message", ui::ImageModel(), base::EmptyString16(),
-      GURL(), notifier_id, optional_fields);
+      /*message=*/u"test_message", ui::ImageModel(), std::u16string(), GURL(),
+      notifier_id, optional_fields);
 }
 
 std::string NotificationCenterTestApi::AddCriticalWarningSystemNotification() {
   const auto id = GenerateNotificationId();
   message_center::NotifierId notifier_id;
   notifier_id.type = message_center::NotifierType::SYSTEM_COMPONENT;
-  auto notification =
-      CreateNotification(id, u"test_title", u"test_message", ui::ImageModel(),
-                         base::EmptyString16(), GURL(), notifier_id,
-                         message_center::RichNotificationData());
+  auto notification = CreateNotification(
+      id, u"test_title", u"test_message", ui::ImageModel(), std::u16string(),
+      GURL(), notifier_id, message_center::RichNotificationData());
   notification->set_system_notification_warning_level(
       message_center::SystemNotificationWarningLevel::CRITICAL_WARNING);
   message_center::MessageCenter::Get()->AddNotification(
@@ -135,9 +145,8 @@ std::string NotificationCenterTestApi::AddProgressNotification() {
   auto notification = std::make_unique<message_center::Notification>(
       message_center::NOTIFICATION_TYPE_PROGRESS, id, u"test_title",
       u"test_message", /*icon=*/ui::ImageModel(),
-      /*display_source=*/base::EmptyString16(), GURL(),
-      message_center::NotifierId(), optional_fields,
-      new message_center::NotificationDelegate());
+      /*display_source=*/std::u16string(), GURL(), message_center::NotifierId(),
+      optional_fields, new message_center::NotificationDelegate());
   message_center::MessageCenter::Get()->AddNotification(
       std::move(notification));
   return id;
@@ -394,8 +403,8 @@ NotificationCenterTestApi::CreateSimpleNotification() {
   return std::make_unique<message_center::Notification>(
       message_center::NOTIFICATION_TYPE_SIMPLE, GenerateNotificationId(),
       u"test_title", u"test_message", /*icon=*/ui::ImageModel(),
-      /*display_source=*/base::EmptyString16(), GURL(),
-      message_center::NotifierId(), message_center::RichNotificationData(),
+      /*display_source=*/std::u16string(), GURL(), message_center::NotifierId(),
+      message_center::RichNotificationData(),
       new message_center::NotificationDelegate());
 }
 

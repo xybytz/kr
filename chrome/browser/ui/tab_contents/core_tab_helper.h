@@ -33,6 +33,7 @@ using DownscaleAndEncodeBitmapCallback = base::OnceCallback<void(
     const std::vector<lens::mojom::LatencyLogPtr> log_data)>;
 
 // Per-tab class to handle functionality that is core to the operation of tabs.
+// TODO(crbug.com/346044243): Delete this class.
 class CoreTabHelper : public content::WebContentsObserver,
                       public content::WebContentsUserData<CoreTabHelper> {
  public:
@@ -70,16 +71,21 @@ class CoreTabHelper : public content::WebContentsObserver,
 
   // Opens the Lens standalone experience for the image that triggered the
   // context menu. If the google lens supports opening requests in side panel,
-  // then the request will open in the side panel instead of new tab.
+  // then the request will open in the side panel instead of new tab, unless
+  // force_open_in_new_tab is set.
   void SearchWithLens(content::RenderFrameHost* render_frame_host,
                       const GURL& src_url,
                       lens::EntryPoint entry_point,
-                      bool is_image_translate);
+                      bool is_image_translate,
+                      bool force_open_in_new_tab);
 
   // Opens the Lens experience for an `image`, which will be resized if needed.
   // If the search engine supports opening requests in side panel, then the
-  // request will open in the side panel instead of a new tab.
-  void SearchWithLens(const gfx::Image& image, lens::EntryPoint entry_point);
+  // request will open in the side panel instead of a new tab, unless
+  // force_open_in_new_tab is set.
+  void SearchWithLens(const gfx::Image& image,
+                      lens::EntryPoint entry_point,
+                      bool force_open_in_new_tab);
 
   // Performs an image search for the image that triggered the context menu. The
   // `src_url` is passed to the search request and is not used directly to fetch
@@ -105,11 +111,6 @@ class CoreTabHelper : public content::WebContentsObserver,
   base::TimeTicks new_tab_start_time() const { return new_tab_start_time_; }
   int content_restrictions() const { return content_restrictions_; }
 
-  std::unique_ptr<content::WebContents> SwapWebContents(
-      std::unique_ptr<content::WebContents> new_contents,
-      bool did_start_load,
-      bool did_finish_load);
-
  private:
   explicit CoreTabHelper(content::WebContents* web_contents);
   friend class content::WebContentsUserData<CoreTabHelper>;
@@ -130,7 +131,6 @@ class CoreTabHelper : public content::WebContentsObserver,
           chrome_render_frame,
       const GURL& src_url,
       const std::string& additional_query_params,
-      bool use_side_panel,
       bool is_image_translate,
       int thumbnail_min_area,
       int thumbnail_max_width,
@@ -139,7 +139,6 @@ class CoreTabHelper : public content::WebContentsObserver,
 
   void DoSearchByImage(const GURL& src_url,
                        const std::string& additional_query_params,
-                       bool use_side_panel,
                        bool is_image_translate,
                        const std::vector<unsigned char>& thumbnail_data,
                        const std::string& content_type,
@@ -157,16 +156,8 @@ class CoreTabHelper : public content::WebContentsObserver,
       std::string& content_type,
       lens::mojom::ImageFormat& image_format);
 
-  // Helper function to return if the companion side panel is enabled for image
-  // search.
-  bool IsImageSearchSupportedForCompanion();
-
-  // Posts the bytes and content type to the specified URL If |use_side_panel|
-  // is true, the content will open in a side panel, otherwise it will open in
-  // a new tab.
-  void PostContentToURL(TemplateURLRef::PostContent post_content,
-                        GURL url,
-                        bool use_side_panel);
+  // Posts the bytes and content type to the specified URL in a new tab.
+  void PostContentToURL(TemplateURLRef::PostContent post_content, GURL url);
 
   // Creates a thumbnail to POST to search engine for the image that triggered
   // the context menu.  The |src_url| is passed to the search request and is
@@ -179,13 +170,11 @@ class CoreTabHelper : public content::WebContentsObserver,
                          int thumbnail_max_width,
                          int thumbnail_max_height,
                          const std::string& additional_query_params,
-                         bool use_side_panel,
                          bool is_image_translate);
 
   // Searches the `original_image`, which will be downscaled if needed.
   void SearchByImageImpl(const gfx::Image& original_image,
-                         const std::string& additional_query_params,
-                         bool use_side_panel);
+                         const std::string& additional_query_params);
 
   // Sets search args used for image translation if the current page is
   // currently being translated.

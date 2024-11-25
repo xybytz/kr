@@ -17,8 +17,9 @@
 #include "chrome/browser/ash/login/session/user_session_manager.h"
 #include "chrome/browser/ash/login/session/user_session_manager_test_api.h"
 #include "chrome/browser/ash/login/test/profile_prepared_waiter.h"
-#include "chrome/browser/ash/login/ui/login_display_host_webui.h"
+#include "chrome/browser/ash/login/test/user_auth_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/ui/ash/login/login_display_host_webui.h"
 #include "chrome/test/base/fake_gaia_mixin.h"
 #include "chromeos/ash/components/cryptohome/system_salt_getter.h"
 #include "chromeos/ash/components/dbus/userdataauth/fake_cryptohome_misc_client.h"
@@ -84,8 +85,7 @@ constexpr char LoginManagerTest::kLocalPassword[] = "local-password";
 
 UserContext LoginManagerTest::CreateUserContext(const AccountId& account_id,
                                                 const std::string& password) {
-  UserContext user_context(user_manager::UserType::USER_TYPE_REGULAR,
-                           account_id);
+  UserContext user_context(user_manager::UserType::kRegular, account_id);
   user_context.SetKey(Key(password));
   user_context.SetGaiaPassword(GaiaPassword(password));
   user_context.SetPasswordKey(Key(password));
@@ -100,11 +100,19 @@ UserContext LoginManagerTest::CreateUserContext(const AccountId& account_id,
 UserContext LoginManagerTest::CreateUserContextWithLocalPassword(
     const AccountId& account_id,
     const std::string& password) {
-  UserContext user_context(user_manager::UserType::USER_TYPE_REGULAR,
-                           account_id);
+  UserContext user_context(user_manager::UserType::kRegular, account_id);
   user_context.SetKey(Key(password));
   user_context.SetLocalPasswordInput(LocalPasswordInput(password));
   user_context.SetPasswordKey(Key(password));
+  return user_context;
+}
+
+UserContext LoginManagerTest::CreateUserContextWithPin(
+    const AccountId& account_id,
+    const std::string& pin) {
+  UserContext user_context(user_manager::UserType::kRegular, account_id);
+  user_context.SetKey(Key(pin));
+  user_context.SetIsUsingPin(true);
   return user_context;
 }
 
@@ -156,6 +164,13 @@ void LoginManagerTest::LoginUserWithLocalPassword(const AccountId& account_id) {
   EXPECT_TRUE(TryToLogin(user_context));
 }
 
+void LoginManagerTest::LoginUserWithPin(const AccountId& account_id) {
+  const UserContext user_context =
+      CreateUserContextWithPin(account_id, test::kAuthPin);
+  SetExpectedCredentials(user_context);
+  EXPECT_TRUE(TryToLogin(user_context));
+}
+
 void LoginManagerTest::AddUser(const AccountId& account_id) {
   const UserContext user_context = CreateUserContext(account_id, kPassword);
   SetExpectedCredentials(user_context);
@@ -187,12 +202,16 @@ void LoginManagerTest::SetExpectedCredentialsWithDbusClient(
                 ash::SystemSaltGetter::ConvertRawSaltToHexString(
                     ash::FakeCryptohomeMiscClient::GetStubSystemSalt()));
 
-  cryptohome::Key cryptohome_key;
-  cryptohome_key.mutable_data()->set_label(ash::kCryptohomeGaiaKeyLabel);
-  cryptohome_key.set_secret(key.GetSecret());
+  user_data_auth::AuthFactor auth_factor;
+  user_data_auth::AuthInput auth_input;
+
+  auth_factor.set_label(ash::kCryptohomeGaiaKeyLabel);
+  auth_factor.set_type(user_data_auth::AUTH_FACTOR_TYPE_PASSWORD);
+
+  auth_input.mutable_password_input()->set_secret(key.GetSecret());
 
   test_api->AddExistingUser(cryptohome_id);
-  test_api->AddKey(cryptohome_id, cryptohome_key);
+  test_api->AddAuthFactor(cryptohome_id, auth_factor, auth_input);
 }
 
 }  // namespace ash

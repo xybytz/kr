@@ -10,24 +10,12 @@
 
 namespace content {
 
-bool TracingDelegate::OnBackgroundTracingActive(bool requires_anonymized_data) {
-  return false;
-}
-
-bool TracingDelegate::OnBackgroundTracingIdle(bool requires_anonymized_data) {
+bool TracingDelegate::IsRecordingAllowed(bool requires_anonymized_data) const {
   return false;
 }
 
 bool TracingDelegate::ShouldSaveUnuploadedTrace() const {
   return false;
-}
-
-bool TracingDelegate::IsSystemWideTracingEnabled() {
-  return false;
-}
-
-std::optional<base::Value::Dict> TracingDelegate::GenerateMetadataDict() {
-  return std::nullopt;
 }
 
 }  // namespace content

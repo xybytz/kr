@@ -5,7 +5,10 @@
 #ifndef CHROMEOS_ASH_SERVICES_IME_PUBLIC_MOJOM_MOJOM_TRAITS_H_
 #define CHROMEOS_ASH_SERVICES_IME_PUBLIC_MOJOM_MOJOM_TRAITS_H_
 
+#include <string_view>
+
 #include "base/metrics/histogram.h"
+#include "base/notreached.h"
 #include "chromeos/ash/services/ime/public/cpp/assistive_suggestions.h"
 #include "chromeos/ash/services/ime/public/cpp/autocorrect.h"
 #include "chromeos/ash/services/ime/public/mojom/input_method_host.mojom-shared.h"
@@ -163,7 +166,7 @@ struct StructTraits<ash::ime::mojom::BucketedHistogramDataView,
 
   static void SetToNull(base::Histogram** histogram) { *histogram = nullptr; }
 
-  static base::StringPiece name(base::Histogram* histogram) {
+  static std::string_view name(base::Histogram* histogram) {
     return histogram->histogram_name();
   }
 
@@ -178,9 +181,8 @@ struct StructTraits<ash::ime::mojom::BucketedHistogramDataView,
       case base::CUSTOM_HISTOGRAM:
       case base::SPARSE_HISTOGRAM:
       case base::DUMMY_HISTOGRAM:
-        CHECK(false) << "Invalid histogram bucket type: "
+        NOTREACHED() << "Invalid histogram bucket type: "
                      << static_cast<int>(histogram->GetHistogramType());
-        return ash::ime::mojom::HistogramBucketType::kExponential;
     }
   }
 

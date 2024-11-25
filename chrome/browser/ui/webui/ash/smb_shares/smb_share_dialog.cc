@@ -73,12 +73,6 @@ SmbShareDialogUI::SmbShareDialogUI(content::WebUI* web_ui)
   AddSmbSharesStrings(source);
 
   Profile* const profile = Profile::FromWebUI(web_ui);
-  const user_manager::User* user =
-      ProfileHelper::Get()->GetUserByProfile(profile);
-
-  source->AddBoolean("isActiveDirectoryUser",
-                     user && user->IsActiveDirectoryUser());
-
   const smb_client::SmbService* const smb_service =
       smb_client::SmbServiceFactory::Get(profile);
   bool is_kerberos_enabled =
@@ -96,15 +90,6 @@ SmbShareDialogUI::SmbShareDialogUI(content::WebUI* web_ui)
   source->UseStringsJs();
   source->SetDefaultResource(IDR_SMB_SHARES_DIALOG_CONTAINER_HTML);
   source->AddResourcePath("smb_share_dialog.js", IDR_SMB_SHARES_DIALOG_JS);
-
-  source->OverrideContentSecurityPolicy(
-      network::mojom::CSPDirectiveName::TrustedTypes,
-      "trusted-types parse-html-subset sanitize-inner-html static-types "
-      "ash-deprecated-parse-html-subset "
-      // Required by lit-html.
-      "lit-html "
-      // Required by polymer.
-      "polymer-html-literal polymer-template-event-attribute-policy;");
 
   web_ui->AddMessageHandler(std::make_unique<SmbHandler>(
       Profile::FromWebUI(web_ui), base::DoNothing()));

@@ -4,7 +4,6 @@
 
 package org.chromium.chrome.browser.app.bookmarks;
 
-import android.content.res.Resources;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -31,7 +30,6 @@ import org.chromium.components.bookmarks.BookmarkId;
 import org.chromium.components.browser_ui.modaldialog.AppModalPresenter;
 import org.chromium.components.browser_ui.util.GlobalDiscardableReferencePool;
 import org.chromium.components.commerce.core.ShoppingService;
-import org.chromium.components.favicon.LargeIconBridge;
 import org.chromium.components.image_fetcher.ImageFetcherConfig;
 import org.chromium.components.image_fetcher.ImageFetcherFactory;
 import org.chromium.ui.modaldialog.ModalDialogManager;
@@ -56,7 +54,8 @@ public class BookmarkFolderPickerActivity extends SynchronousInitializationActiv
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        mBookmarkModel = BookmarkModel.getForProfile(Profile.getLastUsedRegularProfile());
+        Profile profile = getProfileProvider().getOriginalProfile();
+        mBookmarkModel = BookmarkModel.getForProfile(profile);
 
         List<String> bookmarkIdsAsStrings =
                 IntentUtils.safeGetStringArrayListExtra(getIntent(), INTENT_BOOKMARK_IDS);
@@ -66,20 +65,16 @@ public class BookmarkFolderPickerActivity extends SynchronousInitializationActiv
             return;
         }
 
-        Resources res = getResources();
-        Profile profile = Profile.getLastUsedRegularProfile();
         mBookmarkImageFetcher =
                 new BookmarkImageFetcher(
+                        profile,
                         this,
                         mBookmarkModel,
                         ImageFetcherFactory.createImageFetcher(
                                 ImageFetcherConfig.IN_MEMORY_WITH_DISK_CACHE,
                                 profile.getProfileKey(),
                                 GlobalDiscardableReferencePool.getReferencePool()),
-                        new LargeIconBridge(profile),
-                        BookmarkUtils.getRoundedIconGenerator(this, BookmarkRowDisplayPref.VISUAL),
-                        BookmarkUtils.getImageIconSize(res, BookmarkRowDisplayPref.VISUAL),
-                        BookmarkUtils.getFaviconDisplaySize(res));
+                        BookmarkUtils.getRoundedIconGenerator(this, BookmarkRowDisplayPref.VISUAL));
         BookmarkAddNewFolderCoordinator addNewFolderCoordinator =
                 new BookmarkAddNewFolderCoordinator(
                         this,
@@ -88,7 +83,7 @@ public class BookmarkFolderPickerActivity extends SynchronousInitializationActiv
         BookmarkUiPrefs bookmarkUiPrefs =
                 new BookmarkUiPrefs(ChromeSharedPreferences.getInstance());
         ShoppingService shoppingService = ShoppingServiceFactory.getForProfile(profile);
-        // TODO(crbug.com/1472832): Consider initializing this in #onCreateOptionsMenu to avoid the
+        // TODO(crbug.com/40278746): Consider initializing this in #onCreateOptionsMenu to avoid the
         // possibility that the menu is null when the first parent is set.
         mCoordinator =
                 new BookmarkFolderPickerCoordinator(

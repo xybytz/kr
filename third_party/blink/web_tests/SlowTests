@@ -1,4 +1,4 @@
-# tags: [ Android Fuchsia Linux Mac Mac10.15 Mac11 Mac11-arm64 Mac12 Mac12-arm64 Mac13 Mac13-arm64 Win Win10.20h2 Win11 Win11-arm64 ]
+# tags: [ Android Fuchsia Linux Mac Mac11 Mac11-arm64 Mac12 Mac12-arm64 Mac13 Mac13-arm64 Mac14 Mac14-arm64 Win Win10.20h2 Win11 Win11-arm64 ]
 # tags: [ Release Debug ]
 # results: [ Slow ]
 
@@ -28,6 +28,7 @@ crbug.com/24182 [ Mac13 ] editing/selection/caret-at-bidi-boundary.html [ Slow ]
 crbug.com/24182 [ Release Win10.20h2 ] editing/selection/caret-at-bidi-boundary.html [ Slow ]
 crbug.com/24182 [ Release Win11 ] editing/selection/caret-at-bidi-boundary.html [ Slow ]
 crbug.com/24182 [ Debug Mac13-arm64 ] editing/selection/modify_move/move-by-word-visually-crash-test-5.html [ Slow ]
+crbug.com/24182 [ Debug Mac14 ] editing/selection/modify_move/move-by-word-visually-crash-test-5.html [ Slow ]
 crbug.com/24182 [ Linux ] editing/selection/modify_move/move-by-word-visually-crash-test-5.html [ Slow ]
 crbug.com/24182 [ Mac11 Release ] editing/selection/modify_move/move-by-word-visually-crash-test-5.html [ Slow ]
 crbug.com/24182 [ Mac12 Release ] editing/selection/modify_move/move-by-word-visually-crash-test-5.html [ Slow ]
@@ -147,14 +148,12 @@ crbug.com/678482 [ Mac12 ] http/tests/devtools/debugger/fetch-breakpoints.js [ S
 crbug.com/678482 [ Release Win ] http/tests/devtools/debugger/fetch-breakpoints.js [ Slow ]
 crbug.com/1451884 http/tests/inspector-protocol/fedcm/fedcm-confirm-idp-login.js [ Slow ]
 crbug.com/1236466 inspector-protocol/runtime/runtime-execution-contexts-events.js [ Slow ]
-crbug.com/1229701 [ Debug Mac13-arm64 ] http/tests/inspector-protocol/network/disable-cache-media-resource.js [ Slow ]
 crbug.com/1229701 [ Linux ] http/tests/inspector-protocol/network/disable-cache-media-resource.js [ Slow ]
 crbug.com/1229701 [ Mac11 Release ] http/tests/inspector-protocol/network/disable-cache-media-resource.js [ Slow ]
 crbug.com/1229701 [ Mac12 ] http/tests/inspector-protocol/network/disable-cache-media-resource.js [ Slow ]
 crbug.com/1229701 [ Release Win ] http/tests/inspector-protocol/network/disable-cache-media-resource.js [ Slow ]
 crbug.com/1300409 http/tests/inspector-protocol/network/websocket/offline-no-send.js [ Slow ]
 crbug.com/1280873 http/tests/inspector-protocol/network/xhr-cors-preflight-redirect-failure.js [ Slow ]
-crbug.com/1280697 http/tests/inspector-protocol/network/block_cross_site_document_load.js [ Slow ]
 crbug.com/1280585 http/tests/inspector-protocol/network/xhr-post-replay-cors.js [ Slow ]
 crbug.com/1280537 http/tests/inspector-protocol/network/blocked-cookie-same-site-lax-browser-navigate.js [ Slow ]
 crbug.com/1280537 [ Linux ] http/tests/inspector-protocol/network/blocked-cookie-same-site-lax-js-navigate.js [ Slow ]
@@ -187,7 +186,9 @@ crbug.com/1417314 [ Win ] http/tests/inspector-protocol/network/is-same-site.js 
 crbug.com/510337 cssom/cssvalue-comparison.html [ Slow ]
 
 # These tests are intentionally SLOW because of throttled loading.
-crbug.com/73609 http/tests/media/video-play-stall.html [ Slow ]
+crbug.com/73609 [ Debug Linux ] http/tests/media/video-play-stall.html [ Slow ]
+crbug.com/73609 [ Debug Mac ] http/tests/media/video-play-stall.html [ Slow ]
+crbug.com/73609 [ Release ] http/tests/media/video-play-stall.html [ Slow ]
 crbug.com/73609 [ Release ] http/tests/media/video-preload-metadata.html [ Slow ]
 crbug.com/869829 http/tests/media/video-cancel-load.html [ Slow ]
 crbug.com/870259 http/tests/media/video-throttled-load-metadata.html [ Slow ]
@@ -220,6 +221,7 @@ crbug.com/453312 html5lib/generated/run-tests10-data.html [ Slow ]
 crbug.com/453312 [ Linux ] html5lib/generated/run-tests16-data.html [ Slow ]
 crbug.com/453312 [ Mac11 Release ] html5lib/generated/run-tests16-data.html [ Slow ]
 crbug.com/453312 [ Mac12 ] html5lib/generated/run-tests16-data.html [ Slow ]
+crbug.com/453312 [ Debug Mac14 ] html5lib/generated/run-tests16-data.html [ Slow ]
 crbug.com/453312 [ Release Win ] html5lib/generated/run-tests16-data.html [ Slow ]
 crbug.com/453312 [ Linux ] html5lib/generated/run-tests19-data.html [ Slow ]
 crbug.com/453312 [ Mac11 Release ] html5lib/generated/run-tests19-data.html [ Slow ]
@@ -258,7 +260,7 @@ crbug.com/402379 [ Mac12 ] storage/indexeddb/mozilla/indexes.html [ Slow ]
 crbug.com/402379 [ Release Win ] storage/indexeddb/mozilla/indexes.html [ Slow ]
 
 crbug.com/504703 inspector-protocol/debugger/debugger-step-into-dedicated-worker.js [ Slow ]
-
+crbug.com/330365759 inspector-protocol/heap-profiler/heap-objects-tracking.js [ Slow ]
 
 crbug.com/372424 [ Linux ] fast/dom/DOMImplementation/createDocument-with-used-doctype.html [ Slow ]
 crbug.com/372424 [ Mac11 Release ] fast/dom/DOMImplementation/createDocument-with-used-doctype.html [ Slow ]
@@ -309,7 +311,7 @@ crbug.com/726075 [ Mac ] css3/filters/effect-reference-zoom-hw.html [ Slow ]
 # Slow oopr canvas tests
 crbug.com/1081534 [ Mac ] virtual/oopr-canvas2d/fast/canvas/canvas-blending-color-over-pattern.html [ Slow ]
 crbug.com/1081534 [ Mac ] virtual/oopr-canvas2d/fast/canvas/canvas-blending-pattern-over-image.html [ Slow ]
-crbug.com/1081534 [ Mac ] virtual/oopr-canvas2d/fast/canvas/canvas-blending-image-over-image.html [ Slow ]
+crbug.com/1081534 [ Debug Mac13 ] virtual/oopr-canvas2d/fast/canvas/canvas-blending-image-over-image.html [ Slow ]
 crbug.com/1152496 [ Debug Mac13-arm64 ] virtual/oopr-canvas2d/fast/canvas/canvas-composite-alpha.html [ Slow ]
 crbug.com/1152496 [ Linux ] virtual/oopr-canvas2d/fast/canvas/canvas-composite-alpha.html [ Slow ]
 crbug.com/1152496 [ Mac11 Release ] virtual/oopr-canvas2d/fast/canvas/canvas-composite-alpha.html [ Slow ]
@@ -328,12 +330,12 @@ crbug.com/1081534 [ Mac12 ] virtual/oopr-canvas2d/fast/canvas/canvas-composite-t
 crbug.com/1081534 [ Mac ] virtual/oopr-canvas2d/fast/canvas/canvas-blending-gradient-over-pattern.html [ Slow ]
 crbug.com/1081534 [ Mac11 Release ] virtual/oopr-canvas2d/fast/canvas/canvas-blending-image-over-gradient.html [ Slow ]
 crbug.com/1081534 [ Mac12 Release ] virtual/oopr-canvas2d/fast/canvas/canvas-blending-image-over-gradient.html [ Slow ]
-crbug.com/1081534 [ Mac12-arm64 Release ] virtual/oopr-canvas2d/fast/canvas/canvas-blending-image-over-gradient.html [ Slow ]
 crbug.com/1081534 [ Mac13 Release ] virtual/oopr-canvas2d/fast/canvas/canvas-blending-image-over-gradient.html [ Slow ]
-crbug.com/1081534 [ Debug Mac ] virtual/oopr-canvas2d/fast/canvas/canvas-blending-pattern-over-color.html [ Slow ]
+crbug.com/1081534 [ Debug Mac13 ] virtual/oopr-canvas2d/fast/canvas/canvas-blending-pattern-over-color.html [ Slow ]
 crbug.com/1081534 [ Mac ] virtual/oopr-canvas2d/fast/canvas/canvas-blending-pattern-over-pattern.html [ Slow ]
 crbug.com/1081534 [ Mac ] virtual/oopr-canvas2d/fast/canvas/canvas-blend-image.html [ Slow ]
 crbug.com/1081534 [ Linux ] virtual/oopr-canvas2d/fast/canvas/canvas-blend-image.html [ Slow ]
+crbug.com/1081534 [ Win ] virtual/oopr-canvas2d/fast/canvas/canvas-blend-image.html [ Slow ]
 crbug.com/1081534 [ Mac ] virtual/oopr-canvas2d/fast/canvas/canvas-incremental-repaint.html [ Slow ]
 crbug.com/1081534 [ Mac11 Release ] virtual/oopr-canvas2d/fast/canvas/fillrect_gradient.html [ Slow ]
 crbug.com/1081534 [ Mac12 Release ] virtual/oopr-canvas2d/fast/canvas/fillrect_gradient.html [ Slow ]
@@ -525,6 +527,7 @@ crbug.com/874695 [ Release Win ] fast/css-grid-layout/grid-auto-repeat-huge-grid
 crbug.com/874695 [ Linux ] fast/css-grid-layout/grid-auto-repeat-huge-grid-013.html [ Slow ]
 crbug.com/874695 [ Mac11 Release ] fast/css-grid-layout/grid-auto-repeat-huge-grid-013.html [ Slow ]
 crbug.com/874695 [ Mac12 ] fast/css-grid-layout/grid-auto-repeat-huge-grid-013.html [ Slow ]
+crbug.com/874695 [ Debug Mac14 ] fast/css-grid-layout/grid-auto-repeat-huge-grid-013.html [ Slow ]
 crbug.com/874695 [ Release Win ] fast/css-grid-layout/grid-auto-repeat-huge-grid-013.html [ Slow ]
 crbug.com/874695 [ Linux ] fast/css-grid-layout/grid-auto-repeat-huge-grid-014.html [ Slow ]
 crbug.com/874695 [ Mac11 Release ] fast/css-grid-layout/grid-auto-repeat-huge-grid-014.html [ Slow ]
@@ -595,10 +598,6 @@ crbug.com/874695 [ Mac12 ] fast/workers/chromium/worker-document-leak.html [ Slo
 crbug.com/874695 [ Release Win ] fast/workers/chromium/worker-document-leak.html [ Slow ]
 crbug.com/874695 fullscreen/full-screen-restrictions.html [ Slow ]
 crbug.com/874695 http/tests/cookies/same-site/framed.https.html [ Slow ]
-crbug.com/874695 http/tests/credentialmanagement/credentialscontainer-create-with-virtual-authenticator.html [ Slow ]
-crbug.com/874695 [ Debug Linux ] http/tests/credentialmanagement/credentialscontainer-get-origins.html [ Slow ]
-crbug.com/874695 [ Release ] http/tests/credentialmanagement/credentialscontainer-get-origins.html [ Slow ]
-crbug.com/874695 http/tests/credentialmanagement/register-then-sign.html [ Slow ]
 crbug.com/874695 [ Debug Linux ] http/tests/fetch/serviceworker/body-mixin-base-https-other-https.html [ Slow ]
 crbug.com/874695 [ Release ] http/tests/fetch/serviceworker/body-mixin-base-https-other-https.html [ Slow ]
 crbug.com/874695 [ Release ] http/tests/fetch/serviceworker/body-mixin.html [ Slow ]
@@ -671,8 +670,12 @@ crbug.com/874695 [ Release ] http/tests/xmlhttprequest/timeout/xmlhttprequest-ti
 crbug.com/874695 [ Release ] http/tests/xmlhttprequest/web-apps/013.html [ Slow ]
 crbug.com/874695 [ Release ] images/image-page-injected-script-crash.html [ Slow ]
 crbug.com/874695 images/yuv-decode-eligible/color-profile-layer-filter.html [ Slow ]
-crbug.com/874695 http/tests/inspector-protocol/accessibility/accessibility-nameSources-input-buttons.js [ Slow ]
-crbug.com/874695 inspector-protocol/debugger/debugger-evaluate-in-worker-while-pause-in-page.js [ Slow ]
+crbug.com/874695 [ Debug Mac ] http/tests/inspector-protocol/accessibility/accessibility-nameSources-input-buttons.js [ Slow ]
+crbug.com/874695 [ Linux ] http/tests/inspector-protocol/accessibility/accessibility-nameSources-input-buttons.js [ Slow ]
+crbug.com/874695 [ Mac11 Release ] http/tests/inspector-protocol/accessibility/accessibility-nameSources-input-buttons.js [ Slow ]
+crbug.com/874695 [ Mac12 Release ] http/tests/inspector-protocol/accessibility/accessibility-nameSources-input-buttons.js [ Slow ]
+crbug.com/874695 [ Mac13 Release ] http/tests/inspector-protocol/accessibility/accessibility-nameSources-input-buttons.js [ Slow ]
+crbug.com/874695 [ Win ] http/tests/inspector-protocol/accessibility/accessibility-nameSources-input-buttons.js [ Slow ]
 crbug.com/874695 [ Release ] media/audio-controls-do-not-fade-out.html [ Slow ]
 crbug.com/874695 media/autoplay-muted.html [ Slow ]
 crbug.com/874695 media/color-profile-video-seek-filter.html [ Slow ]
@@ -706,11 +709,6 @@ crbug.com/874695 [ Linux Release ] printing/webgl-oversized-printing.html [ Slow
 crbug.com/874695 [ Mac11 Release ] printing/webgl-oversized-printing.html [ Slow ]
 crbug.com/874695 [ Mac12 Release ] printing/webgl-oversized-printing.html [ Slow ]
 crbug.com/874695 virtual/android/fullscreen/video-specified-size.html [ Slow ]
-crbug.com/874695 [ Linux ] virtual/display-compositor-pixel-dump/fast/canvas/display-compositor-pixel-dump/OffscreenCanvas-opaque-background-compositing.html [ Slow ]
-crbug.com/874695 [ Mac11 Release ] virtual/display-compositor-pixel-dump/fast/canvas/display-compositor-pixel-dump/OffscreenCanvas-opaque-background-compositing.html [ Slow ]
-crbug.com/874695 [ Mac12 ] virtual/display-compositor-pixel-dump/fast/canvas/display-compositor-pixel-dump/OffscreenCanvas-opaque-background-compositing.html [ Slow ]
-crbug.com/874695 [ Mac12-arm64 Release ] virtual/display-compositor-pixel-dump/fast/canvas/display-compositor-pixel-dump/OffscreenCanvas-opaque-background-compositing.html [ Slow ]
-crbug.com/874695 [ Release Win ] virtual/display-compositor-pixel-dump/fast/canvas/display-compositor-pixel-dump/OffscreenCanvas-opaque-background-compositing.html [ Slow ]
 crbug.com/874695 virtual/gpu/fast/canvas/canvas-blending-image-over-color.html [ Slow ]
 crbug.com/874695 [ Linux ] virtual/gpu/fast/canvas/canvas-composite-transformclip.html [ Slow ]
 crbug.com/874695 [ Mac11 Release ] virtual/gpu/fast/canvas/canvas-composite-transformclip.html [ Slow ]
@@ -889,7 +887,11 @@ crbug.com/1093853 [ Mac11 Release ] external/wpt/dom/ranges/Range-surroundConten
 crbug.com/1093853 [ Mac12 Release ] external/wpt/dom/ranges/Range-surroundContents.html [ Slow ]
 crbug.com/1093853 [ Release Win ] external/wpt/dom/ranges/Range-surroundContents.html [ Slow ]
 crbug.com/1093478 external/wpt/quirks/unitless-length/limited-quirks.html [ Slow ]
-crbug.com/1134580 http/tests/eye-dropper/color-picker-show-eye-dropper.php [ Slow ]
+crbug.com/1134580 [ Linux ] http/tests/eye-dropper/color-picker-show-eye-dropper.php [ Slow ]
+crbug.com/1134580 [ Mac11 Release ] http/tests/eye-dropper/color-picker-show-eye-dropper.php [ Slow ]
+crbug.com/1134580 [ Mac12 Release ] http/tests/eye-dropper/color-picker-show-eye-dropper.php [ Slow ]
+crbug.com/1134580 [ Mac13 ] http/tests/eye-dropper/color-picker-show-eye-dropper.php [ Slow ]
+crbug.com/1134580 [ Win ] http/tests/eye-dropper/color-picker-show-eye-dropper.php [ Slow ]
 crbug.com/1145716 fast/forms/calendar-picker/datetimelocal-picker-open-to-focused-field.html [ Slow ]
 
 # These began to hit timeouts when moving from Windows-10-15063 to Windows-10-18363
@@ -922,6 +924,8 @@ crbug.com/1073296 external/wpt/service-workers/service-worker/activation.https.h
 crbug.com/678346 [ Debug Linux ] fast/dom/shadow/selections-in-shadow.html [ Slow ]
 crbug.com/678346 [ Debug Mac ] storage/indexeddb/index-cursor.html [ Slow ]
 crbug.com/799619 [ Debug ] http/tests/devtools/profiler/heap-snapshot-inspect-dom-wrapper.js [ Slow ]
+crbug.com/327140253 http/tests/inspector-protocol/browser/downloadWillBegin.js [ Slow ]
+crbug.com/327140253 http/tests/inspector-protocol/page/page-lifecycleEvents-document-open.js [ Slow ]
 ###crbug.com/849979 media/video-layer-crash.html [ Slow ]
 crbug.com/831673 [ Linux ] http/tests/devtools/reveal-objects.js [ Slow ]
 crbug.com/831673 [ Mac11 Release ] http/tests/devtools/reveal-objects.js [ Slow ]
@@ -973,11 +977,10 @@ crbug.com/991243 [ Linux ] external/wpt/workers/semantics/multiple-workers/003.h
 crbug.com/999799 [ Mac11 Release ] external/wpt/html/rendering/dimension-attributes.html [ Slow ]
 crbug.com/999799 [ Mac12 ] external/wpt/html/rendering/dimension-attributes.html [ Slow ]
 crbug.com/999799 [ Linux ] external/wpt/html/rendering/dimension-attributes.html [ Slow ]
-crbug.com/990900 external/wpt/cookie-store/idlharness.tentative.https.any.serviceworker.html [ Slow ]
+crbug.com/990900 external/wpt/cookie-store/idlharness.https.any.serviceworker.html [ Slow ]
 crbug.com/1014327 [ Mac Release ] external/wpt/preload/onerror-event.html [ Slow ]
 crbug.com/1017626 [ Linux ] external/wpt/compat/idlharness.window.html [ Slow ]
 crbug.com/1019662 external/wpt/html/dom/idlharness.worker.html [ Slow ]
-crbug.com/1032451 virtual/threaded-no-composited-antialiasing/animations/stability/animation-iteration-event-destroy-renderer.html [ Slow ]
 crbug.com/1026712 [ Mac11 Release ] fast/forms/time-multiple-fields/time-multiple-fields-stepup-stepdown-from-renderer-hour.html [ Slow ]
 crbug.com/1026712 [ Mac12 ] fast/forms/time-multiple-fields/time-multiple-fields-stepup-stepdown-from-renderer-hour.html [ Slow ]
 crbug.com/1026712 [ Mac11 Release ] fast/forms/time-multiple-fields/time-multiple-fields-stepup-stepdown-from-renderer.html [ Slow ]
@@ -988,9 +991,9 @@ crbug.com/1044715 [ Win ] external/wpt/pointerevents/pointerevent_touch-action-i
 crbug.com/1044715 [ Linux ] external/wpt/pointerevents/pointerevent_touch-action-inherit_parent-none_touch.html [ Slow ]
 crbug.com/1044715 [ Win ] external/wpt/pointerevents/pointerevent_touch-action-inherit_child-pan-x-child-pan-x_touch.html [ Slow ]
 crbug.com/1044715 [ Linux ] external/wpt/pointerevents/pointerevent_touch-action-inherit_child-pan-x-child-pan-x_touch.html [ Slow ]
-crbug.com/1479003 [ Mac ] external/wpt/pointerevents/coalesced_events_attributes_under_load.https.html?mouse [ Slow ]
-crbug.com/1479003 [ Debug Mac13-arm64 ] external/wpt/pointerevents/coalesced_events_attributes_under_load.https.html?pen [ Slow ]
-crbug.com/1479003 [ Mac Release ] external/wpt/pointerevents/coalesced_events_attributes_under_load.https.html?pen [ Slow ]
+crbug.com/339686361 external/wpt/pointerevents/coalesced_events_attributes_under_load.https.optional.html?mouse [ Slow ]
+crbug.com/339686361 external/wpt/pointerevents/coalesced_events_attributes_under_load.https.optional.html?pen [ Slow ]
+crbug.com/339686361 external/wpt/pointerevents/coalesced_events_attributes_under_load.https.optional.html?touch [ Slow ]
 crbug.com/1043396 [ Linux ] http/tests/devtools/network/network-eventsource.js [ Slow ]
 crbug.com/1043396 [ Mac11 Release ] http/tests/devtools/network/network-eventsource.js [ Slow ]
 crbug.com/1043396 [ Mac12 ] http/tests/devtools/network/network-eventsource.js [ Slow ]
@@ -1107,10 +1110,6 @@ crbug.com/1046784 [ Linux ] http/tests/devtools/elements/styles-1/edit-inspector
 crbug.com/1046784 [ Mac11 Release ] http/tests/devtools/elements/styles-1/edit-inspector-stylesheet.js [ Slow ]
 crbug.com/1046784 [ Mac12 ] http/tests/devtools/elements/styles-1/edit-inspector-stylesheet.js [ Slow ]
 crbug.com/1046784 [ Release Win ] http/tests/devtools/elements/styles-1/edit-inspector-stylesheet.js [ Slow ]
-crbug.com/1046784 [ Linux ] http/tests/devtools/animation/animation-after-navigation.js [ Slow ]
-crbug.com/1046784 [ Mac11 Release ] http/tests/devtools/animation/animation-after-navigation.js [ Slow ]
-crbug.com/1046784 [ Mac12 ] http/tests/devtools/animation/animation-after-navigation.js [ Slow ]
-crbug.com/1046784 [ Release Win ] http/tests/devtools/animation/animation-after-navigation.js [ Slow ]
 crbug.com/1046784 [ Linux ] http/tests/devtools/search/search-in-script.js [ Slow ]
 crbug.com/1046784 [ Mac11 Release ] http/tests/devtools/search/search-in-script.js [ Slow ]
 crbug.com/1046784 [ Mac12 ] http/tests/devtools/search/search-in-script.js [ Slow ]
@@ -1209,10 +1208,6 @@ crbug.com/1046784 [ Linux ] http/tests/devtools/bindings/navigator-frame-attach-
 crbug.com/1046784 [ Mac11 Release ] http/tests/devtools/bindings/navigator-frame-attach-detach.js [ Slow ]
 crbug.com/1046784 [ Mac12 ] http/tests/devtools/bindings/navigator-frame-attach-detach.js [ Slow ]
 crbug.com/1046784 [ Release Win ] http/tests/devtools/bindings/navigator-frame-attach-detach.js [ Slow ]
-crbug.com/1046784 [ Linux ] http/tests/devtools/forced-layout-in-microtask.js [ Slow ]
-crbug.com/1046784 [ Mac11 Release ] http/tests/devtools/forced-layout-in-microtask.js [ Slow ]
-crbug.com/1046784 [ Mac12 ] http/tests/devtools/forced-layout-in-microtask.js [ Slow ]
-crbug.com/1046784 [ Release Win ] http/tests/devtools/forced-layout-in-microtask.js [ Slow ]
 crbug.com/1046784 http/tests/devtools/application-panel/resources-panel-iframe-idb.js [ Slow ]
 crbug.com/1046784 [ Linux ] http/tests/devtools/a11y-axe-core/sources/scope-pane-a11y-test.js [ Slow ]
 crbug.com/1046784 [ Mac11 Release ] http/tests/devtools/a11y-axe-core/sources/scope-pane-a11y-test.js [ Slow ]
@@ -1220,6 +1215,7 @@ crbug.com/1046784 [ Mac12 ] http/tests/devtools/a11y-axe-core/sources/scope-pane
 crbug.com/1046784 [ Release Win ] http/tests/devtools/a11y-axe-core/sources/scope-pane-a11y-test.js [ Slow ]
 crbug.com/1401050 http/tests/devtools/a11y-axe-core/application-panel/service-worker-view-a11y-test.js [ Slow ]
 crbug.com/1046784 http/tests/inspector-protocol/network/navigate-iframe-out2in.js [ Slow ]
+crbug.com/40928142 inspector-protocol/page/set-font-families-generic-names.js [ Slow ]
 crbug.com/1048597 [ Linux ] virtual/android/fullscreen/video-scrolled-iframe.html [ Slow ]
 crbug.com/1057807 http/tests/misc/destroy-middle-click-locked-target-crash.html [ Slow ]
 crbug.com/1042694 [ Debug Mac ] fast/forms/form-control-with-state-eager-tracing-crashTest.html [ Slow ]
@@ -1232,11 +1228,6 @@ crbug.com/984467 fast/canvas/canvas-composite-stroke-alpha.html [ Slow ]
 crbug.com/1078863 [ Mac ] wpt_internal/speech/scripted/speechrecognition-restart-onend.html [ Slow ]
 crbug.com/1091948 [ Linux ] external/wpt/html/canvas/element/manual/fill-and-stroke-styles/canvas_colorsandstyles_createlineargradient_001.htm [ Slow ]
 crbug.com/1044825 http/tests/devtools/network/resource-priority.js [ Slow ]
-crbug.com/1046784 [ Debug ] http/tests/devtools/profiler/cpu-profiler-bottom-up-large-tree-search.js [ Slow ]
-crbug.com/1046784 [ Linux Release ] http/tests/devtools/profiler/cpu-profiler-bottom-up-large-tree-search.js [ Slow ]
-crbug.com/1046784 [ Mac11 Release ] http/tests/devtools/profiler/cpu-profiler-bottom-up-large-tree-search.js [ Slow ]
-crbug.com/1046784 [ Mac12 Release ] http/tests/devtools/profiler/cpu-profiler-bottom-up-large-tree-search.js [ Slow ]
-crbug.com/1046784 [ Release Win ] http/tests/devtools/profiler/cpu-profiler-bottom-up-large-tree-search.js [ Slow ]
 crbug.com/1108423 external/wpt/referrer-policy/gen/worker-classic.http-rp/unset/worker-classic.http.html [ Slow ]
 crbug.com/1135978 [ Linux Release ] fast/dom/css-delete-doc.html [ Slow ]
 crbug.com/1145424 [ Linux ] http/tests/devtools/sources/debugger-ui/reveal-execution-line.js [ Slow ]
@@ -1270,7 +1261,7 @@ crbug.com/1195814 [ Mac11 Release ] external/wpt/IndexedDB/idb-explicit-commit.a
 crbug.com/1195814 [ Mac12 Release ] external/wpt/IndexedDB/idb-explicit-commit.any.html [ Slow ]
 crbug.com/1195814 [ Mac12-arm64 Release ] external/wpt/IndexedDB/idb-explicit-commit.any.html [ Slow ]
 crbug.com/1195814 [ Mac13 Release ] external/wpt/IndexedDB/idb-explicit-commit.any.html [ Slow ]
-crbug.com/1418947 [ Mac ] virtual/third-party-storage-partitioning/external/wpt/IndexedDB/idb-partitioned-coverage.tentative.sub.html [ Slow ]
+crbug.com/1418947 [ Mac ] virtual/third-party-storage-partitioning/external/wpt/IndexedDB/idb-partitioned-coverage.sub.html [ Slow ]
 
 crbug.com/1263580 editing/deleting/delete-many-lines-of-text.html [ Slow ]
 
@@ -1316,9 +1307,9 @@ crbug.com/1361922 virtual/view-transition-wide-gamut/external/wpt/css/css-view-t
 crbug.com/1361922 virtual/view-transition-wide-gamut/external/wpt/css/css-view-transitions/old-content-captures-different-size.html [ Slow ]
 crbug.com/1361922 virtual/view-transition-wide-gamut/external/wpt/css/css-view-transitions/old-content-captures-opacity.html [ Slow ]
 crbug.com/1361922 virtual/view-transition-wide-gamut/external/wpt/css/css-view-transitions/old-content-container-writing-modes.html [ Slow ]
-crbug.com/1361922 virtual/view-transition/external/wpt/css/css-view-transitions/old-content-captures-different-size.html [ Slow ]
-crbug.com/1361922 virtual/view-transition/external/wpt/css/css-view-transitions/new-content-captures-different-size.html [ Slow ]
-crbug.com/1361922 virtual/view-transition/external/wpt/css/css-view-transitions/japanese-tag.html [ Slow ]
+crbug.com/1361922 virtual/threaded/external/wpt/css/css-view-transitions/old-content-captures-different-size.html [ Slow ]
+crbug.com/1361922 virtual/threaded/external/wpt/css/css-view-transitions/new-content-captures-different-size.html [ Slow ]
+crbug.com/1361922 virtual/threaded/external/wpt/css/css-view-transitions/japanese-tag.html [ Slow ]
 
 crbug.com/1381545 [ Linux ] virtual/wasm-code-caching/http/tests/wasm/caching/code-cache.html [ Slow ]
 crbug.com/1381545 [ Mac11 Release ] virtual/wasm-code-caching/http/tests/wasm/caching/code-cache.html [ Slow ]
@@ -1327,7 +1318,7 @@ crbug.com/1381545 [ Mac12-arm64 Release ] virtual/wasm-code-caching/http/tests/w
 crbug.com/1381545 [ Release Win ] virtual/wasm-code-caching/http/tests/wasm/caching/code-cache.html [ Slow ]
 
 crbug.com/1410608 http/tests/inspector-protocol/storage/dom-storage-set-items-by-storage-key.js [ Slow ]
-
+crbug.com/349636595 inspector-protocol/layout-fonts/generic-font-families.js [ Slow ]
 
 crbug.com/1376679 [ Mac12 Release ] virtual/threaded/external/wpt/scroll-animations/css/scroll-timeline-dynamic.tentative.html [ Slow ]
 crbug.com/1450858 virtual/threaded/external/wpt/scroll-animations/css/animation-timeline-view-functional-notation.tentative.html [ Slow ]
@@ -1342,13 +1333,19 @@ crbug.com/1412278 [ Debug Linux ] http/tests/inspector-protocol/issues/third-par
 crbug.com/1412278 [ Debug Mac13 ] http/tests/inspector-protocol/issues/third-party-cookie-blocking-first-party-set-enabled.js [ Slow ]
 crbug.com/1412278 [ Release ] http/tests/inspector-protocol/issues/third-party-cookie-blocking-first-party-set-enabled.js [ Slow ]
 
-crbug.com/1404951 [ Debug Mac ] external/wpt/credential-management/fedcm-iframe.https.html [ Slow ]
-crbug.com/1404951 [ Linux ] external/wpt/credential-management/fedcm-iframe.https.html [ Slow ]
-crbug.com/1404951 [ Mac11 Release ] external/wpt/credential-management/fedcm-iframe.https.html [ Slow ]
-crbug.com/1404951 [ Mac12 Release ] external/wpt/credential-management/fedcm-iframe.https.html [ Slow ]
-crbug.com/1404951 [ Mac13 Release ] external/wpt/credential-management/fedcm-iframe.https.html [ Slow ]
-crbug.com/1404951 [ Release Win ] external/wpt/credential-management/fedcm-iframe.https.html [ Slow ]
-crbug.com/1494119 virtual/fedcm-login-status/external/wpt/credential-management/fedcm-login-status/confirm-idp-login.https.html [ Slow ]
+crbug.com/1404951 [ Debug Mac ] external/wpt/fedcm/fedcm-iframe.https.html [ Slow ]
+crbug.com/1404951 [ Linux ] external/wpt/fedcm/fedcm-iframe.https.html [ Slow ]
+crbug.com/1404951 [ Mac11 Release ] external/wpt/fedcm/fedcm-iframe.https.html [ Slow ]
+crbug.com/1404951 [ Mac12 Release ] external/wpt/fedcm/fedcm-iframe.https.html [ Slow ]
+crbug.com/1404951 [ Mac13 Release ] external/wpt/fedcm/fedcm-iframe.https.html [ Slow ]
+crbug.com/1404951 [ Release Win ] external/wpt/fedcm/fedcm-iframe.https.html [ Slow ]
+crbug.com/1494119 external/wpt/fedcm/fedcm-login-status/confirm-idp-login.https.html [ Slow ]
+crbug.com/1489239 [ Debug Mac13-arm64 ] virtual/fedcm-authz/external/wpt/fedcm/fedcm-authz/fedcm-continue-on.https.html [ Slow ]
+crbug.com/1489239 [ Linux ] virtual/fedcm-authz/external/wpt/fedcm/fedcm-authz/fedcm-continue-on.https.html [ Slow ]
+crbug.com/1489239 [ Mac11 Release ] virtual/fedcm-authz/external/wpt/fedcm/fedcm-authz/fedcm-continue-on.https.html [ Slow ]
+crbug.com/1489239 [ Mac12 Release ] virtual/fedcm-authz/external/wpt/fedcm/fedcm-authz/fedcm-continue-on.https.html [ Slow ]
+crbug.com/1489239 [ Mac13 ] virtual/fedcm-authz/external/wpt/fedcm/fedcm-authz/fedcm-continue-on.https.html [ Slow ]
+crbug.com/1489239 [ Release Win ] virtual/fedcm-authz/external/wpt/fedcm/fedcm-authz/fedcm-continue-on.https.html [ Slow ]
 
 # Slow because it contains thousands of subtests
 crbug.com/1423483 [ Linux ] external/wpt/css/css-color/parsing/color-computed-hsl.html [ Slow ]
@@ -1357,7 +1354,13 @@ crbug.com/1423483 [ Mac12 ] external/wpt/css/css-color/parsing/color-computed-hs
 crbug.com/1423483 [ Release Win ] external/wpt/css/css-color/parsing/color-computed-hsl.html [ Slow ]
 
 # Slow because of too many cycles of waiting for layout and paint
-crbug.com/1310326 http/tests/misc/transforms-usecounter-3d-scene.html [ Slow ]
+crbug.com/1310326 [ Debug Mac13-arm64 ] http/tests/misc/transforms-usecounter-3d-scene.html [ Slow ]
+crbug.com/1310326 [ Linux ] http/tests/misc/transforms-usecounter-3d-scene.html [ Slow ]
+crbug.com/1310326 [ Mac11 Release ] http/tests/misc/transforms-usecounter-3d-scene.html [ Slow ]
+crbug.com/1310326 [ Mac12 Release ] http/tests/misc/transforms-usecounter-3d-scene.html [ Slow ]
+crbug.com/1310326 [ Mac12-arm64 Release ] http/tests/misc/transforms-usecounter-3d-scene.html [ Slow ]
+crbug.com/1310326 [ Mac13 ] http/tests/misc/transforms-usecounter-3d-scene.html [ Slow ]
+crbug.com/1310326 [ Release Win ] http/tests/misc/transforms-usecounter-3d-scene.html [ Slow ]
 
 crbug.com/1307741 external/wpt/webaudio/the-audio-api/the-mediastreamaudiosourcenode-interface/mediastreamaudiosourcenode-routing.html [ Slow ]
 
@@ -1417,16 +1420,73 @@ crbug.com/626703 [ Mac12 ] external/wpt/fetch/private-network-access/mixed-conte
 crbug.com/1484710 virtual/fenced-frame-mparch/external/wpt/fetch/private-network-access/fenced-frame-subresource-fetch.tentative.https.window.html?include=from-public [ Slow ]
 
 # Gardener 2023-10-26
-crbug.com/1496281 external/wpt/html/semantics/embedded-content/bfcache/embedded-js.html [ Slow ]
+crbug.com/1496281 [ Debug Linux ] external/wpt/html/semantics/embedded-content/bfcache/embedded-js.html [ Slow ]
+crbug.com/1496281 [ Debug Mac13 ] external/wpt/html/semantics/embedded-content/bfcache/embedded-js.html [ Slow ]
+crbug.com/1496281 [ Release ] external/wpt/html/semantics/embedded-content/bfcache/embedded-js.html [ Slow ]
 
 # Waits for media to be sent over loopback PeerConnections, which can take time to set up.
 crbug.com/1502781 fast/peerconnection/RTCPeerconnection-insertable-streams.html [ Slow ]
 
 # These tests wait to ensure that an animation frame timing was *not* reported, which requires long timeouts and retries.
-crbug.com/1507152 external/wpt/long-animation-frame/tentative/loaf-source-location-redirect.html [ Slow ]
-crbug.com/1507152 virtual/threaded/external/wpt/long-animation-frame/tentative/loaf-source-location-redirect.html [ Slow ]
+crbug.com/1507152 [ Debug Linux ] external/wpt/long-animation-frame/tentative/loaf-source-location-redirect.html [ Slow ]
+crbug.com/1507152 [ Debug Mac13 ] external/wpt/long-animation-frame/tentative/loaf-source-location-redirect.html [ Slow ]
+crbug.com/1507152 [ Debug Win11-arm64 ] external/wpt/long-animation-frame/tentative/loaf-source-location-redirect.html [ Slow ]
+crbug.com/1507152 [ Release ] external/wpt/long-animation-frame/tentative/loaf-source-location-redirect.html [ Slow ]
+crbug.com/1507152 [ Debug Linux ] virtual/threaded/external/wpt/long-animation-frame/tentative/loaf-source-location-redirect.html [ Slow ]
+crbug.com/1507152 [ Debug Mac13 ] virtual/threaded/external/wpt/long-animation-frame/tentative/loaf-source-location-redirect.html [ Slow ]
+crbug.com/1507152 [ Debug Win11-arm64 ] virtual/threaded/external/wpt/long-animation-frame/tentative/loaf-source-location-redirect.html [ Slow ]
+crbug.com/1507152 [ Release ] virtual/threaded/external/wpt/long-animation-frame/tentative/loaf-source-location-redirect.html [ Slow ]
 crbug.com/1462683 external/wpt/long-animation-frame/tentative/loaf-iframe-self.html [ Slow ]
 crbug.com/1462683 virtual/threaded/external/wpt/long-animation-frame/tentative/loaf-iframe-self.html [ Slow ]
 
 # Slow because of multiple rounds of polling using the RemoteContext/executor framework.
 crbug.com/1517319 virtual/speculation-rules-prerender-target-hint/external/wpt/speculation-rules/prerender/prerender-while-prerender.html [ Slow ]
+
+crbug.com/326619067 [ Mac ] external/wpt/css/css-scroll-snap-2/scrollsnapchanging/scrollsnapchanging-on-user-root-scroll.tentative.html [ Slow ]
+crbug.com/332903033 [ Mac ] external/wpt/css/css-scroll-snap-2/scrollsnapchanging/scrollsnapchanging-on-user-scroll.tentative.html [ Slow ]
+crbug.com/327390559 [ Win11-arm64 ] virtual/keepalive-in-browser-migration/external/wpt/* [ Slow ]
+
+crbug.com/328849073 virtual/no-auto-wpt-origin-isolation/external/wpt/html/semantics/embedded-content/the-iframe-element/sandbox-top-navigation-escalate-privileges.tentative.sub.window.html [ Slow ]
+
+crbug.com/350628679 [ Mac ] external/wpt/css/css-sizing/min-content-negative-margin-crash.html [ Slow ]
+crbug.com/350628679 [ Mac ] external/wpt/css/css-tables/crashtests/textarea-intrinsic-size-crash.html [ Slow ]
+
+crbug.com/328501805 external/wpt/html/semantics/interactive-elements/the-summary-element/interactive-content.html [ Slow ]
+
+crbug.com/363342597 shadow-dom/focus-navigation/focus-scroller-activeElement-on-event.html [ Slow ]
+
+# Slow because the test is huge
+crbug.com/352097024 external/wpt/service-workers/service-worker/same-site-cookies.https.html [ Slow ]
+
+crbug.com/341380030 [ Mac ] external/wpt/css/css-pseudo/text-selection.html [ Slow ]
+
+crbug.com/352489143 virtual/third-party-storage-partitioning/external/wpt/IndexedDB/interleaved-cursors-large.html [ Slow ]
+
+crbug.com/349639998 virtual/attribution-reporting-aggregatable-debug/external/wpt/attribution-reporting/aggregatable-debug/simple-source-aggregatable-debug-report.sub.https.html [ Slow ]
+crbug.com/349639998 virtual/attribution-reporting-aggregatable-debug/external/wpt/attribution-reporting/aggregatable-debug/simple-trigger-aggregatable-debug-report.sub.https.html [ Slow ]
+
+crbug.com/351944362 external/wpt/fetch/metadata/generated/element-iframe.https.sub.html [ Slow ]
+
+crbug.com/354579691 fast/events/touch/gesture/long-press-drag-drop-touch-editing-combined-in-iframe.html [ Slow ]
+
+crbug.com/40226500 http/tests/media/mixed-range-response.html [ Slow ]
+
+# Slow because it is transfering a lot of data to catch non-spec compliant behavior with large buffers
+crbug.com/356963272 external/wpt/webrtc/RTCDataChannel-send-close.html [ Slow ]
+
+# Slow because it contains a large number of subtests
+crbug.com/369600187 external/wpt/css/css-anchor-position/anchor-size-parse-valid.html [ Slow ]
+
+# Flaky timeouts - assuming the tests are slow.
+crbug.com/369200429 fast/events/touch/gesture/gesture-tap-hover-clear.html [ Slow ]
+crbug.com/374035637 [ Debug Mac14 ] fast/css-grid-layout/grid-auto-repeat-huge-grid-004.html [ Slow ]
+crbug.com/374035637 [ Debug Mac14 ] fast/css-grid-layout/grid-auto-repeat-huge-grid-010.html [ Slow ]
+crbug.com/374035637 [ Debug Mac14 ] fast/css-grid-layout/grid-auto-repeat-huge-grid-016.html [ Slow ]
+crbug.com/374035637 [ Debug Mac14 ] fast/css-grid-layout/grid-auto-repeat-huge-grid-018.html [ Slow ]
+crbug.com/374035637 [ Debug Mac14 ] fast/css-grid-layout/grid-auto-repeat-huge-grid-019.html [ Slow ]
+crbug.com/374045525 [ Debug Mac14 ] webaudio/AudioParam/audioparam-rate-change-357391257.html [ Slow ]
+
+# Gardener 2024-10-24
+crbug.com/375337253 external/wpt/shadow-dom/reference-target/tentative/property-reflection.html [ Slow ]
+
+crbug.com/378325771 [ Mac ] wpt_internal/css/css-overflow/scroll-markers-updated-by-user-scroll.html [ Slow ]

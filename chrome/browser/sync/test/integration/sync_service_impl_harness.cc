@@ -206,28 +206,58 @@ SyncServiceImplHarness::SyncServiceImplHarness(Profile* profile,
 
 SyncServiceImplHarness::~SyncServiceImplHarness() = default;
 
+void SyncServiceImplHarness::SetUsernameForFutureSignins(
+    const std::string& username) {
+  CHECK(!username.empty());
+  CHECK(!IdentityManagerFactory::GetForProfile(profile_)->HasPrimaryAccount(
+      signin::ConsentLevel::kSignin));
+
+  username_ = username;
+}
+
+signin::GaiaIdHash SyncServiceImplHarness::GetGaiaIdHashForPrimaryAccount()
+    const {
+  signin::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(profile_);
+  return signin::GaiaIdHash::FromGaiaId(
+      identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin)
+          .gaia);
+}
+
 bool SyncServiceImplHarness::SignInPrimaryAccount(
     signin::ConsentLevel consent_level) {
   DCHECK(!username_.empty());
 
   switch (signin_type_) {
     case SigninType::UI_SIGNIN: {
-      return signin_delegate_->SigninUI(profile_, username_, password_,
-                                        consent_level);
+      if (!signin_delegate_->SigninUI(profile_, username_, password_,
+                                      consent_level)) {
+        return false;
+      }
+      break;
     }
 
     case SigninType::FAKE_SIGNIN: {
       signin_delegate_->SigninFake(profile_, username_, consent_level);
-      return true;
+
+      // TODO(b/1523197): The below checks should also be satisfied for the
+      // above case.
+      signin::IdentityManager* identity_manager =
+          IdentityManagerFactory::GetForProfile(profile_);
+      CHECK(identity_manager->HasPrimaryAccount(consent_level));
+      CHECK(identity_manager->HasPrimaryAccountWithRefreshToken(consent_level));
+      CHECK(!service()->GetAccountInfo().IsEmpty());
+
+      break;
     }
   }
 
-  NOTREACHED();
-  return false;
+  return true;
 }
 
 void SyncServiceImplHarness::ResetSyncForPrimaryAccount() {
-  syncer::SyncTransportDataPrefs transport_data_prefs(profile_->GetPrefs());
+  syncer::SyncTransportDataPrefs transport_data_prefs(
+      profile_->GetPrefs(), GetGaiaIdHashForPrimaryAccount());
   // Generate the https url.
   // CLEAR_SERVER_DATA isn't enabled on the prod Sync server,
   // so --sync-url-clear-server-data can be used to specify an

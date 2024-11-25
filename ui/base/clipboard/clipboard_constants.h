@@ -39,13 +39,6 @@ extern const char kMimeTypeOctetStream[];
 COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES)
 extern const char kMimeTypeWindowDrag[];
 
-// ----- CHROMEOS MIME TYPES -----
-
-#if BUILDFLAG(IS_CHROMEOS)
-COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES)
-extern const char kMimeTypeDataTransferEndpoint[];
-#endif  // BUILDFLAG(IS_CHROMEOS)
-
 // ----- LINUX & CHROMEOS & FUCHSIA MIME TYPES -----
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)
@@ -55,6 +48,8 @@ COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES)
 extern const char kMimeTypeLinuxString[];
 COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES)
 extern const char kMimeTypeLinuxText[];
+COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES)
+extern const char kMimeTypeLinuxSourceUrl[];
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) ||
         // BUILDFLAG(IS_FUCHSIA)
 
@@ -63,7 +58,7 @@ extern const char kMimeTypeLinuxText[];
 #if !BUILDFLAG(IS_APPLE)
 // TODO(dcheng): This name is temporary. See crbug.com/106449.
 COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES)
-extern const char kMimeTypeWebCustomData[];
+extern const char kMimeTypeDataTransferCustomData[];
 COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES)
 extern const char kMimeTypeWebkitSmartPaste[];
 #else
@@ -104,9 +99,9 @@ extern NSString* const kUTTypeChromiumPrivilegedInitiatedDrag;
 COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES)
 extern NSString* const kUTTypeChromiumRendererInitiatedDrag;
 
-// A type specifying web custom data. The data is pickled.
+// A type specifying DataTransfer custom data. The data is pickled.
 COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES)
-extern NSString* const kUTTypeChromiumWebCustomData;
+extern NSString* const kUTTypeChromiumDataTransferCustomData;
 
 // It is the common convention on the Mac and on iOS that password managers tag
 // confidential data with this type. There's no data associated with this

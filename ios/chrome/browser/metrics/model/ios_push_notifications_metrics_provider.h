@@ -9,12 +9,7 @@
 
 class IOSPushNotificationsMetricsProvider : public metrics::MetricsProvider {
  public:
-  explicit IOSPushNotificationsMetricsProvider();
-  IOSPushNotificationsMetricsProvider(
-      const IOSPushNotificationsMetricsProvider&) = delete;
-  IOSPushNotificationsMetricsProvider& operator=(
-      const IOSPushNotificationsMetricsProvider&) = delete;
-
+  IOSPushNotificationsMetricsProvider();
   ~IOSPushNotificationsMetricsProvider() override;
 
   // metrics::MetricsProvider

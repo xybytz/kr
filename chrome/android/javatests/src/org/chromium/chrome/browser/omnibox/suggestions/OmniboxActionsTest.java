@@ -4,8 +4,6 @@
 
 package org.chromium.chrome.browser.omnibox.suggestions;
 
-import static androidx.test.espresso.assertion.ViewAssertions.matches;
-
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -14,9 +12,7 @@ import android.app.Activity;
 
 import androidx.annotation.Nullable;
 import androidx.test.filters.MediumTest;
-import androidx.test.platform.app.InstrumentationRegistry;
 
-import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -24,34 +20,23 @@ import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.ApplicationTestUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.Criteria;
-import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.JniMocker;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
-import org.chromium.chrome.browser.history.HistoryActivity;
-import org.chromium.chrome.browser.omnibox.suggestions.action.HistoryClustersAction;
 import org.chromium.chrome.browser.omnibox.suggestions.action.OmniboxActionInSuggest;
 import org.chromium.chrome.browser.omnibox.suggestions.base.BaseSuggestionView;
-import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.IncognitoTabHostUtils;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.chrome.test.util.ActivityTestUtils;
 import org.chromium.chrome.test.util.OmniboxTestUtils;
 import org.chromium.chrome.test.util.OmniboxTestUtils.SuggestionInfo;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.omnibox.AutocompleteMatch;
 import org.chromium.components.omnibox.AutocompleteMatchBuilder;
 import org.chromium.components.omnibox.AutocompleteResult;
@@ -59,9 +44,6 @@ import org.chromium.components.omnibox.EntityInfoProto.ActionInfo;
 import org.chromium.components.omnibox.OmniboxSuggestionType;
 import org.chromium.components.omnibox.action.OmniboxAction;
 import org.chromium.components.omnibox.action.OmniboxActionJni;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.ui.base.DeviceFormFactor;
-import org.chromium.ui.test.util.DisableAnimationsTestRule;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -79,11 +61,7 @@ import java.util.List;
 public class OmniboxActionsTest {
     public static @ClassRule ChromeTabbedActivityTestRule sActivityTestRule =
             new ChromeTabbedActivityTestRule();
-    public static @ClassRule DisableAnimationsTestRule sDisableAnimationsRule =
-            new DisableAnimationsTestRule();
-    public @Rule JniMocker mJniMocker = new JniMocker();
     public @Rule MockitoRule mMockitoRule = MockitoJUnit.rule();
-    public @Rule TestRule mFeaturesProcessor = new Features.JUnitProcessor();
     private @Mock AutocompleteController.Natives mAutocompleteControllerJniMock;
     private @Mock OmniboxActionJni mOmniboxActionJni;
 
@@ -101,8 +79,8 @@ public class OmniboxActionsTest {
     public void setUp() throws InterruptedException {
         sActivityTestRule.loadUrl("about:blank");
         mOmniboxUtils = new OmniboxTestUtils(sActivityTestRule.getActivity());
-        mJniMocker.mock(AutocompleteControllerJni.TEST_HOOKS, mAutocompleteControllerJniMock);
-        mJniMocker.mock(OmniboxActionJni.TEST_HOOKS, mOmniboxActionJni);
+        AutocompleteControllerJni.setInstanceForTesting(mAutocompleteControllerJniMock);
+        OmniboxActionJni.setInstanceForTesting(mOmniboxActionJni);
     }
 
     @After
@@ -110,15 +88,15 @@ public class OmniboxActionsTest {
         if (mOmniboxUtils.getFocus()) {
             mOmniboxUtils.clearFocus();
         }
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     IncognitoTabHostUtils.closeAllIncognitoTabs();
                 });
         if (mTargetActivity != null) {
             ApplicationTestUtils.finishActivity(mTargetActivity);
         }
-        mJniMocker.mock(AutocompleteControllerJni.TEST_HOOKS, null);
-        mJniMocker.mock(OmniboxActionJni.TEST_HOOKS, null);
+        AutocompleteControllerJni.setInstanceForTesting(null);
+        OmniboxActionJni.setInstanceForTesting(null);
     }
 
     /**
@@ -131,10 +109,9 @@ public class OmniboxActionsTest {
         mOmniboxUtils.requestFocus();
         // Ensure we start from empty suggestions list; don't carry over suggestions from previous
         // run.
-        mOmniboxUtils.setSuggestions(AutocompleteResult.fromCache(null, null), "");
+        mOmniboxUtils.setSuggestions(AutocompleteResult.fromCache(null, null));
 
-        mOmniboxUtils.setSuggestions(
-                AutocompleteResult.fromCache(Arrays.asList(matches), null), "");
+        mOmniboxUtils.setSuggestions(AutocompleteResult.fromCache(Arrays.asList(matches), null));
         mOmniboxUtils.checkSuggestionsShown();
         SuggestionInfo<BaseSuggestionView> info = mOmniboxUtils.findSuggestionWithActionChips();
         Assert.assertNotNull("No suggestions with actions", info);
@@ -146,11 +123,6 @@ public class OmniboxActionsTest {
                 .setDisplayText("Suggestion")
                 .setActions(actions)
                 .build();
-    }
-
-    private AutocompleteMatch createDummyHistoryClustersAction(String name) {
-        return createDummySuggestion(
-                List.of(new HistoryClustersAction(0, "hint", "accessibility", name)));
     }
 
     private AutocompleteMatch createDummyActionInSuggest(ActionInfo.ActionType... types) {
@@ -166,35 +138,6 @@ public class OmniboxActionsTest {
         }
 
         return createDummySuggestion(actions);
-    }
-
-    @Test
-    @MediumTest
-    @DisableFeatures(ChromeFeatureList.OMNIBOX_HISTORY_CLUSTER_PROVIDER)
-    @EnableFeatures({
-        ChromeFeatureList.HISTORY_JOURNEYS,
-        ChromeFeatureList.OMNIBOX_HISTORY_CLUSTER_ACTION_CHIP
-    })
-    public void testHistoryClustersAction() throws Exception {
-        setSuggestions(createDummyHistoryClustersAction("query"));
-        mOmniboxUtils.clickOnAction(0, 0);
-
-        if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(sActivityTestRule.getActivity())) {
-            CriteriaHelper.pollUiThread(
-                    () -> {
-                        Tab tab = sActivityTestRule.getActivity().getActivityTab();
-                        Criteria.checkThat(tab, Matchers.notNullValue());
-                        Criteria.checkThat(
-                                tab.getUrl().getSpec(),
-                                Matchers.equalTo("chrome://history/grouped?q=query"));
-                    });
-        } else {
-            mTargetActivity =
-                    ActivityTestUtils.waitForActivity(
-                            InstrumentationRegistry.getInstrumentation(), HistoryActivity.class);
-            Assert.assertNotNull("Could not find the history activity", mTargetActivity);
-        }
-        verifyNoMoreInteractions(mOmniboxActionJni);
     }
 
     @Test

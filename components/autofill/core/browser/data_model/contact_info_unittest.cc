@@ -30,6 +30,12 @@ struct FullNameTestCase {
   std::string family_name_output;
 };
 
+struct FullAlternativeNameTestCase {
+  std::u16string full_name_input;
+  std::u16string given_name_output;
+  std::u16string family_name_output;
+};
+
 class SetFullNameTest : public testing::TestWithParam<FullNameTestCase> {};
 
 TEST_P(SetFullNameTest, SetFullName) {
@@ -37,94 +43,59 @@ TEST_P(SetFullNameTest, SetFullName) {
   SCOPED_TRACE(test_case.full_name_input);
 
   NameInfo name;
-  name.SetInfo(AutofillType(NAME_FULL), ASCIIToUTF16(test_case.full_name_input),
-               "en-US");
+  name.SetInfo(NAME_FULL, ASCIIToUTF16(test_case.full_name_input), "en-US");
   EXPECT_TRUE(name.FinalizeAfterImport());
   EXPECT_EQ(ASCIIToUTF16(test_case.given_name_output),
-            name.GetInfo(AutofillType(NAME_FIRST), "en-US"));
+            name.GetInfo(NAME_FIRST, "en-US"));
   EXPECT_EQ(ASCIIToUTF16(test_case.middle_name_output),
-            name.GetInfo(AutofillType(NAME_MIDDLE), "en-US"));
+            name.GetInfo(NAME_MIDDLE, "en-US"));
   EXPECT_EQ(ASCIIToUTF16(test_case.family_name_output),
-            name.GetInfo(AutofillType(NAME_LAST), "en-US"));
+            name.GetInfo(NAME_LAST, "en-US"));
   EXPECT_EQ(ASCIIToUTF16(test_case.full_name_input),
-            name.GetInfo(AutofillType(NAME_FULL), "en-US"));
+            name.GetInfo(NAME_FULL, "en-US"));
 }
 
-TEST(NameInfoTest, GetMatchingTypesWithPrefix) {
-  base::test::ScopedFeatureList structured_name_feature;
-  structured_name_feature.InitAndEnableFeature(
-      features::kAutofillEnableSupportForHonorificPrefixes);
+class SetFullAlternativeNameTest
+    : public testing::TestWithParam<FullAlternativeNameTestCase> {};
+
+TEST_P(SetFullAlternativeNameTest, SetFullAlternativeName) {
+  base::test::ScopedFeatureList scoped_feature_list(
+      features::kAutofillSupportPhoneticNameForJP);
+
+  auto test_case = GetParam();
+  SCOPED_TRACE(test_case.full_name_input);
 
   NameInfo name;
-  test::FormGroupValues name_values = {
-      {.type = NAME_FULL_WITH_HONORIFIC_PREFIX,
-       .value = "Mr. Pablo Diego Ruiz y Picasso",
-       .verification_status = VerificationStatus::kObserved}};
-  test::SetFormGroupValues(name, name_values);
-  name.FinalizeAfterImport();
-
-  test::FormGroupValues expectation = {
-      {.type = NAME_FULL_WITH_HONORIFIC_PREFIX,
-       .value = "Mr. Pablo Diego Ruiz y Picasso",
-       .verification_status = VerificationStatus::kObserved},
-      {.type = NAME_HONORIFIC_PREFIX,
-       .value = "Mr.",
-       .verification_status = VerificationStatus::kParsed},
-      {.type = NAME_FIRST,
-       .value = "Pablo Diego",
-       .verification_status = VerificationStatus::kParsed},
-      {.type = NAME_MIDDLE,
-       .value = "",
-       .verification_status = VerificationStatus::kParsed},
-      {.type = NAME_LAST,
-       .value = "Ruiz y Picasso",
-       .verification_status = VerificationStatus::kParsed},
-      {.type = NAME_LAST_FIRST,
-       .value = "Ruiz",
-       .verification_status = VerificationStatus::kParsed},
-      {.type = NAME_LAST_SECOND,
-       .value = "Picasso",
-       .verification_status = VerificationStatus::kParsed},
-      {.type = NAME_LAST_CONJUNCTION,
-       .value = "y",
-       .verification_status = VerificationStatus::kParsed}};
-
-  test::VerifyFormGroupValues(name, expectation);
-
-  FieldTypeSet matching_types;
-  name.GetMatchingTypes(u"Ruiz", "US", &matching_types);
-  EXPECT_EQ(matching_types, FieldTypeSet({NAME_LAST_FIRST}));
-
-  name.GetMatchingTypes(u"Mr.", "US", &matching_types);
-  EXPECT_EQ(matching_types,
-            FieldTypeSet({NAME_LAST_FIRST, NAME_HONORIFIC_PREFIX}));
-
-  // Verify that a field filled with |NAME_FULL_WITH_HONORIFIC_PREFIX| creates a
-  // |NAME_FULL| vote.
-  name.GetMatchingTypes(u"Mr. Pablo Diego Ruiz y Picasso", "US",
-                        &matching_types);
-  EXPECT_EQ(matching_types,
-            FieldTypeSet({NAME_FULL, NAME_LAST_FIRST, NAME_HONORIFIC_PREFIX}));
+  name.SetInfo(ALTERNATIVE_FULL_NAME, test_case.full_name_input, "ja");
+  EXPECT_TRUE(name.FinalizeAfterImport());
+  EXPECT_EQ(test_case.given_name_output,
+            name.GetInfo(ALTERNATIVE_GIVEN_NAME, "ja"));
+  EXPECT_EQ(test_case.family_name_output,
+            name.GetInfo(ALTERNATIVE_FAMILY_NAME, "ja"));
+  EXPECT_EQ(test_case.full_name_input,
+            name.GetInfo(ALTERNATIVE_FULL_NAME, "ja"));
 }
 
-TEST(NameInfoTest, GetMatchingTypes) {
-  base::test::ScopedFeatureList structured_name_feature;
-  structured_name_feature.InitAndDisableFeature(
-      features::kAutofillEnableSupportForHonorificPrefixes);
+INSTANTIATE_TEST_SUITE_P(
+    SetFullAlternativeName,
+    SetFullAlternativeNameTest,
+    testing::Values(FullAlternativeNameTestCase{u"", u"", u""},
+                    FullAlternativeNameTestCase{u"John Smith", u"John",
+                                                u"Smith"},
+                    FullAlternativeNameTestCase{u"やまもと あおい", u"あおい",
+                                                u"やまもと"}));
 
+TEST(NameInfoTest, GetMatchingTypes) {
   NameInfo name;
 
   test::FormGroupValues name_values = {
       {.type = NAME_FULL,
-       .value = "Mr. Pablo Diego Ruiz y Picasso",
+       .value = "Pablo Diego Ruiz y Picasso",
        .verification_status = VerificationStatus::kObserved}};
   test::SetFormGroupValues(name, name_values);
   name.FinalizeAfterImport();
 
   test::FormGroupValues expectation = {
-      {.type = NAME_HONORIFIC_PREFIX,
-       .value = "",
-       .verification_status = VerificationStatus::kNoStatus},
       {.type = NAME_FIRST,
        .value = "Pablo Diego",
        .verification_status = VerificationStatus::kParsed},
@@ -147,12 +118,63 @@ TEST(NameInfoTest, GetMatchingTypes) {
   test::VerifyFormGroupValues(name, expectation);
 
   FieldTypeSet matching_types;
-  name.GetMatchingTypes(u"Ruiz", "US", &matching_types);
+  name.GetMatchingTypesWithProfileSources(u"Ruiz", "US", &matching_types,
+                                          nullptr);
   EXPECT_EQ(matching_types, FieldTypeSet({NAME_LAST_FIRST}));
 
   // The honorific prefix is ignored.
-  name.GetMatchingTypes(u"Mr.", "US", &matching_types);
+  name.GetMatchingTypesWithProfileSources(u"Mr.", "US", &matching_types,
+                                          nullptr);
   EXPECT_EQ(matching_types, FieldTypeSet({NAME_LAST_FIRST}));
+}
+
+TEST(NameInfoTest, FinalizeAfterImportWithAlternativeName) {
+  base::test::ScopedFeatureList scoped_feature_list(
+      features::kAutofillSupportPhoneticNameForJP);
+  NameInfo name;
+
+  test::FormGroupValues name_values = {
+      {.type = NAME_FULL,
+       .value = "山本 葵",
+       .verification_status = VerificationStatus::kObserved},
+      {.type = ALTERNATIVE_FULL_NAME,
+       .value = "やまもと あおい",
+       .verification_status = VerificationStatus::kObserved}};
+  test::SetFormGroupValues(name, name_values);
+  name.FinalizeAfterImport();
+
+  test::FormGroupValues expectation = {
+      {.type = NAME_FIRST,
+       .value = "葵",
+       .verification_status = VerificationStatus::kParsed},
+      {.type = NAME_MIDDLE,
+       .value = "",
+       .verification_status = VerificationStatus::kParsed},
+      {.type = NAME_LAST,
+       .value = "山本",
+       .verification_status = VerificationStatus::kParsed},
+      {.type = NAME_LAST_FIRST,
+       .value = "",
+       .verification_status = VerificationStatus::kParsed},
+      {.type = NAME_LAST_SECOND,
+       .value = "山本",
+       .verification_status = VerificationStatus::kParsed},
+      {.type = NAME_LAST_CONJUNCTION,
+       .value = "",
+       .verification_status = VerificationStatus::kParsed},
+      {.type = ALTERNATIVE_GIVEN_NAME,
+       .value = "あおい",
+       .verification_status = VerificationStatus::kParsed},
+      {.type = ALTERNATIVE_FAMILY_NAME,
+       .value = "やまもと",
+       .verification_status = VerificationStatus::kParsed}};
+
+  test::VerifyFormGroupValues(name, expectation);
+
+  FieldTypeSet matching_types;
+  name.GetMatchingTypesWithProfileSources(u"あおい", "JP", &matching_types,
+                                          nullptr);
+  EXPECT_EQ(matching_types, FieldTypeSet({ALTERNATIVE_GIVEN_NAME}));
 }
 
 INSTANTIATE_TEST_SUITE_P(

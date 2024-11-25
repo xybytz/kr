@@ -18,12 +18,17 @@ class ManagePasswordsDetailsView;
 
 // A dialog for managing stored password and federated login information for a
 // specific site. A user can see the details of the passwords, and edit the
-// stored password note.
+// stored password note. The view can show up as a list of credentials or
+// presenting details of a `PasswordForm`. For the latter mode, the initial
+// password form must be provided by the `PasswordsModelDelegate` (in this case
+// it can be an arbitrary password form, not necessarily related to the websise)
+// or the user selects a password form from the list.
 class ManagePasswordsView : public PasswordBubbleViewBase {
   METADATA_HEADER(ManagePasswordsView, PasswordBubbleViewBase)
 
  public:
   DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kTopView);
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kFooterId);
 
   ManagePasswordsView(content::WebContents* web_contents,
                       views::View* anchor_view);
@@ -38,6 +43,10 @@ class ManagePasswordsView : public PasswordBubbleViewBase {
   void DisplayDetailsOfPasswordForTesting(
       password_manager::PasswordForm password_form);
 
+  bool HasPasswordDetailsViewForTesting() const {
+    return !!password_details_view_;
+  }
+
  private:
   // PasswordBubbleViewBase
   PasswordBubbleControllerBase* GetController() override;
@@ -50,10 +59,11 @@ class ManagePasswordsView : public PasswordBubbleViewBase {
   std::unique_ptr<ManagePasswordsListView> CreatePasswordListView();
   std::unique_ptr<ManagePasswordsDetailsView> CreatePasswordDetailsView();
   std::unique_ptr<views::View> CreateFooterView();
+  std::unique_ptr<views::View> CreateMovePasswordFooterView();
 
   // Changes the contents of the page to either display the details of
-  // `currently_selected_password_` or the list of passwords when
-  // `currently_selected_password_` isn't set.
+  // `details_bubble_credential_` or the list of passwords when
+  // `details_bubble_credential_` isn't set.
   void RecreateLayout();
 
   void SwitchToReadingMode();
@@ -90,7 +100,7 @@ class ManagePasswordsView : public PasswordBubbleViewBase {
   // Used to keep track of the time once the user passed the auth challenge to
   // navigate to the details view. Once it runs out, SwitchToListView() will be
   // run.
-  base::RetainingOneShotTimer auth_timer_;
+  base::OneShotTimer auth_timer_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_PASSWORDS_MANAGE_PASSWORDS_VIEW_H_

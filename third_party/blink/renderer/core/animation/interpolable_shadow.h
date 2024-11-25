@@ -5,7 +5,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_INTERPOLABLE_SHADOW_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_INTERPOLABLE_SHADOW_H_
 
-#include <memory>
 #include "base/notreached.h"
 #include "third_party/blink/renderer/core/animation/interpolable_color.h"
 #include "third_party/blink/renderer/core/animation/interpolable_length.h"
@@ -35,10 +34,16 @@ class InterpolableShadow : public InterpolableValue {
                      InterpolableColor* color,
                      ShadowStyle);
 
-  static InterpolableShadow* Create(const ShadowData&, double zoom);
+  static InterpolableShadow* Create(const ShadowData&,
+                                    double zoom,
+                                    mojom::blink::ColorScheme color_scheme,
+                                    const ui::ColorProvider* color_provider);
   static InterpolableShadow* CreateNeutral();
 
-  static InterpolableShadow* MaybeConvertCSSValue(const CSSValue&);
+  static InterpolableShadow* MaybeConvertCSSValue(
+      const CSSValue&,
+      mojom::blink::ColorScheme color_scheme,
+      const ui::ColorProvider* color_provider);
 
   // Helpers for CSSListInterpolationFunctions.
   static PairwiseInterpolationValue MaybeMergeSingles(InterpolableValue* start,
@@ -59,10 +64,7 @@ class InterpolableShadow : public InterpolableValue {
                    const double progress,
                    InterpolableValue& result) const final;
   bool IsShadow() const final { return true; }
-  bool Equals(const InterpolableValue& other) const final {
-    NOTREACHED();
-    return false;
-  }
+  bool Equals(const InterpolableValue& other) const final { NOTREACHED(); }
   void Scale(double scale) final;
   void Add(const InterpolableValue& other) final;
   void AssertCanInterpolateWith(const InterpolableValue& other) const final;
@@ -85,6 +87,7 @@ class InterpolableShadow : public InterpolableValue {
   Member<InterpolableLength> y_;
   Member<InterpolableLength> blur_;
   Member<InterpolableLength> spread_;
+  // TODO(crbug.com/1500708): Handle unresolved-color-mix.
   Member<InterpolableColor> color_;
 
   ShadowStyle shadow_style_;

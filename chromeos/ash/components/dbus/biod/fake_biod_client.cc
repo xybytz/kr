@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -20,7 +21,6 @@
 #include "base/notreached.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
@@ -98,7 +98,7 @@ FakeBiodClient::RecordMap ValueToFakeRecords(const base::Value& records_val) {
 int GetNextRecordId(const FakeBiodClient::RecordMap& records) {
   int next_record_unique_id = 1;
   for (const auto& [key, _] : records) {
-    std::vector<base::StringPiece> splitted_str = base::SplitStringPiece(
+    std::vector<std::string_view> splitted_str = base::SplitStringPiece(
         key.value(), "/", base::WhitespaceHandling::TRIM_WHITESPACE,
         base::SplitResult::SPLIT_WANT_NONEMPTY);
     CHECK_EQ(splitted_str.size(), static_cast<size_t>(2));
@@ -237,7 +237,7 @@ void FakeBiodClient::StartEnrollSession(const std::string& user_id,
 
   // Create the enrollment with |user_id|, |label| and a empty fake fingerprint.
   current_record_path_ = dbus::ObjectPath(
-      kRecordObjectPathPrefix + std::to_string(next_record_unique_id_++));
+      kRecordObjectPathPrefix + base::NumberToString(next_record_unique_id_++));
   current_record_.user_id = user_id;
   current_record_.label = label;
   current_session_ = FingerprintSession::ENROLL;

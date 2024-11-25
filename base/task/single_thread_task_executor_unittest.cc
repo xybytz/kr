@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -39,7 +40,6 @@
 #include "build/build_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if BUILDFLAG(IS_ANDROID)
 #include "base/android/java_handler_thread.h"
@@ -48,13 +48,13 @@
 #endif
 
 #if BUILDFLAG(IS_WIN)
+#include <windows.h>
+
 #include "base/message_loop/message_pump_win.h"
 #include "base/process/memory.h"
 #include "base/win/current_module.h"
 #include "base/win/message_window.h"
 #include "base/win/scoped_handle.h"
-
-#include <windows.h>
 #endif
 
 using ::testing::IsNull;
@@ -101,7 +101,7 @@ class Foo : public RefCounted<Foo> {
   }
 
   int test_count() const { return test_count_; }
-  const std::string& result() const { return result_; }
+  const std::string& result() const LIFETIME_BOUND { return result_; }
 
  private:
   friend class RefCounted<Foo>;
@@ -187,8 +187,6 @@ std::ostream& operator<<(std::ostream& os, TaskType type) {
       break;
     default:
       NOTREACHED();
-      os << "Unknown TaskType";
-      break;
   }
   return os;
 }
@@ -294,7 +292,7 @@ const wchar_t kMessageBoxTitle[] = L"SingleThreadTaskExecutor Unit Test";
 // can cause implicit message loops.
 void MessageBoxFunc(TaskList* order, int cookie, bool is_reentrant) {
   order->RecordStart(MESSAGEBOX, cookie);
-  absl::optional<CurrentThread::ScopedAllowApplicationTasksInNativeNestedLoop>
+  std::optional<CurrentThread::ScopedAllowApplicationTasksInNativeNestedLoop>
       maybe_allow_nesting;
   if (is_reentrant)
     maybe_allow_nesting.emplace();
@@ -429,7 +427,9 @@ TestIOHandler::TestIOHandler(const wchar_t* name, HANDLE signal)
 }
 
 void TestIOHandler::Init() {
-  CurrentIOThread::Get()->RegisterIOHandler(file_.get(), this);
+  const bool success =
+      CurrentIOThread::Get()->RegisterIOHandler(file_.get(), this);
+  ASSERT_TRUE(success);
 
   DWORD read;
   EXPECT_FALSE(ReadFile(file_.get(), buffer_, size(), &read, context()));
@@ -516,7 +516,6 @@ class SingleThreadTaskExecutorTypedTest
 #endif  // BUILDFLAG(IS_APPLE)
     }
     NOTREACHED();
-    return "";
   }
 };
 
@@ -1289,7 +1288,7 @@ TEST_P(SingleThreadTaskExecutorTypedTest, RunLoopQuitOrderAfter) {
 // accumulated in the pipe per two posts, so we should repeat 128K times to
 // reproduce the bug.
 #if BUILDFLAG(IS_CHROMEOS)
-// TODO(crbug.com/1188497): This test is unreasonably slow on CrOS and flakily
+// TODO(crbug.com/40754898): This test is unreasonably slow on CrOS and flakily
 // times out (100x slower than other platforms which take < 1s to complete
 // it).
 #define MAYBE_RecursivePostsDoNotFloodPipe DISABLED_RecursivePostsDoNotFloodPipe
@@ -1364,33 +1363,11 @@ TEST_P(SingleThreadTaskExecutorTypedTest,
   run_loop.Run();
 }
 
-TEST_P(SingleThreadTaskExecutorTypedTest,
-       ApplicationTasksAllowedInNativeNestedLoopExplicitlyInScope) {
-  SingleThreadTaskExecutor executor(GetParam());
-  RunLoop run_loop;
-  executor.task_runner()->PostTask(
-      FROM_HERE,
-      BindOnce(
-          [](RunLoop* run_loop) {
-            {
-              CurrentThread::ScopedAllowApplicationTasksInNativeNestedLoop
-                  allow_nestable_tasks;
-              EXPECT_TRUE(CurrentThread::Get()
-                              ->ApplicationTasksAllowedInNativeNestedLoop());
-            }
-            EXPECT_FALSE(CurrentThread::Get()
-                             ->ApplicationTasksAllowedInNativeNestedLoop());
-            run_loop->Quit();
-          },
-          Unretained(&run_loop)));
-  run_loop.Run();
-}
-
 TEST_P(SingleThreadTaskExecutorTypedTest, IsIdleForTesting) {
   SingleThreadTaskExecutor executor(GetParam());
   EXPECT_TRUE(CurrentThread::Get()->IsIdleForTesting());
-  executor.task_runner()->PostTask(FROM_HERE, BindOnce([]() {}));
-  executor.task_runner()->PostDelayedTask(FROM_HERE, BindOnce([]() {}),
+  executor.task_runner()->PostTask(FROM_HERE, BindOnce([] {}));
+  executor.task_runner()->PostDelayedTask(FROM_HERE, BindOnce([] {}),
                                           Milliseconds(10));
   EXPECT_FALSE(CurrentThread::Get()->IsIdleForTesting());
   RunLoop().RunUntilIdle();
@@ -1406,14 +1383,14 @@ TEST_P(SingleThreadTaskExecutorTypedTest, IsIdleForTestingNonNestableTask) {
   EXPECT_TRUE(CurrentThread::Get()->IsIdleForTesting());
   bool nested_task_run = false;
   executor.task_runner()->PostTask(
-      FROM_HERE, BindLambdaForTesting([&]() {
+      FROM_HERE, BindLambdaForTesting([&] {
         RunLoop nested_run_loop(RunLoop::Type::kNestableTasksAllowed);
 
         executor.task_runner()->PostNonNestableTask(
-            FROM_HERE, BindLambdaForTesting([&]() { nested_task_run = true; }));
+            FROM_HERE, BindLambdaForTesting([&] { nested_task_run = true; }));
 
         executor.task_runner()->PostTask(
-            FROM_HERE, BindLambdaForTesting([&]() {
+            FROM_HERE, BindLambdaForTesting([&] {
               EXPECT_FALSE(nested_task_run);
               EXPECT_TRUE(CurrentThread::Get()->IsIdleForTesting());
             }));
@@ -1714,7 +1691,7 @@ TEST(SingleThreadTaskExecutorTest,
   run_loop.Run();
 }
 
-// TODO(https://crbug.com/890016): Enable once multiple layers of nested loops
+// TODO(crbug.com/40595757): Enable once multiple layers of nested loops
 // works.
 TEST(SingleThreadTaskExecutorTest,
      DISABLED_UnwindingMultipleSubPumpsDoesntStarveApplicationTasks) {
@@ -2066,6 +2043,29 @@ TEST(SingleThreadTaskExecutorTest, AlwaysHaveUserMessageWhenNesting) {
 }
 #endif  // BUILDFLAG(IS_WIN)
 
+TEST(SingleThreadTaskExecutorTest,
+     ApplicationTasksAllowedInNativeNestedLoopExplicitlyInScope) {
+  // Only UI pumps support native loops.
+  SingleThreadTaskExecutor executor(MessagePumpType::UI);
+  RunLoop run_loop;
+  executor.task_runner()->PostTask(
+      FROM_HERE,
+      BindOnce(
+          [](RunLoop* run_loop) {
+            {
+              CurrentThread::ScopedAllowApplicationTasksInNativeNestedLoop
+                  allow_nestable_tasks;
+              EXPECT_TRUE(CurrentThread::Get()
+                              ->ApplicationTasksAllowedInNativeNestedLoop());
+            }
+            EXPECT_FALSE(CurrentThread::Get()
+                             ->ApplicationTasksAllowedInNativeNestedLoop());
+            run_loop->Quit();
+          },
+          Unretained(&run_loop)));
+  run_loop.Run();
+}
+
 // Verify that tasks posted to and code running in the scope of the same
 // SingleThreadTaskExecutor access the same SequenceLocalStorage values.
 TEST(SingleThreadTaskExecutorTest, SequenceLocalStorageSetGet) {
@@ -2074,10 +2074,10 @@ TEST(SingleThreadTaskExecutorTest, SequenceLocalStorageSetGet) {
   SequenceLocalStorageSlot<int> slot;
 
   SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
-      FROM_HERE, BindLambdaForTesting([&]() { slot.emplace(11); }));
+      FROM_HERE, BindLambdaForTesting([&] { slot.emplace(11); }));
 
   SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
-      FROM_HERE, BindLambdaForTesting([&]() { EXPECT_EQ(*slot, 11); }));
+      FROM_HERE, BindLambdaForTesting([&] { EXPECT_EQ(*slot, 11); }));
 
   RunLoop().RunUntilIdle();
   EXPECT_EQ(*slot, 11);
@@ -2091,7 +2091,7 @@ TEST(SingleThreadTaskExecutorTest, SequenceLocalStorageDifferentMessageLoops) {
   {
     SingleThreadTaskExecutor executor;
     SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
-        FROM_HERE, BindLambdaForTesting([&]() { slot.emplace(11); }));
+        FROM_HERE, BindLambdaForTesting([&] { slot.emplace(11); }));
 
     RunLoop().RunUntilIdle();
     EXPECT_EQ(*slot, 11);
@@ -2099,7 +2099,7 @@ TEST(SingleThreadTaskExecutorTest, SequenceLocalStorageDifferentMessageLoops) {
 
   SingleThreadTaskExecutor executor;
   SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
-      FROM_HERE, BindLambdaForTesting([&]() { EXPECT_FALSE(slot); }));
+      FROM_HERE, BindLambdaForTesting([&] { EXPECT_FALSE(slot); }));
 
   RunLoop().RunUntilIdle();
   EXPECT_NE(slot.GetOrCreateValue(), 11);

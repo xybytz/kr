@@ -11,8 +11,10 @@
 #include "base/time/time.h"
 #include "chrome/browser/dips/dips_utils.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
+#include "url/origin.h"
 
 namespace base {
 class Clock;
@@ -20,16 +22,6 @@ class Clock;
 
 // TODO(rtarpine): remove dependence on DIPSService.
 class DIPSState;
-
-enum class OptionalBool {
-  kUnknown = 0,
-  kFalse = 1,
-  kTrue = 2,
-};
-
-inline OptionalBool ToOptionalBool(bool b) {
-  return b ? OptionalBool::kTrue : OptionalBool::kFalse;
-}
 
 // Observers a WebContents to detect pop-ups with user interaction, in order to
 // grant storage access.
@@ -48,17 +40,34 @@ class OpenerHeuristicTabHelper
     ~PopupObserver() override;
 
     // Set the time that the user previously interacted with this pop-up's site.
-    void SetPastInteractionTime(base::Time time);
+    void SetPastInteractionTime(TimestampRange interaction_times,
+                                TimestampRange web_authn_assertion_times);
 
    private:
     // Emit the OpenerHeuristic.PopupPastInteraction UKM event if we have all
     // the necessary information, and create a storage access grant if
     // supported.
     void EmitPastInteractionIfReady();
-    // Emit the OpenerHeuristic.TopLevel UKM event.
-    void EmitTopLevel(const GURL& tracker_url,
-                      OptionalBool has_iframe,
-                      bool is_current_interaction);
+
+    // Type of interaction in third party sites
+    enum class InteractionType { UserActivation, Authentication };
+
+    // Does three things:
+
+    // Emits a UKM event for the top-level site (if not a repeat).
+
+    // If `should_record_popup_and_maybe_grant` is True, stores a popup in the
+    // DIPS DB.
+
+    // If `should_record_popup_and_maybe_grant`, and eligible per experiment
+    // flags, creates a storage access grant.
+    void EmitTopLevelAndCreateGrant(const GURL& tracker_url,
+                                    OptionalBool has_iframe,
+                                    bool is_current_interaction,
+                                    InteractionType interaction_type,
+                                    bool should_record_popup_and_maybe_grant,
+                                    base::TimeDelta grant_duration);
+
     // Create a storage access grant, if eligible per experiment flags.
     void MaybeCreateOpenerHeuristicGrant(const GURL& url,
                                          base::TimeDelta grant_duration);
@@ -70,6 +79,11 @@ class OpenerHeuristicTabHelper
         content::NavigationHandle* navigation_handle) override;
     void FrameReceivedUserActivation(
         content::RenderFrameHost* render_frame_host) override;
+    void WebAuthnAssertionRequestSucceeded(
+        content::RenderFrameHost* render_frame_host) override;
+    void RecordInteractionAndCreateGrant(
+        content::RenderFrameHost* render_frame_host,
+        InteractionType interaction_type);
 
     const int32_t popup_id_;
     // The URL originally passed to window.open().
@@ -79,11 +93,14 @@ class OpenerHeuristicTabHelper
     const size_t opener_page_id_;
     // A UKM source id for the page that opened the pop-up.
     const ukm::SourceId opener_source_id_;
-    // The URL of the page that opened the pop-up.
-    const GURL opener_url_;
-    // How long after the user last interacted with the site until the pop-up
-    // opened.
-    std::optional<base::TimeDelta> time_since_interaction_;
+    // The origin of the page that opened the pop-up.
+    const url::Origin opener_origin_;
+    // Whether the user last interacted with the site before the pop-up opened,
+    // and how long ago.
+    struct FieldNotSet {};
+    struct NoInteraction {};
+    absl::variant<FieldNotSet, NoInteraction, base::TimeDelta>
+        time_since_interaction_;
     // A source ID for `initial_url_`.
     std::optional<ukm::SourceId> initial_source_id_;
     std::optional<base::Time> commit_time_;
@@ -95,8 +112,6 @@ class OpenerHeuristicTabHelper
     // Used for UKM metrics and for gating storage access grant creation (under
     // a flag).
     bool is_last_navigation_ad_tagged_ = false;
-
-    scoped_refptr<content_settings::CookieSettings> cookie_settings_;
   };
 
   ~OpenerHeuristicTabHelper() override;

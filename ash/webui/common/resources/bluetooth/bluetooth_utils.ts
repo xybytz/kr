@@ -2,21 +2,25 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {mojoString16ToString} from 'chrome://resources/js/mojo_type_util.js';
-import {BluetoothDeviceProperties, PairedBluetoothDeviceProperties} from 'chrome://resources/mojo/chromeos/ash/services/bluetooth_config/public/mojom/cros_bluetooth_config.mojom-webui.js';
+import {mojoString16ToString} from '//resources/js/mojo_type_util.js';
+import {BluetoothDeviceProperties, PairedBluetoothDeviceProperties} from '//resources/mojo/chromeos/ash/services/bluetooth_config/public/mojom/cros_bluetooth_config.mojom-webui.js';
 
 import {BatteryType} from './bluetooth_types.js';
 
-export function getDeviceName(device: PairedBluetoothDeviceProperties | null): string {
-  if (!device) {
+
+/**
+ *  WARNING: The returned string may contain malicious HTML and should not be
+ *  used for Polymer bindings in CSS code. For additional information see
+ *  b/298724102.
+ */
+export function getDeviceNameUnsafe(device: PairedBluetoothDeviceProperties|
+                                    null): string {
+  if (!device || (!device.nickname && !device.deviceProperties?.publicName)) {
     return '';
   }
 
-  if (device.nickname) {
-    return device.nickname;
-  }
-
-  return mojoString16ToString(device.deviceProperties.publicName);
+  return device.nickname ||
+      mojoString16ToString(device.deviceProperties.publicName);
 }
 
 /**

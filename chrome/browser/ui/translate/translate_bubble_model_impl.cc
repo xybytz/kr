@@ -46,7 +46,6 @@ TranslateBubbleModelImpl::TranslateStepToViewState(
   }
 
   NOTREACHED();
-  return TranslateBubbleModel::VIEW_STATE_ERROR;
 }
 
 TranslateBubbleModel::ViewState TranslateBubbleModelImpl::GetViewState() const {

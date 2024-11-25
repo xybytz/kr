@@ -13,9 +13,7 @@ import static org.mockito.Mockito.when;
 import android.view.MotionEvent;
 
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -28,7 +26,6 @@ import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.browser.customtabs.features.partialcustomtab.ContentGestureListener.GestureState;
 import org.chromium.chrome.browser.customtabs.features.partialcustomtab.PartialCustomTabHandleStrategy.DragEventCallback;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.embedder_support.view.ContentView;
 import org.chromium.content.browser.RenderCoordinatesImpl;
 
@@ -40,8 +37,6 @@ import java.util.function.BooleanSupplier;
 @LooperMode(Mode.PAUSED)
 public class ContentGestureListenerTest {
     private static final float DISTX = 0.f;
-
-    @Rule public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
 
     @Mock private Tab mTab;
     @Mock private BooleanSupplier mIsFullyExpanded;

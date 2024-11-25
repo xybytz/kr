@@ -78,8 +78,8 @@ public abstract class ActionModeCallbackHelper {
     ;
 
     /**
-     * @return {@code true} if action mode is started and in proper working state.
-     *     if null, action mode was not started or is in finished, destroyed state.
+     * @return {@code true} if selection action mode is started and in proper working state. if
+     *     null, it was not started or is in finished, destroyed state.
      */
     public abstract boolean isActionModeValid();
 
@@ -102,14 +102,6 @@ public abstract class ActionModeCallbackHelper {
      */
     @Nullable
     public abstract RenderFrameHost getRenderFrameHost();
-
-    /**
-     * Called when the processed text is replied from an activity that supports
-     * Intent.ACTION_PROCESS_TEXT.
-     * @param resultCode the code that indicates if the activity successfully processed the text
-     * @param data the reply that contains the processed text.
-     */
-    public abstract void onReceivedProcessTextResult(int resultCode, Intent data);
 
     /**
      * Set the action mode menu items allowed on the content.

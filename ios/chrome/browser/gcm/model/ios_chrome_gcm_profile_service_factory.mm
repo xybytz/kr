@@ -15,7 +15,7 @@
 #import "components/gcm_driver/gcm_profile_service.h"
 #import "components/keyed_service/ios/browser_state_dependency_manager.h"
 #import "ios/chrome/browser/shared/model/application_context/application_context.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/signin/model/identity_manager_factory.h"
 #import "ios/chrome/common/channel_info.h"
 #import "ios/web/public/thread/web_task_traits.h"
@@ -56,10 +56,10 @@ void RequestProxyResolvingSocketFactory(
 }  // namespace
 
 // static
-gcm::GCMProfileService* IOSChromeGCMProfileServiceFactory::GetForBrowserState(
-    ChromeBrowserState* browser_state) {
+gcm::GCMProfileService* IOSChromeGCMProfileServiceFactory::GetForProfile(
+    ProfileIOS* profile) {
   return static_cast<gcm::GCMProfileService*>(
-      GetInstance()->GetServiceForBrowserState(browser_state, true));
+      GetInstance()->GetServiceForBrowserState(profile, true));
 }
 
 // static
@@ -96,15 +96,14 @@ IOSChromeGCMProfileServiceFactory::BuildServiceInstanceFor(
       base::ThreadPool::CreateSequencedTaskRunner(
           {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(context);
+  ProfileIOS* profile = ProfileIOS::FromBrowserState(context);
   return std::make_unique<gcm::GCMProfileService>(
-      browser_state->GetPrefs(), browser_state->GetStatePath(),
+      profile->GetPrefs(), profile->GetStatePath(),
       base::BindRepeating(&RequestProxyResolvingSocketFactory, context),
-      browser_state->GetSharedURLLoaderFactory(),
+      profile->GetSharedURLLoaderFactory(),
       GetApplicationContext()->GetNetworkConnectionTracker(), ::GetChannel(),
       GetProductCategoryForSubtypes(),
-      IdentityManagerFactory::GetForBrowserState(browser_state),
+      IdentityManagerFactory::GetForProfile(profile),
       base::WrapUnique(new gcm::GCMClientFactory),
       web::GetUIThreadTaskRunner({}), web::GetIOThreadTaskRunner({}),
       blocking_task_runner);

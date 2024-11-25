@@ -5,11 +5,12 @@
 /**
  * @fileoverview Handle processing for richly editable text.
  */
-import {AutomationPredicate} from '../../../common/automation_predicate.js';
-import {AutomationUtil} from '../../../common/automation_util.js';
-import {constants} from '../../../common/constants.js';
-import {Cursor} from '../../../common/cursors/cursor.js';
-import {CursorRange} from '../../../common/cursors/range.js';
+import {AutomationPredicate} from '/common/automation_predicate.js';
+import {AutomationUtil} from '/common/automation_util.js';
+import {constants} from '/common/constants.js';
+import {Cursor} from '/common/cursors/cursor.js';
+import {CursorRange} from '/common/cursors/range.js';
+
 import {NavBraille} from '../../common/braille/nav_braille.js';
 import {Msgs} from '../../common/msgs.js';
 import {SettingsManager} from '../../common/settings_manager.js';
@@ -21,11 +22,11 @@ import {ChromeVox} from '../chromevox.js';
 import {ChromeVoxState} from '../chromevox_state.js';
 import {Color} from '../color.js';
 import {Output} from '../output/output.js';
-import {OutputCustomEvent} from '../output/output_types.js';
+import {OutputCustomEvent, SPACE} from '../output/output_types.js';
 
 import {EditableLine} from './editable_line.js';
 import {AutomationEditableText} from './editable_text.js';
-import {ChromeVoxEditableTextBase, TextChangeEvent} from './editable_text_base.js';
+import {TextChangeEvent} from './editable_text_base.js';
 import {IntentHandler} from './intent_handler.js';
 
 import AutomationIntent = chrome.automation.AutomationIntent;
@@ -115,7 +116,8 @@ export class RichEditableText extends AutomationEditableText {
   }
 
   override onUpdate(intents: AutomationIntent[]): void {
-    const root = this.node_.root;
+    // TODO(b/314203187): Not null asserted, check that this is correct.
+    const root = this.node_.root!;
     if (!root.selectionStartObject || !root.selectionEndObject ||
         root.selectionStartOffset === undefined ||
         root.selectionEndOffset === undefined) {
@@ -138,14 +140,13 @@ export class RichEditableText extends AutomationEditableText {
     const isSameSelection =
         baseLineOnStart && prevStartLine.isSameLineAndSelection(startLine);
 
-    let cur;
-    if (isSameSelection && this.line_) {
+    const cur = new EditableLine(
+        root.selectionStartObject, root.selectionStartOffset,
+        root.selectionEndObject, root.selectionEndOffset, baseLineOnStart);
+
+    if (isSameSelection && this.line_ && this.line_.text === cur.text) {
       // Nothing changed, return.
       return;
-    } else {
-      cur = new EditableLine(
-          root.selectionStartObject, root.selectionStartOffset,
-          root.selectionEndObject, root.selectionEndOffset, baseLineOnStart);
     }
     const prev = this.line_!;
     this.line_ = cur;
@@ -248,7 +249,8 @@ export class RichEditableText extends AutomationEditableText {
     }
 
     const curBase = baseLineOnStart ? endLine : startLine;
-    if ((cur.startContainer.role === RoleType.TEXT_FIELD ||
+    // TODO(b/314203187): Not null asserted, check that this is correct.
+    if ((cur.startContainer!.role === RoleType.TEXT_FIELD ||
          (cur.startContainer === prev.startContainer &&
           cur.endContainer === prev.endContainer)) &&
         cur.startContainerValue !== prev.startContainerValue) {
@@ -411,11 +413,11 @@ export class RichEditableText extends AutomationEditableText {
         const prefix = value.substring(0, end);
         const suffix = value.substring(end, value.length);
         value = prefix;
-        value.append(Output.SPACE);
+        value.append(SPACE);
         value.append(output.braille);
         if (suffix.length) {
-          if (suffix.toString()[0] !== Output.SPACE) {
-            value.append(Output.SPACE);
+          if (suffix.toString()[0] !== SPACE) {
+            value.append(SPACE);
           }
           value.append(suffix);
         }
@@ -426,7 +428,7 @@ export class RichEditableText extends AutomationEditableText {
     let end = cur.endOffset;
     if (isFirstLine) {
       if (!/\s/.test(value.toString()[value.length - 1])) {
-        value.append(Output.SPACE);
+        value.append(SPACE);
       }
 
       if (isEmpty) {
@@ -559,14 +561,14 @@ export class RichEditableText extends AutomationEditableText {
 
   override describeSelectionChanged(evt: TextChangeEvent): void {
     // Note that since Chrome allows for selection to be placed immediately at
-    // the end of a line (i.e. end == value.length) and since we try to describe
+    // the end of a line (i.e. end === value.length) and since we try to describe
     // the character to the right, just describe it as a new line.
     if ((this.start + 1) === evt.start && evt.start === this.value.length) {
       this.speak('\n', evt.triggeredByUser);
       return;
     }
 
-    ChromeVoxEditableTextBase.prototype.describeSelectionChanged.call(
+    AutomationEditableText.prototype.describeSelectionChanged.call(
         this, evt);
   }
 
@@ -585,7 +587,7 @@ export class RichEditableText extends AutomationEditableText {
   override changed(evt: TextChangeEvent): void {
     // This path does not use the Output module to synthesize speech.
     Output.forceModeForNextSpeechUtterance(undefined);
-    ChromeVoxEditableTextBase.prototype.changed.call(this, evt);
+    AutomationEditableText.prototype.changed.call(this, evt);
   }
 
   private updateIntraLineState_(cur: EditableLine): void {

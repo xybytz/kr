@@ -2,19 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import '//resources/cr_elements/cr_button/cr_button.js';
-import '//resources/cr_elements/cr_input/cr_input.js';
-import '//resources/cr_elements/cr_radio_button/cr_radio_button.js';
-import '//resources/cr_elements/cr_radio_group/cr_radio_group.js';
-import '//resources/cr_elements/cr_shared_style.css.js';
+import '//resources/ash/common/cr_elements/cr_button/cr_button.js';
+import '//resources/ash/common/cr_elements/cr_input/cr_input.js';
+import '//resources/ash/common/cr_elements/cr_radio_button/cr_radio_button.js';
+import '//resources/ash/common/cr_elements/cr_radio_group/cr_radio_group.js';
+import '//resources/ash/common/cr_elements/cr_shared_style.css.js';
 import '../settings_shared.css.js';
 import '../settings_vars.css.js';
 
-import {CrInputElement} from '//resources/cr_elements/cr_input/cr_input.js';
-import {CrRadioGroupElement} from '//resources/cr_elements/cr_radio_group/cr_radio_group.js';
+import type {CrInputElement} from '//resources/ash/common/cr_elements/cr_input/cr_input.js';
+import type {CrRadioGroupElement} from '//resources/ash/common/cr_elements/cr_radio_group/cr_radio_group.js';
 import {assert} from '//resources/js/assert.js';
 import {PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {SyncBrowserProxyImpl, SyncPrefs, SyncStatus} from '/shared/settings/people_page/sync_browser_proxy.js';
+import type {SyncPrefs, SyncStatus} from '/shared/settings/people_page/sync_browser_proxy.js';
+import {SyncBrowserProxyImpl} from '/shared/settings/people_page/sync_browser_proxy.js';
 
 import {getTemplate} from './os_sync_encryption_options.html.js';
 
@@ -177,7 +178,7 @@ export class OsSettingsSyncEncryptionOptionsElement extends PolymerElement {
     SyncBrowserProxyImpl.getInstance()
         .setEncryptionPassphrase(this.passphrase_)
         .then(successfullySet => {
-          // TODO(crbug.com/1139060): Rename the event, there is no change if
+          // TODO(crbug.com/40725814): Rename the event, there is no change if
           // |successfullySet| is false. It should also mention 'encryption
           // passphrase' in its name.
           this.dispatchEvent(new CustomEvent('passphrase-changed', {

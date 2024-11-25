@@ -13,6 +13,7 @@ import android.view.View.OnClickListener;
 import android.view.ViewGroup.LayoutParams;
 import android.widget.TextView;
 
+import androidx.annotation.ColorInt;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
@@ -21,12 +22,14 @@ import org.chromium.base.Log;
 import org.chromium.base.UserData;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.infobar.InfoBarContainer;
 import org.chromium.chrome.browser.media.MediaCaptureDevicesDispatcherAndroid;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabViewProvider;
+import org.chromium.chrome.browser.tab_ui.TabContentManager;
+import org.chromium.components.browser_ui.styles.SemanticColorUtils;
+import org.chromium.content_public.browser.Visibility;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.WindowAndroid;
 
@@ -70,6 +73,11 @@ public class SuspendedTab extends EmptyTabObserver implements UserData, TabViewP
         return tab.getUserDataHost().getUserData(USER_DATA_KEY);
     }
 
+    @Override
+    public @ColorInt int getBackgroundColor(Context context) {
+        return SemanticColorUtils.getDefaultBgColor(context);
+    }
+
     private final Tab mTab;
     private final Supplier<TabContentManager> mTabContentManagerSupplier;
     private View mView;
@@ -92,7 +100,7 @@ public class SuspendedTab extends EmptyTabObserver implements UserData, TabViewP
 
         WebContents webContents = mTab.getWebContents();
         if (webContents != null) {
-            webContents.onHide();
+            webContents.updateWebContentsVisibility(Visibility.HIDDEN);
             webContents.suspendAllMediaPlayers();
             webContents.setAudioMuted(true);
             if (MediaCaptureDevicesDispatcherAndroid.isCapturingAudio(webContents)
@@ -131,7 +139,7 @@ public class SuspendedTab extends EmptyTabObserver implements UserData, TabViewP
 
         WebContents webContents = mTab.getWebContents();
         if (webContents != null) {
-            webContents.onShow();
+            webContents.updateWebContentsVisibility(Visibility.VISIBLE);
             webContents.setAudioMuted(false);
         }
 
@@ -174,7 +182,7 @@ public class SuspendedTab extends EmptyTabObserver implements UserData, TabViewP
 
     private void updateFqdnText() {
         Context context = mTab.getContext();
-        TextView explanationText = (TextView) mView.findViewById(R.id.suspended_tab_explanation);
+        TextView explanationText = mView.findViewById(R.id.suspended_tab_explanation);
         explanationText.setText(
                 context.getString(R.string.usage_stats_site_paused_explanation, mFqdn));
         setSettingsLinkClickListener();

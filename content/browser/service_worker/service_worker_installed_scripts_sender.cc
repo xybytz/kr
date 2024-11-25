@@ -188,7 +188,6 @@ void ServiceWorkerInstalledScriptsSender::Abort(
     case ServiceWorkerInstalledScriptReader::FinishedReason::kNotFinished:
     case ServiceWorkerInstalledScriptReader::FinishedReason::kSuccess:
       NOTREACHED();
-      return;
     case ServiceWorkerInstalledScriptReader::FinishedReason::
         kNoResponseHeadError:
     case ServiceWorkerInstalledScriptReader::FinishedReason::

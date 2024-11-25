@@ -10,14 +10,17 @@
 
 import '../settings_shared.css.js';
 
-import {PrefsMixin, PrefsMixinInterface} from 'chrome://resources/cr_components/settings_prefs/prefs_mixin.js';
-import {I18nMixin, I18nMixinInterface} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import type {PrefsMixinInterface} from '/shared/settings/prefs/prefs_mixin.js';
+import {PrefsMixin} from '/shared/settings/prefs/prefs_mixin.js';
+import type {I18nMixinInterface} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
 import {IronResizableBehavior} from 'chrome://resources/polymer/v3_0/iron-resizable-behavior/iron-resizable-behavior.js';
-import {PaperRippleBehavior} from 'chrome://resources/polymer/v3_0/paper-behaviors/paper-ripple-behavior.js';
-import {PaperRippleElement} from 'chrome://resources/polymer/v3_0/paper-ripple/paper-ripple.js';
+import type {PaperRippleMixinInterface} from 'chrome://resources/polymer/v3_0/paper-behaviors/paper-ripple-mixin.js';
+import {PaperRippleMixin} from 'chrome://resources/polymer/v3_0/paper-behaviors/paper-ripple-mixin.js';
+import type {PaperRippleElement} from 'chrome://resources/polymer/v3_0/paper-ripple/paper-ripple.js';
 import {mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {Constructor} from '../common/types.js';
+import type {Constructor} from '../common/types.js';
 
 import {getTemplate} from './settings_scheduler_slider.html.js';
 
@@ -73,10 +76,10 @@ function modulo(x: number, y: number): number {
 
 const SettingsSchedulerSliderElementBase =
     mixinBehaviors(
-        [IronResizableBehavior, PaperRippleBehavior],
-        PrefsMixin(I18nMixin(PolymerElement))) as
+        [IronResizableBehavior],
+        PaperRippleMixin(PrefsMixin(I18nMixin(PolymerElement)))) as
     Constructor<PolymerElement&I18nMixinInterface&PrefsMixinInterface&
-                IronResizableBehavior&PaperRippleBehavior>;
+                IronResizableBehavior&PaperRippleMixinInterface>;
 
 export class SettingsSchedulerSliderElement extends
     SettingsSchedulerSliderElementBase {
@@ -605,7 +608,7 @@ export class SettingsSchedulerSliderElement extends
   }
 
   /**
-   * Overrides _createRipple() from PaperRippleBehavior to create the ripple
+   * Overrides _createRipple() from PaperRippleMixin to create the ripple
    * only on a knob if it's focused, or on a dummy hidden element so that it
    * doesn't show.
    */
@@ -615,7 +618,7 @@ export class SettingsSchedulerSliderElement extends
       this._rippleContainer = this.shadowRoot!.activeElement as HTMLElement;
     } else {
       // We can't just skip the ripple creation and return early with null here.
-      // The code inherited from PaperRippleBehavior expects that this function
+      // The code inherited from PaperRippleMixin expects that this function
       // returns a ripple element. So to avoid crashes, we'll setup the ripple
       // to be created under a hidden element.
       this._rippleContainer = this.$.dummyRippleContainer;
@@ -623,7 +626,7 @@ export class SettingsSchedulerSliderElement extends
     const ripple = super._createRipple();
     ripple.id = 'ink';
     ripple.setAttribute('recenters', '');
-    ripple.classList.add('circle', 'toggle-ink');
+    ripple.classList.add('circle');
     return ripple;
   }
 

@@ -36,7 +36,7 @@
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/models/image_model.h"
 #include "ui/base/models/menu_separator_types.h"
-#include "ui/base/models/simple_menu_model.h"
+#include "ui/base/mojom/menu_source_type.mojom-forward.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/animation/multi_animation.h"
 #include "ui/gfx/animation/slide_animation.h"
@@ -46,6 +46,7 @@
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/menus/simple_menu_model.h"
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/border.h"
@@ -98,8 +99,9 @@ std::u16string GetTabCounterLabelText(int num_tabs) {
 // Label to display a number of tabs. Because there is limited space within the
 // tab counter border, the font shrinks when the count is 10 or higher.
 class NumberLabel : public views::Label {
+  METADATA_HEADER(NumberLabel, views::Label)
+
  public:
-  METADATA_HEADER(NumberLabel);
   NumberLabel() : Label(std::u16string(), CONTEXT_TAB_COUNTER) {
     single_digit_font_ = font_list();
     double_digit_font_ = views::TypographyProvider::Get().GetFont(
@@ -118,7 +120,7 @@ class NumberLabel : public views::Label {
   gfx::FontList double_digit_font_;
 };
 
-BEGIN_METADATA(NumberLabel, views::Label)
+BEGIN_METADATA(NumberLabel)
 END_METADATA
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -153,9 +155,9 @@ class InteractionTracker : public ui::EventHandler,
  private:
   // ui::EventHandler:
   void OnEvent(ui::Event* event) override {
-    if (event->type() == ui::ET_MOUSE_PRESSED ||
-        event->type() == ui::ET_MOUSE_RELEASED ||
-        event->type() == ui::ET_TOUCH_PRESSED) {
+    if (event->type() == ui::EventType::kMousePressed ||
+        event->type() == ui::EventType::kMouseReleased ||
+        event->type() == ui::EventType::kTouchPressed) {
       const ui::LocatedEvent* const located = event->AsLocatedEvent();
       last_interaction_location_ =
           located->target()->GetScreenLocation(*located);
@@ -354,7 +356,7 @@ void TabCounterAnimator::LayoutIfAnimating() {
           border_animation_.GetCurrentValue(), GetBorderOvershootYDelta(), 0);
       break;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
   border_view_->SetY(GetBorderStartingY() + border_y_delta);
 
@@ -388,7 +390,7 @@ int TabCounterAnimator::GetBorderTargetYDelta() const {
     case TabCounterAnimationType::kDecreasing:
       return -kBorderBounceDistance;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 
@@ -400,7 +402,7 @@ int TabCounterAnimator::GetBorderOvershootYDelta() const {
     case TabCounterAnimationType::kDecreasing:
       return kBorderBounceOvershoot;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 
@@ -411,7 +413,7 @@ int TabCounterAnimator::GetAppearingLabelStartPosition() const {
     case TabCounterAnimationType::kDecreasing:
       return kOffscreenLabelDistance;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 
@@ -458,7 +460,7 @@ class WebUITabCounterButton : public views::Button,
                         views::LayerRegion region) override;
   void RemoveLayerFromRegions(ui::Layer* old_layer) override;
   void OnThemeChanged() override;
-  void Layout() override;
+  void Layout(PassKey) override;
 
   // TabStripModelObserver:
   void OnTabStripModelChanged(
@@ -467,9 +469,10 @@ class WebUITabCounterButton : public views::Button,
       const TabStripSelectionChange& selection) override;
 
   // views::ContextMenuController:
-  void ShowContextMenuForViewImpl(views::View* source,
-                                  const gfx::Point& point,
-                                  ui::MenuSourceType source_type) override;
+  void ShowContextMenuForViewImpl(
+      views::View* source,
+      const gfx::Point& point,
+      ui::mojom::MenuSourceType source_type) override;
 
   // ui::SimpleMenuModel::Delegate:
   void ExecuteCommand(int command_id, int event_flags) override;
@@ -620,7 +623,7 @@ void WebUITabCounterButton::OnThemeChanged() {
   UpdateColors();
 }
 
-void WebUITabCounterButton::Layout() {
+void WebUITabCounterButton::Layout(PassKey) {
   const gfx::Rect view_bounds = GetLocalBounds();
 
   ink_drop_container_->SetBoundsRect(view_bounds);
@@ -670,7 +673,7 @@ void WebUITabCounterButton::OnTabStripModelChanged(
 void WebUITabCounterButton::ShowContextMenuForViewImpl(
     views::View* source,
     const gfx::Point& point,
-    ui::MenuSourceType source_type) {
+    ui::mojom::MenuSourceType source_type) {
   menu_runner_->RunMenuAt(GetWidget(), nullptr,
                           border_view_->GetBoundsInScreen(),
                           views::MenuAnchorPosition::kTopRight, source_type);
@@ -689,7 +692,7 @@ void WebUITabCounterButton::ExecuteCommand(int command_id, int event_flags) {
       tab_strip_model_->delegate()->AddTabAt(GURL(), -1, true);
       break;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 

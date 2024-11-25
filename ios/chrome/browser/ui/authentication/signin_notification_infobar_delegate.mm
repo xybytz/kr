@@ -17,8 +17,8 @@
 #import "components/infobars/core/infobar_manager.h"
 #import "ios/chrome/browser/infobars/model/infobar_utils.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
-#import "ios/chrome/browser/shared/public/commands/application_commands.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
+#import "ios/chrome/browser/shared/public/commands/settings_commands.h"
 #import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/signin/model/authentication_service.h"
 #import "ios/chrome/browser/signin/model/authentication_service_factory.h"
@@ -33,33 +33,33 @@
 // static
 bool SigninNotificationInfoBarDelegate::Create(
     infobars::InfoBarManager* infobar_manager,
-    ChromeBrowserState* browser_state,
-    id<ApplicationSettingsCommands> dispatcher,
+    ProfileIOS* profile,
+    id<SettingsCommands> dispatcher,
     UIViewController* view_controller) {
   DCHECK(infobar_manager);
   std::unique_ptr<ConfirmInfoBarDelegate> delegate(
-      std::make_unique<SigninNotificationInfoBarDelegate>(
-          browser_state, dispatcher, view_controller));
+      std::make_unique<SigninNotificationInfoBarDelegate>(profile, dispatcher,
+                                                          view_controller));
   std::unique_ptr<infobars::InfoBar> infobar =
       CreateHighPriorityConfirmInfoBar(std::move(delegate));
   return !!infobar_manager->AddInfoBar(std::move(infobar));
 }
 
 SigninNotificationInfoBarDelegate::SigninNotificationInfoBarDelegate(
-    ChromeBrowserState* browser_state,
-    id<ApplicationSettingsCommands> dispatcher,
+    ProfileIOS* profile,
+    id<SettingsCommands> dispatcher,
     UIViewController* view_controller)
     : dispatcher_(dispatcher), base_view_controller_(view_controller) {
-  DCHECK(!browser_state->IsOffTheRecord());
+  DCHECK(!profile->IsOffTheRecord());
 
   AuthenticationService* auth_service =
-      AuthenticationServiceFactory::GetForBrowserState(browser_state);
+      AuthenticationServiceFactory::GetForProfile(profile);
   DCHECK(auth_service);
   id<SystemIdentity> identity =
       auth_service->GetPrimaryIdentity(signin::ConsentLevel::kSignin);
 
   ChromeAccountManagerService* accountManagerService =
-      ChromeAccountManagerServiceFactory::GetForBrowserState(browser_state);
+      ChromeAccountManagerServiceFactory::GetForProfile(profile);
   UIImage* image = accountManagerService->GetIdentityAvatarWithIdentity(
       identity, IdentityAvatarSize::Regular);
   icon_ = gfx::Image(CircularImageFromImage(image, image.size.width));

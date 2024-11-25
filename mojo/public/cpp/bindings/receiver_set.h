@@ -17,6 +17,7 @@
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/raw_ptr_exclusion.h"
 #include "base/task/sequenced_task_runner.h"
 #include "mojo/public/cpp/bindings/connection_error_callback.h"
@@ -95,7 +96,7 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) ReceiverSetState {
     void OnDisconnect(uint32_t custom_reason_code,
                       const std::string& description);
 
-    // `state_` is not a raw_ref<...> as that leads to a binary size increase.
+    // RAW_PTR_EXCLUSION: Binary size increase.
     RAW_PTR_EXCLUSION ReceiverSetState& state_;
     const ReceiverId id_;
     const std::unique_ptr<ReceiverState> receiver_;
@@ -148,9 +149,7 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) ReceiverSetState {
   RepeatingConnectionErrorWithReasonCallback disconnect_with_reason_handler_;
   ReceiverId next_receiver_id_ = 0;
   EntryMap entries_;
-  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
-  // #union
-  RAW_PTR_EXCLUSION void* current_context_ = nullptr;
+  raw_ptr<void, DanglingUntriaged> current_context_ = nullptr;
   ReceiverId current_receiver_;
   base::WeakPtrFactory<ReceiverSetState> weak_ptr_factory_{this};
 };
@@ -359,6 +358,32 @@ class ReceiverSetBase {
   // Returns |true| if the receiver is in the set and |false| if not.
   bool HasReceiver(ReceiverId id) const {
     return base::Contains(state_.entries(), id);
+  }
+
+  // Returns a pointer to the context associated with a receiver.
+  //
+  // Returns |nullptr| if the receiver is not in the set.
+  Context* GetContext(ReceiverId id) const {
+    static_assert(ContextTraits::SupportsContext(),
+                  "GetContext() requires non-void context type.");
+    auto it = state_.entries().find(id);
+    if (it == state_.entries().end()) {
+      return nullptr;
+    }
+    return static_cast<Context*>(it->second->receiver().GetContext());
+  }
+
+  // Returns a map from the ID to the associated context for each receiver in
+  // the set.
+  std::map<ReceiverId, Context*> GetAllContexts() const {
+    static_assert(ContextTraits::SupportsContext(),
+                  "GetAllContexts() requires non-void context type.");
+    std::map<ReceiverId, Context*> contexts;
+    for (const auto& [receiver_id, entry] : state_.entries()) {
+      contexts[receiver_id] =
+          static_cast<Context*>(entry->receiver().GetContext());
+    }
+    return contexts;
   }
 
   bool empty() const { return state_.entries().empty(); }

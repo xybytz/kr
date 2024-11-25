@@ -19,7 +19,7 @@
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/fido_assertion_info.h"
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/session_context.h"
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/target_device_connection_broker.h"
-#include "chrome/browser/nearby_sharing/public/cpp/nearby_connection.h"
+#include "chromeos/ash/components/nearby/common/connections_manager/nearby_connection.h"
 #include "chromeos/ash/components/quick_start/quick_start_metrics.h"
 #include "chromeos/ash/components/quick_start/quick_start_response_type.h"
 #include "chromeos/ash/components/quick_start/types.h"
@@ -55,12 +55,6 @@ class Connection
     kClosed    // The connection is closed
   };
 
-  enum class AuthenticationMethod {
-    kQR,
-    kPin,
-    kResumeAfterUpdate,
-  };
-
   class Factory {
    public:
     Factory() = default;
@@ -70,14 +64,14 @@ class Connection
 
     virtual std::unique_ptr<Connection> Create(
         NearbyConnection* nearby_connection,
-        SessionContext session_context,
+        SessionContext* session_context,
         mojo::SharedRemote<mojom::QuickStartDecoder> quick_start_decoder,
         ConnectionClosedCallback on_connection_closed,
         ConnectionAuthenticatedCallback on_connection_authenticated);
   };
 
   Connection(NearbyConnection* nearby_connection,
-             SessionContext session_context,
+             SessionContext* session_context,
              mojo::SharedRemote<mojom::QuickStartDecoder> quick_start_decoder,
              ConnectionClosedCallback on_connection_closed,
              ConnectionAuthenticatedCallback on_connection_authenticated);
@@ -96,7 +90,8 @@ class Connection
   // Changes the connection state to authenticated and invokes the
   // ConnectionAuthenticatedCallback. The caller must ensure that the connection
   // is authenticated before calling this function.
-  void MarkConnectionAuthenticated(AuthenticationMethod auth_method);
+  void MarkConnectionAuthenticated(
+      QuickStartMetrics::AuthenticationMethod auth_method);
 
   // Sends a cryptographic challenge to the source device. If the source device
   // can prove that it posesses the shared secret, then the connection is
@@ -126,6 +121,7 @@ class Connection
       RequestAccountTransferAssertionCallback callback) override;
   void WaitForUserVerification(AwaitUserVerificationCallback callback) override;
   base::Value::Dict GetPrepareForUpdateInfo() override;
+  void NotifyPhoneSetupComplete() override;
 
   void DoWaitForUserVerification(size_t attempt_number,
                                  AwaitUserVerificationCallback callback);
@@ -190,7 +186,7 @@ class Connection
 
   base::OneShotTimer response_timeout_timer_;
   raw_ptr<NearbyConnection> nearby_connection_;
-  SessionContext session_context_;
+  raw_ptr<SessionContext> session_context_;
   State connection_state_ = State::kOpen;
   ConnectionClosedCallback on_connection_closed_;
   bool authenticated_ = false;
@@ -198,7 +194,7 @@ class Connection
   std::string challenge_b64url_;
   mojo::SharedRemote<mojom::QuickStartDecoder> decoder_;
   std::unique_ptr<AccountTransferClientData> client_data_;
-  QuickStartMetrics quick_start_metrics_;
+  std::unique_ptr<QuickStartMetrics> quick_start_metrics_;
 
   // Separate WeakPtrFactory for use with |OnResponseReceived()| to allow for
   // canceling the response.

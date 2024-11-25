@@ -22,6 +22,7 @@ namespace ash {
 
 class ASH_EXPORT AuthErrorBubble : public LoginErrorBubble {
   METADATA_HEADER(AuthErrorBubble, LoginErrorBubble)
+  friend class LockContentsViewTestApi;
 
  public:
   AuthErrorBubble(const base::RepeatingClosure& on_learn_more_button_clicked,
@@ -30,7 +31,7 @@ class ASH_EXPORT AuthErrorBubble : public LoginErrorBubble {
 
   void ShowAuthError(base::WeakPtr<views::View> anchor_view,
                      int unlock_attempt,
-                     bool show_pin,
+                     bool authenticated_by_pin,
                      bool is_login_screen);
 
  private:

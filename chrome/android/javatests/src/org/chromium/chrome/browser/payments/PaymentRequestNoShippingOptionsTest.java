@@ -57,7 +57,6 @@ public class PaymentRequestNoShippingOptionsTest {
                         "",
                         "https://example.test",
                         true,
-                        true,
                         "Jon Doe",
                         "4111111111111111",
                         "1111",
@@ -84,7 +83,7 @@ public class PaymentRequestNoShippingOptionsTest {
                                 .build());
 
         // Set the fist profile to have a better frecency score that the second one.
-        // TODO(crbug.com/1463732): Update Disabled Test Callsites of SetProfileUseStatsForTesting
+        // TODO(crbug.com/40922650): Update Disabled Test Callsites of SetProfileUseStatsForTesting
         // and SetCreditCardUseStatsForTesting since the underlying logic has changed.
         helper.setProfileUseStatsForTesting(firstAddressId, 10, 10);
         helper.setProfileUseStatsForTesting(secondAddressId, 0, 0);
@@ -98,7 +97,7 @@ public class PaymentRequestNoShippingOptionsTest {
     @DisabledTest(message = "crbug.com/1182234")
     @Feature({"Payments"})
     public void testAllShippingAddressesInvalid() throws TimeoutException {
-        mPaymentRequestTestRule.triggerUIAndWait("buy", mPaymentRequestTestRule.getReadyForInput());
+        mPaymentRequestTestRule.triggerUiAndWait("buy", mPaymentRequestTestRule.getReadyForInput());
 
         // Focus on the shipping addresses section to enter expanded mode.
         mPaymentRequestTestRule.clickInShippingAddressAndWait(

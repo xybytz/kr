@@ -8,6 +8,7 @@
 #include <wayland-util.h>
 
 #include <memory>
+#include <string>
 
 #include "base/containers/circular_deque.h"
 #include "base/containers/flat_map.h"
@@ -60,6 +61,12 @@ class WaylandInputEmulate : public wl::WaylandProxy::Delegate {
                     const gfx::Point& touch_screen_location,
                     int touch_id,
                     uint32_t request_id);
+
+#if BUILDFLAG(IS_CHROMEOS)
+  // |display_specs| is the spec for the display(s).
+  void EmulateUpdateDisplay(const std::string& display_specs,
+                            uint32_t request_id);
+#endif
 
 #if BUILDFLAG(IS_LINUX)
   void ForceUseScreenCoordinatesOnce();
@@ -124,10 +131,10 @@ class WaylandInputEmulate : public wl::WaylandProxy::Delegate {
     bool buffer_attached_and_configured = false;
 
     // Frame callback that invokes WaylandInputEmulate::FrameCallbackHandler.
-    raw_ptr<wl_callback, DanglingUntriaged> frame_callback = nullptr;
+    raw_ptr<wl_callback> frame_callback = nullptr;
 
     // The attached buffer.
-    raw_ptr<wl_buffer, DanglingUntriaged> buffer = nullptr;
+    raw_ptr<wl_buffer> buffer = nullptr;
 
     // True if the window was created or assigned a role and is now waiting for
     // a buffer to be committed.
@@ -135,6 +142,9 @@ class WaylandInputEmulate : public wl::WaylandProxy::Delegate {
 
     base::WeakPtrFactory<TestWindow> weak_factory{this};
   };
+
+  // Destroys `window`'s frame callback and buffer.
+  void DestroyTestWindowState(TestWindow* window);
 
   // WaylandProxy::Delegate:
   void OnWindowAdded(gfx::AcceleratedWidget widget) override;
@@ -154,6 +164,9 @@ class WaylandInputEmulate : public wl::WaylandProxy::Delegate {
                        uint32_t name,
                        const char* interface,
                        uint32_t version);
+
+  // wl_registry_listener callbacks:
+  static void OnGlobalRemove(void* data, wl_registry* registry, uint32_t name);
 
   // wl_callback_listener callbacks:
   static void OnFrameDone(void* data, wl_callback* callback, uint32_t time);

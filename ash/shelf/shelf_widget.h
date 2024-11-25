@@ -20,13 +20,13 @@
 #include "ash/shelf/shelf_component.h"
 #include "ash/shelf/shelf_layout_manager_observer.h"
 #include "ash/shelf/shelf_observer.h"
+#include "ash/wm/overview/overview_observer.h"
 #include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "ui/views/widget/widget.h"
 
 namespace ash {
 enum class AnimationChangeType;
-class ApplicationDragAndDropHost;
 class DragHandle;
 class FocusCycler;
 class HotseatWidget;
@@ -44,7 +44,8 @@ class ASH_EXPORT ShelfWidget : public SessionObserver,
                                public ShelfComponent,
                                public ShelfLayoutManagerObserver,
                                public ShelfObserver,
-                               public views::Widget {
+                               public views::Widget,
+                               public OverviewObserver {
  public:
   explicit ShelfWidget(Shelf* shelf);
 
@@ -94,15 +95,10 @@ class ASH_EXPORT ShelfWidget : public SessionObserver,
   // as those are not visible to the user.
   gfx::Rect GetVisibleShelfBounds() const;
 
-  // Returns the ApplicationDragAndDropHost for this shelf.
-  ApplicationDragAndDropHost* GetDragAndDropHostForAppList();
-
   // Fetch the LoginShelfView instance.
   // TODO(https://crbug.com/1343114): remove this method after the login shelf
   // is moved to its own widget.
   LoginShelfView* GetLoginShelfView();
-
-  void set_default_last_focusable_child(bool default_last_focusable_child);
 
   // views::Widget:
   void OnMouseEvent(ui::MouseEvent* event) override;
@@ -116,8 +112,9 @@ class ASH_EXPORT ShelfWidget : public SessionObserver,
   void UpdateLayout(bool animate) override;
   void UpdateTargetBoundsForGesture(int shelf_position) override;
 
-  // Called when shelf layout manager detects a locale change.
-  void HandleLocaleChange();
+  // OverviewObserver:
+  void OnOverviewModeStarting() override;
+  void OnOverviewModeEnding(OverviewSession* overview_session) override;
 
   // TODO(manucornet): Remove this method when all this widget's layout
   // logic is part of this class.
@@ -139,9 +136,6 @@ class ASH_EXPORT ShelfWidget : public SessionObserver,
   void OnUserSessionAdded(const AccountId& account_id) override;
 
   SkColor GetShelfBackgroundColor() const;
-  bool GetHitTestRects(aura::Window* target,
-                       gfx::Rect* hit_test_rect_mouse,
-                       gfx::Rect* hit_test_rect_touch);
 
   // Force to show hotseat in tablet mode. When the returned closure runner is
   // called or goes out of scope, it removes the caller as an instance to force

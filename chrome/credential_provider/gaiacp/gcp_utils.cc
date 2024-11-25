@@ -2,12 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/credential_provider/gaiacp/gcp_utils.h"
+
+#include <windows.h>
+#include <winsock2.h>
 
 #include <iphlpapi.h>
 #include <wincred.h>  // For <ntsecapi.h>
-#include <windows.h>
-#include <winsock2.h>
 #include <winternl.h>
 
 #include <string>
@@ -30,6 +36,7 @@
 
 #include "base/base64.h"
 #include "base/command_line.h"
+#include "base/containers/span.h"
 #include "base/files/file.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
@@ -908,7 +915,8 @@ bool WriteToStartupSentinel() {
 
     LOGFN(VERBOSE) << "Writing to sentinel. Current length="
                    << startup_sentinel.GetLength();
-    return startup_sentinel.WriteAtCurrentPos("0", 1) == 1;
+    return startup_sentinel.WriteAtCurrentPosAndCheck(
+        base::byte_span_from_cstring("0"));
   }
 
   return true;
@@ -990,7 +998,7 @@ void SecurelyClearBuffer(void* buffer, size_t length) {
 
 std::string SearchForKeyInStringDictUTF8(
     const std::string& json_string,
-    const std::initializer_list<base::StringPiece>& path) {
+    const std::initializer_list<std::string_view>& path) {
   DCHECK_GT(path.size(), 0UL);
 
   std::optional<base::Value::Dict> json_obj =
@@ -1019,7 +1027,7 @@ std::string GetDictStringUTF8(const base::Value::Dict& dict, const char* name) {
 HRESULT SearchForListInStringDictUTF8(
     const std::string& list_key,
     const std::string& json_string,
-    const std::initializer_list<base::StringPiece>& path,
+    const std::initializer_list<std::string_view>& path,
     std::vector<std::string>* output) {
   DCHECK_GT(path.size(), 0UL);
 
@@ -1221,7 +1229,7 @@ HRESULT GenerateDeviceId(std::string* device_id) {
   }
 
   // Store the base64encoded device id json blob in the output.
-  base::Base64Encode(device_id_str, device_id);
+  *device_id = base::Base64Encode(device_id_str);
   return S_OK;
 }
 

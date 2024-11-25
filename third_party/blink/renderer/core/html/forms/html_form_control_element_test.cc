@@ -150,17 +150,6 @@ TEST_F(HTMLFormControlElementTest, DoNotUpdateLayoutDuringDOMMutation) {
       << "DOM mutation should not handle validation message UI in it.";
 }
 
-TEST_F(HTMLFormControlElementTest, UniqueRendererFormControlId) {
-  SetHtmlInnerHTML("<body><input id=input1><input id=input2></body>");
-  auto* form_control1 = To<HTMLFormControlElement>(GetElementById("input1"));
-  uint64_t first_id = form_control1->UniqueRendererFormControlId();
-  auto* form_control2 = To<HTMLFormControlElement>(GetElementById("input2"));
-  EXPECT_EQ(first_id + 1, form_control2->UniqueRendererFormControlId());
-  SetHtmlInnerHTML("<body><select id=select1></body>");
-  auto* form_control3 = To<HTMLFormControlElement>(GetElementById("select1"));
-  EXPECT_EQ(first_id + 2, form_control3->UniqueRendererFormControlId());
-}
-
 class HTMLFormControlElementFormControlTypeTest
     : public HTMLFormControlElementTest,
       public testing::WithParamInterface<
@@ -197,9 +186,6 @@ INSTANTIATE_TEST_SUITE_P(
                         "type=submit",
                         FormControlType::kButtonSubmit),
         std::make_tuple("button", "type=reset", FormControlType::kButtonReset),
-        std::make_tuple("button",
-                        "type=selectlist",
-                        FormControlType::kButtonSelectList),
         std::make_tuple("fieldset", "", FormControlType::kFieldset),
         std::make_tuple("input", "", FormControlType::kInputText),
         std::make_tuple("input", "type=button", FormControlType::kInputButton),
@@ -236,7 +222,6 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple("output", "", FormControlType::kOutput),
         std::make_tuple("select", "", FormControlType::kSelectOne),
         std::make_tuple("select", "multiple", FormControlType::kSelectMultiple),
-        std::make_tuple("selectlist", "", FormControlType::kSelectList),
         std::make_tuple("textarea", "", FormControlType::kTextArea)));
 
 }  // namespace blink

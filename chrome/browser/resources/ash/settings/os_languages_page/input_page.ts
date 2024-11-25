@@ -7,11 +7,11 @@
  * for language and input method settings.
  */
 
-import 'chrome://resources/cr_components/localized_link/localized_link.js';
-import 'chrome://resources/cr_elements/cr_button/cr_button.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
-import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
-import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
+import 'chrome://resources/ash/common/cr_elements/localized_link/localized_link.js';
+import 'chrome://resources/ash/common/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_link_row/cr_link_row.js';
+import 'chrome://resources/ash/common/cr_elements/cr_shared_vars.css.js';
 import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 import 'chrome://resources/polymer/v3_0/paper-spinner/paper-spinner-lite.js';
@@ -19,30 +19,40 @@ import './add_input_methods_dialog.js';
 import './add_spellcheck_languages_dialog.js';
 import './os_edit_dictionary_page.js';
 import '../keyboard_shortcut_banner/keyboard_shortcut_banner.js';
-import '/shared/settings/controls/settings_toggle_button.js';
+import '../controls/settings_toggle_button.js';
 import '../settings_shared.css.js';
+import '../os_search_page/magic_boost_review_terms_banner.js';
 import '../os_settings_page/os_settings_animated_pages.js';
+import 'chrome://resources/ash/common/shortcut_input_ui/shortcut_input_key.js';
 
-import {SettingsToggleButtonElement} from '/shared/settings/controls/settings_toggle_button.js';
-import {PrefsMixin} from 'chrome://resources/cr_components/settings_prefs/prefs_mixin.js';
-import {CrButtonElement} from 'chrome://resources/cr_elements/cr_button/cr_button.js';
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {PrefsMixin} from '/shared/settings/prefs/prefs_mixin.js';
+import type {CrButtonElement} from 'chrome://resources/ash/common/cr_elements/cr_button/cr_button.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
+import type {ShortcutLabelProperties} from 'chrome://resources/ash/common/shortcut_input_ui/shortcut_utils.js';
+import {MetaKey} from 'chrome://resources/ash/common/shortcut_input_ui/shortcut_utils.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {focusWithoutInk} from 'chrome://resources/js/focus_without_ink.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
-import {DomRepeatEvent, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import type {DomRepeatEvent} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {castExists} from '../assert_extras.js';
 import {DeepLinkingMixin} from '../common/deep_linking_mixin.js';
 import {RouteOriginMixin} from '../common/route_origin_mixin.js';
+import type {SettingsToggleButtonElement} from '../controls/settings_toggle_button.js';
 import {recordSettingChange} from '../metrics_recorder.js';
+import {AcceleratorAction} from '../mojom-webui/accelerator_actions.mojom-webui.js';
+import type {AcceleratorFetcherInterface} from '../mojom-webui/accelerator_fetcher.mojom-webui.js';
+import {AcceleratorFetcher, AcceleratorFetcherObserverReceiver} from '../mojom-webui/accelerator_fetcher.mojom-webui.js';
+import type {StandardAcceleratorProperties} from '../mojom-webui/accelerator_info.mojom-webui.js';
 import {Setting} from '../mojom-webui/setting.mojom-webui.js';
-import {Route, Router, routes} from '../router.js';
+import type {Route} from '../router.js';
+import {Router, routes} from '../router.js';
 
 import {hasOptionsPageInSettings} from './input_method_util.js';
 import {getTemplate} from './input_page.html.js';
 import {InputsShortcutReminderState, LanguagesMetricsProxyImpl, LanguagesPageInteraction} from './languages_metrics_proxy.js';
-import {LanguageHelper, LanguagesModel, LanguageState, SpellCheckLanguageState} from './languages_types.js';
+import type {LanguageHelper, LanguagesModel, LanguageState, SpellCheckLanguageState} from './languages_types.js';
 
 const OsSettingsInputPageElementBase =
     RouteOriginMixin(PrefsMixin(I18nMixin(DeepLinkingMixin(PolymerElement))));
@@ -97,13 +107,6 @@ export class OsSettingsInputPageElement extends OsSettingsInputPageElementBase {
         },
       },
 
-      shouldShowLanguagePacksNotice_: {
-        type: Boolean,
-        value() {
-          return loadTimeData.getBoolean('languagePacksHandwritingEnabled');
-        },
-      },
-
       /**
        * Whether the shortcut reminder for the last used IME is currently
        * showing.
@@ -148,6 +151,16 @@ export class OsSettingsInputPageElement extends OsSettingsInputPageElementBase {
       allowOrca_: Boolean,
 
       allowSuggestionSection_: Boolean,
+
+      acceleratorFetcher: Object,
+
+      isShortcutCustomizationEnabled_: Boolean,
+
+      lastUsedImeAccelerator_: Object,
+
+      nextImeAccelerator_: Object,
+
+      metaKey_: Object,
     };
   }
 
@@ -168,7 +181,7 @@ export class OsSettingsInputPageElement extends OsSettingsInputPageElementBase {
     Setting.kShowEmojiSuggestions,
     Setting.kShowInputOptionsInShelf,
     Setting.kShowOrca,
-    Setting.kSpellCheck,
+    Setting.kSpellCheckOnOff,
   ]);
   // From RouteOriginMixin.
   override route = routes.OS_LANGUAGES_INPUT;
@@ -177,15 +190,27 @@ export class OsSettingsInputPageElement extends OsSettingsInputPageElementBase {
   private showAddSpellcheckLanguagesDialog_: boolean;
   private showAddInputMethodsDialog_: boolean;
 
+  // Accelerator fetcher properties.
+  // TODO(yyhyyh@): Move these members to somewhere common.
+  acceleratorFetcher: AcceleratorFetcherInterface|null;
+  private isShortcutCustomizationEnabled_ =
+      loadTimeData.getBoolean('isShortcutCustomizationEnabled');
+  private lastUsedImeAccelerator_?: StandardAcceleratorProperties;
+  private nextImeAccelerator_?: StandardAcceleratorProperties;
+  private acceleratorFetcherObserverReceiver_:
+      AcceleratorFetcherObserverReceiver;
+  private metaKey_ = MetaKey.kSearch;
+
   // loadTimeData flags.
   private onDeviceGrammarCheckEnabled_: boolean;
   private languageSettingsJapaneseEnabled_: boolean;
-  private shouldShowLanguagePacksNotice_: boolean;
   private languagePacksInSettingsEnabled_ =
       loadTimeData.getBoolean('languagePacksInSettingsEnabled');
   private readonly allowEmojiSuggestion_: boolean =
       loadTimeData.getBoolean('allowEmojiSuggestion');
   private readonly allowOrca_: boolean = loadTimeData.getBoolean('allowOrca');
+  private readonly showOrcaReviewTermsBanner_: boolean =
+      loadTimeData.getBoolean('showOrcaReviewTermsBanner');
   private readonly allowSuggestionSection_: boolean =
       this.allowOrca_ || this.allowEmojiSuggestion_;
 
@@ -197,6 +222,26 @@ export class OsSettingsInputPageElement extends OsSettingsInputPageElementBase {
 
   override ready(): void {
     super.ready();
+
+    if (this.isShortcutCustomizationEnabled_) {
+      this.acceleratorFetcher = AcceleratorFetcher.getRemote();
+
+      assert(this.acceleratorFetcher);
+      this.acceleratorFetcherObserverReceiver_ =
+          new AcceleratorFetcherObserverReceiver(this);
+
+      this.acceleratorFetcher.getMetaKeyToDisplay().then(({metaKey}) => {
+        this.metaKey_ = metaKey;
+      });
+
+      this.acceleratorFetcher!.observeAcceleratorChanges(
+          [
+            AcceleratorAction.kSwitchToLastUsedIme,
+            AcceleratorAction.kSwitchToNextIme,
+          ],
+          this.acceleratorFetcherObserverReceiver_.$
+              .bindNewPipeAndPassRemote());
+    }
 
     this.addFocusConfig(
         routes.OS_LANGUAGES_EDIT_DICTIONARY, '#editDictionarySubpageTrigger');
@@ -211,6 +256,46 @@ export class OsSettingsInputPageElement extends OsSettingsInputPageElementBase {
     }
 
     this.attemptDeepLink();
+  }
+
+  onAcceleratorsUpdated(
+      action: AcceleratorAction,
+      accelerators: StandardAcceleratorProperties[]): void {
+    const hasUpdatedAccelerators = accelerators.length > 0;
+
+    // If accelerators available, update the string display with only the first
+    // accelerator.
+    if (action === AcceleratorAction.kSwitchToLastUsedIme) {
+      this.lastUsedImeAccelerator_ =
+          hasUpdatedAccelerators ? accelerators[0] : undefined;
+    } else if (action === AcceleratorAction.kSwitchToNextIme) {
+      this.nextImeAccelerator_ =
+          hasUpdatedAccelerators ? accelerators[0] : undefined;
+    }
+  }
+
+  private getShortcutLabelProperties_(): ShortcutLabelProperties[] {
+    const shortcutLabelProperties: ShortcutLabelProperties[] = [];
+
+    if (this.lastUsedImeAccelerator_) {
+      shortcutLabelProperties.push({
+        ...this.lastUsedImeAccelerator_,
+        shortcutLabelText:
+            this.i18nAdvanced('imeCustomizedShortcutReminderLastUsed'),
+        metaKey: this.metaKey_,
+      });
+    }
+
+    if (this.nextImeAccelerator_) {
+      shortcutLabelProperties.push({
+        ...this.nextImeAccelerator_,
+        shortcutLabelText:
+            this.i18nAdvanced('imeCustomizedShortcutReminderNext'),
+        metaKey: this.metaKey_,
+      });
+    }
+
+    return shortcutLabelProperties;
   }
 
   private onShowImeMenuChange_(e: Event): void {
@@ -242,7 +327,7 @@ export class OsSettingsInputPageElement extends OsSettingsInputPageElementBase {
     this.languageHelper.setCurrentInputMethod(e.model.item.id);
     this.languagesMetricsProxy_.recordInteraction(
         LanguagesPageInteraction.SWITCH_INPUT_METHOD);
-    recordSettingChange();
+    recordSettingChange(Setting.kSetCurrentInputMethod);
   }
 
   /**
@@ -258,6 +343,7 @@ export class OsSettingsInputPageElement extends OsSettingsInputPageElementBase {
     }
 
     this.languageHelper.setCurrentInputMethod(e.model.item.id);
+    recordSettingChange(Setting.kSetCurrentInputMethod);
   }
 
   /**
@@ -395,7 +481,7 @@ export class OsSettingsInputPageElement extends OsSettingsInputPageElementBase {
   private onRemoveInputMethodClick_(
       e: DomRepeatEvent<chrome.languageSettingsPrivate.InputMethod>): void {
     this.languageHelper.removeInputMethod(e.model.item.id);
-    recordSettingChange();
+    recordSettingChange(Setting.kRemoveInputMethod);
   }
 
   private getRemoveSpellcheckLanguageTooltip_(lang: SpellCheckLanguageState):
@@ -407,7 +493,7 @@ export class OsSettingsInputPageElement extends OsSettingsInputPageElementBase {
   private onRemoveSpellcheckLanguageClick_(
       e: DomRepeatEvent<LanguageState|SpellCheckLanguageState>): void {
     this.languageHelper.toggleSpellCheck(e.model.item.language.code, false);
-    recordSettingChange();
+    recordSettingChange(Setting.kRemoveSpellCheckLanguage);
   }
 
   /**

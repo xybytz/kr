@@ -4,16 +4,15 @@
 
 package org.chromium.chrome.browser.toolbar.top;
 
-import android.content.Context;
 
 import androidx.annotation.ColorInt;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import org.chromium.chrome.browser.tabmodel.IncognitoStateProvider;
+import org.chromium.base.Callback;
+import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.chrome.browser.toolbar.top.TopToolbarCoordinator.ToolbarAlphaInOverviewObserver;
 import org.chromium.chrome.browser.toolbar.top.TopToolbarCoordinator.ToolbarColorObserver;
-import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.ui.util.ColorUtils;
 
 /**
@@ -21,23 +20,27 @@ import org.chromium.ui.util.ColorUtils;
  * rendering toolbar color to the ToolbarColorObserver.
  */
 class ToolbarColorObserverManager implements ToolbarAlphaInOverviewObserver, ToolbarColorObserver {
-    private @Nullable ToolbarColorObserver mToolbarColorObserver;
+    private final Callback<Integer> mOnOverviewIncognitoChange = this::onOverviewColorChange;
 
-    private Context mContext;
-    private IncognitoStateProvider mIncognitoStateProvider;
-    private float mToolbarAlphaValue;
+    private @Nullable ToolbarColorObserver mToolbarColorObserver;
+    private ObservableSupplier<Integer> mOverviewColorSupplier;
+    private float mOverviewAlpha;
     private @ColorInt int mToolbarColor;
 
-    ToolbarColorObserverManager(Context context) {
-        mContext = context;
-        mToolbarAlphaValue = 0;
+    ToolbarColorObserverManager() {
+        mOverviewAlpha = 0;
     }
 
     /**
-     * @param provider The provider used to determine incognito state.
+     * @param overviewColorSupplier Notifies when the overview color changes.
      */
-    void setIncognitoStateProvider(IncognitoStateProvider provider) {
-        mIncognitoStateProvider = provider;
+    void setOverviewColorSupplier(ObservableSupplier<Integer> overviewColorSupplier) {
+        if (mOverviewColorSupplier != null) {
+            mOverviewColorSupplier.removeObserver(mOnOverviewIncognitoChange);
+        }
+        mOverviewColorSupplier = overviewColorSupplier;
+        mOverviewColorSupplier.addObserver(mOnOverviewIncognitoChange);
+
         notifyToolbarColorChanged();
     }
 
@@ -50,6 +53,10 @@ class ToolbarColorObserverManager implements ToolbarAlphaInOverviewObserver, Too
         notifyToolbarColorChanged();
     }
 
+    private void onOverviewColorChange(Integer ignored) {
+        notifyToolbarColorChanged();
+    }
+
     // TopToolbarCoordinator.ToolbarColorObserver implementation.
     @Override
     public void onToolbarColorChanged(@ColorInt int color) {
@@ -59,8 +66,8 @@ class ToolbarColorObserverManager implements ToolbarAlphaInOverviewObserver, Too
 
     // TopToolbarCoordinator.ToolbarAlphaInOverviewObserver implementation.
     @Override
-    public void onToolbarAlphaInOverviewChanged(float fraction) {
-        mToolbarAlphaValue = fraction;
+    public void onOverviewAlphaChanged(float fraction) {
+        mOverviewAlpha = fraction;
         notifyToolbarColorChanged();
     }
 
@@ -69,15 +76,25 @@ class ToolbarColorObserverManager implements ToolbarAlphaInOverviewObserver, Too
      * and send the rendering toolbar color to the observer.
      */
     private void notifyToolbarColorChanged() {
-        if (mToolbarColorObserver != null && mIncognitoStateProvider != null) {
-            boolean isIncognito = mIncognitoStateProvider.isIncognitoSelected();
-            @ColorInt
-            int overviewColor = ChromeColors.getPrimaryBackgroundColor(mContext, isIncognito);
-            @ColorInt
-            int toolbarRenderingColor =
-                    ColorUtils.getColorWithOverlay(
-                            mToolbarColor, overviewColor, mToolbarAlphaValue);
-            mToolbarColorObserver.onToolbarColorChanged(toolbarRenderingColor);
+        if (mToolbarColorObserver == null
+                || mOverviewColorSupplier == null
+                || mOverviewColorSupplier.get() == null) {
+            return;
         }
+
+        @ColorInt int overviewColor = mOverviewColorSupplier.get();
+
+        // #overlayColor does not allow colors with any transparency. During toolbar expansion,
+        // our toolbar color does contain transparency, but this should all be gone once the
+        // overview fade animation begins. However this class has no real concept of what the
+        // true color is behind the toolbar is. It is possible to guess with
+        // #getPrimaryBackgroundColor, but when showing new tab page, that isn't strictly
+        // true. Just making the toolbar color opaque is good enough, though could cause some
+        // colors to be slightly off.
+        @ColorInt int opaqueToolbarColor = ColorUtils.getOpaqueColor(mToolbarColor);
+
+        final @ColorInt int toolbarRenderingColor =
+                ColorUtils.getColorWithOverlay(opaqueToolbarColor, overviewColor, mOverviewAlpha);
+        mToolbarColorObserver.onToolbarColorChanged(toolbarRenderingColor);
     }
 }

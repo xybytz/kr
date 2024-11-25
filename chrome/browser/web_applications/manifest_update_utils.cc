@@ -117,7 +117,6 @@ ManifestUpdateResult FinalResultFromManifestUpdateCheckResult(
       // The manifest needs to be applied before the overall update process is
       // considered complete.
       NOTREACHED();
-      return ManifestUpdateResult::kAppUpdated;
     case ManifestUpdateCheckResult::kAppUpToDate:
       return ManifestUpdateResult::kAppUpToDate;
     case ManifestUpdateCheckResult::kAppIdentityUpdateRejectedAndUninstalled:
@@ -166,7 +165,7 @@ std::optional<AppIconIdentityChange> CompareIdentityIconBitmaps(
 
 void RecordIconDownloadMetrics(IconsDownloadedResult result,
                                DownloadedIconsHttpResults icons_http_results) {
-  // TODO(crbug.com/1238622): Report `result` and `icons_http_results` in
+  // TODO(crbug.com/40193545): Report `result` and `icons_http_results` in
   // internals.
   base::UmaHistogramEnumeration("WebApp.Icon.DownloadedResultOnUpdate", result);
   RecordDownloadedIconHttpStatusCodes(
@@ -231,12 +230,12 @@ ManifestDataChanges GetManifestDataChanges(
     const WebAppInstallInfo& new_install_info) {
   ManifestDataChanges result;
 
-  // TODO(crbug.com/1259777): Check whether translations have been updated.
+  // TODO(crbug.com/40201597): Check whether translations have been updated.
   result.app_name_changed =
       new_install_info.title !=
       base::UTF8ToUTF16(existing_web_app.untranslated_name());
 
-  // TODO(crbug.com/1409710): Run these bitmap comparisons off the UI thread.
+  // TODO(crbug.com/40254036): Run these bitmap comparisons off the UI thread.
   if (existing_app_icon_bitmaps) {
     result.app_icon_identity_change = CompareIdentityIconBitmaps(
         *existing_app_icon_bitmaps, new_install_info.icon_bitmaps);
@@ -249,10 +248,10 @@ ManifestDataChanges GetManifestDataChanges(
        *existing_app_icon_bitmaps != new_install_info.icon_bitmaps);
 
   result.other_fields_changed = [&] {
-    if (existing_web_app.manifest_id() != new_install_info.manifest_id) {
+    if (existing_web_app.manifest_id() != new_install_info.manifest_id()) {
       return true;
     }
-    if (existing_web_app.start_url() != new_install_info.start_url) {
+    if (existing_web_app.start_url() != new_install_info.start_url()) {
       return true;
     }
     if (existing_web_app.theme_color() != new_install_info.theme_color) {
@@ -337,7 +336,7 @@ ManifestDataChanges GetManifestDataChanges(
     if (existing_web_app.tab_strip() != new_install_info.tab_strip) {
       return true;
     }
-    // TODO(crbug.com/926083): Check more manifest fields.
+    // TODO(crbug.com/40611449): Check more manifest fields.
     return false;
   }();
 

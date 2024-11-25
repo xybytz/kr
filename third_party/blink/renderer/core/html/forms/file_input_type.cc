@@ -39,7 +39,7 @@
 #include "third_party/blink/renderer/core/input_type_names.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/keywords.h"
-#include "third_party/blink/renderer/core/layout/layout_ng_block_flow.h"
+#include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/drag_data.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
@@ -229,7 +229,7 @@ void FileInputType::AdjustStyle(ComputedStyleBuilder& builder) {
 }
 
 LayoutObject* FileInputType::CreateLayoutObject(const ComputedStyle&) const {
-  return MakeGarbageCollected<LayoutNGBlockFlow>(&GetElement());
+  return MakeGarbageCollected<LayoutBlockFlow>(&GetElement());
 }
 
 InputType::ValueMode FileInputType::GetValueMode() const {
@@ -300,14 +300,34 @@ FileList* FileInputType::CreateFileList(ExecutionContext& context,
       // Normalize backslashes to slashes before exposing the relative path to
       // script.
       String string_path = FilePathToString(file->get_native_file()->file_path);
-      DCHECK(
-          string_path.StartsWithIgnoringASCIICase(FilePathToString(base_dir)))
-          << "A path in a FileChooserFileInfo " << string_path
-          << " should start with " << FilePathToString(base_dir);
-      String relative_path =
-          string_path.Substring(root_length).Replace('\\', '/');
-      file_list->Append(
-          File::CreateWithRelativePath(&context, string_path, relative_path));
+      String display_name = file->get_native_file()->display_name;
+      if (display_name.empty()) {
+        display_name =
+            FilePathToString(file->get_native_file()->file_path.BaseName());
+      }
+      String relative_path;
+#if BUILDFLAG(IS_ANDROID)
+      // Android content-URIs do not use tree paths with separators like posix
+      // so we build relative path using base_subdirs.
+      if (base_dir.IsContentUri()) {
+        StringBuilder builder;
+        for (const auto& subdir : file->get_native_file()->base_subdirs) {
+          builder.Append(subdir);
+          builder.Append("/");
+        }
+        builder.Append(display_name);
+        relative_path = builder.ToString();
+      }
+#endif
+      if (relative_path.empty()) {
+        DCHECK(
+            string_path.StartsWithIgnoringASCIICase(FilePathToString(base_dir)))
+            << "A path in a FileChooserFileInfo " << string_path
+            << " should start with " << FilePathToString(base_dir);
+        relative_path = string_path.Substring(root_length).Replace('\\', '/');
+      }
+      file_list->Append(File::CreateWithRelativePath(
+          &context, string_path, display_name, relative_path));
     }
     return file_list;
   }
@@ -380,7 +400,8 @@ Node* FileInputType::FileStatusElement() const {
 }
 
 void FileInputType::DisabledAttributeChanged() {
-  DCHECK(IsShadowHost(GetElement()));
+  DCHECK(RuntimeEnabledFeatures::CreateInputShadowTreeDuringLayoutEnabled() ||
+         IsShadowHost(GetElement()));
   if (Element* button = UploadButton()) {
     button->SetBooleanAttribute(html_names::kDisabledAttr,
                                 GetElement().IsDisabledFormControl());
@@ -388,7 +409,8 @@ void FileInputType::DisabledAttributeChanged() {
 }
 
 void FileInputType::MultipleAttributeChanged() {
-  DCHECK(IsShadowHost(GetElement()));
+  DCHECK(RuntimeEnabledFeatures::CreateInputShadowTreeDuringLayoutEnabled() ||
+         IsShadowHost(GetElement()));
   if (Element* button = UploadButton()) {
     button->setAttribute(
         html_names::kValueAttr,
@@ -539,7 +561,7 @@ void FileInputType::HandleKeypressEvent(KeyboardEvent& event) {
   if (GetElement().FastHasAttribute(html_names::kWebkitdirectoryAttr)) {
     // Override to invoke the action on Enter key up (not press) to avoid
     // repeats committing the file chooser.
-    if (event.key() == "Enter") {
+    if (event.key() == keywords::kCapitalEnter) {
       event.SetDefaultHandled();
       return;
     }
@@ -551,7 +573,7 @@ void FileInputType::HandleKeyupEvent(KeyboardEvent& event) {
   if (GetElement().FastHasAttribute(html_names::kWebkitdirectoryAttr)) {
     // Override to invoke the action on Enter key up (not press) to avoid
     // repeats committing the file chooser.
-    if (event.key() == "Enter") {
+    if (event.key() == keywords::kCapitalEnter) {
       GetElement().DispatchSimulatedClick(&event);
       event.SetDefaultHandled();
       return;

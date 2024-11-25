@@ -297,7 +297,7 @@ void CaptureModeSessionFocusCycler::HighlightableView::PseudoFocus() {
     needs_highlight_path_ = false;
   }
 
-  focus_ring_->Layout();
+  focus_ring_->DeprecatedLayoutImmediately();
   focus_ring_->SchedulePaint();
 
   view->NotifyAccessibilityEvent(ax::mojom::Event::kSelection, true);
@@ -312,7 +312,7 @@ void CaptureModeSessionFocusCycler::HighlightableView::PseudoBlur() {
   if (!focus_ring_)
     return;
 
-  focus_ring_->Layout();
+  focus_ring_->DeprecatedLayoutImmediately();
   focus_ring_->SchedulePaint();
 }
 
@@ -873,9 +873,11 @@ CaptureModeSessionFocusCycler::GetGroupItems(FocusGroup group) const {
       CaptureModeBarView* bar_view = session_->capture_mode_bar_view_;
       for (auto* button :
            {bar_view->settings_button(), bar_view->close_button()}) {
-        auto* highlight_helper = HighlightHelper::Get(button);
-        DCHECK(highlight_helper);
-        items.push_back(highlight_helper);
+        if (button && button->GetEnabled()) {
+          auto* highlight_helper = HighlightHelper::Get(button);
+          DCHECK(highlight_helper);
+          items.push_back(highlight_helper);
+        }
       }
       break;
     }
@@ -1001,8 +1003,8 @@ void CaptureModeSessionFocusCycler::UpdateA11yAnnotation() {
         DCHECK(target);
         auto* contents_view = target->GetContentsView();
         auto& view_a11y = contents_view->GetViewAccessibility();
-        view_a11y.OverridePreviousFocus(previous);
-        view_a11y.OverrideNextFocus(next);
+        view_a11y.SetPreviousFocus(previous);
+        view_a11y.SetNextFocus(next);
         contents_view->NotifyAccessibilityEvent(ax::mojom::Event::kTreeChanged,
                                                 true);
       };

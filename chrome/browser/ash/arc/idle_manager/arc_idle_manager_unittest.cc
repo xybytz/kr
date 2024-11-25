@@ -8,12 +8,14 @@
 #include <string>
 #include <vector>
 
+#include "ash/components/arc/arc_features.h"
 #include "ash/components/arc/mojom/power.mojom.h"
 #include "ash/components/arc/power/arc_power_bridge.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
 #include "ash/components/arc/session/arc_service_manager.h"
 #include "ash/components/arc/test/connection_holder_util.h"
 #include "ash/components/arc/test/fake_power_instance.h"
+#include "ash/components/arc/window/arc_window_watcher.h"
 #include "base/memory/raw_ptr.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -23,7 +25,6 @@
 #include "chrome/browser/ash/arc/idle_manager/arc_display_power_observer.h"
 #include "chrome/browser/ash/arc/idle_manager/arc_on_battery_observer.h"
 #include "chrome/browser/ash/arc/idle_manager/arc_window_observer.h"
-#include "chrome/browser/ash/arc/util/arc_window_watcher.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "content/public/test/browser_task_environment.h"
@@ -41,6 +42,9 @@ class ArcIdleManagerTest : public testing::Test {
   ~ArcIdleManagerTest() override = default;
 
   void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeatureWithParameters(
+        kEnableArcIdleManager,
+        {{kEnableArcIdleManagerIgnoreBatteryForPLT.name, "false"}});
     chromeos::PowerManagerClient::InitializeFake();
 
     // This is needed for setting up ArcPowerBridge.
@@ -62,7 +66,9 @@ class ArcIdleManagerTest : public testing::Test {
 
     on_battery_observer_ =
         arc_idle_manager_->GetObserverByName(kArcOnBatteryObserverName);
-    DCHECK(on_battery_observer_);
+    // Observer exist when ignore battery is disabled.
+    DCHECK(kEnableArcIdleManagerIgnoreBatteryForPLT.Get() ==
+           !on_battery_observer_);
 
     display_power_observer_ =
         arc_idle_manager_->GetObserverByName(kArcDisplayPowerObserverName);
@@ -168,6 +174,7 @@ class ArcIdleManagerTest : public testing::Test {
 
   content::BrowserTaskEnvironment task_environment_{
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
+  base::test::ScopedFeatureList scoped_feature_list_;
   std::unique_ptr<ArcServiceManager> arc_service_manager_;
   std::unique_ptr<TestingProfile> testing_profile_;
 
@@ -203,6 +210,9 @@ TEST_F(ArcIdleManagerTest, TestThrottleInstance) {
   background_service_observer()->SetActive(false);
   arc_window_observer()->SetActive(false);
 
+  task_environment()->FastForwardBy(
+      base::Milliseconds(kEnableArcIdleManagerDelayMs.Get()));
+
   EXPECT_EQ(0U, interactive_enabled_counter());
   EXPECT_EQ(2U, interactive_disabled_counter());
 
@@ -213,6 +223,8 @@ TEST_F(ArcIdleManagerTest, TestThrottleInstance) {
 
   // Reset.
   on_battery_observer()->SetActive(false);
+  task_environment()->FastForwardBy(
+      base::Milliseconds(kEnableArcIdleManagerDelayMs.Get()));
   EXPECT_EQ(1U, interactive_enabled_counter());
   EXPECT_EQ(3U, interactive_disabled_counter());
 
@@ -223,6 +235,8 @@ TEST_F(ArcIdleManagerTest, TestThrottleInstance) {
 
   // Reset.
   display_power_observer()->SetActive(false);
+  task_environment()->FastForwardBy(
+      base::Milliseconds(kEnableArcIdleManagerDelayMs.Get()));
   EXPECT_EQ(2U, interactive_enabled_counter());
   EXPECT_EQ(4U, interactive_disabled_counter());
 
@@ -233,6 +247,8 @@ TEST_F(ArcIdleManagerTest, TestThrottleInstance) {
 
   // Reset.
   cpu_throttle_observer()->SetActive(false);
+  task_environment()->FastForwardBy(
+      base::Milliseconds(kEnableArcIdleManagerDelayMs.Get()));
   EXPECT_EQ(3U, interactive_enabled_counter());
   EXPECT_EQ(5U, interactive_disabled_counter());
 
@@ -243,6 +259,8 @@ TEST_F(ArcIdleManagerTest, TestThrottleInstance) {
 
   // Reset.
   background_service_observer()->SetActive(false);
+  task_environment()->FastForwardBy(
+      base::Milliseconds(kEnableArcIdleManagerDelayMs.Get()));
   EXPECT_EQ(4U, interactive_enabled_counter());
   EXPECT_EQ(6U, interactive_disabled_counter());
 
@@ -258,6 +276,8 @@ TEST_F(ArcIdleManagerTest, TestThrottleInstance) {
 
   // Reset.
   arc_window_observer()->SetActive(false);
+  task_environment()->FastForwardBy(
+      base::Milliseconds(kEnableArcIdleManagerDelayMs.Get()));
   EXPECT_EQ(6U, interactive_enabled_counter());
   EXPECT_EQ(7U, interactive_disabled_counter());
 
@@ -280,6 +300,9 @@ TEST_F(ArcIdleManagerTest, TestScreenOffTimerMetrics) {
   // Count time from here.
   base::ScopedMockElapsedTimersForTest mock_elapsed_timers;
   base::HistogramTester histogram_tester;
+
+  task_environment()->FastForwardBy(
+      base::Milliseconds(kEnableArcIdleManagerDelayMs.Get()));
 
   histogram_tester.ExpectUniqueTimeSample(
       "Arc.IdleManager.ScreenOffTime",

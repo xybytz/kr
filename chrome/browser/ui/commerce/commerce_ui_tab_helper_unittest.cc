@@ -2,13 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/ui/commerce/commerce_ui_tab_helper.h"
+
 #include <memory>
 #include <vector>
 
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "chrome/browser/ui/commerce/commerce_ui_tab_helper.h"
+#include "chrome/browser/ui/tabs/test/mock_tab_interface.h"
 #include "chrome/browser/ui/views/side_panel/side_panel_entry.h"
 #include "chrome/browser/ui/views/side_panel/side_panel_registry.h"
 #include "chrome/browser/ui/views/side_panel/side_panel_util.h"
@@ -22,12 +24,14 @@
 #include "components/commerce/core/subscriptions/commerce_subscription.h"
 #include "components/commerce/core/test_utils.h"
 #include "components/image_fetcher/core/mock_image_fetcher.h"
+#include "components/ukm/test_ukm_recorder.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_web_contents_factory.h"
 #include "content/public/test/web_contents_tester.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -67,12 +71,18 @@ std::optional<ProductInfo> CreateProductInfo(
 
 }  // namespace
 
+using ukm::builders::Shopping_ShoppingInformation;
+
 class CommerceUiTabHelperTest : public testing::Test {
  public:
   CommerceUiTabHelperTest()
       : shopping_service_(std::make_unique<MockShoppingService>()),
-        bookmark_model_(bookmarks::TestBookmarkClient::CreateModel()),
-        image_fetcher_(std::make_unique<image_fetcher::MockImageFetcher>()) {}
+        image_fetcher_(std::make_unique<image_fetcher::MockImageFetcher>()) {
+    auto client = std::make_unique<bookmarks::TestBookmarkClient>();
+    client->SetIsSyncFeatureEnabledIncludingBookmarks(true);
+    bookmark_model_ =
+        bookmarks::TestBookmarkClient::CreateModelWithClient(std::move(client));
+  }
 
   CommerceUiTabHelperTest(const CommerceUiTabHelperTest&) = delete;
   CommerceUiTabHelperTest operator=(const CommerceUiTabHelperTest&) =
@@ -81,18 +91,17 @@ class CommerceUiTabHelperTest : public testing::Test {
 
   void SetUp() override {
     web_contents_ = test_web_contents_factory_.CreateWebContents(&profile_);
-    CommerceUiTabHelper::CreateForWebContents(
+    side_panel_registry_ = std::make_unique<SidePanelRegistry>(&tab_interface_);
+    tab_helper_ = std::make_unique<commerce::CommerceUiTabHelper>(
         web_contents_.get(), shopping_service_.get(), bookmark_model_.get(),
-        image_fetcher_.get());
-    tab_helper_ = CommerceUiTabHelper::FromWebContents(web_contents_.get());
+        image_fetcher_.get(), side_panel_registry_.get());
   }
 
   void TestBody() override {}
 
   void TearDown() override {
     // Make sure the tab helper id destroyed before any of its dependencies are.
-    tab_helper_ = nullptr;
-    web_contents_->RemoveUserData(CommerceUiTabHelper::UserDataKey());
+    tab_helper_.reset();
   }
 
   void SetupImageFetcherForSimpleImage() {
@@ -134,13 +143,15 @@ class CommerceUiTabHelperTest : public testing::Test {
   }
 
  protected:
-  raw_ptr<CommerceUiTabHelper> tab_helper_;
+  content::BrowserTaskEnvironment task_environment_;
+  std::unique_ptr<CommerceUiTabHelper> tab_helper_;
   std::unique_ptr<MockShoppingService> shopping_service_;
   std::unique_ptr<bookmarks::BookmarkModel> bookmark_model_;
   std::unique_ptr<image_fetcher::MockImageFetcher> image_fetcher_;
+  tabs::MockTabInterface tab_interface_;
+  std::unique_ptr<SidePanelRegistry> side_panel_registry_;
 
  private:
-  content::BrowserTaskEnvironment task_environment_;
   TestingProfile profile_;
 
   // Must outlive `web_contents_`.
@@ -229,9 +240,8 @@ TEST_F(CommerceUiTabHelperTest, TestSubscriptionChangeNoBookmark) {
 }
 
 TEST_F(CommerceUiTabHelperTest, TestShoppingInsightsSidePanelAvailable) {
-  ASSERT_FALSE(SidePanelRegistry::Get(web_contents_.get())
-                   ->GetEntryForKey(SidePanelEntry::Key(
-                       SidePanelEntry::Id::kShoppingInsights)));
+  ASSERT_FALSE(side_panel_registry_->GetEntryForKey(
+      SidePanelEntry::Key(SidePanelEntry::Id::kShoppingInsights)));
 
   shopping_service_->SetIsPriceInsightsEligible(true);
 
@@ -248,15 +258,13 @@ TEST_F(CommerceUiTabHelperTest, TestShoppingInsightsSidePanelAvailable) {
 
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_TRUE(SidePanelRegistry::Get(web_contents_.get())
-                  ->GetEntryForKey(SidePanelEntry::Key(
-                      SidePanelEntry::Id::kShoppingInsights)));
+  EXPECT_TRUE(side_panel_registry_->GetEntryForKey(
+      SidePanelEntry::Key(SidePanelEntry::Id::kShoppingInsights)));
 }
 
 TEST_F(CommerceUiTabHelperTest, TestShoppingInsightsSidePanelUnavailable) {
-  ASSERT_FALSE(SidePanelRegistry::Get(web_contents_.get())
-                   ->GetEntryForKey(SidePanelEntry::Key(
-                       SidePanelEntry::Id::kShoppingInsights)));
+  ASSERT_FALSE(side_panel_registry_->GetEntryForKey(
+      SidePanelEntry::Key(SidePanelEntry::Id::kShoppingInsights)));
 
   shopping_service_->SetResponseForGetProductInfoForUrl(std::nullopt);
   shopping_service_->SetIsPriceInsightsEligible(true);
@@ -265,9 +273,8 @@ TEST_F(CommerceUiTabHelperTest, TestShoppingInsightsSidePanelUnavailable) {
 
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_FALSE(SidePanelRegistry::Get(web_contents_.get())
-                   ->GetEntryForKey(SidePanelEntry::Key(
-                       SidePanelEntry::Id::kShoppingInsights)));
+  EXPECT_FALSE(side_panel_registry_->GetEntryForKey(
+      SidePanelEntry::Key(SidePanelEntry::Id::kShoppingInsights)));
 }
 
 TEST_F(CommerceUiTabHelperTest,
@@ -293,6 +300,37 @@ TEST_F(CommerceUiTabHelperTest,
   base::RunLoop().RunUntilIdle();
 
   EXPECT_FALSE(tab_helper_->ShouldShowPriceInsightsIconView());
+}
+
+TEST_F(CommerceUiTabHelperTest, TestRecordShoppingInformationUKM) {
+  ukm::TestAutoSetUkmRecorder ukm_recorder;
+
+  shopping_service_->SetIsPriceInsightsEligible(true);
+
+  std::optional<ProductInfo> product_info = CreateProductInfo(
+      kClusterId, GURL(kProductImageUrl), kProductClusterTitle);
+  shopping_service_->SetResponseForGetProductInfoForUrl(product_info);
+
+  std::optional<PriceInsightsInfo> price_insights_info =
+      CreateValidPriceInsightsInfo(true, true, PriceBucket::kLowPrice);
+  shopping_service_->SetResponseForGetPriceInsightsInfoForUrl(
+      price_insights_info);
+
+  SimulateNavigationCommitted(GURL(kProductUrl));
+
+  base::RunLoop().RunUntilIdle();
+
+  auto entries =
+      ukm_recorder.GetEntriesByName(Shopping_ShoppingInformation::kEntryName);
+  ASSERT_EQ(1u, entries.size());
+  ukm_recorder.ExpectEntryMetric(
+      entries[0], Shopping_ShoppingInformation::kHasPriceInsightsName, 1);
+  ukm_recorder.ExpectEntryMetric(
+      entries[0], Shopping_ShoppingInformation::kIsPriceTrackableName, 1);
+  ukm_recorder.ExpectEntryMetric(
+      entries[0], Shopping_ShoppingInformation::kIsShoppingContentName, 1);
+  ukm_recorder.ExpectEntryMetric(
+      entries[0], Shopping_ShoppingInformation::kHasDiscountName, 0);
 }
 
 }  // namespace commerce

@@ -9,11 +9,13 @@
 #include "base/android/jni_string.h"
 #include "base/strings/utf_string_conversion_utils.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/ui/android/fast_checkout/jni_headers/FastCheckoutAutofillProfile_jni.h"
-#include "chrome/browser/ui/android/fast_checkout/jni_headers/FastCheckoutCreditCard_jni.h"
 #include "components/autofill/core/browser/autofill_data_util.h"
 #include "components/autofill/core/browser/geo/autofill_country.h"
 #include "url/android/gurl_android.h"
+
+// Must come after all headers that specialize FromJniType() / ToJniType().
+#include "chrome/browser/ui/android/fast_checkout/jni_headers/FastCheckoutAutofillProfile_jni.h"
+#include "chrome/browser/ui/android/fast_checkout/jni_headers/FastCheckoutCreditCard_jni.h"
 
 namespace {
 using ::base::android::ConvertJavaStringToUTF16;
@@ -51,8 +53,6 @@ base::android::ScopedJavaLocalRef<jobject> CreateFastCheckoutAutofillProfile(
   return Java_FastCheckoutAutofillProfile_Constructor(
       env, ConvertUTF8ToJavaString(env, profile.guid()),
       /*isLocal=*/true,
-      ConvertUTF16ToJavaString(
-          env, profile.GetInfo(autofill::NAME_HONORIFIC_PREFIX, locale)),
       ConvertUTF16ToJavaString(env,
                                profile.GetInfo(autofill::NAME_FULL, locale)),
       ConvertUTF16ToJavaString(env, profile.GetRawInfo(autofill::COMPANY_NAME)),
@@ -88,8 +88,6 @@ base::android::ScopedJavaLocalRef<jobject> CreateFastCheckoutCreditCard(
       env, ConvertUTF8ToJavaString(env, credit_card.guid()),
       ConvertUTF8ToJavaString(env, credit_card.origin()),
       credit_card.record_type() == autofill::CreditCard::RecordType::kLocalCard,
-      credit_card.record_type() ==
-          autofill::CreditCard::RecordType::kFullServerCard,
       ConvertUTF16ToJavaString(
           env, credit_card.GetRawInfo(autofill::CREDIT_CARD_NAME_FULL)),
       ConvertUTF16ToJavaString(
@@ -130,9 +128,6 @@ CreateFastCheckoutAutofillProfileFromJava(
   MaybeSetInfo(profile.get(), autofill::NAME_FULL,
                Java_FastCheckoutAutofillProfile_getFullName(env, jprofile),
                locale);
-  MaybeSetRawInfo(
-      profile.get(), autofill::NAME_HONORIFIC_PREFIX,
-      Java_FastCheckoutAutofillProfile_getHonorificPrefix(env, jprofile));
   MaybeSetRawInfo(
       profile.get(), autofill::COMPANY_NAME,
       Java_FastCheckoutAutofillProfile_getCompanyName(env, jprofile));
@@ -179,18 +174,13 @@ std::unique_ptr<autofill::CreditCard> CreateFastCheckoutCreditCardFromJava(
   if (Java_FastCheckoutCreditCard_getIsLocal(env, jcredit_card)) {
     credit_card->set_record_type(autofill::CreditCard::RecordType::kLocalCard);
   } else {
-    if (Java_FastCheckoutCreditCard_getIsCached(env, jcredit_card)) {
-      credit_card->set_record_type(
-          autofill::CreditCard::RecordType::kFullServerCard);
-    } else {
-      credit_card->set_record_type(
-          autofill::CreditCard::RecordType::kMaskedServerCard);
-      credit_card->SetNetworkForMaskedCard(
-          autofill::data_util::GetIssuerNetworkForBasicCardIssuerNetwork(
-              ConvertJavaStringToUTF8(
-                  env, Java_FastCheckoutCreditCard_getBasicCardIssuerNetwork(
-                           env, jcredit_card))));
-    }
+    credit_card->set_record_type(
+        autofill::CreditCard::RecordType::kMaskedServerCard);
+    credit_card->SetNetworkForMaskedCard(
+        autofill::data_util::GetIssuerNetworkForBasicCardIssuerNetwork(
+            ConvertJavaStringToUTF8(
+                env, Java_FastCheckoutCreditCard_getBasicCardIssuerNetwork(
+                         env, jcredit_card))));
   }
 
   credit_card->set_origin(ConvertJavaStringToUTF8(
@@ -223,7 +213,7 @@ std::unique_ptr<autofill::CreditCard> CreateFastCheckoutCreditCardFromJava(
       Java_FastCheckoutCreditCard_getCardArtUrl(env, jcredit_card);
   if (!jcard_art_url.is_null()) {
     credit_card->set_card_art_url(
-        *url::GURLAndroid::ToNativeGURL(env, jcard_art_url));
+        url::GURLAndroid::ToNativeGURL(env, jcard_art_url));
   }
   credit_card->set_virtual_card_enrollment_state(
       static_cast<autofill::CreditCard::VirtualCardEnrollmentState>(

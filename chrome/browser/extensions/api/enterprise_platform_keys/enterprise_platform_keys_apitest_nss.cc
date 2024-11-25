@@ -20,12 +20,13 @@
 #include "chrome/browser/ash/platform_keys/platform_keys_service_factory.h"
 #include "chrome/browser/ash/platform_keys/platform_keys_service_test_util.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/ash/scoped_test_system_nss_key_slot_mixin.h"
 #include "chrome/browser/extensions/api/platform_keys/platform_keys_test_base.h"
 #include "chrome/browser/net/nss_service.h"
 #include "chrome/browser/net/nss_service_factory.h"
 #include "chrome/browser/policy/extension_force_install_mixin.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/test/base/ash/scoped_test_system_nss_key_slot_mixin.h"
 #include "chromeos/ash/components/chaps_util/test_util.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -137,7 +138,7 @@ const unsigned char privateKeyPkcs8System[] = {
     0xd8, 0x71, 0x69, 0x5e, 0x8d, 0xb4, 0x48, 0x1c, 0xa4, 0x01, 0xce, 0xc1,
     0xb5, 0x6f, 0xe9, 0x1b, 0x32, 0x91, 0x34, 0x38};
 
-using ContextType = ExtensionBrowserTest::ContextType;
+using ContextType = extensions::browser_test_util::ContextType;
 
 base::FilePath GetExtensionDirName(ContextType context_type) {
   base::FilePath path =
@@ -262,8 +263,8 @@ class EnterprisePlatformKeysTest
  private:
   void PrepareTestSystemSlotOnIO(
       crypto::ScopedTestSystemNSSKeySlot* system_slot) override {
-    // Import a private key to the system slot.  The Javascript part of this
-    // test has a prepared certificate for this key.
+    // Import a private key to the system slot. The Javascript part of this test
+    // has a prepared certificate for this key.
     ImportPrivateKeyPKCS8ToSlot(privateKeyPkcs8System,
                                 std::size(privateKeyPkcs8System),
                                 system_slot->slot());
@@ -289,7 +290,7 @@ IN_PROC_BROWSER_TEST_P(EnterprisePlatformKeysTest, Basic) {
     NssServiceFactory::GetForContext(profile())
         ->UnsafelyGetNSSCertDatabaseForTesting(get_db_future.GetCallback());
     // In order to use a prepared certificate, import a private key to the
-    // user's token for which the Javscript test will import the certificate.
+    // user's token for which the Javascript test will import the certificate.
     ImportPrivateKeyPKCS8ToSlot(privateKeyPkcs8User,
                                 std::size(privateKeyPkcs8User),
                                 get_db_future.Get()->GetPrivateSlot().get());
@@ -373,16 +374,22 @@ IN_PROC_BROWSER_TEST_P(EnterprisePlatformKeysIsRestrictedTest,
                                {.ignore_manifest_warnings = true}));
 
   const Extension* extension = GetSingleLoadedExtension();
+  int warning_index = 0;
   ASSERT_TRUE(extension);
-  ASSERT_EQ(2u, extension->install_warnings().size());
-  // TODO(https://crbug.com/1269161): Remove the check for the deprecated
-  // manifest version when the test extension is updated to MV3.
-  EXPECT_EQ(extensions::manifest_errors::kManifestV2IsDeprecatedWarning,
-            extension->install_warnings()[0].message);
+  if (GetParam() == ContextType::kServiceWorker) {
+    ASSERT_EQ(1u, extension->install_warnings().size());
+  } else {
+    // TODO(crbug.com/40804030): Remove the check for the deprecated
+    // manifest version when the test extension is updated to MV3.
+    ASSERT_EQ(2u, extension->install_warnings().size());
+    EXPECT_EQ(extensions::manifest_errors::kManifestV2IsDeprecatedWarning,
+              extension->install_warnings()[0].message);
+    warning_index = 1;
+  }
   EXPECT_EQ(
       "'enterprise.platformKeys' is not allowed for specified install "
       "location.",
-      extension->install_warnings()[1].message);
+      extension->install_warnings()[warning_index].message);
 }
 
 INSTANTIATE_TEST_SUITE_P(PersistentBackground,
@@ -455,16 +462,13 @@ IN_PROC_BROWSER_TEST_P(EnterprisePlatformKeysLoginScreenTest, Basic) {
   config.Set("customArg", BuildCustomArg(/*user_session_test=*/false,
                                          /*system_token_enabled=*/true));
   extensions::TestGetConfigFunction::set_test_config_state(&config);
-
   extensions::ResultCatcher catcher;
-
   extensions::ExtensionId extension_id;
 
   ASSERT_TRUE(extension_force_install_mixin()->ForceInstallFromSourceDir(
       GetExtensionDirName(GetParam()), GetExtensionPemFileName(),
       ExtensionForceInstallMixin::WaitMode::kLoad, &extension_id));
   ASSERT_EQ(kExtensionId, extension_id);
-
   ASSERT_TRUE(catcher.GetNextResult());
 }
 
@@ -472,7 +476,7 @@ INSTANTIATE_TEST_SUITE_P(PersistentBackground,
                          EnterprisePlatformKeysLoginScreenTest,
                          ::testing::Values(ContextType::kPersistentBackground));
 
-// TODO(crbug.com/1303197): Service workers don't work in the login screen
+// TODO(crbug.com/40217298): Service workers don't work in the login screen
 // context. Investigate and fix.
 // INSTANTIATE_TEST_SUITE_P(
 //    ServiceWorker,

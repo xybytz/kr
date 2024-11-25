@@ -8,9 +8,10 @@
 #include <zircon/rights.h>
 #include <zircon/types.h>
 
-#include <string>
-
 #include <optional>
+#include <string>
+#include <vector>
+
 #include "base/containers/contains.h"
 #include "base/fuchsia/fuchsia_logging.h"
 #include "base/fuchsia/mem_buffer_util.h"
@@ -347,6 +348,69 @@ TEST_F(WebEngineIntegrationTest, ContentDirectoryProvider) {
   navigation_listener()->RunUntilUrlAndTitleEquals(kUrl, kTitle);
 }
 
+class WebEngineIntegrationReduceAcceptLanguageTest
+    : public WebEngineIntegrationTest {
+ protected:
+  GURL GetEchoAcceptLanguageUrl() {
+    static std::string echo_accept_language_header_path =
+        std::string("/echoheader?") + net::HttpRequestHeaders::kAcceptLanguage;
+    return embedded_test_server_.GetURL(echo_accept_language_header_path);
+  }
+  std::vector<std::string> GetNavigatorLanguages() {
+    std::optional<base::Value> value =
+        ExecuteJavaScript(frame_.get(), "navigator.languages;");
+    std::vector<std::string> accept_languages;
+    if (!value) {
+      return accept_languages;
+    }
+    for (const auto& language : value->GetList()) {
+      accept_languages.push_back(language.GetString());
+    }
+    return accept_languages;
+  }
+};
+
+TEST_F(WebEngineIntegrationReduceAcceptLanguageTest,
+       DisableReduceAcceptLanguage) {
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+  command_line.AppendSwitchASCII("disable-features", "ReduceAcceptLanguage");
+  StartWebEngine(std::move(command_line));
+
+  // Create a Context with no values specified.
+  fuchsia::web::CreateContextParams create_params = TestContextParams();
+  CreateContextAndFrameAndLoadUrl(std::move(create_params),
+                                  GetEchoAcceptLanguageUrl());
+
+  // Query & verify that the header echoed into the document body is as
+  // expected.
+  std::string result =
+      ExecuteJavaScriptWithStringResult("document.body.innerText;");
+  EXPECT_EQ(result, "en-US,en;q=0.9");
+
+  // Query & verify that the navigator.languages is as expected.
+  EXPECT_THAT(GetNavigatorLanguages(), testing::ElementsAre("en-US"));
+}
+
+TEST_F(WebEngineIntegrationReduceAcceptLanguageTest, ReduceAcceptLanguage) {
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+  command_line.AppendSwitchASCII("enable-features", "ReduceAcceptLanguage");
+  StartWebEngine(std::move(command_line));
+
+  // Create a Context with no values specified.
+  fuchsia::web::CreateContextParams create_params = TestContextParams();
+  CreateContextAndFrameAndLoadUrl(std::move(create_params),
+                                  GetEchoAcceptLanguageUrl());
+
+  // Query & verify that the header echoed into the document body is as
+  // expected.
+  std::string result =
+      ExecuteJavaScriptWithStringResult("document.body.innerText;");
+  EXPECT_EQ(result, "en-US,en;q=0.9");
+
+  // Query & verify that the navigator.languages is as expected.
+  EXPECT_THAT(GetNavigatorLanguages(), testing::ElementsAre("en-US"));
+}
+
 class FakeAudioRenderer
     : public fuchsia::media::testing::AudioRenderer_TestBase {
  public:
@@ -524,7 +588,7 @@ TEST_F(WebEngineIntegrationMediaTest, PlayAudioToAudioConsumer) {
 
 // Check that audio cannot play when the AUDIO ContextFeatureFlag is not
 // provided.
-TEST_F(WebEngineIntegrationMediaTest, PlayAudio_NoFlag) {
+TEST_F(WebEngineIntegrationMediaTest, PlayAudioNoFlag) {
   StartWebEngine(base::CommandLine(base::CommandLine::NO_PROGRAM));
   // Both FilteredServiceDirectory and test data are needed.
   fuchsia::web::CreateContextParams create_params =
@@ -580,7 +644,7 @@ TEST_F(WebEngineIntegrationTest, PermissionGranted) {
   RunPermissionTest(true);
 }
 
-// TODO(crbug.com/1299352): Flaky.
+// TODO(crbug.com/40823475): Flaky.
 TEST_F(WebEngineIntegrationMediaTest,
        DISABLED_MicrophoneAccess_WithPermission) {
   StartWebEngine(base::CommandLine(base::CommandLine::NO_PROGRAM));
@@ -596,7 +660,7 @@ TEST_F(WebEngineIntegrationMediaTest,
   navigation_listener()->RunUntilTitleEquals("ended");
 }
 
-TEST_F(WebEngineIntegrationMediaTest, MicrophoneAccess_WithoutPermission) {
+TEST_F(WebEngineIntegrationMediaTest, MicrophoneAccessWithoutPermission) {
   StartWebEngine(base::CommandLine(base::CommandLine::NO_PROGRAM));
   CreateContextAndFrame(ContextParamsWithAudioAndTestData());
 
@@ -606,7 +670,7 @@ TEST_F(WebEngineIntegrationMediaTest, MicrophoneAccess_WithoutPermission) {
   navigation_listener()->RunUntilTitleEquals("ended-NotFoundError");
 }
 
-TEST_F(WebEngineIntegrationMediaTest, SetBlockMediaLoading_Blocked) {
+TEST_F(WebEngineIntegrationMediaTest, SetBlockMediaLoadingBlocked) {
   StartWebEngine(base::CommandLine(base::CommandLine::NO_PROGRAM));
   CreateContextAndFrame(ContextParamsWithAudioAndTestData());
 
@@ -625,7 +689,7 @@ TEST_F(WebEngineIntegrationMediaTest, SetBlockMediaLoading_Blocked) {
 
 // Initially, set media blocking to be true. When media is unblocked, check that
 // it begins playing, since autoplay=true.
-TEST_F(WebEngineIntegrationMediaTest, SetBlockMediaLoading_AfterUnblock) {
+TEST_F(WebEngineIntegrationMediaTest, SetBlockMediaLoadingAfterUnblock) {
   StartWebEngine(base::CommandLine(base::CommandLine::NO_PROGRAM));
   CreateContextAndFrame(ContextParamsWithAudioAndTestData());
 
@@ -673,7 +737,7 @@ TEST_F(WebEngineIntegrationTest, WebGLContextAbsentWithoutVulkanFeature) {
 }
 
 #if defined(ARCH_CPU_ARM_FAMILY)
-// TODO(crbug.com/1377994): Enable on ARM64 when bots support Vulkan.
+// TODO(crbug.com/42050537): Enable on ARM64 when bots support Vulkan.
 #define MAYBE_VulkanWebEngineIntegrationTest \
   DISABLED_VulkanWebEngineIntegrationTest
 #else
@@ -727,12 +791,12 @@ void WebEngineIntegrationCameraTest::RunCameraTest(bool grant_permission) {
   navigation_listener()->RunUntilTitleEquals("ended");
 }
 
-TEST_F(WebEngineIntegrationCameraTest, CameraAccess_WithPermission) {
+TEST_F(WebEngineIntegrationCameraTest, CameraAccessWithPermission) {
   StartWebEngine(base::CommandLine(base::CommandLine::NO_PROGRAM));
   RunCameraTest(/*grant_permission=*/true);
 }
 
-TEST_F(WebEngineIntegrationCameraTest, CameraAccess_WithoutPermission) {
+TEST_F(WebEngineIntegrationCameraTest, CameraAccessWithoutPermission) {
   StartWebEngine(base::CommandLine(base::CommandLine::NO_PROGRAM));
   RunCameraTest(/*grant_permission=*/false);
 }
@@ -776,7 +840,7 @@ TEST_F(MAYBE_VulkanWebEngineIntegrationTest,
 // Check that the CodecFactory service is not requested when
 // HARDWARE_VIDEO_DECODER is not provided.
 // The video should use software decoders and still play.
-TEST_F(WebEngineIntegrationMediaTest, HardwareVideoDecoderFlag_NotProvided) {
+TEST_F(WebEngineIntegrationMediaTest, HardwareVideoDecoderFlagNotProvided) {
   StartWebEngine(base::CommandLine(base::CommandLine::NO_PROGRAM));
   bool is_requested = false;
   auto* outgoing_directory = filtered_service_directory().outgoing_directory();

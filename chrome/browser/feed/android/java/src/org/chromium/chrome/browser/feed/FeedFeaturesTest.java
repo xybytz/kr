@@ -64,7 +64,6 @@ public class FeedFeaturesTest {
 
         mParamsTestValues = new FeatureList.TestValues();
         FeatureList.setTestValues(mParamsTestValues);
-        FeedFeatures.resetInternalStateForTesting();
     }
 
     @After
@@ -80,36 +79,6 @@ public class FeedFeaturesTest {
         FeedFeatures.setLastSeenFeedTabId(mProfile, StreamTabId.FOLLOWING);
         assertEquals(StreamTabId.FOR_YOU, FeedFeatures.getFeedTabIdToRestore(mProfile));
         assertEquals(StreamTabId.FOR_YOU, mPrefStoredTab);
-    }
-
-    @Test
-    public void testResetUponRestartFromFinchParam() {
-        mParamsTestValues.addFieldTrialParamOverride(
-                ChromeFeatureList.WEB_FEED,
-                "feed_tab_stickiness_logic",
-                "reset_upon_chrome_restart");
-        FeatureList.setTestValues(mParamsTestValues);
-
-        assertEquals(StreamTabId.FOR_YOU, FeedFeatures.getFeedTabIdToRestore(mProfile));
-        assertEquals(StreamTabId.FOR_YOU, mPrefStoredTab);
-        // Simulates a Following tab selection.
-        FeedFeatures.setLastSeenFeedTabId(mProfile, StreamTabId.FOLLOWING);
-        assertEquals(StreamTabId.FOLLOWING, FeedFeatures.getFeedTabIdToRestore(mProfile));
-        assertEquals(StreamTabId.FOLLOWING, FeedFeatures.getFeedTabIdToRestore(mProfile));
-    }
-
-    @Test
-    public void testIndefinitelyPersistedFromFinchParam() {
-        mParamsTestValues.addFieldTrialParamOverride(
-                ChromeFeatureList.WEB_FEED, "feed_tab_stickiness_logic", "indefinitely_persisted");
-        FeatureList.setTestValues(mParamsTestValues);
-
-        assertEquals(StreamTabId.FOLLOWING, FeedFeatures.getFeedTabIdToRestore(mProfile));
-        assertEquals(StreamTabId.FOLLOWING, mPrefStoredTab);
-        // Simulates a For You tab selection.
-        FeedFeatures.setLastSeenFeedTabId(mProfile, StreamTabId.FOR_YOU);
-        assertEquals(StreamTabId.FOR_YOU, FeedFeatures.getFeedTabIdToRestore(mProfile));
-        assertEquals(StreamTabId.FOR_YOU, FeedFeatures.getFeedTabIdToRestore(mProfile));
     }
 
     @Test

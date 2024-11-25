@@ -20,7 +20,9 @@
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "third_party/blink/public/mojom/badging/badging.mojom.h"
 #include "third_party/blink/public/mojom/clipboard/clipboard.mojom.h"
+#include "third_party/blink/public/mojom/compute_pressure/web_pressure_manager_automation.mojom-forward.h"
 #include "third_party/blink/public/mojom/cookie_manager/cookie_manager_automation.mojom-forward.h"
+#include "third_party/blink/public/mojom/device_posture/device_posture_provider_automation.mojom-forward.h"
 #include "third_party/blink/public/mojom/permissions/permission_automation.mojom-forward.h"
 #include "third_party/blink/public/mojom/sensor/web_sensor_provider_automation.mojom-forward.h"
 #include "third_party/blink/public/mojom/storage_access/storage_access_automation.mojom-forward.h"
@@ -56,6 +58,8 @@ class WebTestContentBrowserClient : public ShellContentBrowserClient {
   // Retrieves the last created FakeBluetoothChooser instance.
   std::unique_ptr<FakeBluetoothChooser> GetNextFakeBluetoothChooser();
   void ResetFakeBluetoothDelegate();
+
+  void ResetWebSensorProviderAutomation();
 
   // ContentBrowserClient overrides.
   void BrowserChildProcessHostCreated(BrowserChildProcessHost* host) override;
@@ -102,7 +106,8 @@ class WebTestContentBrowserClient : public ShellContentBrowserClient {
       content::WebContents* web_contents,
       content::BrowserContext* browser_context,
       const content::GlobalRequestID& request_id,
-      bool is_request_for_primary_main_frame,
+      bool is_request_for_primary_main_frame_navigation,
+      bool is_request_for_navigation,
       const GURL& url,
       scoped_refptr<net::HttpResponseHeaders> response_headers,
       bool first_auth_attempt,
@@ -113,15 +118,15 @@ class WebTestContentBrowserClient : public ShellContentBrowserClient {
                      ChildSpawnFlags flags) override;
 #endif
   std::string GetAcceptLangs(BrowserContext* context) override;
-  bool IsInterestGroupAPIAllowed(content::RenderFrameHost* render_frame_host,
+  bool IsInterestGroupAPIAllowed(content::BrowserContext* browser_context,
+                                 content::RenderFrameHost* render_frame_host,
                                  InterestGroupApiOperation operation,
                                  const url::Origin& top_frame_origin,
                                  const url::Origin& api_origin) override;
   bool IsPrivacySandboxReportingDestinationAttested(
       content::BrowserContext* browser_context,
       const url::Origin& destination_origin,
-      content::PrivacySandboxInvokingAPI invoking_api,
-      bool post_impression_reporting) override;
+      content::PrivacySandboxInvokingAPI invoking_api) override;
   void GetHyphenationDictionary(
       base::OnceCallback<void(const base::FilePath&)>) override;
   void RegisterMojoBinderPoliciesForSameOriginPrerendering(
@@ -160,6 +165,11 @@ class WebTestContentBrowserClient : public ShellContentBrowserClient {
       mojo::PendingReceiver<blink::test::mojom::CookieManagerAutomation>
           receiver);
 
+  void BindDevicePostureProviderAutomation(
+      RenderFrameHost* render_frame_host,
+      mojo::PendingReceiver<blink::test::mojom::DevicePostureProviderAutomation>
+          receiver);
+
   void BindFedCmAutomation(
       RenderFrameHost* render_frame_host,
       mojo::PendingReceiver<blink::test::mojom::FederatedAuthRequestAutomation>
@@ -168,6 +178,11 @@ class WebTestContentBrowserClient : public ShellContentBrowserClient {
   void BindWebSensorProviderAutomation(
       RenderFrameHost* render_frame_host,
       mojo::PendingReceiver<blink::test::mojom::WebSensorProviderAutomation>
+          receiver);
+
+  void BindWebPressureManagerAutomation(
+      RenderFrameHost* render_frame_host,
+      mojo::PendingReceiver<blink::test::mojom::WebPressureManagerAutomation>
           receiver);
 
   void BindWebTestControlHost(
@@ -184,6 +199,8 @@ class WebTestContentBrowserClient : public ShellContentBrowserClient {
   std::unique_ptr<FakeBluetoothDelegate> fake_bluetooth_delegate_;
   std::unique_ptr<MockClipboardHost> mock_clipboard_host_;
   std::unique_ptr<MockBadgeService> mock_badge_service_;
+  mojo::UniqueReceiverSet<blink::test::mojom::DevicePostureProviderAutomation>
+      device_posture_provider_managers_;
   std::unique_ptr<WebTestSensorProviderManager> sensor_provider_manager_;
   mojo::UniqueReceiverSet<blink::test::mojom::CookieManagerAutomation>
       cookie_managers_;

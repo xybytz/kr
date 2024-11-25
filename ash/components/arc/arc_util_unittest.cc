@@ -13,7 +13,6 @@
 #include "ash/components/arc/arc_prefs.h"
 #include "ash/components/arc/session/arc_vm_data_migration_status.h"
 #include "ash/components/arc/test/arc_util_test_support.h"
-#include "ash/constants/app_types.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/test/ash_test_base.h"
 #include "base/base_switches.h"
@@ -27,6 +26,7 @@
 #include "base/time/time.h"
 #include "chromeos/ash/components/dbus/concierge/fake_concierge_client.h"
 #include "chromeos/ash/components/dbus/upstart/fake_upstart_client.h"
+#include "chromeos/ash/components/install_attributes/stub_install_attributes.h"
 #include "components/account_id/account_id.h"
 #include "components/exo/shell_surface_util.h"
 #include "components/prefs/testing_pref_service.h"
@@ -79,19 +79,6 @@ class ScopedRtVcpuFeature {
   base::test::ScopedFeatureList feature_list;
 };
 
-// Fake user that can be created with a specified type.
-class FakeUser : public user_manager::User {
- public:
-  explicit FakeUser(user_manager::UserType type)
-      : User(AccountId::FromUserEmailGaiaId("user@test.com", "1234567890"),
-             type) {}
-
-  FakeUser(const FakeUser&) = delete;
-  FakeUser& operator=(const FakeUser&) = delete;
-
-  ~FakeUser() override = default;
-};
-
 class ArcUtilTest : public ash::AshTestBase {
  public:
   ArcUtilTest() {
@@ -140,7 +127,7 @@ class ArcUtilTest : public ash::AshTestBase {
   TestingPrefServiceSimple profile_prefs_;
 };
 
-TEST_F(ArcUtilTest, IsArcAvailable_None) {
+TEST_F(ArcUtilTest, IsArcAvailableNone) {
   auto* command_line = base::CommandLine::ForCurrentProcess();
 
   command_line->InitFromArgv({"", "--arc-availability=none"});
@@ -155,7 +142,7 @@ TEST_F(ArcUtilTest, IsArcAvailable_None) {
 }
 
 // Test --arc-available with EnableARC feature combination.
-TEST_F(ArcUtilTest, IsArcAvailable_Installed) {
+TEST_F(ArcUtilTest, IsArcAvailableInstalled) {
   auto* command_line = base::CommandLine::ForCurrentProcess();
 
   // If ARC is not installed, IsArcAvailable() should return false,
@@ -164,17 +151,14 @@ TEST_F(ArcUtilTest, IsArcAvailable_Installed) {
 
   // Not available, by-default.
   EXPECT_FALSE(IsArcAvailable());
-  EXPECT_FALSE(IsArcKioskAvailable());
 
   {
     ScopedArcFeature feature(true);
     EXPECT_FALSE(IsArcAvailable());
-    EXPECT_FALSE(IsArcKioskAvailable());
   }
   {
     ScopedArcFeature feature(false);
     EXPECT_FALSE(IsArcAvailable());
-    EXPECT_FALSE(IsArcKioskAvailable());
   }
 
   // If ARC is installed, IsArcAvailable() should return true when EnableARC
@@ -184,18 +168,13 @@ TEST_F(ArcUtilTest, IsArcAvailable_Installed) {
   // Not available, by-default, too.
   EXPECT_FALSE(IsArcAvailable());
 
-  // ARC is available in kiosk mode if installed.
-  EXPECT_TRUE(IsArcKioskAvailable());
-
   {
     ScopedArcFeature feature(true);
     EXPECT_TRUE(IsArcAvailable());
-    EXPECT_TRUE(IsArcKioskAvailable());
   }
   {
     ScopedArcFeature feature(false);
     EXPECT_FALSE(IsArcAvailable());
-    EXPECT_TRUE(IsArcKioskAvailable());
   }
 
   // If ARC is installed, IsArcAvailable() should return true when EnableARC
@@ -205,31 +184,24 @@ TEST_F(ArcUtilTest, IsArcAvailable_Installed) {
   // Not available, by-default, too.
   EXPECT_FALSE(IsArcAvailable());
 
-  // ARC is available in kiosk mode if installed.
-  EXPECT_TRUE(IsArcKioskAvailable());
-
   {
     ScopedArcFeature feature(true);
     EXPECT_TRUE(IsArcAvailable());
-    EXPECT_TRUE(IsArcKioskAvailable());
   }
   {
     ScopedArcFeature feature(false);
     EXPECT_FALSE(IsArcAvailable());
-    EXPECT_TRUE(IsArcKioskAvailable());
   }
 }
 
-TEST_F(ArcUtilTest, IsArcAvailable_OfficiallySupported) {
+TEST_F(ArcUtilTest, IsArcAvailableOfficiallySupported) {
   // Regardless of FeatureList, IsArcAvailable() should return true.
   auto* command_line = base::CommandLine::ForCurrentProcess();
   command_line->InitFromArgv({"", "--enable-arc"});
   EXPECT_TRUE(IsArcAvailable());
-  EXPECT_TRUE(IsArcKioskAvailable());
 
   command_line->InitFromArgv({"", "--arc-availability=officially-supported"});
   EXPECT_TRUE(IsArcAvailable());
-  EXPECT_TRUE(IsArcKioskAvailable());
 }
 
 TEST_F(ArcUtilTest, IsArcVmEnabled) {
@@ -238,6 +210,14 @@ TEST_F(ArcUtilTest, IsArcVmEnabled) {
   auto* command_line = base::CommandLine::ForCurrentProcess();
   command_line->InitFromArgv({"", "--enable-arcvm"});
   EXPECT_TRUE(IsArcVmEnabled());
+}
+
+TEST_F(ArcUtilTest, IsArcVmDlcEnabled) {
+  EXPECT_FALSE(IsArcVmDlcEnabled());
+
+  auto* command_line = base::CommandLine::ForCurrentProcess();
+  command_line->InitFromArgv({"", "--enable-arcvm-dlc"});
+  EXPECT_TRUE(IsArcVmDlcEnabled());
 }
 
 TEST_F(ArcUtilTest, GetArcAndroidSdkVersionAsInt) {
@@ -323,28 +303,6 @@ TEST_F(ArcUtilTest, GetArcUreadaheadModeContainerSwitch) {
   EXPECT_EQ(ArcUreadaheadMode::DISABLED, GetArcUreadaheadMode(mode));
 }
 
-TEST_F(ArcUtilTest, UreadaheadDefault) {
-  EXPECT_FALSE(IsUreadaheadDisabled());
-}
-
-TEST_F(ArcUtilTest, UreadaheadDisabled) {
-  auto* command_line = base::CommandLine::ForCurrentProcess();
-  command_line->InitFromArgv({"", "--arc-disable-ureadahead"});
-  EXPECT_TRUE(IsUreadaheadDisabled());
-}
-
-TEST_F(ArcUtilTest, HostUreadaheadGenerationDefault) {
-  EXPECT_FALSE(IsHostUreadaheadGeneration());
-  EXPECT_FALSE(IsUreadaheadDisabled());
-}
-
-TEST_F(ArcUtilTest, HostUreadaheadGenerationSet) {
-  auto* command_line = base::CommandLine::ForCurrentProcess();
-  command_line->InitFromArgv({"", "--arc-host-ureadahead-generation"});
-  EXPECT_TRUE(IsHostUreadaheadGeneration());
-  EXPECT_FALSE(IsUreadaheadDisabled());
-}
-
 TEST_F(ArcUtilTest, UseDevCachesDefault) {
   EXPECT_FALSE(IsArcUseDevCaches());
 }
@@ -354,10 +312,6 @@ TEST_F(ArcUtilTest, UseDevCachesSet) {
   command_line->InitFromArgv({"", "--arc-use-dev-caches"});
   EXPECT_TRUE(IsArcUseDevCaches());
 }
-
-// TODO(hidehiko): Add test for IsArcKioskMode().
-// It depends on UserManager, but a utility to inject fake instance is
-// available only in chrome/. To use it in components/, refactoring is needed.
 
 TEST_F(ArcUtilTest, IsArcOptInVerificationDisabled) {
   auto* command_line = base::CommandLine::ForCurrentProcess();
@@ -370,6 +324,9 @@ TEST_F(ArcUtilTest, IsArcOptInVerificationDisabled) {
 
 TEST_F(ArcUtilTest, IsArcAllowedForUser) {
   TestingPrefServiceSimple local_state;
+  ash::ScopedStubInstallAttributes install_attributes(
+      ash::StubInstallAttributes::CreateCloudManaged("test-domain",
+                                                     "FAKE_DEVICE_ID"));
   user_manager::TypedScopedUserManager fake_user_manager(
       std::make_unique<user_manager::FakeUserManager>(&local_state));
 
@@ -383,8 +340,6 @@ TEST_F(ArcUtilTest, IsArcAllowedForUser) {
       AccountId::FromUserEmailGaiaId("user4@test.com", "1234567890-4"))));
   EXPECT_TRUE(IsArcAllowedForUser(fake_user_manager->AddChildUser(
       AccountId::FromUserEmailGaiaId("user5@test.com", "1234567890-5"))));
-  EXPECT_TRUE(IsArcAllowedForUser(fake_user_manager->AddArcKioskAppUser(
-      AccountId::FromUserEmailGaiaId("user6@test.com", "1234567890-6"))));
 
   // An ephemeral user is a logged in user but unknown to UserManager when
   // ephemeral policy is set.
@@ -400,9 +355,6 @@ TEST_F(ArcUtilTest, IsArcAllowedForUser) {
   ASSERT_TRUE(ephemeral_user);
   ASSERT_TRUE(fake_user_manager->IsUserCryptohomeDataEphemeral(
       ephemeral_user->GetAccountId()));
-
-  // Ephemeral user is also allowed for ARC.
-  EXPECT_TRUE(IsArcAllowedForUser(ephemeral_user));
 }
 
 TEST_F(ArcUtilTest, ArcStartModeDefault) {
@@ -464,11 +416,14 @@ TEST_F(ArcUtilTest, ScaleFactorToDensity) {
   EXPECT_EQ(240, GetLcdDensityForDeviceScaleFactor(2.0));
 }
 
-TEST_F(ArcUtilTest, ConfigureUpstartJobs_Success) {
+TEST_F(ArcUtilTest, ConfigureUpstartJobsSuccess) {
   std::deque<JobDesc> jobs{
       JobDesc{"Job_2dA", UpstartOperation::JOB_STOP, {}},
       JobDesc{"Job_2dB", UpstartOperation::JOB_STOP_AND_START, {}},
       JobDesc{"Job_2dC", UpstartOperation::JOB_START, {}},
+      JobDesc{"arcvm_2dinstall_2dandroid_2dimage_2ddlc",
+              UpstartOperation::JOB_START,
+              {}},
   };
   bool result = false;
   ash::FakeUpstartClient::Get()->StartRecordingUpstartOperations();
@@ -483,7 +438,7 @@ TEST_F(ArcUtilTest, ConfigureUpstartJobs_Success) {
   EXPECT_TRUE(result);
 
   auto ops = ash::FakeUpstartClient::Get()->upstart_operations();
-  ASSERT_EQ(4u, ops.size());
+  ASSERT_EQ(5u, ops.size());
   EXPECT_EQ(ops[0].name, "Job_2dA");
   EXPECT_EQ(ops[0].type, ash::FakeUpstartClient::UpstartOperationType::STOP);
   EXPECT_EQ(ops[1].name, "Job_2dB");
@@ -492,9 +447,11 @@ TEST_F(ArcUtilTest, ConfigureUpstartJobs_Success) {
   EXPECT_EQ(ops[2].type, ash::FakeUpstartClient::UpstartOperationType::START);
   EXPECT_EQ(ops[3].name, "Job_2dC");
   EXPECT_EQ(ops[3].type, ash::FakeUpstartClient::UpstartOperationType::START);
+  EXPECT_EQ(ops[4].name, "arcvm_2dinstall_2dandroid_2dimage_2ddlc");
+  EXPECT_EQ(ops[4].type, ash::FakeUpstartClient::UpstartOperationType::START);
 }
 
-TEST_F(ArcUtilTest, ConfigureUpstartJobs_StopFail) {
+TEST_F(ArcUtilTest, ConfigureUpstartJobsStopFail) {
   std::deque<JobDesc> jobs{
       JobDesc{"Job_2dA", UpstartOperation::JOB_STOP, {}},
       JobDesc{"Job_2dB", UpstartOperation::JOB_STOP_AND_START, {}},
@@ -527,7 +484,7 @@ TEST_F(ArcUtilTest, ConfigureUpstartJobs_StopFail) {
   EXPECT_TRUE(result);
 }
 
-TEST_F(ArcUtilTest, ConfigureUpstartJobs_StartFail) {
+TEST_F(ArcUtilTest, ConfigureUpstartJobsStartFail) {
   std::deque<JobDesc> jobs{
       JobDesc{"Job_2dA", UpstartOperation::JOB_STOP, {}},
       JobDesc{"Job_2dB", UpstartOperation::JOB_STOP_AND_START, {}},
@@ -644,7 +601,7 @@ TEST_F(ArcUtilTest, SetAndGetArcVmDataMigrationStrategy) {
 
 // Tests that ShouldUseVirtioBlkData() returns true when virtio-blk /data is
 // enabled via the kEnableVirtioBlkForData feature.
-TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_VirtioBlkForDataFeatureEnabled) {
+TEST_F(ArcUtilTest, ShouldUseVirtioBlkDataVirtioBlkForDataFeatureEnabled) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndEnableFeature(kEnableVirtioBlkForData);
   EXPECT_FALSE(base::FeatureList::IsEnabled(kEnableArcVmDataMigration));
@@ -653,7 +610,7 @@ TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_VirtioBlkForDataFeatureEnabled) {
 
 // Tests that ShouldUseVirtioBlkData() returns false when ARCVM /data is enabled
 // but the user has not been notified yet.
-TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Unnotified) {
+TEST_F(ArcUtilTest, ShouldUseVirtioBlkDataArcVmDataMigrationUnnotified) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndEnableFeature(kEnableArcVmDataMigration);
   SetArcVmDataMigrationStatus(profile_prefs(),
@@ -663,7 +620,7 @@ TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Unnotified) {
 
 // Tests that ShouldUseVirtioBlkData() returns false when ARCVM /data is enabled
 // but the user has just been notified of its availability.
-TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Notified) {
+TEST_F(ArcUtilTest, ShouldUseVirtioBlkDataArcVmDataMigrationNotified) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndEnableFeature(kEnableArcVmDataMigration);
   SetArcVmDataMigrationStatus(profile_prefs(),
@@ -673,7 +630,7 @@ TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Notified) {
 
 // Tests that ShouldUseVirtioBlkData() returns false when ARCVM /data is enabled
 // but the user has just confirmed the migration.
-TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Confirmed) {
+TEST_F(ArcUtilTest, ShouldUseVirtioBlkDataArcVmDataMigrationConfirmed) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndEnableFeature(kEnableArcVmDataMigration);
   SetArcVmDataMigrationStatus(profile_prefs(),
@@ -683,7 +640,7 @@ TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Confirmed) {
 
 // Tests that ShouldUseVirtioBlkData() returns false when ARCVM /data is enabled
 // and the migration has started, but not finished yet.
-TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Started) {
+TEST_F(ArcUtilTest, ShouldUseVirtioBlkDataArcVmDataMigrationStarted) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndEnableFeature(kEnableArcVmDataMigration);
   SetArcVmDataMigrationStatus(profile_prefs(),
@@ -693,7 +650,7 @@ TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Started) {
 
 // Tests that ShouldUseVirtioBlkData() returns true when ARCVM /data is enabled
 // and the migration has finished.
-TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Finished) {
+TEST_F(ArcUtilTest, ShouldUseVirtioBlkDataArcVmDataMigrationFinished) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndEnableFeature(kEnableArcVmDataMigration);
   SetArcVmDataMigrationStatus(profile_prefs(),
@@ -719,7 +676,7 @@ TEST_F(ArcUtilTest,
 
 // Tests that GetDaysUntilArcVmDataMigrationDeadline() returns the correct value
 // when it is called after kArcVmDataMigrationDismissibleTimeDelta has passed.
-TEST_F(ArcUtilTest, GetDaysUntilArcVmDataMigrationDeadline_JustAfterDeadline) {
+TEST_F(ArcUtilTest, GetDaysUntilArcVmDataMigrationDeadlineJustAfterDeadline) {
   // Remaining days should be 1 (i.e., the migration should be done today).
   profile_prefs()->SetTime(
       prefs::kArcVmDataMigrationNotificationFirstShownTime,
@@ -730,7 +687,7 @@ TEST_F(ArcUtilTest, GetDaysUntilArcVmDataMigrationDeadline_JustAfterDeadline) {
 // Tests that GetDaysUntilArcVmDataMigrationDeadline() returns the correct value
 // when it is called after more days than kArcVmDataMigrationDismissibleDays
 // have passed.
-TEST_F(ArcUtilTest, GetDaysUntilArcVmDataMigrationDeadline_Overdue) {
+TEST_F(ArcUtilTest, GetDaysUntilArcVmDataMigrationDeadlineOverdue) {
   // Remaining days should be kept 1.
   profile_prefs()->SetTime(
       prefs::kArcVmDataMigrationNotificationFirstShownTime,
@@ -741,7 +698,7 @@ TEST_F(ArcUtilTest, GetDaysUntilArcVmDataMigrationDeadline_Overdue) {
 
 // Tests that GetDaysUntilArcVmDataMigrationDeadline() returns the correct value
 // when the migration is in progress.
-TEST_F(ArcUtilTest, GetDaysUntilArcVmDataMigrationDeadline_MigrationStarted) {
+TEST_F(ArcUtilTest, GetDaysUntilArcVmDataMigrationDeadlineMigrationStarted) {
   SetArcVmDataMigrationStatus(profile_prefs(),
                               ArcVmDataMigrationStatus::kStarted);
   profile_prefs()->SetTime(prefs::kArcVmDataMigrationNotificationFirstShownTime,
@@ -794,7 +751,7 @@ TEST_F(ArcUtilTest, GetRequiredFreeDiskSpaceForArcVmDataMigrationInBytes) {
 }
 
 // Checks that the callback is invoked with false when ARCVM is not stopped.
-TEST_F(ArcUtilTest, EnsureStaleArcVmAndArcVmUpstartJobsStopped_StopVmFailure) {
+TEST_F(ArcUtilTest, EnsureStaleArcVmAndArcVmUpstartJobsStoppedStopVmFailure) {
   ash::FakeConciergeClient::Get()->set_stop_vm_response(std::nullopt);
   base::test::TestFuture<bool> future_no_response;
   EnsureStaleArcVmAndArcVmUpstartJobsStopped("0123456789abcdef",
@@ -814,7 +771,7 @@ TEST_F(ArcUtilTest, EnsureStaleArcVmAndArcVmUpstartJobsStopped_StopVmFailure) {
 // StopJob() is called for each of `kArcVmUpstartJobsToBeStoppedOnRestart`.
 // Note that StopJob() failures are not treated as fatal; see the comment on
 // ConfigureUpstartJobs().
-TEST_F(ArcUtilTest, EnsureStaleArcVmAndArcVmUpstartJobsStopped_Success) {
+TEST_F(ArcUtilTest, EnsureStaleArcVmAndArcVmUpstartJobsStoppedSuccess) {
   std::set<std::string> jobs_to_be_stopped(
       std::begin(kArcVmUpstartJobsToBeStoppedOnRestart),
       std::end(kArcVmUpstartJobsToBeStoppedOnRestart));
@@ -839,6 +796,84 @@ TEST_F(ArcUtilTest, EnsureStaleArcVmAndArcVmUpstartJobsStopped_Success) {
   task_environment()->RunUntilIdle();
   EXPECT_TRUE(jobs_to_be_stopped.empty());
   EXPECT_EQ(ash::FakeConciergeClient::Get()->stop_vm_call_count(), 1);
+}
+
+TEST_F(ArcUtilTest,
+       ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletionDisabled) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndDisableFeature(
+      kDeferArcActivationUntilUserSessionStartUpTaskCompletion);
+
+  EXPECT_FALSE(ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletion(
+      profile_prefs()));
+
+  RecordFirstActivationDuringUserSessionStartUp(profile_prefs(), true);
+  EXPECT_FALSE(ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletion(
+      profile_prefs()));
+
+  RecordFirstActivationDuringUserSessionStartUp(profile_prefs(), false);
+  EXPECT_FALSE(ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletion(
+      profile_prefs()));
+}
+
+TEST_F(ArcUtilTest,
+       ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletionAlways) {
+  std::map<std::string, std::string> params = {
+      {"history_window", "0"},
+      {"history_threshold", "1"},
+  };
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeatureWithParameters(
+      kDeferArcActivationUntilUserSessionStartUpTaskCompletion, params);
+
+  // ARC should be deferred always.
+  EXPECT_TRUE(ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletion(
+      profile_prefs()));
+
+  RecordFirstActivationDuringUserSessionStartUp(profile_prefs(), true);
+  EXPECT_TRUE(ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletion(
+      profile_prefs()));
+
+  RecordFirstActivationDuringUserSessionStartUp(profile_prefs(), false);
+  EXPECT_TRUE(ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletion(
+      profile_prefs()));
+}
+
+TEST_F(ArcUtilTest,
+       ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletionEnabled) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(
+      kDeferArcActivationUntilUserSessionStartUpTaskCompletion);
+  constexpr int kProductionWindowSize = 5;
+  constexpr int kProductionThreshold = 3;
+
+  // First, we should wait for the session start.
+  EXPECT_TRUE(ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletion(
+      profile_prefs()));
+  for (int i = 0; i < kProductionThreshold - 1; ++i) {
+    RecordFirstActivationDuringUserSessionStartUp(profile_prefs(), true);
+    EXPECT_TRUE(ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletion(
+        profile_prefs()));
+  }
+
+  // Try to cross the threshold.
+  for (int i = 0; i < kProductionWindowSize - kProductionThreshold + 1; ++i) {
+    RecordFirstActivationDuringUserSessionStartUp(profile_prefs(), true);
+    EXPECT_FALSE(ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletion(
+        profile_prefs()));
+  }
+
+  // Emulate ARC app is not launched in session start up.
+  for (int i = 0; i < kProductionWindowSize - kProductionThreshold; ++i) {
+    RecordFirstActivationDuringUserSessionStartUp(profile_prefs(), false);
+    EXPECT_FALSE(ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletion(
+        profile_prefs()));
+  }
+
+  // Cross the threshold.
+  RecordFirstActivationDuringUserSessionStartUp(profile_prefs(), false);
+  EXPECT_TRUE(ShouldDeferArcActivationUntilUserSessionStartUpTaskCompletion(
+      profile_prefs()));
 }
 
 }  // namespace

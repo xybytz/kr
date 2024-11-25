@@ -9,7 +9,7 @@
 #import "base/apple/foundation_util.h"
 #import "base/check_op.h"
 #import "ios/chrome/browser/drag_and_drop/model/drag_item_util.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "url/gurl.h"
 
 @implementation URLDragDropHandler
@@ -85,7 +85,7 @@
 - (BOOL)dropInteraction:(UIDropInteraction*)interaction
        canHandleSession:(id<UIDropSession>)session {
   DCHECK(self.dropDelegate);
-  // TODO(crbug.com/1100940): Enable multi-item drops.
+  // TODO(crbug.com/40138131): Enable multi-item drops.
   return session.items.count == 1U &&
          [self.dropDelegate canHandleURLDropInView:interaction.view] &&
          [session
@@ -105,7 +105,7 @@
     [session
         loadObjectsOfClass:[NSURL class]
                 completion:^(NSArray<NSURL*>* objects) {
-                  // TODO(crbug.com/1100940): Enable multi-item drops.
+                  // TODO(crbug.com/40138131): Enable multi-item drops.
                   DCHECK_EQ(1U, objects.count);
                   GURL URL = net::GURLWithNSURL(objects.firstObject);
                   if (URL.is_valid()) {

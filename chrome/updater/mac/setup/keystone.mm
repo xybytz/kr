@@ -224,12 +224,19 @@ bool CreateEmptyPlistFile(const base::FilePath& file_path) {
   @autoreleasepool {
     NSURL* const url = base::apple::FilePathToNSURL(file_path);
     if (base::PathExists(file_path) && [@{
-        } isEqualToDictionary:[NSDictionary dictionaryWithContentsOfURL:url]]) {
+        } isEqualToDictionary:[NSDictionary dictionaryWithContentsOfURL:url
+                                                                  error:nil]]) {
       VLOG(2) << "Skipping updating " << file_path;
       return true;
     }
-    if (![@{} writeToURL:url atomically:YES]) {
-      LOG(ERROR) << "Failed to write " << url;
+    NSData* data = [NSPropertyListSerialization
+        dataWithPropertyList:@{}
+                      format:NSPropertyListXMLFormat_v1_0
+                     options:0
+                       error:nil];
+    NSError* error;
+    if (![data writeToURL:url options:NSDataWritingAtomic error:&error]) {
+      LOG(ERROR) << "Failed to write " << url << " error " << error.description;
       return false;
     }
   }
@@ -312,6 +319,11 @@ bool MigrateKeystoneApps(
         registration.version = version;
       } else {
         registration.version = base::Version(kNullVersion);
+      }
+      if (ticket.versionPath && ticket.versionKey) {
+        registration.version_path =
+            base::apple::NSStringToFilePath(ticket.versionPath);
+        registration.version_key = base::SysNSStringToUTF8(ticket.versionKey);
       }
       if (ticket.existenceChecker) {
         registration.existence_checker_path =

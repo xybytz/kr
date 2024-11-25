@@ -307,7 +307,6 @@ void LocalFileSyncContext::ApplyRemoteChange(
       return;
   }
   NOTREACHED();
-  std::move(callback).Run(SYNC_STATUS_FAILED);
 }
 
 void LocalFileSyncContext::HandleRemoteDelete(

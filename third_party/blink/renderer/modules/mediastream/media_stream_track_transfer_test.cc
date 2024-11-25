@@ -7,6 +7,7 @@
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_exception.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_media_stream_track_state.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/modules/mediastream/browser_capture_media_stream_track.h"
@@ -17,7 +18,6 @@
 #include "third_party/blink/renderer/platform/mediastream/media_stream_audio_source.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_source.h"
 #include "third_party/blink/renderer/platform/testing/io_task_runner_testing_platform_support.h"
-#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/task_environment.h"
 
 namespace blink {
@@ -25,7 +25,6 @@ namespace {
 
 mojom::blink::MediaDevicesDispatcherHost* UnusedMediaDevicesDispatcherHost() {
   NOTREACHED();
-  return nullptr;
 }
 
 void SignalSourceReady(
@@ -156,8 +155,9 @@ mojom::blink::StreamDevices DevicesTabCaptureVideo(
   device.display_media_info = media::mojom::DisplayMediaInformation::New(
       media::mojom::DisplayCaptureSurfaceType::BROWSER,
       /*logical_surface=*/true, media::mojom::CursorCaptureType::NEVER,
-      /*capture_handle=*/nullptr);
-  return {absl::nullopt, device};
+      /*capture_handle=*/nullptr,
+      /*zoom_level=*/100);
+  return {std::nullopt, device};
 }
 
 TEST(MediaStreamTrackTransferTest, TabCaptureVideoFromTransferredStateBasic) {
@@ -169,7 +169,7 @@ TEST(MediaStreamTrackTransferTest, TabCaptureVideoFromTransferredStateBasic) {
   auto data = TransferredValuesTabCaptureVideo();
 #if BUILDFLAG(IS_ANDROID)
   data.track_impl_subtype = MediaStreamTrack::GetStaticWrapperTypeInfo();
-  data.sub_capture_target_version = absl::nullopt;
+  data.sub_capture_target_version = std::nullopt;
 #endif
   scoped_user_media_client.display_mock_media_stream_dispatcher_host
       .SetStreamDevices(DevicesTabCaptureVideo(data.session_id));
@@ -197,7 +197,7 @@ TEST(MediaStreamTrackTransferTest, TabCaptureVideoFromTransferredStateBasic) {
   // EXPECT_EQ(new_track->muted(), true);
   // TODO(crbug.com/1288839): the content hint needs to be set correctly
   // EXPECT_EQ(new_track->ContentHint(), "motion");
-  EXPECT_EQ(new_track->readyState(), "live");
+  EXPECT_EQ(new_track->readyState(), V8MediaStreamTrackState::Enum::kLive);
 
   platform->RunUntilIdle();
   ThreadState::Current()->CollectAllGarbageForTesting();
@@ -233,9 +233,10 @@ TEST(MediaStreamTrackTransferTest, TabCaptureAudioFromTransferredState) {
   device.display_media_info = media::mojom::DisplayMediaInformation::New(
       media::mojom::DisplayCaptureSurfaceType::BROWSER,
       /*logical_surface=*/true, media::mojom::CursorCaptureType::NEVER,
-      /*capture_handle=*/nullptr);
+      /*capture_handle=*/nullptr,
+      /*zoom_level=*/100);
   scoped_user_media_client.display_mock_media_stream_dispatcher_host
-      .SetStreamDevices({absl::nullopt, device});
+      .SetStreamDevices({std::nullopt, device});
 
   auto* new_track =
       MediaStreamTrack::FromTransferredState(scope.GetScriptState(), data);
@@ -254,7 +255,7 @@ TEST(MediaStreamTrackTransferTest, TabCaptureAudioFromTransferredState) {
   // EXPECT_EQ(new_track->muted(), true);
   // TODO(crbug.com/1288839): the content hint needs to be set correctly
   // EXPECT_EQ(new_track->ContentHint(), "speech");
-  EXPECT_EQ(new_track->readyState(), "live");
+  EXPECT_EQ(new_track->readyState(), V8MediaStreamTrackState::Enum::kLive);
 
   base::RunLoop().RunUntilIdle();
   ThreadState::Current()->CollectAllGarbageForTesting();

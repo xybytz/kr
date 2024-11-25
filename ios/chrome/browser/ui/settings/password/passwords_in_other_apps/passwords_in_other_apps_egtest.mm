@@ -4,10 +4,7 @@
 
 #import <UIKit/UIKit.h>
 
-#import "components/password_manager/core/common/password_manager_features.h"
-#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/ui/settings/password/password_manager_egtest_utils.h"
-#import "ios/chrome/browser/ui/settings/password/password_manager_ui_features.h"
 #import "ios/chrome/browser/ui/settings/password/password_settings/password_settings_constants.h"
 #import "ios/chrome/browser/ui/settings/password/password_settings_app_interface.h"
 #import "ios/chrome/browser/ui/settings/password/passwords_in_other_apps/constants.h"
@@ -30,16 +27,6 @@ using chrome_test_util::SettingsDoneButton;
 using chrome_test_util::SettingsMenuBackButton;
 
 namespace {
-
-// Checks if the current device is running iOS 16 and above. This may seem
-// overly verbose, but the @available guard needs to be wrapped in an if() or
-// else the compiler complains.
-bool isIOS16AndAbove() {
-  if (@available(iOS 16, *)) {
-    return true;
-  }
-  return false;
-}
 
 // Matcher for view
 id<GREYMatcher> PasswordsInOtherAppsViewMatcher() {
@@ -71,10 +58,7 @@ id<GREYMatcher> PasswordsInOtherAppsListItemMatcher() {
 
 // Matcher for turn off instructions.
 id<GREYMatcher> PasswordsInOtherAppsTurnOffInstruction() {
-  return grey_text(
-      isIOS16AndAbove()
-          ? @"To turn off, open Settings and go to Password Options."
-          : @"To turn off, open Settings and go to AutoFill Passwords.");
+  return grey_text(@"To turn off, open Settings and go to Password Options.");
 }
 
 // Matcher for the Show password button in Password Details view.
@@ -121,21 +105,12 @@ void OpensPasswordsInOtherApps() {
                                     ReauthenticationResult::kSuccess];
 }
 
-- (void)tearDown {
-  [super tearDown];
+- (void)tearDownHelper {
+  [super tearDownHelper];
   [PasswordsInOtherAppsAppInterface resetManager];
   _passwordAutoFillStatusSwizzler.reset();
   // Remove mock to keep the app in the same state as before running the test.
   [PasswordSettingsAppInterface removeMockReauthenticationModule];
-}
-
-- (AppLaunchConfiguration)appConfigurationForTestCase {
-  AppLaunchConfiguration config;
-
-  config.features_enabled.push_back(
-      password_manager::features::kIOSPasswordAuthOnEntryV2);
-
-  return config;
 }
 
 #pragma mark - helper functions
@@ -160,9 +135,7 @@ void OpensPasswordsInOtherApps() {
               IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_1_IPHONE),
     l10n_util::GetNSString(IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_2),
     l10n_util::GetNSString(
-        isIOS16AndAbove()
-            ? IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_3_IOS16
-            : IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_3),
+        IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_3_IOS16),
     l10n_util::GetNSString(IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_4)
   ];
   for (NSString* step in steps) {
@@ -183,9 +156,7 @@ void OpensPasswordsInOtherApps() {
               IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_1_IPHONE),
     l10n_util::GetNSString(IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_2),
     l10n_util::GetNSString(
-        isIOS16AndAbove()
-            ? IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_3_IOS16
-            : IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_3),
+        IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_3_IOS16),
     l10n_util::GetNSString(IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_4)
   ];
   for (NSString* step in steps) {
@@ -272,9 +243,7 @@ void OpensPasswordsInOtherApps() {
   // Check backup instructions are visible.
   NSArray<NSString*>* steps = @[
     l10n_util::GetNSString(
-        isIOS16AndAbove()
-            ? IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_SHORTENED_STEP_1_IOS16
-            : IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_SHORTENED_STEP_1),
+        IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_SHORTENED_STEP_1_IOS16),
     l10n_util::GetNSString(
         IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_SHORTENED_STEP_2)
   ];
@@ -360,8 +329,7 @@ void OpensPasswordsInOtherApps() {
 
   [PasswordSettingsAppInterface mockReauthenticationModuleExpectedResult:
                                     ReauthenticationResult::kFailure];
-  [PasswordSettingsAppInterface
-      mockReauthenticationModuleShouldReturnSynchronously:NO];
+  [PasswordSettingsAppInterface mockReauthenticationModuleShouldSkipReAuth:NO];
 
   [[AppLaunchManager sharedManager] backgroundAndForegroundApp];
 

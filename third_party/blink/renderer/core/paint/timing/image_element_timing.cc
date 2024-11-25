@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/paint/timing/image_element_timing.h"
 
 #include "base/time/time.h"
+#include "components/viz/common/frame_timing_details.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
@@ -15,6 +16,7 @@
 #include "third_party/blink/renderer/core/timing/dom_window_performance.h"
 #include "third_party/blink/renderer/core/timing/window_performance.h"
 #include "third_party/blink/renderer/platform/graphics/paint/property_tree_state.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
@@ -82,7 +84,7 @@ void ImageElementTiming::NotifyBackgroundImageFinished(
 }
 
 base::TimeTicks ImageElementTiming::GetBackgroundImageLoadTime(
-    const StyleFetchedImage* style_image) {
+    const StyleImage* style_image) {
   const auto it = background_image_timestamps_.find(style_image);
   if (it == background_image_timestamps_.end())
     return base::TimeTicks();
@@ -155,28 +157,28 @@ void ImageElementTiming::NotifyImagePaintedInternal(
   DCHECK(context->GetSecurityOrigin());
   // It's ok to expose rendering timestamp for data URIs so exclude those from
   // the Timing-Allow-Origin check.
-  if (!url.ProtocolIsData()) {
-    if (!cached_image.GetResponse().TimingAllowPassed()) {
-      WindowPerformance* performance =
-          DOMWindowPerformance::performance(*GetSupplementable());
-      if (performance) {
-        // Create an entry with a |startTime| of 0.
-        performance->AddElementTiming(
-            ImagePaintString(), url.GetString(), intersection_rect,
-            base::TimeTicks(), load_time, attr,
-            cached_image.IntrinsicSize(respect_orientation), id, element);
-      }
-      return;
+  if (!url.ProtocolIsData() &&
+      !cached_image.GetResponse().TimingAllowPassed() &&
+      !RuntimeEnabledFeatures::ExposeCoarsenedRenderTimeEnabled()) {
+    if (WindowPerformance* performance =
+            DOMWindowPerformance::performance(*GetSupplementable())) {
+      // Create an entry with a |startTime| of 0.
+      performance->AddElementTiming(
+          ImagePaintString(), url.GetString(), intersection_rect,
+          base::TimeTicks(), load_time, attr,
+          cached_image.IntrinsicSize(respect_orientation), id, element);
     }
+    return;
   }
 
   // If the image URL is a data URL ("data:image/..."), then the |name| of the
   // PerformanceElementTiming entry should be the URL trimmed to 100 characters.
   // If it is not, then pass in the full URL regardless of the length to be
   // consistent with Resource Timing.
+  const String& image_string = url.GetString();
   const String& image_url = url.ProtocolIsData()
-                                ? url.GetString().Left(kInlineImageMaxChars)
-                                : url.GetString();
+                                ? image_string.Left(kInlineImageMaxChars)
+                                : image_string;
   element_timings_.emplace_back(MakeGarbageCollected<ElementTimingInfo>(
       image_url, intersection_rect, load_time, attr,
       cached_image.IntrinsicSize(respect_orientation), id, element));
@@ -193,7 +195,7 @@ void ImageElementTiming::NotifyImagePaintedInternal(
 
 void ImageElementTiming::NotifyBackgroundImagePainted(
     Node& node,
-    const StyleFetchedImage& background_image,
+    const StyleImage& background_image,
     const PropertyTreeStateOrAlias& current_paint_chunk_properties,
     const gfx::Rect& image_border) {
   const LayoutObject* layout_object = node.GetLayoutObject();
@@ -230,7 +232,9 @@ void ImageElementTiming::NotifyBackgroundImagePainted(
 }
 
 void ImageElementTiming::ReportImagePaintPresentationTime(
-    base::TimeTicks timestamp) {
+    const viz::FrameTimingDetails& presentation_details) {
+  base::TimeTicks timestamp =
+      presentation_details.presentation_feedback.timestamp;
   WindowPerformance* performance =
       DOMWindowPerformance::performance(*GetSupplementable());
   if (performance) {

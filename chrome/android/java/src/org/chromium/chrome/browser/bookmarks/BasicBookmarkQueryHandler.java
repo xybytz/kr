@@ -4,34 +4,37 @@
 
 package org.chromium.chrome.browser.bookmarks;
 
-import androidx.annotation.Nullable;
-
 import org.chromium.components.bookmarks.BookmarkId;
 import org.chromium.components.bookmarks.BookmarkItem;
 import org.chromium.components.bookmarks.BookmarkType;
+import org.chromium.components.commerce.core.ShoppingService;
 import org.chromium.components.power_bookmarks.PowerBookmarkMeta;
 import org.chromium.components.power_bookmarks.PowerBookmarkType;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /** Simple implementation of {@link BookmarkQueryHandler} that fetches children. */
 public class BasicBookmarkQueryHandler implements BookmarkQueryHandler {
-    // TODO(https://crbug.com/1441629): Support pagination.
+    // TODO(crbug.com/40266584): Support pagination.
     private static final int MAXIMUM_NUMBER_OF_SEARCH_RESULTS = 500;
 
     private final BookmarkModel mBookmarkModel;
     private final BookmarkUiPrefs mBookmarkUiPrefs;
+    private final ShoppingService mShoppingService;
 
     /**
      * @param bookmarkModel The underlying source of bookmark data.
      * @param bookmarkUiPrefs Stores display preferences for bookmarks.
      */
-    public BasicBookmarkQueryHandler(BookmarkModel bookmarkModel, BookmarkUiPrefs bookmarkUiPrefs) {
+    public BasicBookmarkQueryHandler(
+            BookmarkModel bookmarkModel,
+            BookmarkUiPrefs bookmarkUiPrefs,
+            ShoppingService shoppingService) {
         mBookmarkModel = bookmarkModel;
         mBookmarkUiPrefs = bookmarkUiPrefs;
+        mShoppingService = shoppingService;
     }
 
     @Override
@@ -43,7 +46,7 @@ public class BasicBookmarkQueryHandler implements BookmarkQueryHandler {
                         : mBookmarkModel.getChildIds(parentId);
 
         final List<BookmarkListEntry> bookmarkListEntries =
-                bookmarkIdListToBookmarkListEntryList(childIdList, parentId);
+                bookmarkIdListToBookmarkListEntryList(childIdList);
         if (parentId.getType() == BookmarkType.READING_LIST) {
             ReadingListSectionHeader.maybeSortAndInsertSectionHeaders(bookmarkListEntries);
         }
@@ -54,34 +57,36 @@ public class BasicBookmarkQueryHandler implements BookmarkQueryHandler {
     @Override
     public List<BookmarkListEntry> buildBookmarkListForSearch(
             String query, Set<PowerBookmarkType> powerFilter) {
-        final List<BookmarkId> searchIdList =
+        List<BookmarkId> searchIdList =
                 mBookmarkModel.searchBookmarks(query, MAXIMUM_NUMBER_OF_SEARCH_RESULTS);
-        final boolean isFilterEmpty = powerFilter == null || powerFilter.isEmpty();
-        return bookmarkIdListToBookmarkListEntryList(searchIdList, null).stream()
-                .filter(
-                        entry -> {
-                            return isFilterEmpty
-                                    || powerFilter.contains(
-                                            getTypeFromMeta(entry.getPowerBookmarkMeta()));
-                        })
-                .collect(Collectors.toList());
+        List<BookmarkListEntry> allEntries = bookmarkIdListToBookmarkListEntryList(searchIdList);
+        if (powerFilter == null || powerFilter.isEmpty()) {
+            return allEntries;
+        }
+        List<BookmarkListEntry> ret = new ArrayList<>();
+        for (BookmarkListEntry entry : allEntries) {
+            if (powerFilter.contains(getTypeFromMeta(entry.getPowerBookmarkMeta()))) {
+                ret.add(entry);
+            }
+        }
+        return ret;
     }
 
     @Override
-    public List<BookmarkListEntry> buildBookmarkListForFolderSelect(
-            BookmarkId parentId, boolean movingFolder) {
+    public List<BookmarkListEntry> buildBookmarkListForFolderSelect(BookmarkId parentId) {
         List<BookmarkId> childIdList =
                 parentId.equals(mBookmarkModel.getRootFolderId())
                         ? mBookmarkModel.getTopLevelFolderIds(/* ignoreVisibility= */ true)
                         : mBookmarkModel.getChildIds(parentId);
         List<BookmarkListEntry> bookmarkListEntries =
-                bookmarkIdListToBookmarkListEntryList(childIdList, parentId);
-        bookmarkListEntries =
-                bookmarkListEntries.stream()
-                        .filter(this::isFolderEntry)
-                        .filter(entry -> isValidFolder(entry, movingFolder))
-                        .collect(Collectors.toList());
-        return bookmarkListEntries;
+                bookmarkIdListToBookmarkListEntryList(childIdList);
+        List<BookmarkListEntry> ret = new ArrayList<>();
+        for (BookmarkListEntry entry : bookmarkListEntries) {
+            if (isFolderEntry(entry) && isValidFolder(entry)) {
+                ret.add(entry);
+            }
+        }
+        return ret;
     }
 
     /** Returns whether the given {@link BookmarkListEntry} is a folder. */
@@ -92,35 +97,19 @@ public class BasicBookmarkQueryHandler implements BookmarkQueryHandler {
     /**
      * Returns whether the given {@link BookmarkListEntry} is a valid folder to add bookmarks to.
      * All entries passed to this function need to be folders, this is enfored by an assert.
-     *
-     * @param entry The {@link BookmarkListEntry} to check.
-     * @param movingFolder Whether there's a folder being moved. Will change the validity of certain
-     *     folders (e.g. reading list).
-     * @return Whether the given {@link BookmarkListEntry} is a valid folder to save to.
      */
-    private boolean isValidFolder(BookmarkListEntry entry, boolean movingFolder) {
+    private boolean isValidFolder(BookmarkListEntry entry) {
         assert entry.getBookmarkItem().isFolder();
 
         BookmarkId folderId = entry.getBookmarkItem().getId();
-        if (movingFolder) {
-            return BookmarkUtils.canAddFolderToParent(mBookmarkModel, folderId);
-        }
         return BookmarkUtils.canAddBookmarkToParent(mBookmarkModel, folderId);
     }
 
     private List<BookmarkListEntry> bookmarkIdListToBookmarkListEntryList(
-            List<BookmarkId> bookmarkIds, @Nullable BookmarkId parentId) {
+            List<BookmarkId> bookmarkIds) {
         final List<BookmarkListEntry> bookmarkListEntries = new ArrayList<>();
         for (BookmarkId bookmarkId : bookmarkIds) {
             PowerBookmarkMeta powerBookmarkMeta = mBookmarkModel.getPowerBookmarkMeta(bookmarkId);
-            if (BookmarkId.SHOPPING_FOLDER.equals(parentId)) {
-                // TODO(https://crbug.com/1435518): Stop using deprecated #getIsPriceTracked().
-                if (powerBookmarkMeta == null
-                        || !powerBookmarkMeta.hasShoppingSpecifics()
-                        || !powerBookmarkMeta.getShoppingSpecifics().getIsPriceTracked()) {
-                    continue;
-                }
-            }
             BookmarkItem bookmarkItem = mBookmarkModel.getBookmarkById(bookmarkId);
             BookmarkListEntry bookmarkListEntry =
                     BookmarkListEntry.createBookmarkEntry(
@@ -138,5 +127,21 @@ public class BasicBookmarkQueryHandler implements BookmarkQueryHandler {
         } else {
             return PowerBookmarkType.UNKNOWN;
         }
+    }
+
+    private boolean isBookmarkMetaSubscribed(PowerBookmarkMeta powerBookmarkMeta) {
+        if (mShoppingService == null
+                || powerBookmarkMeta == null
+                || !powerBookmarkMeta.hasShoppingSpecifics()
+                || !powerBookmarkMeta.getShoppingSpecifics().hasProductClusterId()) {
+            return false;
+        }
+
+        // TODO(b:326440332): Ideally this uses PriceTrackingUtils.IsBookmarkPriceTracked,
+        //                    but the UI does not currently support async updates which is
+        //                    required by that api.
+        return mShoppingService.isSubscribedFromCache(
+                PowerBookmarkUtils.createCommerceSubscriptionForPowerBookmarkMeta(
+                        powerBookmarkMeta));
     }
 }

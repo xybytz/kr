@@ -76,6 +76,14 @@ void FlossAdapterClient::CreateBond(ResponseCallback<bool> callback,
                           transport);
 }
 
+void FlossAdapterClient::CreateBond(
+    ResponseCallback<FlossDBusClient::BtifStatus> callback,
+    FlossDeviceId device,
+    BluetoothTransport transport) {
+  CallAdapterMethod<FlossDBusClient::BtifStatus>(
+      std::move(callback), adapter::kCreateBond, device, transport);
+}
+
 void FlossAdapterClient::CancelBondProcess(ResponseCallback<bool> callback,
                                            FlossDeviceId device) {
   CallAdapterMethod<bool>(std::move(callback), adapter::kCancelBondProcess,
@@ -133,6 +141,13 @@ void FlossAdapterClient::GetRemoteVendorProductInfo(
       std::move(callback), adapter::kGetRemoteVendorProductInfo, device);
 }
 
+void FlossAdapterClient::GetRemoteAddressType(
+    ResponseCallback<FlossAdapterClient::BtAddressType> callback,
+    FlossDeviceId device) {
+  CallAdapterMethod<FlossAdapterClient::BtAddressType>(
+      std::move(callback), adapter::kGetRemoteAddressType, device);
+}
+
 void FlossAdapterClient::GetBondState(ResponseCallback<uint32_t> callback,
                                       const FlossDeviceId& device) {
   CallAdapterMethod<uint32_t>(std::move(callback), adapter::kGetBondState,
@@ -144,6 +159,13 @@ void FlossAdapterClient::ConnectAllEnabledProfiles(
     const FlossDeviceId& device) {
   CallAdapterMethod<Void>(std::move(callback),
                           adapter::kConnectAllEnabledProfiles, device);
+}
+
+void FlossAdapterClient::ConnectAllEnabledProfiles(
+    ResponseCallback<FlossDBusClient::BtifStatus> callback,
+    const FlossDeviceId& device) {
+  CallAdapterMethod<FlossDBusClient::BtifStatus>(
+      std::move(callback), adapter::kConnectAllEnabledProfiles, device);
 }
 
 void FlossAdapterClient::DisconnectAllEnabledProfiles(
@@ -315,6 +337,12 @@ void FlossAdapterClient::Init(dbus::Bus* bus,
                           weak_ptr_factory_.GetWeakPtr()),
       base::BindOnce(&HandleExported, adapter::kOnDeviceDisconnected));
 
+  callbacks->ExportMethod(
+      adapter::kConnectionCallbackInterface, adapter::kOnDeviceConnectionFailed,
+      base::BindRepeating(&FlossAdapterClient::OnDeviceConnectionFailed,
+                          weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&HandleExported, adapter::kOnDeviceConnectionFailed));
+
   property_address_.Init(
       this, bus_, service_name_, adapter_path_,
       dbus::ObjectPath(exported_callback_path_),
@@ -331,6 +359,14 @@ void FlossAdapterClient::Init(dbus::Bus* bus,
       dbus::ObjectPath(exported_callback_path_),
       base::BindRepeating(&FlossAdapterClient::OnDiscoverableChanged,
                           weak_ptr_factory_.GetWeakPtr()));
+
+  property_ext_adv_supported_.Init(this, bus_, service_name_, adapter_path_,
+                                   dbus::ObjectPath(exported_callback_path_),
+                                   base::DoNothing());
+
+  property_roles_.Init(this, bus_, service_name_, adapter_path_,
+                       dbus::ObjectPath(exported_callback_path_),
+                       base::DoNothing());
 
   UpdateDiscoverableTimeout();
 
@@ -696,6 +732,28 @@ void FlossAdapterClient::OnDeviceDisconnected(
 
   for (auto& observer : observers_) {
     observer.AdapterDeviceDisconnected(device);
+  }
+
+  std::move(response_sender).Run(dbus::Response::FromMethodCall(method_call));
+}
+
+void FlossAdapterClient::OnDeviceConnectionFailed(
+    dbus::MethodCall* method_call,
+    dbus::ExportedObject::ResponseSender response_sender) {
+  dbus::MessageReader reader(method_call);
+  FlossDeviceId device;
+  uint32_t status;
+
+  if (!ReadAllDBusParams(&reader, &device, &status)) {
+    std::move(response_sender)
+        .Run(dbus::ErrorResponse::FromMethodCall(
+            method_call, kErrorInvalidParameters,
+            /*error_message=*/std::string()));
+    return;
+  }
+
+  for (auto& observer : observers_) {
+    observer.AdapterDeviceConnectionFailed(device, status);
   }
 
   std::move(response_sender).Run(dbus::Response::FromMethodCall(method_call));

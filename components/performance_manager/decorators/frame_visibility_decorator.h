@@ -49,6 +49,8 @@ class FrameVisibilityDecorator : public GraphOwnedDefaultImpl,
   void OnIsConnectedToUSBDeviceChanged(const PageNode* page_node) override {}
   void OnIsConnectedToBluetoothDeviceChanged(
       const PageNode* page_node) override {}
+  void OnIsConnectedToHidDeviceChanged(const PageNode* page_node) override {}
+  void OnIsConnectedToSerialPortChanged(const PageNode* page_node) override {}
   void OnIsCapturingVideoChanged(const PageNode* page_node) override {}
   void OnIsCapturingAudioChanged(const PageNode* page_node) override {}
   void OnIsCapturingWindowChanged(const PageNode* page_node) override {}
@@ -57,13 +59,14 @@ class FrameVisibilityDecorator : public GraphOwnedDefaultImpl,
   void OnWasDiscardedChanged(const PageNode* page_node) override {}
   void OnIsActiveTabChanged(const PageNode* page_node) override {}
   void OnIsPinnedTabChanged(const PageNode* page_node) override {}
-  void OnContentSettingsChanged(const PageNode* page_node) override {}
   void OnIsDevToolsOpenChanged(const PageNode* page_node) override {}
+  void OnAccessibilityModeChanged(const PageNode* page_node) override {}
 
   // FrameNodeObserver:
   void OnFrameNodeInitializing(const FrameNode* frame_node) override;
-  void OnIsCurrentChanged(const FrameNode* frame_node) override;
-  void OnIntersectsViewportChanged(const FrameNode* frame_node) override;
+  void OnCurrentFrameChanged(const FrameNode* previous_frame_node,
+                             const FrameNode* current_frame_node) override;
+  void OnViewportIntersectionChanged(const FrameNode* frame_node) override;
 
  private:
   // Handles changes in the user visibility of pages.
@@ -75,7 +78,7 @@ class FrameVisibilityDecorator : public GraphOwnedDefaultImpl,
 
   // Returns true if the page node is visible to the user in some capacity,
   // taking into account if the page is being mirrored.
-  bool IsPageUserVisible(const PageNode* page_node);
+  static bool IsPageUserVisible(const PageNode* page_node);
 };
 
 }  // namespace performance_manager

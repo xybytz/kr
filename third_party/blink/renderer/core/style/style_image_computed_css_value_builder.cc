@@ -20,8 +20,7 @@ namespace {
 
 const CSSPrimitiveValue* ComputeResolution(
     const CSSPrimitiveValue& resolution) {
-  if (RuntimeEnabledFeatures::CSSImageSetEnabled() &&
-      resolution.IsResolution()) {
+  if (resolution.IsResolution()) {
     return CSSNumericLiteralValue::Create(
         resolution.ComputeDotsPerPixel(),
         CSSPrimitiveValue::UnitType::kDotsPerPixel);
@@ -76,10 +75,10 @@ CSSValue* StyleImageComputedCSSValueBuilder::Build(CSSValue* value) const {
   }
   if (auto* image_gradient_value =
           DynamicTo<cssvalue::CSSGradientValue>(value)) {
-    return image_gradient_value->ComputedCSSValue(style_, allow_visited_style_);
+    return image_gradient_value->ComputedCSSValue(style_, allow_visited_style_,
+                                                  value_phase_);
   }
   NOTREACHED();
-  return value;
 }
 
 }  // namespace blink

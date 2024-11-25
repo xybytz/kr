@@ -5,8 +5,11 @@
 #ifndef CHROME_BROWSER_ASH_LOGIN_TEST_OOBE_SCREENS_UTILS_H_
 #define CHROME_BROWSER_ASH_LOGIN_TEST_OOBE_SCREENS_UTILS_H_
 
+#include <string_view>
+
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/ash/login/screens/welcome_screen.h"
 #include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
 
@@ -89,7 +92,7 @@ class OobeUiDestroyedWaiter : public OobeUI::Observer {
 // destruction of the OobeUI. Currently used when clicking on things that
 // trigger a device restart/reset.
 void TapOnPathAndWaitForOobeToBeDestroyed(
-    std::initializer_list<base::StringPiece> element_ids);
+    std::initializer_list<std::string_view> element_ids);
 
 }  // namespace test
 }  // namespace ash

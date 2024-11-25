@@ -35,10 +35,10 @@ MediaStreamAudioDestinationHandler::MediaStreamAudioDestinationHandler(
           AudioBus::Create(number_of_channels,
                            GetDeferredTaskHandler().RenderQuantumFrames())) {
   AddInput();
-  SendLogMessage(String::Format("%s", __func__));
+  SendLogMessage(__func__, "");
   source_.Lock()->SetAudioFormat(static_cast<int>(number_of_channels),
                                  node.context()->sampleRate());
-  SetInternalChannelCountMode(kExplicit);
+  SetInternalChannelCountMode(V8ChannelCountMode::Enum::kExplicit);
   Initialize();
 }
 
@@ -156,9 +156,11 @@ void MediaStreamAudioDestinationHandler::UpdatePullStatusIfNeeded() {
   }
 }
 
-void MediaStreamAudioDestinationHandler::SendLogMessage(const String& message) {
-  WebRtcLogMessage(String::Format("[WA]MSADH::%s [this=0x%" PRIXPTR "]",
-                                  message.Utf8().c_str(),
+void MediaStreamAudioDestinationHandler::SendLogMessage(
+    const char* const function_name,
+    const String& message) {
+  WebRtcLogMessage(String::Format("[WA]MSADH::%s %s [this=0x%" PRIXPTR "]",
+                                  function_name, message.Utf8().c_str(),
                                   reinterpret_cast<uintptr_t>(this))
                        .Utf8());
 }

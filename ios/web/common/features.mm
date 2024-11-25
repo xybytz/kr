@@ -38,14 +38,6 @@ BASE_FEATURE(kIOSSharedHighlightingColorChange,
              "IOSSharedHighlightingColorChange",
              base::FEATURE_ENABLED_BY_DEFAULT);
 
-BASE_FEATURE(kUseLoadSimulatedRequestForOfflinePage,
-             "UseLoadSimulatedRequestForErrorPageNavigation",
-             base::FEATURE_DISABLED_BY_DEFAULT);
-
-BASE_FEATURE(kEnablePhoneNumbers,
-             "EnablePhoneNumbersExperience",
-             base::FEATURE_ENABLED_BY_DEFAULT);
-
 BASE_FEATURE(kEnableMeasurements,
              "EnableMeasurementsExperience",
              base::FEATURE_DISABLED_BY_DEFAULT);
@@ -61,16 +53,16 @@ BASE_FEATURE(kOneTapForMaps,
              "EnableOneTapForMaps",
              base::FEATURE_DISABLED_BY_DEFAULT);
 
-BASE_FEATURE(kUseAnnotationsForLanguageDetection,
-             "UseAnnotationsForLanguageDetection",
-             base::FEATURE_DISABLED_BY_DEFAULT);
-
 BASE_FEATURE(kScrollViewProxyScrollEnabledWorkaround,
              "ScrollViewProxyScrollEnabledWorkaround",
              base::FEATURE_ENABLED_BY_DEFAULT);
 
 BASE_FEATURE(kPreventNavigationWithoutUserInteraction,
              "PreventNavigationWithoutUserInteraction",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+BASE_FEATURE(kAllowCrossWindowExternalAppNavigation,
+             "kAllowCrossWindowExternalAppNavigation",
              base::FEATURE_DISABLED_BY_DEFAULT);
 
 BASE_FEATURE(kEnableWebInspector,
@@ -86,29 +78,22 @@ BASE_FEATURE(kSmoothScrollingDefault,
 #endif
 );
 
-BASE_FEATURE(kEnableSessionSerializationOptimizations,
-             "EnableSessionSerializationOptimizations",
-             base::FEATURE_DISABLED_BY_DEFAULT);
-
 // This feature will always be disabled and will only be enabled by tests.
 BASE_FEATURE(kForceSynthesizedRestoreSession,
              "ForceSynthesizedRestoreSession",
              base::FEATURE_DISABLED_BY_DEFAULT);
 
-BASE_FEATURE(kRemoveOldWebStateRestoration,
-             "RemoveOldWebStateRestoration",
-             base::FEATURE_DISABLED_BY_DEFAULT);
+BASE_FEATURE(kDetectDestroyedNavigationContexts,
+             "DetectDestroyedNavigationContexts",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
 BASE_FEATURE(kEnableViewportIntents,
              "EnableViewportIntents",
-             base::FEATURE_DISABLED_BY_DEFAULT);
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-bool IsLoadSimulatedRequestAPIEnabled() {
-  if (@available(iOS 15, *)) {
-    return base::FeatureList::IsEnabled(kUseLoadSimulatedRequestForOfflinePage);
-  }
-  return false;
-}
+BASE_FEATURE(kEnableNewParcelTrackingNumberDetection,
+             "EnableNewParcelTrackingNumberDetection",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 bool IsWebInspectorSupportEnabled() {
   if (@available(iOS 16.4, *)) {
@@ -117,9 +102,21 @@ bool IsWebInspectorSupportEnabled() {
   return false;
 }
 
-bool UseSessionSerializationOptimizations() {
-  return base::FeatureList::IsEnabled(kEnableSessionSerializationOptimizations);
-}
+BASE_FEATURE(kDisableRaccoon,
+             "DisableRaccoon",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+BASE_FEATURE(kUserAgentBugFixVersion,
+             "UserAgentBugFixVersion",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+
+BASE_FEATURE(kLogJavaScriptErrors,
+             "LogJavaScriptErrors",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+BASE_FEATURE(kWebKitHandlesMarketplaceKitLinks,
+             "WebKitHandlesMarketplaceKitLinks",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
 }  // namespace features
 }  // namespace web

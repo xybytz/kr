@@ -6,6 +6,13 @@ import("//build/config/c++/c++.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/toolchain/toolchain.gni")
 
+config("visibility_hack") {
+  cflags = [
+    "-include",
+    rebase_path("//buildtools/third_party/libc++/gross_hack.h", root_build_dir),
+  ]
+}
+
 # Used by libc++ and libc++abi.
 # See //build/config/c++:runtime_library for the config used by users of libc++.
 config("config") {
@@ -61,6 +68,13 @@ target(_libcxx_target_type, "libc++") {
     visibility +=
         [ "//remoting/host/linux:remoting_me2me_host_copy_user_session" ]
   }
+  if (build_with_chromium && is_win && is_component_build) {
+    # PartitionAlloc uses no_default_deps=true when is_win && is_component_build
+    # but it depends on libc++. So need to add an explicit dependency on
+    # libc++.
+    visibility +=
+        [ "//base/allocator/partition_allocator/src/partition_alloc:*" ]
+  }
   if (libcxx_is_shared) {
     no_default_deps = true
   }
@@ -69,9 +83,13 @@ target(_libcxx_target_type, "libc++") {
     libs = [ "atomic" ]
   }
 
-  inputs = [ "__config_site" ]
+  inputs = [
+    "__assertion_handler",
+    "__config_site",
+  ]
 
-  # TODO(crbug.com/1458042): Move this build file to third_party/libc++/BUILD.gn once submodule migration is done
+  # TODO(crbug.com/40273848): Move this build file to third_party/libc++/BUILD.gn
+  # once submodule migration is done.
   sources = [
     "//third_party/libc++/src/src/algorithm.cpp",
     "//third_party/libc++/src/src/any.cpp",
@@ -164,6 +182,9 @@ target(_libcxx_target_type, "libc++") {
     "//build/config/compiler:no_rtti",
     "//build/config/coverage:default_coverage",
   ]
+  if (use_libcxx_modules) {
+    configs -= [ "//build/config/compiler:libcxx_module" ]
+  }
   if ((is_android || is_apple) && libcxx_is_shared) {
     # Use libc++_chrome to avoid conflicting with system libc++
     output_name = "libc++_chrome"
@@ -186,39 +207,49 @@ target(_libcxx_target_type, "libc++") {
 
   defines = []
 
-  if (!libcxx_is_shared) {
+  if (!libcxx_is_shared && !is_win &&
+      # TODO: Remove this when //third_party/cronet_android_mainline_clang
+      # supports -fvisibility-global-new-delete flag.
+      !llvm_android_mainline) {
     if (is_apple && is_clang) {
       # We want operator new/delete to be private on Mac, but these functions
       # are implicitly created by the compiler for each translation unit, as
       # specified in the C++ spec 3.7.4p2, which makes them always have default
       # visibility.  This option is needed to force hidden visibility since
       # -fvisibility=hidden doesn't have the desired effect.
-      cflags = [ "-fvisibility-global-new-delete-hidden" ]
+      cflags = [ "-fvisibility-global-new-delete=force-hidden" ]
     } else {
-      defines += [
-        # This resets the visibility to default only for the various
-        # flavors of operator new and operator delete.  These symbols
-        # are weak and get overriden by Chromium-provided ones, but if
-        # these symbols had hidden visibility, this would make the
-        # Chromium symbols hidden too because elf visibility rules
-        # require that linkers use the least visible form when merging,
-        # and if this is hidden, then when we merge it with tcmalloc's
-        # operator new, hidden visibility would win. However, tcmalloc
-        # needs a visible operator new to also override operator new
-        # references from system libraries.
-        # TODO(lld): Ask lld for a --force-public-visibility flag or
-        # similar to that overrides the default elf merging rules, and
-        # make tcmalloc's gn config pass that to all its dependencies,
-        # then remove this override here.
-        "_LIBCPP_OVERRIDABLE_FUNC_VIS=__attribute__((__visibility__(\"default\")))",
-      ]
+      # This resets the visibility to default only for the various
+      # flavors of operator new and operator delete.  These symbols
+      # are weak and get overriden by Chromium-provided ones, but if
+      # these symbols had hidden visibility, this would make the
+      # Chromium symbols hidden too because elf visibility rules
+      # require that linkers use the least visible form when merging.
+      # We want operator new to be public, so that our allocator is
+      # able to intercept allocations from other shared libraries.
+      # TODO(lld): Ask lld for a --force-public-visibility flag or
+      # similar to that overrides the default elf merging rules, and
+      # make the allocator's gn config pass that to all its dependencies,
+      # then remove this override here.
+      # TODO(thakis): libc++ removed the _LIBCPP_OVERRIDABLE_FUNC_VIS hook
+      # in https://github.com/llvm/llvm-project/pull/113139, and recommended
+      # fvisibility-global-new-delete=force-default as alternative. Sadly,
+      # this doesn't actually work, see the discussion on that PR. As a
+      # workaround, inject a header everywhere :/
+      #defines += [
+      #  "_LIBCPP_OVERRIDABLE_FUNC_VIS=__attribute__((__visibility__(\"default\")))",
+      #]
+      cflags = [ "-fvisibility-global-new-delete=force-default" ]
+      public_configs = [ ":visibility_hack" ]
     }
   }
+
+  deps = [ "//third_party/llvm-libc:llvm-libc-shared" ]
 
   if (!is_win) {
     defines += [ "LIBCXX_BUILDING_LIBCXXABI" ]
     if (!export_libcxxabi_from_executables) {
-      deps = [ "//buildtools/third_party/libc++abi" ]
+      deps += [ "//buildtools/third_party/libc++abi" ]
     }
   }
 }

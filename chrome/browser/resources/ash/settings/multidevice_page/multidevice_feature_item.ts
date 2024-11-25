@@ -11,9 +11,9 @@
  * feature's autonomous page if there is one.
  */
 
-import 'chrome://resources/cr_components/localized_link/localized_link.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
-import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
+import 'chrome://resources/ash/common/cr_elements/localized_link/localized_link.js';
+import 'chrome://resources/ash/common/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_shared_vars.css.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 import '../settings_shared.css.js';
 import './multidevice_feature_toggle.js';
@@ -23,7 +23,8 @@ import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bu
 
 import {castExists} from '../assert_extras.js';
 import {RouteOriginMixin} from '../common/route_origin_mixin.js';
-import {Route, Router, routes} from '../router.js';
+import type {Route} from '../router.js';
+import {Router, routes} from '../router.js';
 
 import {MultiDeviceFeature} from './multidevice_constants.js';
 import {getTemplate} from './multidevice_feature_item.html.js';

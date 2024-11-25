@@ -51,23 +51,20 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.base.metrics.UmaRecorderHolder;
 import org.chromium.base.task.TaskTraits;
 import org.chromium.base.task.test.ShadowPostTask;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.JniMocker;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.password_manager.GetLoginMatchType;
 import org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.FaviconOrFallback;
 import org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.ItemType;
@@ -75,8 +72,6 @@ import org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.MorePassk
 import org.chromium.chrome.browser.touch_to_fill.common.BottomSheetFocusHelper;
 import org.chromium.chrome.browser.touch_to_fill.data.Credential;
 import org.chromium.chrome.browser.touch_to_fill.data.WebauthnCredential;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.browser_ui.util.AvatarGenerator;
 import org.chromium.components.favicon.IconType;
@@ -144,8 +139,7 @@ public class TouchToFillControllerTest {
     private Bitmap mBitmapFromImageFetcher =
             Bitmap.createBitmap(/* width= */ 1, /* height= */ 1, Bitmap.Config.ARGB_8888);
 
-    @Rule public JniMocker mJniMocker = new JniMocker();
-    @Rule public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
+    @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
     @Mock private TouchToFillComponent.Delegate mMockDelegate;
     @Mock private LargeIconBridge mMockIconBridge;
     @Mock private BottomSheetFocusHelper mMockFocusHelper;
@@ -155,19 +149,17 @@ public class TouchToFillControllerTest {
 
     private TestImageFetcher mImageFetcher = spy(new TestImageFetcher());
     private final Context mContext = ContextUtils.getApplicationContext();
-    private final TouchToFillMediator mMediator = new TouchToFillMediator(mImageFetcher);
+    private final TouchToFillMediator mMediator = new TouchToFillMediator();
     private final PropertyModel mModel =
             TouchToFillProperties.createDefaultModel(mMediator::onDismissed);
 
     @Before
     public void setUp() {
-        UmaRecorderHolder.resetForTesting();
-        MockitoAnnotations.initMocks(this);
-
         mMediator.initialize(
                 mContext,
                 mMockDelegate,
                 mModel,
+                mImageFetcher,
                 mMockIconBridge,
                 DESIRED_FAVICON_SIZE,
                 mMockFocusHelper);
@@ -209,9 +201,8 @@ public class TouchToFillControllerTest {
         assertThat(
                 itemList.get(0).model.get(SUBTITLE),
                 is(
-                        String.format(
-                                mContext.getString(
-                                        R.string.touch_to_fill_sheet_subtitle_submission),
+                        mContext.getString(
+                                R.string.touch_to_fill_sheet_subtitle_submission,
                                 TEST_URL_FORMATTED)));
         assertThat(itemList.get(1).type, is(ItemType.CREDENTIAL));
         assertThat(itemList.get(1).model.get(CREDENTIAL), is(ANA));
@@ -343,9 +334,8 @@ public class TouchToFillControllerTest {
         assertThat(
                 itemList.get(0).model.get(SUBTITLE),
                 is(
-                        String.format(
-                                mContext.getString(
-                                        R.string.touch_to_fill_sheet_subtitle_submission),
+                        mContext.getString(
+                                R.string.touch_to_fill_sheet_subtitle_submission,
                                 TEST_URL_FORMATTED)));
 
         assertThat(itemList.get(2).type, is(ItemType.FILL_BUTTON));
@@ -384,7 +374,6 @@ public class TouchToFillControllerTest {
     }
 
     @Test
-    @EnableFeatures(ChromeFeatureList.SHARED_PASSWORD_NOTIFICATION_UI)
     public void testShowSheetForOneSharedCredential() {
         List<Integer> postedTasksTraits = new ArrayList();
         ShadowPostTask.setTestImpl(
@@ -429,10 +418,8 @@ public class TouchToFillControllerTest {
         assertThat(
                 itemList.get(0).model.get(SUBTITLE),
                 is(
-                        String.format(
-                                mContext.getString(
-                                        R.string
-                                                .touch_to_fill_sheet_shared_passwords_one_password_subtitle),
+                        mContext.getString(
+                                R.string.touch_to_fill_sheet_shared_passwords_one_password_subtitle,
                                 "<b>Sender Name</b>",
                                 TEST_URL_FORMATTED)));
         mImageFetcher.answerWithBitmap();
@@ -457,7 +444,6 @@ public class TouchToFillControllerTest {
     }
 
     @Test
-    @EnableFeatures(ChromeFeatureList.SHARED_PASSWORD_NOTIFICATION_UI)
     public void testShowSheetForMultipleSharedCredentials() {
         Credential sharedCredential1 =
                 new Credential(
@@ -507,10 +493,9 @@ public class TouchToFillControllerTest {
         assertThat(
                 itemList.get(0).model.get(SUBTITLE),
                 is(
-                        String.format(
-                                mContext.getString(
-                                        R.string
-                                                .touch_to_fill_sheet_shared_passwords_multiple_passwords_subtitle),
+                        mContext.getString(
+                                R.string
+                                        .touch_to_fill_sheet_shared_passwords_multiple_passwords_subtitle,
                                 TEST_URL_FORMATTED)));
     }
 

@@ -35,13 +35,13 @@ class TestURLLoaderNetworkObserver
                              bool fatal,
                              OnSSLCertificateErrorCallback response) override;
   void OnCertificateRequested(
-      const absl::optional<base::UnguessableToken>& window_id,
+      const std::optional<base::UnguessableToken>& window_id,
       const scoped_refptr<net::SSLCertRequestInfo>& cert_info,
       mojo::PendingRemote<mojom::ClientCertificateResponder>
           client_cert_responder) override;
   void OnAuthRequired(
-      const absl::optional<base::UnguessableToken>& window_id,
-      uint32_t request_id,
+      const std::optional<base::UnguessableToken>& window_id,
+      int32_t request_id,
       const GURL& url,
       bool first_auth_attempt,
       const net::AuthChallengeInfo& auth_info,
@@ -51,14 +51,14 @@ class TestURLLoaderNetworkObserver
   void OnPrivateNetworkAccessPermissionRequired(
       const GURL& url,
       const net::IPAddress& ip_address,
-      const absl::optional<std::string>& private_network_device_id,
-      const absl::optional<std::string>& private_network_device_name,
+      const std::optional<std::string>& private_network_device_id,
+      const std::optional<std::string>& private_network_device_name,
       OnPrivateNetworkAccessPermissionRequiredCallback callback) override;
   void OnClearSiteData(
       const GURL& url,
       const std::string& header_value,
       int32_t load_flags,
-      const absl::optional<net::CookiePartitionKey>& cookie_partition_key,
+      const std::optional<net::CookiePartitionKey>& cookie_partition_key,
       bool partitioned_state_allowed_only,
       OnClearSiteDataCallback callback) override;
   void OnLoadingStateUpdate(mojom::LoadInfoPtr info,
@@ -68,10 +68,12 @@ class TestURLLoaderNetworkObserver
                        int64_t sent_bytes) override;
   void OnSharedStorageHeaderReceived(
       const url::Origin& request_origin,
-      std::vector<network::mojom::SharedStorageOperationPtr> operations,
+      std::vector<network::mojom::SharedStorageModifierMethodPtr> methods,
       OnSharedStorageHeaderReceivedCallback callback) override;
   void Clone(
       mojo::PendingReceiver<URLLoaderNetworkServiceObserver> observer) override;
+  void OnWebSocketConnectedToPrivateNetwork(
+      network::mojom::IPAddressSpace ip_address_space) override;
 
  private:
   mojo::ReceiverSet<mojom::URLLoaderNetworkServiceObserver> receivers_;

@@ -4,6 +4,7 @@
 
 #include "services/network/first_party_sets/first_party_sets_access_delegate.h"
 
+#include <optional>
 #include <set>
 #include <string>
 
@@ -29,7 +30,6 @@
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 using ::testing::_;
@@ -39,7 +39,7 @@ using ::testing::Optional;
 using ::testing::Pair;
 using ::testing::UnorderedElementsAre;
 using OverrideSets =
-    base::flat_map<net::SchemefulSite, absl::optional<net::FirstPartySetEntry>>;
+    base::flat_map<net::SchemefulSite, std::optional<net::FirstPartySetEntry>>;
 
 namespace network {
 
@@ -72,8 +72,8 @@ CreateFirstPartySetsAccessDelegateParams(bool enabled) {
 }
 
 mojom::FirstPartySetsReadyEventPtr CreateFirstPartySetsReadyEvent(
-    absl::optional<net::FirstPartySetsContextConfig> config,
-    absl::optional<net::FirstPartySetsCacheFilter> cache_filter) {
+    std::optional<net::FirstPartySetsContextConfig> config,
+    std::optional<net::FirstPartySetsCacheFilter> cache_filter) {
   auto ready_event = mojom::FirstPartySetsReadyEvent::New();
   if (config.has_value())
     ready_event->config = std::move(config.value());
@@ -123,13 +123,13 @@ class NoopFirstPartySetsAccessDelegateTest : public ::testing::Test,
                                      1)},
             {kSet1Primary,
              net::FirstPartySetEntry(kSet1Primary, net::SiteType::kPrimary,
-                                     absl::nullopt)},
+                                     std::nullopt)},
             {kSet2AssociatedSite1,
              net::FirstPartySetEntry(kSet2Primary, net::SiteType::kAssociated,
                                      0)},
             {kSet2Primary,
              net::FirstPartySetEntry(kSet2Primary, net::SiteType::kPrimary,
-                                     absl::nullopt)},
+                                     std::nullopt)},
         },
         /*aliases=*/{}));
   }
@@ -142,14 +142,14 @@ class NoopFirstPartySetsAccessDelegateTest : public ::testing::Test,
 };
 
 TEST_F(NoopFirstPartySetsAccessDelegateTest, ComputeMetadata) {
-  net::FirstPartySetEntry primary_entry(kSet1Primary, net::SiteType::kPrimary,
-                                        absl::nullopt);
-  net::FirstPartySetEntry associated_entry(kSet1Primary,
-                                           net::SiteType::kAssociated, 0);
   EXPECT_EQ(delegate().ComputeMetadata(kSet1AssociatedSite1, &kSet1Primary,
                                        base::NullCallback()),
-            absl::make_optional(std::make_pair(
-                net::FirstPartySetMetadata(&associated_entry, &primary_entry),
+            std::make_optional(std::make_pair(
+                net::FirstPartySetMetadata(
+                    net::FirstPartySetEntry(kSet1Primary,
+                                            net::SiteType::kAssociated, 0),
+                    net::FirstPartySetEntry(
+                        kSet1Primary, net::SiteType::kPrimary, std::nullopt)),
                 net::FirstPartySetsCacheFilter::MatchInfo())));
 }
 
@@ -188,13 +188,13 @@ class FirstPartySetsAccessDelegateTest : public ::testing::Test,
                                      1)},
             {kSet1Primary,
              net::FirstPartySetEntry(kSet1Primary, net::SiteType::kPrimary,
-                                     absl::nullopt)},
+                                     std::nullopt)},
             {kSet2AssociatedSite1,
              net::FirstPartySetEntry(kSet2Primary, net::SiteType::kAssociated,
                                      0)},
             {kSet2Primary,
              net::FirstPartySetEntry(kSet2Primary, net::SiteType::kPrimary,
-                                     absl::nullopt)},
+                                     std::nullopt)},
         },
         /*aliases=*/{}));
   }
@@ -206,8 +206,8 @@ class FirstPartySetsAccessDelegateTest : public ::testing::Test,
     base::test::TestFuture<net::FirstPartySetMetadata,
                            net::FirstPartySetsCacheFilter::MatchInfo>
         future;
-    absl::optional<std::tuple<net::FirstPartySetMetadata,
-                              net::FirstPartySetsCacheFilter::MatchInfo>>
+    std::optional<std::tuple<net::FirstPartySetMetadata,
+                             net::FirstPartySetsCacheFilter::MatchInfo>>
         result = delegate_.ComputeMetadata(site, top_frame_site,
                                            future.GetCallback());
     return result.has_value() ? std::move(result).value() : future.Take();
@@ -216,7 +216,7 @@ class FirstPartySetsAccessDelegateTest : public ::testing::Test,
   FirstPartySetsAccessDelegate::EntriesResult FindEntriesAndWait(
       const base::flat_set<net::SchemefulSite>& site) {
     base::test::TestFuture<FirstPartySetsAccessDelegate::EntriesResult> future;
-    absl::optional<FirstPartySetsAccessDelegate::EntriesResult> result =
+    std::optional<FirstPartySetsAccessDelegate::EntriesResult> result =
         delegate_.FindEntries(site, future.GetCallback());
     return result.has_value() ? result.value() : future.Get();
   }
@@ -246,9 +246,7 @@ class FirstPartySetsAccessDelegateDisabledTest
 
 TEST_F(FirstPartySetsAccessDelegateDisabledTest, ComputeMetadata) {
   EXPECT_EQ(ComputeMetadataAndWait(kSet1AssociatedSite1, &kSet1AssociatedSite1),
-            std::make_tuple(net::FirstPartySetMetadata(
-                                /*frame_entry=*/nullptr,
-                                /*top_frame_entry=*/nullptr),
+            std::make_tuple(net::FirstPartySetMetadata(),
                             net::FirstPartySetsCacheFilter::MatchInfo()));
 }
 
@@ -283,7 +281,7 @@ TEST_F(AsyncFirstPartySetsAccessDelegateTest,
 
   net::FirstPartySetEntry entry(kSet1Primary, net::SiteType::kAssociated, 0);
   EXPECT_EQ(future.Get(),
-            std::make_tuple(net::FirstPartySetMetadata(&entry, &entry),
+            std::make_tuple(net::FirstPartySetMetadata(entry, entry),
                             net::FirstPartySetsCacheFilter::MatchInfo()));
 }
 
@@ -313,17 +311,17 @@ TEST_F(AsyncFirstPartySetsAccessDelegateTest, OverrideSets_ComputeMetadata) {
                kSet3Primary, net::SiteType::kAssociated, 0))},
           {kSet3Primary,
            net::FirstPartySetEntryOverride(net::FirstPartySetEntry(
-               kSet3Primary, net::SiteType::kPrimary, absl::nullopt))},
+               kSet3Primary, net::SiteType::kPrimary, std::nullopt))},
       }),
-      /*cache_filter-*/ absl::nullopt));
+      /*cache_filter=*/std::nullopt));
 
-  net::FirstPartySetEntry primary_entry(kSet3Primary, net::SiteType::kPrimary,
-                                        absl::nullopt);
-  net::FirstPartySetEntry associated_entry(kSet3Primary,
-                                           net::SiteType::kAssociated, 0);
   EXPECT_EQ(ComputeMetadataAndWait(kSet3Primary, &kSet1AssociatedSite1),
             std::make_tuple(
-                net::FirstPartySetMetadata(&primary_entry, &associated_entry),
+                net::FirstPartySetMetadata(
+                    net::FirstPartySetEntry(
+                        kSet3Primary, net::SiteType::kPrimary, std::nullopt),
+                    net::FirstPartySetEntry(kSet3Primary,
+                                            net::SiteType::kAssociated, 0)),
                 net::FirstPartySetsCacheFilter::MatchInfo()));
 }
 
@@ -332,9 +330,9 @@ TEST_F(AsyncFirstPartySetsAccessDelegateTest, OverrideSets_FindEntries) {
       net::FirstPartySetsContextConfig({
           {kSet3Primary,
            net::FirstPartySetEntryOverride(net::FirstPartySetEntry(
-               kSet3Primary, net::SiteType::kPrimary, absl::nullopt))},
+               kSet3Primary, net::SiteType::kPrimary, std::nullopt))},
       }),
-      /*cache_filter-*/ absl::nullopt));
+      /*cache_filter=*/std::nullopt));
 
   EXPECT_THAT(FindEntriesAndWait({kSet3Primary}),
               UnorderedElementsAre(Pair(kSet3Primary, _)));
@@ -351,7 +349,7 @@ class SyncFirstPartySetsAccessDelegateTest
                  kSet3Primary, net::SiteType::kAssociated, 0))},
             {kSet3Primary,
              net::FirstPartySetEntryOverride(net::FirstPartySetEntry(
-                 kSet3Primary, net::SiteType::kPrimary, absl::nullopt))},
+                 kSet3Primary, net::SiteType::kPrimary, std::nullopt))},
         }),
         net::FirstPartySetsCacheFilter({{kSet1Primary, kClearAtRunId}},
                                        kBrowserRunId)));
@@ -359,19 +357,19 @@ class SyncFirstPartySetsAccessDelegateTest
 };
 
 TEST_F(SyncFirstPartySetsAccessDelegateTest, ComputeMetadata) {
-  net::FirstPartySetEntry primary_entry(kSet1Primary, net::SiteType::kPrimary,
-                                        /*site_index=*/absl::nullopt);
-  net::FirstPartySetEntry associated_entry(kSet1Primary,
-                                           net::SiteType::kAssociated, 0);
-
   net::FirstPartySetsCacheFilter::MatchInfo match_info;
   match_info.clear_at_run_id = kClearAtRunId;
   match_info.browser_run_id = kBrowserRunId;
 
-  EXPECT_EQ(ComputeMetadataAndWait(kSet1Primary, &kSet1AssociatedSite1),
-            std::make_tuple(
-                net::FirstPartySetMetadata(&primary_entry, &associated_entry),
-                match_info));
+  EXPECT_EQ(
+      ComputeMetadataAndWait(kSet1Primary, &kSet1AssociatedSite1),
+      std::make_tuple(
+          net::FirstPartySetMetadata(
+              net::FirstPartySetEntry(kSet1Primary, net::SiteType::kPrimary,
+                                      /*site_index=*/std::nullopt),
+              net::FirstPartySetEntry(kSet1Primary, net::SiteType::kAssociated,
+                                      0)),
+          match_info));
 }
 
 TEST_F(SyncFirstPartySetsAccessDelegateTest, FindEntries) {
@@ -406,9 +404,7 @@ TEST_F(FirstPartySetsAccessDelegateSetToDisabledTest,
        DisabledThenReady_ComputeMetadata) {
   std::tuple<net::FirstPartySetMetadata,
              net::FirstPartySetsCacheFilter::MatchInfo>
-      expected(net::FirstPartySetMetadata(
-                   /*frame_entry=*/nullptr,
-                   /*top_frame_entry=*/nullptr),
+      expected((net::FirstPartySetMetadata()),
                net::FirstPartySetsCacheFilter::MatchInfo());
 
   base::test::TestFuture<net::FirstPartySetMetadata,
@@ -467,7 +463,7 @@ TEST_F(FirstPartySetsAccessDelegateSetToDisabledTest,
 
   net::FirstPartySetEntry entry(kSet1Primary, net::SiteType::kAssociated, 0);
   EXPECT_EQ(future.Get(),
-            std::make_tuple(net::FirstPartySetMetadata(&entry, &entry),
+            std::make_tuple(net::FirstPartySetMetadata(entry, entry),
                             net::FirstPartySetsCacheFilter::MatchInfo()));
 
   ComputeMetadataAndWait(kSet1AssociatedSite1, &kSet1AssociatedSite1);
@@ -475,9 +471,7 @@ TEST_F(FirstPartySetsAccessDelegateSetToDisabledTest,
   delegate().SetEnabled(false);
   std::tuple<net::FirstPartySetMetadata,
              net::FirstPartySetsCacheFilter::MatchInfo>
-      expected(net::FirstPartySetMetadata(
-                   /*frame_entry=*/nullptr,
-                   /*top_frame_entry=*/nullptr),
+      expected((net::FirstPartySetMetadata()),
                net::FirstPartySetsCacheFilter::MatchInfo());
   EXPECT_EQ(ComputeMetadataAndWait(kSet1AssociatedSite1, &kSet1AssociatedSite1),
             expected);
@@ -520,9 +514,7 @@ TEST_F(FirstPartySetsAccessDelegateSetToEnabledTest,
        EnabledThenReady_ComputeMetadata) {
   std::tuple<net::FirstPartySetMetadata,
              net::FirstPartySetsCacheFilter::MatchInfo>
-      expected(net::FirstPartySetMetadata(
-                   /*frame_entry=*/nullptr,
-                   /*top_frame_entry=*/nullptr),
+      expected((net::FirstPartySetMetadata()),
                net::FirstPartySetsCacheFilter::MatchInfo());
   EXPECT_EQ(ComputeMetadataAndWait(kSet1AssociatedSite1, &kSet1AssociatedSite1),
             expected);
@@ -532,10 +524,6 @@ TEST_F(FirstPartySetsAccessDelegateSetToEnabledTest,
   base::test::TestFuture<net::FirstPartySetMetadata,
                          net::FirstPartySetsCacheFilter::MatchInfo>
       future;
-  net::FirstPartySetEntry primary_entry(kSet2Primary, net::SiteType::kPrimary,
-                                        absl::nullopt);
-  net::FirstPartySetEntry associated_entry(kSet2Primary,
-                                           net::SiteType::kAssociated, 0);
   EXPECT_FALSE(delegate().ComputeMetadata(kSet2Primary, &kSet1AssociatedSite1,
                                           future.GetCallback()));
   delegate_remote()->NotifyReady(CreateFirstPartySetsReadyEvent(
@@ -543,10 +531,14 @@ TEST_F(FirstPartySetsAccessDelegateSetToEnabledTest,
           {{kSet1AssociatedSite1,
             net::FirstPartySetEntryOverride(net::FirstPartySetEntry(
                 kSet2Primary, net::SiteType::kAssociated, 0))}}),
-      /*cache_filter-*/ absl::nullopt));
+      /*cache_filter=*/std::nullopt));
   EXPECT_EQ(future.Get(),
             std::make_tuple(
-                net::FirstPartySetMetadata(&primary_entry, &associated_entry),
+                net::FirstPartySetMetadata(
+                    net::FirstPartySetEntry(
+                        kSet2Primary, net::SiteType::kPrimary, std::nullopt),
+                    net::FirstPartySetEntry(kSet2Primary,
+                                            net::SiteType::kAssociated, 0)),
                 net::FirstPartySetsCacheFilter::MatchInfo()));
   ComputeMetadataAndWait(kSet1AssociatedSite1, &kSet1AssociatedSite1);
 }
@@ -566,7 +558,7 @@ TEST_F(FirstPartySetsAccessDelegateSetToEnabledTest,
           {{kSet1AssociatedSite1,
             net::FirstPartySetEntryOverride(net::FirstPartySetEntry(
                 kSet2Primary, net::SiteType::kAssociated, 0))}}),
-      /*cache_filter-*/ absl::nullopt));
+      /*cache_filter=*/std::nullopt));
   EXPECT_EQ(future.Get(),
             FirstPartySetsAccessDelegate::EntriesResult(
                 {{kSet1AssociatedSite1,
@@ -579,9 +571,7 @@ TEST_F(FirstPartySetsAccessDelegateSetToEnabledTest,
        ReadyThenEnabled_ComputeMetadata) {
   std::tuple<net::FirstPartySetMetadata,
              net::FirstPartySetsCacheFilter::MatchInfo>
-      expected(net::FirstPartySetMetadata(
-                   /*frame_entry=*/nullptr,
-                   /*top_frame_entry=*/nullptr),
+      expected((net::FirstPartySetMetadata()),
                net::FirstPartySetsCacheFilter::MatchInfo());
   EXPECT_EQ(ComputeMetadataAndWait(kSet1AssociatedSite1, &kSet1AssociatedSite1),
             expected);
@@ -615,7 +605,7 @@ TEST_F(AsyncNonwaitingFirstPartySetsAccessDelegateTest,
        QueryBeforeReady_ComputeMetadata) {
   base::HistogramTester histogram_tester;
   EXPECT_EQ(
-      absl::make_optional(
+      std::make_optional(
           std::make_pair(net::FirstPartySetMetadata(),
                          net::FirstPartySetsCacheFilter::MatchInfo())),
       delegate().ComputeMetadata(kSet1AssociatedSite1, &kSet1AssociatedSite1,
@@ -626,8 +616,8 @@ TEST_F(AsyncNonwaitingFirstPartySetsAccessDelegateTest,
 
   net::FirstPartySetEntry entry(kSet1Primary, net::SiteType::kAssociated, 0);
   EXPECT_EQ(
-      absl::make_optional(
-          std::make_pair(net::FirstPartySetMetadata(&entry, &entry),
+      std::make_optional(
+          std::make_pair(net::FirstPartySetMetadata(entry, entry),
                          net::FirstPartySetsCacheFilter::MatchInfo())),
       delegate().ComputeMetadata(kSet1AssociatedSite1, &kSet1AssociatedSite1,
                                  base::NullCallback()));
@@ -678,18 +668,18 @@ TEST_F(AsyncNonwaitingFirstPartySetsAccessDelegateTest,
                kSet3Primary, net::SiteType::kAssociated, 0))},
           {kSet3Primary,
            net::FirstPartySetEntryOverride(net::FirstPartySetEntry(
-               kSet3Primary, net::SiteType::kPrimary, absl::nullopt))},
+               kSet3Primary, net::SiteType::kPrimary, std::nullopt))},
       }),
-      /*cache_filter-*/ absl::nullopt));
+      /*cache_filter=*/std::nullopt));
   base::RunLoop().RunUntilIdle();
 
-  net::FirstPartySetEntry primary_entry(kSet3Primary, net::SiteType::kPrimary,
-                                        absl::nullopt);
-  net::FirstPartySetEntry associated_entry(kSet3Primary,
-                                           net::SiteType::kAssociated, 0);
   EXPECT_EQ(ComputeMetadataAndWait(kSet3Primary, &kSet1AssociatedSite1),
             std::make_tuple(
-                net::FirstPartySetMetadata(&primary_entry, &associated_entry),
+                net::FirstPartySetMetadata(
+                    net::FirstPartySetEntry(
+                        kSet3Primary, net::SiteType::kPrimary, std::nullopt),
+                    net::FirstPartySetEntry(kSet3Primary,
+                                            net::SiteType::kAssociated, 0)),
                 net::FirstPartySetsCacheFilter::MatchInfo()));
   histogram_tester.ExpectUniqueSample(
       kDelayedQueriesCountHistogram, /*sample=*/0, /*expected_bucket_count=*/1);
@@ -705,9 +695,9 @@ TEST_F(AsyncNonwaitingFirstPartySetsAccessDelegateTest,
       net::FirstPartySetsContextConfig({
           {kSet3Primary,
            net::FirstPartySetEntryOverride(net::FirstPartySetEntry(
-               kSet3Primary, net::SiteType::kPrimary, absl::nullopt))},
+               kSet3Primary, net::SiteType::kPrimary, std::nullopt))},
       }),
-      /*cache_filter-*/ absl::nullopt));
+      /*cache_filter=*/std::nullopt));
   base::RunLoop().RunUntilIdle();
 
   EXPECT_THAT(FindEntriesAndWait({kSet3Primary}),

@@ -24,17 +24,17 @@ class COMPONENT_EXPORT(ASSISTANT_UI) MicView
     : public AssistantButton,
       public AssistantControllerObserver,
       public AssistantInteractionModelObserver {
- public:
-  METADATA_HEADER(MicView);
+  METADATA_HEADER(MicView, AssistantButton)
 
+ public:
   MicView(AssistantButtonListener* listener,
           AssistantButtonId button_id);
   MicView(const MicView&) = delete;
   MicView& operator=(const MicView&) = delete;
   ~MicView() override;
 
-  gfx::Size CalculatePreferredSize() const override;
-  int GetHeightForWidth(int width) const override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
 
   // AssistantControllerObserver:
   void OnAssistantControllerDestroying() override;

@@ -19,7 +19,8 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "apply_configs": [
@@ -45,7 +46,8 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "apply_configs": [
@@ -74,7 +76,9 @@
           "builder": "linux-wayland-rel",
           "group": "tryserver.chromium.linux"
         }
-      ]
+      ],
+      "retry_failed_shards": true,
+      "targets_spec_directory": "src/infra/config/generated/builders/ci/Linux Tests (Wayland)/targets"
     }
   },
   "$recipe_engine/resultdb/test_presentation": {
@@ -85,6 +89,9 @@
     ]
   },
   "builder_group": "chromium.linux",
+  "gardener_rotations": [
+    "chromium"
+  ],
   "recipe": "chromium",
   "sheriff_rotations": [
     "chromium"

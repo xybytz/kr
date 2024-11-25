@@ -18,7 +18,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #include "net/base/net_errors.h"
-#include "net/proxy_resolution/proxy_chain_util_mac.h"
+#include "net/proxy_resolution/proxy_chain_util_apple.h"
 #include "net/proxy_resolution/proxy_info.h"
 
 namespace net {
@@ -181,8 +181,8 @@ class ProxyConfigServiceMac::Helper
 };
 
 void ProxyConfigServiceMac::Forwarder::SetDynamicStoreNotificationKeys(
-    SCDynamicStoreRef store) {
-  proxy_config_service_->SetDynamicStoreNotificationKeys(store);
+    base::apple::ScopedCFTypeRef<SCDynamicStoreRef> store) {
+  proxy_config_service_->SetDynamicStoreNotificationKeys(std::move(store));
 }
 
 void ProxyConfigServiceMac::Forwarder::OnNetworkConfigChange(
@@ -198,7 +198,7 @@ ProxyConfigServiceMac::ProxyConfigServiceMac(
       sequenced_task_runner_(sequenced_task_runner),
       traffic_annotation_(traffic_annotation) {
   DCHECK(sequenced_task_runner_.get());
-  config_watcher_ = std::make_unique<NetworkConfigWatcherMac>(&forwarder_);
+  config_watcher_ = std::make_unique<NetworkConfigWatcherApple>(&forwarder_);
 }
 
 ProxyConfigServiceMac::~ProxyConfigServiceMac() {
@@ -234,7 +234,7 @@ ProxyConfigServiceMac::GetLatestProxyConfig(ProxyConfigWithAnnotation* config) {
 }
 
 void ProxyConfigServiceMac::SetDynamicStoreNotificationKeys(
-    SCDynamicStoreRef store) {
+    base::apple::ScopedCFTypeRef<SCDynamicStoreRef> store) {
   // Called on notifier thread.
 
   base::apple::ScopedCFTypeRef<CFStringRef> proxies_key(
@@ -242,7 +242,7 @@ void ProxyConfigServiceMac::SetDynamicStoreNotificationKeys(
   base::apple::ScopedCFTypeRef<CFArrayRef> key_array(CFArrayCreate(
       nullptr, (const void**)(&proxies_key), 1, &kCFTypeArrayCallBacks));
 
-  bool ret = SCDynamicStoreSetNotificationKeys(store, key_array.get(),
+  bool ret = SCDynamicStoreSetNotificationKeys(store.get(), key_array.get(),
                                                /*patterns=*/nullptr);
   // TODO(willchan): Figure out a proper way to handle this rather than crash.
   CHECK(ret);

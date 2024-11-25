@@ -24,10 +24,8 @@
 
 namespace ash {
 
-SkColor GetCenterColor(views::Separator* separator) {
-  gfx::Size canvas_size = separator->GetPreferredSize();
-  gfx::Canvas canvas(canvas_size, /*image_scale=*/1.0f, /*is_opaque=*/false);
-  separator->OnPaint(&canvas);
+SkColor GetCenterColorFromCanvas(const gfx::Canvas& canvas,
+                                 const gfx::Size& canvas_size) {
   return canvas.GetBitmap().getColor(canvas_size.width() / 2,
                                      canvas_size.height() / 2);
 }
@@ -55,8 +53,17 @@ TEST_F(AssistantMainStageTest, DarkAndLightTheme) {
             dark_light_mode_controller->IsDarkModeEnabled());
 
   EXPECT_EQ(separator->GetColorId(), ui::kColorAshSystemUIMenuSeparator);
-  EXPECT_EQ(GetCenterColor(separator), separator->GetColorProvider()->GetColor(
-                                           ui::kColorAshSystemUIMenuSeparator));
+  const gfx::Size canvas_size = separator->GetPreferredSize();
+  gfx::Canvas canvas_separator(canvas_size, /*image_scale=*/1.0f,
+                               /*is_opaque=*/false);
+  separator->OnPaint(&canvas_separator);
+
+  gfx::Canvas canvas_reference(canvas_size, /*image_scale=*/1.0f,
+                               /*is_opaque=*/false);
+  canvas_reference.DrawColor(separator->GetColorProvider()->GetColor(
+      ui::kColorAshSystemUIMenuSeparator));
+  EXPECT_EQ(GetCenterColorFromCanvas(canvas_separator, canvas_size),
+            GetCenterColorFromCanvas(canvas_reference, canvas_size));
 
   // Turn off dark mode, this will make NativeTheme::ShouldUseDarkColors return
   // false. See a comment in TearDown about details.
@@ -116,7 +123,7 @@ TEST_F(AssistantMainStageTest, FooterIsVisibleAfterResponse) {
   EXPECT_TRUE(footer->GetVisible());
 }
 
-TEST_F(AssistantMainStageTest, FooterIsVisible_Tablet) {
+TEST_F(AssistantMainStageTest, FooterIsVisibleTablet) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndDisableFeature(
       feature_engagement::kIPHLauncherSearchHelpUiFeature);
@@ -128,7 +135,7 @@ TEST_F(AssistantMainStageTest, FooterIsVisible_Tablet) {
   EXPECT_TRUE(footer->GetVisible());
 }
 
-TEST_F(AssistantMainStageTest, FooterIsNotVisible_Tablet) {
+TEST_F(AssistantMainStageTest, FooterIsNotVisibleTablet) {
   base::test::ScopedFeatureList scoped_feature_list(
       feature_engagement::kIPHLauncherSearchHelpUiFeature);
 
@@ -139,7 +146,7 @@ TEST_F(AssistantMainStageTest, FooterIsNotVisible_Tablet) {
   EXPECT_FALSE(footer->GetVisible());
 }
 
-TEST_F(AssistantMainStageTest, FooterIsVisibleAfterQuery_Tablet) {
+TEST_F(AssistantMainStageTest, FooterIsVisibleAfterQueryTablet) {
   base::test::ScopedFeatureList scoped_feature_list(
       feature_engagement::kIPHLauncherSearchHelpUiFeature);
 
@@ -155,7 +162,7 @@ TEST_F(AssistantMainStageTest, FooterIsVisibleAfterQuery_Tablet) {
   EXPECT_TRUE(footer->GetVisible());
 }
 
-TEST_F(AssistantMainStageTest, FooterIsVisibleAfterResponse_Tablet) {
+TEST_F(AssistantMainStageTest, FooterIsVisibleAfterResponseTablet) {
   base::test::ScopedFeatureList scoped_feature_list(
       feature_engagement::kIPHLauncherSearchHelpUiFeature);
 

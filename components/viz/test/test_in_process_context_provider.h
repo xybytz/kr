@@ -35,6 +35,7 @@ class GrContextForGLES2Interface;
 }
 
 namespace viz {
+class GpuServiceImpl;
 
 enum TestContextType {
   kGLES2,            // Provides GLES2Interface.
@@ -69,6 +70,7 @@ class TestInProcessContextProvider
   void AddObserver(ContextLostObserver* obs) override;
   void RemoveObserver(ContextLostObserver* obs) override;
   unsigned int GetGrGLTextureFormat(SharedImageFormat format) const override;
+  GpuServiceImpl* GpuService();
 
   // Calls OnContextLost() on all observers. This doesn't modify the context.
   void SendOnContextLost();
@@ -100,7 +102,7 @@ class TestInProcessContextProvider
   std::unique_ptr<gpu::RasterInProcessContext> raster_context_;
 
   std::unique_ptr<ContextCacheController> cache_controller_;
-  absl::optional<base::Lock> context_lock_;
+  std::optional<base::Lock> context_lock_;
 
   base::ObserverList<ContextLostObserver>::Unchecked observers_;
 };

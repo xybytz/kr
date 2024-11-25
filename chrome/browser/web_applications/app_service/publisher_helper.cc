@@ -33,13 +33,6 @@ webapps::WebappUninstallSource ConvertUninstallSourceToWebAppUninstallSource(
 
 bool IsAppServiceShortcut(const webapps::AppId& web_app_id,
                           const WebAppProvider& provider) {
-// On non-ChromeOS platforms, shortcuts will still be published as web apps.
-#if BUILDFLAG(IS_CHROMEOS)
-  if (chromeos::features::IsCrosWebAppShortcutUiUpdateEnabled()) {
-    return provider.registrar_unsafe().IsInstalled(web_app_id) &&
-           provider.registrar_unsafe().IsShortcutApp(web_app_id);
-  }
-#endif
   return false;
 }
 

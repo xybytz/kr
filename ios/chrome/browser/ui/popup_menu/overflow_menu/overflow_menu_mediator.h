@@ -7,8 +7,9 @@
 
 #import <UIKit/UIKit.h>
 
+#import "ios/chrome/browser/browser_container/ui_bundled/browser_container_consumer.h"
 #import "ios/chrome/browser/follow/model/follow_action_state.h"
-#import "ios/chrome/browser/ui/browser_container/browser_container_consumer.h"
+#import "ios/chrome/browser/ui/popup_menu/overflow_menu/overflow_menu_action_provider.h"
 #import "ios/chrome/browser/ui/popup_menu/overflow_menu/overflow_menu_swift.h"
 
 namespace bookmarks {
@@ -33,6 +34,7 @@ class BrowserPolicyConnectorIOS;
 @protocol FindInPageCommands;
 class FollowBrowserAgent;
 @protocol HelpCommands;
+@protocol LensOverlayCommands;
 @protocol OverflowMenuCustomizationCommands;
 @class OverflowMenuOrderer;
 class OverlayPresenter;
@@ -41,15 +43,21 @@ class OverlayPresenter;
 class PrefService;
 @protocol PriceNotificationsCommands;
 class PromosManager;
+@protocol QuickDeleteCommands;
 class ReadingListBrowserAgent;
 class ReadingListModel;
+@protocol SettingsCommands;
+class TabBasedIPHBrowserAgent;
+class TemplateURLService;
 @protocol TextZoomCommands;
 class WebNavigationBrowserAgent;
 class WebStateList;
+@protocol WhatsNewCommands;
 
 // Mediator for the overflow menu. This object is in charge of creating and
 // updating the items of the overflow menu.
-@interface OverflowMenuMediator : NSObject <BrowserContainerConsumer>
+@interface OverflowMenuMediator
+    : NSObject <BrowserContainerConsumer, OverflowMenuActionProvider>
 
 // The data model for the overflow menu.
 @property(nonatomic, weak) OverflowMenuModel* model;
@@ -61,10 +69,13 @@ class WebStateList;
 // Command Handlers.
 @property(nonatomic, weak) id<ActivityServiceCommands> activityServiceHandler;
 @property(nonatomic, weak) id<ApplicationCommands> applicationHandler;
+@property(nonatomic, weak) id<SettingsCommands> settingsHandler;
 @property(nonatomic, weak) id<BookmarksCommands> bookmarksHandler;
+@property(nonatomic, weak) id<LensOverlayCommands> lensOverlayHandler;
 @property(nonatomic, weak) id<BrowserCoordinatorCommands>
     browserCoordinatorHandler;
 @property(nonatomic, weak) id<FindInPageCommands> findInPageHandler;
+@property(nonatomic, weak) id<HelpCommands> helpHandler;
 @property(nonatomic, weak) id<OverflowMenuCustomizationCommands>
     overflowMenuCustomizationHandler;
 @property(nonatomic, weak) id<PageInfoCommands> pageInfoHandler;
@@ -72,6 +83,8 @@ class WebStateList;
 @property(nonatomic, weak) id<PriceNotificationsCommands>
     priceNotificationHandler;
 @property(nonatomic, weak) id<TextZoomCommands> textZoomHandler;
+@property(nonatomic, weak) id<QuickDeleteCommands> quickDeleteHandler;
+@property(nonatomic, weak) id<WhatsNewCommands> whatsNewHandler;
 
 // Navigation agent for reloading pages.
 @property(nonatomic, assign) WebNavigationBrowserAgent* navigationAgent;
@@ -85,16 +98,14 @@ class WebStateList;
 // BaseViewController for presenting some UI.
 @property(nonatomic, weak) UIViewController* baseViewController;
 
-// Bookmarks models to know if the page is bookmarked.
-@property(nonatomic, assign)
-    bookmarks::BookmarkModel* localOrSyncableBookmarkModel;
-@property(nonatomic, assign) bookmarks::BookmarkModel* accountBookmarkModel;
+// Bookmark model to know if the page is bookmarked.
+@property(nonatomic, assign) bookmarks::BookmarkModel* bookmarkModel;
 
 // Readinglist model to know if model has finished loading.
 @property(nonatomic, assign) ReadingListModel* readingListModel;
 
-// Pref service to retrieve browser state preference values.
-@property(nonatomic, assign) PrefService* browserStatePrefs;
+// Pref service to retrieve profile preference values.
+@property(nonatomic, assign) PrefService* profilePrefs;
 
 // Pref service to retrieve local state preference values.
 @property(nonatomic, assign) PrefService* localStatePrefs;
@@ -127,8 +138,14 @@ class WebStateList;
 // The AuthenticationService to get sign-in info.
 @property(nonatomic, assign) AuthenticationService* authenticationService;
 
-// The help handler to present in-product help bubbles.
-@property(nonatomic, weak) id<HelpCommands> helpHandler;
+// The TabBasedIPHBrowserAgent to handle tab based in-product help bubbles.
+@property(nonatomic, assign) TabBasedIPHBrowserAgent* tabBasedIPHBrowserAgent;
+
+// TemplateURLService to observe default search engine change.
+@property(nonatomic, assign) TemplateURLService* templateURLService;
+
+// If settings destination has a blue dot.
+@property(nonatomic, assign) bool hasSettingsBlueDot;
 
 // Disconnect the mediator.
 - (void)disconnect;

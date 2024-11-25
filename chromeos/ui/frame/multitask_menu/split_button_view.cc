@@ -15,6 +15,7 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/geometry/point_f.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/highlight_path_generator.h"
 
 namespace chromeos {
@@ -141,7 +142,7 @@ class SplitButtonView::SplitButton : public views::Button {
   base::RepeatingClosure hovered_pressed_callback_;
 };
 
-BEGIN_METADATA(SplitButtonView, SplitButton, views::Button)
+BEGIN_METADATA(SplitButtonView, SplitButton)
 END_METADATA
 
 // -----------------------------------------------------------------------------
@@ -156,8 +157,6 @@ SplitButtonView::SplitButtonView(SplitButtonType type,
   SetMirrored(false);
   SetOrientation(is_portrait_mode ? views::BoxLayout::Orientation::kVertical
                                   : views::BoxLayout::Orientation::kHorizontal);
-  SetPreferredSize(is_portrait_mode ? kMultitaskButtonPortraitSize
-                                    : kMultitaskButtonLandscapeSize);
 
   auto on_hover_pressed = base::BindRepeating(
       &SplitButtonView::OnButtonHoveredOrPressed, base::Unretained(this));
@@ -202,9 +201,9 @@ void SplitButtonView::UpdateButtons(bool is_portrait_mode, bool is_reversed) {
           ? gfx::Size(kMultitaskHalfButtonHeight, right_bottom_width)
           : gfx::Size(right_bottom_width, kMultitaskHalfButtonHeight));
 
-  left_top_button_->SetAccessibleName(
+  left_top_button_->GetViewAccessibility().SetName(
       GetA11yName(type_, /*left_top=*/!is_reversed, is_portrait_mode));
-  right_bottom_button_->SetAccessibleName(
+  right_bottom_button_->GetViewAccessibility().SetName(
       GetA11yName(type_, /*left_top=*/is_reversed, is_portrait_mode));
 }
 

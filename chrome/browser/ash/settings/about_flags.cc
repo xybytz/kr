@@ -4,11 +4,12 @@
 
 #include "chrome/browser/ash/settings/about_flags.h"
 
+#include <string_view>
+
 #include "base/check.h"
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
-#include "base/strings/string_piece.h"
 #include "base/values.h"
 #include "chrome/browser/about_flags.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
@@ -216,7 +217,7 @@ void FeatureFlagsUpdate::UpdateSessionManager() {
           ::prefs::kLacrosLaunchSwitch);
   if (lacros_launch_switch_pref->IsManaged()) {
     // If there's the value, convert it into the feature name.
-    base::StringPiece value =
+    std::string_view value =
         ash::standalone_browser::GetLacrosAvailabilityPolicyName(
             static_cast<ash::standalone_browser::LacrosAvailability>(
                 lacros_launch_switch_pref->GetValue()->GetInt()));
@@ -233,28 +234,6 @@ void FeatureFlagsUpdate::UpdateSessionManager() {
     }
     if (static_cast<size_t>(index) != entry->choices.size()) {
       LOG(ERROR) << "Updating the lacros_availability: " << index;
-      flags.insert(entry->NameForOption(index));
-    }
-  }
-
-  const PrefService::Preference* lacros_data_backward_migration_mode_pref =
-      g_browser_process->local_state()->FindPreference(
-          ::prefs::kLacrosDataBackwardMigrationMode);
-  if (lacros_data_backward_migration_mode_pref->IsManaged()) {
-    auto value =
-        lacros_data_backward_migration_mode_pref->GetValue()->GetString();
-    auto* entry = ::about_flags::GetCurrentFlagsState()->FindFeatureEntryByName(
-        crosapi::browser_util::
-            kLacrosDataBackwardMigrationModePolicyInternalName);
-    DCHECK(entry);
-    int index;
-    for (index = 0; index < entry->NumOptions(); ++index) {
-      if (value == entry->ChoiceForOption(index).command_line_value)
-        break;
-    }
-    if (static_cast<size_t>(index) != entry->choices.size()) {
-      LOG(ERROR) << "Updating the lacros_data_backward_migration_mode: "
-                 << index;
       flags.insert(entry->NameForOption(index));
     }
   }

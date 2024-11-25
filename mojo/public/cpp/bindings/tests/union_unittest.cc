@@ -2,14 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
+
 #include <utility>
 #include <vector>
 
 #include "base/containers/flat_map.h"
 #include "base/functional/bind.h"
+#include "base/rand_util.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "mojo/public/cpp/bindings/lib/array_internal.h"
 #include "mojo/public/cpp/bindings/lib/message_fragment.h"
@@ -280,6 +288,7 @@ TEST(UnionTest, SerializeNotNull) {
 }
 
 TEST(UnionTest, SerializeIsNullInlined) {
+  base::MetricsSubSampler::ScopedNeverSampleForTesting no_subsampling_;
   PodUnionPtr pod;
 
   Message message(0, 0, 0, 0, nullptr);
@@ -291,6 +300,28 @@ TEST(UnionTest, SerializeIsNullInlined) {
   mojo::internal::Serialize<PodUnionDataView>(pod, fragment, true);
   EXPECT_TRUE(fragment->is_null());
   EXPECT_EQ(16U + sizeof(mojo::internal::MessageHeader), buffer.cursor());
+
+  PodUnionPtr pod2;
+  mojo::internal::Deserialize<PodUnionDataView>(fragment.data(), &pod2,
+                                                nullptr);
+  EXPECT_TRUE(pod2.is_null());
+}
+
+TEST(UnionTest, SerializeIsNullInlinedV3) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(kMojoMessageAlwaysUseLatestVersion);
+
+  PodUnionPtr pod;
+
+  Message message(0, 0, 0, 0, nullptr);
+  mojo::internal::Buffer& buffer = *message.payload_buffer();
+  EXPECT_EQ(sizeof(mojo::internal::MessageHeaderV3), buffer.cursor());
+
+  mojo::internal::MessageFragment<internal::PodUnion_Data> fragment(message);
+  fragment.Allocate();
+  mojo::internal::Serialize<PodUnionDataView>(pod, fragment, true);
+  EXPECT_TRUE(fragment->is_null());
+  EXPECT_EQ(16U + sizeof(mojo::internal::MessageHeaderV3), buffer.cursor());
 
   PodUnionPtr pod2;
   mojo::internal::Deserialize<PodUnionDataView>(fragment.data(), &pod2,
@@ -552,7 +583,7 @@ TEST(UnionTest, ObjectUnionInArraySerialization) {
 
 // TODO(azani): Move back in struct_unittest.cc when possible.
 // Struct tests
-TEST(UnionTest, Clone_Union) {
+TEST(UnionTest, CloneUnion) {
   SmallStructPtr small_struct(SmallStruct::New());
   small_struct->pod_union = PodUnion::NewFInt8(10);
 
@@ -561,7 +592,7 @@ TEST(UnionTest, Clone_Union) {
 }
 
 // Serialization test of a struct with a union of plain old data.
-TEST(UnionTest, Serialization_UnionOfPods) {
+TEST(UnionTest, SerializationUnionOfPods) {
   SmallStructPtr small_struct(SmallStruct::New());
   small_struct->pod_union = PodUnion::NewFInt32(10);
 
@@ -577,7 +608,7 @@ TEST(UnionTest, Serialization_UnionOfPods) {
 }
 
 // Serialization test of a struct with a union of structs.
-TEST(UnionTest, Serialization_UnionOfObjects) {
+TEST(UnionTest, SerializationUnionOfObjects) {
   SmallObjStructPtr obj_struct(SmallObjStruct::New());
   std::string hello("hello world");
   obj_struct->obj_union = ObjectUnion::NewFString(hello);
@@ -594,7 +625,7 @@ TEST(UnionTest, Serialization_UnionOfObjects) {
 }
 
 // Validation test of a struct with a union.
-TEST(UnionTest, Validation_UnionsInStruct) {
+TEST(UnionTest, ValidationUnionsInStruct) {
   SmallStructPtr small_struct(SmallStruct::New());
   small_struct->pod_union = PodUnion::NewFInt32(10);
 
@@ -608,7 +639,7 @@ TEST(UnionTest, Validation_UnionsInStruct) {
 }
 
 // Validation test of a struct union fails due to unknown union tag.
-TEST(UnionTest, Validation_PodUnionInStruct_Failure) {
+TEST(UnionTest, ValidationPodUnionInStructFailure) {
   SmallStructPtr small_struct(SmallStruct::New());
   small_struct->pod_union = PodUnion::NewFInt32(10);
 
@@ -623,7 +654,7 @@ TEST(UnionTest, Validation_PodUnionInStruct_Failure) {
 }
 
 // Validation fails due to non-nullable null union in struct.
-TEST(UnionTest, Validation_NullUnion_Failure) {
+TEST(UnionTest, ValidationNullUnionFailure) {
   SmallStructNonNullableUnionPtr small_struct(
       SmallStructNonNullableUnion::New());
 
@@ -639,7 +670,7 @@ TEST(UnionTest, Validation_NullUnion_Failure) {
 }
 
 // Validation passes with nullable null union.
-TEST(UnionTest, Validation_NullableUnion) {
+TEST(UnionTest, ValidationNullableUnion) {
   SmallStructPtr small_struct(SmallStruct::New());
 
   mojo::Message message;
@@ -1145,6 +1176,19 @@ TEST(UnionTest, InlineUnionAllocationWithNonPODFirstField) {
   // Regression test for https://crbug.com/1114366. Should not crash.
   UnionWithStringForFirstFieldPtr u;
   u = UnionWithStringForFirstField::NewS("hey");
+}
+
+TEST(UnionTest, UnionObjectHash) {
+  constexpr size_t kTestSeed = 31;
+  UnionWithStringForFirstFieldPtr union1(
+      UnionWithStringForFirstField::NewS("hello world"));
+  UnionWithStringForFirstFieldPtr union2(
+      UnionWithStringForFirstField::NewS("hello world"));
+
+  EXPECT_EQ(union1->Hash(kTestSeed), union2->Hash(kTestSeed));
+
+  union2->set_s("hello universe");
+  EXPECT_NE(union1->Hash(kTestSeed), union2->Hash(kTestSeed));
 }
 
 class ExtensibleTestUnionExchange

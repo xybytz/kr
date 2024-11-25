@@ -34,10 +34,10 @@ class COMPONENT_EXPORT(ASSISTANT_UI) SuggestionContainerView
     : public AnimatedContainerView,
       public AssistantSuggestionsModelObserver,
       public AssistantUiModelObserver {
+  METADATA_HEADER(SuggestionContainerView, AnimatedContainerView)
+
  public:
   using AssistantSuggestion = assistant::AssistantSuggestion;
-
-  METADATA_HEADER(SuggestionContainerView);
 
   explicit SuggestionContainerView(AssistantViewDelegate* delegate);
   SuggestionContainerView(const SuggestionContainerView&) = delete;
@@ -45,8 +45,8 @@ class COMPONENT_EXPORT(ASSISTANT_UI) SuggestionContainerView
   ~SuggestionContainerView() override;
 
   // AnimatedContainerView:
-  gfx::Size CalculatePreferredSize() const override;
-  int GetHeightForWidth(int width) const override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
   void OnContentsPreferredSizeChanged(views::View* content_view) override;
   void OnAssistantControllerDestroying() override;
   void OnCommittedQueryChanged(const AssistantQuery& query) override;

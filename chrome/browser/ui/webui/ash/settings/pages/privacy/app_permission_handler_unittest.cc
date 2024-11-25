@@ -8,17 +8,22 @@
 #include <utility>
 #include <vector>
 
+#include "ash/constants/web_app_id_constants.h"
+#include "ash/public/cpp/new_window_delegate.h"
+#include "ash/public/cpp/test/test_new_window_delegate.h"
 #include "ash/webui/projector_app/public/cpp/projector_app_constants.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/app_service_test.h"
+#include "chrome/browser/ash/eche_app/app_id.h"
 #include "chrome/browser/ui/webui/ash/settings/pages/privacy/mojom/app_permission_handler.mojom.h"
-#include "chrome/browser/web_applications/web_app_id_constants.h"
+#include "chrome/common/url_constants.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
 #include "components/services/app_service/public/cpp/app_types.h"
 #include "components/services/app_service/public/cpp/permission.h"
 #include "content/public/test/browser_task_environment.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace ash::settings {
@@ -103,6 +108,15 @@ class AppPermissionHandlerTestObserver
   AppUpdateWaiter waiter_;
 
   mojo::Receiver<app_permission::mojom::AppPermissionsObserver> receiver_{this};
+};
+
+class MockNewWindowDelegate : public testing::NiceMock<TestNewWindowDelegate> {
+ public:
+  // TestNewWindowDelegate:
+  MOCK_METHOD(void,
+              OpenUrl,
+              (const GURL& url, OpenUrlFrom from, Disposition disposition),
+              (override));
 };
 
 }  // namespace
@@ -191,12 +205,19 @@ class AppPermissionHandlerTest : public testing::Test {
     return handler_->GetSystemAppListThatUsesMicrophone().size();
   }
 
+  MockNewWindowDelegate& new_window_delegate() { return new_window_delegate_; }
+
+  void OpenBrowserPermissionSettings(apps::PermissionType permission_type) {
+    handler_->OpenBrowserPermissionSettings(permission_type);
+  }
+
  private:
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestingProfile> profile_;
   std::unique_ptr<AppPermissionHandler> handler_;
   std::unique_ptr<AppPermissionHandlerTestObserver> observer_;
   raw_ptr<apps::AppServiceProxy> app_service_proxy_;
+  MockNewWindowDelegate new_window_delegate_;
 };
 
 TEST_F(AppPermissionHandlerTest, InstallApp) {
@@ -266,9 +287,9 @@ TEST_F(AppPermissionHandlerTest, GetAppList) {
 }
 
 TEST_F(AppPermissionHandlerTest, GetSystemAppsThatUseCamera) {
-  InstallApp(web_app::kCameraAppId,
+  InstallApp(ash::kCameraAppId,
              {std::make_pair(apps::PermissionType::kCamera, true)});
-  InstallApp(web_app::kPersonalizationAppId,
+  InstallApp(ash::kPersonalizationAppId,
              {std::make_pair(apps::PermissionType::kCamera, true)});
   InstallApp("systemAppThatDoesNotUseCamera",
              {std::make_pair(apps::PermissionType::kCamera, true)});
@@ -279,14 +300,40 @@ TEST_F(AppPermissionHandlerTest, GetSystemAppsThatUseCamera) {
 }
 
 TEST_F(AppPermissionHandlerTest, GetSystemAppsThatUseMicrophone) {
-  InstallApp(web_app::kCameraAppId,
+  InstallApp(ash::kCameraAppId,
              {std::make_pair(apps::PermissionType::kMicrophone, true)});
   InstallApp("systemAppThatDoesNotUseMicrophone",
              {std::make_pair(apps::PermissionType::kMicrophone, true)});
   InstallApp(ash::kChromeUIUntrustedProjectorSwaAppId,
              {std::make_pair(apps::PermissionType::kMicrophone, true)});
+  InstallApp(ash::eche_app::kEcheAppId,
+             {std::make_pair(apps::PermissionType::kMicrophone, true)});
 
-  EXPECT_EQ(2, GetNumberOfSystemAppsThatUseMicrophone());
+  EXPECT_EQ(3, GetNumberOfSystemAppsThatUseMicrophone());
+}
+
+TEST_F(AppPermissionHandlerTest, OpenCameraBrowserPermissionSettings) {
+  EXPECT_CALL(new_window_delegate(),
+              OpenUrl(GURL(chrome::kBrowserCameraPermissionsSettingsURL),
+                      ash::NewWindowDelegate::OpenUrlFrom::kUserInteraction,
+                      ash::NewWindowDelegate::Disposition::kSwitchToTab));
+  OpenBrowserPermissionSettings(apps::PermissionType::kCamera);
+}
+
+TEST_F(AppPermissionHandlerTest, OpenLocationBrowserPermissionSettings) {
+  EXPECT_CALL(new_window_delegate(),
+              OpenUrl(GURL(chrome::kBrowserLocationPermissionsSettingsURL),
+                      ash::NewWindowDelegate::OpenUrlFrom::kUserInteraction,
+                      ash::NewWindowDelegate::Disposition::kSwitchToTab));
+  OpenBrowserPermissionSettings(apps::PermissionType::kLocation);
+}
+
+TEST_F(AppPermissionHandlerTest, OpenMicrophoneBrowserPermissionSettings) {
+  EXPECT_CALL(new_window_delegate(),
+              OpenUrl(GURL(chrome::kBrowserMicrophonePermissionsSettingsURL),
+                      ash::NewWindowDelegate::OpenUrlFrom::kUserInteraction,
+                      ash::NewWindowDelegate::Disposition::kSwitchToTab));
+  OpenBrowserPermissionSettings(apps::PermissionType::kMicrophone);
 }
 
 }  // namespace ash::settings

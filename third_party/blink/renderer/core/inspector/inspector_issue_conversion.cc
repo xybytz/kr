@@ -64,7 +64,7 @@ blink::protocol::String InspectorIssueCodeValue(
     case mojom::blink::InspectorIssueCode::kGenericIssue:
     case mojom::blink::InspectorIssueCode::kDeprecationIssue:
     case mojom::blink::InspectorIssueCode::kAttributionReportingIssue:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 
@@ -88,6 +88,10 @@ protocol::String BuildCookieExclusionReason(
     case blink::mojom::blink::CookieExclusionReason::kExcludeThirdPartyPhaseout:
       return protocol::Audits::CookieExclusionReasonEnum::
           ExcludeThirdPartyPhaseout;
+    case blink::mojom::blink::CookieExclusionReason::kExcludePortMismatch:
+      return protocol::Audits::CookieExclusionReasonEnum::ExcludePortMismatch;
+    case blink::mojom::blink::CookieExclusionReason::kExcludeSchemeMismatch:
+      return protocol::Audits::CookieExclusionReasonEnum::ExcludeSchemeMismatch;
   }
 }
 
@@ -224,6 +228,10 @@ protocol::String BuildMixedContentResourceType(
       return protocol::Audits::MixedContentResourceTypeEnum::Image;
     case blink::mojom::blink::RequestContextType::INTERNAL:
       return protocol::Audits::MixedContentResourceTypeEnum::Resource;
+    case blink::mojom::blink::RequestContextType::JSON:
+      // TODO(crbug.com/1511738): Consider adding a type
+      // specific to JSON modules requests
+      return protocol::Audits::MixedContentResourceTypeEnum::Resource;
     case blink::mojom::blink::RequestContextType::LOCATION:
       return protocol::Audits::MixedContentResourceTypeEnum::Resource;
     case blink::mojom::blink::RequestContextType::MANIFEST:
@@ -282,6 +290,14 @@ protocol::String BuildBlockedByResponseReason(
         kCorpNotSameOriginAfterDefaultedToSameOriginByCoep:
       return protocol::Audits::BlockedByResponseReasonEnum::
           CorpNotSameOriginAfterDefaultedToSameOriginByCoep;
+    case network::mojom::blink::BlockedByResponseReason::
+        kCorpNotSameOriginAfterDefaultedToSameOriginByDip:
+      return protocol::Audits::BlockedByResponseReasonEnum::
+          CorpNotSameOriginAfterDefaultedToSameOriginByDip;
+    case network::mojom::blink::BlockedByResponseReason::
+        kCorpNotSameOriginAfterDefaultedToSameOriginByCoepAndDip:
+      return protocol::Audits::BlockedByResponseReasonEnum::
+          CorpNotSameOriginAfterDefaultedToSameOriginByCoepAndDip;
     case network::mojom::blink::BlockedByResponseReason::kCorpNotSameSite:
       return protocol::Audits::BlockedByResponseReasonEnum::CorpNotSameSite;
   }

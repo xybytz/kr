@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/platform/audio/push_pull_fifo.h"
 
 #include <memory>
@@ -28,11 +33,6 @@ TEST(PushPullFIFOBasicTest, BasicTests) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
 
   const unsigned kRenderQuantumFrames = 128;
-
-  // FIFO length exceeding the maximum length allowed will cause crash.
-  // i.e.) fifo_length_ <= kMaxFIFOLength
-  EXPECT_DEATH_IF_SUPPORTED(
-      new PushPullFIFO(2, PushPullFIFO::kMaxFIFOLength + 1), "");
 
   std::unique_ptr<PushPullFIFO> test_fifo =
       std::make_unique<PushPullFIFO>(2, 1024);

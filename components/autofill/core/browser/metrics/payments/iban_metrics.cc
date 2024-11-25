@@ -4,38 +4,63 @@
 
 #include "components/autofill/core/browser/metrics/payments/iban_metrics.h"
 
+#include <string>
+#include <vector>
+
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/strcat.h"
 #include "components/autofill/core/browser/data_model/iban.h"
 #include "components/autofill/core/common/autofill_clock.h"
 
 namespace autofill::autofill_metrics {
 
-void LogStoredIbanMetrics(const std::vector<std::unique_ptr<Iban>>& local_ibans,
-                          const base::TimeDelta& disused_data_threshold) {
-  // Iterate over all of the IBANs and gather metrics.
-  size_t num_local_ibans_with_nickname = 0;
-  size_t num_disused_local_ibans = 0;
-  const base::Time now = AutofillClock::Now();
-  for (const auto& iban : local_ibans) {
-    const base::TimeDelta time_since_last_use = now - iban->use_date();
-    if (time_since_last_use > disused_data_threshold) {
-      num_disused_local_ibans++;
+void LogStoredIbanMetrics(
+    const std::vector<std::unique_ptr<Iban>>& local_ibans,
+    const std::vector<std::unique_ptr<Iban>>& server_ibans,
+    base::TimeDelta disused_data_threshold) {
+  auto LogStoredIban = [disused_data_threshold](
+                           const std::vector<std::unique_ptr<Iban>>& ibans) {
+    if (ibans.empty()) {
+      return;
     }
-    base::UmaHistogramCounts1000("Autofill.DaysSinceLastUse.StoredIban.Local",
-                                 time_since_last_use.InDays());
-    if (!iban->nickname().empty()) {
-      num_local_ibans_with_nickname++;
+    // Iterate over all of the IBANs and gather metrics.
+    size_t num_ibans_with_nickname = 0;
+    size_t num_disused_ibans = 0;
+    const base::Time now = AutofillClock::Now();
+    const std::string histogram_suffix =
+        ibans[0]->record_type() == Iban::kLocalIban ? "Local" : "Server";
+    for (const std::unique_ptr<Iban>& iban : ibans) {
+      const base::TimeDelta time_since_last_use = now - iban->use_date();
+      if (time_since_last_use > disused_data_threshold) {
+        num_disused_ibans++;
+      }
+      base::UmaHistogramCounts1000(
+          base::StrCat(
+              {"Autofill.DaysSinceLastUse.StoredIban.", histogram_suffix}),
+          time_since_last_use.InDays());
+      if (!iban->nickname().empty()) {
+        num_ibans_with_nickname++;
+      }
     }
-  }
 
-  base::UmaHistogramCounts100("Autofill.StoredIbanCount.Local",
-                              local_ibans.size());
-  base::UmaHistogramCounts100("Autofill.StoredIbanCount.Local.WithNickname",
-                              num_local_ibans_with_nickname);
+    base::UmaHistogramCounts100(
+        base::StrCat({"Autofill.StoredIbanCount.", histogram_suffix}),
+        ibans.size());
+    base::UmaHistogramCounts100(
+        base::StrCat(
+            {"Autofill.StoredIbanCount.", histogram_suffix, ".WithNickname"}),
+        num_ibans_with_nickname);
 
-  base::UmaHistogramCounts100("Autofill.StoredIbanDisusedCount.Local",
-                              num_disused_local_ibans);
+    base::UmaHistogramCounts100(
+        base::StrCat({"Autofill.StoredIbanDisusedCount.", histogram_suffix}),
+        num_disused_ibans);
+  };
+
+  LogStoredIban(local_ibans);
+  LogStoredIban(server_ibans);
+  base::UmaHistogramCounts100("Autofill.StoredIbanCount",
+                              local_ibans.size() + server_ibans.size());
 }
 
 void LogDaysSinceLastIbanUse(const Iban& iban) {
@@ -63,7 +88,27 @@ void LogIbanSaveNotOfferedDueToMaxStrikesMetric(
       "Autofill.StrikeDatabase.IbanSaveNotOfferedDueToMaxStrikes", metric);
 }
 
-void LogSaveIbanBubbleOfferMetric(SaveIbanPromptOffer metric,
+void LogUploadIbanMetric(UploadIbanOriginMetric origin_metric,
+                         UploadIbanActionMetric action_metric) {
+  std::string histogram_name = "Autofill.UploadIban.";
+  switch (action_metric) {
+    case UploadIbanActionMetric::kOffered:
+      histogram_name += "Offered";
+      break;
+    case UploadIbanActionMetric::kAccepted:
+      histogram_name += "Accepted";
+      break;
+    case UploadIbanActionMetric::kDeclined:
+      histogram_name += "Declined";
+      break;
+    case UploadIbanActionMetric::kIgnored:
+      histogram_name += "Ignored";
+      break;
+  }
+  base::UmaHistogramEnumeration(histogram_name, origin_metric);
+}
+
+void LogSaveIbanPromptOfferMetric(SaveIbanPromptOffer metric,
                                   bool is_reshow,
                                   bool is_upload_save) {
   std::string base_histogram_name = base::StrCat(
@@ -72,7 +117,7 @@ void LogSaveIbanBubbleOfferMetric(SaveIbanPromptOffer metric,
   base::UmaHistogramEnumeration(base_histogram_name, metric);
 }
 
-void LogSaveIbanBubbleResultMetric(SaveIbanBubbleResult metric,
+void LogSaveIbanPromptResultMetric(SaveIbanPromptResult metric,
                                    bool is_reshow,
                                    bool is_upload_save) {
   std::string base_histogram_name = base::StrCat(
@@ -81,7 +126,7 @@ void LogSaveIbanBubbleResultMetric(SaveIbanBubbleResult metric,
   base::UmaHistogramEnumeration(base_histogram_name, metric);
 }
 
-void LogSaveIbanBubbleResultSavedWithNicknameMetric(bool save_with_nickname,
+void LogSaveIbanPromptResultSavedWithNicknameMetric(bool save_with_nickname,
                                                     bool is_upload_save) {
   base::UmaHistogramBoolean(
       base::StrCat({"Autofill.SaveIbanPromptResult.",
@@ -123,6 +168,26 @@ void LogServerIbanUnmaskLatency(base::TimeDelta latency, bool is_successful) {
 
 void LogServerIbanUnmaskStatus(bool is_successful) {
   base::UmaHistogramBoolean("Autofill.Iban.UnmaskIbanResult", is_successful);
+}
+
+void LogIbanSaveOfferedCountry(std::string_view country_code) {
+  base::UmaHistogramEnumeration("Autofill.Iban.CountryOfSaveOfferedIban",
+                                Iban::GetIbanSupportedCountry(country_code));
+}
+
+void LogIbanSaveAcceptedCountry(std::string_view country_code) {
+  base::UmaHistogramEnumeration("Autofill.Iban.CountryOfSaveAcceptedIban",
+                                Iban::GetIbanSupportedCountry(country_code));
+}
+
+void LogIbanSelectedCountry(std::string_view country_code) {
+  base::UmaHistogramEnumeration("Autofill.Iban.CountryOfSelectedIban",
+                                Iban::GetIbanSupportedCountry(country_code));
+}
+
+void LogIbanUploadSaveFailed(bool iban_saved_locally) {
+  base::UmaHistogramBoolean("Autofill.IbanUpload.SaveFailed",
+                            iban_saved_locally);
 }
 
 }  // namespace autofill::autofill_metrics

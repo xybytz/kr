@@ -5,10 +5,12 @@
 
 load("//lib/branches.star", "branches")
 load("//lib/builder_config.star", "builder_config")
-load("//lib/builders.star", "os", "reclient", "siso")
-load("//lib/gn_args.star", "gn_args")
-load("//lib/try.star", "try_")
+load("//lib/builders.star", "os", "siso")
 load("//lib/consoles.star", "consoles")
+load("//lib/gn_args.star", "gn_args")
+load("//lib/html.star", "linkify_builder")
+load("//lib/targets.star", "targets")
+load("//lib/try.star", "try_")
 load("//project.star", "settings")
 
 try_.defaults.set(
@@ -18,20 +20,57 @@ try_.defaults.set(
     cores = 8,
     os = os.LINUX_DEFAULT,
     compilator_cores = 8,
-    compilator_reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CQ,
     execution_timeout = try_.DEFAULT_EXECUTION_TIMEOUT,
     orchestrator_cores = 2,
-    reclient_instance = reclient.instance.DEFAULT_UNTRUSTED,
+    orchestrator_siso_remote_jobs = siso.remote_jobs.HIGH_JOBS_FOR_CQ,
     service_account = try_.DEFAULT_SERVICE_ACCOUNT,
-    siso_configs = ["builder"],
-    siso_enable_cloud_profiler = True,
-    siso_enable_cloud_trace = True,
+    siso_enabled = True,
     siso_project = siso.project.DEFAULT_UNTRUSTED,
+    siso_remote_linking = True,
+)
+
+targets.builder_defaults.set(
+    mixins = [
+        "chromium-tester-service-account",
+    ],
 )
 
 consoles.list_view(
     name = "tryserver.chromium.linux",
     branch_selector = branches.selector.LINUX_BRANCHES,
+)
+
+try_.builder(
+    name = "compile-size",
+    branch_selector = branches.selector.MAIN,
+    # TODO: crbug.com/370594503 - Add documents for compile-size.
+    description_html = "Measures and prevents unexpected compile input size " +
+                       "growth. See docs for details.",
+    executable = "recipe:build_size_trybot",
+    gn_args = gn_args.config(
+        configs = [
+            "release_try_builder",
+            "remoteexec",
+            "system_headers_in_deps",
+            "dcheck_off",
+            "linux",
+            "x64",
+        ],
+    ),
+    # TODO: crbug.com/40190002 - Make builderful before productionizing.
+    builderless = True,
+    cores = 8,
+    contact_team_email = "build@chromium.org",
+    properties = {
+        "$build/binary_size": {
+            "analyze_targets": [
+                "chrome",
+            ],
+            "compile_targets": [
+                "chrome",
+            ],
+        },
+    },
 )
 
 try_.builder(
@@ -42,10 +81,12 @@ try_.builder(
     gn_args = gn_args.config(
         configs = [
             "release_try_builder",
-            "reclient",
+            "remoteexec",
+            "linux",
+            "x64",
         ],
     ),
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
@@ -66,15 +107,16 @@ try_.builder(
             "asan",
             "shared",
             "release",
-            "reclient",
+            "remoteexec",
             "no_symbols",
             "dcheck_always_on",
             "chromeos_codecs",
             "pdf_xfa",
-            "disable_nacl",
             "optimize_for_fuzzing",
             "mojo_fuzzer",
             "skip_generate_fuzzer_owners",
+            "linux",
+            "x64",
         ],
     ),
 )
@@ -89,24 +131,47 @@ try_.builder(
             "no_symbols",
         ],
     ),
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
-    name = "linux-arm64-castos",
+    name = "linux-cast-arm-rel",
+    branch_selector = branches.selector.LINUX_BRANCHES,
     mirrors = [
-        "ci/Cast Linux ARM64",
+        "ci/linux-cast-arm-rel",
     ],
-    gn_args = gn_args.config(
-        configs = [
-            "ci/Cast Linux ARM64",
-        ],
-    ),
-    main_list_view = "try",
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    gn_args = "ci/linux-cast-arm-rel",
+    contact_team_email = "cast-eng@google.com",
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
     tryjob = try_.job(
         location_filters = [
             "chromecast/.+",
+            "components/cast/.+",
+            "components/cast_receiver/.+",
+            "components/cast_streaming/.+",
+            "third_party/cast_core/.+",
+            "third_party/openscreen/.+",
+        ],
+    ),
+)
+
+try_.builder(
+    name = "linux-cast-arm64-rel",
+    branch_selector = branches.selector.LINUX_BRANCHES,
+    mirrors = [
+        "ci/linux-cast-arm64-rel",
+    ],
+    gn_args = "ci/linux-cast-arm64-rel",
+    contact_team_email = "cast-eng@google.com",
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
+    tryjob = try_.job(
+        location_filters = [
+            "chromecast/.+",
+            "components/cast/.+",
+            "components/cast_receiver/.+",
+            "components/cast_streaming/.+",
+            "third_party/cast_core/.+",
+            "third_party/openscreen/.+",
         ],
     ),
 )
@@ -117,7 +182,7 @@ try_.builder(
         "ci/linux-bfcache-rel",
     ],
     gn_args = "ci/linux-bfcache-rel",
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
@@ -129,27 +194,19 @@ try_.builder(
             "try_builder",
         ],
     ),
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
     name = "linux-centipede-asan-rel",
     branch_selector = branches.selector.LINUX_BRANCHES,
     executable = "recipe:chromium/fuzz",
+    mirrors = ["ci/Centipede Upload Linux ASan"],
     gn_args = gn_args.config(
         configs = [
-            "centipede",
-            "asan",
-            "shared",
-            "release",
-            "reclient",
-            "no_symbols",
+            "ci/Centipede Upload Linux ASan",
             "dcheck_always_on",
-            "chromeos_codecs",
-            "pdf_xfa",
-            "disable_nacl",
-            "optimize_for_fuzzing",
-            "mojo_fuzzer",
+            "no_symbols",
             "skip_generate_fuzzer_owners",
         ],
     ),
@@ -160,20 +217,22 @@ try_.builder(
     mirrors = [
         "ci/linux-archive-rel",
     ],
-    try_settings = builder_config.try_settings(
+    builder_config_settings = builder_config.try_settings(
         include_all_triggered_testers = True,
         is_compile_only = True,
     ),
     gn_args = gn_args.config(
         configs = [
             "release_builder",
-            "reclient",
+            "remoteexec",
             "no_symbols",
             "dcheck_always_on",
+            "linux",
+            "x64",
         ],
     ),
     contact_team_email = "chrome-browser-infra-team@google.com",
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
@@ -182,33 +241,13 @@ try_.builder(
     gn_args = gn_args.config(
         configs = [
             "release_try_builder",
-            "reclient",
+            "remoteexec",
             "dcheck_off",
+            "linux",
+            "x64",
         ],
     ),
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
-)
-
-# TODO(crbug.com/1442587): Remove this builder after burning down failures
-# found when we now post-process stdout.
-try_.builder(
-    name = "linux-exp-msan-fyi-rel",
-    mirrors = [
-        "ci/linux-exp-msan-fyi-rel",
-    ],
-    gn_args = "ci/linux-exp-msan-fyi-rel",
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
-)
-
-# TODO(crbug.com/1442587): Remove this builder after burning down failures
-# found when we now post-process stdout.
-try_.builder(
-    name = "linux-exp-tsan-fyi-rel",
-    mirrors = [
-        "ci/linux-exp-tsan-fyi-rel",
-    ],
-    gn_args = "ci/linux-exp-tsan-fyi-rel",
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
@@ -222,7 +261,7 @@ try_.builder(
             "release_try_builder",
         ],
     ),
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
@@ -243,10 +282,11 @@ try_.builder(
             "ci/linux-headless-shell-rel",
         ],
     ),
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
     tryjob = try_.job(
         location_filters = [
             "components/headless/.+",
+            "dbus/.+",
             "headless/.+",
         ],
     ),
@@ -256,38 +296,16 @@ try_.builder(
     name = "linux-fieldtrial-rel",
     mirrors = ["ci/linux-fieldtrial-rel"],
     gn_args = "ci/linux-fieldtrial-rel",
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
-    name = "linux-mbi-mode-per-render-process-host-rel",
-    mirrors = builder_config.copy_from("linux-rel"),
-    gn_args = gn_args.config(
-        configs = [
-            "gpu_tests",
-            "release_builder",
-            "reclient",
-            "no_symbols",
-            "dcheck_always_on",
-            "mbi_mode_per_render_process_host",
-        ],
-    ),
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
-)
-
-try_.builder(
-    name = "linux-lacros-fyi-rel",
+    name = "linux-multiscreen-fyi-rel",
     mirrors = [
-        "ci/linux-lacros-builder-fyi-rel",
-        "ci/linux-lacros-tester-fyi-rel",
+        "ci/linux-multiscreen-fyi-rel",
     ],
-    gn_args = gn_args.config(
-        configs = [
-            "ci/linux-lacros-builder-fyi-rel",
-            "try_builder",
-            "no_symbols",
-        ],
-    ),
+    gn_args = "ci/linux-multiscreen-fyi-rel",
+    contact_team_email = "web-windowing-team@google.com",
 )
 
 try_.builder(
@@ -305,36 +323,59 @@ try_.builder(
     gn_args = gn_args.config(
         configs = [
             "release_builder",
-            "reclient",
+            "remoteexec",
             "no_symbols",
             "dcheck_always_on",
+            "linux",
+            "x64",
         ],
     ),
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    targets = targets.bundle(
+        targets = [
+            "chromium_webkit_isolated_scripts",
+        ],
+        additional_compile_targets = [
+            "blink_tests",
+        ],
+        mixins = [
+            "linux-xenial",
+        ],
+        per_test_modifications = {
+            "blink_web_tests": targets.mixin(
+                args = [
+                    "--flag-specific=enable-editing-ng",
+                ],
+            ),
+            "blink_wpt_tests": targets.mixin(
+                args = [
+                    "--flag-specific=enable-editing-ng",
+                ],
+            ),
+        },
+    ),
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
     name = "linux-libfuzzer-asan-rel",
     branch_selector = branches.selector.LINUX_BRANCHES,
     executable = "recipe:chromium/fuzz",
+    mirrors = [
+        "ci/Libfuzzer Upload Linux ASan",
+    ],
     gn_args = gn_args.config(
         configs = [
-            "libfuzzer",
-            "asan",
-            "shared",
-            "release",
-            "reclient",
-            "no_symbols",
+            "ci/Libfuzzer Upload Linux ASan",
             "dcheck_always_on",
-            "chromeos_codecs",
-            "pdf_xfa",
-            "disable_nacl",
-            "optimize_for_fuzzing",
-            "mojo_fuzzer",
+            "no_symbols",
             "skip_generate_fuzzer_owners",
         ],
     ),
     builderless = not settings.is_main,
+    experiments = {
+        # crbug/940930
+        "chromium.enable_cleandead": 100,
+    },
     main_list_view = "try",
     tryjob = try_.job(),
 )
@@ -349,7 +390,7 @@ try_.builder(
             "no_symbols",
         ],
     ),
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
     tryjob = try_.job(
         location_filters = [
             "base/trace_event/.+",
@@ -376,8 +417,6 @@ try_.orchestrator_builder(
             "release_try_builder",
             "use_clang_coverage",
             "partial_code_coverage_instrumentation",
-            "enable_dangling_raw_ptr_feature_flag",
-            "enable_backup_ref_ptr_feature_flag",
         ],
     ),
     compilator = "linux-rel-compilator",
@@ -385,12 +424,15 @@ try_.orchestrator_builder(
     experiments = {
         # go/nplus1shardsproposal
         "chromium.add_one_test_shard": 10,
+        # crbug/940930
+        "chromium.enable_cleandead": 100,
+        # b/346598710
+        "chromium.luci_analysis_v2": 100,
     },
     main_list_view = "try",
-    # TODO(crbug.com/1372179): Use orchestrator pool once overloaded test pools
+    # TODO(crbug.com/40241638): Use orchestrator pool once overloaded test pools
     # are addressed
     # use_orchestrator_pool = True,
-    siso_enabled = True,
     tryjob = try_.job(),
     use_clang_coverage = True,
 )
@@ -398,23 +440,28 @@ try_.orchestrator_builder(
 try_.compilator_builder(
     name = "linux-rel-compilator",
     branch_selector = branches.selector.LINUX_BRANCHES,
-    experiments = {
-        # crbug/940930
-        "chromium.enable_cleandead": 50,
-    },
     main_list_view = "try",
-    siso_enabled = True,
 )
 
-# TODO(crbug.com/1394755): Remove this builder after burning down failures
-# and measuring performance to see if we can roll UBSan into ASan.
-try_.builder(
-    name = "linux-ubsan-fyi-rel",
-    mirrors = [
-        "ci/linux-ubsan-fyi-rel",
-    ],
-    gn_args = "ci/linux-ubsan-fyi-rel",
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+try_.orchestrator_builder(
+    name = "linux-full-remote-rel",
+    description_html = "Experimental " + linkify_builder("try", "linux-rel", "chromium") + " builder with more kinds of remote actions. e.g. remote linking",
+    mirrors = builder_config.copy_from("linux-rel"),
+    builder_config_settings = builder_config.try_settings(
+        is_compile_only = True,
+    ),
+    gn_args = "try/linux-rel",
+    compilator = "linux-full-remote-rel-compilator",
+    contact_team_email = "chrome-build-team@google.com",
+    tryjob = try_.job(
+        experiment_percentage = 10,
+    ),
+    use_clang_coverage = True,
+)
+
+try_.compilator_builder(
+    name = "linux-full-remote-rel-compilator",
+    contact_team_email = "chrome-build-team@google.com",
 )
 
 try_.builder(
@@ -432,7 +479,22 @@ try_.builder(
             "partial_code_coverage_instrumentation",
         ],
     ),
+    ssd = True,
+    # TODO(crbug.com/329118490): Re-enable flake endorser.
+    check_for_flakiness = False,
+    check_for_flakiness_with_resultdb = False,
     coverage_test_types = ["unit", "overall"],
+    tryjob = try_.job(
+        location_filters = [
+            "chrome/browser/.+(ui|browser)test.+",
+            "chrome/browser/ui/views/.+test.+",
+            "chrome/browser/ui/views/tabs/.+",
+            "third_party/wayland/.+",
+            "third_party/wayland-protocols/.+",
+            "ui/ozone/platform/wayland/.+",
+            "ui/views/widget/.+test.+",
+        ],
+    ),
     use_clang_coverage = True,
 )
 
@@ -445,7 +507,7 @@ try_.builder(
             "no_symbols",
         ],
     ),
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
@@ -454,7 +516,7 @@ try_.builder(
         "ci/WebKit Linux ASAN",
     ],
     gn_args = "ci/WebKit Linux ASAN",
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
@@ -462,72 +524,48 @@ try_.builder(
     mirrors = [
         "ci/WebKit Linux MSAN",
     ],
-    gn_args = gn_args.config(
-        configs = [
-            "msan",
-            "release_builder",
-            "reclient",
-        ],
-    ),
-    # At this time, MSan is only compatibly with Focal. See
-    # //docs/linux/instrumented_libraries.md.
-    os = os.LINUX_FOCAL,
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    gn_args = "ci/WebKit Linux MSAN",
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
-    name = "linux-wpt-content-shell-fyi-rel",
-    mirrors = [
-        "ci/linux-wpt-content-shell-fyi-rel",
-    ],
-    gn_args = "ci/linux-wpt-content-shell-fyi-rel",
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
-)
-
-try_.builder(
-    name = "linux-wpt-content-shell-leak-detection",
-    mirrors = [
-        "ci/linux-wpt-content-shell-leak-detection",
-    ],
-    gn_args = "ci/linux-wpt-content-shell-leak-detection",
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
-)
-
-try_.builder(
-    name = "linux-x64-castos",
+    name = "linux-cast-x64-dbg",
     branch_selector = branches.selector.LINUX_BRANCHES,
     mirrors = [
-        "ci/Cast Linux",
+        "ci/linux-cast-x64-dbg",
     ],
-    gn_args = gn_args.config(
-        configs = [
-            "ci/Cast Linux",
-            "release_try_builder",
-        ],
-    ),
-    builderless = not settings.is_main,
-    main_list_view = "try",
-    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CQ,
-    siso_enabled = True,
-    tryjob = try_.job(),
-)
-
-try_.builder(
-    name = "linux-x64-castos-dbg",
-    branch_selector = branches.selector.LINUX_BRANCHES,
-    mirrors = [
-        "ci/Cast Linux Debug",
-    ],
-    gn_args = gn_args.config(
-        configs = [
-            "ci/Cast Linux Debug",
-        ],
-    ),
-    main_list_view = "try",
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    gn_args = "ci/linux-cast-x64-dbg",
+    contact_team_email = "cast-eng@google.com",
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
     tryjob = try_.job(
         location_filters = [
             "chromecast/.+",
+            "components/cast/.+",
+            "components/cast_receiver/.+",
+            "components/cast_streaming/.+",
+            "third_party/cast_core/.+",
+            "third_party/openscreen/.+",
+        ],
+    ),
+)
+
+try_.builder(
+    name = "linux-cast-x64-rel",
+    branch_selector = branches.selector.LINUX_BRANCHES,
+    mirrors = [
+        "ci/linux-cast-x64-rel",
+    ],
+    gn_args = "ci/linux-cast-x64-rel",
+    contact_team_email = "cast-eng@google.com",
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
+    tryjob = try_.job(
+        location_filters = [
+            "chromecast/.+",
+            "components/cast/.+",
+            "components/cast_receiver/.+",
+            "components/cast_streaming/.+",
+            "third_party/cast_core/.+",
+            "third_party/openscreen/.+",
         ],
     ),
 )
@@ -540,10 +578,12 @@ try_.builder(
     gn_args = gn_args.config(
         configs = [
             "release_builder",
-            "reclient",
+            "remoteexec",
+            "linux",
+            "x64",
         ],
     ),
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.orchestrator_builder(
@@ -558,49 +598,23 @@ try_.orchestrator_builder(
     experiments = {
         # go/nplus1shardsproposal
         "chromium.add_one_test_shard": 10,
-        "chromium.compilator_can_outlive_parent": 100,
+        # crbug/940930
+        "chromium.enable_cleandead": 100,
+        # b/346598710
+        "chromium.luci_analysis_v2": 100,
     },
     main_list_view = "try",
-    tryjob = try_.job(),
+    siso_remote_linking = True,
     # TODO (crbug.com/1372179): Use orchestrator pool once overloaded test pools
     # are addressed
     # use_orchestrator_pool = True,
+    tryjob = try_.job(),
 )
 
 try_.compilator_builder(
     name = "linux_chromium_asan_rel_ng-compilator",
     branch_selector = branches.selector.LINUX_BRANCHES,
     main_list_view = "try",
-)
-
-# TODO: crbug.com/1502025 - Reduce duplicated configs from the shadow builder.
-try_.orchestrator_builder(
-    name = "linux_chromium_asan_siso_rel_ng",
-    description_html = """\
-This builder shadows linux_chromium_asan_rel_ng builder to compare between Siso builds and Ninja builds.<br/>
-This builder should be removed after migrating linux_chromium_asan_rel_ng from Ninja to Siso. b/277863839
-""",
-    mirrors = builder_config.copy_from("try/linux_chromium_asan_rel_ng"),
-    try_settings = builder_config.try_settings(
-        is_compile_only = True,
-    ),
-    gn_args = "try/linux_chromium_asan_rel_ng",
-    compilator = "linux_chromium_asan_siso_rel_ng-compilator",
-    experiments = {
-        # go/nplus1shardsproposal
-        "chromium.add_one_test_shard": 10,
-    },
-    main_list_view = "try",
-    siso_enabled = True,
-    tryjob = try_.job(
-        experiment_percentage = 10,
-    ),
-)
-
-try_.compilator_builder(
-    name = "linux_chromium_asan_siso_rel_ng-compilator",
-    main_list_view = "try",
-    siso_enabled = True,
 )
 
 try_.builder(
@@ -615,9 +629,11 @@ try_.builder(
     ),
     cores = 32,
     ssd = True,
+    check_for_flakiness = False,
+    check_for_flakiness_with_resultdb = False,
     # TODO(thakis): Remove once https://crbug.com/927738 is resolved.
     execution_timeout = 7 * time.hour,
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
     tryjob = try_.job(
         location_filters = [
             # Diectories that have caused breakages in the past due to the
@@ -644,14 +660,14 @@ try_.builder(
         "ci/Linux Chromium OS ASan LSan Tests (1)",
     ],
     gn_args = "ci/Linux Chromium OS ASan LSan Builder",
-    # TODO(crbug.com/1510339): Remove this when memory consumption during links
+    # TODO(crbug.com/41482936): Remove this when memory consumption during links
     # is reduced.
     cores = 16,
     ssd = True,
-    # TODO(crbug/1144484): Remove this timeout once we figure out the
+    # TODO(crbug.com/40728894): Remove this timeout once we figure out the
     # regression in compiler or toolchain.
     execution_timeout = 7 * time.hour,
-    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.HIGH_JOBS_FOR_CQ,
 )
 
 try_.builder(
@@ -662,11 +678,9 @@ try_.builder(
     ],
     gn_args = "ci/Linux ChromiumOS MSan Builder",
     cores = 16,
-    # At this time, MSan is only compatibly with Focal. See
-    # //docs/linux/instrumented_libraries.md.
-    os = os.LINUX_FOCAL,
     ssd = True,
-    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CQ,
+    execution_timeout = 6 * time.hour,
+    siso_remote_jobs = siso.remote_jobs.HIGH_JOBS_FOR_CQ,
 )
 
 try_.builder(
@@ -675,27 +689,35 @@ try_.builder(
     gn_args = gn_args.config(
         configs = [
             "release_builder",
-            "reclient",
+            "remoteexec",
             "no_symbols",
             "dcheck_always_on",
+            "linux",
+            "x64",
         ],
     ),
     execution_timeout = 6 * time.hour,
-    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.HIGH_JOBS_FOR_CQ,
+    # Do not use remote linking becaues it doesn't download
+    # the remote artifacts by default. But, the deterministic recipe
+    # requires them for determinism check.
+    siso_remote_linking = False,
 )
 
 try_.builder(
     name = "linux_chromium_compile_dbg_ng",
     branch_selector = branches.selector.LINUX_BRANCHES,
     mirrors = ["ci/Linux Builder (dbg)"],
-    try_settings = builder_config.try_settings(
+    builder_config_settings = builder_config.try_settings(
         include_all_triggered_testers = True,
         is_compile_only = True,
     ),
     gn_args = gn_args.config(
         configs = [
             "debug_try_builder",
-            "reclient",
+            "remoteexec",
+            "linux",
+            "x64",
         ],
     ),
     builderless = not settings.is_main,
@@ -705,38 +727,13 @@ try_.builder(
             path = "linux_debug",
         ),
     ],
+    experiments = {
+        # crbug/940930
+        "chromium.enable_cleandead": 100,
+    },
     main_list_view = "try",
-    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.HIGH_JOBS_FOR_CQ,
     tryjob = try_.job(),
-)
-
-# TODO: crbug.com/1502025 - Reduce duplicated configs from the shadow builder.
-try_.builder(
-    name = "linux_chromium_compile_siso_dbg_ng",
-    description_html = """\
-This builder shadows linux_chromium_compile_dbg_ng builder to compare between Siso builds and Ninja builds.<br/>
-This builder should be removed after migrating linux_chromium_compile_dbg_ng from Ninja to Siso. b/277863839
-""",
-    mirrors = builder_config.copy_from("try/linux_chromium_compile_dbg_ng"),
-    try_settings = builder_config.try_settings(
-        include_all_triggered_testers = True,
-        is_compile_only = True,
-    ),
-    gn_args = "try/linux_chromium_compile_dbg_ng",
-    builderless = False,
-    caches = [
-        swarming.cache(
-            name = "builder",
-            path = "linux_debug",
-        ),
-    ],
-    contact_team_email = "chrome-build-team@google.com",
-    main_list_view = "try",
-    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CQ,
-    siso_enabled = True,
-    tryjob = try_.job(
-        experiment_percentage = 10,
-    ),
 )
 
 try_.builder(
@@ -744,19 +741,21 @@ try_.builder(
     mirrors = [
         "ci/Linux Builder",
     ],
-    try_settings = builder_config.try_settings(
+    builder_config_settings = builder_config.try_settings(
         include_all_triggered_testers = True,
         is_compile_only = True,
     ),
     gn_args = gn_args.config(
         configs = [
             "release_builder",
-            "reclient",
+            "remoteexec",
             "no_symbols",
             "dcheck_always_on",
+            "linux",
+            "x64",
         ],
     ),
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
@@ -770,7 +769,9 @@ try_.builder(
         configs = [
             "gpu_tests",
             "debug_try_builder",
-            "reclient",
+            "remoteexec",
+            "linux",
+            "x64",
         ],
     ),
     caches = [
@@ -780,7 +781,7 @@ try_.builder(
         ),
     ],
     main_list_view = "try",
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
     tryjob = try_.job(
         location_filters = [
             "build/.*check_gn_headers.*",
@@ -798,11 +799,10 @@ try_.builder(
     # enabling DCHECKs seems to cause flaky failures that don't show up
     # on the continuous builder.
     gn_args = "ci/Linux MSan Builder",
-    # At this time, MSan is only compatibly with Focal. See
-    # //docs/linux/instrumented_libraries.md.
-    os = os.LINUX_FOCAL,
-    execution_timeout = 6 * time.hour,
-    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CQ,
+    cores = 16,
+    ssd = True,
+    execution_timeout = 8 * time.hour,
+    siso_remote_jobs = siso.remote_jobs.HIGH_JOBS_FOR_CQ,
 )
 
 try_.orchestrator_builder(
@@ -823,12 +823,16 @@ try_.orchestrator_builder(
     experiments = {
         # go/nplus1shardsproposal
         "chromium.add_one_test_shard": 10,
+        # crbug/940930
+        "chromium.enable_cleandead": 100,
+        # b/346598710
+        "chromium.luci_analysis_v2": 100,
     },
     main_list_view = "try",
-    tryjob = try_.job(),
     # TODO (crbug.com/1372179): Use orchestrator pool once overloaded test pools
     # are addressed
     # use_orchestrator_pool = True,
+    tryjob = try_.job(),
 )
 
 try_.compilator_builder(
@@ -837,56 +841,15 @@ try_.compilator_builder(
     main_list_view = "try",
 )
 
-# TODO: crbug.com/1502025 - Reduce duplicated configs from the shadow builder.
-try_.orchestrator_builder(
-    name = "linux_chromium_tsan_siso_rel_ng",
-    description_html = """\
-This builder shadows linux_chromium_tsan_rel_ng builder to compare between Siso builds and Ninja builds.<br/>
-This builder should be removed after migrating linux_chromium_tsan_rel_ng from Ninja to Siso. b/277863839
-""",
-    mirrors = builder_config.copy_from("try/linux_chromium_tsan_rel_ng"),
-    try_settings = builder_config.try_settings(
-        is_compile_only = True,
-    ),
-    gn_args = "try/linux_chromium_tsan_rel_ng",
-    compilator = "linux_chromium_tsan_siso_rel_ng-compilator",
-    experiments = {
-        # go/nplus1shardsproposal
-        "chromium.add_one_test_shard": 10,
-    },
-    main_list_view = "try",
-    siso_enabled = True,
-    tryjob = try_.job(
-        experiment_percentage = 10,
-    ),
-)
-
-try_.compilator_builder(
-    name = "linux_chromium_tsan_siso_rel_ng-compilator",
-    main_list_view = "try",
-    siso_enabled = True,
-)
-
 try_.builder(
-    name = "linux-ubsan-vptr",
+    name = "linux_chromium_ubsan_rel_ng",
     mirrors = [
-        "ci/linux-ubsan-vptr",
+        "ci/Linux UBSan Builder",
+        "ci/Linux UBSan Tests",
     ],
-    # This is intentionally a release_bot and not a release_trybot to match
-    # the CI configuration, where no debug builder exists.
-    gn_args = "ci/linux-ubsan-vptr",
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
-)
-
-try_.builder(
-    name = "linux-lacros-asan-lsan-rel",
-    mirrors = [
-        "ci/linux-lacros-asan-lsan-rel",
-    ],
-    gn_args = "ci/linux-lacros-asan-lsan-rel",
-    cores = 16,
-    ssd = True,
-    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CQ,
+    gn_args = "ci/Linux UBSan Builder",
+    contact_team_email = "chrome-sanitizer-builder-owners@google.com",
+    main_list_view = "try",
 )
 
 try_.builder(
@@ -895,7 +858,8 @@ try_.builder(
     gn_args = gn_args.config(
         configs = [
             "release_builder",
-            "goma",
+            "linux",
+            "x64",
         ],
     ),
     builderless = True,
@@ -943,7 +907,7 @@ try_.builder(
     gn_args = gn_args.config(
         configs = ["ci/Network Service Linux", "release_try_builder"],
     ),
-    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CQ,
+    siso_remote_jobs = siso.remote_jobs.LOW_JOBS_FOR_CQ,
 )
 
 try_.builder(
@@ -967,9 +931,6 @@ try_.gpu.optional_tests_builder(
     builder_spec = builder_config.builder_spec(
         gclient_config = builder_config.gclient_config(
             config = "chromium",
-            apply_configs = [
-                "angle_internal",
-            ],
         ),
         chromium_config = builder_config.chromium_config(
             config = "chromium",
@@ -982,18 +943,28 @@ try_.gpu.optional_tests_builder(
         ),
         build_gs_bucket = "chromium-gpu-fyi-archive",
     ),
-    try_settings = builder_config.try_settings(
+    builder_config_settings = builder_config.try_settings(
         retry_failed_shards = False,
     ),
     gn_args = gn_args.config(
         configs = [
             "gpu_fyi_tests",
             "release_builder",
-            "reclient",
+            "remoteexec",
             "minimal_symbols",
             "dcheck_always_on",
-            "disable_nacl",
+            "linux",
+            "x64",
         ],
+    ),
+    targets = targets.bundle(
+        targets = [
+            "linux_optional_gpu_tests_rel_gpu_telemetry_tests",
+        ],
+    ),
+    targets_settings = targets.settings(
+        browser_config = targets.browser_config.RELEASE,
+        os_type = targets.os_type.LINUX,
     ),
     main_list_view = "try",
     tryjob = try_.job(
@@ -1001,6 +972,7 @@ try_.gpu.optional_tests_builder(
             # Inclusion filters.
             cq.location_filter(path_regexp = "chrome/browser/vr/.+"),
             cq.location_filter(path_regexp = "content/browser/xr/.+"),
+            cq.location_filter(path_regexp = "content/test/data/gpu/.+"),
             cq.location_filter(path_regexp = "content/test/gpu/.+"),
             cq.location_filter(path_regexp = "gpu/.+"),
             cq.location_filter(path_regexp = "media/audio/.+"),
@@ -1019,7 +991,6 @@ try_.gpu.optional_tests_builder(
             cq.location_filter(path_regexp = "third_party/blink/renderer/modules/webgpu/.+"),
             cq.location_filter(path_regexp = "third_party/blink/renderer/platform/graphics/gpu/.+"),
             cq.location_filter(path_regexp = "tools/clang/scripts/update.py"),
-            cq.location_filter(path_regexp = "tools/mb/mb_config_expectations/tryserver.chromium.linux.json"),
             cq.location_filter(path_regexp = "ui/gl/.+"),
 
             # Exclusion filters.
@@ -1089,13 +1060,6 @@ try_.builder(
     name = "linux-chromeos-code-coverage",
     mirrors = ["ci/linux-chromeos-code-coverage"],
     gn_args = "ci/linux-chromeos-code-coverage",
-    execution_timeout = 20 * time.hour,
-)
-
-try_.builder(
-    name = "linux-lacros-code-coverage",
-    mirrors = ["ci/linux-lacros-code-coverage"],
-    gn_args = "ci/linux-lacros-code-coverage",
     execution_timeout = 20 * time.hour,
 )
 

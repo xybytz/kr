@@ -15,7 +15,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -28,16 +27,14 @@ import org.robolectric.annotation.Config;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.JniMocker;
+import org.chromium.base.test.util.Features.DisableFeatures;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.chrome.browser.background_task_scheduler.ChromeNativeBackgroundTaskDelegate;
 import org.chromium.chrome.browser.download.DownloadManagerService;
 import org.chromium.chrome.browser.download.DownloadNotificationService;
 import org.chromium.chrome.browser.download.DownloadUtils;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.ProfileKey;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.background_task_scheduler.BackgroundTask.TaskFinishedCallback;
 import org.chromium.components.background_task_scheduler.BackgroundTaskScheduler;
 import org.chromium.components.background_task_scheduler.BackgroundTaskSchedulerFactory;
@@ -53,8 +50,6 @@ import org.chromium.components.download.DownloadTaskType;
 @Config(manifest = Config.NONE, sdk = Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 @EnableFeatures(ChromeFeatureList.DOWNLOADS_MIGRATE_TO_JOBS_API)
 public class DownloadBackgroundTaskTest {
-    @Rule public JniMocker mJniMocker = new JniMocker();
-    @Rule public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
 
     @Mock private DownloadBackgroundTask.Natives mNativeMock;
@@ -93,7 +88,7 @@ public class DownloadBackgroundTaskTest {
     @Before
     public void setup() {
         MockitoAnnotations.initMocks(this);
-        mJniMocker.mock(DownloadBackgroundTaskJni.TEST_HOOKS, mNativeMock);
+        DownloadBackgroundTaskJni.setInstanceForTesting(mNativeMock);
         DownloadManagerService.setDownloadManagerService(mDownloadManagerService);
         DownloadNotificationService.setInstanceForTests(mDownloadNotificationService);
         mTask = new TestDownloadBackgroundTask();
@@ -197,7 +192,7 @@ public class DownloadBackgroundTaskTest {
 
     @Test
     @Feature({"Download"})
-    public void testScheduleTaskForUITask() {
+    public void testScheduleTaskForUiTask() {
         int taskType = DownloadTaskType.DOWNLOAD_AUTO_RESUMPTION_UNMETERED_TASK;
         DownloadTaskScheduler.scheduleTask(taskType, true, false, 0, 60, 120);
         Mockito.verify(mTaskScheduler, times(1)).schedule(any(), mTaskInfoCapture.capture());
@@ -216,7 +211,7 @@ public class DownloadBackgroundTaskTest {
 
     @Test
     @Feature({"Download"})
-    public void testScheduleTaskForNonUITask() {
+    public void testScheduleTaskForNonUiTask() {
         int taskType = DownloadTaskType.DOWNLOAD_AUTO_RESUMPTION_TASK;
         DownloadTaskScheduler.scheduleTask(taskType, true, false, 0, 60, 120);
         Mockito.verify(mTaskScheduler, times(1)).schedule(any(), mTaskInfoCapture.capture());

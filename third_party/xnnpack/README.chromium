@@ -1,9 +1,9 @@
 Name: XNNPACK
 Short Name: xnnpack
 URL: https://github.com/google/xnnpack
-Version: a68aa0a24b0d3e1c75f2f7c0915b70121cee0470
-Date: 2024-01-09
-License: BSD
+Version: e297edd2ae50e5a14fca7663d1c75b072b6dc80f
+Date: 2024-11-20
+License: BSD-3-Clause
 License File: src/LICENSE
 Security Critical: Yes
 Shipped: yes

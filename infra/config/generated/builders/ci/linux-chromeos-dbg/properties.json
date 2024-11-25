@@ -23,7 +23,8 @@
                 "build_config": "Debug",
                 "config": "chromium",
                 "target_arch": "intel",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "chromeos"
               },
               "legacy_gclient_config": {
                 "apply_configs": [
@@ -48,21 +49,28 @@
           "group": "tryserver.chromium.chromiumos"
         },
         {
-          "builder": "linux-chromeos-compile-siso-dbg",
-          "group": "tryserver.chromium.chromiumos"
-        },
-        {
           "builder": "linux-chromeos-dbg",
           "group": "tryserver.chromium.chromiumos"
         }
-      ]
+      ],
+      "retry_failed_shards": true,
+      "targets_spec_directory": "src/infra/config/generated/builders/ci/linux-chromeos-dbg/targets"
     }
   },
   "$build/reclient": {
     "instance": "rbe-chromium-trusted",
-    "jobs": 500,
     "metrics_project": "chromium-reclient-metrics",
     "scandeps_server": true
+  },
+  "$build/siso": {
+    "configs": [
+      "builder"
+    ],
+    "enable_cloud_profiler": true,
+    "enable_cloud_trace": true,
+    "experiments": [],
+    "project": "rbe-chromium-trusted",
+    "remote_jobs": 500
   },
   "$recipe_engine/resultdb/test_presentation": {
     "column_keys": [],
@@ -72,6 +80,9 @@
     ]
   },
   "builder_group": "chromium.chromiumos",
+  "gardener_rotations": [
+    "chromium"
+  ],
   "recipe": "chromium",
   "sheriff_rotations": [
     "chromium"

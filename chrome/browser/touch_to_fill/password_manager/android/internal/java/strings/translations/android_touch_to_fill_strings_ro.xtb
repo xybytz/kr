@@ -1,6 +1,7 @@
 <?xml version="1.0" ?>
 <!DOCTYPE translationbundle>
 <translationbundle lang="ro">
+<translation id="102916930470544692">Cheie de acces</translation>
 <translation id="1220509181886849806">Folosești parola salvată?</translation>
 <translation id="1435940442311036198">Folosește o cheie de acces pe alt dispozitiv</translation>
 <translation id="1717486229951421299">Lista datelor de conectare care trebuie completate la atingere este deschisă la jumătate din înălțime.</translation>
@@ -12,7 +13,6 @@
 <translation id="4553044860350038560">Mai multe chei de acces</translation>
 <translation id="4598345735110653698">Gestionează cheile de acces</translation>
 <translation id="4722735765955348426">Parola pentru <ph name="USERNAME" /></translation>
-<translation id="4907224763885298217">Folosește blocarea ecranului</translation>
 <translation id="5012523644916800014">Gestionează parolele și cheile de acces</translation>
 <translation id="5441504010984421144">Lista datelor de conectare care trebuie completate la atingere este deschisă la înălțimea completă.</translation>
 <translation id="5591247451101092906">Folosești parola sau cheia de acces salvată?</translation>

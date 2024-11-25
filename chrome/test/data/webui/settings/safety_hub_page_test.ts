@@ -6,8 +6,10 @@
 import 'chrome://settings/lazy_load.js';
 
 import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
-import {CardInfo, CardState, ContentSettingsTypes, SafetyHubBrowserProxyImpl, SafetyHubEvent, SettingsSafetyHubPageElement} from 'chrome://settings/lazy_load.js';
-import {LifetimeBrowserProxyImpl, MetricsBrowserProxyImpl, PasswordManagerImpl, PasswordManagerPage, Router, routes, SafetyHubModuleType, SafetyHubSurfaces} from 'chrome://settings/settings.js';
+import type {CardInfo, SettingsSafetyHubPageElement} from 'chrome://settings/lazy_load.js';
+import {CardState, ContentSettingsTypes, SafeBrowsingSetting, SafetyHubBrowserProxyImpl, SafetyHubEvent} from 'chrome://settings/lazy_load.js';
+import type {SettingsPrefsElement} from 'chrome://settings/settings.js';
+import {CrSettingsPrefs, LifetimeBrowserProxyImpl, MetricsBrowserProxyImpl, PasswordManagerImpl, PasswordManagerPage, Router, routes, SafetyHubModuleType, SafetyHubSurfaces} from 'chrome://settings/settings.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {isChildVisible} from 'chrome://webui-test/test_util.js';
 import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
@@ -16,6 +18,10 @@ import {TestLifetimeBrowserProxy} from './test_lifetime_browser_proxy.js';
 import {TestSafetyHubBrowserProxy} from './test_safety_hub_browser_proxy.js';
 import {TestPasswordManagerProxy} from './test_password_manager_proxy.js';
 import {TestMetricsBrowserProxy} from './test_metrics_browser_proxy.js';
+
+// <if expr="not chromeos_ash">
+import {eventToPromise} from 'chrome://webui-test/test_util.js';
+// </if>
 // clang-format on
 
 suite('SafetyHubPage', function() {
@@ -24,6 +30,12 @@ suite('SafetyHubPage', function() {
   let safetyHubBrowserProxy: TestSafetyHubBrowserProxy;
   let passwordManagerProxy: TestPasswordManagerProxy;
   let metricsBrowserProxy: TestMetricsBrowserProxy;
+  let settingsPrefs: SettingsPrefsElement;
+
+  suiteSetup(function() {
+    settingsPrefs = document.createElement('settings-prefs');
+    return CrSettingsPrefs.initialized;
+  });
 
   const notificationPermissionMockData = [{
     origin: 'www.example.com',
@@ -71,6 +83,7 @@ suite('SafetyHubPage', function() {
 
     document.body.innerHTML = window.trustedTypes!.emptyHTML;
     testElement = document.createElement('settings-safety-hub-page');
+    testElement.prefs = settingsPrefs.prefs!;
     document.body.appendChild(testElement);
     return flushTasks();
   });
@@ -80,6 +93,29 @@ suite('SafetyHubPage', function() {
         shouldBeVisible, isChildVisible(testElement, '#emptyStateModule'));
     assertEquals(
         shouldBeVisible, isChildVisible(testElement, '#userEducationModule'));
+  }
+
+  async function changeSafeBrowsingGeneratedPref(setting: SafeBrowsingSetting) {
+    testElement.set('prefs.generated.safe_browsing', {
+      value: setting,
+      type: chrome.settingsPrivate.PrefType.DICTIONARY,
+    });
+    assertEquals(setting, testElement.getPref('generated.safe_browsing').value);
+    await flushTasks();
+  }
+
+  function assertSafeBrowsingCard(newCardData: CardInfo) {
+    assertEquals(
+        1, safetyHubBrowserProxy.getCallCount('getSafeBrowsingCardData'));
+    assertTrue(isChildVisible(testElement, '#safeBrowsing'));
+    assertEquals(
+        testElement.$.safeBrowsing.shadowRoot!.querySelector('#header')!
+            .textContent!.trim(),
+        newCardData.header);
+    assertEquals(
+        testElement.$.safeBrowsing.shadowRoot!.querySelector('#subheader')!
+            .textContent!.trim(),
+        newCardData.subheader);
   }
 
   test(
@@ -222,6 +258,12 @@ suite('SafetyHubPage', function() {
         testElement.$.passwords.shadowRoot!.querySelector('#subheader')!
             .textContent!.trim(),
         passwordCardMockData.subheader);
+
+    // Check that the card aria role and description are correct.
+    assertEquals(testElement.$.passwords.getAttribute('role'), 'link');
+    assertEquals(
+        testElement.$.passwords.getAttribute('aria-description'),
+        testElement.i18n('safetyHubPasswordNavigationAriaLabel'));
   });
 
   test('Password Card Clicked', async function() {
@@ -232,6 +274,7 @@ suite('SafetyHubPage', function() {
     assertEquals(PasswordManagerPage.CHECKUP, param);
 
     // Ensure the card state on click metrics are recorded.
+    await safetyHubBrowserProxy.whenCalled('recordSafetyHubInteraction');
     const result =
         await metricsBrowserProxy.whenCalled('recordSafetyHubCardStateClicked');
     assertEquals('Settings.SafetyHub.PasswordsCard.StatusOnClick', result[0]);
@@ -266,6 +309,12 @@ suite('SafetyHubPage', function() {
         testElement.$.version.shadowRoot!.querySelector(
                                              '#subheader')!.textContent!.trim(),
         versionCardMockData.subheader);
+
+    // Check that the card aria role and description are correct.
+    assertEquals(testElement.$.passwords.getAttribute('role'), 'link');
+    assertEquals(
+        testElement.$.version.getAttribute('aria-description'),
+        testElement.i18n('safetyHubVersionNavigationAriaLabel'));
   });
 
   test('Version Card Clicked When No Update Waiting', async function() {
@@ -275,6 +324,7 @@ suite('SafetyHubPage', function() {
     assertEquals(routes.ABOUT, Router.getInstance().getCurrentRoute());
 
     // Ensure the card state on click metrics are recorded.
+    await safetyHubBrowserProxy.whenCalled('recordSafetyHubInteraction');
     const result =
         await metricsBrowserProxy.whenCalled('recordSafetyHubCardStateClicked');
     assertEquals('Settings.SafetyHub.VersionCard.StatusOnClick', result[0]);
@@ -292,9 +342,40 @@ suite('SafetyHubPage', function() {
     document.body.appendChild(testElement);
     await flushTasks();
 
+    // Check that the card aria role and description are correct.
+    assertEquals(testElement.$.version.getAttribute('role'), 'button');
+    assertEquals(
+        testElement.$.version.getAttribute('aria-description'),
+        testElement.i18n('safetyHubVersionRelaunchAriaLabel'));
+
+    // <if expr="not chromeos_ash">
+    lifetimeBrowserProxy.setShouldShowRelaunchConfirmationDialog(true);
+    lifetimeBrowserProxy.setRelaunchConfirmationDialogDescription(
+        'Test description.');
+    // </if>
+
     testElement.$.version.click();
 
+    // <if expr="not chromeos_ash">
+    // Ensure the confirmation dialog is always shown.
+    await eventToPromise('cr-dialog-open', testElement);
+    const relaunchConfirmationDialogElement =
+        testElement.shadowRoot!.querySelector('relaunch-confirmation-dialog')!;
+    assertTrue(relaunchConfirmationDialogElement.$.dialog.open);
+
+    // Ensure the confirmation dialog shows a correct description.
+    const dialog = relaunchConfirmationDialogElement.shadowRoot!.querySelector(
+        'cr-dialog')!;
+    const description =
+        dialog.shadowRoot!.querySelector<HTMLSlotElement>('slot[name=body]')!;
+    assertEquals(
+        'Test description.', description.assignedNodes()[0]!.textContent);
+
+    relaunchConfirmationDialogElement.$.confirm.click();
+    // </if>
+
     // Ensure the card state on click metrics are recorded.
+    await safetyHubBrowserProxy.whenCalled('recordSafetyHubInteraction');
     const result =
         await metricsBrowserProxy.whenCalled('recordSafetyHubCardStateClicked');
     assertEquals('Settings.SafetyHub.VersionCard.StatusOnClick', result[0]);
@@ -318,6 +399,39 @@ suite('SafetyHubPage', function() {
     assertEquals(routes.ABOUT, Router.getInstance().getCurrentRoute());
   });
 
+  test('Version Card updates upon Chrome version change', async function() {
+    const safeCardData = versionCardMockData;
+    const warningCardData: CardInfo = {
+      header: 'Chrome is not up to date',
+      subheader: 'Relaunch to update',
+      state: CardState.WARNING,
+    };
+
+    // Assert that Version card's initial state says Chrome is up to date.
+    assertEquals(
+        safeCardData.header,
+        testElement.$.version.shadowRoot!.querySelector(
+                                             '#header')!.textContent!.trim());
+    assertEquals(
+        safeCardData.subheader,
+        testElement.$.version.shadowRoot!.querySelector('#subheader')!
+            .textContent!.trim());
+
+    // Chrome version changes.
+    webUIListenerCallback(
+        SafetyHubEvent.CHROME_VERSION_MAYBE_CHANGED, warningCardData);
+
+    // Assert that Version card's new state says Chrome needs an update.
+    assertEquals(
+        warningCardData.header,
+        testElement.$.version.shadowRoot!.querySelector(
+                                             '#header')!.textContent!.trim());
+    assertEquals(
+        warningCardData.subheader,
+        testElement.$.version.shadowRoot!.querySelector('#subheader')!
+            .textContent!.trim());
+  });
+
   test('Safe Browsing Card', async function() {
     assertTrue(isChildVisible(testElement, '#safeBrowsing'));
 
@@ -330,6 +444,12 @@ suite('SafetyHubPage', function() {
         testElement.$.safeBrowsing.shadowRoot!.querySelector('#subheader')!
             .textContent!.trim(),
         safeBrowsingCardMockData.subheader);
+
+    // Check that the card aria role and description are correct.
+    assertEquals(testElement.$.passwords.getAttribute('role'), 'link');
+    assertEquals(
+        testElement.$.safeBrowsing.getAttribute('aria-description'),
+        testElement.i18n('safetyHubSBNavigationAriaLabel'));
   });
 
   test('Safe Browsing Card Clicked', async function() {
@@ -339,6 +459,7 @@ suite('SafetyHubPage', function() {
     assertEquals(routes.SECURITY, Router.getInstance().getCurrentRoute());
 
     // Ensure the card state on click metrics are recorded.
+    await safetyHubBrowserProxy.whenCalled('recordSafetyHubInteraction');
     const result =
         await metricsBrowserProxy.whenCalled('recordSafetyHubCardStateClicked');
     assertEquals(
@@ -360,12 +481,55 @@ suite('SafetyHubPage', function() {
     assertEquals(routes.SECURITY, Router.getInstance().getCurrentRoute());
   });
 
+  test(
+      `Safe Browsing Card updates upon Safe Browsing settings change`,
+      async function() {
+        const standardCardData: CardInfo = {
+          header: 'Safe Browsing is on',
+          subheader: 'You are getting a standard protection.',
+          state: CardState.SAFE,
+        };
+
+        const enhancedCardData: CardInfo = {
+          header: 'Enhanced Safe Browsing is on',
+          subheader: 'You are getting an enhanced protection.',
+          state: CardState.SAFE,
+        };
+
+        const disabledCardData: CardInfo = safeBrowsingCardMockData;
+
+        // Set the generated.safe_browsing pref to STANDARD.
+        safetyHubBrowserProxy.setSafeBrowsingCardData(standardCardData);
+        await changeSafeBrowsingGeneratedPref(SafeBrowsingSetting.STANDARD);
+
+        // Change the generated.safe_browsing pref to ENHANCED and check that it
+        // triggers getSafeBrowsingCardData call and UI change.
+        safetyHubBrowserProxy.resetResolver('getSafeBrowsingCardData');
+        safetyHubBrowserProxy.setSafeBrowsingCardData(enhancedCardData);
+        await changeSafeBrowsingGeneratedPref(SafeBrowsingSetting.ENHANCED);
+        assertSafeBrowsingCard(enhancedCardData);
+
+        // Change the generated.safe_browsing pref to DISABLED and check that it
+        // triggers getSafeBrowsingCardData call and UI change.
+        safetyHubBrowserProxy.resetResolver('getSafeBrowsingCardData');
+        safetyHubBrowserProxy.setSafeBrowsingCardData(disabledCardData);
+        await changeSafeBrowsingGeneratedPref(SafeBrowsingSetting.DISABLED);
+        assertSafeBrowsingCard(disabledCardData);
+
+        // Change the generated.safe_browsing pref to STANDARD and check that it
+        // triggers getSafeBrowsingCardData call and UI change.
+        safetyHubBrowserProxy.resetResolver('getSafeBrowsingCardData');
+        safetyHubBrowserProxy.setSafeBrowsingCardData(standardCardData);
+        await changeSafeBrowsingGeneratedPref(SafeBrowsingSetting.STANDARD);
+        assertSafeBrowsingCard(standardCardData);
+      });
+
   test('Dismiss all menu notifications on page load', async function() {
     Router.getInstance().navigateTo(routes.SAFETY_HUB);
     await safetyHubBrowserProxy.whenCalled('dismissActiveMenuNotification');
   });
 
-  test('Metric Recording', async function() {
+  test('Metric Recording for Dashboard State', async function() {
     const safeCardData: CardInfo = {
       header: 'Dummy header',
       subheader: 'Dummy subheader',
@@ -469,5 +633,67 @@ suite('SafetyHubPage', function() {
     result = await metricsBrowserProxy.whenCalled(
         'recordSafetyHubDashboardAnyWarning');
     assertEquals(true, result);
+  });
+
+  test('Metric Recording for Education module', async function() {
+    assertNoRecommendationState(true);
+
+    const eduModule = testElement.shadowRoot!.querySelector<HTMLElement>(
+        '#userEducationModule');
+    const links =
+        eduModule!.shadowRoot!.querySelectorAll<HTMLAnchorElement>('a');
+    assertEquals(3, links.length);
+
+    // Check clicking the Safety Tools link causes metric recording.
+    assertTrue(!!links[0]);
+    links[0].click();
+    await safetyHubBrowserProxy.whenCalled('recordSafetyHubInteraction');
+    assertEquals(
+        'Settings.SafetyHub.SafetyToolsLinkClicked',
+        await metricsBrowserProxy.whenCalled('recordAction'));
+    metricsBrowserProxy.reset();
+
+    // Check clicking the Incognito link causes metric recording.
+    assertTrue(!!links[1]);
+    links[1].click();
+    await safetyHubBrowserProxy.whenCalled('recordSafetyHubInteraction');
+    assertEquals(
+        'Settings.SafetyHub.IncognitoLinkClicked',
+        await metricsBrowserProxy.whenCalled('recordAction'));
+    metricsBrowserProxy.reset();
+
+    // Check clicking the Safe Browsing link causes metric recording.
+    assertTrue(!!links[2]);
+    links[2].click();
+    await safetyHubBrowserProxy.whenCalled('recordSafetyHubInteraction');
+    assertEquals(
+        'Settings.SafetyHub.SafeBrowsingLinkClicked',
+        await metricsBrowserProxy.whenCalled('recordAction'));
+  });
+
+  test('Record Safety Hub page visit', async function() {
+    // Override setTimeout, and only alter behavior for the 20s timeout (the
+    // delay for considering a SH page visit).
+    // Using MockTimer did not work here, as it interfered with many other,
+    // unrelated timers.
+    const origSetTimeout = window.setTimeout;
+    window.setTimeout = function(
+        handler: TimerHandler, timeout: number|undefined): number {
+      if (timeout === 20000) {
+        const callback = handler as Function;
+        callback();
+        return 0;
+      }
+      return origSetTimeout(handler, timeout);
+    };
+
+    document.body.removeChild(testElement);
+    testElement = document.createElement('settings-safety-hub-page');
+    document.body.appendChild(testElement);
+    await flushTasks();
+
+    await safetyHubBrowserProxy.whenCalled('recordSafetyHubPageVisit');
+
+    window.setTimeout = origSetTimeout;
   });
 });

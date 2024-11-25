@@ -7,28 +7,31 @@
  * 'os-settings-a11y-page' is the small section of advanced settings containing
  * a subpage with Accessibility settings for ChromeOS.
  */
-import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
-import '/shared/settings/controls/settings_toggle_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_link_row/cr_link_row.js';
+import '../controls/settings_toggle_button.js';
 import '../os_settings_page/os_settings_animated_pages.js';
 import '../os_settings_page/os_settings_subpage.js';
 import '../os_settings_page/settings_card.js';
 import '../settings_shared.css.js';
 
-import {SettingsToggleButtonElement} from '/shared/settings/controls/settings_toggle_button.js';
-import {PrefsMixin} from 'chrome://resources/cr_components/settings_prefs/prefs_mixin.js';
-import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {PrefsMixin} from '/shared/settings/prefs/prefs_mixin.js';
+import {WebUiListenerMixin} from 'chrome://resources/ash/common/cr_elements/web_ui_listener_mixin.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {DeepLinkingMixin} from '../common/deep_linking_mixin.js';
 import {isRevampWayfindingEnabled} from '../common/load_time_booleans.js';
 import {RouteOriginMixin} from '../common/route_origin_mixin.js';
+import type {SettingsToggleButtonElement} from '../controls/settings_toggle_button.js';
 import {Section} from '../mojom-webui/routes.mojom-webui.js';
 import {Setting} from '../mojom-webui/setting.mojom-webui.js';
-import {Route, Router, routes} from '../router.js';
+import type {LanguageHelper, LanguagesModel} from '../os_languages_page/languages_types.js';
+import type {Route} from '../router.js';
+import {Router, routes} from '../router.js';
 
 import {getTemplate} from './os_a11y_page.html.js';
-import {OsA11yPageBrowserProxy, OsA11yPageBrowserProxyImpl} from './os_a11y_page_browser_proxy.js';
+import type {OsA11yPageBrowserProxy} from './os_a11y_page_browser_proxy.js';
+import {OsA11yPageBrowserProxyImpl} from './os_a11y_page_browser_proxy.js';
 
 export interface OsSettingsA11yPageElement {
   $: {
@@ -72,13 +75,11 @@ export class OsSettingsA11yPageElement extends OsSettingsA11yPageElementBase {
         value: false,
       },
 
-      /**
-       * Whether the user is in kiosk mode.
-       */
-      isKioskModeActive_: {
+      isKioskOldA11ySettingsRedirectionEnabled_: {
         type: Boolean,
         value() {
-          return loadTimeData.getBoolean('isKioskModeActive');
+          return loadTimeData.getBoolean(
+              'isKioskOldA11ySettingsRedirectionEnabled');
         },
       },
 
@@ -91,6 +92,16 @@ export class OsSettingsA11yPageElement extends OsSettingsA11yPageElementBase {
           return loadTimeData.getBoolean('isGuest');
         },
       },
+
+      /**
+       * Read-only reference to the languages model provided by the
+       * 'settings-languages' instance.
+       */
+      languages: {
+        type: Object,
+      },
+
+      languageHelper: Object,
 
       /**
        * Used by DeepLinkingMixin to focus this page's deep links.
@@ -136,10 +147,13 @@ export class OsSettingsA11yPageElement extends OsSettingsA11yPageElementBase {
   }
 
   currentRoute: Route;
+  languages: LanguagesModel;
+  languageHelper: LanguageHelper;
+
   private browserProxy_: OsA11yPageBrowserProxy;
   private hasScreenReader_: boolean;
   private isGuest_: boolean;
-  private isKioskModeActive_: boolean;
+  private isKioskOldA11ySettingsRedirectionEnabled_: boolean;
   private rowIcons_: Record<string, string>;
   private section_: Section;
 
@@ -150,6 +164,10 @@ export class OsSettingsA11yPageElement extends OsSettingsA11yPageElementBase {
     this.route = routes.OS_ACCESSIBILITY;
 
     this.browserProxy_ = OsA11yPageBrowserProxyImpl.getInstance();
+
+    if (this.isKioskOldA11ySettingsRedirectionEnabled_) {
+      this.redirectToOldA11ySettings();
+    }
   }
 
   override ready(): void {
@@ -198,11 +216,19 @@ export class OsSettingsA11yPageElement extends OsSettingsA11yPageElementBase {
     }
   }
 
+  private redirectToOldA11ySettings(): void {
+    Router.getInstance().navigateTo(routes.MANAGE_ACCESSIBILITY);
+  }
+
   private onToggleAccessibilityImageLabels_(): void {
     const a11yImageLabelsOn = this.$.a11yImageLabelsToggle.checked;
     if (a11yImageLabelsOn) {
       this.browserProxy_.confirmA11yImageLabels();
     }
+  }
+
+  private onSwitchAccessSettingsClick_(): void {
+    Router.getInstance().navigateTo(routes.MANAGE_SWITCH_ACCESS_SETTINGS);
   }
 
   private onTextToSpeechClick_(): void {

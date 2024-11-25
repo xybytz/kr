@@ -6,6 +6,7 @@
 
 #import "base/apple/foundation_util.h"
 #import "base/logging.h"
+#import "base/memory/raw_ptr.h"
 #import "base/strings/sys_string_conversions.h"
 #import "base/values.h"
 #import "components/content_settings/core/browser/host_content_settings_map.h"
@@ -15,7 +16,7 @@
 #import "components/prefs/pref_service.h"
 #import "ios/chrome/browser/content_settings/model/host_content_settings_map_factory.h"
 #import "ios/chrome/browser/net/model/crurl.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_detail_text_item.h"
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_info_button_cell.h"
@@ -28,7 +29,7 @@
 #import "ios/chrome/browser/ui/settings/settings_navigation_controller.h"
 #import "ios/chrome/browser/ui/settings/utils/content_setting_backed_boolean.h"
 #import "ios/chrome/grit/ios_strings.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "ui/base/l10n/l10n_util.h"
 #import "ui/base/l10n/l10n_util_mac.h"
 
@@ -52,7 +53,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 @interface BlockPopupsTableViewController () <
     BooleanObserver,
     PopoverLabelViewControllerDelegate> {
-  ChromeBrowserState* _browserState;  // weak
+  raw_ptr<ProfileIOS> _profile;  // weak
 
   // List of url patterns that are allowed to display popups.
   base::Value::List _exceptions;
@@ -74,14 +75,14 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 @implementation BlockPopupsTableViewController
 
-- (instancetype)initWithBrowserState:(ChromeBrowserState*)browserState {
-  DCHECK(browserState);
+- (instancetype)initWithProfile:(ProfileIOS*)profile {
+  DCHECK(profile);
 
   self = [super initWithStyle:ChromeTableViewStyle()];
   if (self) {
-    _browserState = browserState;
+    _profile = profile;
     HostContentSettingsMap* settingsMap =
-        ios::HostContentSettingsMapFactory::GetForBrowserState(_browserState);
+        ios::HostContentSettingsMapFactory::GetForProfile(_profile);
     _disablePopupsSetting = [[ContentSettingBackedBoolean alloc]
         initWithHostContentSettingsMap:settingsMap
                              settingID:ContentSettingsType::POPUPS
@@ -114,7 +115,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   // Block popups switch.
   [model addSectionWithIdentifier:SectionIdentifierMainSwitch];
 
-  if (_browserState->GetPrefs()->IsManagedPreference(
+  if (_profile->GetPrefs()->IsManagedPreference(
           prefs::kManagedDefaultPopupsSetting)) {
     _blockPopupsManagedItem = [self blockPopupsManagedItem];
     [model addItem:_blockPopupsManagedItem
@@ -298,7 +299,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
     // Remove the exception for the site by resetting its popup setting to the
     // default.
-    ios::HostContentSettingsMapFactory::GetForBrowserState(_browserState)
+    ios::HostContentSettingsMapFactory::GetForProfile(_profile)
         ->SetContentSettingCustomScope(
             ContentSettingsPattern::FromString(urlToRemove),
             ContentSettingsPattern::Wildcard(), ContentSettingsType::POPUPS,
@@ -342,14 +343,14 @@ typedef NS_ENUM(NSInteger, ItemType) {
   // chrome/browser/ui/webui/options/content_settings_handler.cc and simplified
   // to only deal with urls/patterns that allow popups.
   ContentSettingsForOneType entries =
-      ios::HostContentSettingsMapFactory::GetForBrowserState(_browserState)
+      ios::HostContentSettingsMapFactory::GetForProfile(_profile)
           ->GetSettingsForOneType(ContentSettingsType::POPUPS);
   for (size_t i = 0; i < entries.size(); ++i) {
     // Skip default settings from extensions and policy, and the default content
     // settings; all of them will affect the default setting UI.
     if (entries[i].primary_pattern == ContentSettingsPattern::Wildcard() &&
         entries[i].secondary_pattern == ContentSettingsPattern::Wildcard() &&
-        entries[i].source != "preference") {
+        entries[i].source != content_settings::ProviderType::kPrefProvider) {
       continue;
     }
     // The content settings UI does not support secondary content settings
@@ -359,7 +360,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
     // wildcard pattern. So only show settings that the user is able to modify.
     if (entries[i].secondary_pattern == ContentSettingsPattern::Wildcard() &&
         entries[i].GetContentSetting() == CONTENT_SETTING_ALLOW) {
-      if (entries[i].source == "policy") {
+      if (entries[i].source ==
+          content_settings::ProviderType::kPolicyProvider) {
         // Add the urls to `_allowPopupsByPolicy` if the allowed urls are set by
         // the policy.
         _allowPopupsByPolicy.Append(entries[i].primary_pattern.ToString());

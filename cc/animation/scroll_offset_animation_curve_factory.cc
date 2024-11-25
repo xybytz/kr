@@ -22,7 +22,6 @@ ScrollOffsetAnimationCurve::DurationBehavior GetDurationBehaviorFromScrollType(
       return ScrollOffsetAnimationCurve::DurationBehavior::kInverseDelta;
     case ScrollOffsetAnimationCurveFactory::ScrollType::kAutoScroll:
       NOTREACHED();
-      return ScrollOffsetAnimationCurve::DurationBehavior::kDeltaBased;
   }
 }
 }  // namespace

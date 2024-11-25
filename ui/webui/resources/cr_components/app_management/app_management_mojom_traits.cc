@@ -105,7 +105,7 @@ bool StructTraits<PermissionDataView, apps::PermissionPtr>::Read(
   if (!data.ReadValue(&value))
     return false;
 
-  absl::optional<std::string> details;
+  std::optional<std::string> details;
   if (!data.ReadDetails(&details)) {
     return false;
   }
@@ -208,7 +208,6 @@ UnionTraits<PermissionValueDataView, apps::Permission::PermissionValue>::GetTag(
     return PermissionValueDataView::Tag::kTristateValue;
   }
   NOTREACHED();
-  return PermissionValueDataView::Tag::kBoolValue;
 }
 
 bool UnionTraits<PermissionValueDataView, apps::Permission::PermissionValue>::
@@ -227,7 +226,6 @@ bool UnionTraits<PermissionValueDataView, apps::Permission::PermissionValue>::
     }
   }
   NOTREACHED();
-  return false;
 }
 
 InstallReason EnumTraits<InstallReason, apps::InstallReason>::ToMojom(

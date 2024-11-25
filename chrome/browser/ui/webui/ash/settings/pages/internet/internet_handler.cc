@@ -116,7 +116,6 @@ void InternetHandler::OnGmsCoreNotificationStateChanged() {
 void InternetHandler::AddThirdPartyVpn(const base::Value::List& args) {
   if (args.size() < 1 || !args[0].is_string()) {
     NOTREACHED() << "Invalid args for: " << kAddThirdPartyVpnMessage;
-    return;
   }
   const std::string& app_id = args[0].GetString();
   if (app_id.empty()) {
@@ -152,7 +151,6 @@ void InternetHandler::AddThirdPartyVpn(const base::Value::List& args) {
 void InternetHandler::ConfigureThirdPartyVpn(const base::Value::List& args) {
   if (args.size() < 1 || !args[0].is_string()) {
     NOTREACHED() << "Invalid args for: " << kConfigureThirdPartyVpnMessage;
-    return;
   }
   const std::string& guid = args[0].GetString();
   if (profile_ != GetProfileForPrimaryUser()) {
@@ -212,7 +210,6 @@ void InternetHandler::RequestGmsCoreNotificationsDisabledDeviceNames(
 void InternetHandler::ShowCarrierAccountDetail(const base::Value::List& args) {
   if (args.size() < 1 || !args[0].is_string()) {
     NOTREACHED() << "Invalid args for: " << kShowCarrierAccountDetail;
-    return;
   }
   const std::string& guid = args[0].GetString();
   NetworkConnect::Get()->ShowCarrierAccountDetail(guid);
@@ -221,7 +218,6 @@ void InternetHandler::ShowCarrierAccountDetail(const base::Value::List& args) {
 void InternetHandler::ShowPortalSignin(const base::Value::List& args) {
   if (args.size() < 1 || !args[0].is_string()) {
     NOTREACHED() << "Invalid args for: " << kShowPortalSignin;
-    return;
   }
   const std::string& guid = args[0].GetString();
   NetworkConnect::Get()->ShowPortalSignin(guid,
@@ -231,7 +227,6 @@ void InternetHandler::ShowPortalSignin(const base::Value::List& args) {
 void InternetHandler::ShowCellularSetupUI(const base::Value::List& args) {
   if (args.size() < 1 || !args[0].is_string()) {
     NOTREACHED() << "Invalid args for: " << kConfigureThirdPartyVpnMessage;
-    return;
   }
   const std::string& guid = args[0].GetString();
   NetworkConnect::Get()->ShowMobileSetup(guid);

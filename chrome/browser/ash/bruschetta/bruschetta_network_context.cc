@@ -5,6 +5,7 @@
 #include "chrome/browser/ash/bruschetta/bruschetta_network_context.h"
 
 #include <stdint.h>
+
 #include <memory>
 #include <optional>
 #include <vector>
@@ -39,6 +40,7 @@
 #include "net/ssl/ssl_private_key.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "services/network/public/mojom/network_context.mojom.h"
+#include "services/network/public/mojom/shared_storage.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/network/public/mojom/url_loader_network_service_observer.mojom.h"
 #include "url/gurl.h"
@@ -98,7 +100,7 @@ BruschettaNetworkContext::GetURLLoaderFactory() {
     network::mojom::URLLoaderFactoryParamsPtr url_loader_factory_params =
         network::mojom::URLLoaderFactoryParams::New();
     url_loader_factory_params->process_id = network::mojom::kBrowserProcessId;
-    url_loader_factory_params->is_corb_enabled = false;
+    url_loader_factory_params->is_orb_enabled = false;
     url_loader_factory_params->is_trusted = true;
     url_loader_observers_.Add(
         this, url_loader_factory_params->url_loader_network_observer
@@ -151,10 +153,9 @@ void BruschettaNetworkContext::OnCertificateRequested(
                       ->CreateClientCertStore();
   }
   cert_store_->GetClientCerts(
-      *cert_info.get(),
-      base::BindOnce(&BruschettaNetworkContext::OnGotClientCerts,
-                     weak_ptr_factory_.GetWeakPtr(), cert_info,
-                     std::move(cert_responder_remote)));
+      cert_info, base::BindOnce(&BruschettaNetworkContext::OnGotClientCerts,
+                                weak_ptr_factory_.GetWeakPtr(), cert_info,
+                                std::move(cert_responder_remote)));
 }
 
 void BruschettaNetworkContext::OnGotClientCerts(
@@ -163,12 +164,12 @@ void BruschettaNetworkContext::OnGotClientCerts(
         cert_responder_remote,
     net::ClientCertIdentityList certs) {
   GURL requesting_url =
-      chrome::enterprise_util::GetRequestingUrl(cert_info->host_and_port);
+      enterprise_util::GetRequestingUrl(cert_info->host_and_port);
   net::ClientCertIdentityList matching_certificates, nonmatching_certificates;
   // Bruschetta is an enterprise feature with the URL set in policy. So if they
   // pick a URL which requires an SSL cert they should also provide the cert via
   // policy. We don't have a WebContents so can't show UI.
-  chrome::enterprise_util::AutoSelectCertificates(
+  enterprise_util::AutoSelectCertificates(
       profile_, requesting_url, std::move(certs), &matching_certificates,
       &nonmatching_certificates);
 
@@ -215,7 +216,7 @@ void BruschettaNetworkContext::ContinueWithCertificate(
 
 void BruschettaNetworkContext::OnAuthRequired(
     const std::optional<base::UnguessableToken>& window_id,
-    uint32_t request_id,
+    int32_t request_id,
     const GURL& url,
     bool first_auth_attempt,
     const net::AuthChallengeInfo& auth_info,
@@ -259,7 +260,7 @@ void BruschettaNetworkContext::OnDataUseUpdate(
 
 void BruschettaNetworkContext::OnSharedStorageHeaderReceived(
     const url::Origin& request_origin,
-    std::vector<network::mojom::SharedStorageOperationPtr> operations,
+    std::vector<network::mojom::SharedStorageModifierMethodPtr> methods,
     OnSharedStorageHeaderReceivedCallback callback) {
   std::move(callback).Run();
 }
@@ -269,5 +270,8 @@ void BruschettaNetworkContext::Clone(
         observer) {
   url_loader_observers_.Add(this, std::move(observer));
 }
+
+void BruschettaNetworkContext::OnWebSocketConnectedToPrivateNetwork(
+    network::mojom::IPAddressSpace ip_address_space) {}
 
 }  // namespace bruschetta

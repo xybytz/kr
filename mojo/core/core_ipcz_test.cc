@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "mojo/core/core_ipcz.h"
 
 #include <cstring>
@@ -223,7 +228,8 @@ class ChannelPeerClosureListener {
     transport_->Activate(
         reinterpret_cast<uintptr_t>(this),
         [](IpczHandle self, const void*, size_t, const IpczDriverHandle*,
-           size_t, IpczTransportActivityFlags flags, const void*) {
+           size_t, IpczTransportActivityFlags flags,
+           const struct IpczTransportActivityOptions*) {
           reinterpret_cast<ChannelPeerClosureListener*>(self)->OnEvent(flags);
           return IPCZ_RESULT_OK;
         });

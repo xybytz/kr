@@ -39,7 +39,8 @@ public class OmniboxActionInSuggest extends OmniboxAction {
                 nativeInstance,
                 hint,
                 accessibilityHint,
-                ICON_MAP.get(actionType, null));
+                ICON_MAP.get(actionType, DEFAULT_ICON),
+                R.style.TextAppearance_ChipText);
         this.actionType = actionType;
         mActionUri = actionUri;
     }
@@ -70,12 +71,7 @@ public class OmniboxActionInSuggest extends OmniboxAction {
         return map;
     }
 
-    /**
-     * Execute an Intent associated with OmniboxActionInSuggest.
-     *
-     * @param loadPageInCurrentTab loads the page in the current tab (if available), else new tab
-     * @param startActivity starts the activity described by supplied intent
-     */
+    /** Execute an Intent associated with OmniboxActionInSuggest. */
     @Override
     public void execute(OmniboxActionDelegate delegate) {
         boolean actionStarted = false;

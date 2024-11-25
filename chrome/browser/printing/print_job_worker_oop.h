@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_PRINTING_PRINT_JOB_WORKER_OOP_H_
 #define CHROME_BROWSER_PRINTING_PRINT_JOB_WORKER_OOP_H_
 
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -13,6 +14,7 @@
 #include "chrome/browser/printing/print_backend_service_manager.h"
 #include "chrome/browser/printing/print_job_worker.h"
 #include "chrome/services/printing/public/mojom/print_backend_service.mojom.h"
+#include "components/enterprise/buildflags/buildflags.h"
 #include "printing/buildflags/buildflags.h"
 #include "printing/mojom/print.mojom.h"
 
@@ -51,7 +53,7 @@ class PrintJobWorkerOop : public PrintJobWorker {
   // `PrintJobWorker` overrides.
   void StartPrinting(PrintedDocument* new_document) override;
   void Cancel() override;
-#if BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+#if BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS)
   void CleanupAfterContentAnalysisDenial() override;
 #endif
 
@@ -68,7 +70,7 @@ class PrintJobWorkerOop : public PrintJobWorker {
 
   // Local callback wrappers for Print Backend Service mojom call.  Virtual to
   // support testing.
-  virtual void OnDidStartPrinting(mojom::ResultCode result);
+  virtual void OnDidStartPrinting(mojom::ResultCode result, int job_id);
 #if BUILDFLAG(IS_WIN)
   virtual void OnDidRenderPrintedPage(uint32_t page_index,
                                       mojom::ResultCode result);
@@ -84,6 +86,7 @@ class PrintJobWorkerOop : public PrintJobWorker {
 #endif
   bool SpoolDocument() override;
   void OnDocumentDone() override;
+  void FinishDocumentDone(int job_id) override;
   void OnCancel() override;
   void OnFailure() override;
 
@@ -97,9 +100,6 @@ class PrintJobWorkerOop : public PrintJobWorker {
 
   // Initiate failure handling, including notification to the user.
   void NotifyFailure(mojom::ResultCode result);
-
-  // Helper function for document done processing, to get onto worker thread.
-  void FinishDocumentDone(int job_id);
 
   // Mojo support to send messages from UI thread.
   void SendEstablishPrintingContext();

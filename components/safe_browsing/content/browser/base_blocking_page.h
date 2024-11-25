@@ -17,10 +17,6 @@
 #include "components/security_interstitials/core/metrics_helper.h"
 #include "url/gurl.h"
 
-namespace content {
-class NavigationHandle;
-}
-
 namespace security_interstitials {
 class SettingsPageHelper;
 }
@@ -50,19 +46,17 @@ class BaseBlockingPage
   // the main page.
   static bool IsMainPageLoadPending(const UnsafeResourceList& unsafe_resources);
 
-  // Returns true if one of the resources in |unsafe_resources| is from
-  // subresource.
-  static bool IsSubresource(const UnsafeResourceList& unsafe_resources);
-
   // SecurityInterstitialPage method:
   void CommandReceived(const std::string& command) override;
 
   // Checks the threat type to decide if we should report ThreatDetails.
   static bool ShouldReportThreatDetails(SBThreatType threat_type);
 
-  // Populates the report details for |unsafe_resources|.
+  // Populates the report details for |unsafe_resources| and
+  // |blocked_page_shown_timestamp|.
   static security_interstitials::MetricsHelper::ReportDetails GetReportingInfo(
-      const UnsafeResourceList& unsafe_resources);
+      const UnsafeResourceList& unsafe_resources,
+      std::optional<base::TimeTicks> blocked_page_shown_timestamp);
 
   // Can be used by implementations of SafeBrowsingBlockingPageFactory.
   static std::unique_ptr<
@@ -73,13 +67,8 @@ class BaseBlockingPage
       BaseUIManager* ui_manager,
       PrefService* pref_service,
       std::unique_ptr<security_interstitials::SettingsPageHelper>
-          settings_page_helper);
-
-  // If `this` was created for a post commit error page,
-  // `error_page_navigation_handle` is the navigation created for this blocking
-  // page.
-  virtual void CreatedPostCommitErrorPageNavigation(
-      content::NavigationHandle* error_page_navigation_handle) {}
+          settings_page_helper,
+      std::optional<base::TimeTicks> blocked_page_shown_timestamp);
 
   BaseSafeBrowsingErrorUI* sb_error_ui() const;
 
@@ -113,9 +102,6 @@ class BaseBlockingPage
   static std::string GetMetricPrefix(
       const UnsafeResourceList& unsafe_resources,
       BaseSafeBrowsingErrorUI::SBInterstitialReason interstitial_reason);
-
-  static std::string GetExtraMetricsSuffix(
-      const UnsafeResourceList& unsafe_resources);
 
   // Return the most severe interstitial reason from a list of unsafe resources.
   // Severity ranking: malware > UwS (harmful) > phishing.

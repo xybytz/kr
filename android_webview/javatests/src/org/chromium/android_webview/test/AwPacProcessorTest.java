@@ -4,6 +4,8 @@
 
 package org.chromium.android_webview.test;
 
+import static org.chromium.android_webview.test.OnlyRunIn.ProcessMode.EITHER_PROCESS;
+
 import android.os.Build;
 
 import androidx.annotation.RequiresApi;
@@ -24,19 +26,24 @@ import org.chromium.base.JNIUtils;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 
+import java.util.List;
+
 /** Tests for AwPacProcessor class. */
 @RunWith(Parameterized.class)
 @UseParametersRunnerFactory(AwJUnit4ClassRunnerWithParameters.Factory.class)
 @MinAndroidSdkLevel(Build.VERSION_CODES.P)
 @RequiresApi(Build.VERSION_CODES.P)
+@OnlyRunIn(EITHER_PROCESS) // These tests don't use the renderer process
 public class AwPacProcessorTest extends AwParameterizedTest {
     private AwPacProcessor mProcessor;
 
     private final String mPacScript =
-            "function FindProxyForURL(url, host) {\n"
-                    + "var x = myIpAddress();"
-                    + "\treturn \"PROXY \" + x + \":80\";\n"
-                    + "}";
+            """
+        function FindProxyForURL(url, host) {
+          var x = myIpAddress();
+          return "PROXY " + x + ":80";
+        }
+        """;
     private final String mTestUrl = "http://testurl.test";
 
     @Rule public AwActivityTestRule mRule;
@@ -63,7 +70,7 @@ public class AwPacProcessorTest extends AwParameterizedTest {
         String proxyResultNetworkIsNotSet = mProcessor.makeProxyRequest(mTestUrl);
 
         // Set network and IP addresses, check they are correctly propagated.
-        mProcessor.setNetworkAndLinkAddresses(42, new String[] {"1.2.3.4"});
+        mProcessor.setNetworkAndLinkAddresses(42, List.of("1.2.3.4"));
         String proxyResultNetworkIsSet = mProcessor.makeProxyRequest(mTestUrl);
         Assert.assertEquals("PROXY 1.2.3.4:80", proxyResultNetworkIsSet);
 

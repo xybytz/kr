@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 
+#include "base/functional/callback_helpers.h"
 #include "components/webapps/common/web_app_id.h"
 #include "third_party/blink/public/mojom/manifest/manifest.mojom-forward.h"
 #include "url/gurl.h"
@@ -52,7 +53,6 @@ webapps::AppId GenerateAppId(const std::optional<std::string>& manifest_id_path,
 // manifest. See the `webapps::AppId` type for more information. This will
 // CHECK-fail if the `id` field is not present on the manifest.
 webapps::AppId GenerateAppIdFromManifest(
-
     const blink::mojom::Manifest& manifest,
     const std::optional<webapps::ManifestId>& parent_manifest_id =
         std::nullopt);
@@ -83,8 +83,19 @@ webapps::ManifestId GenerateManifestIdFromStartUrlOnly(const GURL& start_url);
 webapps::ManifestId GenerateManifestId(const std::string& manifest_id_path,
                                        const GURL& start_url);
 
+// Same as above but does not CHECK that the resulting id is valid. Only used
+// for sync parsing to avoid crashes, and ignore bad sync data.
+webapps::ManifestId GenerateManifestIdUnsafe(
+    const std::string& manifest_id_path,
+    const GURL& start_url);
+
 // Returns whether the given |app_url| is a valid web app url.
 bool IsValidWebAppUrl(const GURL& app_url);
+
+// Adds chrome://`host` as an origin that IsValidWebAppUrl will consider valid.
+// The returned ScopedClosureRunner undoes this registration.
+base::ScopedClosureRunner AddValidWebAppChromeUrlHostForTesting(
+    const std::string& host);
 
 // Searches for the first locally installed app id in the registry for which
 // the |url| is in scope. If |window_only| is specified, only apps that

@@ -16,6 +16,7 @@ import org.chromium.components.optimization_guide.OptimizationGuideDecision;
 import org.chromium.components.optimization_guide.proto.CommonTypesProto.Any;
 import org.chromium.components.optimization_guide.proto.CommonTypesProto.RequestContext;
 import org.chromium.components.optimization_guide.proto.HintsProto.OptimizationType;
+import org.chromium.components.optimization_guide.proto.HintsProto.RequestContextMetadata;
 import org.chromium.url.GURL;
 
 import java.util.Arrays;
@@ -88,18 +89,21 @@ public class OptimizationGuideBridgeNativeUnitTest {
         }
 
         public Map<OptimizationType, OptimizationGuideDecisionWithMetadata>
-                getDecisionMetadataForURL(GURL url) {
+                getDecisionMetadataForUrl(GURL url) {
             return mDecisions.get(url);
         }
     }
 
+    private final OptimizationGuideBridge mOptimizationGuideBridge;
+
     @CalledByNative
-    private OptimizationGuideBridgeNativeUnitTest() {}
+    private OptimizationGuideBridgeNativeUnitTest(OptimizationGuideBridge optimizationGuideBridge) {
+        mOptimizationGuideBridge = optimizationGuideBridge;
+    }
 
     @CalledByNative
     public void testRegisterOptimizationTypes() {
-        OptimizationGuideBridge bridge = new OptimizationGuideBridge();
-        bridge.registerOptimizationTypes(
+        mOptimizationGuideBridge.registerOptimizationTypes(
                 Arrays.asList(
                         new OptimizationType[] {
                             OptimizationType.LOADING_PREDICTOR, OptimizationType.DEFER_ALL_SCRIPT
@@ -108,10 +112,8 @@ public class OptimizationGuideBridgeNativeUnitTest {
 
     @CalledByNative
     public void testCanApplyOptimizationHasHint() {
-        OptimizationGuideBridge bridge = new OptimizationGuideBridge();
-
         OptimizationGuideCallback callback = new OptimizationGuideCallback();
-        bridge.canApplyOptimization(
+        mOptimizationGuideBridge.canApplyOptimization(
                 new GURL(TEST_URL), OptimizationType.LOADING_PREDICTOR, callback);
 
         assertTrue(callback.wasCalled());
@@ -125,21 +127,35 @@ public class OptimizationGuideBridgeNativeUnitTest {
     }
 
     @CalledByNative
+    public void testSyncCanApplyOptimizationHasHint() {
+        var result =
+                mOptimizationGuideBridge.canApplyOptimization(
+                        new GURL(TEST_URL), OptimizationType.LOADING_PREDICTOR);
+
+        assertEquals(OptimizationGuideDecision.TRUE, result.getDecision());
+        assertNotNull(result.getMetadata());
+        assertEquals(
+                "optimization_guide.proto.LoadingPredictorMetadata",
+                result.getMetadata().getTypeUrl());
+    }
+
+    @CalledByNative
     public void testCanApplyOptimizationOnDemand() {
-        OptimizationGuideBridge bridge = new OptimizationGuideBridge();
+        RequestContextMetadata requestContextMetadata = RequestContextMetadata.newBuilder().build();
 
         OnDemandOptimizationGuideCallback callback = new OnDemandOptimizationGuideCallback();
-        bridge.canApplyOptimizationOnDemand(
+        mOptimizationGuideBridge.canApplyOptimizationOnDemand(
                 Arrays.asList(new GURL[] {new GURL(TEST_URL), new GURL(TEST_URL2)}),
                 Arrays.asList(
                         new OptimizationType[] {
                             OptimizationType.LOADING_PREDICTOR, OptimizationType.DEFER_ALL_SCRIPT
                         }),
                 RequestContext.CONTEXT_PAGE_INSIGHTS_HUB,
-                callback);
+                callback,
+                requestContextMetadata);
 
         Map<OptimizationType, OptimizationGuideDecisionWithMetadata> test_url_metadata =
-                callback.getDecisionMetadataForURL(new GURL(TEST_URL));
+                callback.getDecisionMetadataForUrl(new GURL(TEST_URL));
         assertNotNull(test_url_metadata);
         OptimizationGuideDecisionWithMetadata test_url_lp_metadata =
                 test_url_metadata.get(OptimizationType.LOADING_PREDICTOR);
@@ -156,7 +172,7 @@ public class OptimizationGuideBridgeNativeUnitTest {
         assertNull(test_url_ds_metadata.getMetadata());
 
         Map<OptimizationType, OptimizationGuideDecisionWithMetadata> test_url2_metadata =
-                callback.getDecisionMetadataForURL(new GURL(TEST_URL2));
+                callback.getDecisionMetadataForUrl(new GURL(TEST_URL2));
         assertNotNull(test_url2_metadata);
         OptimizationGuideDecisionWithMetadata test_url2_lp_metadata =
                 test_url2_metadata.get(OptimizationType.LOADING_PREDICTOR);

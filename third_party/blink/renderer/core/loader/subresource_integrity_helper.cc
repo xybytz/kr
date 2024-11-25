@@ -36,7 +36,6 @@ WebFeature GetWebFeature(
       return WebFeature::kSRISignatureSuccess;
   }
   NOTREACHED();
-  return WebFeature::kSRIElementWithUnparsableIntegrityAttribute;
 }
 
 void SubresourceIntegrityHelper::DoReport(

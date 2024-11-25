@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "media/cdm/cdm_adapter.h"
 
 #include <stdint.h>
@@ -16,6 +21,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/test/task_environment.h"
 #include "media/base/cdm_callback_promise.h"
+#include "media/base/cdm_factory.h"
 #include "media/base/cdm_key_information.h"
 #include "media/base/content_decryption_module.h"
 #include "media/base/media_switches.h"
@@ -134,6 +140,11 @@ class CdmAdapterTestBase : public testing::Test,
   virtual CdmConfig GetCdmConfig() = 0;
   virtual CdmAdapter::CreateCdmFunc GetCreateCdmFunc() = 0;
 
+  void ClearCdm() {
+    cdm_helper_ = nullptr;
+    cdm_ = nullptr;
+  }
+
   int GetCdmInterfaceVersion() { return GetParam(); }
 
   // Initializes the adapter. |expected_result| tests that the call succeeds
@@ -167,7 +178,7 @@ class CdmAdapterTestBase : public testing::Test,
 
   void OnCdmCreated(ExpectedResult expected_result,
                     const scoped_refptr<ContentDecryptionModule>& cdm,
-                    const std::string& error_message) {
+                    CreateCdmStatus status) {
     if (cdm) {
       ASSERT_EQ(expected_result, SUCCESS)
           << "CDM creation succeeded unexpectedly.";
@@ -175,18 +186,19 @@ class CdmAdapterTestBase : public testing::Test,
       ASSERT_EQ(GetCdmInterfaceVersion(), cdm_adapter->GetInterfaceVersion());
       cdm_ = cdm;
     } else {
-      ASSERT_EQ(expected_result, FAILURE) << error_message;
+      ASSERT_EQ(expected_result, FAILURE)
+          << "status = " << static_cast<int>(status);
     }
   }
 
   void RunUntilIdle() { task_environment_.RunUntilIdle(); }
 
   StrictMock<MockCdmClient> cdm_client_;
-  raw_ptr<StrictMock<MockCdmAuxiliaryHelper>, DanglingUntriaged> cdm_helper_ =
-      nullptr;
 
   // Keep track of the loaded CDM.
   scoped_refptr<ContentDecryptionModule> cdm_;
+  // Owned by `cdm_`.
+  raw_ptr<StrictMock<MockCdmAuxiliaryHelper>> cdm_helper_ = nullptr;
 
   base::test::SingleThreadTaskEnvironment task_environment_;
 };
@@ -195,7 +207,7 @@ class CdmAdapterTestWithClearKeyCdm : public CdmAdapterTestBase {
  public:
   ~CdmAdapterTestWithClearKeyCdm() {
     // Clear |cdm_| before we destroy |helper_|.
-    cdm_ = nullptr;
+    ClearCdm();
     RunUntilIdle();
   }
 
@@ -333,8 +345,6 @@ class CdmAdapterTestWithMockCdm : public CdmAdapterTestBase {
   ~CdmAdapterTestWithMockCdm() override {
     // Makes sure Destroy() is called on CdmAdapter destruction.
     EXPECT_CALL(*mock_library_cdm_, DestroyCalled());
-    cdm_ = nullptr;
-    RunUntilIdle();
   }
 
   // CdmAdapterTestBase implementation.
@@ -355,8 +365,9 @@ class CdmAdapterTestWithMockCdm : public CdmAdapterTestBase {
     ASSERT_TRUE(cdm_host_proxy_);
   }
 
-  raw_ptr<MockLibraryCdm, DanglingUntriaged> mock_library_cdm_ = nullptr;
-  raw_ptr<CdmHostProxy, DanglingUntriaged> cdm_host_proxy_ = nullptr;
+  // These are both owned by `cdm_`.
+  raw_ptr<MockLibraryCdm> mock_library_cdm_ = nullptr;
+  raw_ptr<CdmHostProxy> cdm_host_proxy_ = nullptr;
 };
 
 // Instantiate test cases
@@ -494,7 +505,7 @@ TEST_P(CdmAdapterTestWithMockCdm, CreateFileIO) {
 }
 
 // CreateFileIO() will always fail if |allow_persistent_state| is false.
-TEST_P(CdmAdapterTestWithMockCdm, CreateFileIO_PersistentStateNotAllowed) {
+TEST_P(CdmAdapterTestWithMockCdm, CreateFileIOPersistentStateNotAllowed) {
   CdmConfig cdm_config = GetCdmConfig();
   InitializeWithCdmConfig(cdm_config);
 
@@ -506,7 +517,7 @@ TEST_P(CdmAdapterTestWithMockCdm, CreateFileIO_PersistentStateNotAllowed) {
 }
 
 // RequestStorageId() with version 0 (latest) is supported.
-TEST_P(CdmAdapterTestWithMockCdm, RequestStorageId_Version_0) {
+TEST_P(CdmAdapterTestWithMockCdm, RequestStorageIdVersion0) {
   CdmConfig cdm_config = GetCdmConfig();
   cdm_config.allow_persistent_state = true;
   InitializeWithCdmConfig(cdm_config);
@@ -519,7 +530,7 @@ TEST_P(CdmAdapterTestWithMockCdm, RequestStorageId_Version_0) {
 }
 
 // RequestStorageId() with version 1 is supported.
-TEST_P(CdmAdapterTestWithMockCdm, RequestStorageId_Version_1) {
+TEST_P(CdmAdapterTestWithMockCdm, RequestStorageIdVersion1) {
   CdmConfig cdm_config = GetCdmConfig();
   cdm_config.allow_persistent_state = true;
   InitializeWithCdmConfig(cdm_config);
@@ -532,7 +543,7 @@ TEST_P(CdmAdapterTestWithMockCdm, RequestStorageId_Version_1) {
 }
 
 // RequestStorageId() with version 2 is not supported.
-TEST_P(CdmAdapterTestWithMockCdm, RequestStorageId_Version_2) {
+TEST_P(CdmAdapterTestWithMockCdm, RequestStorageIdVersion2) {
   CdmConfig cdm_config = GetCdmConfig();
   cdm_config.allow_persistent_state = true;
   InitializeWithCdmConfig(cdm_config);
@@ -543,7 +554,7 @@ TEST_P(CdmAdapterTestWithMockCdm, RequestStorageId_Version_2) {
 }
 
 // RequestStorageId() will always fail if |allow_persistent_state| is false.
-TEST_P(CdmAdapterTestWithMockCdm, RequestStorageId_PersistentStateNotAllowed) {
+TEST_P(CdmAdapterTestWithMockCdm, RequestStorageIdPersistentStateNotAllowed) {
   CdmConfig cdm_config = GetCdmConfig();
   InitializeWithCdmConfig(cdm_config);
 

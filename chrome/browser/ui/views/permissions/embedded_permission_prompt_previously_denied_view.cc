@@ -44,8 +44,7 @@ std::u16string EmbeddedPermissionPromptPreviouslyDeniedView::GetWindowTitle()
   }
 
   return l10n_util::GetStringFUTF16(IDS_EMBEDDED_PROMPT_PREVIOUSLY_NOT_ALLOWED,
-                                    permission_name,
-                                    GetUrlIdentityObject().name);
+                                    permission_name);
 }
 
 void EmbeddedPermissionPromptPreviouslyDeniedView::RunButtonCallback(
@@ -83,13 +82,9 @@ EmbeddedPermissionPromptPreviouslyDeniedView::GetButtonsConfiguration() const {
       l10n_util::GetStringUTF16(IDS_EMBEDDED_PROMPT_CONTINUE_NOT_ALLOWING),
       ButtonType::kContinueNotAllowing, ui::ButtonStyle::kTonal);
 
-  if (base::FeatureList::IsEnabled(permissions::features::kOneTimePermission)) {
     buttons.emplace_back(
         l10n_util::GetStringUTF16(IDS_PERMISSION_ALLOW_THIS_TIME),
         ButtonType::kAllowThisTime, ui::ButtonStyle::kTonal, kAllowThisTimeId);
-  } else {
-    buttons.emplace_back(l10n_util::GetStringUTF16(IDS_PERMISSION_ALLOW),
-                         ButtonType::kAllow, ui::ButtonStyle::kTonal);
-  }
+
   return buttons;
 }

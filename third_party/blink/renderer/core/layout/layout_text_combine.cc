@@ -22,7 +22,7 @@
 
 namespace blink {
 
-LayoutTextCombine::LayoutTextCombine() : LayoutNGBlockFlow(nullptr) {
+LayoutTextCombine::LayoutTextCombine() : LayoutBlockFlow(nullptr) {
   SetIsAtomicInlineLevel(true);
 }
 
@@ -152,7 +152,8 @@ PhysicalRect LayoutTextCombine::ComputeTextBoundsRectForHitTest(
 }
 
 void LayoutTextCombine::ResetLayout() {
-  compressed_font_.reset();
+  compressed_font_ = Font();
+  has_compressed_font_ = false;
   scale_x_.reset();
 }
 
@@ -233,13 +234,14 @@ PhysicalRect LayoutTextCombine::RecalcContentsInkOverflow(
   LogicalRect ink_overflow(text_rect.offset.left, text_rect.offset.top,
                            text_rect.size.width, text_rect.size.height);
 
+  const WritingMode writing_mode = style.GetWritingMode();
   if (style.HasAppliedTextDecorations()) {
     // |LayoutTextCombine| does not support decorating box, as it is not
     // supported in vertical flow and text-combine is only for vertical flow.
     const LogicalRect decoration_rect = InkOverflow::ComputeDecorationOverflow(
         cursor, style, style.GetFont(),
         /* offset_in_container */ PhysicalOffset(), ink_overflow,
-        /* inline_context */ nullptr);
+        /* inline_context */ nullptr, writing_mode);
     ink_overflow.Unite(decoration_rect);
   }
 
@@ -248,9 +250,13 @@ PhysicalRect LayoutTextCombine::RecalcContentsInkOverflow(
         style, text_rect.size, ink_overflow);
   }
 
+  if (const ShadowList* text_shadow = style.TextShadow()) {
+    InkOverflow::ExpandForShadowOverflow(ink_overflow, *text_shadow,
+                                         writing_mode);
+  }
+
   PhysicalRect local_ink_overflow =
-      WritingModeConverter({style.GetWritingMode(), TextDirection::kLtr},
-                           text_rect.size)
+      WritingModeConverter({writing_mode, TextDirection::kLtr}, text_rect.size)
           .ToPhysical(ink_overflow);
   local_ink_overflow.ExpandEdgesToPixelBoundaries();
   return local_ink_overflow;
@@ -267,16 +273,17 @@ gfx::Rect LayoutTextCombine::VisualRectForPaint(
 void LayoutTextCombine::SetScaleX(float new_scale_x) {
   DCHECK_GT(new_scale_x, 0.0f);
   DCHECK(!scale_x_.has_value());
-  DCHECK(!compressed_font_.has_value());
+  DCHECK(!has_compressed_font_);
   // Note: Even if rounding, e.g. LayoutUnit::FromFloatRound(), we still have
   // gap between painted characters in text-combine-upright-value-all-002.html
   scale_x_ = new_scale_x;
 }
 
 void LayoutTextCombine::SetCompressedFont(const Font& font) {
-  DCHECK(!compressed_font_.has_value());
+  DCHECK(!has_compressed_font_);
   DCHECK(!scale_x_.has_value());
   compressed_font_ = font;
+  has_compressed_font_ = true;
 }
 
 bool LayoutTextCombine::UsingSyntheticOblique() const {

@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_DOWNLOAD_DOWNLOAD_DISPLAY_H_
 
 #include <optional>
+#include <string>
 
 namespace offline_items_collection {
 struct ContentId;
@@ -28,7 +29,7 @@ class DownloadDisplay {
     kActive,
   };
 
-  // Determines how the progress ring should be displayed in the icon.
+  // Determines how the progress ring and badge should be displayed in the icon.
   struct ProgressInfo {
     // Number of currently active downloads.
     int download_count = 0;
@@ -39,6 +40,9 @@ class DownloadDisplay {
 
     bool operator==(const ProgressInfo& other) const;
     bool operator!=(const ProgressInfo& other) const;
+
+    // Compares all fields except the percentage.
+    bool FieldsEqualExceptPercentage(const ProgressInfo& other) const;
   };
 
   // Describes updates to be made to the icon.
@@ -81,6 +85,9 @@ class DownloadDisplay {
 
   // Returns whether the details are visible.
   virtual bool IsShowingDetails() const = 0;
+
+  // Announces an accessible alert immediately.
+  virtual void AnnounceAccessibleAlertNow(const std::u16string& alert_text) = 0;
 
   // Returns whether it is currently in fullscreen and the view that hosts the
   // download display is hidden.

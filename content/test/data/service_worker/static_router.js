@@ -17,7 +17,7 @@ const composeCustomResponse = () => {
 };
 
 self.addEventListener('install', e => {
-  e.registerRouter([{
+  e.addRoutes([{
     condition: {
       urlPattern: "/service_worker/direct",
       requestMethod: "GET",
@@ -44,6 +44,16 @@ self.addEventListener('install', e => {
       urlPattern: "/service_worker/cache_*",
     },
     source: "cache"
+  }, {
+    condition: {
+      not: {not: {urlPattern: "/service_worker/not_not_match"}}
+    },
+    source: "network"
+  }, {
+    condition: {
+        urlPattern: "/service_worker/fetch_event_rule"
+    },
+    source: "fetch-event"
   }]);
   caches.open("test").then((c) => {
     const headers = new Headers();

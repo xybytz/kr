@@ -22,6 +22,7 @@ import org.chromium.base.Log;
 import org.chromium.content.R;
 import org.chromium.content.browser.picker.DateTimePickerDialog.OnDateTimeSetListener;
 import org.chromium.content.browser.picker.MultiFieldTimePickerDialog.OnMultiFieldTimeSetListener;
+import org.chromium.content_public.browser.util.DialogTypeRecorder;
 import org.chromium.ui.base.ime.TextInputType;
 
 import java.util.Arrays;
@@ -104,6 +105,7 @@ public class InputDialogContainer {
                     min,
                     max,
                     step);
+            DialogTypeRecorder.recordDialogType(DialogTypeRecorder.DialogType.DATE);
         } else if (dialogType == TextInputType.TIME) {
             showPickerDialog(
                     dialogType,
@@ -118,6 +120,7 @@ public class InputDialogContainer {
                     min,
                     max,
                     step);
+            DialogTypeRecorder.recordDialogType(DialogTypeRecorder.DialogType.TIME);
         } else if (dialogType == TextInputType.DATE_TIME
                 || dialogType == TextInputType.DATE_TIME_LOCAL) {
             showPickerDialog(
@@ -133,6 +136,7 @@ public class InputDialogContainer {
                     min,
                     max,
                     step);
+            DialogTypeRecorder.recordDialogType(DialogTypeRecorder.DialogType.DATETIME);
         } else if (dialogType == TextInputType.MONTH) {
             showPickerDialog(
                     dialogType,
@@ -147,10 +151,12 @@ public class InputDialogContainer {
                     min,
                     max,
                     step);
+            DialogTypeRecorder.recordDialogType(DialogTypeRecorder.DialogType.MONTH);
         } else if (dialogType == TextInputType.WEEK) {
             int year = WeekPicker.getISOWeekYearForDate(cal);
             int week = WeekPicker.getWeekForDate(cal);
             showPickerDialog(dialogType, year, 0, 0, 0, 0, 0, 0, week, min, max, step);
+            DialogTypeRecorder.recordDialogType(DialogTypeRecorder.DialogType.WEEK);
         }
     }
 
@@ -404,11 +410,9 @@ public class InputDialogContainer {
     }
 
     private class DateTimeListener implements OnDateTimeSetListener {
-        private final boolean mLocal;
         private final int mDialogType;
 
         public DateTimeListener(int dialogType) {
-            mLocal = dialogType == TextInputType.DATE_TIME_LOCAL;
             mDialogType = dialogType;
         }
 
@@ -461,13 +465,14 @@ public class InputDialogContainer {
             mInputActionDelegate.replaceDateTime((year - 1970) * 12 + month);
         } else if (dialogType == TextInputType.WEEK) {
             mInputActionDelegate.replaceDateTime(
-                    WeekPicker.createDateFromWeek(year, week).getTimeInMillis());
+                    (double) WeekPicker.createDateFromWeek(year, week).getTimeInMillis());
         } else if (dialogType == TextInputType.TIME) {
             mInputActionDelegate.replaceDateTime(
-                    TimeUnit.HOURS.toMillis(hourOfDay)
-                            + TimeUnit.MINUTES.toMillis(minute)
-                            + TimeUnit.SECONDS.toMillis(second)
-                            + millis);
+                    (double)
+                            (TimeUnit.HOURS.toMillis(hourOfDay)
+                                    + TimeUnit.MINUTES.toMillis(minute)
+                                    + TimeUnit.SECONDS.toMillis(second)
+                                    + millis));
         } else {
             Calendar cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
             cal.clear();
@@ -478,7 +483,7 @@ public class InputDialogContainer {
             cal.set(Calendar.MINUTE, minute);
             cal.set(Calendar.SECOND, second);
             cal.set(Calendar.MILLISECOND, millis);
-            mInputActionDelegate.replaceDateTime(cal.getTimeInMillis());
+            mInputActionDelegate.replaceDateTime((double) cal.getTimeInMillis());
         }
     }
 }

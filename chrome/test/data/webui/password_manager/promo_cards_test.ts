@@ -4,7 +4,10 @@
 
 import 'chrome://password-manager/password_manager.js';
 
-import {Page, PasswordManagerImpl, PasswordsSectionElement, PromoCardsProxyImpl, Router, SyncBrowserProxyImpl, UrlParam} from 'chrome://password-manager/password_manager.js';
+import type {PasswordsSectionElement} from 'chrome://password-manager/password_manager.js';
+import {Page, PasswordManagerImpl, PromoCardsProxyImpl, Router, SyncBrowserProxyImpl, UrlParam} from 'chrome://password-manager/password_manager.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+import {BatchUploadPasswordsEntryPoint} from 'chrome://password-manager/password_manager.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
 import {isVisible} from 'chrome://webui-test/test_util.js';
@@ -140,7 +143,7 @@ suite('PasswordsSectionTest', function() {
       description: 'Move passwords description.',
       actionButtonText: 'Move passwords',
     };
-    passwordManager.data.isOptedInAccountStorage = true;
+    passwordManager.data.isAccountStorageEnabled = true;
     passwordManager.data.groups = [createCredentialGroup({
       name: 'test.com',
       credentials: [createPasswordEntry({
@@ -167,7 +170,7 @@ suite('PasswordsSectionTest', function() {
       description: 'Move passwords description.',
       actionButtonText: 'Move passwords',
     };
-    passwordManager.data.isOptedInAccountStorage = false;
+    passwordManager.data.isAccountStorageEnabled = false;
     passwordManager.data.groups = [createCredentialGroup({
       name: 'test.com',
       credentials: [createPasswordEntry(
@@ -190,7 +193,7 @@ suite('PasswordsSectionTest', function() {
       description: 'Move passwords description.',
       actionButtonText: 'Move passwords',
     };
-    passwordManager.data.isOptedInAccountStorage = true;
+    passwordManager.data.isAccountStorageEnabled = true;
     passwordManager.data.groups = [createCredentialGroup({
       name: 'test.com',
       credentials: [createPasswordEntry(
@@ -213,7 +216,7 @@ suite('PasswordsSectionTest', function() {
       description: 'Move passwords description.',
       actionButtonText: 'Move passwords',
     };
-    passwordManager.data.isOptedInAccountStorage = true;
+    passwordManager.data.isAccountStorageEnabled = true;
 
     const password = createPasswordEntry({
       id: 1234,
@@ -246,5 +249,49 @@ suite('PasswordsSectionTest', function() {
         section.shadowRoot!.querySelector('move-passwords-dialog');
     assertTrue(!!moveDialog);
     assertTrue(isVisible(moveDialog.$.move));
+  });
+
+  test('move passwords promo visible opens batch upload', async function() {
+    loadTimeData.overrideValues({
+      isBatchUploadDesktopEnabled: true,
+    });
+
+    promoCardsProxy.promo = {
+      id: 'move_passwords_promo',
+      title: 'Move passwords promo',
+      description: 'Move passwords description.',
+      actionButtonText: 'Move passwords',
+    };
+    passwordManager.data.isAccountStorageEnabled = true;
+
+    const password = createPasswordEntry({
+      id: 1234,
+      username: 'user1',
+      password: 'sTr0nGp@@s',
+      affiliatedDomains: [createAffiliatedDomain('test.com')],
+      inProfileStore: true,
+    });
+
+    passwordManager.data.groups = [createCredentialGroup({
+      name: 'test.com',
+      credentials: [password],
+    })];
+    syncProxy.syncInfo = {
+      isEligibleForAccountStorage: true,
+      isSyncingPasswords: false,
+    };
+
+    passwordManager.setRequestCredentialsDetailsResponse([password]);
+
+    const section = await createPasswordsSection();
+    const promoCardElement = section.shadowRoot!.querySelector('promo-card');
+    assertTrue(!!promoCardElement);
+    assertTrue(isVisible(promoCardElement.$.actionButton));
+
+    promoCardElement.$.actionButton.click();
+    await flushTasks();
+
+    const entryPoint = await syncProxy.whenCalled('openBatchUpload');
+    assertEquals(BatchUploadPasswordsEntryPoint.PROMO_CARD, entryPoint);
   });
 });

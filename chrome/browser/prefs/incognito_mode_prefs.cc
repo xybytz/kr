@@ -103,7 +103,6 @@ bool IncognitoModePrefs::CanOpenBrowser(Profile* profile) {
 
     default:
       NOTREACHED();
-      return false;
   }
 }
 

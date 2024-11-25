@@ -5,13 +5,15 @@
 #ifndef IOS_CHROME_BROWSER_READING_LIST_MODEL_READING_LIST_REMOVER_HELPER_H_
 #define IOS_CHROME_BROWSER_READING_LIST_MODEL_READING_LIST_REMOVER_HELPER_H_
 
-#include "base/functional/callback.h"
-#include "base/scoped_observation.h"
-#include "base/sequence_checker.h"
-#include "components/reading_list/core/reading_list_model.h"
-#include "components/reading_list/core/reading_list_model_observer.h"
+#import "base/functional/callback.h"
+#import "base/location.h"
+#import "base/memory/raw_ptr.h"
+#import "base/scoped_observation.h"
+#import "base/sequence_checker.h"
+#import "components/reading_list/core/reading_list_model.h"
+#import "components/reading_list/core/reading_list_model_observer.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 class ReadingListDownloadService;
 
 namespace reading_list {
@@ -21,7 +23,7 @@ class ReadingListRemoverHelper : public ReadingListModelObserver {
  public:
   using Callback = base::OnceCallback<void(bool)>;
 
-  explicit ReadingListRemoverHelper(ChromeBrowserState* browser_state);
+  explicit ReadingListRemoverHelper(ProfileIOS* profile);
 
   ReadingListRemoverHelper(const ReadingListRemoverHelper&) = delete;
   ReadingListRemoverHelper& operator=(const ReadingListRemoverHelper&) = delete;
@@ -30,7 +32,8 @@ class ReadingListRemoverHelper : public ReadingListModelObserver {
 
   // Removes all Reading list items and asynchronously invoke `completion` with
   // boolean indicating success or failure.
-  void RemoveAllUserReadingListItemsIOS(Callback completion);
+  void RemoveAllUserReadingListItemsIOS(const base::Location& location,
+                                        Callback completion);
 
   // ReadingListModelObserver implementation.
   void ReadingListModelLoaded(const ReadingListModel* model) override;
@@ -43,8 +46,9 @@ class ReadingListRemoverHelper : public ReadingListModelObserver {
   void ReadlingListItemsRemoved(bool success);
 
   Callback completion_;
-  ReadingListModel* reading_list_model_ = nullptr;
-  ReadingListDownloadService* reading_list_download_service_ = nullptr;
+  base::Location location_;
+  raw_ptr<ReadingListModel> reading_list_model_ = nullptr;
+  raw_ptr<ReadingListDownloadService> reading_list_download_service_ = nullptr;
   base::ScopedObservation<ReadingListModel, ReadingListModelObserver>
       scoped_observation_{this};
 

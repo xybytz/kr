@@ -10,7 +10,6 @@
 #include "base/containers/queue.h"
 #include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/ranges/algorithm.h"
 #include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
@@ -20,6 +19,7 @@
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/common/content_client.h"
+#include "content/public/common/content_features.h"
 
 namespace content {
 
@@ -170,12 +170,18 @@ bool IsFindInPageDisabled(RenderFrameHost* rfh) {
 }
 
 bool IsUnattachedGuestView(RenderFrameHost* rfh) {
-  WebContentsImpl* web_contents =
-      static_cast<WebContentsImpl*>(WebContents::FromRenderFrameHost(rfh));
-  if (!web_contents->IsGuest())
+  if (base::FeatureList::IsEnabled(features::kGuestViewMPArch)) {
+    NOTIMPLEMENTED();
     return false;
+  } else {
+    WebContentsImpl* web_contents =
+        static_cast<WebContentsImpl*>(WebContents::FromRenderFrameHost(rfh));
+    if (!web_contents->IsGuest()) {
+      return false;
+    }
 
-  return !web_contents->GetOuterWebContents();
+    return !web_contents->GetOuterWebContents();
+  }
 }
 
 // kMinKeystrokesWithoutDelay should be high enough that script in the page
@@ -315,24 +321,6 @@ void FindRequestManager::Find(int request_id,
   // requests.
   DCHECK_GT(request_id, current_request_.id);
   DCHECK_GT(request_id, current_session_id_);
-
-  // TODO(crbug.com/1250158): Remove this when we decide how long the
-  // find-in-page delay should be.
-  if (options->new_session) {
-    base::TimeTicks now = base::TimeTicks::Now();
-    if (!last_time_typed_.is_null() &&
-        base::StartsWith(search_text, last_searched_text_)) {
-      base::TimeDelta elapsed = now - last_time_typed_;
-      // If we waited more than 5 seconds, the user probably is searching for
-      // something else now.
-      if (elapsed.InSecondsF() <= 5.f) {
-        UMA_HISTOGRAM_TIMES("WebCore.FindInPage.DurationBetweenKeystrokes",
-                            elapsed);
-      }
-    }
-    last_time_typed_ = now;
-    last_searched_text_ = search_text;
-  }
 
   if (skip_delay) {
     delayed_find_task_.Cancel();
@@ -754,7 +742,6 @@ void FindRequestManager::SendFindRequest(const FindRequest& request,
 void FindRequestManager::NotifyFindReply(int request_id, bool final_update) {
   if (request_id == kInvalidId) {
     NOTREACHED();
-    return;
   }
 
   // Ensure that replies are not reported with IDs lower than the ID of the
@@ -843,7 +830,7 @@ void FindRequestManager::AddFrame(RenderFrameHost* rfh, bool force) {
 }
 
 bool FindRequestManager::CheckFrame(RenderFrameHost* rfh) const {
-  // TODO(crbug.com/1245613): Convert IsFindInPageDisabled to a DCHECK when we
+  // TODO(crbug.com/40196212): Convert IsFindInPageDisabled to a DCHECK when we
   // replace DidFinishLoad with DidFinishNavigation in FrameObserver.
   if (!rfh || !base::Contains(find_in_page_clients_, rfh) ||
       IsFindInPageDisabled(rfh)) {

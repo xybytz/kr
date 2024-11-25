@@ -26,9 +26,11 @@
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
+#include "chrome/browser/omnibox/autocomplete_controller_emitter_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -37,7 +39,11 @@
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
+#include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/find_result_waiter.h"
@@ -57,8 +63,6 @@
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
@@ -79,6 +83,7 @@
 #include "services/network/public/mojom/cookie_manager.mojom.h"
 #include "third_party/blink/public/common/chrome_debug_urls.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/views/test/widget_activation_waiter.h"
 #include "ui/views/widget/widget_interactive_uitest_utils.h"
 
 #if BUILDFLAG(IS_WIN)
@@ -86,6 +91,7 @@
 #endif
 
 #if defined(TOOLKIT_VIEWS)
+#include "ui/views/test/widget_test_api.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #endif
@@ -176,7 +182,7 @@ class AutocompleteChangeObserver : public AutocompleteController::Observer {
  public:
   explicit AutocompleteChangeObserver(Profile* profile) {
     scoped_observation_.Observe(
-        AutocompleteControllerEmitter::GetForBrowserContext(profile));
+        AutocompleteControllerEmitterFactory::GetForBrowserContext(profile));
   }
 
   AutocompleteChangeObserver(const AutocompleteChangeObserver&) = delete;
@@ -262,7 +268,7 @@ NavigateToURLWithDispositionBlockUntilNavigationsComplete(
                "ui_test_utils::"
                "NavigateToURLWithDispositionBlockUntilNavigationsComplete",
                "params", [&](perfetto::TracedValue context) {
-                 // TODO(crbug.com/1183371): Replace this with passing more
+                 // TODO(crbug.com/40751990): Replace this with passing more
                  // parameters to TRACE_EVENT directly when available.
                  auto dict = std::move(context).WriteDictionary();
                  dict.Add("url", url);
@@ -288,8 +294,10 @@ NavigateToURLWithDispositionBlockUntilNavigationsComplete(
 
   AllBrowserTabAddedWaiter tab_added_waiter;
 
-  WebContents* web_contents = browser->OpenURL(OpenURLParams(
-      url, Referrer(), disposition, ui::PAGE_TRANSITION_TYPED, false));
+  WebContents* web_contents =
+      browser->OpenURL(OpenURLParams(url, Referrer(), disposition,
+                                     ui::PAGE_TRANSITION_TYPED, false),
+                       /*navigation_handle_callback=*/{});
   if (browser_test_flags & BROWSER_TEST_WAIT_FOR_BROWSER)
     browser = WaitForBrowserNotInSet(initial_browsers);
   if (browser_test_flags & BROWSER_TEST_WAIT_FOR_TAB)
@@ -481,6 +489,179 @@ bool WaitForMinimized(Browser* browser) {
   return minimize_waiter.Wait();
 }
 
+bool WaitForMaximized(Browser* browser) {
+  views::test::PropertyWaiter maximize_waiter(
+      base::BindRepeating(&BrowserWindow::IsMaximized,
+                          base::Unretained(browser->window())),
+      true);
+  return maximize_waiter.Wait();
+}
+
+views::AsyncWidgetRequestWaiter CreateAsyncWidgetRequestWaiter(
+    Browser& browser) {
+  auto* widget = views::Widget::GetWidgetForNativeWindow(
+      browser.window()->GetNativeWindow());
+  CHECK(widget);
+  return views::AsyncWidgetRequestWaiter(*widget);
+}
+
+void SetAndWaitForBounds(Browser& browser, const gfx::Rect& bounds) {
+  auto waiter = CreateAsyncWidgetRequestWaiter(browser);
+  auto* window = browser.window();
+  window->SetBounds(bounds);
+  waiter.Wait();
+}
+
+bool MaximizeAndWaitUntilUIUpdateDone(Browser& browser) {
+  auto waiter = ui_test_utils::CreateAsyncWidgetRequestWaiter(browser);
+  browser.window()->Maximize();
+  waiter.Wait();
+  return browser.window()->IsMaximized();
+}
+
+FullscreenWaiter::FullscreenWaiter(Browser* browser,
+                                   FullscreenWaiter::Expectation expectation)
+    : expectation_(std::move(expectation)),
+      controller_(browser->exclusive_access_manager()->fullscreen_controller()),
+      // Sometimes, the wait is called on a sequeunce, e.g.
+      // as a part of interactive_ui_tests's RunTestSequence.
+      // To handle that case, we can process pending task posted to the
+      // sequence in nested RunLoop.
+      run_loop_(base::RunLoop::Type::kNestableTasksAllowed),
+      satisfied_(IsSatisfied()) {
+  observation_.Observe(controller_);
+}
+
+FullscreenWaiter::~FullscreenWaiter() = default;
+
+void FullscreenWaiter::Wait() {
+  if (satisfied_) {
+    return;
+  }
+  run_loop_.Run();
+}
+
+void FullscreenWaiter::OnFullscreenStateChanged() {
+  // Note: In Lacros, when full screen mode changes, FullscreenController
+  // triggers WindowFullscreenStateChanged twice for the same change
+  // asynchronously. If the test code toggles fullscreen mode on and off, there
+  // is a race between the second notification of fullscreen mode on and test
+  // code toggle fullscreen mode off. Wait until the fullscreen state changes to
+  // the expected mode. See details in crbug.com/1481727.
+  if (!IsSatisfied()) {
+    return;
+  }
+  satisfied_ = true;
+  if (run_loop_.running()) {
+    run_loop_.Quit();
+  }
+}
+
+bool FullscreenWaiter::IsSatisfied() const {
+  if (expectation_.browser_fullscreen.has_value() &&
+      expectation_.browser_fullscreen.value() !=
+          controller_->IsFullscreenForBrowser()) {
+    return false;
+  }
+
+  if (expectation_.tab_fullscreen.has_value() &&
+      expectation_.tab_fullscreen.value() != controller_->IsTabFullscreen()) {
+    return false;
+  }
+
+  if (expectation_.display_id.has_value()) {
+    // Display ID is valid iff the tab fullscreen mode is active.
+    if (!controller_->IsTabFullscreen()) {
+      return false;
+    }
+    if (expectation_.display_id.value() !=
+        FullscreenController::GetDisplayId(
+            *controller_->exclusive_access_tab())) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+void ToggleFullscreenModeAndWait(Browser* browser) {
+  // The waiting condition is following the current implementation.
+  // If the mode is either browser/tab fullscreen, it will be existed.
+  // Otherwise, entering into browser fullscreen.
+  bool current = browser->exclusive_access_manager()->context()->IsFullscreen();
+  FullscreenWaiter waiter(browser, current ? FullscreenWaiter::kNoFullscreen
+                                           : FullscreenWaiter::Expectation{
+                                                 .browser_fullscreen = true});
+  chrome::ToggleFullscreenMode(browser);
+  waiter.Wait();
+}
+
+void WaitUntilBrowserBecomeActive(Browser* browser) {
+  CHECK(browser);
+  views::Widget* widget =
+      BrowserView::GetBrowserViewForBrowser(browser)->GetWidget();
+  views::test::WaitForWidgetActive(widget, /*active=*/true);
+}
+
+bool IsBrowserActive(Browser* browser) {
+  CHECK(browser);
+  views::Widget* widget =
+      BrowserView::GetBrowserViewForBrowser(browser)->GetWidget();
+  return widget->native_widget_active();
+}
+
+Browser* OpenNewEmptyWindowAndWaitUntilActivated(
+    Profile* profile,
+    bool should_trigger_session_restore) {
+  BrowserChangeObserver new_browser_observer(
+      nullptr, ui_test_utils::BrowserChangeObserver::ChangeType::kAdded);
+  chrome::NewEmptyWindow(profile, should_trigger_session_restore);
+  Browser* new_browser = new_browser_observer.Wait();
+  WaitUntilBrowserBecomeActive(new_browser);
+  return new_browser;
+}
+
+BrowserSetLastActiveWaiter::BrowserSetLastActiveWaiter(
+    Browser* browser,
+    bool wait_for_set_last_active_observed)
+    : browser_(browser),
+      wait_for_set_last_active_observed_(wait_for_set_last_active_observed) {
+  BrowserList::AddObserver(this);
+  if (chrome::FindLastActive() == browser_ &&
+      !wait_for_set_last_active_observed_) {
+    satisfied_ = true;
+  }
+}
+
+BrowserSetLastActiveWaiter::~BrowserSetLastActiveWaiter() {
+  BrowserList::RemoveObserver(this);
+}
+
+// Runs a loop until |browser_| becomes the last active browser.
+void BrowserSetLastActiveWaiter::Wait() {
+  if (satisfied_) {
+    return;
+  }
+
+  run_loop_.Run();
+}
+
+// BrowserListObserver:
+void BrowserSetLastActiveWaiter::OnBrowserSetLastActive(Browser* browser) {
+  if (browser == browser_) {
+    satisfied_ = true;
+    if (run_loop_.running()) {
+      run_loop_.Quit();
+    }
+  }
+}
+
+void WaitForBrowserSetLastActive(Browser* browser,
+                                 bool wait_for_set_last_active_observed) {
+  BrowserSetLastActiveWaiter waiter(browser, wait_for_set_last_active_observed);
+  waiter.Wait();
+}
+
 void SendToOmniboxAndSubmit(Browser* browser,
                             const std::string& input,
                             base::TimeTicks match_selection_timestamp) {
@@ -563,7 +744,8 @@ void AllTabsObserver::Wait() {
       << "Subclasses must call `AddAllBrowsers()` during construction";
 
   if (!condition_met_) {
-    run_loop_ = std::make_unique<base::RunLoop>();
+    run_loop_ = std::make_unique<base::RunLoop>(
+        base::RunLoop::Type::kNestableTasksAllowed);
     run_loop_->Run();
     run_loop_.reset();
   }
@@ -638,15 +820,6 @@ AllTabsObserver::TabNavigationMapEntry::~TabNavigationMapEntry() = default;
 
 UrlLoadObserver::UrlLoadObserver(const GURL& url) : url_(url) {
   AddAllBrowsers();
-}
-
-UrlLoadObserver::UrlLoadObserver(
-    const GURL& url,
-    const content::NotificationSource& unused_source)
-    : UrlLoadObserver(url) {
-  // For whatever reason, CHECK_EQ doesn't pick up the overloaded == .
-  CHECK(unused_source == content::NotificationService::AllSources())
-      << "does not support filtering by source";
 }
 
 UrlLoadObserver::~UrlLoadObserver() = default;
@@ -878,6 +1051,28 @@ bool CheckWaiter::Check() {
     std::move(quit_).Run();
   }
   return true;
+}
+
+ViewBoundsWaiter::ViewBoundsWaiter(views::View* observed_view)
+    : observed_view_(observed_view) {
+  observed_view_->AddObserver(this);
+}
+
+ViewBoundsWaiter::~ViewBoundsWaiter() {
+  observed_view_->RemoveObserver(this);
+}
+
+void ViewBoundsWaiter::WaitForNonEmptyBounds() {
+  if (!observed_view_->bounds().IsEmpty()) {
+    return;
+  }
+  run_loop_.Run();
+}
+
+void ViewBoundsWaiter::OnViewBoundsChanged(views::View* observed_view) {
+  if (!observed_view_->bounds().IsEmpty()) {
+    run_loop_.Quit();
+  }
 }
 
 }  // namespace ui_test_utils

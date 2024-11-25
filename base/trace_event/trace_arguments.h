@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40284755): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
+
 #ifndef BASE_TRACE_EVENT_TRACE_ARGUMENTS_H_
 #define BASE_TRACE_EVENT_TRACE_ARGUMENTS_H_
 
@@ -142,19 +147,13 @@ class TraceEventMemoryOverhead;
 // these objects will be owned by the TraceArguments instance that points
 // to them.
 class BASE_EXPORT ConvertableToTraceFormat
-#if BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
     : public perfetto::DebugAnnotation
-#endif
 {
  public:
   ConvertableToTraceFormat() = default;
   ConvertableToTraceFormat(const ConvertableToTraceFormat&) = delete;
   ConvertableToTraceFormat& operator=(const ConvertableToTraceFormat&) = delete;
-#if BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
   ~ConvertableToTraceFormat() override = default;
-#else
-  virtual ~ConvertableToTraceFormat() = default;
-#endif
 
   // Append the class info to the provided |out| string. The appended
   // data must be a valid JSON object. Strings must be properly quoted, and
@@ -179,10 +178,8 @@ class BASE_EXPORT ConvertableToTraceFormat
 
   virtual void EstimateTraceMemoryOverhead(TraceEventMemoryOverhead* overhead);
 
-#if BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
   // DebugAnnotation implementation.
   void Add(perfetto::protos::pbzero::DebugAnnotation*) const override;
-#endif
 };
 
 const int kTraceMaxNumArgs = 2;
@@ -576,8 +573,7 @@ class BASE_EXPORT StringStorage {
   // enough, but the compiler will then complaing about inlined constructors
   // and destructors being too complex (!), resulting in larger code for no
   // good reason.
-  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
-  // #constexpr-ctor-field-initializer
+  // RAW_PTR_EXCLUSION: As above, inlining bloats code for no good reason.
   RAW_PTR_EXCLUSION Data* data_ = nullptr;
 };
 

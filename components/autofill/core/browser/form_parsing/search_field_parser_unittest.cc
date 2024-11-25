@@ -11,13 +11,12 @@
 
 namespace autofill {
 
-class SearchFieldTest
-    : public FormFieldTestBase,
-      public testing::TestWithParam<PatternProviderFeatureState> {
+class SearchFieldParserTest : public FormFieldParserTestBase,
+                              public testing::Test {
  public:
-  SearchFieldTest() : FormFieldTestBase(GetParam()) {}
-  SearchFieldTest(const SearchFieldTest&) = delete;
-  SearchFieldTest& operator=(const SearchFieldTest&) = delete;
+  SearchFieldParserTest() = default;
+  SearchFieldParserTest(const SearchFieldParserTest&) = delete;
+  SearchFieldParserTest& operator=(const SearchFieldParserTest&) = delete;
 
  protected:
   std::unique_ptr<FormFieldParser> Parse(ParsingContext& context,
@@ -26,21 +25,16 @@ class SearchFieldTest
   }
 };
 
-INSTANTIATE_TEST_SUITE_P(
-    SearchFieldTest,
-    SearchFieldTest,
-    ::testing::ValuesIn(PatternProviderFeatureState::All()));
-
-TEST_P(SearchFieldTest, ParseSearchTerm) {
+TEST_F(SearchFieldParserTest, ParseSearchTerm) {
   AddTextFormFieldData("search", "Search", SEARCH_TERM);
 
-  ClassifyAndVerify(ParseResult::PARSED);
+  ClassifyAndVerify(ParseResult::kParsed);
 }
 
-TEST_P(SearchFieldTest, ParseNonSearchTerm) {
+TEST_F(SearchFieldParserTest, ParseNonSearchTerm) {
   AddTextFormFieldData("address", "Address", UNKNOWN_TYPE);
 
-  ClassifyAndVerify(ParseResult::NOT_PARSED);
+  ClassifyAndVerify(ParseResult::kNotParsed);
 }
 
 }  // namespace autofill

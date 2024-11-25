@@ -2,12 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/342213636): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "content/browser/media/media_internals.h"
 
 #include <stddef.h>
 
 #include <list>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 
@@ -53,7 +59,7 @@ namespace content {
 
 namespace {
 
-std::u16string SerializeUpdate(base::StringPiece function,
+std::u16string SerializeUpdate(std::string_view function,
                                const base::ValueView value) {
   base::ValueView args[] = {value};
   return content::WebUI::GetJavascriptCall(function, args);
@@ -502,29 +508,9 @@ void MediaInternals::SendGeneralAudioInformation() {
       GetContentClient()->browser()->ShouldSandboxAudioService());
 #if BUILDFLAG(CHROME_WIDE_ECHO_CANCELLATION)
   std::string chrome_wide_echo_cancellation_value_string =
-      media::IsChromeWideEchoCancellationEnabled()
-          ? base::StrCat(
-                {"Enabled, minimize_resampling = ",
-                 media::kChromeWideEchoCancellationMinimizeResampling.Get()
-                     ? "true"
-                     : "false",
-                 ", allow_all_sample_rates = ",
-                 media::kChromeWideEchoCancellationAllowAllSampleRates.Get()
-                     ? "true"
-                     : "false"})
-          : "Disabled";
+      media::IsChromeWideEchoCancellationEnabled() ? "Enabled" : "Disabled";
   audio_info_data.Set(media::kChromeWideEchoCancellation.name,
                       base::Value(chrome_wide_echo_cancellation_value_string));
-
-  std::string decrease_processing_audio_fifo_size_value_string =
-      base::FeatureList::IsEnabled(media::kDecreaseProcessingAudioFifoSize)
-          ? base::StrCat(
-                {"Enabled, fifo_size = ",
-                 base::NumberToString(media::GetProcessingAudioFifoSize())})
-          : "Disabled";
-  audio_info_data.Set(
-      media::kDecreaseProcessingAudioFifoSize.name,
-      base::Value(decrease_processing_audio_fifo_size_value_string));
 #endif
   std::u16string audio_info_update =
       SerializeUpdate("media.updateGeneralAudioInformation", audio_info_data);
@@ -685,8 +671,8 @@ void MediaInternals::EraseSavedEvents(RenderProcessHost* host) {
 }
 
 void MediaInternals::UpdateAudioLog(AudioLogUpdateType type,
-                                    base::StringPiece cache_key,
-                                    base::StringPiece function,
+                                    std::string_view cache_key,
+                                    std::string_view function,
                                     const base::Value::Dict& value) {
   {
     base::AutoLock auto_lock(lock_);

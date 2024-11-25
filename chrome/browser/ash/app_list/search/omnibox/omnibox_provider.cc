@@ -16,11 +16,11 @@
 #include "chrome/browser/ash/app_list/search/omnibox/omnibox_result.h"
 #include "chrome/browser/ash/app_list/search/omnibox/omnibox_util.h"
 #include "chrome/browser/ash/app_list/search/omnibox/open_tab_result.h"
+#include "chrome/browser/ash/app_list/search/search_provider.h"
 #include "chrome/browser/ash/app_list/search/types.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_provider_client.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
-#include "chrome/browser/chromeos/launcher_search/search_util.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -30,6 +30,7 @@
 #include "components/prefs/pref_service.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "third_party/metrics_proto/omnibox_focus_type.pb.h"
+#include "third_party/omnibox_proto/answer_type.pb.h"
 #include "url/gurl.h"
 
 namespace app_list {
@@ -40,18 +41,8 @@ using ::ash::string_matching::TokenizedString;
 
 // Returns true if the match is an answer, including calculator answers.
 bool IsAnswer(const AutocompleteMatch& match) {
-  return match.answer.has_value() ||
+  return match.answer_type != omnibox::ANSWER_TYPE_UNSPECIFIED ||
          match.type == AutocompleteMatchType::CALCULATOR;
-}
-
-int ProviderTypes() {
-  // We use all the default providers except for the document provider, which
-  // suggests Drive files on enterprise devices. This is disabled to avoid
-  // duplication with search results from DriveFS.
-  int providers = AutocompleteClassifier::DefaultOmniboxProviders() &
-                  ~AutocompleteProvider::TYPE_DOCUMENT;
-  providers |= AutocompleteProvider::TYPE_OPEN_TAB;
-  return providers;
 }
 
 }  //  namespace
@@ -59,8 +50,10 @@ int ProviderTypes() {
 // Control category is kept default intentionally as we always need to get
 // answer cards results from Omnibox.
 OmniboxProvider::OmniboxProvider(Profile* profile,
-                                 AppListControllerDelegate* list_controller)
-    : profile_(profile),
+                                 AppListControllerDelegate* list_controller,
+                                 int provider_types)
+    : SearchProvider(SearchCategory::kOmnibox),
+      profile_(profile),
       list_controller_(list_controller),
       favicon_cache_(FaviconServiceFactory::GetForProfile(
                          profile,
@@ -70,7 +63,7 @@ OmniboxProvider::OmniboxProvider(Profile* profile,
                          ServiceAccessType::EXPLICIT_ACCESS)) {
   controller_ = std::make_unique<AutocompleteController>(
       std::make_unique<ChromeAutocompleteProviderClient>(profile),
-      ProviderTypes(), /*is_cros_launcher=*/true),
+      provider_types, /*is_cros_launcher=*/true),
   controller_->AddObserver(this);
 }
 
@@ -127,7 +120,7 @@ void OmniboxProvider::PopulateFromACResult(const AutocompleteResult& result) {
     }
 
     if (match.type == AutocompleteMatchType::OPEN_TAB) {
-      // Filters out open tab results if web in disabled in launcher search
+      // Filters out open tab results if web is disabled in launcher search
       // controls.
       if (ash::features::IsLauncherSearchControlEnabled() &&
           !IsControlCategoryEnabled(profile_, ControlCategory::kWeb)) {
@@ -136,12 +129,12 @@ void OmniboxProvider::PopulateFromACResult(const AutocompleteResult& result) {
       DCHECK(last_tokenized_query_.has_value());
       new_results.emplace_back(std::make_unique<OpenTabResult>(
           profile_, list_controller_,
-          crosapi::CreateResult(
-              match, controller_.get(), &favicon_cache_,
-              BookmarkModelFactory::GetForBrowserContext(profile_), input_),
+          CreateResult(match, controller_.get(), &favicon_cache_,
+                       BookmarkModelFactory::GetForBrowserContext(profile_),
+                       input_),
           last_tokenized_query_.value()));
     } else if (!IsAnswer(match)) {
-      // Filters out omnibox results if web in disabled in launcher search
+      // Filters out omnibox results if web is disabled in launcher search
       // controls.
       if (ash::features::IsLauncherSearchControlEnabled() &&
           !IsControlCategoryEnabled(profile_, ControlCategory::kWeb)) {
@@ -149,15 +142,14 @@ void OmniboxProvider::PopulateFromACResult(const AutocompleteResult& result) {
       }
       list_results.emplace_back(std::make_unique<OmniboxResult>(
           profile_, list_controller_,
-          crosapi::CreateResult(
-              match, controller_.get(), &favicon_cache_,
-              BookmarkModelFactory::GetForBrowserContext(profile_), input_),
+          CreateResult(match, controller_.get(), &favicon_cache_,
+                       BookmarkModelFactory::GetForBrowserContext(profile_),
+                       input_),
           last_query_));
     } else {
       new_results.emplace_back(std::make_unique<OmniboxAnswerResult>(
           profile_, list_controller_,
-          crosapi::CreateAnswerResult(match, controller_.get(), last_query_,
-                                      input_),
+          CreateAnswerResult(match, controller_.get(), last_query_, input_),
           last_query_));
     }
   }

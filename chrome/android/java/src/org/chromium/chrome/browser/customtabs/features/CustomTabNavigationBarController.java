@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.customtabs.features;
 
 import android.content.Context;
+import android.graphics.Color;
 import android.os.Build;
 import android.view.Window;
 
@@ -12,6 +13,8 @@ import androidx.annotation.Nullable;
 
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
+import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
+import org.chromium.chrome.browser.ui.google_bottom_bar.GoogleBottomBarCoordinator;
 import org.chromium.ui.UiUtils;
 import org.chromium.ui.util.ColorUtils;
 
@@ -24,13 +27,38 @@ public class CustomTabNavigationBarController {
 
     private CustomTabNavigationBarController() {}
 
-    /** Sets the navigation bar color and navigation divider color according to intent extras. */
+    /**
+     * Sets the navigation bar color and navigation divider color according to intent extras, or
+     * whether CCT is drawing edge to edge
+     *
+     * @param window The activity window.
+     * @param intentDataProvider The {@link BrowserServicesIntentDataProvider} used in CCT.
+     * @param context The current Android context.
+     * @param isEdgeToEdge Whether CCT is drawing edge to edge.
+     */
     public static void update(
-            Window window, BrowserServicesIntentDataProvider intentDataProvider, Context context) {
+            Window window,
+            BrowserServicesIntentDataProvider intentDataProvider,
+            Context context,
+            boolean isEdgeToEdge) {
+        // When drawing edge to edge, always use transparent color for the navigation bar.
+        if (isEdgeToEdge) {
+            updateBarColor(window, Color.TRANSPARENT, false, false);
+            return;
+        }
+
         Integer navigationBarColor = intentDataProvider.getColorProvider().getNavigationBarColor();
         Integer navigationBarDividerColor =
                 intentDataProvider.getColorProvider().getNavigationBarDividerColor();
-
+        // TODO(b/300419189): Pass the CCT Top Bar Color in AGSA intent after Page Insights Hub is
+        // launched
+        if (GoogleBottomBarCoordinator.isFeatureEnabled()
+                && CustomTabsConnection.getInstance()
+                        .shouldEnableGoogleBottomBarForIntent(intentDataProvider)) {
+            navigationBarColor = context.getColor(R.color.google_bottom_bar_background_color);
+            navigationBarDividerColor =
+                    context.getColor(R.color.google_bottom_bar_background_color);
+        }
         // PCCT is deemed incapable of system dark button support due to the way it implements
         // partial height (window coordinate translation). We do the darkening ourselves.
         boolean supportsDarkButtons =

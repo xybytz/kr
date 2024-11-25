@@ -5,12 +5,13 @@
 #ifndef SERVICES_NETWORK_SHARED_STORAGE_SHARED_STORAGE_TEST_UTILS_H_
 #define SERVICES_NETWORK_SHARED_STORAGE_SHARED_STORAGE_TEST_UTILS_H_
 
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "net/test/embedded_test_server/embedded_test_server.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "services/network/public/mojom/shared_storage.mojom.h"
 
 namespace network {
 
@@ -36,6 +37,40 @@ class SharedStorageRequestCount {
   static size_t count_;
 };
 
+network::mojom::SharedStorageModifierMethodPtr MojomSetMethod(
+    const std::u16string& key,
+    const std::u16string& value,
+    bool ignore_if_present);
+
+network::mojom::SharedStorageModifierMethodPtr MojomAppendMethod(
+    const std::u16string& key,
+    const std::u16string& value);
+
+network::mojom::SharedStorageModifierMethodPtr MojomDeleteMethod(
+    const std::u16string& key);
+
+network::mojom::SharedStorageModifierMethodPtr MojomClearMethod();
+
+// Wraps `mojom::SharedStorageModifierMethodPtr` to use gmock matchers.
+struct SharedStorageMethodWrapper {
+  explicit SharedStorageMethodWrapper(
+      mojom::SharedStorageModifierMethodPtr method);
+
+  SharedStorageMethodWrapper(const SharedStorageMethodWrapper& other);
+  SharedStorageMethodWrapper& operator=(
+      const SharedStorageMethodWrapper& other);
+
+  ~SharedStorageMethodWrapper();
+
+  friend bool operator==(const SharedStorageMethodWrapper& a,
+                         const SharedStorageMethodWrapper& b) = default;
+
+  mojom::SharedStorageModifierMethodPtr method;
+};
+
+std::ostream& operator<<(std::ostream& os,
+                         const SharedStorageMethodWrapper& wrapper);
+
 class SharedStorageResponse : public net::test_server::BasicHttpResponse {
  public:
   explicit SharedStorageResponse(std::string shared_storage_write);
@@ -53,9 +88,9 @@ class SharedStorageResponse : public net::test_server::BasicHttpResponse {
       base::WeakPtr<net::test_server::HttpResponseDelegate> delegate) override;
 
  private:
-  absl::optional<std::string> shared_storage_write_;
+  std::optional<std::string> shared_storage_write_;
   net::HttpStatusCode code_ = net::HTTP_OK;
-  absl::optional<std::string> new_location_;
+  std::optional<std::string> new_location_;
 };
 
 // Sends a response with the "Shared-Storage-Write" header, with value

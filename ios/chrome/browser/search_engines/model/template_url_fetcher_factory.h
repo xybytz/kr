@@ -5,22 +5,20 @@
 #ifndef IOS_CHROME_BROWSER_SEARCH_ENGINES_MODEL_TEMPLATE_URL_FETCHER_FACTORY_H_
 #define IOS_CHROME_BROWSER_SEARCH_ENGINES_MODEL_TEMPLATE_URL_FETCHER_FACTORY_H_
 
-#include <memory>
+#import <memory>
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 class TemplateURLFetcher;
 
 namespace ios {
 // Singleton that owns all TemplateURLFetchers and associates them with
-// ChromeBrowserState.
+// Profile.
 class TemplateURLFetcherFactory : public BrowserStateKeyedServiceFactory {
  public:
-  static TemplateURLFetcher* GetForBrowserState(
-      ChromeBrowserState* browser_state);
-
+  static TemplateURLFetcher* GetForProfile(ProfileIOS* profile);
   static TemplateURLFetcherFactory* GetInstance();
 
   TemplateURLFetcherFactory(const TemplateURLFetcherFactory&) = delete;

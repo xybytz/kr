@@ -9,8 +9,11 @@
 
 @protocol IncognitoGridMediatorDelegate;
 @class IncognitoReauthSceneAgent;
-@protocol TabCollectionConsumer;
-class PrefService;
+@protocol TabGroupsCommands;
+
+namespace signin {
+class IdentityManager;
+}
 
 // Mediates between model layer and incognito grid UI layer.
 @interface IncognitoGridMediator : BaseGridMediator
@@ -19,6 +22,10 @@ class PrefService;
 @property(nonatomic, weak) id<IncognitoGridMediatorDelegate> incognitoDelegate;
 // The reauth scene agent to handle the button enabled state.
 @property(nonatomic, weak) IncognitoReauthSceneAgent* reauthSceneAgent;
+
+// Initializes the capabilities observer to track changes to Family Link state.
+- (void)initializeFamilyLinkUserCapabilitiesObserver:
+    (signin::IdentityManager*)identityManager;
 
 @end
 

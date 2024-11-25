@@ -19,12 +19,14 @@ import org.chromium.base.ObserverList;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.logo.LogoBridge.Logo;
 import org.chromium.chrome.browser.logo.LogoBridge.LogoObserver;
+import org.chromium.chrome.browser.logo.LogoCoordinator.VisibilityObserver;
 import org.chromium.chrome.browser.preferences.ChromeSharedPreferences;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.components.image_fetcher.ImageFetcher;
 import org.chromium.components.image_fetcher.ImageFetcherConfig;
 import org.chromium.components.image_fetcher.ImageFetcherFactory;
+import org.chromium.components.search_engines.TemplateUrl;
 import org.chromium.components.search_engines.TemplateUrlService.TemplateUrlServiceObserver;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.ui.base.PageTransition;
@@ -74,11 +76,7 @@ public class LogoMediator implements TemplateUrlServiceObserver {
     private LogoBridge mLogoBridge;
     private ImageFetcher mImageFetcher;
     private final Callback<LoadUrlParams> mLogoClickedCallback;
-    private final Callback<LogoBridge.Logo> mOnLogoAvailableRunnable;
     private boolean mHasLogoLoadedForCurrentSearchEngine;
-    private final boolean mShouldFetchDoodle;
-    private boolean mIsParentSurfaceShown; // This value should always be true when this class
-    // is used by NTP.
     private final LogoCoordinator.VisibilityObserver mVisibilityObserver;
     private final CachedTintedBitmap mDefaultGoogleLogo;
     private boolean mShouldShowLogo;
@@ -86,6 +84,7 @@ public class LogoMediator implements TemplateUrlServiceObserver {
     private String mOnLogoClickUrl;
     private String mAnimatedLogoUrl;
     private boolean mShouldRecordLoadTime = true;
+    private String mSearchEngineKeyword;
 
     private final ObserverList<LogoCoordinator.VisibilityObserver> mVisibilityObservers =
             new ObserverList<>();
@@ -96,43 +95,40 @@ public class LogoMediator implements TemplateUrlServiceObserver {
      * @param context Used to load colors and resources.
      * @param logoClickedCallback Supplies the StartSurface's parent tab.
      * @param logoModel The model that is required to build the logo on start surface or ntp.
-     * @param shouldFetchDoodle Whether to fetch doodle if there is.
      * @param onLogoAvailableCallback The callback for when logo is available.
-     * @param isParentSurfaceShown Whether Start surface homepage or NTP is shown. This value
-     *                             is true when this class is used by NTP; while used by Start,
-     *                             it's only true on Start homepage.
      * @param visibilityObserver Observer object monitoring logo visibility.
      * @param defaultGoogleLogo The google logo shared across all NTPs when Google is the default
-     *                          search engine.
+     *     search engine.
      */
     LogoMediator(
             Context context,
             Callback<LoadUrlParams> logoClickedCallback,
             PropertyModel logoModel,
-            boolean shouldFetchDoodle,
-            Callback<LogoBridge.Logo> onLogoAvailableCallback,
-            boolean isParentSurfaceShown,
-            LogoCoordinator.VisibilityObserver visibilityObserver,
+            Callback<Logo> onLogoAvailableCallback,
+            VisibilityObserver visibilityObserver,
             CachedTintedBitmap defaultGoogleLogo) {
         mContext = context;
         mLogoModel = logoModel;
         mLogoClickedCallback = logoClickedCallback;
-        mShouldFetchDoodle = shouldFetchDoodle;
-        mOnLogoAvailableRunnable = onLogoAvailableCallback;
-        mIsParentSurfaceShown = isParentSurfaceShown;
         mVisibilityObserver = visibilityObserver;
         mVisibilityObservers.addObserver(mVisibilityObserver);
         mDefaultGoogleLogo = defaultGoogleLogo;
+        mLogoModel.set(LogoProperties.LOGO_AVAILABLE_CALLBACK, onLogoAvailableCallback);
     }
 
     /**
-     * Initialize the mediator with the components that had native initialization dependencies,
-     * i.e. Profile..
+     * Initialize the mediator with the components that had native initialization dependencies, i.e.
+     * Profile..
+     *
+     * @param profile The Profile associated with this Logo component.
      */
-    void initWithNative() {
-        if (mProfile != null) return;
+    void initWithNative(Profile profile) {
+        if (mProfile != null) {
+            assert false : "Attempting to initialize LogoMediator twice";
+            return;
+        }
 
-        mProfile = Profile.getLastUsedRegularProfile();
+        mProfile = profile;
         updateVisibility();
 
         if (mShouldShowLogo) {
@@ -143,38 +139,36 @@ public class LogoMediator implements TemplateUrlServiceObserver {
         TemplateUrlServiceFactory.getForProfile(mProfile).addObserver(this);
     }
 
-    /** Update the logo based on default search engine changes.*/
+    /** Update the logo based on default search engine changes. */
     @Override
     public void onTemplateURLServiceChanged() {
+        TemplateUrl defaultSearchEngineTemplateUrl =
+                TemplateUrlServiceFactory.getForProfile(mProfile)
+                        .getDefaultSearchEngineTemplateUrl();
+        if (defaultSearchEngineTemplateUrl != null) {
+            String currentSearchEngineKeyword = defaultSearchEngineTemplateUrl.getKeyword();
+            if (mSearchEngineKeyword != null
+                    && mSearchEngineKeyword.equals(currentSearchEngineKeyword)) {
+                return;
+            }
+            mSearchEngineKeyword = currentSearchEngineKeyword;
+        }
+
         mHasLogoLoadedForCurrentSearchEngine = false;
         loadSearchProviderLogoWithAnimation();
     }
 
-    /** Force to load the search provider logo with animation enabled.*/
+    /** Force to load the search provider logo with animation enabled. */
     void loadSearchProviderLogoWithAnimation() {
-        updateVisibilityAndMaybeCleanUp(
-                mIsParentSurfaceShown, /* shouldDestroyBridge= */ false, true);
+        updateVisibility(/* animationEnabled= */ true);
     }
 
     /**
-     * If it's on Start surface homepage or on NTP, load search provider logo; If it's not on Start
-     * surface homepage, destroy the part of LogoBridge which includes mImageFetcher.
+     * Loads the search provider logo.
      *
-     * @param isParentSurfaceShown Whether Start surface homepage or NTP is shown. This value
-     *                             should always be true when this class is used by NTP.
-     * @param shouldDestroyBridge Whether to destroy the part of LogoBridge for saving memory. This
-     *                              value should always be false when this class is used by NTP.
-     *                              TODO(crbug.com/1315676): Remove this variable once the refactor
-     *                              is launched and StartSurfaceState is removed. Now we check this
-     *                              because there are some intermediate StartSurfaceStates,
-     *                              i.e. SHOWING_START.
      * @param animationEnabled Whether to enable the fade in animation.
      */
-    void updateVisibilityAndMaybeCleanUp(
-            boolean isParentSurfaceShown, boolean shouldDestroyBridge, boolean animationEnabled) {
-        assert !isParentSurfaceShown || !shouldDestroyBridge;
-
-        mIsParentSurfaceShown = isParentSurfaceShown;
+    void updateVisibility(boolean animationEnabled) {
         updateVisibility();
 
         if (mShouldShowLogo) {
@@ -183,10 +177,6 @@ public class LogoMediator implements TemplateUrlServiceObserver {
             } else {
                 mIsLoadPending = true;
             }
-        } else if (shouldDestroyBridge && mLogoBridge != null) {
-            mHasLogoLoadedForCurrentSearchEngine = false;
-            // Destroy the part of logoBridge when hiding Start surface homepage to save memory.
-            cleanUp();
         }
     }
 
@@ -231,13 +221,6 @@ public class LogoMediator implements TemplateUrlServiceObserver {
         mLogoModel.set(LogoProperties.ANIMATION_ENABLED, animationEnabled);
         showSearchProviderInitialView();
 
-        // If default search engine is google and doodle is not supported, doesn't bother to fetch
-        // logo image.
-        if (TemplateUrlServiceFactory.getForProfile(mProfile).isDefaultSearchEngineGoogle()
-                && !mShouldFetchDoodle) {
-            return;
-        }
-
         if (mLogoBridge == null) {
             mLogoBridge = new LogoBridge(mProfile);
             mImageFetcher =
@@ -263,10 +246,6 @@ public class LogoMediator implements TemplateUrlServiceObserver {
                                 LogoProperties.LOGO_CLICK_HANDLER,
                                 LogoMediator.this::onLogoClicked);
                         mLogoModel.set(LogoProperties.LOGO, logo);
-
-                        if (mOnLogoAvailableRunnable != null) {
-                            mOnLogoAvailableRunnable.onResult(logo);
-                        }
                     }
                 });
     }
@@ -283,7 +262,7 @@ public class LogoMediator implements TemplateUrlServiceObserver {
                                 .doesDefaultSearchEngineHaveLogo()
                         : ChromeSharedPreferences.getInstance()
                                 .readBoolean(APP_LAUNCH_SEARCH_ENGINE_HAD_LOGO, true);
-        mShouldShowLogo = mIsParentSurfaceShown && doesDseHaveLogo;
+        mShouldShowLogo = doesDseHaveLogo;
         mLogoModel.set(LogoProperties.VISIBILITY, mShouldShowLogo);
         for (LogoCoordinator.VisibilityObserver observer : mVisibilityObservers) {
             observer.onLogoVisibilityChanged();
@@ -357,7 +336,7 @@ public class LogoMediator implements TemplateUrlServiceObserver {
                             }
                             if (mShouldRecordLoadTime) {
                                 long loadTime = System.currentTimeMillis() - loadTimeStart;
-                                RecordHistogram.recordMediumTimesHistogram(
+                                RecordHistogram.deprecatedRecordMediumTimesHistogram(
                                         LOGO_SHOWN_TIME_UMA_NAME, loadTime);
                                 // Only record the load time once per NTP, for the first logo we
                                 // got, whether that came from cache or not.
@@ -379,7 +358,7 @@ public class LogoMediator implements TemplateUrlServiceObserver {
         mLogoBridge.getCurrentLogo(wrapperCallback);
     }
 
-    // TODO(crbug.com/1394983): Remove the following ForTesting methods if possible.
+    // TODO(crbug.com/40881870): Remove the following ForTesting methods if possible.
     void setHasLogoLoadedForCurrentSearchEngineForTesting(
             boolean hasLogoLoadedForCurrentSearchEngine) {
         mHasLogoLoadedForCurrentSearchEngine = hasLogoLoadedForCurrentSearchEngine;
@@ -399,6 +378,10 @@ public class LogoMediator implements TemplateUrlServiceObserver {
 
     void setOnLogoClickUrlForTesting(String onLogoClickUrl) {
         mOnLogoClickUrl = onLogoClickUrl;
+    }
+
+    void resetSearchEngineKeywordForTesting() {
+        mSearchEngineKeyword = null;
     }
 
     ImageFetcher getImageFetcherForTesting() {

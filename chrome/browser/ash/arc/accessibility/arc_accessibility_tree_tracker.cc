@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ash/arc/accessibility/arc_accessibility_tree_tracker.h"
 
+#include <map>
 #include <memory>
 #include <utility>
 
@@ -19,7 +20,6 @@
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
-#include "base/containers/cxx20_erase.h"
 #include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
@@ -137,7 +137,6 @@ FromMojomResponseToAutomationResponse(
       return SetNativeChromeVoxResponse::kNeedDeprecationConfirmation;
     case MojomResponse::INVALID_ENUM_VALUE:
       NOTREACHED();
-      return SetNativeChromeVoxResponse::kFailure;
   }
 }
 
@@ -544,7 +543,7 @@ void ArcAccessibilityTreeTracker::OnWindowDestroying(aura::Window* window) {
   int32_t task_id = task_id_opt.value();
   task_id_to_window_.erase(task_id);
   trees_.erase(KeyForTaskId(task_id));
-  base::EraseIf(window_id_to_task_id_,
+  std::erase_if(window_id_to_task_id_,
                 [task_id](auto it) { return it.second == task_id; });
 }
 
@@ -568,6 +567,7 @@ void ArcAccessibilityTreeTracker::OnEnabledFeatureChanged(
     // No longer need to track windows and trees.
     trees_.clear();
     window_id_to_task_id_.clear();
+    task_id_to_window_.clear();
     focus_change_observer_.reset();
 
     DCHECK(aura::Env::HasInstance());
@@ -736,7 +736,6 @@ void ArcAccessibilityTreeTracker::OnNotificationStateChanged(
       break;
     case AccessibilityNotificationStateType::INVALID_ENUM_VALUE:
       NOTREACHED();
-      break;
   }
 }
 

@@ -4,6 +4,9 @@
 
 package org.chromium.chrome.browser.printing;
 
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
 import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
 import android.print.PageRange;
@@ -21,17 +24,21 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.TestFileUtil;
 import org.chromium.base.test.util.UrlUtils;
+import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tabmodel.TabClosureParams;
+import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
+import org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.printing.PrintDocumentAdapterWrapper.LayoutResultCallbackWrapper;
 import org.chromium.printing.PrintDocumentAdapterWrapper.WriteResultCallbackWrapper;
 import org.chromium.printing.PrintManagerDelegate;
@@ -92,7 +99,7 @@ public class PrintingControllerTest {
 
     private static class WaitForOnWriteHelper extends CallbackHelper {
         public void waitForCallback(String msg) throws TimeoutException {
-            waitForFirst(msg, TEST_TIMEOUT, TimeUnit.MILLISECONDS);
+            waitForOnly(msg, TEST_TIMEOUT, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -223,12 +230,18 @@ public class PrintingControllerTest {
         final PrintManagerDelegate mockPrintManagerDelegate =
                 mockPrintManagerDelegate(() -> Assert.fail("Shouldn't start a printing job."));
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     printingController.setPendingPrint(
                             new TabPrinter(currentTab), mockPrintManagerDelegate, -1, -1);
-                    TabModelUtils.closeCurrentTab(
-                            mActivityTestRule.getActivity().getCurrentTabModel());
+                    TabModel currentModel = mActivityTestRule.getActivity().getCurrentTabModel();
+                    Tab tab = TabModelUtils.getCurrentTab(currentModel);
+                    Assert.assertNotNull(tab);
+                    currentModel
+                            .getTabRemover()
+                            .closeTabs(
+                                    TabClosureParams.closeTab(tab).allowUndo(false).build(),
+                                    /* allowDialog= */ false);
                     Assert.assertFalse(
                             "currentTab should be closed already.", currentTab.isInitialized());
                     printingController.startPendingPrint();
@@ -270,11 +283,18 @@ public class PrintingControllerTest {
         final ParcelFileDescriptor fileDescriptor =
                 ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_WRITE);
         try {
-            TestThreadUtils.runOnUiThreadBlocking(
+            ThreadUtils.runOnUiThreadBlocking(
                     () -> {
                         // Close tab.
-                        TabModelUtils.closeCurrentTab(
-                                mActivityTestRule.getActivity().getCurrentTabModel());
+                        TabModel currentModel =
+                                mActivityTestRule.getActivity().getCurrentTabModel();
+                        Tab tab = TabModelUtils.getCurrentTab(currentModel);
+                        Assert.assertNotNull(tab);
+                        currentModel
+                                .getTabRemover()
+                                .closeTabs(
+                                        TabClosureParams.closeTab(tab).allowUndo(false).build(),
+                                        /* allowDialog= */ false);
                         Assert.assertFalse(
                                 "currentTab should be closed already.", currentTab.isInitialized());
 
@@ -317,7 +337,7 @@ public class PrintingControllerTest {
         final WaitForOnWriteHelper onWriteHelper = new WaitForOnWriteHelper();
         final Tab currentTab = mActivityTestRule.getActivity().getActivityTab();
         final PrintingControllerImpl printingController =
-                TestThreadUtils.runOnUiThreadBlockingNoException(
+                ThreadUtils.runOnUiThreadBlocking(
                         () -> new PrintingControllerImplPdfWritingDone(onWriteHelper));
 
         startControllerOnUiThread(printingController, currentTab);
@@ -374,11 +394,34 @@ public class PrintingControllerTest {
 
         // Calling pdfWritingDone() with |pageCount| = 0 before onWrite() was called. It shouldn't
         // crash.
-        TestThreadUtils.runOnUiThreadBlocking(() -> controller.pdfWritingDone(0));
+        ThreadUtils.runOnUiThreadBlocking(() -> controller.pdfWritingDone(0));
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"Printing"})
+    public void testTabPrinterCanPrintHiddenTab() {
+        mActivityTestRule.startMainActivityWithURL(URL);
+        ChromeTabbedActivity cta = mActivityTestRule.getActivity();
+
+        // ensure two tabs are open.
+        TabUiTestHelper.createTabs(cta, false, 2);
+
+        Tab hiddenTab = cta.getCurrentTabModel().getTabAt(0);
+        Tab currentTab = cta.getCurrentTabModel().getTabAt(1);
+
+        // hidden (background) tab should not be allowed to print.
+        assertTrue("hiddenTab should be hidden.", hiddenTab.isHidden());
+        assertFalse(
+                "hiddenTab should not be allowed to print.", new TabPrinter(hiddenTab).canPrint());
+
+        // current tab should be allowed to print.
+        assertFalse("currentTab should not be hidden.", currentTab.isHidden());
+        assertTrue("currentTab should be allowed to print.", new TabPrinter(currentTab).canPrint());
     }
 
     private PrintingControllerImpl createControllerOnUiThread() {
-        return TestThreadUtils.runOnUiThreadBlockingNoException(
+        return ThreadUtils.runOnUiThreadBlocking(
                 () -> (PrintingControllerImpl) PrintingControllerImpl.getInstance());
     }
 
@@ -403,7 +446,7 @@ public class PrintingControllerTest {
     }
 
     private void startControllerOnUiThread(final PrintingControllerImpl controller, final Tab tab) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     controller.startPrint(
                             new TabPrinter(tab),
@@ -412,7 +455,7 @@ public class PrintingControllerTest {
     }
 
     private void callStartOnUiThread(final PrintingControllerImpl controller) {
-        TestThreadUtils.runOnUiThreadBlocking(() -> controller.onStart());
+        ThreadUtils.runOnUiThreadBlocking(() -> controller.onStart());
     }
 
     private void callLayoutOnUiThread(
@@ -420,7 +463,7 @@ public class PrintingControllerTest {
             final PrintAttributes oldAttributes,
             final PrintAttributes newAttributes,
             final LayoutResultCallbackWrapper layoutResultCallback) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     controller.onLayout(
                             oldAttributes,
@@ -432,6 +475,6 @@ public class PrintingControllerTest {
     }
 
     private void callFinishOnUiThread(final PrintingControllerImpl controller) {
-        TestThreadUtils.runOnUiThreadBlocking(() -> controller.onFinish());
+        ThreadUtils.runOnUiThreadBlocking(() -> controller.onFinish());
     }
 }

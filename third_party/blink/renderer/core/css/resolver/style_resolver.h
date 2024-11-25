@@ -28,13 +28,14 @@
 #include "third_party/blink/renderer/core/animation/property_handle.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/color_scheme_flags.h"
-#include "third_party/blink/renderer/core/css/css_position_fallback_rule.h"
+#include "third_party/blink/renderer/core/css/css_position_try_rule.h"
 #include "third_party/blink/renderer/core/css/element_rule_collector.h"
 #include "third_party/blink/renderer/core/css/resolver/matched_properties_cache.h"
 #include "third_party/blink/renderer/core/css/resolver/style_builder.h"
 #include "third_party/blink/renderer/core/css/selector_checker.h"
 #include "third_party/blink/renderer/core/css/selector_filter.h"
 #include "third_party/blink/renderer/core/css/style_request.h"
+#include "third_party/blink/renderer/core/style/filter_operations.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/deque.h"
@@ -47,8 +48,10 @@ class CSSPropertyValueSet;
 class CSSValue;
 class Document;
 class Element;
+class Font;
 class Interpolation;
 class MatchResult;
+class PageMarginsStyle;
 class PropertyHandle;
 class StyleCascade;
 class StyleRecalcContext;
@@ -83,9 +86,7 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
   // root element style. In addition to initial values things like zoom, font,
   // forced color mode etc. is set.
   ComputedStyleBuilder InitialStyleBuilderForElement() const;
-  const ComputedStyle* InitialStyleForElement() const {
-    return InitialStyleBuilderForElement().TakeStyle();
-  }
+  const ComputedStyle* InitialStyleForElement() const;
 
   float InitialZoom() const;
 
@@ -97,18 +98,36 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
       const CSSValue*,
       double offset);
 
+  // Calculate computed style for a given page index and name.
+  //
+  // An optional scale factor may be supplied, which means that the 'zoom'
+  // property will be set to this value. This is used to scale borders etc. when
+  // the page border box needs to be scaled to match the scale factor used by
+  // layout. This should only be used when computing style for the page border
+  // box. The resulting margins should be ignored in that case.
+  //
+  // If ignore_author_style is false, only the input print job settings will be
+  // honored (to get default size and margins, and nothing else).
   const ComputedStyle* StyleForPage(uint32_t page_index,
-                                    const AtomicString& page_name);
+                                    const AtomicString& page_name,
+                                    float page_fitting_scale = 1.0,
+                                    bool ignore_author_style = false);
+
+  // Calculate computed style for all 16 @page margin boxes for a given page
+  // index and name.
+  //
+  // Page margin contexts inherit from the page context (page_style).
+  void StyleForPageMargins(const ComputedStyle& page_style,
+                           uint32_t page_index,
+                           const AtomicString& page_name,
+                           PageMarginsStyle*);
+
+  // Trigger loading of resources only needed by printing (such as @page
+  // backgrounds, for instance).
+  void LoadPaginationResources();
+
   const ComputedStyle* StyleForText(Text*);
   const ComputedStyle* StyleForViewport();
-  const ComputedStyle* StyleForFormattedText(
-      bool is_text_run,
-      const ComputedStyle& parent_style,
-      const CSSPropertyValueSet* css_property_value_set);
-  const ComputedStyle* StyleForFormattedText(
-      bool is_text_run,
-      const FontDescription& default_font,
-      const CSSPropertyValueSet* css_property_value_set);
   // Returns `ComputedStyle` for rendering initial letter text.
   // `initial_letter_box_style` should have non-normal `initial-letter`
   // property.
@@ -126,10 +145,7 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
       EDisplay);
   const ComputedStyle* CreateAnonymousStyleWithDisplay(
       const ComputedStyle& parent_style,
-      EDisplay display) {
-    return CreateAnonymousStyleBuilderWithDisplay(parent_style, display)
-        .TakeStyle();
-  }
+      EDisplay display);
 
   // Create ComputedStyle for anonymous wrappers between text boxes and
   // display:contents elements.
@@ -192,6 +208,9 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
 
   static bool CanReuseBaseComputedStyle(const StyleResolverState& state);
 
+  // Return a computed value for the passed-in property:value pair in the
+  // context of the current ComputedStyle of the 'element'.
+  // Returns nullptr for custom property values that are IACVT.
   static const CSSValue* ComputeValue(Element* element,
                                       const CSSPropertyName&,
                                       const CSSValue&);
@@ -199,8 +218,7 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
   //
   // This is intended for use by the Inspector Agent.
   static const CSSValue* ResolveValue(Element& element,
-                                      PseudoId,
-                                      const AtomicString& pseudo_argument,
+                                      const ComputedStyle& style,
                                       const CSSPropertyName&,
                                       const CSSValue&);
 
@@ -225,10 +243,9 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
       Element& element,
       const ComputedStyle& base_style,
       ActiveInterpolationsMap& transition_interpolations);
-  StyleRulePositionFallback* ResolvePositionFallbackRule(
-      const TreeScope* tree_scope,
-      AtomicString position_fallback_name);
-  const ComputedStyle* ResolvePositionFallbackStyle(Element&, unsigned index);
+
+  StyleRulePositionTry* ResolvePositionTryRule(const TreeScope* tree_scope,
+                                               AtomicString position_try_name);
 
   // Check if the BODY or HTML element's display or containment stops
   // propagation of BODY style to HTML and viewport.
@@ -286,15 +303,8 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
   void MatchUARules(const Element&, ElementRuleCollector&);
   void MatchUserRules(ElementRuleCollector&);
   void MatchPresentationalHints(StyleResolverState&, ElementRuleCollector&);
-  // This matches `::part` selectors. It looks in ancestor scopes as far as
-  // part mapping requires.
-  void MatchPseudoPartRules(const Element&,
-                            ElementRuleCollector&,
-                            bool for_shadow_pseudo = false);
-  void MatchPseudoPartRulesForUAHost(const Element&, ElementRuleCollector&);
-  void MatchTryRules(const Element&, ElementRuleCollector&);
-  void MatchAuthorRules(const Element&,
-                        ElementRuleCollector&);
+  void MatchPositionTryRules(ElementRuleCollector&);
+  void MatchAuthorRules(const Element&, ElementRuleCollector&);
   void MatchAllRules(StyleResolverState&,
                      ElementRuleCollector&,
                      bool include_smil_properties);
@@ -304,49 +314,28 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
     STACK_ALLOCATED();
 
    public:
-    bool is_inherited_cache_hit;
-    bool is_non_inherited_cache_hit;
+    bool is_hit;
     MatchedPropertiesCache::Key key;
-    const CachedMatchedProperties* cached_matched_properties;
+    const CachedMatchedProperties::Entry* cached_matched_properties;
 
-    CacheSuccess(bool is_inherited_cache_hit,
-                 bool is_non_inherited_cache_hit,
-                 MatchedPropertiesCache::Key key,
-                 const CachedMatchedProperties* cached_matched_properties)
-        : is_inherited_cache_hit(is_inherited_cache_hit),
-          is_non_inherited_cache_hit(is_non_inherited_cache_hit),
-          key(key),
-          cached_matched_properties(cached_matched_properties) {}
+    CacheSuccess(
+        MatchedPropertiesCache::Key key,
+        const CachedMatchedProperties::Entry* cached_matched_properties)
+        : key(key), cached_matched_properties(cached_matched_properties) {}
 
-    bool IsFullCacheHit() const {
-      return is_inherited_cache_hit && is_non_inherited_cache_hit;
-    }
-    bool ShouldApplyInheritedOnly() const {
-      return is_non_inherited_cache_hit && !is_inherited_cache_hit;
-    }
-    void SetFailed() {
-      is_inherited_cache_hit = false;
-      is_non_inherited_cache_hit = false;
-    }
-    bool EffectiveZoomChanged(const ComputedStyleBuilder&) const;
-    bool FontChanged(const ComputedStyleBuilder&) const;
-    bool InheritedVariablesChanged(const ComputedStyleBuilder&) const;
-    bool LineHeightChanged(const ComputedStyleBuilder&) const;
-    bool IsUsableAfterApplyInheritedOnly(const ComputedStyleBuilder&) const;
+    bool IsHit() const { return cached_matched_properties; }
   };
 
   CacheSuccess ApplyMatchedCache(StyleResolverState&,
                                  const StyleRequest&,
                                  const MatchResult&);
   void MaybeAddToMatchedPropertiesCache(StyleResolverState&,
-                                        const CacheSuccess&,
-                                        const MatchResult&);
+                                        const MatchedPropertiesCache::Key&);
 
-  void ApplyPropertiesFromCascade(StyleResolverState&,
-                                  StyleCascade& cascade,
-                                  CacheSuccess cache_success);
+  void ApplyPropertiesFromCascade(StyleResolverState&, StyleCascade& cascade);
 
   bool ApplyAnimatedStyle(StyleResolverState&, StyleCascade&);
+  void ApplyAnchorData(StyleResolverState&);
 
   void ApplyCallbackSelectors(StyleResolverState&);
   void ApplyDocumentRulesSelectors(StyleResolverState&, ContainerNode* scope);
@@ -367,16 +356,12 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
   MatchedPropertiesCache matched_properties_cache_;
 
   // Both these members are on a hot-path for creating ComputedStyle objects.
-  subtle::UncompressedMember<const ComputedStyle> initial_style_;
-  subtle::UncompressedMember<const ComputedStyle> initial_style_for_img_;
+  const subtle::UncompressedMember<const ComputedStyle> initial_style_;
+  const subtle::UncompressedMember<const ComputedStyle> initial_style_for_img_;
   SelectorFilter selector_filter_;
 
   Member<Document> document_;
   Member<StyleRuleUsageTracker> tracker_;
-
-  // This is a dummy/disconnected element that we use for FormattedText
-  // style computations; see `EnsureElementForFormattedText`.
-  Member<Element> formatted_text_element_;
 
   // See SetCountComputedStyleBytes().
   bool count_computed_style_bytes_ = false;
@@ -385,17 +370,8 @@ class CORE_EXPORT StyleResolver final : public GarbageCollected<StyleResolver> {
   bool print_media_type_ = false;
   bool was_viewport_resized_ = false;
 
-  FRIEND_TEST_ALL_PREFIXES(ComputedStyleTest, ApplyInternalLightDarkColor);
   friend class StyleResolverTest;
-  FRIEND_TEST_ALL_PREFIXES(ParameterizedStyleResolverTest,
-                           TreeScopedReferences);
-
-  Element& EnsureElementForFormattedText();
-  const ComputedStyle* StyleForFormattedText(
-      bool is_text_run,
-      const FontDescription* default_font,
-      const ComputedStyle* parent_style,
-      const CSSPropertyValueSet* css_property_value_set);
+  FRIEND_TEST_ALL_PREFIXES(StyleResolverTest, TreeScopedReferences);
 };
 
 }  // namespace blink

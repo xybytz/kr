@@ -5,21 +5,23 @@
 #include "chrome/browser/metrics/variations/chrome_variations_service_client.h"
 
 #include "base/feature_list.h"
+#include "base/path_service.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/google/google_brand.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
-#include "chrome/browser/metrics/variations/google_groups_updater_service_factory.h"
+#include "chrome/browser/metrics/variations/google_groups_manager_factory.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/channel_info.h"
+#include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/variations/pref_names.h"
 #include "components/variations/seed_response.h"
-#include "components/variations/service/google_groups_updater_service.h"
+#include "components/variations/service/google_groups_manager.h"
 #include "components/variations/service/limited_entropy_synthetic_trial.h"
 #include "components/variations/service/variations_service_client.h"
 #include "components/variations/synthetic_trials.h"
@@ -35,8 +37,8 @@
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chromeos/ash/components/install_attributes/install_attributes.h"
+#include "chromeos/ash/components/settings/cros_settings.h"
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
@@ -91,8 +93,8 @@ bool ChromeVariationsServiceClient::OverridesRestrictParameter(
   // branded Lacros build, see crbug.com/1474764.
   if (!g_browser_process->browser_policy_connector()->GetDeviceSettings()) {
     CHECK_IS_TEST();  // IN-TEST
-    CHECK(chromeos::BrowserParamsProxy::Get()
-              ->IsCrosapiDisabledForTesting());  // IN-TEST
+    CHECK(chromeos::BrowserParamsProxy::
+              IsCrosapiDisabledForTesting());  // IN-TEST
     return false;
   }
 
@@ -111,18 +113,10 @@ bool ChromeVariationsServiceClient::OverridesRestrictParameter(
 #endif
 }
 
-bool ChromeVariationsServiceClient::IsEnterprise() {
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
-  return base::IsEnterpriseDevice();
-#elif BUILDFLAG(IS_CHROMEOS_ASH)
-  return ash::InstallAttributes::Get()->IsEnterpriseManaged();
-#else
-  return false;
-#endif
-}
-
-version_info::Channel ChromeVariationsServiceClient::GetChannel() {
-  return chrome::GetChannel();
+base::FilePath ChromeVariationsServiceClient::GetVariationsSeedFileDir() {
+  base::FilePath seed_file_dir;
+  base::PathService::Get(chrome::DIR_USER_DATA, &seed_file_dir);
+  return seed_file_dir;
 }
 
 std::unique_ptr<variations::SeedResponse>
@@ -134,6 +128,16 @@ ChromeVariationsServiceClient::TakeSeedFromNativeVariationsSeedStore() {
   return seed;
 #else
   return nullptr;
+#endif
+}
+
+bool ChromeVariationsServiceClient::IsEnterprise() {
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+  return base::IsEnterpriseDevice();
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
+  return ash::InstallAttributes::Get()->IsEnterpriseManaged();
+#else
+  return false;
 #endif
 }
 
@@ -164,9 +168,6 @@ void ChromeVariationsServiceClient::
   }
 }
 
-void ChromeVariationsServiceClient::RegisterLimitedEntropySyntheticTrial(
-    std::string_view group_name) {
-  ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial(
-      variations::kLimitedEntropySyntheticTrialName, group_name,
-      variations::SyntheticTrialAnnotationMode::kCurrentLog);
+version_info::Channel ChromeVariationsServiceClient::GetChannel() {
+  return chrome::GetChannel();
 }

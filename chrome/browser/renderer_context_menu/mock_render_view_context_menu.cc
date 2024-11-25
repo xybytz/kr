@@ -13,8 +13,8 @@
 #include "chrome/test/base/testing_profile.h"
 #include "components/prefs/pref_service.h"
 #include "components/renderer_context_menu/render_view_context_menu_observer.h"
-#include "components/services/screen_ai/buildflags/buildflags.h"
 #include "content/public/browser/browser_context.h"
+#include "services/screen_ai/buildflags/buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/color_palette.h"
@@ -236,15 +236,8 @@ void MockRenderViewContextMenu::AddAccessibilityLabelsServiceItem(
   }
 }
 
-void MockRenderViewContextMenu::AddPdfOcrMenuItem() {
-#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
-  AddCheckItem(
-      IDC_CONTENT_CONTEXT_PDF_OCR,
-      l10n_util::GetStringUTF16(IDS_CONTENT_CONTEXT_PDF_OCR_MENU_OPTION));
-#endif  // BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
-}
-
-content::RenderViewHost* MockRenderViewContextMenu::GetRenderViewHost() const {
+content::RenderFrameHost* MockRenderViewContextMenu::GetRenderFrameHost()
+    const {
   return nullptr;
 }
 

@@ -11,7 +11,6 @@
 #include "components/autofill/core/browser/logging/log_manager.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/password_manager/core/browser/password_form.h"
-#import "components/password_manager/core/browser/password_sync_util.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/password_manager/ios/password_manager_ios_util.h"
 #import "ios/web_view/internal/app/application_context.h"
@@ -28,7 +27,6 @@
 using password_manager::PasswordFormManagerForUI;
 using password_manager::PasswordManagerMetricsRecorder;
 using password_manager::PasswordStoreInterface;
-using password_manager::SyncState;
 
 namespace ios_web_view {
 
@@ -83,11 +81,8 @@ WebViewPasswordManagerClient::WebViewPasswordManagerClient(
       profile_store_(profile_store),
       account_store_(account_store),
       reuse_manager_(reuse_manager),
-      password_feature_manager_(sync_service),
-      credentials_filter_(
-          this,
-          base::BindRepeating(&WebViewPasswordManagerClient::GetSyncService,
-                              base::Unretained(this))),
+      password_feature_manager_(pref_service, sync_service),
+      credentials_filter_(this),
       requirements_service_(requirements_service),
       helper_(this) {
   saving_passwords_enabled_.Init(
@@ -95,10 +90,6 @@ WebViewPasswordManagerClient::WebViewPasswordManagerClient(
 }
 
 WebViewPasswordManagerClient::~WebViewPasswordManagerClient() = default;
-
-SyncState WebViewPasswordManagerClient::GetPasswordSyncState() const {
-  return password_manager::sync_util::GetPasswordSyncState(sync_service_);
-}
 
 bool WebViewPasswordManagerClient::PromptUserToChooseCredentials(
     std::vector<std::unique_ptr<password_manager::PasswordForm>> local_forms,
@@ -157,7 +148,7 @@ void WebViewPasswordManagerClient::AutomaticPasswordSave(
 }
 
 void WebViewPasswordManagerClient::PromptUserToEnableAutosignin() {
-  // TODO(crbug.com/435048): Implement this method.
+  // TODO(crbug.com/40394758): Implement this method.
   NOTIMPLEMENTED();
 }
 
@@ -188,6 +179,12 @@ const syncer::SyncService* WebViewPasswordManagerClient::GetSyncService()
   return sync_service_;
 }
 
+affiliations::AffiliationService*
+WebViewPasswordManagerClient::GetAffiliationService() {
+  // Not used on IOS web view.
+  return nullptr;
+}
+
 PasswordStoreInterface* WebViewPasswordManagerClient::GetProfilePasswordStore()
     const {
   return profile_store_;
@@ -203,12 +200,17 @@ WebViewPasswordManagerClient::GetPasswordReuseManager() const {
   return reuse_manager_;
 }
 
+password_manager::PasswordChangeServiceInterface*
+WebViewPasswordManagerClient::GetPasswordChangeService() const {
+  return nullptr;
+}
+
 void WebViewPasswordManagerClient::NotifyUserAutoSignin(
     std::vector<std::unique_ptr<password_manager::PasswordForm>> local_forms,
     const url::Origin& origin) {
   DCHECK(!local_forms.empty());
   helper_.NotifyUserAutoSignin();
-  // TODO(crbug.com/865114): Implement remaining logic.
+  // TODO(crbug.com/40585559): Implement remaining logic.
 }
 
 void WebViewPasswordManagerClient::NotifyUserCouldBeAutoSignedIn(
@@ -228,13 +230,10 @@ void WebViewPasswordManagerClient::NotifyStorePasswordCalled() {
 }
 
 void WebViewPasswordManagerClient::NotifyUserCredentialsWereLeaked(
-    password_manager::CredentialLeakType leak_type,
-    const GURL& origin,
-    const std::u16string& username,
-    bool in_account_store) {
-  [bridge_ showPasswordBreachForLeakType:leak_type
-                                     URL:origin
-                                username:username];
+    password_manager::LeakedPasswordDetails details) {
+  [bridge_ showPasswordBreachForLeakType:details.leak_type
+                                     URL:details.origin
+                                username:details.username];
 }
 
 void WebViewPasswordManagerClient::NotifyKeychainError() {}
@@ -302,7 +301,7 @@ bool WebViewPasswordManagerClient::IsNewTabPage() const {
 
 safe_browsing::PasswordProtectionService*
 WebViewPasswordManagerClient::GetPasswordProtectionService() const {
-  // TODO(crbug.com/1148229): Enable PhishGuard in web_view.
+  // TODO(crbug.com/40731177): Enable PhishGuard in web_view.
   return nullptr;
 }
 

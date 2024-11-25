@@ -136,6 +136,31 @@ constexpr int kMinDistanceFromSettingsToScreen = 8;
 // The minimum height of the settings menu while constrained and scrollable.
 constexpr int kSettingsMenuMinHeight = 50;
 
+// Animation parameters for capture UI (capture bar, capture label) overlapping
+// the user capture region or camera preview. The default animation duration for
+// opacity changes to the capture UI.
+inline constexpr base::TimeDelta kCaptureUIOpacityChangeDuration =
+    base::Milliseconds(100);
+
+// Search result panel dimensions.
+constexpr int kSearchResultsPanelWidth = 360;
+constexpr int kSearchResultsPanelHeight = 492;
+
+// The distance between the search result panel and the work area.
+constexpr int kPanelWorkAreaSpacing = 10;
+
+// The distance between the search result panel and the feedback button (if
+// available).
+constexpr int kPanelButtonSpacing = 10;
+
+// The name of a boolean pref that records whether the sunfish consent
+// disclaimer has been accepted.
+inline constexpr char kSunfishConsentDisclaimerAccepted[] =
+    "ash.capture_mode.sunfish_consent_disclaimer_accepted";
+
+// The ID for the nudge anchored to the Sunfish button in the launcher.
+inline constexpr char kSunfishLauncherNudgeId[] = "kSunfishLauncherNudge";
+
 }  // namespace ash::capture_mode
 
 #endif  // ASH_CAPTURE_MODE_CAPTURE_MODE_CONSTANTS_H_

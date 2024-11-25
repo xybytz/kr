@@ -10,9 +10,7 @@
 #include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 #include "components/policy/core/browser/url_blocklist_manager.h"
 
-namespace web {
-class BrowserState;
-}
+class ProfileIOS;
 
 // Associates a policy::URLBlocklistManager instance with a BrowserState.
 class PolicyBlocklistService : public KeyedService {
@@ -37,8 +35,7 @@ class PolicyBlocklistService : public KeyedService {
 class PolicyBlocklistServiceFactory : public BrowserStateKeyedServiceFactory {
  public:
   static PolicyBlocklistServiceFactory* GetInstance();
-  static PolicyBlocklistService* GetForBrowserState(
-      web::BrowserState* browser_state);
+  static PolicyBlocklistService* GetForProfile(ProfileIOS* profile);
 
  private:
   friend class base::NoDestructor<PolicyBlocklistServiceFactory>;

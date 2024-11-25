@@ -135,6 +135,22 @@ class MockTtsEngineDelegate : public TtsEngineDelegate {
     utterance_id_ = utterance->GetId();
   }
 
+  void UninstallLanguageRequest(content::BrowserContext* browser_context,
+                                const std::string& lang,
+                                const std::string& client_id,
+                                int source,
+                                bool uninstall_immediately) override {}
+
+  void InstallLanguageRequest(BrowserContext* browser_context,
+                              const std::string& lang,
+                              const std::string& client_id,
+                              int source) override {}
+
+  void LanguageStatusRequest(BrowserContext* browser_context,
+                             const std::string& lang,
+                             const std::string& client_id,
+                             int source) override {}
+
   void LoadBuiltInTtsEngine(BrowserContext* browser_context) override {}
 
   bool IsBuiltInTtsEngineInitialized(BrowserContext* browser_context) override {
@@ -586,7 +602,7 @@ TEST_F(TtsControllerTest, TestGetMatchingVoice) {
 // Note: The following tests are disabled since they do not apply for Lacros
 // build. TtsPlatformImpl is not supported for Lacros when lacros tts support
 // feature is disabled.
-// TODO(crbug.com/1227543): Add new tests for lacros with tts support feature
+// TODO(crbug.com/40189267): Add new tests for lacros with tts support feature
 // being enabled.
 #if !BUILDFLAG(IS_CHROMEOS_LACROS)
 TEST_F(TtsControllerTest, TestTtsControllerShutdown) {

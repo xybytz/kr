@@ -96,7 +96,7 @@ class TestSessionControllerClient : public SessionControllerClient {
   // discussion.
   void AddUserSession(
       const std::string& display_email,
-      user_manager::UserType user_type = user_manager::USER_TYPE_REGULAR,
+      user_manager::UserType user_type = user_manager::UserType::kRegular,
       bool provide_pref_service = true,
       bool is_new_profile = false,
       const std::string& given_name = std::string(),
@@ -106,7 +106,7 @@ class TestSessionControllerClient : public SessionControllerClient {
   void AddUserSession(
       const AccountId& account_id,
       const std::string& display_email,
-      user_manager::UserType user_type = user_manager::USER_TYPE_REGULAR,
+      user_manager::UserType user_type = user_manager::UserType::kRegular,
       bool provide_pref_service = true,
       bool is_new_profile = false,
       const std::string& given_name = std::string(),
@@ -147,7 +147,8 @@ class TestSessionControllerClient : public SessionControllerClient {
   PrefService* GetSigninScreenPrefService() override;
   PrefService* GetUserPrefService(const AccountId& account_id) override;
   base::FilePath GetProfilePath(const AccountId& account_id) override;
-  bool IsEnterpriseManaged() const override;
+  std::tuple<bool, bool> IsEligibleForSeaPen(
+      const AccountId& account_id) override;
   std::optional<int> GetExistingUsersCount() const override;
 
   // By default `LockScreen()` only changes the session state but no UI views
@@ -157,8 +158,9 @@ class TestSessionControllerClient : public SessionControllerClient {
     should_show_lock_screen_ = should_show;
   }
 
-  void set_is_enterprise_managed(bool is_enterprise_managed) {
-    is_enterprise_managed_ = is_enterprise_managed;
+  void set_is_eligible_for_background_replace(
+      const std::tuple<bool, bool>& is_eligible_for_background_replace) {
+    is_eligible_for_background_replace_ = is_eligible_for_background_replace;
   }
 
   void set_existing_users_count(int existing_users_count) {
@@ -168,11 +170,16 @@ class TestSessionControllerClient : public SessionControllerClient {
  private:
   void DoSwitchUser(const AccountId& account_id, bool switch_user);
 
+  // Notify first session ready if the notification has not sent, there
+  // is at least one user session created, and session state is ACTIVE.
+  void MaybeNotifyFirstSessionReady();
+
   const raw_ptr<SessionControllerImpl, DanglingUntriaged> controller_;
   const raw_ptr<TestPrefServiceProvider> prefs_provider_;
 
   int fake_session_id_ = 0;
   SessionInfo session_info_;
+  bool first_session_ready_fired_ = false;
 
   bool use_lower_case_user_id_ = true;
   int request_hide_lock_screen_count_ = 0;
@@ -183,6 +190,8 @@ class TestSessionControllerClient : public SessionControllerClient {
   bool should_show_lock_screen_ = false;
 
   bool is_enterprise_managed_ = false;
+
+  std::tuple<bool, bool> is_eligible_for_background_replace_ = {true, true};
 
   int existing_users_count_ = 0;
 

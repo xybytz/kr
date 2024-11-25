@@ -439,7 +439,7 @@ class ArcBluetoothBridge
 
   void OnGattNotifyStartDone(
       GattStatusCallback callback,
-      const std::string char_string_id,
+      std::string char_string_id,
       std::unique_ptr<device::BluetoothGattNotifySession> notify_session);
 
   // Indicates if a power change is initiated by Chrome / Android.
@@ -728,7 +728,7 @@ class ArcBluetoothBridge
   // * mapped to nullptr -> reserved, awaiting data
   // * mapped to a device::BluetoothAdvertisement -> in use, and the mapped
   //   BluetoothAdvertisement is currently registered with the adapter.
-  // TODO(crbug.com/658385) Change back to 5 when we support setting signal
+  // TODO(crbug.com/41282389) Change back to 5 when we support setting signal
   // strength per each advertisement slot.
   enum { kMaxAdvertisements = 1 };
   std::map<int32_t, scoped_refptr<device::BluetoothAdvertisement>>

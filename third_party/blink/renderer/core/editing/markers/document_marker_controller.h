@@ -102,8 +102,6 @@ class CORE_EXPORT DocumentMarkerController final
       const SuggestionMarker::SuggestionType& type);
   // Removes suggestion marker with |RemoveOnFinishComposing::kRemove|.
   void RemoveSuggestionMarkerInRangeOnFinish(const EphemeralRangeInFlatTree&);
-  void RepaintMarkers(
-      DocumentMarker::MarkerTypes = DocumentMarker::MarkerTypes::All());
   // Returns true if markers within a range are found.
   bool SetTextMatchMarkersActive(const EphemeralRange&, bool);
   // Returns true if markers within a range defined by a text node,
@@ -173,6 +171,10 @@ class CORE_EXPORT DocumentMarkerController final
   DocumentMarkerVector MarkersFor(
       const Text&,
       DocumentMarker::MarkerTypes = DocumentMarker::MarkerTypes::All()) const;
+  DocumentMarkerVector MarkersFor(const Text&,
+                                  DocumentMarker::MarkerType,
+                                  unsigned start_offset,
+                                  unsigned end_offset) const;
   DocumentMarkerVector Markers() const;
 
   // Apply a function to all the markers of a particular type. The
@@ -186,6 +188,7 @@ class CORE_EXPORT DocumentMarkerController final
   DocumentMarkerVector ComputeMarkersToPaint(const Text&) const;
   void MergeOverlappingMarkers(DocumentMarker::MarkerType);
 
+  bool HasAnyMarkersForText(const Text&) const;
   bool PossiblyHasTextMatchMarkers() const;
   Vector<gfx::Rect> LayoutRectsForTextMatchMarkers();
   void InvalidateRectsForAllTextMatchMarkers();

@@ -77,7 +77,6 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
   void DispatchFrame(scoped_refptr<CanvasResource>&&,
                      base::TimeTicks commit_start_time,
                      const SkIRect& damage_rect,
-                     bool needs_vertical_flip,
                      bool is_opaque);
   // virtual for mocking
   virtual void ReclaimResource(viz::ResourceId,
@@ -85,7 +84,6 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
   void DispatchFrameSync(scoped_refptr<CanvasResource>&&,
                          base::TimeTicks commit_start_time,
                          const SkIRect& damage_rect,
-                         bool needs_vertical_flip,
                          bool is_opaque);
   void ReplaceBeginFrameAck(const viz::BeginFrameArgs& args) {
     current_begin_frame_ack_ = viz::BeginFrameAck(args, true);
@@ -108,8 +106,8 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
   void OnSurfaceEvicted(const viz::LocalSurfaceId& local_surface_id) final {}
 
   void DidAllocateSharedBitmap(base::ReadOnlySharedMemoryRegion region,
-                               const gpu::Mailbox& id);
-  void DidDeleteSharedBitmap(const gpu::Mailbox& id);
+                               const viz::SharedBitmapId& id);
+  void DidDeleteSharedBitmap(const viz::SharedBitmapId& id);
 
   void SetFilterQuality(cc::PaintFlags::FilterQuality filter_quality);
   void SetPlaceholderCanvasDispatcher(int placeholder_canvas_id);
@@ -124,7 +122,6 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
   bool PrepareFrame(scoped_refptr<CanvasResource>&&,
                     base::TimeTicks commit_start_time,
                     const SkIRect& damage_rect,
-                    bool needs_vertical_flip,
                     bool is_opaque,
                     viz::CompositorFrame* frame);
 
@@ -170,7 +167,7 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
 
   viz::BeginFrameAck current_begin_frame_ack_;
 
-  raw_ptr<CanvasResourceDispatcherClient, ExperimentalRenderer> client_;
+  raw_ptr<CanvasResourceDispatcherClient> client_;
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner>

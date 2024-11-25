@@ -31,7 +31,6 @@ std::string GetLogName(SupportedSource source_type) {
       return "uptime";
   }
   NOTREACHED();
-  return "";
 }
 
 }  // namespace

@@ -34,10 +34,11 @@ SecurityInterstitialControllerClient::SecurityInterstitialControllerClient(
       default_safe_page_(default_safe_page),
       settings_page_helper_(std::move(settings_page_helper)) {}
 
-SecurityInterstitialControllerClient::~SecurityInterstitialControllerClient() {}
+SecurityInterstitialControllerClient::~SecurityInterstitialControllerClient() =
+    default;
 
 void SecurityInterstitialControllerClient::GoBack() {
-  // TODO(crbug.com/1077074): This method is left so class can be non abstract
+  // TODO(crbug.com/40688528): This method is left so class can be non abstract
   // since it is still instantiated in tests. This can be cleaned up by having
   // tests use a subclass.
   NOTREACHED();
@@ -68,7 +69,7 @@ void SecurityInterstitialControllerClient::GoBackAfterNavigationCommitted() {
 }
 
 void SecurityInterstitialControllerClient::Proceed() {
-  // TODO(crbug.com/1077074): This method is left so class can be non abstract
+  // TODO(crbug.com/40688528): This method is left so class can be non abstract
   // since it is still instantiated in tests. This can be cleaned up by having
   // tests use a subclass.
   NOTREACHED();
@@ -83,7 +84,7 @@ void SecurityInterstitialControllerClient::OpenUrlInCurrentTab(
   content::OpenURLParams params(url, Referrer(),
                                 WindowOpenDisposition::CURRENT_TAB,
                                 ui::PAGE_TRANSITION_LINK, false);
-  web_contents_->OpenURL(params);
+  web_contents_->OpenURL(params, /*navigation_handle_callback=*/{});
 }
 
 void SecurityInterstitialControllerClient::OpenUrlInNewForegroundTab(
@@ -91,7 +92,7 @@ void SecurityInterstitialControllerClient::OpenUrlInNewForegroundTab(
   content::OpenURLParams params(url, Referrer(),
                                 WindowOpenDisposition::NEW_FOREGROUND_TAB,
                                 ui::PAGE_TRANSITION_LINK, false);
-  web_contents_->OpenURL(params);
+  web_contents_->OpenURL(params, /*navigation_handle_callback=*/{});
 }
 
 void SecurityInterstitialControllerClient::OpenEnhancedProtectionSettings() {
@@ -121,7 +122,6 @@ SecurityInterstitialControllerClient::GetExtendedReportingPrefName() const {
 
 bool SecurityInterstitialControllerClient::CanLaunchDateAndTimeSettings() {
   NOTREACHED();
-  return false;
 }
 
 void SecurityInterstitialControllerClient::LaunchDateAndTimeSettings() {

@@ -134,13 +134,13 @@ class TreeNode : public TreeModelNode {
   }
 
   // Returns the index of |node|, or nullopt if |node| is not a child of this.
-  absl::optional<size_t> GetIndexOf(const NodeType* node) const {
+  std::optional<size_t> GetIndexOf(const NodeType* node) const {
     DCHECK(node);
     const auto i =
         base::ranges::find(children_, node, &std::unique_ptr<NodeType>::get);
     return i != children_.end()
-               ? absl::make_optional(static_cast<size_t>(i - children_.begin()))
-               : absl::nullopt;
+               ? std::make_optional(static_cast<size_t>(i - children_.begin()))
+               : std::nullopt;
   }
 
   // Sets the title of the node.
@@ -285,18 +285,17 @@ class TreeNodeModel : public TreeModel {
   }
 
   void NotifyObserverTreeNodeAdded(NodeType* parent, size_t index) {
-    for (TreeModelObserver& observer : observer_list_)
-      observer.TreeNodeAdded(this, parent, index);
+    observer_list_.Notify(&TreeModelObserver::TreeNodeAdded, this, parent,
+                          index);
   }
 
   void NotifyObserverTreeNodeRemoved(NodeType* parent, size_t index) {
-    for (TreeModelObserver& observer : observer_list_)
-      observer.TreeNodeRemoved(this, parent, index);
+    observer_list_.Notify(&TreeModelObserver::TreeNodeRemoved, this, parent,
+                          index);
   }
 
   void NotifyObserverTreeNodeChanged(TreeModelNode* node) {
-    for (TreeModelObserver& observer : observer_list_)
-      observer.TreeNodeChanged(this, node);
+    observer_list_.Notify(&TreeModelObserver::TreeNodeChanged, this, node);
   }
 
   // TreeModel:
@@ -323,8 +322,8 @@ class TreeNodeModel : public TreeModel {
     return nodes;
   }
 
-  absl::optional<size_t> GetIndexOf(TreeModelNode* parent,
-                                    TreeModelNode* child) const override {
+  std::optional<size_t> GetIndexOf(TreeModelNode* parent,
+                                   TreeModelNode* child) const override {
     DCHECK(parent);
     return AsNode(parent)->GetIndexOf(AsNode(child));
   }

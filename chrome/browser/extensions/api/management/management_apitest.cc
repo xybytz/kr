@@ -9,19 +9,21 @@
 #include "base/test/gtest_tags.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/extensions/browsertest_util.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
-#include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/web_applications/web_app_dialogs.h"
 #include "chrome/browser/web_applications/extension_status_utils.h"
 #include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
+#include "chrome/browser/web_applications/proto/web_app_install_state.pb.h"
 #include "chrome/browser/web_applications/test/fake_web_app_ui_manager.h"
+#include "chrome/browser/web_applications/test/os_integration_test_override_impl.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
@@ -48,7 +50,6 @@ using extensions::mojom::ManifestLocation;
 
 namespace {
 
-#if !BUILDFLAG(IS_CHROMEOS_LACROS)
 // Find a browser other than |browser|.
 Browser* FindOtherBrowser(Browser* browser) {
   Browser* found = nullptr;
@@ -61,18 +62,16 @@ Browser* FindOtherBrowser(Browser* browser) {
 }
 
 bool ExpectChromeAppsDefaultEnabled() {
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
-    BUILDFLAG(IS_FUCHSIA)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
   return false;
 #else
   return true;
 #endif
 }
-#endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 }  // namespace
 
-using ContextType = extensions::ExtensionBrowserTest::ContextType;
+using ContextType = extensions::browser_test_util::ContextType;
 
 class ExtensionManagementApiTest
     : public extensions::ExtensionApiTest,
@@ -142,6 +141,7 @@ class ExtensionManagementApiTest
 
  protected:
   base::AutoReset<bool> enable_chrome_apps_;
+  web_app::OsIntegrationTestOverrideBlockingRegistration faked_os_integration_;
 };
 
 INSTANTIATE_TEST_SUITE_P(PersistentBackground,
@@ -205,7 +205,7 @@ class InstallReplacementWebAppApiTest : public ExtensionManagementApiTest {
  protected:
   static const char kManifest[];
   static const char kAppManifest[];
-  web_app::OsIntegrationManager::ScopedSuppressForTesting os_hooks_suppress_;
+
   void SetUpOnMainThread() override {
     ExtensionManagementApiTest::SetUpOnMainThread();
     https_test_server_.ServeFilesFromDirectory(test_data_dir_);
@@ -253,20 +253,22 @@ class InstallReplacementWebAppApiTest : public ExtensionManagementApiTest {
     webapps::AppId web_app_id =
         web_app::GenerateAppId(/*manifest_id_path=*/std::nullopt, start_url);
     auto* provider = web_app::WebAppProvider::GetForTest(browser()->profile());
-    EXPECT_FALSE(provider->registrar_unsafe().IsLocallyInstalled(start_url));
+    EXPECT_TRUE(provider->registrar_unsafe().IsNotInRegistrar(web_app_id));
     EXPECT_EQ(0, static_cast<int>(
                      provider->ui_manager().GetNumWindowsForApp(web_app_id)));
 
     RunTest(manifest, web_app_url, kInstallReplacementWebApp,
             true /* from_webstore */);
-    EXPECT_TRUE(provider->registrar_unsafe().IsLocallyInstalled(start_url));
+    EXPECT_EQ(provider->registrar_unsafe().GetInstallState(web_app_id),
+              web_app::proto::INSTALLED_WITH_OS_INTEGRATION);
     EXPECT_EQ(1, static_cast<int>(
                      provider->ui_manager().GetNumWindowsForApp(web_app_id)));
 
     // Call API again. It should launch the app.
     RunTest(manifest, web_app_url, kInstallReplacementWebApp,
             true /* from_webstore */);
-    EXPECT_TRUE(provider->registrar_unsafe().IsLocallyInstalled(start_url));
+    EXPECT_EQ(provider->registrar_unsafe().GetInstallState(web_app_id),
+              web_app::proto::INSTALLED_WITH_OS_INTEGRATION);
     EXPECT_EQ(2, static_cast<int>(
                      provider->ui_manager().GetNumWindowsForApp(web_app_id)));
 
@@ -349,20 +351,12 @@ IN_PROC_BROWSER_TEST_P(InstallReplacementWebAppApiTest, NotInstallableWebApp) {
           kBackground, true /* from_webstore */);
 }
 
-#if !BUILDFLAG(IS_CHROMEOS_LACROS)
-// TODO(crbug.com/1288199): Run these tests on Chrome OS with both Ash and
-// Lacros processes active.
 IN_PROC_BROWSER_TEST_P(InstallReplacementWebAppApiTest, InstallableWebApp) {
   static constexpr char kGoodWebAppURL[] =
       "/management/install_replacement_web_app/acceptable_web_app/index.html";
 
   RunInstallableWebAppTest(kManifest, kGoodWebAppURL, kGoodWebAppURL);
 }
-#endif
-
-#if !BUILDFLAG(IS_CHROMEOS_LACROS)
-// TODO(crbug.com/1288199): Run these tests on Chrome OS with both Ash and
-// Lacros processes active.
 
 // Check that web app still installs and launches correctly when start_url does
 // not match replacement_web_app_url.
@@ -387,7 +381,6 @@ IN_PROC_BROWSER_TEST_P(InstallReplacementWebAppApiTest,
 
   RunInstallableWebAppTest(kAppManifest, kGoodWebAppURL, kGoodWebAppURL);
 }
-#endif
 
 // Tests actions on extensions when no management policy is in place.
 IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTest, ManagementPolicyAllowed) {
@@ -432,10 +425,6 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTest, ManagementPolicyProhibited) {
                                {.custom_arg = "runProhibitedTests"}));
 }
 
-#if !BUILDFLAG(IS_CHROMEOS_LACROS)
-// TODO(crbug.com/1288199): Run these tests on Chrome OS with both Ash and
-// Lacros processes active.
-
 IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTest, LaunchPanelApp) {
   // Load an extension that calls launchApp() on any app that gets
   // installed.
@@ -450,7 +439,8 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTest, LaunchPanelApp) {
   ASSERT_FALSE(HasFatalFailure());  // Stop the test if any ASSERT failed.
 
   // Find the app's browser.  Check that it is a popup.
-  ASSERT_EQ(2u, chrome::GetBrowserCount(browser()->profile()));
+  ASSERT_EQ(2u, extensions::browsertest_util::GetWindowControllerCountInProfile(
+                    browser()->profile()));
   Browser* app_browser = FindOtherBrowser(browser());
   ASSERT_TRUE(app_browser->is_type_app());
 
@@ -461,7 +451,8 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTest, LaunchPanelApp) {
       extensions::ExtensionRegistry::Get(browser()->profile());
   // Unload the extension.
   UninstallExtension(app_id);
-  ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
+  ASSERT_EQ(1u, extensions::browsertest_util::GetWindowControllerCountInProfile(
+                    browser()->profile()));
   ASSERT_FALSE(registry->GetExtensionById(
       app_id, extensions::ExtensionRegistry::EVERYTHING));
 
@@ -480,7 +471,8 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTest, LaunchPanelApp) {
 
   // Find the app's browser.  Apps that should load in a panel ignore
   // prefs, so we should still see the launch in a popup.
-  ASSERT_EQ(2u, chrome::GetBrowserCount(browser()->profile()));
+  ASSERT_EQ(2u, extensions::browsertest_util::GetWindowControllerCountInProfile(
+                    browser()->profile()));
   app_browser = FindOtherBrowser(browser());
   ASSERT_TRUE(app_browser->is_type_app());
 }
@@ -495,7 +487,8 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTest, LaunchTabApp) {
 
   // Code below assumes that the test starts with a single browser window
   // hosting one tab.
-  ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
+  ASSERT_EQ(1u, extensions::browsertest_util::GetWindowControllerCountInProfile(
+                    browser()->profile()));
   ASSERT_EQ(1, browser()->tab_strip_model()->count());
 
   // Load an app with app.launch.container = "tab".
@@ -504,14 +497,16 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTest, LaunchTabApp) {
   ASSERT_FALSE(HasFatalFailure());
 
   // Check that the app opened in a new tab of the existing browser.
-  ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
+  ASSERT_EQ(1u, extensions::browsertest_util::GetWindowControllerCountInProfile(
+                    browser()->profile()));
   ASSERT_EQ(2, browser()->tab_strip_model()->count());
 
   extensions::ExtensionRegistry* registry =
       extensions::ExtensionRegistry::Get(browser()->profile());
   // Unload the extension.
   UninstallExtension(app_id);
-  ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
+  ASSERT_EQ(1u, extensions::browsertest_util::GetWindowControllerCountInProfile(
+                    browser()->profile()));
   ASSERT_FALSE(registry->GetExtensionById(
       app_id, extensions::ExtensionRegistry::EVERYTHING));
 
@@ -528,7 +523,8 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTest, LaunchTabApp) {
 
   // Find the app's browser.  Opening in a new window will create
   // a new browser.
-  ASSERT_EQ(2u, chrome::GetBrowserCount(browser()->profile()));
+  ASSERT_EQ(2u, extensions::browsertest_util::GetWindowControllerCountInProfile(
+                    browser()->profile()));
   Browser* app_browser = FindOtherBrowser(browser());
   ASSERT_TRUE(app_browser->is_type_app());
 }
@@ -570,7 +566,8 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTest, NoLaunchTabAppDeprecated) {
 
   // Code below assumes that the test starts with a single browser window
   // hosting one tab.
-  ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
+  ASSERT_EQ(1u, extensions::browsertest_util::GetWindowControllerCountInProfile(
+                    browser()->profile()));
   ASSERT_EQ(1, browser()->tab_strip_model()->count());
 
   // Load an app with app.launch.container = "tab". This is a chrome app, so
@@ -588,7 +585,6 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTest, NoLaunchTabAppDeprecated) {
     EXPECT_FALSE(launched_app.was_satisfied());
   }
 }
-#endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 // Flaky on MacOS: crbug.com/915339
 #if BUILDFLAG(IS_MAC)

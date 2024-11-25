@@ -2,18 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import '../strings.m.js';
+import '/strings.m.js';
 
 import {assert} from 'chrome://resources/js/assert.js';
 
 // <if expr="is_chromeos">
 import {NativeLayerCrosImpl} from '../native_layer_cros.js';
+
 // </if>
 
-import {Cdd, ColorCapability, ColorOption, CopiesCapability} from './cdd.js';
+import type {Cdd, ColorCapability, ColorOption, CopiesCapability} from './cdd.js';
 
 // <if expr="is_chromeos">
-import {getStatusReasonFromPrinterStatus, PrinterStatus, PrinterStatusReason} from './printer_status_cros.js';
+import type {PrinterStatus} from './printer_status_cros.js';
+import {getStatusReasonFromPrinterStatus, PrinterStatusReason} from './printer_status_cros.js';
 // </if>
 
 /**
@@ -409,13 +411,6 @@ export class Destination {
             }
 
             this.printerStatusReason_ = statusReason;
-
-            // If this is the second printer status attempt, record the result.
-            if (this.printerStatusRetrySent_) {
-              NativeLayerCrosImpl.getInstance()
-                  .recordPrinterStatusRetrySuccessHistogram(
-                      !isPrinterUnreachable);
-            }
           }
           return Promise.resolve(this.key);
         });

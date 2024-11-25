@@ -5,10 +5,10 @@
 #ifndef IOS_CHROME_BROWSER_BOOKMARKS_MODEL_LOCAL_OR_SYNCABLE_BOOKMARK_SYNC_SERVICE_FACTORY_H_
 #define IOS_CHROME_BROWSER_BOOKMARKS_MODEL_LOCAL_OR_SYNCABLE_BOOKMARK_SYNC_SERVICE_FACTORY_H_
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 
 namespace sync_bookmarks {
 class BookmarkSyncService;
@@ -19,13 +19,8 @@ namespace ios {
 class LocalOrSyncableBookmarkSyncServiceFactory
     : public BrowserStateKeyedServiceFactory {
  public:
-  // Returns the instance of BookmarkSyncService associated with this profile
-  // (creating one if none exists).
-  static sync_bookmarks::BookmarkSyncService* GetForBrowserState(
-      ChromeBrowserState* browser_state);
-
-  // Returns an instance of the LocalOrSyncableBookmarkSyncServiceFactory
-  // singleton.
+  static sync_bookmarks::BookmarkSyncService* GetForProfile(
+      ProfileIOS* profile);
   static LocalOrSyncableBookmarkSyncServiceFactory* GetInstance();
 
   LocalOrSyncableBookmarkSyncServiceFactory(

@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.compositor.overlays.strip;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.app.Activity;
+import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.util.Size;
@@ -27,7 +29,6 @@ import androidx.test.ext.junit.rules.ActivityScenarioRule;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -40,28 +41,23 @@ import org.chromium.base.supplier.Supplier;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.compositor.LayerTitleCache;
-import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabUtils;
-import org.chromium.chrome.browser.tasks.tab_management.TabThumbnailView;
+import org.chromium.chrome.browser.tab_ui.TabContentManager;
+import org.chromium.chrome.browser.tab_ui.TabThumbnailView;
 import org.chromium.chrome.browser.tasks.tab_management.TabUiThemeUtil;
 import org.chromium.chrome.browser.ui.favicon.FaviconHelper.FaviconImageCallback;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.TestActivity;
 
 /** Unit tests for {@link StripTabDragShadowView}. */
 @RunWith(BaseRobolectricTestRunner.class)
-@EnableFeatures(ChromeFeatureList.TAB_LINK_DRAG_DROP_ANDROID)
 public class StripTabDragShadowViewUnitTest {
     @Rule
     public ActivityScenarioRule<TestActivity> mActivityScenarioRule =
             new ActivityScenarioRule<>(TestActivity.class);
 
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
-    @Rule public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
 
     @Captor private ArgumentCaptor<FaviconImageCallback> mGetFaviconCallbackCaptor;
     @Captor private ArgumentCaptor<Callback<Bitmap>> mGetThumbnailCallbackCaptor;
@@ -124,7 +120,7 @@ public class StripTabDragShadowViewUnitTest {
 
     @Test
     public void testSetTab() {
-        mStripTabDragShadowView.setTab(mMockTab);
+        mStripTabDragShadowView.prepareForDrag(mMockTab, 0);
 
         assertEquals(
                 "Should have set Tab on drag start.",
@@ -135,7 +131,7 @@ public class StripTabDragShadowViewUnitTest {
 
     @Test
     public void testClear() {
-        mStripTabDragShadowView.setTab(mMockTab);
+        mStripTabDragShadowView.prepareForDrag(mMockTab, 0);
 
         mStripTabDragShadowView.clear();
 
@@ -147,7 +143,7 @@ public class StripTabDragShadowViewUnitTest {
 
     @Test
     public void testUpdate_LayoutSize() {
-        mStripTabDragShadowView.setTab(mMockTab);
+        mStripTabDragShadowView.prepareForDrag(mMockTab, 0);
 
         int expectedWidth = StripTabDragShadowView.WIDTH_DP;
         int expectedHeight =
@@ -159,16 +155,32 @@ public class StripTabDragShadowViewUnitTest {
     }
 
     @Test
+    public void testUpdate_LayoutSize_Expand() {
+        mStripTabDragShadowView.prepareForDrag(mMockTab, 0);
+        assertNull(
+                "Should not be animating.", mStripTabDragShadowView.getRunningAnimatorForTesting());
+
+        mStripTabDragShadowView.expand();
+
+        Resources resources = mActivity.getResources();
+        int expectedWidth = 0;
+        int expectedHeight =
+                resources.getDimensionPixelSize(R.dimen.tab_grid_card_header_height)
+                        + (2 * resources.getDimensionPixelSize(R.dimen.tab_grid_card_margin));
+        LayoutParams layoutParams = mStripTabDragShadowView.getLayoutParams();
+        assertEquals("Unexpected view width.", expectedWidth, layoutParams.width);
+        assertEquals("Unexpected view height.", expectedHeight, layoutParams.height);
+        assertNotNull(
+                "Should be animating.", mStripTabDragShadowView.getRunningAnimatorForTesting());
+    }
+
+    @Test
     public void testUpdate_ThumbnailRequestSuccess() {
-        mStripTabDragShadowView.setTab(mMockTab);
+        mStripTabDragShadowView.prepareForDrag(mMockTab, 0);
 
         verify(mMockTabContentManager)
                 .getTabThumbnailWithCallback(
-                        eq(TAB_ID),
-                        any(Size.class),
-                        mGetThumbnailCallbackCaptor.capture(),
-                        eq(true),
-                        eq(true));
+                        eq(TAB_ID), any(Size.class), mGetThumbnailCallbackCaptor.capture());
 
         mGetThumbnailCallbackCaptor.getValue().onResult(mMockThumbnailBitmap);
         assertEquals(
@@ -179,14 +191,10 @@ public class StripTabDragShadowViewUnitTest {
 
     @Test
     public void testUpdate_ThumbnailRequestFailure() {
-        mStripTabDragShadowView.setTab(mMockTab);
+        mStripTabDragShadowView.prepareForDrag(mMockTab, 0);
         verify(mMockTabContentManager)
                 .getTabThumbnailWithCallback(
-                        eq(TAB_ID),
-                        any(Size.class),
-                        mGetThumbnailCallbackCaptor.capture(),
-                        eq(true),
-                        eq(true));
+                        eq(TAB_ID), any(Size.class), mGetThumbnailCallbackCaptor.capture());
 
         mGetThumbnailCallbackCaptor.getValue().onResult(null);
         assertEquals(
@@ -201,7 +209,7 @@ public class StripTabDragShadowViewUnitTest {
         when(mMockLayerTitleCache.getOriginalFavicon(any(Tab.class)))
                 .thenReturn(mMockOriginalFaviconBitmap);
 
-        mStripTabDragShadowView.setTab(mMockTab);
+        mStripTabDragShadowView.prepareForDrag(mMockTab, 0);
 
         assertEquals(
                 "Should be using original favicon.",
@@ -214,7 +222,7 @@ public class StripTabDragShadowViewUnitTest {
         when(mMockLayerTitleCache.getOriginalFavicon(any(Tab.class)))
                 .thenReturn(mMockOriginalFaviconBitmap);
 
-        mStripTabDragShadowView.setTab(mMockTab);
+        mStripTabDragShadowView.prepareForDrag(mMockTab, 0);
         verify(mMockLayerTitleCache)
                 .fetchFaviconWithCallback(eq(mMockTab), mGetFaviconCallbackCaptor.capture());
         mGetFaviconCallbackCaptor
@@ -232,7 +240,7 @@ public class StripTabDragShadowViewUnitTest {
         boolean incognito = true;
         when(mMockTab.isIncognito()).thenReturn(incognito);
 
-        mStripTabDragShadowView.setTab(mMockTab);
+        mStripTabDragShadowView.prepareForDrag(mMockTab, 0);
 
         @ColorRes
         int expectedBackgroundColor =

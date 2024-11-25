@@ -18,7 +18,8 @@ class SafeBrowsingClientImplTest : public PlatformTest {
   SafeBrowsingClientImplTest()
       : prerender_service_(base::WrapUnique(new FakePrerenderService())),
         client_(base::WrapUnique(
-            new SafeBrowsingClientImpl(/*lookup_service=*/nullptr,
+            new SafeBrowsingClientImpl(/*pref_service=*/nullptr,
+                                       /*lookup_service=*/nullptr,
                                        /*hash_real_time_service=*/nullptr,
                                        prerender_service_.get()))),
         web_state_(base::WrapUnique(new web::FakeWebState())) {}
@@ -61,21 +62,5 @@ TEST_F(SafeBrowsingClientImplTest, ShouldCancelPrerenderInMainFrame) {
   EXPECT_TRUE(prerender_service_->IsWebStatePrerendered(web_state_.get()));
   EXPECT_TRUE(prerender_service_->HasPrerenderForUrl(url));
   client_->OnMainFrameUrlQueryCancellationDecided(web_state_.get(), url);
-  EXPECT_FALSE(prerender_service_->HasPrerenderForUrl(url));
-}
-
-// Verifies prerendering is cancelled when the subframe loads are cancelled.
-// Additionally verifies that cancelling prerendering should return bool
-// indicating that no blocking page should be displayed.
-TEST_F(SafeBrowsingClientImplTest, ShouldCancelPrerenderInSubframe) {
-  GURL url = GURL("https://www.chromium.org");
-  PrerenderWebState();
-  prerender_service_->StartPrerender(url, web::Referrer(),
-                                     ui::PAGE_TRANSITION_LINK, web_state_.get(),
-                                     /*immediately=*/true);
-  EXPECT_TRUE(prerender_service_->IsWebStatePrerendered(web_state_.get()));
-  EXPECT_TRUE(prerender_service_->HasPrerenderForUrl(url));
-  EXPECT_FALSE(
-      client_->OnSubFrameUrlQueryCancellationDecided(web_state_.get(), url));
   EXPECT_FALSE(prerender_service_->HasPrerenderForUrl(url));
 }

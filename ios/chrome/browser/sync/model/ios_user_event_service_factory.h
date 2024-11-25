@@ -5,23 +5,21 @@
 #ifndef IOS_CHROME_BROWSER_SYNC_MODEL_IOS_USER_EVENT_SERVICE_FACTORY_H_
 #define IOS_CHROME_BROWSER_SYNC_MODEL_IOS_USER_EVENT_SERVICE_FACTORY_H_
 
-#include <memory>
+#import <memory>
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 
 namespace syncer {
 class UserEventService;
 }  // namespace syncer
 
-// Singleton that associates UserEventServices to ChromeBrowserStates.
+// Singleton that associates UserEventServices to ProfileIOS.
 class IOSUserEventServiceFactory : public BrowserStateKeyedServiceFactory {
  public:
-  static syncer::UserEventService* GetForBrowserState(
-      ChromeBrowserState* context);
-
+  static syncer::UserEventService* GetForProfile(ProfileIOS* profile);
   static IOSUserEventServiceFactory* GetInstance();
 
  private:

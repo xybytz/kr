@@ -13,16 +13,14 @@ namespace blink {
 
 const v8::Local<v8::Function> ModuleImportMeta::MakeResolveV8Function(
     Modulator* modulator) const {
-  ScriptFunction* fn = MakeGarbageCollected<ScriptFunction>(
-      modulator->GetScriptState(),
-      MakeGarbageCollected<Resolve>(modulator, url_));
-  return fn->V8Function();
+  return MakeGarbageCollected<Resolve>(modulator, url_)
+      ->ToV8Function(modulator->GetScriptState());
 }
 
 ScriptValue ModuleImportMeta::Resolve::Call(ScriptState* script_state,
                                             ScriptValue value) {
   ExceptionState exception_state(script_state->GetIsolate(),
-                                 ExceptionContextType::kOperationInvoke,
+                                 v8::ExceptionContext::kOperation,
                                  "import.meta", "resolve");
 
   const String specifier = NativeValueTraits<IDLString>::NativeValue(
@@ -42,13 +40,12 @@ ScriptValue ModuleImportMeta::Resolve::Call(ScriptState* script_state,
 
   return ScriptValue(
       script_state->GetIsolate(),
-      ToV8Traits<IDLString>::ToV8(script_state, result.GetString())
-          .ToLocalChecked());
+      ToV8Traits<IDLString>::ToV8(script_state, result.GetString()));
 }
 
 void ModuleImportMeta::Resolve::Trace(Visitor* visitor) const {
   visitor->Trace(modulator_);
-  ScriptFunction::Callable::Trace(visitor);
+  ScriptFunction::Trace(visitor);
 }
 
 }  // namespace blink

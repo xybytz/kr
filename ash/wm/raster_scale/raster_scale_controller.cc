@@ -47,8 +47,10 @@ void ScopedSetRasterScale::SetOrUpdateRasterScale(
 
 void ScopedSetRasterScale::Shutdown() {
   if (window_) {
-    Shell::Get()->raster_scale_controller()->PopRasterScale(window_,
-                                                            raster_scale_);
+    auto* rsc = Shell::Get()->raster_scale_controller();
+    if (rsc) {
+      rsc->PopRasterScale(window_, raster_scale_);
+    }
     window_->RemoveObserver(this);
     window_ = nullptr;
   }
@@ -60,15 +62,26 @@ void ScopedSetRasterScale::OnWindowDestroying(aura::Window* window) {
 }
 
 ScopedPauseRasterScaleUpdates::ScopedPauseRasterScaleUpdates() {
-  Shell::Get()->raster_scale_controller()->Pause();
+  auto* rsc = Shell::Get()->raster_scale_controller();
+  if (rsc) {
+    rsc->Pause();
+  }
 }
 
 ScopedPauseRasterScaleUpdates::~ScopedPauseRasterScaleUpdates() {
-  Shell::Get()->raster_scale_controller()->Unpause();
+  auto* rsc = Shell::Get()->raster_scale_controller();
+  if (rsc) {
+    rsc->Unpause();
+  }
 }
 
 RasterScaleController::RasterScaleController() = default;
-RasterScaleController::~RasterScaleController() = default;
+RasterScaleController::~RasterScaleController() {
+  // Reset raster scales to 1.0 on destruction.
+  for (const auto& [window, _] : window_scales_) {
+    window->SetProperty(aura::client::kRasterScale, 1.0f);
+  }
+}
 
 float RasterScaleController::RasterScaleFromTransform(
     const gfx::Transform& transform) {
@@ -163,7 +176,7 @@ void RasterScaleController::Unpause() {
   pause_count_--;
   DCHECK_GE(pause_count_, 0);
   if (pause_count_ == 0) {
-    for (auto* window : pending_windows_) {
+    for (aura::Window* window : pending_windows_) {
       MaybeSetRasterScale(window);
 
       // If we kept observing a window since it had a pending change, we can

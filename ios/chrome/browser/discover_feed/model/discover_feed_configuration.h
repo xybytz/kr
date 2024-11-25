@@ -28,8 +28,8 @@ class SyncService;
 // AuthenticationService used by DiscoverFeedService.
 @property(nonatomic, assign) AuthenticationService* authService;
 
-// The per BrowserState PrefService.
-@property(nonatomic, assign) PrefService* browserStatePrefService;
+// The per Profile PrefService.
+@property(nonatomic, assign) PrefService* profilePrefService;
 
 // The global PrefService.
 @property(nonatomic, assign) PrefService* localStatePrefService;
@@ -38,7 +38,7 @@ class SyncService;
 @property(nonatomic, assign) signin::IdentityManager* identityManager;
 
 // SingleSignOnService used by DiscoverFeedService.
-@property(nonatomic, strong) id<SingleSignOnService> ssoService;
+@property(nonatomic, strong) id<SingleSignOnService> singleSignOnService;
 
 // Feed metrics recorder used by DiscoverFeedService.
 @property(nonatomic, strong) FeedMetricsRecorder* metricsRecorder;

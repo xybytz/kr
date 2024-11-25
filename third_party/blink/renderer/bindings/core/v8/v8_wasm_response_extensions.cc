@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/bindings/core/v8/v8_wasm_response_extensions.h"
 
 #include "base/debug/dump_without_crashing.h"
@@ -65,11 +70,10 @@ void SendCachedData(String response_url,
 
   CodeCacheHost* code_cache_host =
       ExecutionContext::GetCodeCacheHostFromContext(execution_context);
-  base::span<const uint8_t> serialized_data = cached_metadata->SerializedData();
   CachedMetadataSender::SendToCodeCacheHost(
       code_cache_host, mojom::blink::CodeCacheType::kWebAssembly, response_url,
-      response_time, cache_storage_cache_name, serialized_data.data(),
-      serialized_data.size());
+      response_time, cache_storage_cache_name,
+      cached_metadata->SerializedData());
 }
 
 class WasmCodeCachingCallback {
@@ -115,10 +119,9 @@ class WasmCodeCachingCallback {
     {
       TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"),
                    "v8.wasm.compileDigestForCreate");
-      if (!ComputeDigest(kHashAlgorithmSha256,
-                         reinterpret_cast<const char*>(wire_bytes.data()),
-                         wire_bytes.size(), wire_bytes_digest))
+      if (!ComputeDigest(kHashAlgorithmSha256, wire_bytes, wire_bytes_digest)) {
         return;
+      }
       if (wire_bytes_digest.size() != kWireBytesDigestSize)
         return;
     }
@@ -128,7 +131,7 @@ class WasmCodeCachingCallback {
     Vector<uint8_t> serialized_data = CachedMetadata::GetSerializedDataHeader(
         kWasmModuleTag, kWireBytesDigestSize + base::checked_cast<wtf_size_t>(
                                                    serialized_module.size));
-    serialized_data.Append(wire_bytes_digest.data(), kWireBytesDigestSize);
+    serialized_data.AppendSpan(base::span(wire_bytes_digest));
     serialized_data.Append(
         reinterpret_cast<const uint8_t*>(serialized_module.buffer.get()),
         base::checked_cast<wtf_size_t>(serialized_module.size));
@@ -200,34 +203,30 @@ class FetchDataLoaderForWasmStreaming final : public FetchDataLoader,
     // available any more (handled below).
     while (streaming_) {
       // |buffer| is owned by |consumer_|.
-      const char* buffer = nullptr;
-      size_t available = 0;
-      BytesConsumer::Result result = consumer_->BeginRead(&buffer, &available);
+      base::span<const char> buffer;
+      BytesConsumer::Result result = consumer_->BeginRead(buffer);
 
       if (result == BytesConsumer::Result::kShouldWait)
         return;
       if (result == BytesConsumer::Result::kOk) {
         // Ignore more bytes after an abort (streaming == nullptr).
-        if (available > 0) {
+        if (!buffer.empty()) {
           if (code_cache_state_ == CodeCacheState::kBeforeFirstByte)
             code_cache_state_ = MaybeConsumeCodeCache();
 
-          DCHECK_NE(buffer, nullptr);
+          auto bytes = base::as_bytes(buffer);
           if (code_cache_state_ == CodeCacheState::kUseCodeCache) {
             TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"),
                          "v8.wasm.compileDigestForConsume");
-            digestor_.Update(
-                base::as_bytes(base::make_span(buffer, available)));
+            digestor_.Update(bytes);
           }
-          streaming_->OnBytesReceived(reinterpret_cast<const uint8_t*>(buffer),
-                                      available);
+          streaming_->OnBytesReceived(bytes.data(), bytes.size());
         }
-        result = consumer_->EndRead(available);
+        result = consumer_->EndRead(buffer.size());
       }
       switch (result) {
         case BytesConsumer::Result::kShouldWait:
           NOTREACHED();
-          return;
         case BytesConsumer::Result::kOk:
           break;
         case BytesConsumer::Result::kDone: {
@@ -284,8 +283,7 @@ class FetchDataLoaderForWasmStreaming final : public FetchDataLoader,
     {
       ScriptForbiddenScope::AllowUserAgentScript allow_script;
       v8::Local<v8::Value> v8_exception =
-          ToV8Traits<DOMException>::ToV8(script_state_, exception)
-              .ToLocalChecked();
+          ToV8Traits<DOMException>::ToV8(script_state_, exception);
       streaming_->Abort(v8_exception);
       streaming_.reset();
     }
@@ -343,18 +341,19 @@ class FetchDataLoaderForWasmStreaming final : public FetchDataLoader,
                                     WasmCodeCaching::kMiss);
       return CodeCacheState::kNoCodeCache;
     }
+    base::span<const uint8_t> metadata_with_digest = cached_module->Data();
 
     TRACE_EVENT_INSTANT2(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"),
                          "v8.wasm.moduleCacheHit", TRACE_EVENT_SCOPE_THREAD,
                          "url", url_.Utf8(), "consumedCacheSize",
-                         cached_module->size());
+                         metadata_with_digest.size());
 
-    bool is_valid =
-        cached_module->size() >= kWireBytesDigestSize &&
-        streaming_->SetCompiledModuleBytes(
-            reinterpret_cast<const uint8_t*>(cached_module->Data()) +
-                kWireBytesDigestSize,
-            cached_module->size() - kWireBytesDigestSize);
+    bool is_valid = false;
+    if (metadata_with_digest.size() >= kWireBytesDigestSize) {
+      auto metadata = metadata_with_digest.subspan(kWireBytesDigestSize);
+      is_valid =
+          streaming_->SetCompiledModuleBytes(metadata.data(), metadata.size());
+    }
 
     if (!is_valid) {
       TRACE_EVENT_INSTANT0(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"),
@@ -392,14 +391,15 @@ class FetchDataLoaderForWasmStreaming final : public FetchDataLoader,
         cache_handler_->GetCachedMetadata(kWasmModuleTag);
     if (!cached_module)
       return false;
-    if (cached_module->size() < kWireBytesDigestSize)
+    base::span<const uint8_t> metadata_with_digest = cached_module->Data();
+    if (metadata_with_digest.size() < kWireBytesDigestSize) {
       return false;
+    }
 
     DigestValue wire_bytes_digest;
     digestor_.Finish(wire_bytes_digest);
     if (digestor_.has_failed() ||
-        memcmp(wire_bytes_digest.data(), cached_module->Data(),
-               kWireBytesDigestSize) != 0) {
+        wire_bytes_digest != metadata_with_digest.first(kWireBytesDigestSize)) {
       TRACE_EVENT_INSTANT0(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"),
                            "v8.wasm.moduleCacheInvalidDigest",
                            TRACE_EVENT_SCOPE_THREAD);
@@ -454,12 +454,14 @@ class WasmDataLoaderClient final
 // No further methods should be called on the WasmStreaming object afterwards,
 // hence we receive the shared_ptr by reference and clear it.
 void PropagateExceptionToWasmStreaming(
-    ExceptionState& exception_state,
+    ScriptState* script_state,
+    v8::Local<v8::Value> exception,
     std::shared_ptr<v8::WasmStreaming>& streaming) {
-  DCHECK(exception_state.HadException());
-  streaming->Abort(exception_state.GetException());
+  ApplyContextToException(script_state, exception,
+                          ExceptionContext(v8::ExceptionContext::kOperation,
+                                           "WebAssembly", "compile"));
+  streaming->Abort(exception);
   streaming.reset();
-  exception_state.ClearException();
 }
 
 scoped_refptr<base::SingleThreadTaskRunner> GetContextTaskRunner(
@@ -497,9 +499,6 @@ void StreamFromResponseCallback(
   TRACE_EVENT_INSTANT0(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"),
                        "v8.wasm.streamFromResponseCallback",
                        TRACE_EVENT_SCOPE_THREAD);
-  ExceptionState exception_state(args.GetIsolate(),
-                                 ExceptionContextType::kOperationInvoke,
-                                 "WebAssembly", "compile");
   std::shared_ptr<v8::WasmStreaming> streaming =
       v8::WasmStreaming::Unpack(args.GetIsolate(), args.Data());
 
@@ -535,39 +534,43 @@ void StreamFromResponseCallback(
   if (!response) {
     base::UmaHistogramEnumeration("V8.WasmStreamingInputType",
                                   WasmStreamingInputType::kNoResponse);
-    exception_state.ThrowTypeError(
+    auto exception = V8ThrowException::CreateTypeError(
+        args.GetIsolate(),
         "An argument must be provided, which must be a "
         "Response or Promise<Response> object");
-    PropagateExceptionToWasmStreaming(exception_state, streaming);
+    PropagateExceptionToWasmStreaming(script_state, exception, streaming);
     return;
   }
 
   if (!response->ok()) {
     base::UmaHistogramEnumeration("V8.WasmStreamingInputType",
                                   WasmStreamingInputType::kResponseNotOK);
-    exception_state.ThrowTypeError("HTTP status code is not ok");
-    PropagateExceptionToWasmStreaming(exception_state, streaming);
+    auto exception = V8ThrowException::CreateTypeError(
+        args.GetIsolate(), "HTTP status code is not ok");
+    PropagateExceptionToWasmStreaming(script_state, exception, streaming);
     return;
   }
 
   // The spec explicitly disallows any extras on the Content-Type header,
   // so we check against ContentType() rather than MimeType(), which
   // implicitly strips extras.
-  if (response->ContentType().LowerASCII() != "application/wasm") {
+  if (!EqualIgnoringASCIICase(response->ContentType(), "application/wasm")) {
     base::UmaHistogramEnumeration("V8.WasmStreamingInputType",
                                   WasmStreamingInputType::kWrongMimeType);
-    exception_state.ThrowTypeError(
+    auto exception = V8ThrowException::CreateTypeError(
+        args.GetIsolate(),
         "Incorrect response MIME type. Expected 'application/wasm'.");
-    PropagateExceptionToWasmStreaming(exception_state, streaming);
+    PropagateExceptionToWasmStreaming(script_state, exception, streaming);
     return;
   }
 
   if (response->IsBodyLocked() || response->IsBodyUsed()) {
     base::UmaHistogramEnumeration("V8.WasmStreamingInputType",
                                   WasmStreamingInputType::kReponseLocked);
-    exception_state.ThrowTypeError(
+    auto exception = V8ThrowException::CreateTypeError(
+        args.GetIsolate(),
         "Cannot compile WebAssembly.Module from an already read Response");
-    PropagateExceptionToWasmStreaming(exception_state, streaming);
+    PropagateExceptionToWasmStreaming(script_state, exception, streaming);
     return;
   }
 
@@ -576,8 +579,9 @@ void StreamFromResponseCallback(
                                   WasmStreamingInputType::kReponseEmpty);
     // Since the status is 2xx (ok), this must be status 204 (No Content),
     // status 205 (Reset Content) or a malformed status 200 (OK).
-    exception_state.ThrowWasmCompileError("Empty WebAssembly module");
-    PropagateExceptionToWasmStreaming(exception_state, streaming);
+    auto exception = V8ThrowException::CreateWasmCompileError(
+        args.GetIsolate(), "Empty WebAssembly module");
+    PropagateExceptionToWasmStreaming(script_state, exception, streaming);
     return;
   }
 
@@ -618,14 +622,13 @@ void StreamFromResponseCallback(
         });
   }
 
-  DCHECK(!exception_state.HadException());
   FetchDataLoaderForWasmStreaming* loader =
       MakeGarbageCollected<FetchDataLoaderForWasmStreaming>(
           url, std::move(streaming), script_state, cache_handler,
           code_caching_callback);
   response->BodyBuffer()->StartLoading(
       loader, MakeGarbageCollected<WasmDataLoaderClient>(loader),
-      exception_state);
+      PassThroughException(args.GetIsolate()));
 }
 
 }  // namespace

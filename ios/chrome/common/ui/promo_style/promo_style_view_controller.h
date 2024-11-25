@@ -17,10 +17,23 @@ enum class PromoStyleImageType {
 };
 
 enum class BannerImageSizeType {
+  kExtraShort,
   kShort,
   kStandard,
   kTall,
   kExtraTall,
+};
+
+// Indicates the visibility and style of action buttons.
+enum class ActionButtonsVisibility {
+  // No visibility changes have been made to the action buttons.
+  kDefault,
+  // Primary and secondary buttons are hidden.
+  kHidden,
+  // Primary and secondary buttons are shown in the default differing styles.
+  kRegularButtonsShown,
+  // Primary and secondary buttons are shown with the same style.
+  kEquallyWeightedButtonShown,
 };
 
 // A base view controller for the common UI controls in the new Promo
@@ -37,6 +50,8 @@ enum class BannerImageSizeType {
 @property(nonatomic, strong) NSString* bannerName;
 
 // The ratio of the view covered by the banner.
+// - kExtraShort: 15%,
+// - kShort: 20%,
 // - kStandard: 25%,
 // - kTall: 35%,
 // - kExtraTall: 50%.
@@ -101,12 +116,19 @@ enum class BannerImageSizeType {
 // loaded. This is declared public so the accessibility can be enabled.
 @property(nonatomic, strong) UILabel* titleLabel;
 
+// The subtitle label below the title. Must be set before the view is loaded.
+@property(nonatomic, strong) UILabel* subtitleLabel;
+
 // The headline below the image. Must be set before the view is loaded.
 @property(nonatomic, copy) NSString* titleText;
 
 // The margin on leading and trailing ends of the title label.
 // Must be set before the view is loaded. Defaults to `kTitleHorizontalMargin`.
 @property(nonatomic, assign) CGFloat titleHorizontalMargin;
+
+// Top margin of the title label when there is no header image set. Must be set
+// before the view is loaded. Defaults to zero.
+@property(nonatomic, assign) CGFloat titleTopMarginWhenNoHeaderImage;
 
 // The subtitle below the title. Must be set before the view is loaded.
 @property(nonatomic, copy) NSString* subtitleText;
@@ -134,6 +156,14 @@ enum class BannerImageSizeType {
 
 // The text for the primary action. Must be set before the view is loaded.
 @property(nonatomic, copy) NSString* primaryActionString;
+
+// The configuration update handler for the primaryActionButton. Must be set
+// before the view is loaded.
+@property(nonatomic, copy) UIButtonConfigurationUpdateHandler updateHandler;
+
+// The primary action button is enabled when set to YES, disabled when NO. The
+// button is enabled by default.
+@property(nonatomic, assign) BOOL primaryButtonEnabled;
 
 // The text for the secondary action. Must be set before the view is loaded. If
 // not set, there won't be a secondary action button.
@@ -171,8 +201,25 @@ enum class BannerImageSizeType {
 // Adds a rounded corner limit to the banner view to mimic a two card view.
 @property(nonatomic, assign) BOOL bannerLimitWithRoundedCorner;
 
+// If YES, constrains the scroll view to the top of the view (outside
+// safeAreaLayoutGuide), putting it behind any navigation bars. By default,
+// scroll view is constrained within the safeAreaLayoutGuide.
+// Must be set before view is loaded.
+@property(nonatomic, assign) BOOL layoutBehindNavigationBar;
+
 // Aligns the elements to the top of the view.
 @property(nonatomic, assign) BOOL topAlignedLayout;
+
+// Visibility and style indicator of the primary and secondary action buttons.
+@property(nonatomic, assign, readwrite)
+    ActionButtonsVisibility actionButtonsVisibility;
+
+// Whether the primary button should be disabled and have its button text
+// replaced with a spinner. Should be set only after the view is loaded.
+@property(nonatomic, assign) BOOL primaryButtonSpinnerEnabled;
+
+// Determines the font text style to use for the title.
+- (UIFontTextStyle)titleLabelFontTextStyle;
 
 @end
 

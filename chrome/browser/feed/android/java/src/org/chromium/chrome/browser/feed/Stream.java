@@ -13,6 +13,7 @@ import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.browser.feed.FeedListContentManager.FeedContent;
 import org.chromium.chrome.browser.xsurface.HybridListRenderer;
 import org.chromium.chrome.browser.xsurface.feed.FeedSurfaceScope;
+import org.chromium.chrome.browser.xsurface.feed.FeedUserInteractionReliabilityLogger.ClosedReason;
 
 import java.util.List;
 
@@ -71,14 +72,6 @@ public interface Stream {
      * <p>Note: this will assume {@link RequestReason.MANUAL_REFRESH}.
      */
     void triggerRefresh(Callback<Boolean> callback);
-
-    /**
-     * @return Whether the placeholder is shown.
-     */
-    boolean isPlaceholderShown();
-
-    /** Called when the placeholder is shown and the first batch of articles are about to show. */
-    void hidePlaceholder();
 
     /** Whether activity logging is enabled for this feed. */
     default boolean isActivityLoggingEnabled() {
@@ -147,9 +140,15 @@ public interface Stream {
         /**
          * Called by Stream when content being shown has changed. This could be new cards being
          * created, the content of a card changing, etc...
+         *
          * @param feedContents the list of feed contents after the change. Null if the contents are
-         *         not available.
+         *     not available.
          */
         void onContentChanged(@Nullable List<FeedContent> feedContents);
+    }
+
+    /** Returns a reason to describe how the stream is closed. */
+    default @ClosedReason int getClosedReason() {
+        return ClosedReason.LEAVE_FEED;
     }
 }

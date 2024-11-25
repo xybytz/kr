@@ -12,13 +12,14 @@
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/desk_template.h"
 #include "ash/public/cpp/session/session_controller.h"
+#include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/wm/desks/desk.h"
 #include "ash/wm/desks/desks_controller.h"
 #include "ash/wm/desks/desks_histogram_enums.h"
 #include "ash/wm/desks/desks_restore_util.h"
-#include "ash/wm/desks/legacy_desk_bar_view.h"
+#include "ash/wm/desks/overview_desk_bar_view.h"
 #include "ash/wm/desks/templates/saved_desk_util.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/overview/overview_grid.h"
@@ -35,8 +36,9 @@
 #include "base/values.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
-#include "chrome/browser/apps/app_service/browser_app_instance_observer.h"
-#include "chrome/browser/apps/app_service/browser_app_instance_registry.h"
+#include "chrome/browser/apps/browser_instance/browser_app_instance.h"
+#include "chrome/browser/apps/browser_instance/browser_app_instance_observer.h"
+#include "chrome/browser/apps/browser_instance/browser_app_instance_registry.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/crosapi/crosapi_ash.h"
 #include "chrome/browser/ash/crosapi/crosapi_manager.h"
@@ -52,6 +54,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "components/app_constants/constants.h"
 #include "components/app_restore/app_restore_info.h"
 #include "components/app_restore/window_properties.h"
@@ -67,9 +70,6 @@
 namespace {
 
 DesksClient* g_desks_client_instance = nullptr;
-
-// Used to generate unique IDs for desk template launches.
-int32_t g_launch_id = 0;
 
 // Timeout time used in LaunchPerformanceTracker.
 constexpr base::TimeDelta kLaunchPerformanceTimeout = base::Minutes(3);
@@ -144,6 +144,15 @@ class LacrosAppWindowObserver : public apps::BrowserAppInstanceObserver {
   ~LacrosAppWindowObserver() override = default;
 
   // BrowserAppInstanceObserver:
+  void OnBrowserWindowAdded(
+      const apps::BrowserWindowInstance& instance) override {
+    if (chromeos::features::IsDeskProfilesEnabled() ||
+        ash::floating_workspace_util::IsFloatingWorkspaceV2Enabled()) {
+      instance.window->SetProperty(ash::kLacrosProfileId,
+                                   instance.lacros_profile_id);
+    }
+  }
+
   void OnBrowserAppAdded(const apps::BrowserAppInstance& instance) override {
     if (!instance.app_id.empty()) {
       app_ids_by_window_[instance.window] = instance.app_id;
@@ -405,7 +414,7 @@ void DesksClient::CaptureActiveDesk(
           },
           std::move(callback)),
       template_type,
-      /*root_window_to_show=*/nullptr);
+      /*root_window_to_show=*/nullptr, /*coral_app_id_allowlist=*/{});
 }
 
 void DesksClient::DeleteDeskTemplate(const base::Uuid& template_uuid,
@@ -540,11 +549,10 @@ DesksClient::GetAllDesks() {
 void DesksClient::LaunchAppsFromTemplate(
     std::unique_ptr<ash::DeskTemplate> desk_template) {
   DCHECK(desk_template);
-  DCHECK_EQ(desk_template->launch_id(), 0);
 
   // Generate a unique ID for this launch. It is used to tell different template
   // launches apart.
-  desk_template->set_launch_id(++g_launch_id);
+  const int32_t launch_id = DesksTemplatesAppLaunchHandler::GetNextLaunchId();
 
   app_restore::RestoreData* restore_data =
       desk_template->mutable_desk_restore_data();
@@ -552,13 +560,6 @@ void DesksClient::LaunchAppsFromTemplate(
     return;
   if (restore_data->app_id_to_launch_list().empty())
     return;
-
-  // Since we default the browser to launch as ash chrome, we want to to check
-  // if lacros is enabled. If so, update the app id of the browser app to launch
-  // lacros instead of ash.
-  if (crosapi::browser_util::IsLacrosEnabled()) {
-    restore_data->UpdateBrowserAppIdToLacros();
-  }
 
   // Make window IDs of the template unique. This is a requirement for launching
   // templates concurrently since the contained window IDs are used as lookup
@@ -572,16 +573,16 @@ void DesksClient::LaunchAppsFromTemplate(
           desk_template->uuid(), this);
 
   DCHECK(active_profile_);
-  const int32_t launch_id = desk_template->launch_id();
 
   auto& handler = app_launch_handlers_[launch_id];
   // Some tests reach into this class and install a handler ahead of time. In
   // all other cases, we create a handler for the launch here.
   if (!handler) {
-    handler = std::make_unique<DesksTemplatesAppLaunchHandler>(active_profile_);
+    handler = std::make_unique<DesksTemplatesAppLaunchHandler>(
+        active_profile_, DesksTemplatesAppLaunchHandler::Type::kTemplate);
   }
 
-  handler->LaunchTemplate(*desk_template);
+  handler->LaunchTemplate(*desk_template, launch_id);
 
   // Install a timer that will clear the launch handler after a given duration.
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(

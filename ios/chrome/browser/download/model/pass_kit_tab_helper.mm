@@ -4,18 +4,18 @@
 
 #import "ios/chrome/browser/download/model/pass_kit_tab_helper.h"
 
+#import <PassKit/PassKit.h>
+
 #import <memory>
 #import <string>
-
-#import <PassKit/PassKit.h>
 
 #import "base/files/file_path.h"
 #import "base/memory/ptr_util.h"
 #import "base/metrics/histogram_functions.h"
 #import "base/metrics/histogram_macros.h"
-#import "ios/chrome/browser/download/model/mime_type_util.h"
 #import "ios/chrome/browser/download/model/pass_kit_tab_helper_delegate.h"
 #import "ios/chrome/browser/shared/model/utils/js_unzipper.h"
+#import "ios/chrome/browser/shared/model/utils/mime_type_util.h"
 #import "ios/chrome/browser/shared/public/commands/web_content_commands.h"
 #import "ios/web/public/download/download_task.h"
 
@@ -130,7 +130,7 @@ void PassKitTabHelper::OnDownloadDataAllRead(std::string uma_histogram,
                                              NSArray<NSData*>* all_data) {
   NSMutableArray<PKPass*>* passes = [NSMutableArray array];
   for (NSData* data in all_data) {
-    // TODO(crbug.com/1487198): This should happen on background thread.
+    // TODO(crbug.com/40283195): This should happen on background thread.
     PKPass* pass = [[PKPass alloc] initWithData:data error:nil];
     if (pass) {
       [passes addObject:pass];

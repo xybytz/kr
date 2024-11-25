@@ -8,31 +8,28 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import androidx.test.annotation.UiThreadTest;
 import androidx.test.filters.SmallTest;
 
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.UiThreadTest;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Features.DisableFeatures;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.ChromeSharedPreferences;
-import org.chromium.chrome.browser.profiles.OTRProfileID;
+import org.chromium.chrome.browser.profiles.OtrProfileId;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.components.offline_items_collection.ContentId;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
 import org.chromium.components.offline_items_collection.OfflineItem.Progress;
 import org.chromium.components.offline_items_collection.OfflineItemProgressUnit;
 import org.chromium.components.offline_items_collection.PendingState;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.url.GURL;
 
 import java.util.UUID;
@@ -45,16 +42,14 @@ public class DownloadNotificationServiceTest {
     private static final ContentId ID1 =
             LegacyHelpers.buildLegacyContentId(false, UUID.randomUUID().toString());
 
-    @Rule public TestRule mFeaturesProcessor = new Features.JUnitProcessor();
-
     private MockDownloadNotificationService mDownloadNotificationService;
     private DownloadForegroundServiceManagerTest.MockDownloadForegroundServiceManager
             mDownloadForegroundServiceManager;
-    private OTRProfileID mPrimaryOTRProfileID = OTRProfileID.getPrimaryOTRProfileID();
+    private OtrProfileId mPrimaryOtrProfileId = OtrProfileId.getPrimaryOtrProfileId();
 
     @Before
     public void setUp() {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mDownloadNotificationService = new MockDownloadNotificationService();
                     mDownloadForegroundServiceManager =
@@ -84,7 +79,7 @@ public class DownloadNotificationServiceTest {
                 100L,
                 1L,
                 1L,
-                mPrimaryOTRProfileID,
+                mPrimaryOtrProfileId,
                 true,
                 false,
                 null,
@@ -104,7 +99,7 @@ public class DownloadNotificationServiceTest {
                 "test",
                 /* isResumable= */ true,
                 /* isAutoResumable= */ false,
-                mPrimaryOTRProfileID,
+                mPrimaryOtrProfileId,
                 false,
                 null,
                 null,
@@ -126,7 +121,7 @@ public class DownloadNotificationServiceTest {
                 100L,
                 1L,
                 1L,
-                mPrimaryOTRProfileID,
+                mPrimaryOtrProfileId,
                 true,
                 false,
                 null,
@@ -145,7 +140,7 @@ public class DownloadNotificationServiceTest {
                 "",
                 "test",
                 1L,
-                mPrimaryOTRProfileID,
+                mPrimaryOtrProfileId,
                 true,
                 true,
                 null,
@@ -172,7 +167,7 @@ public class DownloadNotificationServiceTest {
                 100L,
                 1L,
                 1L,
-                mPrimaryOTRProfileID,
+                mPrimaryOtrProfileId,
                 true,
                 false,
                 null,
@@ -192,7 +187,7 @@ public class DownloadNotificationServiceTest {
                 "test",
                 /* isResumable= */ true,
                 /* isAutoResumable= */ true,
-                mPrimaryOTRProfileID,
+                mPrimaryOtrProfileId,
                 false,
                 null,
                 null,
@@ -227,7 +222,7 @@ public class DownloadNotificationServiceTest {
                 100L,
                 1L,
                 1L,
-                mPrimaryOTRProfileID,
+                mPrimaryOtrProfileId,
                 true,
                 false,
                 null,
@@ -247,7 +242,7 @@ public class DownloadNotificationServiceTest {
                 "test",
                 /* isResumable= */ false,
                 /* isAutoResumable= */ true,
-                mPrimaryOTRProfileID,
+                mPrimaryOtrProfileId,
                 false,
                 null,
                 null,

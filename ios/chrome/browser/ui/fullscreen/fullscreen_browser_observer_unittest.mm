@@ -6,7 +6,7 @@
 
 #import "base/test/task_environment.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_mediator.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_model.h"
@@ -18,8 +18,8 @@
 class FullscreenBrowserObserverTest : public PlatformTest {
  public:
   FullscreenBrowserObserverTest() {
-    browser_state_ = TestChromeBrowserState::Builder().Build();
-    browser_ = std::make_unique<TestBrowser>(browser_state_.get());
+    profile_ = TestProfileIOS::Builder().Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get());
     model_ = std::make_unique<FullscreenModel>();
     controller_ = std::make_unique<TestFullscreenController>(model_.get());
     mediator_ =
@@ -36,7 +36,7 @@ class FullscreenBrowserObserverTest : public PlatformTest {
 
  protected:
   base::test::TaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<TestBrowser> browser_;
   std::unique_ptr<FullscreenModel> model_;
   std::unique_ptr<TestFullscreenController> controller_;

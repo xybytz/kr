@@ -17,14 +17,15 @@
 #import "ios/chrome/browser/policy_url_blocking/model/policy_url_blocking_service.h"
 #import "ios/chrome/browser/policy_url_blocking/model/policy_url_blocking_util.h"
 #import "ios/chrome/browser/reading_list/model/reading_list_model_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/shared/model/url/url_util.h"
 #import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/web/common/features.h"
 #import "ios/web/common/url_scheme_util.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/web_client.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "url/gurl.h"
 
 namespace {
@@ -65,6 +66,13 @@ enum class ExternalURLRequestStatus {
   kCount,
 };
 
+// Execute the callbacks contained in `callbacks`.
+void ExecuteCallbacks(std::vector<base::OnceClosure> callbacks) {
+  for (auto& callback : callbacks) {
+    std::move(callback).Run();
+  }
+}
+
 }  // namespace
 
 AppLauncherTabHelper::AppLauncherTabHelper(
@@ -85,7 +93,8 @@ bool AppLauncherTabHelper::IsAppUrl(const GURL& url) {
   return !(web::UrlHasWebScheme(url) ||
            web::GetWebClient()->IsAppSpecificURL(url) ||
            url.SchemeIs(url::kFileScheme) || url.SchemeIs(url::kAboutScheme) ||
-           url.SchemeIs(url::kBlobScheme));
+           url.SchemeIs(url::kBlobScheme) ||
+           url.SchemeIs(web::kMarketplaceKitScheme));
 }
 
 void AppLauncherTabHelper::SetDelegate(AppLauncherTabHelperDelegate* delegate) {
@@ -167,6 +176,7 @@ void AppLauncherTabHelper::RequestToLaunchApp(const GURL& url,
 void AppLauncherTabHelper::ShowAppLaunchAlert(AppLauncherAlertCause cause,
                                               const GURL& url) {
   if (!delegate_) {
+    LaunchAppRequestCompleted();
     return;
   }
   is_prompt_active_ = true;
@@ -180,6 +190,7 @@ void AppLauncherTabHelper::OnShowAppLaunchAlertDone(const GURL& url,
                                                     bool user_allowed) {
   if (!user_allowed || !delegate_) {
     is_prompt_active_ = false;
+    LaunchAppRequestCompleted();
     return;
   }
 
@@ -225,11 +236,12 @@ void AppLauncherTabHelper::LaunchAppRequestCompleted() {
   is_app_launch_request_pending_ = false;
   is_prompt_active_ = false;
 
-  // Call and clear all callbacks waiting for app launch completion.
-  for (auto& callback : callbacks_waiting_for_app_launch_completion_) {
-    std::move(callback).Run();
-  }
-  callbacks_waiting_for_app_launch_completion_.clear();
+  // Some of the callback may destruct `this`, so post the execution to remove
+  // the function from the stack.
+  std::vector<base::OnceClosure> callbacks;
+  std::swap(callbacks_waiting_for_app_launch_completion_, callbacks);
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&ExecuteCallbacks, std::move(callbacks)));
 }
 
 void AppLauncherTabHelper::ShouldAllowRequest(
@@ -260,7 +272,12 @@ void AppLauncherTabHelper::ShouldAllowRequest(
                        app_launch_request.user_tapped_recently);
   }
 
-  std::move(callback).Run(policy_decision);
+  if (!is_prompt_active_) {
+    std::move(callback).Run(policy_decision);
+  } else {
+    callbacks_waiting_for_app_launch_completion_.push_back(
+        base::BindOnce(std::move(callback), policy_decision));
+  }
 }
 
 AppLauncherTabHelper::PolicyDecisionAndOptionalAppLaunchRequest
@@ -280,9 +297,10 @@ AppLauncherTabHelper::GetPolicyDecisionAndOptionalAppLaunchRequest(
   }
 
   // Do not allow allow navigation if URL is blocked by enterprise policy.
+  ProfileIOS* profile =
+      ProfileIOS::FromBrowserState(web_state()->GetBrowserState());
   PolicyBlocklistService* blocklistService =
-      PolicyBlocklistServiceFactory::GetForBrowserState(
-          web_state()->GetBrowserState());
+      PolicyBlocklistServiceFactory::GetForProfile(profile);
   if (blocklistService->GetURLBlocklistState(request_url) ==
       policy::URLBlocklist::URLBlocklistState::URL_IN_BLOCKLIST) {
     return {PolicyDecision::CancelAndDisplayError(
@@ -293,6 +311,12 @@ AppLauncherTabHelper::GetPolicyDecisionAndOptionalAppLaunchRequest(
   // Disallow navigations to tel: URLs from cross-origin frames.
   if (request_url.SchemeIs(url::kTelScheme) &&
       request_info.target_frame_is_cross_origin) {
+    return {PolicyDecision::Cancel(), kNoAppLaunchRequest};
+  }
+
+  if (!base::FeatureList::IsEnabled(
+          web::features::kAllowCrossWindowExternalAppNavigation) &&
+      request_info.target_window_is_cross_origin) {
     return {PolicyDecision::Cancel(), kNoAppLaunchRequest};
   }
 
@@ -307,7 +331,7 @@ AppLauncherTabHelper::GetPolicyDecisionAndOptionalAppLaunchRequest(
 
   ExternalURLRequestStatus request_status =
       ExternalURLRequestStatus::kMainFrameRequestAllowed;
-  // TODO(crbug.com/852489): Check if the source frame should also be
+  // TODO(crbug.com/40580645): Check if the source frame should also be
   // considered.
   if (!request_info.target_frame_is_main) {
     request_status = ExternalURLRequestStatus::kSubFrameRequestAllowed;
@@ -330,19 +354,15 @@ AppLauncherTabHelper::GetPolicyDecisionAndOptionalAppLaunchRequest(
   web::NavigationItem* pending_item =
       web_state_->GetNavigationManager()->GetPendingItem();
   GURL original_pending_url =
-      pending_item ? pending_item->GetOriginalRequestURL() : GURL::EmptyGURL();
+      pending_item ? pending_item->GetOriginalRequestURL() : GURL();
   bool is_link_transition = ui::PageTransitionCoreTypeIs(
       request_info.transition_type, ui::PAGE_TRANSITION_LINK);
-
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(web_state_->GetBrowserState());
 
   if (!is_link_transition && original_pending_url.is_valid()) {
     // At this stage the navigation will be canceled in all cases. If this
     // was a redirection, the `source_url` may not have been reported to
     // ReadingListWebStateObserver. Report it to mark as read if needed.
-    ReadingListModel* model =
-        ReadingListModelFactory::GetForBrowserState(browser_state);
+    ReadingListModel* model = ReadingListModelFactory::GetForProfile(profile);
     if (model && model->loaded()) {
       model->SetReadStatusIfExists(original_pending_url, true);
     }

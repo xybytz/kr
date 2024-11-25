@@ -30,6 +30,7 @@ import org.junit.Test;
 import org.junit.rules.RuleChain;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.HistogramWatcher;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
@@ -45,15 +46,11 @@ import org.chromium.chrome.test.util.BookmarkTestRule;
 import org.chromium.chrome.test.util.BookmarkTestUtil;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.components.signin.metrics.SigninAccessPoint;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.content_public.common.ContentUrlConstants;
 
 /** Tests different scenarios when the bookmark personalized signin promo is not shown. */
 @RunWith(ChromeJUnit4ClassRunner.class)
-@CommandLineFlags.Add({
-    ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
-    "force-fieldtrials=Study/Group",
-    "force-fieldtrial-params=Study.Group:use_root_bookmark_as_default/false"
-})
+@CommandLineFlags.Add(ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE)
 public class BookmarkPersonalizedSigninPromoDismissTest {
     private final SyncTestRule mSyncTestRule = new SyncTestRule();
 
@@ -70,7 +67,7 @@ public class BookmarkPersonalizedSigninPromoDismissTest {
         BookmarkPromoHeader.forcePromoStateForTesting(null);
         SyncPromoController.setPrefSigninPromoDeclinedBookmarksForTests(false);
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     BookmarkModel bookmarkModel =
                             BookmarkModel.getForProfile(
@@ -183,6 +180,12 @@ public class BookmarkPersonalizedSigninPromoDismissTest {
                     (ChromeTabbedActivity) mSyncTestRule.getActivity();
             ChromeTabUtils.closeCurrentTab(
                     InstrumentationRegistry.getInstrumentation(), chromeTabbedActivity);
+            // Open a new tab so chrome://bookmarks can be re-loaded within the same test.
+            ChromeTabUtils.fullyLoadUrlInNewTab(
+                    InstrumentationRegistry.getInstrumentation(),
+                    chromeTabbedActivity,
+                    ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL,
+                    false);
         } else {
             // This is not within the RecyclerView, don't need to verify active.
             onView(withId(R.id.close_menu_id)).perform(click());

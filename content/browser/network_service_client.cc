@@ -37,6 +37,7 @@
 #include "services/network/public/cpp/network_switches.h"
 #include "services/network/public/mojom/network_change_manager.mojom-forward.h"
 #include "services/network/public/mojom/network_context.mojom.h"
+#include "services/network/public/mojom/shared_storage.mojom.h"
 #include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom.h"
 
 #if BUILDFLAG(IS_ANDROID)
@@ -281,18 +282,12 @@ void NetworkServiceClient::OnCertificateRequested(
         cert_responder_remote) {
   mojo::Remote<network::mojom::ClientCertificateResponder> cert_responder(
       std::move(cert_responder_remote));
-
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          network::switches::kIgnoreUrlFetcherCertRequests)) {
-    cert_responder->ContinueWithoutCertificate();
-    return;
-  }
   cert_responder->CancelRequest();
 }
 
 void NetworkServiceClient::OnAuthRequired(
     const std::optional<base::UnguessableToken>& window_id,
-    uint32_t request_id,
+    int32_t request_id,
     const GURL& url,
     bool first_auth_attempt,
     const net::AuthChallengeInfo& auth_info,
@@ -340,7 +335,7 @@ void NetworkServiceClient::OnDataUseUpdate(
 
 void NetworkServiceClient::OnSharedStorageHeaderReceived(
     const url::Origin& request_origin,
-    std::vector<network::mojom::SharedStorageOperationPtr> operations,
+    std::vector<network::mojom::SharedStorageModifierMethodPtr> methods,
     OnSharedStorageHeaderReceivedCallback callback) {
   std::move(callback).Run();
 }
@@ -350,5 +345,8 @@ void NetworkServiceClient::Clone(
         observer) {
   url_loader_network_service_observers_.Add(this, std::move(observer));
 }
+
+void NetworkServiceClient::OnWebSocketConnectedToPrivateNetwork(
+    network::mojom::IPAddressSpace ip_address_space) {}
 
 }  // namespace content

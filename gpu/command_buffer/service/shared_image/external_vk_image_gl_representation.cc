@@ -8,6 +8,7 @@
 
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
+#include "gpu/command_buffer/service/texture_manager.h"
 #include "gpu/vulkan/vulkan_util.h"
 #include "ui/gl/gl_bindings.h"
 
@@ -50,7 +51,7 @@ ExternalSemaphore ExternalVkImageGLRepresentationShared::ReleaseTexture(
 
   ExternalSemaphore semaphore = pool->GetOrCreateSemaphore();
   if (!semaphore) {
-    // TODO(crbug.com/933452): We should be able to handle this failure more
+    // TODO(crbug.com/41442163): We should be able to handle this failure more
     // gracefully rather than shutting down the whole process.
     DLOG(ERROR) << "Unable to create an ExternalSemaphore in "
                 << "ExternalVkImageGLRepresentation for synchronization with "
@@ -60,7 +61,7 @@ ExternalSemaphore ExternalVkImageGLRepresentationShared::ReleaseTexture(
 
   GLuint gl_semaphore = semaphore.GetGLSemaphore();
   if (!gl_semaphore) {
-    // TODO(crbug.com/933452): We should be able to semaphore_handle this
+    // TODO(crbug.com/41442163): We should be able to semaphore_handle this
     // failure more gracefully rather than shutting down the whole process.
     DLOG(ERROR) << "Unable to export VkSemaphore into GL in "
                 << "ExternalVkImageGLRepresentation for synchronization with "
@@ -120,7 +121,7 @@ bool ExternalVkImageGLRepresentationShared::BeginAccess(GLenum mode) {
 
 void ExternalVkImageGLRepresentationShared::EndAccess() {
   if (!current_access_mode_) {
-    // TODO(crbug.com/933452): We should be able to handle this failure more
+    // TODO(crbug.com/41442163): We should be able to handle this failure more
     // gracefully rather than shutting down the whole process.
     DLOG(ERROR) << "EndAccess called on ExternalVkImageGLRepresentation before "
                 << "BeginAccess";

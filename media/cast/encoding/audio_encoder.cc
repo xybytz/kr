@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "media/cast/encoding/audio_encoder.h"
 
 #include <stdint.h>
@@ -11,20 +16,24 @@
 #include <string>
 #include <utility>
 
+#include "base/containers/heap_array.h"
+#include "base/containers/span.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
-#include "base/sys_byteorder.h"
+#include "base/memory/raw_span.h"
+#include "base/numerics/byte_conversions.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "media/base/audio_codecs.h"
 #include "media/base/audio_sample_types.h"
 #include "media/cast/common/rtp_time.h"
 #include "media/cast/common/sender_encoded_frame.h"
 #include "media/cast/constants.h"
-#include "third_party/openscreen/src/cast/streaming/encoded_frame.h"
+#include "third_party/openscreen/src/cast/streaming/public/encoded_frame.h"
 #include "third_party/opus/src/include/opus.h"
 
 #if BUILDFLAG(IS_APPLE)
@@ -51,7 +60,7 @@ class AudioEncoder::ImplBase
     : public base::RefCountedThreadSafe<AudioEncoder::ImplBase> {
  public:
   ImplBase(const scoped_refptr<CastEnvironment>& cast_environment,
-           Codec codec,
+           AudioCodec codec,
            int num_channels,
            int sampling_rate,
            int samples_per_frame,
@@ -145,14 +154,13 @@ class AudioEncoder::ImplBase
         break;
 
       auto audio_frame = std::make_unique<SenderEncodedFrame>();
-      audio_frame->dependency =
-          openscreen::cast::EncodedFrame::Dependency::kKeyFrame;
+      audio_frame->is_key_frame = true;
       audio_frame->frame_id = frame_id_;
       audio_frame->referenced_frame_id = frame_id_;
       audio_frame->rtp_timestamp = frame_rtp_timestamp_;
       audio_frame->reference_time = frame_capture_time_;
 
-      // TODO(https://crbug.com/1478375): get accurate timestamps for both
+      // TODO(crbug.com/40280546): get accurate timestamps for both
       // capture begin and capture end.
       audio_frame->capture_begin_time = frame_capture_time_;
       audio_frame->capture_end_time = frame_capture_time_;
@@ -161,12 +169,13 @@ class AudioEncoder::ImplBase
           "cast.stream", "Audio Encode", TRACE_ID_LOCAL(audio_frame.get()),
           "frame_id", frame_id_.lower_32_bits(), "rtp_timestamp",
           frame_rtp_timestamp_.lower_32_bits());
-      if (EncodeFromFilledBuffer(&audio_frame->data)) {
+
+      audio_frame->data = EncodeFromFilledBuffer();
+      if (!audio_frame->data.empty()) {
         // Compute encoder utilization as the real-world time elapsed divided
         // by the signal duration.
         audio_frame->encoder_utilization =
             (base::TimeTicks::Now() - start_time) / frame_duration_;
-        audio_frame->encoder_bitrate = bitrate_;
         TRACE_EVENT_NESTABLE_ASYNC_END1(
             "cast.stream", "Audio Encode", TRACE_ID_LOCAL(audio_frame.get()),
             "encoder_utilization", audio_frame->encoder_utilization);
@@ -196,10 +205,10 @@ class AudioEncoder::ImplBase
                                          int source_offset,
                                          int buffer_fill_offset,
                                          int num_samples) = 0;
-  virtual bool EncodeFromFilledBuffer(std::string* out) = 0;
+  virtual base::HeapArray<uint8_t> EncodeFromFilledBuffer() = 0;
 
   const scoped_refptr<CastEnvironment> cast_environment_;
-  const Codec codec_;
+  const AudioCodec codec_;
   const int num_channels_;
   const int samples_per_frame_;
   const int bitrate_;
@@ -247,7 +256,7 @@ class AudioEncoder::OpusImpl final : public AudioEncoder::ImplBase {
            int bitrate,
            FrameEncodedCallback callback)
       : ImplBase(cast_environment,
-                 Codec::kAudioOpus,
+                 AudioCodec::kOpus,
                  num_channels,
                  sampling_rate,
                  sampling_rate / kDefaultFramesPerSecond, /* 10 ms frames */
@@ -302,22 +311,24 @@ class AudioEncoder::OpusImpl final : public AudioEncoder::ImplBase {
                                                              num_samples, dest);
   }
 
-  bool EncodeFromFilledBuffer(std::string* out) final {
-    out->resize(kOpusMaxPayloadSize);
-    const opus_int32 result = opus_encode_float(
-        opus_encoder_, buffer_.get(), samples_per_frame_,
-        reinterpret_cast<uint8_t*>(std::data(*out)), kOpusMaxPayloadSize);
-    if (result > 1) {
-      out->resize(result);
-      return true;
-    } else if (result < 0) {
-      LOG(ERROR) << "Error code from opus_encode_float(): " << result;
-      return false;
-    } else {
-      // Do nothing: The documentation says that a return value of zero or
-      // one byte means the packet does not need to be transmitted.
-      return false;
+  base::HeapArray<uint8_t> EncodeFromFilledBuffer() final {
+    auto out = base::HeapArray<uint8_t>::Uninit(kOpusMaxPayloadSize);
+    const opus_int32 result =
+        opus_encode_float(opus_encoder_, buffer_.get(), samples_per_frame_,
+                          out.data(), kOpusMaxPayloadSize);
+    if (result < 0) {
+      DLOG(ERROR) << "Error code from opus_encode_float(): " << result;
+      return {};
     }
+
+    // Do nothing: The documentation says that a return value of zero or
+    // one byte means the packet does not need to be transmitted.
+    if (result == 0 || result == 1) {
+      return {};
+    }
+
+    // Otherwise we had a successful encode.
+    return std::move(out).take_first(result);
   }
 
   static bool IsValidFrameDuration(base::TimeDelta duration) {
@@ -360,7 +371,7 @@ class AudioEncoder::AppleAacImpl final : public AudioEncoder::ImplBase {
                int bitrate,
                FrameEncodedCallback callback)
       : ImplBase(cast_environment,
-                 Codec::kAudioAac,
+                 AudioCodec::kAAC,
                  num_channels,
                  sampling_rate,
                  kAccessUnitSamples,
@@ -369,7 +380,6 @@ class AudioEncoder::AppleAacImpl final : public AudioEncoder::ImplBase {
         input_buffer_(AudioBus::Create(num_channels, kAccessUnitSamples)),
         input_bus_(AudioBus::CreateWrapper(num_channels)),
         max_access_unit_size_(0),
-        output_buffer_(nullptr),
         converter_(nullptr),
         file_(nullptr),
         num_access_units_(0) {
@@ -554,7 +564,7 @@ class AudioEncoder::AppleAacImpl final : public AudioEncoder::ImplBase {
                                    buffer_fill_offset, input_buffer_.get());
   }
 
-  bool EncodeFromFilledBuffer(std::string* out) final {
+  base::HeapArray<uint8_t> EncodeFromFilledBuffer() final {
     // Reset the buffer size field to the buffer capacity.
     converter_abl_.mBuffers[0].mDataByteSize = max_access_unit_size_;
 
@@ -566,11 +576,12 @@ class AudioEncoder::AppleAacImpl final : public AudioEncoder::ImplBase {
         converter_, &ConverterFillDataCallback, this, &io_num_packets,
         &converter_abl_, &packet_description);
     if (oserr != noErr || io_num_packets == 0) {
-      return false;
+      return {};
     }
 
-    // Reserve space in the output buffer to write the packet.
-    out->reserve(packet_description.mDataByteSize + kAdtsHeaderSize);
+    // Reserve space in the output buffer to write the packet.a
+    auto out = base::HeapArray<uint8_t>::Uninit(
+        packet_description.mDataByteSize + kAdtsHeaderSize);
 
     // Set the current output buffer and emit an ADTS-wrapped AAC access unit.
     // This is a synchronous call. After it returns, reset the output buffer.
@@ -579,12 +590,16 @@ class AudioEncoder::AppleAacImpl final : public AudioEncoder::ImplBase {
         file_, false, converter_abl_.mBuffers[0].mDataByteSize,
         &packet_description, num_access_units_, &io_num_packets,
         converter_abl_.mBuffers[0].mData);
-    output_buffer_ = nullptr;
+
+    // Shrink the output buffer to the portion that was actually written.
+    out = std::move(out).take_first(out.size() - output_buffer_.size());
+    output_buffer_ = {};
+
     if (oserr != noErr || io_num_packets == 0) {
-      return false;
+      return {};
     }
     num_access_units_ += io_num_packets;
-    return true;
+    return out;
   }
 
   // The |AudioConverterFillComplexBuffer| input callback function. Configures
@@ -625,7 +640,7 @@ class AudioEncoder::AppleAacImpl final : public AudioEncoder::ImplBase {
                                    void* in_buffer,
                                    UInt32* out_size) {
     // This class only does writing.
-    NOTREACHED_NORETURN();
+    NOTREACHED();
   }
 
   // The AudioFile write callback function. Appends the data to the encoder's
@@ -635,15 +650,16 @@ class AudioEncoder::AppleAacImpl final : public AudioEncoder::ImplBase {
                                     UInt32 in_size,
                                     const void* in_buffer,
                                     UInt32* out_size) {
-    DCHECK(in_encoder);
-    DCHECK(in_buffer);
-    auto* encoder = reinterpret_cast<const AppleAacImpl*>(in_encoder);
-    auto* buffer = reinterpret_cast<const std::string::value_type*>(in_buffer);
+    CHECK(in_encoder);
+    CHECK(in_buffer);
+    auto* encoder = reinterpret_cast<AppleAacImpl*>(in_encoder);
 
-    std::string* const output_buffer = encoder->output_buffer_;
-    DCHECK(output_buffer);
+    CHECK_GE(encoder->output_buffer_.size(), in_size);
+    encoder->output_buffer_.copy_prefix_from(
+        base::span(reinterpret_cast<const uint8_t*>(in_buffer), in_size));
 
-    output_buffer->append(buffer, in_size);
+    // Change the output buffer to point to only the unwritten portion of it.
+    encoder->output_buffer_ = encoder->output_buffer_.subspan(in_size);
     *out_size = in_size;
     return noErr;
   }
@@ -651,7 +667,7 @@ class AudioEncoder::AppleAacImpl final : public AudioEncoder::ImplBase {
   // The AudioFile getsize callback function.
   static SInt64 FileGetSizeCallback(void* in_encoder) {
     // This class only does writing.
-    NOTREACHED_NORETURN();
+    NOTREACHED();
   }
 
   // The AudioFile setsize callback function.
@@ -678,9 +694,10 @@ class AudioEncoder::AppleAacImpl final : public AudioEncoder::ImplBase {
   // The maximum size of an access unit that the encoder can emit.
   const uint32_t max_access_unit_size_;
 
-  // A temporary pointer to the current output buffer. Only non-null when
-  // writing an access unit. Accessed by the AudioFile write callback function.
-  raw_ptr<std::string> output_buffer_;
+  // A view into the currently empty portion of the output buffer. Only
+  // non-empty when writing an access unit. Accessed by the AudioFile write
+  // callback function.
+  base::raw_span<uint8_t> output_buffer_;
 
   // The |AudioConverter| is responsible for AAC encoding. This is a Core Audio
   // object, not to be confused with |media::AudioConverter|.
@@ -697,85 +714,30 @@ class AudioEncoder::AppleAacImpl final : public AudioEncoder::ImplBase {
 };
 #endif  // BUILDFLAG(IS_APPLE)
 
-class AudioEncoder::Pcm16Impl final : public AudioEncoder::ImplBase {
- public:
-  Pcm16Impl(const scoped_refptr<CastEnvironment>& cast_environment,
-            int num_channels,
-            int sampling_rate,
-            FrameEncodedCallback callback)
-      : ImplBase(cast_environment,
-                 Codec::kAudioPcm16,
-                 num_channels,
-                 sampling_rate,
-                 sampling_rate / kDefaultFramesPerSecond, /* 10 ms frames */
-                 0 /* bitrate, which is unused for the PCM16 implementation */,
-                 std::move(callback)),
-        buffer_(
-            std::make_unique<int16_t[]>(num_channels * samples_per_frame_)) {
-    if (ImplBase::operational_status_ != STATUS_UNINITIALIZED)
-      return;
-    operational_status_ = STATUS_INITIALIZED;
-  }
-
-  Pcm16Impl(const Pcm16Impl&) = delete;
-  Pcm16Impl& operator=(const Pcm16Impl&) = delete;
-
- private:
-  ~Pcm16Impl() final = default;
-
-  void TransferSamplesIntoBuffer(const AudioBus* audio_bus,
-                                 int source_offset,
-                                 int buffer_fill_offset,
-                                 int num_samples) final {
-    audio_bus->ToInterleavedPartial<SignedInt16SampleTypeTraits>(
-        source_offset, num_samples,
-        buffer_.get() + buffer_fill_offset * num_channels_);
-  }
-
-  bool EncodeFromFilledBuffer(std::string* out) final {
-    // Output 16-bit PCM integers in big-endian byte order.
-    out->resize(num_channels_ * samples_per_frame_ * sizeof(int16_t));
-    const int16_t* src = buffer_.get();
-    const int16_t* const src_end = src + num_channels_ * samples_per_frame_;
-    uint16_t* dest = reinterpret_cast<uint16_t*>(&out->at(0));
-    for (; src < src_end; ++src, ++dest)
-      *dest = base::HostToNet16(*src);
-    return true;
-  }
-
- private:
-  const std::unique_ptr<int16_t[]> buffer_;
-};
-
 AudioEncoder::AudioEncoder(
     const scoped_refptr<CastEnvironment>& cast_environment,
     int num_channels,
     int sampling_rate,
     int bitrate,
-    Codec codec,
+    AudioCodec codec,
     FrameEncodedCallback frame_encoded_callback)
     : cast_environment_(cast_environment) {
   // Note: It doesn't matter which thread constructs AudioEncoder, just so long
   // as all calls to InsertAudio() are by the same thread.
   DETACH_FROM_THREAD(insert_thread_checker_);
   switch (codec) {
-    case Codec::kAudioOpus:
+    case AudioCodec::kOpus:
       impl_ = new OpusImpl(cast_environment, num_channels, sampling_rate,
                            bitrate, std::move(frame_encoded_callback));
       break;
 #if BUILDFLAG(IS_APPLE)
-    case Codec::kAudioAac:
+    case AudioCodec::kAAC:
       impl_ = new AppleAacImpl(cast_environment, num_channels, sampling_rate,
                                bitrate, std::move(frame_encoded_callback));
       break;
 #endif  // BUILDFLAG(IS_MAC)
-    case Codec::kAudioPcm16:
-      impl_ = new Pcm16Impl(cast_environment, num_channels, sampling_rate,
-                            std::move(frame_encoded_callback));
-      break;
     default:
       NOTREACHED() << "Unsupported or unspecified codec for audio encoder";
-      break;
   }
 }
 

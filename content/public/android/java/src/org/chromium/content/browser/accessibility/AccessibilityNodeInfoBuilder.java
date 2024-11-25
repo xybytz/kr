@@ -92,9 +92,10 @@ public class AccessibilityNodeInfoBuilder {
 
     // Keys used for Bundle extras of parent relative bounds values, without screen clipping.
     public static final String EXTRAS_KEY_UNCLIPPED_TOP = "AccessibilityNodeInfo.unclippedTop";
-    public static final String EXTRAS_KEY_UNCLIPPED_LEFT = "AccessibilityNodeInfo.unclippedLeft";
     public static final String EXTRAS_KEY_UNCLIPPED_BOTTOM =
             "AccessibilityNodeInfo.unclippedBottom";
+    public static final String EXTRAS_KEY_UNCLIPPED_LEFT = "AccessibilityNodeInfo.unclippedLeft";
+    public static final String EXTRAS_KEY_UNCLIPPED_RIGHT = "AccessibilityNodeInfo.unclippedRight";
     public static final String EXTRAS_KEY_UNCLIPPED_WIDTH = "AccessibilityNodeInfo.unclippedWidth";
     public static final String EXTRAS_KEY_UNCLIPPED_HEIGHT =
             "AccessibilityNodeInfo.unclippedHeight";
@@ -264,7 +265,7 @@ public class AccessibilityNodeInfoBuilder {
             boolean hasNonEmptyValue,
             boolean hasNonEmptyInnerText,
             boolean isSeekControl,
-            boolean isForm) {
+            boolean unused_isForm) {
         node.addAction(ACTION_NEXT_HTML_ELEMENT);
         node.addAction(ACTION_PREVIOUS_HTML_ELEMENT);
         node.addAction(ACTION_SHOW_ON_SCREEN);
@@ -407,10 +408,13 @@ public class AccessibilityNodeInfoBuilder {
         node.setInputType(inputType);
         node.setHintText(hint);
 
-        // Deliberately don't call setLiveRegion because TalkBack speaks
-        // the entire region anytime it changes. Instead Chrome will
-        // call announceLiveRegionText() only on the nodes that change.
-        // node.setLiveRegion(liveRegion);
+        // Deliberately don't call setLiveRegion because TalkBack speaks the entire region anytime
+        // it changes. Instead Chrome will call announceLiveRegionText() only on the nodes that
+        // change. This approach is deprecated, so when the experimental flag is enabled, use live
+        // regions as expected.
+        if (ContentFeatureMap.isEnabled(ContentFeatureList.ACCESSIBILITY_DEPRECATE_TYPE_ANNOUNCE)) {
+            node.setLiveRegion(liveRegion);
+        }
 
         // We only apply the |errorMessage| if {@link setAccessibilityNodeInfoBooleanAttributes}
         // set |contentInvalid| to true based on throttle delay.
@@ -488,7 +492,11 @@ public class AccessibilityNodeInfoBuilder {
         node.setBoundsInParent(boundsInParent);
 
         Rect rect = new Rect(absoluteLeft, absoluteTop, absoluteLeft + width, absoluteTop + height);
-        convertWebRectToAndroidCoordinates(rect, node.getExtras());
+        convertWebRectToAndroidCoordinates(
+                rect,
+                node.getExtras(),
+                mDelegate.getAccessibilityCoordinates(),
+                mDelegate.getView());
 
         node.setBoundsInScreen(rect);
 
@@ -566,66 +574,71 @@ public class AccessibilityNodeInfoBuilder {
             int[] suggestionStarts,
             int[] suggestionEnds,
             String[] suggestions) {
-        CharSequence charSequence = text;
-        if (annotateAsLink) {
+
+        boolean needsSpannable =
+                annotateAsLink
+                        || (!language.isEmpty() && !language.equals(mDelegate.getLanguageTag()))
+                        || (suggestionStarts != null && suggestionStarts.length > 0);
+
+        if (needsSpannable) {
             SpannableString spannable = new SpannableString(text);
-            spannable.setSpan(new URLSpan(targetUrl), 0, spannable.length(), 0);
-            charSequence = spannable;
-        }
-        if (!language.isEmpty() && !language.equals(mDelegate.getLanguageTag())) {
-            SpannableString spannable;
-            if (charSequence instanceof SpannableString) {
-                spannable = (SpannableString) charSequence;
-            } else {
-                spannable = new SpannableString(charSequence);
+            if (annotateAsLink) {
+                spannable.setSpan(new URLSpan(targetUrl), 0, spannable.length(), 0);
             }
-            Locale locale = Locale.forLanguageTag(language);
-            spannable.setSpan(new LocaleSpan(locale), 0, spannable.length(), 0);
-            charSequence = spannable;
-        }
-
-        if (suggestionStarts != null && suggestionStarts.length > 0) {
-            assert suggestionEnds != null;
-            assert suggestionEnds.length == suggestionStarts.length;
-            assert suggestions != null;
-            assert suggestions.length == suggestionStarts.length;
-
-            SpannableString spannable;
-            if (charSequence instanceof SpannableString) {
-                spannable = (SpannableString) charSequence;
-            } else {
-                spannable = new SpannableString(charSequence);
+            if (!language.isEmpty() && !language.equals(mDelegate.getLanguageTag())) {
+                Locale locale = Locale.forLanguageTag(language);
+                spannable.setSpan(new LocaleSpan(locale), 0, spannable.length(), 0);
+            }
+            if (suggestionStarts != null && suggestionStarts.length > 0) {
+                addSuggestionSpans(spannable, suggestionStarts, suggestionEnds, suggestions);
             }
 
-            int spannableLen = spannable.length();
-            for (int i = 0; i < suggestionStarts.length; i++) {
-                int start = suggestionStarts[i];
-                int end = suggestionEnds[i];
-                // Ignore any spans outside the range of the spannable string.
-                if (start < 0
-                        || start > spannableLen
-                        || end < 0
-                        || end > spannableLen
-                        || start > end) {
-                    continue;
-                }
-
-                String[] suggestionArray = new String[1];
-                suggestionArray[0] = suggestions[i];
-                int flags = SuggestionSpan.FLAG_MISSPELLED;
-                SuggestionSpan suggestionSpan =
-                        new SuggestionSpan(mDelegate.getContext(), suggestionArray, flags);
-                spannable.setSpan(suggestionSpan, start, end, 0);
-            }
-            charSequence = spannable;
+            return spannable;
         }
 
-        return charSequence;
+        // TODO(mschillaci): Consider if we can remove the `needsSpannable` check above and always
+        // return a SpannableString instead of sometimes a String without a performance impact.
+        return text;
     }
 
-    protected void convertWebRectToAndroidCoordinates(Rect rect, Bundle extras) {
+    private void addSuggestionSpans(
+            SpannableString spannable,
+            int[] suggestionStarts,
+            int[] suggestionEnds,
+            String[] suggestions) {
+        assert suggestionEnds != null;
+        assert suggestionEnds.length == suggestionStarts.length;
+        assert suggestions != null;
+        assert suggestions.length == suggestionStarts.length;
+
+        int spannableLength = spannable.length();
+        for (int i = 0; i < suggestionStarts.length; i++) {
+            int start = suggestionStarts[i];
+            int end = suggestionEnds[i];
+            // Ignore any spans outside the range of the spannable string.
+            if (start < 0
+                    || start > spannableLength
+                    || end < 0
+                    || end > spannableLength
+                    || start > end) {
+                continue;
+            }
+
+            int flags = SuggestionSpan.FLAG_MISSPELLED;
+            SuggestionSpan suggestionSpan =
+                    new SuggestionSpan(
+                            mDelegate.getContext(), new String[] {suggestions[i]}, flags);
+            spannable.setSpan(suggestionSpan, start, end, 0);
+        }
+    }
+
+    public static void convertWebRectToAndroidCoordinates(
+            Rect rect,
+            Bundle extras,
+            AccessibilityDelegate.AccessibilityCoordinates accessibilityCoordinates,
+            View view) {
         // Offset by the scroll position.
-        AccessibilityDelegate.AccessibilityCoordinates ac = mDelegate.getAccessibilityCoordinates();
+        AccessibilityDelegate.AccessibilityCoordinates ac = accessibilityCoordinates;
         rect.offset(-(int) ac.getScrollX(), -(int) ac.getScrollY());
 
         // Convert CSS (web) pixels to Android View pixels
@@ -639,29 +652,49 @@ public class AccessibilityNodeInfoBuilder {
 
         // Finally offset by the location of the view within the screen.
         final int[] viewLocation = new int[2];
-        mDelegate.getView().getLocationOnScreen(viewLocation);
+        view.getLocationOnScreen(viewLocation);
         rect.offset(viewLocation[0], viewLocation[1]);
 
-        // Clip to the viewport bounds, and add unclipped values to the Bundle.
-        int viewportRectTop = viewLocation[1] + (int) ac.getContentOffsetYPix();
-        int viewportRectBottom = viewportRectTop + ac.getLastFrameViewportHeightPixInt();
+        // TODO(mschillaci): This block is the same per-node and is purely viewport dependent,
+        //                   pull this out into a reusable object for simplicity/performance.
+        // rect is the unclipped values, but we need to clip to viewport bounds. The original
+        // unclipped values will be placed in the Bundle extras.
+        int clippedTop = viewLocation[1] + (int) ac.getContentOffsetYPix();
+        int clippedBottom = clippedTop + ac.getLastFrameViewportHeightPixInt();
+        // There is currently no x offset, y offset comes from tab bar / browser controls.
+        int clippedLeft = viewLocation[0];
+        int clippedRight = clippedLeft + ac.getLastFrameViewportWidthPixInt();
 
-        // A cached node will contain Bundle extras values from the last time it was populated. For
-        // unclipped bounds, the extras would be stale and should be removed if present.
-        if (extras.containsKey(EXTRAS_KEY_UNCLIPPED_TOP)) {
-            extras.remove(EXTRAS_KEY_UNCLIPPED_TOP);
-        }
-        if (extras.containsKey(EXTRAS_KEY_UNCLIPPED_BOTTOM)) {
-            extras.remove(EXTRAS_KEY_UNCLIPPED_BOTTOM);
+        // Always provide the unclipped bounds in the Bundle for any interested downstream client.
+        extras.putInt(EXTRAS_KEY_UNCLIPPED_TOP, rect.top);
+        extras.putInt(EXTRAS_KEY_UNCLIPPED_BOTTOM, rect.bottom);
+        extras.putInt(EXTRAS_KEY_UNCLIPPED_LEFT, rect.left);
+        extras.putInt(EXTRAS_KEY_UNCLIPPED_RIGHT, rect.right);
+        extras.putInt(EXTRAS_KEY_UNCLIPPED_WIDTH, rect.width());
+        extras.putInt(EXTRAS_KEY_UNCLIPPED_HEIGHT, rect.height());
+
+        if (rect.top < clippedTop) {
+            rect.top = clippedTop;
+        } else if (rect.top > clippedBottom) {
+            rect.top = clippedBottom;
         }
 
-        if (rect.top < viewportRectTop) {
-            extras.putInt(EXTRAS_KEY_UNCLIPPED_TOP, rect.top);
-            rect.top = viewportRectTop;
+        if (rect.bottom > clippedBottom) {
+            rect.bottom = clippedBottom;
+        } else if (rect.bottom < clippedTop) {
+            rect.bottom = clippedTop;
         }
-        if (rect.bottom > viewportRectBottom) {
-            extras.putInt(EXTRAS_KEY_UNCLIPPED_BOTTOM, rect.bottom);
-            rect.bottom = viewportRectBottom;
+
+        if (rect.left < clippedLeft) {
+            rect.left = clippedLeft;
+        } else if (rect.left > clippedRight) {
+            rect.left = clippedRight;
+        }
+
+        if (rect.right > clippedRight) {
+            rect.right = clippedRight;
+        } else if (rect.right < clippedLeft) {
+            rect.right = clippedLeft;
         }
     }
 }

@@ -6,18 +6,18 @@
 
 #import <memory>
 
+#import "base/memory/raw_ptr.h"
 #import "base/strings/sys_string_conversions.h"
 #import "base/test/task_environment.h"
 #import "components/strings/grit/components_strings.h"
-#import "ios/chrome/browser/favicon/ios_chrome_large_icon_service_factory.h"
+#import "ios/chrome/browser/favicon/model/ios_chrome_large_icon_service_factory.h"
 #import "ios/chrome/browser/ntp/model/new_tab_page_tab_helper_delegate.h"
 #import "ios/chrome/browser/search_engines/model/template_url_service_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state_manager.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
 #import "ios/chrome/browser/shared/model/web_state_list/test/fake_web_state_list_delegate.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
-#import "ios/chrome/test/ios_chrome_scoped_testing_chrome_browser_state_manager.h"
+#import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/web/public/test/fakes/fake_navigation_context.h"
 #import "ios/web/public/test/fakes/fake_navigation_manager.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
@@ -35,10 +35,8 @@ const char kTestURL[] = "http://foo.bar";
 // Test fixture for testing NewTabPageTabHelper class.
 class NewTabPageTabHelperTest : public PlatformTest {
  protected:
-  NewTabPageTabHelperTest()
-      : scoped_browser_state_manager_(
-            std::make_unique<TestChromeBrowserStateManager>(base::FilePath())) {
-    TestChromeBrowserState::Builder test_cbs_builder;
+  NewTabPageTabHelperTest() {
+    TestProfileIOS::Builder test_cbs_builder;
     test_cbs_builder.AddTestingFactory(
         ios::TemplateURLServiceFactory::GetInstance(),
         ios::TemplateURLServiceFactory::GetDefaultFactory());
@@ -46,7 +44,7 @@ class NewTabPageTabHelperTest : public PlatformTest {
         IOSChromeLargeIconServiceFactory::GetInstance(),
         IOSChromeLargeIconServiceFactory::GetDefaultFactory());
 
-    chrome_browser_state_ = test_cbs_builder.Build();
+    profile_ = std::move(test_cbs_builder).Build();
 
     auto fake_navigation_manager =
         std::make_unique<web::FakeNavigationManager>();
@@ -55,7 +53,7 @@ class NewTabPageTabHelperTest : public PlatformTest {
     pending_item_->SetURL(GURL(kChromeUIAboutNewTabURL));
     fake_navigation_manager->SetPendingItem(pending_item_.get());
     fake_web_state_.SetNavigationManager(std::move(fake_navigation_manager));
-    fake_web_state_.SetBrowserState(chrome_browser_state_.get());
+    fake_web_state_.SetBrowserState(profile_.get());
 
     delegate_ = OCMProtocolMock(@protocol(NewTabPageTabHelperDelegate));
   }
@@ -71,12 +69,12 @@ class NewTabPageTabHelperTest : public PlatformTest {
 
   id delegate_;
   web::WebTaskEnvironment task_environment_;
-  IOSChromeScopedTestingChromeBrowserStateManager scoped_browser_state_manager_;
-  std::unique_ptr<TestChromeBrowserState> chrome_browser_state_;
+  IOSChromeScopedTestingLocalState scoped_testing_local_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<WebStateList> web_state_list_;
   FakeWebStateListDelegate web_state_list_delegate_;
   std::unique_ptr<web::NavigationItem> pending_item_;
-  web::FakeNavigationManager* fake_navigation_manager_;
+  raw_ptr<web::FakeNavigationManager> fake_navigation_manager_;
   web::FakeWebState fake_web_state_;
 };
 

@@ -6,12 +6,12 @@
 
 #include "base/containers/contains.h"
 #include "base/numerics/safe_conversions.h"
+#include "media/base/decoder_buffer.h"
 #include "media/base/video_encoder_metrics_provider.h"
 #include "media/base/video_frame.h"
 #include "media/media_buildflags.h"
 #include "media/video/alpha_video_encoder_wrapper.h"
 #include "media/video/gpu_video_accelerator_factories.h"
-#include "third_party/blink/renderer/modules/mediarecorder/buildflags.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 
 namespace blink {
@@ -55,12 +55,14 @@ MediaRecorderEncoderWrapper::MediaRecorderEncoderWrapper(
   CHECK(create_encoder_cb_);
   CHECK(on_error_cb_);
   constexpr media::VideoCodec kSupportedCodecs[] = {
-      media::VideoCodec::kH264,
-      media::VideoCodec::kVP8,
-      media::VideoCodec::kVP9,
-      media::VideoCodec::kAV1,
+      media::VideoCodec::kH264, media::VideoCodec::kVP8,
+      media::VideoCodec::kVP9,  media::VideoCodec::kAV1,
+#if BUILDFLAG(ENABLE_HEVC_PARSER_AND_HW_DECODER)
+      media::VideoCodec::kHEVC,
+#endif
   };
   CHECK(base::Contains(kSupportedCodecs, codec_));
+  options_.latency_mode = media::VideoEncoder::LatencyMode::Quality;
   options_.bitrate = media::Bitrate::VariableBitrate(
       bits_per_second, base::ClampMul(bits_per_second, 2u).RawValue());
   options_.content_hint = is_screencast
@@ -69,6 +71,11 @@ MediaRecorderEncoderWrapper::MediaRecorderEncoderWrapper(
   if (codec_ == media::VideoCodec::kH264) {
     options_.avc.produce_annexb = true;
   }
+#if BUILDFLAG(ENABLE_HEVC_PARSER_AND_HW_DECODER)
+  else if (codec_ == media::VideoCodec::kHEVC) {
+    options_.hevc.produce_annexb = true;
+  }
+#endif
 }
 
 MediaRecorderEncoderWrapper::~MediaRecorderEncoderWrapper() {
@@ -99,7 +106,7 @@ void MediaRecorderEncoderWrapper::EnterErrorState(
   pending_encode_tasks_ = {};
   params_in_encode_ = {};
   CHECK(on_error_cb_);
-  std::move(on_error_cb_).Run();
+  std::move(on_error_cb_).Run(status);
 }
 
 void MediaRecorderEncoderWrapper::Reconfigure(const gfx::Size& frame_size,
@@ -246,7 +253,7 @@ void MediaRecorderEncoderWrapper::EncodeDone(media::EncoderStatus status) {
 
 void MediaRecorderEncoderWrapper::OutputEncodeData(
     media::VideoEncoderOutput output,
-    absl::optional<media::VideoEncoder::CodecDescription> description) {
+    std::optional<media::VideoEncoder::CodecDescription> description) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   TRACE_EVENT0("media", "MediaRecorderEncoderWrapper::OutputEncodeData");
   if (state_ == State::kInError) {
@@ -263,15 +270,14 @@ void MediaRecorderEncoderWrapper::OutputEncodeData(
   params_in_encode_.pop_front();
   video_params.codec = codec_;
 
-  on_encoded_video_cb_.Run(
-      video_params,
-      std::string(reinterpret_cast<const char*>(output.data.get()),
-                  output.size),
-      encode_alpha_
-          ? std::string(reinterpret_cast<const char*>(output.alpha_data.get()),
-                        output.alpha_size)
-          : std::string(),
-      std::move(description), capture_timestamp, output.key_frame);
+  auto buffer = media::DecoderBuffer::FromArray(std::move(output.data));
+  if (encode_alpha_) {
+    buffer->WritableSideData().alpha_data = std::move(output.alpha_data);
+  }
+  buffer->set_is_key_frame(output.key_frame);
+
+  on_encoded_video_cb_.Run(video_params, std::move(buffer),
+                           std::move(description), capture_timestamp);
 }
 
 }  // namespace blink

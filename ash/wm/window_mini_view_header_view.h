@@ -29,9 +29,9 @@ class WindowMiniView;
 // icon and a title label from the source window of the `window_mini_view_` and
 // has a stroke at the bottom of it.
 class ASH_EXPORT WindowMiniViewHeaderView : public views::BoxLayoutView {
- public:
-  METADATA_HEADER(WindowMiniViewHeaderView);
+  METADATA_HEADER(WindowMiniViewHeaderView, views::BoxLayoutView)
 
+ public:
   explicit WindowMiniViewHeaderView(WindowMiniView* window_mini_view);
   WindowMiniViewHeaderView(const WindowMiniViewHeaderView&) = delete;
   WindowMiniViewHeaderView& operator=(const WindowMiniViewHeaderView&) = delete;
@@ -54,10 +54,8 @@ class ASH_EXPORT WindowMiniViewHeaderView : public views::BoxLayoutView {
       gfx::RoundedCornersF& header_view_rounded_corners);
 
   // Resets the preset rounded corners values i.e.
-  // `header_view_rounded_corners_`.
+  // `custom_header_view_rounded_corners_`.
   void ResetRoundedCorners();
-
-  gfx::RoundedCornersF GetHeaderRoundedCorners(aura::Window* window) const;
 
  private:
   // The parent view of `this`, which is guaranteed not null during the lifetime
@@ -72,7 +70,16 @@ class ASH_EXPORT WindowMiniViewHeaderView : public views::BoxLayoutView {
   raw_ptr<views::Label> title_label_ = nullptr;
   raw_ptr<views::ImageView> icon_view_ = nullptr;
 
-  std::optional<gfx::RoundedCornersF> header_view_rounded_corners_;
+  // The current rounded corner parameters for this view's background. May be
+  // `nullopt` if a background is not set yet.
+  std::optional<gfx::RoundedCornersF> current_header_view_rounded_corners_;
+
+  // Custom rounded corner parameters specified by the caller via
+  // `SetHeaderViewRoundedCornerRadius()`. If set, this will match
+  // `current_header_view_rounded_corners_`. Otherwise,
+  // `current_header_view_rounded_corners_` will be set to a default value
+  // picked internally.
+  std::optional<gfx::RoundedCornersF> custom_header_view_rounded_corners_;
 };
 
 }  // namespace ash

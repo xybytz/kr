@@ -9,6 +9,7 @@
 
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/login_screen_test_api.h"
+#include "ash/shell.h"
 #include "base/auto_reset.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/ash/login/login_manager_test.h"
@@ -48,9 +49,22 @@ class AuthFlowsLoginTestBase : public LoginManagerTest {
             UserAuthConfig::Create(
                 {AshAuthFactor::kLocalPassword, AshAuthFactor::kRecovery})
                 .RequireReauth(require_reauth)},
+        with_local_pw_pin_{
+            LoginManagerMixin::CreateConsumerAccountId(5),
+            UserAuthConfig::Create(
+                {AshAuthFactor::kLocalPassword, AshAuthFactor::kCryptohomePin})
+                .RequireReauth(require_reauth)},
+        with_local_pw_pin_recovery_{
+            LoginManagerMixin::CreateConsumerAccountId(6),
+            UserAuthConfig::Create({AshAuthFactor::kLocalPassword,
+                                    AshAuthFactor::kCryptohomePin,
+                                    AshAuthFactor::kRecovery})
+                .RequireReauth(require_reauth)},
+
         login_mixin_{&mixin_host_,
                      {with_gaia_pw_, with_gaia_pw_recovery_, with_local_pw_,
-                      with_local_pw_recovery_},
+                      with_local_pw_recovery_, with_local_pw_pin_,
+                      with_local_pw_pin_recovery_},
                      &fake_gaia_,
                      &cryptohome_}
 
@@ -75,6 +89,8 @@ class AuthFlowsLoginTestBase : public LoginManagerTest {
   const LoginManagerMixin::TestUserInfo with_gaia_pw_recovery_;
   const LoginManagerMixin::TestUserInfo with_local_pw_;
   const LoginManagerMixin::TestUserInfo with_local_pw_recovery_;
+  const LoginManagerMixin::TestUserInfo with_local_pw_pin_;
+  const LoginManagerMixin::TestUserInfo with_local_pw_pin_recovery_;
 
   CryptohomeMixin cryptohome_{&mixin_host_};
   FakeGaiaMixin fake_gaia_{&mixin_host_};
@@ -90,7 +106,6 @@ class AuthFlowsLoginReauthTest : public AuthFlowsLoginTestBase {
  public:
   AuthFlowsLoginReauthTest()
       : AuthFlowsLoginTestBase(/* require_reauth */ true) {
-    feature_list_.InitAndEnableFeature(features::kLocalPasswordForConsumers);
   }
   ~AuthFlowsLoginReauthTest() override = default;
 
@@ -105,10 +120,60 @@ class AuthFlowsLoginReauthTest : public AuthFlowsLoginTestBase {
     gaia->TypePassword(password);
     gaia->ContinueLogin();
   }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
 };
+
+// ----------------------------------------------------------
+
+class AuthFlowsLoginReauthWithPinTest : public AuthFlowsLoginReauthTest {
+ public:
+  AuthFlowsLoginReauthWithPinTest() : AuthFlowsLoginReauthTest() {
+    scoped_features_.InitAndEnableFeature(
+        features::kLocalAuthenticationWithPin);
+  }
+  ~AuthFlowsLoginReauthWithPinTest() override = default;
+
+  base::test::ScopedFeatureList scoped_features_;
+};
+
+// ----------------------------------------------------------
+
+class AuthFlowsLoginRecoverUserTest : public AuthFlowsLoginTestBase {
+ public:
+  AuthFlowsLoginRecoverUserTest()
+      : AuthFlowsLoginTestBase(/* require_reauth */ false) {
+  }
+
+  ~AuthFlowsLoginRecoverUserTest() override = default;
+
+  void TriggerRecoveryOnAuthErrorBubble(
+      const LoginManagerMixin::TestUserInfo user) {
+    ConfigureFakeGaiaFor(user);
+
+    test::OnLoginScreen()->SelectUserPod(user.account_id);
+
+    test::OnLoginScreen()->SubmitPassword(user.account_id,
+                                          test::kWrongPassword);
+
+    auto auth_error_bubble = test::OnLoginScreen()->WaitForAuthErrorBubble();
+
+    auth_error_bubble->PressRecoveryButton();
+    test::AuthErrorBubbleDismissWaiter()->Wait();
+  }
+
+  void TriggerUserOnlineAuth(const LoginManagerMixin::TestUserInfo user,
+                             const std::string& password) {
+    TriggerRecoveryOnAuthErrorBubble(user);
+
+    // Use gaia to authenticate for recovery.
+    auto gaia = test::AwaitGaiaSigninUI();
+
+    gaia->ReauthConfirmEmail(user.account_id);
+    gaia->TypePassword(password);
+    gaia->ContinueLogin();
+  }
+};
+
+// ----------------------------------------------------------
 
 IN_PROC_BROWSER_TEST_F(AuthFlowsLoginReauthTest, GaiaPasswordNotChanged) {
   const auto& user = with_gaia_pw_;
@@ -246,6 +311,63 @@ IN_PROC_BROWSER_TEST_F(AuthFlowsLoginAddExistingUserTest,
   login_mixin_.WaitForActiveSession();
 }
 
+// ----------------------------------------------------------
+
+IN_PROC_BROWSER_TEST_F(AuthFlowsLoginReauthWithPinTest,
+                       GaiaPasswordChangedWithRecoveryPin) {
+  const auto& user = with_local_pw_pin_recovery_;
+
+  test::OnLoginScreen()->SelectUserPod(user.account_id);
+  auto gaia = test::AwaitGaiaSigninUI();
+
+  gaia->ReauthConfirmEmail(user.account_id);
+  gaia->TypePassword(test::kNewPassword);
+  gaia->ContinueLogin();
+
+  auto local_authentication =
+      test::OnLoginScreen()->WaitForLocalAuthenticationDialog();
+
+  local_authentication->SubmitPin(test::kAuthPin);
+  login_mixin_.WaitForActiveSession();
+}
+
+IN_PROC_BROWSER_TEST_F(AuthFlowsLoginReauthWithPinTest, PinCorrectPassword) {
+  const auto& user = with_local_pw_pin_;
+
+  test::OnLoginScreen()->SelectUserPod(user.account_id);
+  auto gaia = test::AwaitGaiaSigninUI();
+
+  gaia->ReauthConfirmEmail(user.account_id);
+  gaia->TypePassword(test::kNewPassword);
+  gaia->ContinueLogin();
+
+  auto local_authentication =
+      test::OnLoginScreen()->WaitForLocalAuthenticationDialog();
+
+  local_authentication->SubmitPin(test::kAuthPin);
+  login_mixin_.WaitForActiveSession();
+}
+
+IN_PROC_BROWSER_TEST_F(AuthFlowsLoginReauthWithPinTest,
+                       CancelLocalAuthenticationDialog) {
+  const auto& user = with_local_pw_pin_;
+
+  TriggerUserOnlineAuth(user, test::kGaiaPassword);
+
+  auto local_authentication =
+      test::OnLoginScreen()->WaitForLocalAuthenticationDialog();
+
+  local_authentication->CancelDialog();
+
+  local_authentication->WaitUntilDismissed();
+
+  // After dismissing the local authentication dialog,
+  // the flow should return to and display the login screen.
+  test::OnLoginScreen()->SelectUserPod(user.account_id);
+}
+
+// ----------------------------------------------------------
+
 IN_PROC_BROWSER_TEST_F(AuthFlowsLoginReauthTest,
                        GaiaPasswordChangedWithRecoveryLocalPassword) {
   const auto& user = with_local_pw_recovery_;
@@ -279,6 +401,129 @@ IN_PROC_BROWSER_TEST_F(AuthFlowsLoginReauthTest, LocalPasswordCorrectPassword) {
 
   local_authentication->SubmitPassword(test::kLocalPassword);
   login_mixin_.WaitForActiveSession();
+}
+
+IN_PROC_BROWSER_TEST_F(AuthFlowsLoginReauthTest,
+                       CancelLocalAuthenticationDialog) {
+  const auto& user = with_local_pw_;
+
+  TriggerUserOnlineAuth(user, test::kGaiaPassword);
+
+  auto local_authentication =
+      test::OnLoginScreen()->WaitForLocalAuthenticationDialog();
+
+  local_authentication->CancelDialog();
+
+  local_authentication->WaitUntilDismissed();
+
+  // After dismissing the local authentication dialog,
+  // the flow should return to and display the login screen.
+  test::OnLoginScreen()->SelectUserPod(user.account_id);
+}
+
+IN_PROC_BROWSER_TEST_F(AuthFlowsLoginReauthTest, AuthenticateWithRecovery) {
+  const auto& user = with_local_pw_recovery_;
+
+  TriggerUserOnlineAuth(user, test::kGaiaPassword);
+
+  // After successful GAIA authentication in recovery session,
+  // the session should start automatically.
+  login_mixin_.WaitForActiveSession();
+}
+
+// ----------------------------------------------------------
+
+IN_PROC_BROWSER_TEST_F(AuthFlowsLoginRecoverUserTest,
+                       LocalPasswordWithRecovery) {
+  const auto& user = with_local_pw_recovery_;
+
+  TriggerUserOnlineAuth(user, FakeGaiaMixin::kFakeUserPassword);
+
+  // Set up a new password.
+  auto local_password_setup = test::AwaitLocalPasswordSetupUI();
+
+  local_password_setup->TypeFirstPassword(test::kNewPassword);
+  local_password_setup->TypeConfirmPassword(test::kNewPassword);
+  local_password_setup->Submit();
+
+  // Recovery password update confirmation.
+  test::RecoveryPasswordUpdatedPageWaiter()->Wait();
+  test::RecoveryPasswordUpdatedProceedAction();
+}
+
+IN_PROC_BROWSER_TEST_F(AuthFlowsLoginRecoverUserTest,
+                       LocalPasswordWithoutRecoveryCancelLAD) {
+  const auto& user = with_local_pw_;
+  // Start recovery flow without recovery auth factor.
+  TriggerUserOnlineAuth(user, FakeGaiaMixin::kFakeUserPassword);
+
+  // Wait for local data loss warning.
+  test::LocalDataLossWarningPageWaiter()->Wait();
+}
+
+IN_PROC_BROWSER_TEST_F(AuthFlowsLoginRecoverUserTest,
+                       GaiaPasswordWithRecovery) {
+  const auto& user = with_gaia_pw_recovery_;
+
+  // Start recovery flow with recovery auth factor.
+  TriggerUserOnlineAuth(user, test::kNewPassword);
+
+  // Wait for password update dialog.
+  auto pw_updated = test::AwaitPasswordUpdatedUI();
+  pw_updated->ExpectPasswordUpdateState();
+  pw_updated->ConfirmPasswordUpdate();
+
+  login_mixin_.WaitForActiveSession();
+}
+
+IN_PROC_BROWSER_TEST_F(AuthFlowsLoginRecoverUserTest,
+                       GaiaPasswordWithoutRecovery) {
+  const auto& user = with_gaia_pw_;
+
+  // Start recovery flow without recovery auth factor.
+  TriggerUserOnlineAuth(user, test::kWrongPassword);
+
+  auto pw_changed = test::AwaitPasswordChangedUI();
+  pw_changed->TypePreviousPassword(test::kGaiaPassword);
+  pw_changed->SubmitPreviousPassword();
+
+  // Wait for password update dialog.
+  auto pw_updated = test::AwaitPasswordUpdatedUI();
+  pw_updated->ExpectPasswordUpdateState();
+  pw_updated->ConfirmPasswordUpdate();
+
+  login_mixin_.WaitForActiveSession();
+}
+
+IN_PROC_BROWSER_TEST_F(AuthFlowsLoginRecoverUserTest,
+                       GaiaPasswordWithoutRecoveryInvalidPassword) {
+  const auto& user = with_gaia_pw_;
+
+  // Start recovery flow without recovery auth factor.
+  TriggerUserOnlineAuth(user, test::kWrongPassword);
+
+  auto pw_changed = test::AwaitPasswordChangedUI();
+  pw_changed->TypePreviousPassword(test::kWrongPassword);
+  pw_changed->SubmitPreviousPassword();
+
+  // Keep user on passwordChanged screen after incorrect password, display error
+  // message.
+  pw_changed->InvalidPasswordFeedback()->Wait();
+}
+
+IN_PROC_BROWSER_TEST_F(AuthFlowsLoginRecoverUserTest,
+                       GaiaPasswordWithoutRecoveryForgotPasswordClick) {
+  const auto& user = with_gaia_pw_;
+
+  // Start recovery flow without recovery auth factor.
+  TriggerUserOnlineAuth(user, test::kWrongPassword);
+
+  auto pw_changed = test::AwaitPasswordChangedUI();
+  // Clicks on forgot password button.
+  pw_changed->ForgotPreviousPassword();
+
+  // Wait for local data loss warning.
+  test::LocalDataLossWarningPageWaiter()->Wait();
 }
 
 }  // namespace ash

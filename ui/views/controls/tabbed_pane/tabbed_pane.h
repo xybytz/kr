@@ -9,12 +9,15 @@
 #include <string>
 #include <utility>
 
+#include "base/callback_list.h"
 #include "base/memory/raw_ptr.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/linear_animation.h"
+#include "ui/gfx/vector_icon_types.h"
+#include "ui/views/controls/image_view.h"
+#include "ui/views/layout/flex_layout_view.h"
 #include "ui/views/metadata/view_factory.h"
-#include "ui/views/view.h"
 
 namespace views {
 
@@ -32,8 +35,8 @@ class TabbedPaneWithWidgetTest;
 // associated view is displayed.
 // Support for horizontal-highlight and vertical-border modes is limited and
 // may require additional polish.
-class VIEWS_EXPORT TabbedPane : public View {
-  METADATA_HEADER(TabbedPane, View)
+class VIEWS_EXPORT TabbedPane : public FlexLayoutView {
+  METADATA_HEADER(TabbedPane, FlexLayoutView)
 
  public:
   // The orientation of the tab alignment.
@@ -44,8 +47,9 @@ class VIEWS_EXPORT TabbedPane : public View {
 
   // The style of the tab strip.
   enum class TabStripStyle {
-    kBorder,     // Draw border around the selected tab.
-    kHighlight,  // Highlight background and text of the selected tab.
+    kBorder,           // Draw border around the selected tab.
+    kHighlight,        // Highlight background and text of the selected tab.
+    kCompactWithIcon,  // Draw an icon, shrink the highlight bar to icon+text
   };
 
   explicit TabbedPane(Orientation orientation = Orientation::kHorizontal,
@@ -71,8 +75,10 @@ class VIEWS_EXPORT TabbedPane : public View {
   // |contents| is the view displayed when the tab is selected and is owned by
   // the TabbedPane.
   template <typename T>
-  T* AddTab(const std::u16string& title, std::unique_ptr<T> contents) {
-    return AddTabAtIndex(GetTabCount(), title, std::move(contents));
+  T* AddTab(const std::u16string& title,
+            std::unique_ptr<T> contents,
+            const gfx::VectorIcon* tab_icon = nullptr) {
+    return AddTabAtIndex(GetTabCount(), title, std::move(contents), tab_icon);
   }
 
   // Adds a new tab at |index| with |title|. |contents| is the view displayed
@@ -81,9 +87,10 @@ class VIEWS_EXPORT TabbedPane : public View {
   template <typename T>
   T* AddTabAtIndex(size_t index,
                    const std::u16string& title,
-                   std::unique_ptr<T> contents) {
+                   std::unique_ptr<T> contents,
+                   const gfx::VectorIcon* tab_icon = nullptr) {
     T* result = contents.get();
-    AddTabInternal(index, title, std::move(contents));
+    AddTabInternal(index, title, std::move(contents), tab_icon);
     return result;
   }
 
@@ -117,7 +124,8 @@ class VIEWS_EXPORT TabbedPane : public View {
   // is currently empty, the new tab is selected.
   void AddTabInternal(size_t index,
                       const std::u16string& title,
-                      std::unique_ptr<View> contents);
+                      std::unique_ptr<View> contents,
+                      const gfx::VectorIcon* tab_icon = nullptr);
 
   // Get the TabbedPaneTab (the tabstrip view, not its content) at the selected
   // index.
@@ -132,9 +140,12 @@ class VIEWS_EXPORT TabbedPane : public View {
   // tab.
   bool MoveSelectionBy(int delta);
 
-  // Overridden from View:
+  // View:
+  gfx::Size CalculatePreferredSize(
+      const SizeBounds& available_size) const override;
   bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+
+  void UpdateAccessibleName();
 
   // A listener notified when tab selection changes. Weak, not owned.
   raw_ptr<TabbedPaneListener> listener_ = nullptr;
@@ -156,7 +167,8 @@ class VIEWS_EXPORT TabbedPaneTab : public View {
  public:
   TabbedPaneTab(TabbedPane* tabbed_pane,
                 const std::u16string& title,
-                View* contents);
+                View* contents,
+                const gfx::VectorIcon* tab_icon);
 
   TabbedPaneTab(const TabbedPaneTab&) = delete;
   TabbedPaneTab& operator=(const TabbedPaneTab&) = delete;
@@ -176,8 +188,8 @@ class VIEWS_EXPORT TabbedPaneTab : public View {
   void OnMouseEntered(const ui::MouseEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
-  gfx::Size CalculatePreferredSize() const override;
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+  gfx::Size CalculatePreferredSize(
+      const SizeBounds& available_size) const override;
   bool HandleAccessibleAction(const ui::AXActionData& action_data) override;
   void OnFocus() override;
   void OnBlur() override;
@@ -185,6 +197,9 @@ class VIEWS_EXPORT TabbedPaneTab : public View {
   void OnThemeChanged() override;
 
  private:
+  static constexpr int kIconSize = 16;
+  static constexpr int kIconRightMargin = kIconSize / 2;
+
   enum class State {
     kInactive,
     kActive,
@@ -202,12 +217,26 @@ class VIEWS_EXPORT TabbedPaneTab : public View {
   void UpdatePreferredTitleWidth();
   void UpdateTitleColor();
 
+  void UpdateIconColor();
+
+  void UpdateAccessibleName();
+  void UpdateAccessibleSelection();
+
+  ui::ImageModel GetImageModelForTab(ui::ColorId color_id) const;
+  ui::ColorId GetIconTitleColor() const;
+
+  raw_ptr<const gfx::VectorIcon> icon_for_tab_;
   raw_ptr<TabbedPane> tabbed_pane_;
+  raw_ptr<ImageView> icon_view_ = nullptr;
   raw_ptr<Label> title_ = nullptr;
+  // The preferred title width is the maximum width between inactive and active
+  // states (font changes). See UpdatePreferredTitleWidth() for more details.
   int preferred_title_width_;
   State state_ = State::kActive;
   // The content view associated with this tab.
   raw_ptr<View> contents_;
+
+  base::CallbackListSubscription title_text_changed_callback_;
 };
 
 // The tab strip shown above/left of the tab contents.
@@ -248,13 +277,20 @@ class TabbedPaneTabStrip : public View, public gfx::AnimationDelegate {
 
  protected:
   // View:
-  gfx::Size CalculatePreferredSize() const override;
   void OnPaintBorder(gfx::Canvas* canvas) override;
 
  private:
   struct Coordinates {
     int start, end;
   };
+
+  // Returns the beginning and ending distances for the icon+label in a tab.
+  // start is the distance from the origin to the left-side of the icon,
+  // and end is the distance from the origin to the right-side of the text.
+  //                    (x) Label
+  // -------start-------^       ^
+  // -------end-----------------^
+  Coordinates GetIconLabelStartEndingX(TabbedPaneTab* tab);
 
   // The orientation of the tab alignment.
   const TabbedPane::Orientation orientation_;
@@ -277,11 +313,12 @@ class TabbedPaneTabStrip : public View, public gfx::AnimationDelegate {
   Coordinates animating_to_;
 };
 
-BEGIN_VIEW_BUILDER(VIEWS_EXPORT, TabbedPane, View)
+BEGIN_VIEW_BUILDER(VIEWS_EXPORT, TabbedPane, FlexLayoutView)
 VIEW_BUILDER_METHOD_ALIAS(AddTab,
                           AddTab<View>,
                           const std::u16string&,
-                          std::unique_ptr<View>)
+                          std::unique_ptr<View>,
+                          const gfx::VectorIcon*)
 END_VIEW_BUILDER
 
 }  // namespace views

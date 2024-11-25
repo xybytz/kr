@@ -14,7 +14,7 @@
 namespace media::cast {
 
 openscreen::Clock::time_point ToOpenscreenTimePoint(
-    absl::optional<base::TimeTicks> ticks) {
+    std::optional<base::TimeTicks> ticks) {
   if (!ticks) {
     return openscreen::Clock::time_point::min();
   }
@@ -66,9 +66,17 @@ base::TimeDelta ToTimeDelta(openscreen::Clock::duration tp) {
 
 const openscreen::cast::EncodedFrame ToOpenscreenEncodedFrame(
     const SenderEncodedFrame& encoded_frame) {
+  // Open Screen does not permit nullptr data properties. We also cannot set it
+  // here, since it needs to be owned outside of `encoded_frame.`
+  CHECK(encoded_frame.data.data());
   return openscreen::cast::EncodedFrame(
-      encoded_frame.dependency, encoded_frame.frame_id,
-      encoded_frame.referenced_frame_id, encoded_frame.rtp_timestamp,
+      encoded_frame.is_key_frame
+          ? openscreen::cast::EncodedFrame::Dependency::kKeyFrame
+          : openscreen::cast::EncodedFrame::Dependency::kDependent
+
+      ,
+      encoded_frame.frame_id, encoded_frame.referenced_frame_id,
+      encoded_frame.rtp_timestamp,
       ToOpenscreenTimePoint(encoded_frame.reference_time),
       std::chrono::milliseconds(encoded_frame.new_playout_delay_ms),
       ToOpenscreenTimePoint(encoded_frame.capture_begin_time),
@@ -78,64 +86,34 @@ const openscreen::cast::EncodedFrame ToOpenscreenEncodedFrame(
           encoded_frame.data.size()));
 }
 
-openscreen::cast::AudioCodec ToOpenscreenAudioCodec(media::cast::Codec codec) {
+openscreen::cast::AudioCodec ToOpenscreenAudioCodec(media::AudioCodec codec) {
   switch (codec) {
-    case Codec::kAudioRemote:
+    case media::AudioCodec::kUnknown:
       return openscreen::cast::AudioCodec::kNotSpecified;
-    case Codec::kAudioOpus:
+    case media::AudioCodec::kOpus:
       return openscreen::cast::AudioCodec::kOpus;
-    case Codec::kAudioAac:
+    case media::AudioCodec::kAAC:
       return openscreen::cast::AudioCodec::kAac;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 
-openscreen::cast::VideoCodec ToOpenscreenVideoCodec(media::cast::Codec codec) {
+openscreen::cast::VideoCodec ToOpenscreenVideoCodec(media::VideoCodec codec) {
   switch (codec) {
-    case Codec::kVideoRemote:
+    case media::VideoCodec::kUnknown:
       return openscreen::cast::VideoCodec::kNotSpecified;
-    case Codec::kVideoVp8:
+    case media::VideoCodec::kVP8:
       return openscreen::cast::VideoCodec::kVp8;
-    case Codec::kVideoH264:
+    case media::VideoCodec::kH264:
       return openscreen::cast::VideoCodec::kH264;
-    case Codec::kVideoVp9:
+    case media::VideoCodec::kVP9:
       return openscreen::cast::VideoCodec::kVp9;
-    case Codec::kVideoAv1:
+    case media::VideoCodec::kAV1:
       return openscreen::cast::VideoCodec::kAv1;
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
-}
-
-Codec ToCodec(openscreen::cast::AudioCodec codec) {
-  switch (codec) {
-    case openscreen::cast::AudioCodec::kNotSpecified:
-      return Codec::kAudioRemote;
-    case openscreen::cast::AudioCodec::kOpus:
-      return Codec::kAudioOpus;
-    case openscreen::cast::AudioCodec::kAac:
-      return Codec::kAudioAac;
-  }
-  NOTREACHED_NORETURN();
-}
-
-Codec ToCodec(openscreen::cast::VideoCodec codec) {
-  switch (codec) {
-    case openscreen::cast::VideoCodec::kNotSpecified:
-      return Codec::kVideoRemote;
-    case openscreen::cast::VideoCodec::kVp8:
-      return Codec::kVideoVp8;
-    case openscreen::cast::VideoCodec::kH264:
-      return Codec::kVideoH264;
-    case openscreen::cast::VideoCodec::kVp9:
-      return Codec::kVideoVp9;
-    case openscreen::cast::VideoCodec::kAv1:
-      return Codec::kVideoAv1;
-    case openscreen::cast::VideoCodec::kHevc:
-      return Codec::kUnknown;
-  }
-  NOTREACHED_NORETURN();
 }
 
 AudioCodec ToAudioCodec(openscreen::cast::AudioCodec codec) {
@@ -148,7 +126,7 @@ AudioCodec ToAudioCodec(openscreen::cast::AudioCodec codec) {
     case openscreen::cast::AudioCodec::kAac:
       return AudioCodec::kAAC;
   }
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 VideoCodec ToVideoCodec(openscreen::cast::VideoCodec codec) {
@@ -167,7 +145,7 @@ VideoCodec ToVideoCodec(openscreen::cast::VideoCodec codec) {
     case openscreen::cast::VideoCodec::kHevc:
       return VideoCodec::kHEVC;
   }
-  NOTREACHED_NORETURN();
+  NOTREACHED();
 }
 
 openscreen::IPAddress ToOpenscreenIPAddress(const net::IPAddress& address) {
@@ -206,7 +184,7 @@ openscreen::cast::SessionConfig ToOpenscreenSessionConfig(
 openscreen::cast::AudioCaptureConfig ToOpenscreenAudioConfig(
     const FrameSenderConfig& config) {
   return openscreen::cast::AudioCaptureConfig{
-      .codec = media::cast::ToOpenscreenAudioCodec(config.codec),
+      .codec = ToOpenscreenAudioCodec(config.audio_codec()),
       .channels = config.channels,
       .bit_rate = config.max_bitrate,
       .sample_rate = config.rtp_timebase,
@@ -223,7 +201,7 @@ openscreen::cast::VideoCaptureConfig ToOpenscreenVideoConfig(
   // NOTE: currently we only support a frame rate of 30FPS, so casting
   // directly to an integer is fine.
   return openscreen::cast::VideoCaptureConfig{
-      .codec = media::cast::ToOpenscreenVideoCodec(config.codec),
+      .codec = ToOpenscreenVideoCodec(config.video_codec()),
       .max_frame_rate =
           openscreen::SimpleFraction{static_cast<int>(config.max_frame_rate),
                                      1},

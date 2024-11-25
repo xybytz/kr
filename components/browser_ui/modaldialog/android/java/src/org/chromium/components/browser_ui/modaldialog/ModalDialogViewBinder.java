@@ -8,11 +8,10 @@ import android.text.TextUtils;
 import android.view.View;
 
 import org.chromium.ui.modaldialog.ModalDialogProperties;
+import org.chromium.ui.modaldialog.ModalDialogProperties.ModalDialogButtonSpec;
 import org.chromium.ui.modelutil.PropertyKey;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
-
-import java.util.Arrays;
 
 /**
  * This class is responsible for binding view properties from {@link ModalDialogProperties} to a
@@ -23,7 +22,9 @@ public class ModalDialogViewBinder
                 PropertyModel, ModalDialogView, PropertyKey> {
     @Override
     public void bind(PropertyModel model, ModalDialogView view, PropertyKey propertyKey) {
-        if (ModalDialogProperties.TITLE == propertyKey) {
+        if (ModalDialogProperties.NAME == propertyKey) {
+            /* Do nothing. */
+        } else if (ModalDialogProperties.TITLE == propertyKey) {
             view.setTitle(model.get(ModalDialogProperties.TITLE));
         } else if (ModalDialogProperties.TITLE_MAX_LINES == propertyKey) {
             view.setTitleMaxLines(model.get(ModalDialogProperties.TITLE_MAX_LINES));
@@ -74,6 +75,10 @@ public class ModalDialogViewBinder
             view.setFooterMessage(model.get(ModalDialogProperties.FOOTER_MESSAGE));
         } else if (ModalDialogProperties.TITLE_SCROLLABLE == propertyKey) {
             view.setTitleScrollable(model.get(ModalDialogProperties.TITLE_SCROLLABLE));
+        } else if (ModalDialogProperties.WRAP_CUSTOM_VIEW_IN_SCROLLABLE == propertyKey) {
+            assert checkCustomViewScrollConsistency(model);
+            view.setWrapCustomViewInScrollable(
+                    model.get(ModalDialogProperties.WRAP_CUSTOM_VIEW_IN_SCROLLABLE));
         } else if (ModalDialogProperties.CONTROLLER == propertyKey) {
             view.setOnButtonClickedCallback(
                     (buttonType) -> {
@@ -104,13 +109,18 @@ public class ModalDialogViewBinder
             boolean ignoreHeightConstraint =
                     dialogStyle == ModalDialogProperties.DialogStyles.FULLSCREEN_DIALOG
                             || dialogStyle
-                                    == ModalDialogProperties.DialogStyles.FULLSCREEN_DARK_DIALOG;
+                                    == ModalDialogProperties.DialogStyles.FULLSCREEN_DARK_DIALOG
+                            || dialogStyle == ModalDialogProperties.DialogStyles.DIALOG_WHEN_LARGE;
             view.setIgnoreConstraints(ignoreWidthConstraints, ignoreHeightConstraint);
         } else if (ModalDialogProperties.BUTTON_TAP_PROTECTION_PERIOD_MS == propertyKey) {
             view.setButtonTapProtectionDurationMs(
                     model.get(ModalDialogProperties.BUTTON_TAP_PROTECTION_PERIOD_MS));
         } else if (ModalDialogProperties.FOCUS_DIALOG == propertyKey) {
             // Intentionally left empty since this is a property for the dialog container.
+        } else if (ModalDialogProperties.HORIZONTAL_MARGIN == propertyKey) {
+            view.setHorizontalMargin(model.get(ModalDialogProperties.HORIZONTAL_MARGIN));
+        } else if (ModalDialogProperties.VERTICAL_MARGIN == propertyKey) {
+            view.setVerticalMargin(model.get(ModalDialogProperties.VERTICAL_MARGIN));
         } else {
             assert false : "Unhandled property detected in ModalDialogViewBinder!";
         }
@@ -146,6 +156,8 @@ public class ModalDialogViewBinder
             return !TextUtils.isEmpty(model.get(ModalDialogProperties.NEGATIVE_BUTTON_TEXT));
         } else if (styles == ModalDialogProperties.ButtonStyles.PRIMARY_OUTLINE_NEGATIVE_FILLED) {
             return !TextUtils.isEmpty(model.get(ModalDialogProperties.POSITIVE_BUTTON_TEXT));
+        } else if (styles == ModalDialogProperties.ButtonStyles.PRIMARY_FILLED_NO_NEGATIVE) {
+            return TextUtils.isEmpty(model.get(ModalDialogProperties.NEGATIVE_BUTTON_TEXT));
         }
 
         return true;
@@ -172,10 +184,28 @@ public class ModalDialogViewBinder
                 || (!defaultButtonsConfigured && !buttonGroupConfigured);
     }
 
+    /**
+     * Checks that if a custom view that should be shown in a ScrollView, it is not itself a scroll
+     * container.
+     */
+    private static boolean checkCustomViewScrollConsistency(PropertyModel model) {
+        View customView = model.get(ModalDialogProperties.CUSTOM_VIEW);
+        return customView == null
+                || model.get(ModalDialogProperties.WRAP_CUSTOM_VIEW_IN_SCROLLABLE)
+                        != customView.isScrollContainer();
+    }
+
     private static boolean isButtongroupWithTextButtonsConfigured(PropertyModel model) {
-        return model.get(ModalDialogProperties.BUTTON_GROUP_BUTTON_SPEC_LIST) != null
-                && Arrays.stream(model.get(ModalDialogProperties.BUTTON_GROUP_BUTTON_SPEC_LIST))
-                        .anyMatch(buttonSpec -> !TextUtils.isEmpty(buttonSpec.getText()));
+        ModalDialogButtonSpec[] buttonSpecList =
+                model.get(ModalDialogProperties.BUTTON_GROUP_BUTTON_SPEC_LIST);
+        if (buttonSpecList != null) {
+            for (var buttonSpec : buttonSpecList) {
+                if (!TextUtils.isEmpty(buttonSpec.getText())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static boolean isAnyDefaultButtonWithTextConfigured(PropertyModel model) {

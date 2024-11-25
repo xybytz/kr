@@ -10,6 +10,7 @@ import android.content.Context;
 import org.jni_zero.CalledByNative;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.chrome.browser.access_loss.PasswordAccessLossWarningType;
 import org.chromium.chrome.browser.crash.ChromePureJavaExceptionReporter;
 import org.chromium.chrome.browser.password_manager.settings.ExportFlow;
 import org.chromium.chrome.browser.password_manager.settings.PasswordListObserver;
@@ -17,7 +18,8 @@ import org.chromium.chrome.browser.password_manager.settings.PasswordManagerHand
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.pwd_migration.PasswordMigrationWarningCoordinator;
 import org.chromium.chrome.browser.pwd_migration.PasswordMigrationWarningTriggers;
-import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
+import org.chromium.chrome.browser.pwd_migration.PostPasswordMigrationSheetCoordinator;
+import org.chromium.chrome.browser.pwd_migration.PostPasswordMigrationSheetCoordinatorFactory;
 import org.chromium.chrome.browser.signin.SyncConsentActivityLauncherImpl;
 import org.chromium.chrome.browser.sync.settings.ManageSyncSettings;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
@@ -61,14 +63,24 @@ class PasswordMigrationWarningBridge {
                         profile,
                         bottomSheetController,
                         SyncConsentActivityLauncherImpl.get(),
-                        new SettingsLauncherImpl(),
                         ManageSyncSettings.class,
-                        new ExportFlow(),
+                        new ExportFlow(PasswordAccessLossWarningType.NONE),
                         (PasswordListObserver observer) ->
-                                PasswordManagerHandlerProvider.getInstance().addObserver(observer),
-                        new PasswordStoreBridge(),
+                                PasswordManagerHandlerProvider.getForProfile(profile)
+                                        .addObserver(observer),
+                        new PasswordStoreBridge(profile),
                         referrer,
                         ChromePureJavaExceptionReporter::reportJavaException);
         passwordMigrationWarningCoordinator.showWarning();
+    }
+
+    @CalledByNative
+    static void maybeShowPostMigrationSheet(WindowAndroid windowAndroid, Profile profile) {
+        PostPasswordMigrationSheetCoordinator postMigrationSheet =
+                PostPasswordMigrationSheetCoordinatorFactory
+                        .maybeGetOrCreatePostPasswordMigrationSheetCoordinator(
+                                windowAndroid, profile);
+        if (postMigrationSheet == null) return;
+        postMigrationSheet.showSheet();
     }
 }

@@ -64,15 +64,15 @@ struct Permission {
 // re-ordered or removed. New entries should be added at the bottom.
 enum InstallReason {
   kUnknown = 0,
-  kSystem,     // Installed with the system and is considered a part of the OS.
-  kPolicy,     // Installed by policy.
-  kOem,        // Installed by an OEM.
-  kDefault,    // Preinstalled by default, but is not considered a system app.
-  kSync,       // Installed by sync.
-  kUser,       // Installed by user action.
-  kSubApp,     // Installed by the SubApp API call.
-  kKiosk,      // Installed by Kiosk on Chrome OS.
-  kCommandLine,     // Installed by the command line argument.
+  kSystem,      // Installed with the system and is considered a part of the OS.
+  kPolicy,      // Installed by policy.
+  kOem,         // Installed by an OEM.
+  kDefault,     // Preinstalled by default, but is not considered a system app.
+  kSync,        // Installed by sync.
+  kUser,        // Installed by user action.
+  kSubApp,      // Installed by the SubApp API call.
+  kKiosk,       // Installed by Kiosk on Chrome OS.
+  kCommandLine, // Deprecated, no longer used.
 };
 
 // Where the app was installed from.
@@ -121,8 +121,9 @@ struct RunOnOsLogin {
 
 // Locale info including tag and readable name translated based on ICU-20273.
 struct Locale {
-  // In general, this should be IETF BCP 47 tag, unless apps decide to specify
-  // their own tag.
+  // Locale tag of the language, e.g. en_US.
+  // Parsed based on IETF BCP 47, which will translate unknown format to
+  // just be "und", which is safe to be displayed on HTML.
   string locale_tag;
   // Readable name of the locale, translated based on the system language.
   // Empty if `locale_tag` cannot be translated.
@@ -171,6 +172,12 @@ struct App {
   array<string> scope_extensions;
   array<Locale> supported_locales;
   Locale? selected_locale;
+  // Set to true to include a link using the
+  //"appManagementNotificationsDescription" string to the system level
+  // notification settings for this app.
+  bool show_system_notifications_settings_link;
+  // Whether to allow uninstall of the app.
+  bool allow_uninstall;
 };
 
 // Extension-based apps primarily use install-time permissions that cannot be
@@ -243,6 +250,11 @@ interface PageHandler {
   // Sets app locale for an app with the given |app_id|. Empty |locale_tag|
   // indicates system language being chosen.
   SetAppLocale(string app_id, string locale_tag);
+  // Called when the user clicks on the system notification settings link for an
+  // app with the given `app_id`, when that link was displayed because
+  // `show_system_notifications_settings_link` was true for the app.
+  [EnableIf=is_mac]
+  OpenSystemNotificationSettings(string app_id);
 };
 
 // Frontend interface.

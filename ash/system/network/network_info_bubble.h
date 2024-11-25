@@ -20,8 +20,9 @@ namespace ash {
 // This class encapsulates the logic to find and show the IP addresses and mac
 // addresses of the default network and available network technologies.
 class ASH_EXPORT NetworkInfoBubble : public views::BubbleDialogDelegateView {
+  METADATA_HEADER(NetworkInfoBubble, views::BubbleDialogDelegateView)
+
  public:
-  METADATA_HEADER(NetworkInfoBubble);
   // This class declares the interface that should be implemented by any class
   // that intends to instantiate NetworkInfoBubble.
   class Delegate {
@@ -49,7 +50,8 @@ class ASH_EXPORT NetworkInfoBubble : public views::BubbleDialogDelegateView {
   static constexpr int kNetworkInfoBubbleLabelViewId = 1;
 
   // views::View:
-  gfx::Size CalculatePreferredSize() const override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
   void OnMouseExited(const ui::MouseEvent& event) override;
 
   // views::OnBeforeBubbleWidgetInit:

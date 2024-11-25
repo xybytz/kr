@@ -124,6 +124,16 @@ IN_PROC_BROWSER_TEST_F(PersonalizationAppComponentTest, PersonalizationToast) {
           "mocha.run()");
 }
 
+IN_PROC_BROWSER_TEST_F(PersonalizationAppComponentTest, SeaPenError) {
+  RunTest("chromeos/personalization_app/sea_pen_error_element_test.js",
+          "mocha.run()");
+}
+
+IN_PROC_BROWSER_TEST_F(PersonalizationAppComponentTest, SeaPenFreeform) {
+  RunTest("chromeos/personalization_app/sea_pen_freeform_element_test.js",
+          "mocha.run()");
+}
+
 IN_PROC_BROWSER_TEST_F(PersonalizationAppComponentTest, SeaPenImages) {
   RunTest("chromeos/personalization_app/sea_pen_images_element_test.js",
           "mocha.run()");
@@ -153,6 +163,11 @@ IN_PROC_BROWSER_TEST_F(PersonalizationAppComponentTest, SeaPenTemplateQuery) {
 
 IN_PROC_BROWSER_TEST_F(PersonalizationAppComponentTest, SeaPenTemplates) {
   RunTest("chromeos/personalization_app/sea_pen_templates_element_test.js",
+          "mocha.run()");
+}
+
+IN_PROC_BROWSER_TEST_F(PersonalizationAppComponentTest, SeaPenToast) {
+  RunTest("chromeos/personalization_app/sea_pen_toast_element_test.js",
           "mocha.run()");
 }
 
@@ -225,7 +240,7 @@ IN_PROC_BROWSER_TEST_F(PersonalizationAppControllerTest, All) {
 // implementations but with mocked out network handler helper classes.
 using PersonalizationAppBrowserTest = PersonalizationAppMochaTestBase;
 
-// TODO(crbug.com/1517028): Re-enable this test flakily failing on dbg builds.
+// TODO(crbug.com/41490011): Re-enable this test flakily failing on dbg builds.
 #if !defined(NDEBUG)
 #define MAYBE_Main DISABLED_Main
 #else
@@ -254,7 +269,7 @@ IN_PROC_BROWSER_TEST_F(PersonalizationAppBrowserTest, AmbientModeDisallowed) {
 IN_PROC_BROWSER_TEST_F(PersonalizationAppBrowserTest, WallpaperSubpage) {
   RunTestWithoutTestLoader(
       "chromeos/personalization_app/personalization_app_test.js",
-      "runMochaSuite('ambient mode disallowed')");
+      "runMochaSuite('wallpaper subpage')");
 }
 
 IN_PROC_BROWSER_TEST_F(PersonalizationAppBrowserTest, DynamicColor) {

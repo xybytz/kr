@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/modules/payments/payment_response.h"
 
 #include <memory>
@@ -13,6 +18,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_object_builder.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_payment_complete.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_payment_validation_errors.h"
 #include "third_party/blink/renderer/modules/credentialmanagement/public_key_credential.h"
 #include "third_party/blink/renderer/modules/payments/payment_address.h"
@@ -20,7 +26,6 @@
 #include "third_party/blink/renderer/modules/payments/payment_test_helper.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
-#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/task_environment.h"
 
 namespace blink {
@@ -32,7 +37,7 @@ class MockPaymentStateResolver final
  public:
   MockPaymentStateResolver() {
     ON_CALL(*this, Complete(testing::_, testing::_, testing::_))
-        .WillByDefault(testing::ReturnPointee(&dummy_promise_));
+        .WillByDefault(testing::Return(dummy_promise_));
   }
 
   MockPaymentStateResolver(const MockPaymentStateResolver&) = delete;
@@ -41,20 +46,21 @@ class MockPaymentStateResolver final
   ~MockPaymentStateResolver() override = default;
 
   MOCK_METHOD3(Complete,
-               ScriptPromise(ScriptState*,
-                             PaymentComplete result,
-                             ExceptionState&));
-  MOCK_METHOD3(Retry,
-               ScriptPromise(ScriptState*,
-                             const PaymentValidationErrors* errorFields,
-                             ExceptionState&));
+               ScriptPromise<IDLUndefined>(ScriptState*,
+                                           PaymentComplete result,
+                                           ExceptionState&));
+  MOCK_METHOD3(
+      Retry,
+      ScriptPromise<IDLUndefined>(ScriptState*,
+                                  const PaymentValidationErrors* errorFields,
+                                  ExceptionState&));
 
   void Trace(Visitor* visitor) const override {
     visitor->Trace(dummy_promise_);
   }
 
  private:
-  ScriptPromise dummy_promise_;
+  MemberScriptPromise<IDLUndefined> dummy_promise_;
 };
 
 TEST(PaymentResponseTest, DataCopiedOver) {
@@ -138,7 +144,6 @@ static v8::Local<v8::ArrayBuffer> GetArrayBuffer(V8TestingScope& scope,
 
 TEST(PaymentResponseTest, PaymentResponseDetailsContainsSpcExtensionsPRF) {
   test::TaskEnvironment task_environment;
-  ScopedSecurePaymentConfirmationExtensionsForTest extensions_flag(true);
   V8TestingScope scope;
   payments::mojom::blink::PaymentResponsePtr input =
       BuildPaymentResponseForTest();
@@ -152,7 +157,7 @@ TEST(PaymentResponseTest, PaymentResponseDetailsContainsSpcExtensionsPRF) {
   input->get_assertion_authenticator_response->extensions->echo_prf = true;
   input->get_assertion_authenticator_response->extensions->prf_results =
       mojom::blink::PRFValues::New(
-          /*id=*/absl::nullopt,
+          /*id=*/std::nullopt,
           /*first=*/WTF::Vector<uint8_t>{1, 2, 3},
           /*second=*/WTF::Vector<uint8_t>{4, 5, 6});
   MockPaymentStateResolver* complete_callback =
@@ -238,7 +243,8 @@ TEST(PaymentResponseTest, CompleteCalledWithSuccess) {
               Complete(scope.GetScriptState(), PaymentStateResolver::kSuccess,
                        testing::_));
 
-  output->complete(scope.GetScriptState(), "success",
+  output->complete(scope.GetScriptState(),
+                   V8PaymentComplete(V8PaymentComplete::Enum::kSuccess),
                    scope.GetExceptionState());
 }
 
@@ -259,7 +265,9 @@ TEST(PaymentResponseTest, CompleteCalledWithFailure) {
               Complete(scope.GetScriptState(), PaymentStateResolver::kFail,
                        testing::_));
 
-  output->complete(scope.GetScriptState(), "fail", scope.GetExceptionState());
+  output->complete(scope.GetScriptState(),
+                   V8PaymentComplete(V8PaymentComplete::Enum::kFail),
+                   scope.GetExceptionState());
 }
 
 TEST(PaymentResponseTest, JSONSerializerTest) {

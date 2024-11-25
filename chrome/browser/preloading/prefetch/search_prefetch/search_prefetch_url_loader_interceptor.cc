@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "base/functional/callback.h"
+#include "chrome/browser/preloading/prefetch/search_prefetch/field_trial_settings.h"
 #include "chrome/browser/preloading/prefetch/search_prefetch/search_prefetch_service.h"
 #include "chrome/browser/preloading/prefetch/search_prefetch/search_prefetch_service_factory.h"
 #include "chrome/browser/preloading/prefetch/search_prefetch/search_prefetch_url_loader.h"
@@ -24,7 +25,7 @@
 #include "net/base/load_flags.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/single_request_url_loader_factory.h"
-#include "services/network/public/cpp/wrapper_shared_url_loader_factory.h"
+#include "services/network/public/cpp/url_loader_factory_builder.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "extensions/browser/api/web_request/web_request_api.h"
@@ -33,7 +34,8 @@
 
 namespace {
 
-SearchPrefetchService* GetSearchPrefetchService(int frame_tree_node_id) {
+SearchPrefetchService* GetSearchPrefetchService(
+    content::FrameTreeNodeId frame_tree_node_id) {
   content::WebContents* web_contents =
       content::WebContents::FromFrameTreeNodeId(frame_tree_node_id);
   if (!web_contents) {
@@ -43,6 +45,13 @@ SearchPrefetchService* GetSearchPrefetchService(int frame_tree_node_id) {
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
   if (!profile) {
     return nullptr;
+  }
+  // If the feature is enabled, ensure SearchPrefetchService so that the
+  // navigation can consult the search prefetch cache regardless of if
+  // SearchPrefetchService has been accessed before this line, for example,
+  // during browser startup.
+  if (base::FeatureList::IsEnabled(kEnsureSearchPrefetchServiceOnInterceptor)) {
+    return SearchPrefetchServiceFactory::GetForProfile(profile);
   }
   return SearchPrefetchServiceFactory::GetForProfileIfExists(profile);
 }
@@ -60,7 +69,7 @@ void SearchPrefetchRequestHandler(
 }  // namespace
 
 SearchPrefetchURLLoaderInterceptor::SearchPrefetchURLLoaderInterceptor(
-    int frame_tree_node_id,
+    content::FrameTreeNodeId frame_tree_node_id,
     int64_t navigation_id,
     scoped_refptr<base::SequencedTaskRunner> navigation_response_task_runner)
     : frame_tree_node_id_(frame_tree_node_id) {
@@ -80,7 +89,7 @@ SearchPrefetchURLLoaderInterceptor::~SearchPrefetchURLLoaderInterceptor() =
 SearchPrefetchURLLoader::RequestHandler
 SearchPrefetchURLLoaderInterceptor::MaybeCreateLoaderForRequest(
     const network::ResourceRequest& tentative_resource_request,
-    int frame_tree_node_id) {
+    content::FrameTreeNodeId frame_tree_node_id) {
   // Do not intercept non-main frame navigations.
   if (!tentative_resource_request.is_outermost_main_frame) {
     // Use the is_outermost_main_frame flag instead of obtaining the
@@ -119,14 +128,7 @@ SearchPrefetchURLLoaderInterceptor::MaybeCreateLoaderForRequest(
     if (!prerender_utils::IsSearchSuggestionPrerenderEnabled()) {
       return {};
     }
-    // Note, if SearchPreloadShareableCacheIsEnabled() is true, prerender
-    // cannot take the prefetch response away, and it can only make a copy of
-    // the response. In this case, TakePrerenderFromMemoryCache cannot be
-    // called, and no URLLoader would be returned, so we stop at this point.
-    if (prerender_utils::SearchPreloadShareableCacheIsEnabled()) {
-      return service->MaybeCreateResponseReader(tentative_resource_request);
-    }
-    return service->TakePrerenderFromMemoryCache(tentative_resource_request);
+    return service->MaybeCreateResponseReader(tentative_resource_request);
   }
 
   DCHECK(is_primary_main_frame_navigation);
@@ -146,16 +148,7 @@ SearchPrefetchURLLoader::RequestHandler
 SearchPrefetchURLLoaderInterceptor::MaybeProxyRequestHandler(
     content::BrowserContext* browser_context,
     SearchPrefetchURLLoader::RequestHandler prefetched_loader_handler) {
-  // Wrap the RequestHandler in a SingleRequestURLLoaderFactory so that it can
-  // potentially be proxied by WebRequestAPI.
-  scoped_refptr<network::SingleRequestURLLoaderFactory>
-      single_request_url_loader_factory =
-          base::MakeRefCounted<network::SingleRequestURLLoaderFactory>(
-              std::move(prefetched_loader_handler));
-
-  mojo::PendingReceiver<network::mojom::URLLoaderFactory> pending_receiver;
-  mojo::PendingRemote<network::mojom::URLLoaderFactory> pending_remote =
-      pending_receiver.InitWithNewPipeAndPassRemote();
+  network::URLLoaderFactoryBuilder factory_builder;
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   content::WebContents* web_contents =
@@ -172,20 +165,17 @@ SearchPrefetchURLLoaderInterceptor::MaybeProxyRequestHandler(
         browser_context, render_frame_host,
         render_frame_host->GetProcess()->GetID(),
         content::ContentBrowserClient::URLLoaderFactoryType::kNavigation,
-        navigation_id_, ukm::kInvalidSourceIdObj, &pending_receiver,
+        navigation_id_, ukm::kInvalidSourceIdObj, factory_builder,
         /*header_client=*/nullptr, navigation_response_task_runner_,
         /*request_initiator=*/url::Origin());
   }
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
-  single_request_url_loader_factory->Clone(std::move(pending_receiver));
-
-  // Wrap the SingleRequestURLLoaderFactory as a RequestHandler.
   return base::BindOnce(
       &SearchPrefetchRequestHandler,
-      network::SharedURLLoaderFactory::Create(
-          std::make_unique<network::WrapperPendingSharedURLLoaderFactory>(
-              std::move(pending_remote))));
+      std::move(factory_builder)
+          .Finish(base::MakeRefCounted<network::SingleRequestURLLoaderFactory>(
+              std::move(prefetched_loader_handler))));
 }
 
 void SearchPrefetchURLLoaderInterceptor::MaybeCreateLoader(

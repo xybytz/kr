@@ -5,6 +5,7 @@
 #import "ios/chrome/browser/policy/model/reporting/report_scheduler_ios.h"
 
 #import "base/functional/callback_helpers.h"
+#import "base/memory/raw_ptr.h"
 #import "base/task/single_thread_task_runner.h"
 #import "base/test/gmock_callback_support.h"
 #import "base/test/metrics/histogram_tester.h"
@@ -15,6 +16,7 @@
 #import "components/enterprise/browser/reporting/report_request.h"
 #import "components/policy/core/common/cloud/mock_cloud_policy_client.h"
 #import "ios/chrome/browser/policy/model/reporting/reporting_delegate_factory_ios.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
 #import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/gmock/include/gmock/gmock.h"
@@ -75,9 +77,7 @@ class MockReportUploader : public ReportUploader {
 
 class ReportSchedulerIOSTest : public PlatformTest {
  public:
-  ReportSchedulerIOSTest()
-      : task_environment_(web::WebTaskEnvironment::Options::DEFAULT,
-                          base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
+  ReportSchedulerIOSTest() = default;
   ReportSchedulerIOSTest(const ReportSchedulerIOSTest&) = delete;
   ReportSchedulerIOSTest& operator=(const ReportSchedulerIOSTest&) = delete;
   ~ReportSchedulerIOSTest() override = default;
@@ -103,7 +103,7 @@ class ReportSchedulerIOSTest : public PlatformTest {
 
   void CreateScheduler() {
     ReportScheduler::CreateParams params;
-    params.client = client_;
+    params.client = client_.get();
     params.delegate = report_delegate_factory_.GetReportSchedulerDelegate();
     params.report_generator = std::move(generator_ptr_);
     scheduler_ = std::make_unique<ReportScheduler>(std::move(params));
@@ -112,24 +112,23 @@ class ReportSchedulerIOSTest : public PlatformTest {
 
   void SetLastUploadInHour(base::TimeDelta gap) {
     previous_set_last_upload_timestamp_ = base::Time::Now() - gap;
-    local_state_.Get()->SetTime(kLastUploadTimestamp,
-                                previous_set_last_upload_timestamp_);
+    local_state()->SetTime(kLastUploadTimestamp,
+                           previous_set_last_upload_timestamp_);
   }
 
   void SetReportFrequency(base::TimeDelta frequency) {
-    local_state_.Get()->SetTimeDelta(kCloudReportingUploadFrequency, frequency);
+    local_state()->SetTimeDelta(kCloudReportingUploadFrequency, frequency);
   }
 
   void ToggleCloudReport(bool enabled) {
-    local_state_.Get()->SetManagedPref(kCloudReportingEnabled,
-                                       std::make_unique<base::Value>(enabled));
+    local_state()->SetBoolean(kCloudReportingEnabled, enabled);
   }
 
   // If lastUploadTimestamp is updated recently, it should be updated as Now().
   // Otherwise, it should be same as previous set timestamp.
   void ExpectLastUploadTimestampUpdated(bool is_updated) {
     auto current_last_upload_timestamp =
-        local_state_.Get()->GetTime(kLastUploadTimestamp);
+        local_state()->GetTime(kLastUploadTimestamp);
     if (is_updated) {
       EXPECT_EQ(base::Time::Now(), current_last_upload_timestamp);
     } else {
@@ -152,18 +151,23 @@ class ReportSchedulerIOSTest : public PlatformTest {
   void EXPECT_CALL_SetupRegistrationWithSetDMToken() {
     EXPECT_CALL(*client_, SetupRegistration(kDMToken, kClientId, _))
         .WillOnce(WithArgs<0>(
-            Invoke(client_, &policy::MockCloudPolicyClient::SetDMToken)));
+            Invoke(client_.get(), &policy::MockCloudPolicyClient::SetDMToken)));
+  }
+
+  PrefService* local_state() {
+    return GetApplicationContext()->GetLocalState();
   }
 
   base::test::ScopedFeatureList scoped_feature_list_;
-  web::WebTaskEnvironment task_environment_;
-  IOSChromeScopedTestingLocalState local_state_;
+  web::WebTaskEnvironment task_environment_{
+      base::test::TaskEnvironment::TimeSource::MOCK_TIME};
+  IOSChromeScopedTestingLocalState scoped_testing_local_state_;
 
   ReportingDelegateFactoryIOS report_delegate_factory_;
   std::unique_ptr<ReportScheduler> scheduler_;
-  policy::MockCloudPolicyClient* client_;
-  MockReportGenerator* generator_;
-  MockReportUploader* uploader_;
+  raw_ptr<policy::MockCloudPolicyClient> client_;
+  raw_ptr<MockReportGenerator> generator_;
+  raw_ptr<MockReportUploader> uploader_;
   policy::FakeBrowserDMTokenStorage storage_;
   base::Time previous_set_last_upload_timestamp_;
   base::HistogramTester histogram_tester_;

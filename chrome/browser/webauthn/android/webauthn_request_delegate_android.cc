@@ -13,6 +13,7 @@
 #include "base/ranges/algorithm.h"
 #include "chrome/browser/password_manager/chrome_webauthn_credentials_delegate.h"
 #include "chrome/browser/password_manager/chrome_webauthn_credentials_delegate_factory.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/touch_to_fill/password_manager/touch_to_fill_controller.h"
 #include "chrome/browser/touch_to_fill/password_manager/touch_to_fill_controller_webauthn_delegate.h"
 #include "chrome/browser/webauthn/webauthn_metrics_util.h"
@@ -89,12 +90,10 @@ void WebAuthnRequestDelegateAndroid::OnWebAuthnRequestPending(
     if (!credentials_delegate) {
       return;
     }
-    credentials_delegate->SetAndroidHybridAvailable(
-        ChromeWebAuthnCredentialsDelegate::AndroidHybridAvailable(
-            !hybrid_callback_.is_null()));
     credentials_delegate->OnCredentialsReceived(
         std::move(display_credentials),
-        /*offer_passkey_from_another_device=*/true);
+        ChromeWebAuthnCredentialsDelegate::SecurityKeyOrHybridFlowAvailable(
+            !hybrid_callback_.is_null()));
     return;
   }
 
@@ -104,6 +103,7 @@ void WebAuthnRequestDelegateAndroid::OnWebAuthnRequestPending(
   }
   if (!touch_to_fill_controller_) {
     touch_to_fill_controller_ = std::make_unique<TouchToFillController>(
+        Profile::FromBrowserContext(frame_host->GetBrowserContext()),
         visibility_controller_->AsWeakPtr());
   }
   touch_to_fill_controller_->Show(
@@ -127,8 +127,6 @@ void WebAuthnRequestDelegateAndroid::CleanupWebAuthnRequest(
 
     if (credentials_delegate) {
       credentials_delegate->NotifyWebAuthnRequestAborted();
-      credentials_delegate->SetAndroidHybridAvailable(
-          ChromeWebAuthnCredentialsDelegate::AndroidHybridAvailable(false));
     }
   } else {
     touch_to_fill_controller_->Close();

@@ -8,7 +8,7 @@
 
 #import "base/time/time.h"
 #import "components/history/core/browser/history_service.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 
 namespace {
 // Converts base::Time to NSDate.
@@ -21,7 +21,7 @@ ScreenTimeHistoryDeleter::ScreenTimeHistoryDeleter(
     history::HistoryService* history_service)
     : history_service_(history_service) {
   DCHECK(history_service_);
-  history_service_observation_.Observe(history_service_);
+  history_service_observation_.Observe(history_service_.get());
   screen_time_history_ = [[STWebHistory alloc] init];
 }
 
@@ -35,7 +35,7 @@ void ScreenTimeHistoryDeleter::Shutdown() {
   screen_time_history_ = nil;
 }
 
-void ScreenTimeHistoryDeleter::OnURLsDeleted(
+void ScreenTimeHistoryDeleter::OnHistoryDeletions(
     history::HistoryService* history_service,
     const history::DeletionInfo& deletion_info) {
   if (deletion_info.IsAllHistory()) {

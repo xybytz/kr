@@ -49,6 +49,7 @@ absl_cc_library(
     absl::log_internal_nullguard
     absl::log_internal_nullstream
     absl::log_internal_strip
+    absl::nullability
     absl::strings
 )
 
@@ -195,8 +196,8 @@ absl_cc_library(
     absl::config
     absl::core_headers
     absl::errno_saver
-    absl::inlined_vector
     absl::examine_stack
+    absl::inlined_vector
     absl::log_internal_append_truncated
     absl::log_internal_format
     absl::log_internal_globals
@@ -209,11 +210,12 @@ absl_cc_library(
     absl::log_sink
     absl::log_sink_registry
     absl::memory
+    absl::nullability
     absl::raw_logging_internal
-    absl::strings
-    absl::strerror
-    absl::time
     absl::span
+    absl::strerror
+    absl::strings
+    absl::time
 )
 
 absl_cc_library(
@@ -290,6 +292,7 @@ absl_cc_library(
   LINKOPTS
     ${ABSL_DEFAULT_LINKOPTS}
   DEPS
+    absl::core_headers
     absl::log_internal_message
     absl::log_internal_nullstream
     absl::log_severity
@@ -601,6 +604,7 @@ absl_cc_library(
     absl::config
     absl::log_sink
     absl::log_internal_log_sink_set
+    absl::nullability
   PUBLIC
 )
 
@@ -661,6 +665,7 @@ absl_cc_library(
     ${ABSL_DEFAULT_LINKOPTS}
   DEPS
     absl::config
+    absl::core_headers
     absl::log_internal_message
     absl::strings
 )
@@ -676,6 +681,7 @@ absl_cc_library(
     ${ABSL_DEFAULT_LINKOPTS}
   DEPS
     absl::config
+    absl::core_headers
     absl::log_internal_structured
     absl::strings
   PUBLIC
@@ -788,6 +794,8 @@ absl_cc_test(
     absl::core_headers
     absl::log_internal_test_helpers
     absl::status
+    absl::strings
+    absl::string_view
     GTest::gmock_main
 )
 
@@ -807,6 +815,7 @@ absl_cc_test(
     absl::log_entry
     absl::log_globals
     absl::log_severity
+    absl::log_internal_globals
     absl::log_internal_test_actions
     absl::log_internal_test_helpers
     absl::log_internal_test_matchers
@@ -830,6 +839,8 @@ absl_cc_test(
     absl::core_headers
     absl::log_internal_test_helpers
     absl::status
+    absl::strings
+    absl::string_view
     GTest::gmock_main
 )
 

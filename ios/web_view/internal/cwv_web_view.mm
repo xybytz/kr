@@ -2,28 +2,25 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#import "ios/web_view/internal/cwv_web_view_internal.h"
-
-#include <memory>
-#include <unordered_map>
-#include <utility>
-
 #import <WebKit/WebKit.h>
 
-#include "base/apple/foundation_util.h"
-#include "base/functional/bind.h"
+#import <memory>
+#import <unordered_map>
+#import <utility>
+
+#import "base/apple/foundation_util.h"
+#import "base/functional/bind.h"
 #import "base/functional/callback_helpers.h"
-#include "base/json/json_writer.h"
+#import "base/json/json_writer.h"
 #import "base/notreached.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/strings/sys_string_conversions.h"
 #import "components/autofill/ios/browser/autofill_agent.h"
-#include "components/autofill/ios/form_util/unique_id_data_tab_helper.h"
-#include "components/password_manager/core/browser/password_manager.h"
+#import "components/password_manager/core/browser/password_manager.h"
 #import "components/password_manager/ios/password_controller_driver_helper.h"
 #import "components/password_manager/ios/shared_password_controller.h"
 #import "components/safe_browsing/ios/browser/safe_browsing_url_allow_list.h"
-#include "components/url_formatter/elide_url.h"
-#include "google_apis/google_api_keys.h"
+#import "components/url_formatter/elide_url.h"
+#import "google_apis/google_api_keys.h"
 #import "ios/components/security_interstitials/lookalikes/lookalike_url_container.h"
 #import "ios/components/security_interstitials/lookalikes/lookalike_url_tab_allow_list.h"
 #import "ios/components/security_interstitials/lookalikes/lookalike_url_tab_helper.h"
@@ -32,14 +29,14 @@
 #import "ios/components/security_interstitials/safe_browsing/safe_browsing_tab_helper.h"
 #import "ios/components/security_interstitials/safe_browsing/safe_browsing_unsafe_resource_container.h"
 #import "ios/web/navigation/nscoder_util.h"
-#include "ios/web/public/favicon/favicon_url.h"
-#include "ios/web/public/js_messaging/web_frame.h"
+#import "ios/web/public/favicon/favicon_url.h"
+#import "ios/web/public/js_messaging/web_frame.h"
 #import "ios/web/public/js_messaging/web_frames_manager.h"
 #import "ios/web/public/navigation/navigation_context.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
-#include "ios/web/public/navigation/referrer.h"
-#include "ios/web/public/navigation/reload_type.h"
+#import "ios/web/public/navigation/referrer.h"
+#import "ios/web/public/navigation/reload_type.h"
 #import "ios/web/public/session/crw_session_storage.h"
 #import "ios/web/public/session/proto/metadata.pb.h"
 #import "ios/web/public/session/proto/storage.pb.h"
@@ -49,7 +46,7 @@
 #import "ios/web/public/web_client.h"
 #import "ios/web/public/web_state.h"
 #import "ios/web/public/web_view_only/wk_web_view_configuration_util.h"
-#include "ios/web_view/internal/app/application_context.h"
+#import "ios/web_view/internal/app/application_context.h"
 #import "ios/web_view/internal/autofill/cwv_autofill_controller_internal.h"
 #import "ios/web_view/internal/autofill/web_view_autofill_client_ios.h"
 #import "ios/web_view/internal/cwv_back_forward_list_internal.h"
@@ -59,13 +56,14 @@
 #import "ios/web_view/internal/cwv_navigation_action_internal.h"
 #import "ios/web_view/internal/cwv_ssl_status_internal.h"
 #import "ios/web_view/internal/cwv_web_view_configuration_internal.h"
+#import "ios/web_view/internal/cwv_web_view_internal.h"
 #import "ios/web_view/internal/language/web_view_url_language_histogram_factory.h"
 #import "ios/web_view/internal/passwords/web_view_password_manager_client.h"
 #import "ios/web_view/internal/safe_browsing/web_view_safe_browsing_client_factory.h"
 #import "ios/web_view/internal/translate/cwv_translation_controller_internal.h"
 #import "ios/web_view/internal/translate/web_view_translate_client.h"
-#include "ios/web_view/internal/web_view_browser_state.h"
-#include "ios/web_view/internal/web_view_global_state_util.h"
+#import "ios/web_view/internal/web_view_browser_state.h"
+#import "ios/web_view/internal/web_view_global_state_util.h"
 #import "ios/web_view/internal/web_view_java_script_dialog_presenter.h"
 #import "ios/web_view/internal/web_view_message_handler_java_script_feature.h"
 #import "ios/web_view/internal/web_view_web_state_policy_decider.h"
@@ -73,9 +71,9 @@
 #import "ios/web_view/public/cwv_preview_element_info.h"
 #import "ios/web_view/public/cwv_ui_delegate.h"
 #import "ios/web_view/public/cwv_web_view_configuration.h"
-#import "net/base/mac/url_conversions.h"
-#include "ui/base/page_transition_types.h"
-#include "url/gurl.h"
+#import "net/base/apple/url_conversions.h"
+#import "ui/base/page_transition_types.h"
+#import "url/gurl.h"
 
 namespace {
 
@@ -84,9 +82,10 @@ NSString* gUserAgentProduct = nil;
 BOOL gChromeContextMenuEnabled = NO;
 BOOL gUseOptimizedSessionStorage = NO;
 BOOL gWebInspectorEnabled = NO;
+BOOL gSkipAccountStorageCheckEnabled = NO;
 
 // A key used in NSCoder to store the session storage object.
-// TODO(crbug.com/1504753): remove once the feature has been launched and
+// TODO(crbug.com/40945317): remove once the feature has been launched and
 // all session migrated to the new format.
 NSString* const kSessionStorageKey = @"sessionStorage";
 
@@ -287,7 +286,7 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
   CWVWebViewProtobufStorage* _cachedProtobufStorage;
 
   // Cached session storage. Only used if the legacy serialisation code is used.
-  // TODO(crbug.com/1504753): Remove when the feature has launched.
+  // TODO(crbug.com/40945317): Remove when the feature has launched.
   CRWSessionStorage* _cachedSessionStorage;
 }
 
@@ -319,7 +318,7 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
   }
 
   // Support for legacy session serialisation code path.
-  // TODO(crbug.com/1504753): Remove when the feature has launched.
+  // TODO(crbug.com/40945317): Remove when the feature has launched.
   if (!gUseOptimizedSessionStorage) {
     if (!_cachedSessionStorage) {
       _cachedSessionStorage = [[CRWSessionStorage alloc]
@@ -332,8 +331,9 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
     DCHECK(_cachedSessionStorage);
 
     const web::WebState::CreateParams createParams(_browserState);
-    return web::WebState::CreateWithStorageSession(createParams,
-                                                   _cachedSessionStorage);
+    return web::WebState::CreateWithStorageSession(
+        createParams, _cachedSessionStorage,
+        base::ReturnValueOnce<NSData*>(nil));
   }
 
   if (!_cachedProtobufStorage) {
@@ -351,7 +351,7 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
 }
 
 - (void)encodeWebState:(web::WebState*)webState toCoder:(NSCoder*)coder {
-  // TODO(crbug.com/1504753): Remove when the feature has launched.
+  // TODO(crbug.com/40945317): Remove when the feature has launched.
   if (!gUseOptimizedSessionStorage) {
     if (webState) {
       [self updateStateFromWebState:webState];
@@ -370,7 +370,7 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
 }
 
 - (void)updateStateFromWebState:(web::WebState*)webState {
-  // TODO(crbug.com/1504753): Remove when the feature has launched.
+  // TODO(crbug.com/40945317): Remove when the feature has launched.
   if (!gUseOptimizedSessionStorage) {
     _cachedSessionStorage = webState->BuildSessionStorage();
     return;
@@ -385,7 +385,7 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
 }
 
 - (void)clearStateForWebStateIfPossible:(web::WebState*)webState {
-  // TODO(crbug.com/1504753): Remove when the feature has launched.
+  // TODO(crbug.com/40945317): Remove when the feature has launched.
   if (!gUseOptimizedSessionStorage) {
     if (webState) {
       _cachedSessionStorage = nil;
@@ -493,6 +493,14 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
   gWebInspectorEnabled = newValue;
 }
 
++ (BOOL)skipAccountStorageCheckEnabled {
+  return gSkipAccountStorageCheckEnabled;
+}
+
++ (void)setSkipAccountStorageCheckEnabled:(BOOL)newValue {
+  gSkipAccountStorageCheckEnabled = newValue;
+}
+
 + (NSString*)customUserAgent {
   return gCustomUserAgent;
 }
@@ -512,16 +520,9 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
 + (void)setGoogleAPIKey:(NSString*)googleAPIKey
                clientID:(NSString*)clientID
            clientSecret:(NSString*)clientSecret {
-  google_apis::SetAPIKey(base::SysNSStringToUTF8(googleAPIKey));
-
-  std::string clientIDString = base::SysNSStringToUTF8(clientID);
-  std::string clientSecretString = base::SysNSStringToUTF8(clientSecret);
-  for (size_t i = 0; i < google_apis::CLIENT_NUM_ITEMS; ++i) {
-    google_apis::OAuth2Client client =
-        static_cast<google_apis::OAuth2Client>(i);
-    google_apis::SetOAuth2ClientID(client, clientIDString);
-    google_apis::SetOAuth2ClientSecret(client, clientSecretString);
-  }
+  google_apis::InitializeAndOverrideAPIKeyAndOAuthClient(
+      base::SysNSStringToUTF8(googleAPIKey), base::SysNSStringToUTF8(clientID),
+      base::SysNSStringToUTF8(clientSecret));
 }
 
 + (CWVWebView*)webViewForWebState:(web::WebState*)webState {
@@ -636,7 +637,7 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
 }
 
 - (void)evaluateJavaScript:(NSString*)javaScriptString
-                completion:(void (^)(id, NSError*))completion {
+         completionHandler:(void (^)(id result, NSError* error))completion {
   web::WebFrame* mainFrame =
       _webState->GetPageWorldWebFramesManager()->GetMainWebFrame();
   if (!mainFrame) {
@@ -662,6 +663,11 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
         }
         completion(jsResult, error);
       }));
+}
+
+- (void)evaluateJavaScript:(NSString*)javaScriptString
+                completion:(void (^)(id, NSError*))completion {
+  [self evaluateJavaScript:javaScriptString completionHandler:completion];
 }
 
 - (void)setUIDelegate:(id<CWVUIDelegate>)UIDelegate {
@@ -722,7 +728,7 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
   [self updateNavigationAvailability];
   [self updateCurrentURLs];
 
-  // TODO(crbug.com/898357): Remove this once crbug.com/898357 is fixed.
+  // TODO(crbug.com/41422373): Remove this once crbug.com/898357 is fixed.
   [self updateVisibleSSLStatus];
 
   if (navigation->HasCommitted() && !navigation->IsSameDocument() &&
@@ -745,7 +751,7 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
     return;
   }
 
-  // TODO(crbug.com/1374071): Fragment navigations currently skip calling
+  // TODO(crbug.com/40872106): Fragment navigations currently skip calling
   // `webViewDidStartNavigation:` and `webViewDidCommitNavigation:`, and instead
   // only calls `webViewDidFinishNavigation:` below. Fix this inconsistency.
   SEL selector = @selector(webViewDidFinishNavigation:);
@@ -984,8 +990,6 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
 }
 
 - (CWVAutofillController*)newAutofillController {
-  UniqueIDDataTabHelper::CreateForWebState(_webState.get());
-
   auto autofillClient = autofill::WebViewAutofillClientIOS::Create(
       _webState.get(), _configuration.browserState);
   AutofillAgent* autofillAgent = [[AutofillAgent alloc]
@@ -1017,9 +1021,7 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
               autofillAgent:autofillAgent
             passwordManager:std::move(passwordManager)
       passwordManagerClient:std::move(passwordManagerClient)
-         passwordController:passwordController
-          applicationLocale:ios_web_view::ApplicationContext::GetInstance()
-                                ->GetApplicationLocale()];
+         passwordController:passwordController];
 }
 
 #pragma mark - Find In Page
@@ -1168,7 +1170,7 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
   self.loading = NO;
   self.estimatedProgress = 0.0;
 
-  // TODO(crbug.com/873729): The session will not be restored until
+  // TODO(crbug.com/41407753): The session will not be restored until
   // LoadIfNecessary call. Fix the bug and remove extra call.
   if (coder) {
     _webState->GetNavigationManager()->LoadIfNecessary();
@@ -1247,7 +1249,8 @@ WEB_STATE_USER_DATA_KEY_IMPL(WebViewHolder)
           respondsToSelector:@selector(webView:handleUnsafeURLWithHandler:)]) {
     SafeBrowsingClient* client =
         ios_web_view::WebViewSafeBrowsingClientFactory::GetForBrowserState(
-            _webState->GetBrowserState());
+            ios_web_view::WebViewBrowserState::FromBrowserState(
+                _webState->GetBrowserState()));
     SafeBrowsingQueryManager::CreateForWebState(_webState.get(), client);
     SafeBrowsingTabHelper::CreateForWebState(_webState.get(), client);
     SafeBrowsingUrlAllowList::CreateForWebState(_webState.get());

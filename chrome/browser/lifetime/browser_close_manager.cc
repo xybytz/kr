@@ -47,11 +47,8 @@ void ShowInProgressDownloads(Profile* profile) {
 
 }  // namespace
 
-BrowserCloseManager::BrowserCloseManager() : current_browser_(nullptr) {
-}
-
-BrowserCloseManager::~BrowserCloseManager() {
-}
+BrowserCloseManager::BrowserCloseManager() : current_browser_(nullptr) {}
+BrowserCloseManager::~BrowserCloseManager() = default;
 
 void BrowserCloseManager::StartClosingBrowsers() {
   // If the session is ending or a silent exit was requested, skip straight to
@@ -90,15 +87,17 @@ void BrowserCloseManager::TryToCloseBrowsers() {
 }
 
 void BrowserCloseManager::OnBrowserReportCloseable(bool proceed) {
-  if (!current_browser_)
+  if (!current_browser_) {
     return;
+  }
 
   current_browser_ = nullptr;
 
-  if (proceed)
+  if (proceed) {
     TryToCloseBrowsers();
-  else
+  } else {
     CancelBrowserClose();
+  }
 }
 
 void BrowserCloseManager::CheckForDownloadsInProgress() {
@@ -147,8 +146,9 @@ void BrowserCloseManager::OnReportDownloadsCancellable(bool proceed) {
   for (Profile* profile : profiles) {
     ShowInProgressDownloads(profile);
     std::vector<Profile*> otr_profiles = profile->GetAllOffTheRecordProfiles();
-    for (Profile* otr : otr_profiles)
+    for (Profile* otr : otr_profiles) {
       ShowInProgressDownloads(otr);
+    }
   }
 }
 
@@ -158,12 +158,15 @@ void BrowserCloseManager::CloseBrowsers() {
   // exit can restore all browsers open before exiting.
   ProfileManager::ShutdownSessionServices();
 #endif
+#if BUILDFLAG(ENABLE_BACKGROUND_MODE)
   if (!browser_shutdown::IsTryingToQuit()) {
     BackgroundModeManager* background_mode_manager =
         g_browser_process->background_mode_manager();
-    if (background_mode_manager)
+    if (background_mode_manager) {
       background_mode_manager->SuspendBackgroundMode();
+    }
   }
+#endif
 
   // Make a copy of the BrowserList to simplify the case where we need to
   // destroy a Browser during the loop.
@@ -193,7 +196,8 @@ void BrowserCloseManager::CloseBrowsers() {
 #if BUILDFLAG(ENABLE_CHROME_NOTIFICATIONS)
   NotificationUIManager* notification_manager =
       g_browser_process->notification_ui_manager();
-  if (notification_manager)
+  if (notification_manager) {
     notification_manager->CancelAll();
+  }
 #endif
 }

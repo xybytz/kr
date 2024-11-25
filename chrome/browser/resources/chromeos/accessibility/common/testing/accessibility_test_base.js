@@ -6,6 +6,12 @@
  * Base test fixture for all tests of the accessibility component extensions.
  */
 AccessibilityTestBase = class extends testing.Test {
+  constructor() {
+    super();
+    // Copy all exports onto the globalThis object.
+    Object.assign(globalThis, TestImportManager.getImports());
+  }
+
   /** @override */
   setUp() {
     const runTest = this.deferRunTest(WhenTestDone.EXPECT);
@@ -15,11 +21,7 @@ AccessibilityTestBase = class extends testing.Test {
     })();
   }
 
-  /**
-   * An async variant of setUp.
-   * Derived classes should use importModules within this function to pull any
-   * ES6 modules.
-   */
+  /** An async variant of setUp. */
   async setUpDeferred() {}
 
   /**

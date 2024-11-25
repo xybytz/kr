@@ -115,6 +115,8 @@ InternalPageInfoBubbleView::InternalPageInfoBubbleView(
   title_label->SetMultiLine(true);
   title_label->SetElideBehavior(gfx::NO_ELIDE);
 
+  // TODO(crbug.com/343325197) Remove this SizeToContents() once this bug is
+  // fixed.
   SizeToContents();
 }
 
@@ -130,7 +132,8 @@ PageInfoBubbleView::PageInfoBubbleView(
     content::WebContents* associated_web_contents,
     const GURL& url,
     base::OnceClosure initialized_callback,
-    PageInfoClosingCallback closing_callback)
+    PageInfoClosingCallback closing_callback,
+    bool allow_about_this_site)
     : PageInfoBubbleViewBase(anchor_view,
                              anchor_rect,
                              parent_window,
@@ -159,7 +162,8 @@ PageInfoBubbleView::PageInfoBubbleView(
         std::make_unique<PageInfoHistoryController>(web_contents(), url);
   }
   view_factory_ = std::make_unique<PageInfoViewFactory>(
-      presenter_.get(), ui_delegate_.get(), this, history_controller_.get());
+      presenter_.get(), ui_delegate_.get(), this, history_controller_.get(),
+      allow_about_this_site);
 
   SetShowTitle(false);
   SetShowCloseButton(false);
@@ -191,7 +195,9 @@ views::BubbleDialogDelegateView* PageInfoBubbleView::CreatePageInfoBubble(
     content::WebContents* web_contents,
     const GURL& url,
     base::OnceClosure initialized_callback,
-    PageInfoClosingCallback closing_callback) {
+    PageInfoClosingCallback closing_callback,
+    bool allow_about_this_site,
+    std::optional<ContentSettingsType> type) {
   DCHECK(web_contents);
   gfx::NativeView parent_view = platform_util::GetViewForWindow(parent_window);
 
@@ -202,9 +208,14 @@ views::BubbleDialogDelegateView* PageInfoBubbleView::CreatePageInfoBubble(
                                           web_contents, url);
   }
 
-  return new PageInfoBubbleView(
+  PageInfoBubbleView* bubble = new PageInfoBubbleView(
       anchor_view, anchor_rect, parent_view, web_contents, url,
-      std::move(initialized_callback), std::move(closing_callback));
+      std::move(initialized_callback), std::move(closing_callback),
+      allow_about_this_site);
+  if (type) {
+    bubble->OpenPermissionPage(*type);
+  }
+  return bubble;
 }
 
 void PageInfoBubbleView::OpenMainPage(base::OnceClosure initialized_callback) {
@@ -216,7 +227,7 @@ void PageInfoBubbleView::OpenMainPage(base::OnceClosure initialized_callback) {
 
 void PageInfoBubbleView::OpenSecurityPage() {
   presenter_->RecordPageInfoAction(
-      PageInfo::PageInfoAction::PAGE_INFO_SECURITY_DETAILS_OPENED);
+      page_info::PAGE_INFO_SECURITY_DETAILS_OPENED);
   std::unique_ptr<views::View> security_page_view =
       view_factory_->CreateSecurityPageView();
   security_page_view->SetID(
@@ -228,7 +239,7 @@ void PageInfoBubbleView::OpenSecurityPage() {
 
 void PageInfoBubbleView::OpenPermissionPage(ContentSettingsType type) {
   presenter_->RecordPageInfoAction(
-      PageInfo::PageInfoAction::PAGE_INFO_PERMISSION_DIALOG_OPENED);
+      page_info::PAGE_INFO_PERMISSION_DIALOG_OPENED);
   std::unique_ptr<views::View> permissions_page_view =
       view_factory_->CreatePermissionPageView(type, web_contents());
   permissions_page_view->SetID(
@@ -239,7 +250,7 @@ void PageInfoBubbleView::OpenPermissionPage(ContentSettingsType type) {
 
 void PageInfoBubbleView::OpenAdPersonalizationPage() {
   presenter_->RecordPageInfoAction(
-      PageInfo::PageInfoAction::PAGE_INFO_AD_PERSONALIZATION_PAGE_OPENED);
+      page_info::PAGE_INFO_AD_PERSONALIZATION_PAGE_OPENED);
   std::unique_ptr<views::View> ad_personalization_page_view =
       view_factory_->CreateAdPersonalizationPageView();
   ad_personalization_page_view->SetID(
@@ -288,9 +299,10 @@ void PageInfoBubbleView::WebContentsDestroyed() {
   weak_factory_.InvalidateWeakPtrs();
 }
 
-gfx::Size PageInfoBubbleView::CalculatePreferredSize() const {
+gfx::Size PageInfoBubbleView::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
   if (page_container_ == nullptr) {
-    return views::View::CalculatePreferredSize();
+    return views::View::CalculatePreferredSize(available_size);
   }
 
   int width = PageInfoViewFactory::kMinBubbleWidth;
@@ -298,11 +310,13 @@ gfx::Size PageInfoBubbleView::CalculatePreferredSize() const {
     width = std::max(width, page_container_->GetPreferredSize().width());
     width = std::min(width, PageInfoViewFactory::kMaxBubbleWidth);
   }
-  return gfx::Size(width, views::View::GetHeightForWidth(width));
+  return gfx::Size(width,
+                   GetLayoutManager()->GetPreferredHeightForWidth(this, width));
 }
 
 void PageInfoBubbleView::ChildPreferredSizeChanged(views::View* child) {
-  Layout();
+  // TODO(crbug.com/343325197) Remove this SizeToContents() once this bug is
+  // fixed.
   SizeToContents();
 }
 
@@ -323,7 +337,8 @@ void ShowPageInfoDialogImpl(Browser* browser,
                             const GURL& virtual_url,
                             bubble_anchor_util::Anchor anchor,
                             base::OnceClosure initialized_callback,
-                            PageInfoClosingCallback closing_callback) {
+                            PageInfoClosingCallback closing_callback,
+                            std::optional<ContentSettingsType> type) {
   AnchorConfiguration configuration =
       GetPageInfoAnchorConfiguration(browser, anchor);
   gfx::Rect anchor_rect =
@@ -334,7 +349,7 @@ void ShowPageInfoDialogImpl(Browser* browser,
       PageInfoBubbleView::CreatePageInfoBubble(
           configuration.anchor_view, anchor_rect, parent_window, web_contents,
           virtual_url, std::move(initialized_callback),
-          std::move(closing_callback));
+          std::move(closing_callback), /*allow_about_this_site=*/true, type);
   bubble->SetHighlightedButton(configuration.highlighted_button);
   bubble->SetArrow(configuration.bubble_arrow);
   bubble->GetWidget()->Show();

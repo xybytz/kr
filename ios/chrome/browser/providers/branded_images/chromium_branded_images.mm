@@ -36,7 +36,6 @@ UIImage* GetBrandedImage(BrandedImage branded_image) {
   }
 
   NOTREACHED();
-  return nil;
 }
 
 }  // namespace provider

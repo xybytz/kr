@@ -39,7 +39,7 @@ std::set<std::string> GetAllPublicSwitchesAndFeaturesForTesting() {
     // Skip over flags that are part of the flags system itself - they don't
     // have any of the usual metadata or histogram entries for flags, since they
     // are synthesized during the build process.
-    // TODO(https://crbug.com/1068258): Remove the need for this by generating
+    // TODO(crbug.com/40125404): Remove the need for this by generating
     // histogram entries automatically.
     if (entry.supported_platforms & flags_ui::kFlagInfrastructure)
       continue;
@@ -217,7 +217,7 @@ TEST(AboutFlagsTest, VariationIdsAreValid) {
 TEST(AboutFlagsTest, ScopedFeatureEntriesRestoresFeatureEntries) {
   const base::span<const flags_ui::FeatureEntry> old_entries =
       testing::GetFeatureEntries();
-  EXPECT_GT(old_entries.size(), 0U);
+  EXPECT_FALSE(old_entries.empty());
   const char* first_feature_name = old_entries[0].internal_name;
   {
     static BASE_FEATURE(kTestFeature1, "FeatureName1",

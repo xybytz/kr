@@ -5,6 +5,7 @@
 #include "chrome/updater/ipc/update_service_internal_proxy_win.h"
 
 #include <windows.h>
+
 #include <wrl/client.h>
 #include <wrl/implements.h>
 
@@ -12,7 +13,7 @@
 #include <optional>
 #include <utility>
 
-#include "base/check_op.h"
+#include "base/check.h"
 #include "base/functional/callback.h"
 #include "base/logging.h"
 #include "base/memory/scoped_refptr.h"

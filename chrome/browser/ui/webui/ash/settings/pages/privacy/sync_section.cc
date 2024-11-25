@@ -4,11 +4,14 @@
 
 #include "chrome/browser/ui/webui/ash/settings/pages/privacy/sync_section.h"
 
+#include <array>
+
 #include "ash/constants/ash_features.h"
-#include "base/no_destructor.h"
+#include "base/containers/span.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/ash/settings/os_settings_features_util.h"
 #include "chrome/browser/ui/webui/ash/settings/pages/people/os_sync_handler.h"
 #include "chrome/browser/ui/webui/ash/settings/search/search_tag_registry.h"
@@ -16,6 +19,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/branded_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "chromeos/ash/components/browser_context_helper/browser_context_helper.h"
 #include "components/google/core/common/google_util.h"
 #include "components/sync/base/features.h"
 #include "content/public/browser/web_ui.h"
@@ -78,14 +82,10 @@ void AddSyncControlsStrings(content::WebUIDataSource* html_source) {
       "appsToggleSharingEnabled",
       base::FeatureList::IsEnabled(syncer::kSyncChromeOSAppsToggleSharing) &&
           crosapi::browser_util::IsLacrosEnabled());
-
-  html_source->AddBoolean(
-      "osDeprecateSyncMetricsToggle",
-      ash::features::IsOsSettingsDeprecateSyncMetricsToggleEnabled());
 }
 
-const std::vector<SearchConcept>& GetCategorizedSyncSearchConcepts() {
-  static const base::NoDestructor<std::vector<SearchConcept>> tags({
+base::span<const SearchConcept> GetCategorizedSyncSearchConcepts() {
+  static constexpr auto tags = std::to_array<SearchConcept>({
       {IDS_OS_SETTINGS_TAG_SYNC,
        mojom::kSyncSubpagePath,
        mojom::SearchResultIcon::kSync,
@@ -93,7 +93,7 @@ const std::vector<SearchConcept>& GetCategorizedSyncSearchConcepts() {
        mojom::SearchResultType::kSubpage,
        {.subpage = mojom::Subpage::kSync}},
   });
-  return *tags;
+  return tags;
 }
 
 }  // namespace
@@ -105,7 +105,8 @@ SyncSection::SyncSection(Profile* profile,
   CHECK(search_tag_registry);
 
   // No search tags are registered if in guest mode.
-  if (IsGuestModeActive()) {
+  auto* user = BrowserContextHelper::Get()->GetUserByBrowserContext(profile);
+  if (IsGuestModeActive(user)) {
     return;
   }
 
@@ -190,7 +191,7 @@ void SyncSection::RegisterHierarchy(HierarchyGenerator* generator) const {
   RegisterNestedSettingBulk(mojom::Subpage::kSyncSetup, kSyncSettings,
                             generator);
 
-  // TODO(crbug.com/1249845): Remove this.
+  // TODO(crbug.com/40197769): Remove this.
   generator->RegisterNestedSubpage(
       IDS_SETTINGS_SYNC_ADVANCED_PAGE_TITLE,
       mojom::Subpage::kSyncDeprecatedAdvanced, mojom::Subpage::kSyncSetup,

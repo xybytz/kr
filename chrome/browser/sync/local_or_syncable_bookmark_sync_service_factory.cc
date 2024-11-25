@@ -36,6 +36,9 @@ LocalOrSyncableBookmarkSyncServiceFactory::
               // BookmarkSyncService too (although it doesn't do anything
               // useful).
               .WithGuest(ProfileSelection::kRedirectedToOriginal)
+              // TODO(crbug.com/41488885): Check if this service is needed for
+              // Ash Internals.
+              .WithAshInternals(ProfileSelection::kRedirectedToOriginal)
               .Build()) {
   DependsOn(BookmarkUndoServiceFactory::GetInstance());
 }
@@ -43,11 +46,11 @@ LocalOrSyncableBookmarkSyncServiceFactory::
 LocalOrSyncableBookmarkSyncServiceFactory::
     ~LocalOrSyncableBookmarkSyncServiceFactory() = default;
 
-KeyedService*
-LocalOrSyncableBookmarkSyncServiceFactory::BuildServiceInstanceFor(
-    content::BrowserContext* context) const {
+std::unique_ptr<KeyedService> LocalOrSyncableBookmarkSyncServiceFactory::
+    BuildServiceInstanceForBrowserContext(
+        content::BrowserContext* context) const {
   Profile* profile = Profile::FromBrowserContext(context);
-  return new sync_bookmarks::BookmarkSyncService(
+  return std::make_unique<sync_bookmarks::BookmarkSyncService>(
       BookmarkUndoServiceFactory::GetForProfileIfExists(profile),
       syncer::WipeModelUponSyncDisabledBehavior::kNever);
 }

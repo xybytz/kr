@@ -23,9 +23,9 @@ namespace ash {
 // expanded.
 class ASH_EXPORT CloseButton : public views::ImageButton,
                                public views::ViewTargeterDelegate {
- public:
-  METADATA_HEADER(CloseButton);
+  METADATA_HEADER(CloseButton, views::ImageButton)
 
+ public:
   enum class Type {
     kSmall,
     kMedium,
@@ -60,7 +60,8 @@ class ASH_EXPORT CloseButton : public views::ImageButton,
  private:
   // views::ImageButton:
   void OnThemeChanged() override;
-  gfx::Size CalculatePreferredSize() const override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
 
   // views::ViewTargeterDelegate:
   bool DoesIntersectRect(const views::View* target,

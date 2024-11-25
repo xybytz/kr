@@ -137,7 +137,7 @@ std::unique_ptr<HttpResponse> HandleEchoCookieWithStatus(
   return http_response;
 }
 
-// TODO(https://crbug.com/1138913): Remove when request handlers are
+// TODO(crbug.com/40153192): Remove when request handlers are
 // implementable in Android's embedded test server implementation
 std::unique_ptr<HttpResponse> HandleEchoCriticalHeader(
     const HttpRequest& request) {
@@ -320,8 +320,9 @@ std::unique_ptr<HttpResponse> HandleExpectAndSetCookie(
 
 // An internal utility to extract HTTP Headers from a URL in the format of
 // "/url&KEY1: VALUE&KEY2: VALUE2". Returns a header key to header value map.
-std::map<std::string, std::string> ExtractHeadersFromQuery(const GURL& url) {
-  std::map<std::string, std::string> key_to_value;
+std::multimap<std::string, std::string> ExtractHeadersFromQuery(
+    const GURL& url) {
+  std::multimap<std::string, std::string> key_to_value;
   if (url.has_query()) {
     RequestQuery headers = ParseQuery(url);
     for (const auto& header : headers) {

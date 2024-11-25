@@ -7,7 +7,7 @@
  * screen.
  */
 
-import '//resources/cr_elements/cr_checkbox/cr_checkbox.js';
+import '//resources/ash/common/cr_elements/cr_checkbox/cr_checkbox.js';
 import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
 import '../../components/oobe_cr_lottie.js';
 import '../../components/buttons/oobe_text_button.js';
@@ -16,22 +16,20 @@ import '../../components/common_styles/oobe_dialog_host_styles.css.js';
 import '../../components/dialogs/oobe_adaptive_dialog.js';
 
 import {PolymerElementProperties} from '//resources/polymer/v3_0/polymer/interfaces.js';
-import {mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.js';
-import {OobeDialogHostBehavior, OobeDialogHostBehaviorInterface} from '../../components/behaviors/oobe_dialog_host_behavior.js';
-import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
-import {OOBE_UI_STATE} from '../../components/display_manager_types.js';
+import {OobeUiState} from '../../components/display_manager_types.js';
+import {LoginScreenMixin} from '../../components/mixins/login_screen_mixin.js';
+import {OobeDialogHostMixin} from '../../components/mixins/oobe_dialog_host_mixin.js';
+import {OobeI18nMixin} from '../../components/mixins/oobe_i18n_mixin.js';
 import {OobeCrLottie} from '../../components/oobe_cr_lottie.js';
+import {AppDownloadingPageHandlerRemote} from '../../mojom-webui/screens_common.mojom-webui.js';
+import {OobeScreensFactoryBrowserProxy} from '../../oobe_screens_factory_proxy.js';
 
 import {getTemplate} from './app_downloading.html.js';
 
-const AppDownloadingBase = mixinBehaviors(
-    [OobeI18nBehavior, OobeDialogHostBehavior, LoginScreenBehavior],
-    PolymerElement) as {
-      new (): PolymerElement & OobeI18nBehaviorInterface
-        & OobeDialogHostBehaviorInterface & LoginScreenBehaviorInterface,
-    };
+const AppDownloadingBase =
+    OobeDialogHostMixin(LoginScreenMixin(OobeI18nMixin(PolymerElement)));
 
 export class AppDownloading extends AppDownloadingBase {
   static get is() {
@@ -46,6 +44,17 @@ export class AppDownloading extends AppDownloadingBase {
     return {};
   }
 
+  private handler: AppDownloadingPageHandlerRemote;
+
+  constructor() {
+    super();
+    this.handler = new AppDownloadingPageHandlerRemote();
+    OobeScreensFactoryBrowserProxy.getInstance()
+        .screenFactory.establishAppDownloadingScreenPipe(
+            this.handler.$.bindNewPipeAndPassReceiver());
+  }
+
+
   override ready(): void {
     super.ready();
     this.initializeLoginScreen('AppDownloadingScreen');
@@ -53,39 +62,41 @@ export class AppDownloading extends AppDownloadingBase {
 
   /** Initial UI State for screen */
   // eslint-disable-next-line @typescript-eslint/naming-convention
-  override getOobeUIInitialState(): OOBE_UI_STATE {
-    return OOBE_UI_STATE.ONBOARDING;
+  override getOobeUIInitialState(): OobeUiState {
+    return OobeUiState.ONBOARDING;
   }
 
   /**
    * Returns the control which should receive initial focus.
    */
   override get defaultControl(): HTMLElement {
-    return this.shadowRoot!.getElementById('app-downloading-dialog')!;
+    return this.shadowRoot!.querySelector('#app-downloading-dialog')!;
   }
 
   /** Called when dialog is shown */
   override onBeforeShow(): void {
+    super.onBeforeShow();
     const downloadingApps = this.getDownloadingAppsLottiePlayer();
-    if (downloadingApps !== null) {
+    if (downloadingApps instanceof OobeCrLottie) {
       downloadingApps.playing = true;
     }
   }
 
   /** Called when dialog is hidden */
-  onBeforeHide(): void {
+  override onBeforeHide(): void {
+    super.onBeforeHide();
     const downloadingApps = this.getDownloadingAppsLottiePlayer();
-    if (downloadingApps !== null) {
+    if (downloadingApps instanceof OobeCrLottie) {
       downloadingApps.playing = false;
     }
   }
 
   onContinue(): void {
-    this.userActed('appDownloadingContinueSetup');
+    this.handler.onContinueClicked();
   }
 
-  private getDownloadingAppsLottiePlayer(): OobeCrLottie | null {
-    return this.shadowRoot!.querySelector<OobeCrLottie>('downloadingApps');
+  private getDownloadingAppsLottiePlayer(): OobeCrLottie | null | undefined {
+    return this.shadowRoot?.querySelector('#downloadingApps');
   }
 }
 

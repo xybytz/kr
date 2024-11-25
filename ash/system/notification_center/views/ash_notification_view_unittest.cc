@@ -5,7 +5,9 @@
 #include "ash/system/notification_center/views/ash_notification_view.h"
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "ash/capture_mode/capture_mode_controller.h"
 #include "ash/capture_mode/capture_mode_test_util.h"
@@ -18,15 +20,17 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/icon_button.h"
 #include "ash/system/notification_center/ash_notification_drag_controller.h"
-#include "ash/system/notification_center/views/ash_notification_expand_button.h"
-#include "ash/system/notification_center/views/ash_notification_input_container.h"
+#include "ash/system/notification_center/message_center_constants.h"
 #include "ash/system/notification_center/message_center_style.h"
 #include "ash/system/notification_center/message_popup_animation_waiter.h"
 #include "ash/system/notification_center/metrics_utils.h"
 #include "ash/system/notification_center/notification_center_test_api.h"
 #include "ash/system/notification_center/notification_center_tray.h"
+#include "ash/system/notification_center/views/ash_notification_expand_button.h"
+#include "ash/system/notification_center/views/ash_notification_input_container.h"
 #include "ash/system/notification_center/views/notification_center_view.h"
 #include "ash/system/notification_center/views/notification_list_view.h"
+#include "ash/system/notification_center/views/timestamp_view.h"
 #include "ash/system/unified/unified_system_tray.h"
 #include "ash/test/ash_test_base.h"
 #include "base/memory/raw_ptr.h"
@@ -34,7 +38,9 @@
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/task_environment.h"
 #include "base/time/time.h"
+#include "build/buildflag.h"
 #include "ui/base/data_transfer_policy/mock_data_transfer_policy_controller.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer.h"
@@ -45,14 +51,17 @@
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/image/image_unittest_util.h"
 #include "ui/message_center/message_center.h"
+#include "ui/message_center/message_center_impl.h"
 #include "ui/message_center/message_center_observer.h"
 #include "ui/message_center/message_center_types.h"
 #include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_types.h"
 #include "ui/message_center/views/message_view.h"
 #include "ui/message_center/views/notification_header_view.h"
 #include "ui/message_center/views/notification_view.h"
 #include "ui/message_center/views/proportional_image_view.h"
 #include "ui/strings/grit/ui_strings.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/label.h"
@@ -60,17 +69,42 @@
 #include "ui/views/test/button_test_api.h"
 #include "ui/views/test/views_test_utils.h"
 
-using message_center::Notification;
-using message_center::NotificationHeaderView;
-using message_center::NotificationView;
-
 namespace ash {
 
 namespace {
 
+// Aliases ---------------------------------------------------------------------
+
+using message_center::Notification;
+using message_center::NotificationHeaderView;
+using message_center::NotificationView;
 using ::testing::_;
+using ::testing::Bool;
+using ::testing::UnorderedElementsAre;
+
+// Constants -------------------------------------------------------------------
+
+// The time duration that ensures notifications become aging enough for removal.
+constexpr base::TimeDelta kNotificationAgingWaitTime = base::Seconds(2);
+
+// The notification count limit in tests.
+constexpr size_t kOverridingCountLimit = 5;
+
+// Target notification count after cleaning in tests.
+constexpr size_t kOverridingTargetCountAfterRemoval = 3;
 
 constexpr char kScreenCaptureNotificationId[] = "capture_mode_notification";
+
+// A radomly selected time duration for waiting.
+constexpr base::TimeDelta kWaitTime = base::Milliseconds(500);
+
+// Matchers --------------------------------------------------------------------
+
+MATCHER_P(NotificationIdMatches, target_id, "") {
+  return arg->id() == target_id;
+}
+
+// Helper classes --------------------------------------------------------------
 
 class NotificationTestDelegate : public message_center::NotificationDelegate {
  public:
@@ -165,9 +199,8 @@ class MockAshNotificationDragDropDelegate
       if (data->HasHtml()) {
         HandleHtmlData();
       } else {
-        std::vector<ui::FileInfo> files;
-        data->GetFilenames(&files);
-        HandleFilePathData(files[0].path);
+        std::optional<std::vector<ui::FileInfo>> files = data->GetFilenames();
+        HandleFilePathData(files.value()[0].path);
       }
     }
   }
@@ -205,7 +238,10 @@ class AshNotificationViewTestBase : public AshTestBase,
       bool has_message = true,
       message_center::NotificationType notification_type =
           message_center::NOTIFICATION_TYPE_SIMPLE,
-      const std::optional<base::FilePath>& image_path = std::nullopt) {
+      const std::optional<base::FilePath>& image_path = std::nullopt,
+      bool pinned = false,
+      message_center::NotificationPriority priority =
+          message_center::NotificationPriority::DEFAULT_PRIORITY) {
     message_center::RichNotificationData data;
     data.settings_button_handler =
         message_center::SettingsButtonHandler::INLINE;
@@ -213,6 +249,8 @@ class AshNotificationViewTestBase : public AshTestBase,
     if (image_path) {
       data.image_path = *image_path;
     }
+    data.pinned = pinned;
+    data.priority = priority;
 
     std::u16string message = has_message ? u"message" : u"";
 
@@ -223,10 +261,10 @@ class AshNotificationViewTestBase : public AshTestBase,
         message_center::NotifierId(message_center::NotifierType::APPLICATION,
                                    "extension_id"),
         data, delegate_);
-    notification->set_small_image(gfx::test::CreateImage(/*size=*/16));
+    notification->SetSmallImage(gfx::test::CreateImage(/*size=*/16));
 
     if (has_image) {
-      notification->set_image(gfx::test::CreateImage(320, 240));
+      notification->SetImage(gfx::test::CreateImage(320, 240));
     }
 
     message_center::MessageCenter::Get()->AddNotification(
@@ -239,7 +277,9 @@ class AshNotificationViewTestBase : public AshTestBase,
   // will belong to the same group.
   std::unique_ptr<Notification> CreateTestNotificationInAGroup(
       bool has_image = false,
-      const std::optional<base::FilePath>& image_path = std::nullopt) {
+      const std::optional<base::FilePath>& image_path = std::nullopt,
+      message_center::NotificationPriority priority =
+          message_center::DEFAULT_PRIORITY) {
     message_center::NotifierId notifier_id;
     notifier_id.profile_id = "abc@gmail.com";
     notifier_id.type = message_center::NotifierType::WEB_PAGE;
@@ -248,6 +288,7 @@ class AshNotificationViewTestBase : public AshTestBase,
     if (image_path) {
       rich_notification_data.image_path = *image_path;
     }
+    rich_notification_data.priority = priority;
 
     std::unique_ptr<Notification> notification = std::make_unique<Notification>(
         message_center::NOTIFICATION_TYPE_SIMPLE,
@@ -255,10 +296,10 @@ class AshNotificationViewTestBase : public AshTestBase,
         ui::ImageModel::FromImage(gfx::test::CreateImage(/*size=*/80)),
         u"display source", GURL(u"http://test-url.com"), notifier_id,
         rich_notification_data, delegate_);
-    notification->set_small_image(gfx::test::CreateImage(/*size=*/16));
+    notification->SetSmallImage(gfx::test::CreateImage(/*size=*/16));
 
     if (has_image) {
-      notification->set_image(gfx::test::CreateImage(320, 240));
+      notification->SetImage(gfx::test::CreateImage(320, 240));
     }
 
     message_center::MessageCenter::Get()->AddNotification(
@@ -305,7 +346,7 @@ class AshNotificationViewTestBase : public AshTestBase,
   // a particular view.
   void CheckSmoothnessRecorded(base::HistogramTester& histograms,
                                views::View* view,
-                               const char* animation_histogram_name,
+                               const std::string& animation_histogram_name,
                                int data_point_count = 1) {
     ui::Compositor* compositor = view->layer()->GetCompositor();
 
@@ -314,7 +355,7 @@ class AshNotificationViewTestBase : public AshTestBase,
 
     // Force frames and wait for all throughput trackers to be gone to allow
     // animation throughput data to be passed from cc to ui.
-    while (compositor->has_throughput_trackers_for_testing()) {
+    while (compositor->has_compositor_metrics_trackers_for_testing()) {
       compositor->ScheduleFullRedraw();
       std::ignore = ui::WaitForNextFrameToBePresented(compositor,
                                                       base::Milliseconds(500));
@@ -410,11 +451,13 @@ class AshNotificationViewTestBase : public AshTestBase,
   views::Label* GetTitleView(AshNotificationView* view) {
     return view->title_row_->title_view_;
   }
-  views::LabelButton* GetTurnOffNotificationsButton(AshNotificationView* view) {
-    return view->turn_off_notifications_button_;
+  views::Button* GetTurnOffNotificationsButton(AshNotificationView* view) {
+    return static_cast<views::Button*>(
+        view->GetViewByID(kNotificationTurnOffNotificationsButton));
   }
-  views::LabelButton* GetInlineSettingsCancelButton(AshNotificationView* view) {
-    return view->inline_settings_cancel_button_;
+  views::Button* GetInlineSettingsCancelButton(AshNotificationView* view) {
+    return static_cast<views::Button*>(
+        view->GetViewByID(kNotificationInlineSettingsCancelButton));
   }
   IconButton* GetSnoozeButton(AshNotificationView* view) {
     return view->snooze_button_;
@@ -461,13 +504,6 @@ class AshNotificationViewTest : public AshNotificationViewTestBase {
     notification_view_ = nullptr;
     test_widget_.reset();
     AshTestBase::TearDown();
-  }
-
-  void AdvanceClock(base::TimeDelta time_delta) {
-    // Note that AdvanceClock() is used here instead of FastForwardBy() to
-    // prevent long run time during an ash test session.
-    task_environment()->AdvanceClock(time_delta);
-    task_environment()->RunUntilIdle();
   }
 
   AshNotificationView* notification_view() { return notification_view_.get(); }
@@ -532,39 +568,6 @@ TEST_F(AshNotificationViewTest, CreateOrUpdateTitle) {
   EXPECT_EQ(expected_text, GetTitleView(notification_view())->GetText());
 }
 
-TEST_F(AshNotificationViewTest, UpdatesTimestampOverTime) {
-  auto notification = CreateTestNotification(/*has_image=*/true);
-  notification_view()->UpdateWithNotification(*notification);
-  notification_view()->SetExpanded(false);
-
-  EXPECT_TRUE(GetTimestampInCollapsedView(notification_view())->GetVisible());
-
-  UpdateTimestampForNotification(
-      notification_view(),
-      base::Time::Now() + base::Hours(3) + base::Minutes(30));
-  EXPECT_EQ(l10n_util::GetPluralStringFUTF16(
-                IDS_MESSAGE_NOTIFICATION_DURATION_HOURS_SHORTEST_FUTURE, 3),
-            GetTimestampInCollapsedView(notification_view())->GetText());
-
-  AdvanceClock(base::Hours(3));
-
-  EXPECT_EQ(l10n_util::GetPluralStringFUTF16(
-                IDS_MESSAGE_NOTIFICATION_DURATION_MINUTES_SHORTEST_FUTURE, 30),
-            GetTimestampInCollapsedView(notification_view())->GetText());
-
-  AdvanceClock(base::Minutes(30));
-
-  EXPECT_EQ(
-      l10n_util::GetStringUTF16(IDS_MESSAGE_NOTIFICATION_NOW_STRING_SHORTEST),
-      GetTimestampInCollapsedView(notification_view())->GetText());
-
-  AdvanceClock(base::Days(2));
-
-  EXPECT_EQ(l10n_util::GetPluralStringFUTF16(
-                IDS_MESSAGE_NOTIFICATION_DURATION_DAYS_SHORTEST, 2),
-            GetTimestampInCollapsedView(notification_view())->GetText());
-}
-
 TEST_F(AshNotificationViewTest, ExpandCollapseBehavior) {
   auto notification = CreateTestNotification(/*has_image=*/true);
   notification_view()->UpdateWithNotification(*notification);
@@ -606,8 +609,7 @@ TEST_F(AshNotificationViewTest, GroupedNotificationStartsCollapsed) {
   // Grouped notification should start collapsed.
   EXPECT_FALSE(notification_view()->IsExpanded());
   EXPECT_TRUE(GetHeaderRow(notification_view())->GetVisible());
-  EXPECT_TRUE(
-      GetExpandButton(notification_view())->label_for_test()->GetVisible());
+  EXPECT_TRUE(GetExpandButton(notification_view())->label()->GetVisible());
 }
 
 TEST_F(AshNotificationViewTest, GroupedNotificationCounterVisibility) {
@@ -617,8 +619,7 @@ TEST_F(AshNotificationViewTest, GroupedNotificationCounterVisibility) {
       notification_view(),
       message_center_style::kMaxGroupedNotificationsInCollapsedState + 1);
 
-  EXPECT_TRUE(
-      GetExpandButton(notification_view())->label_for_test()->GetVisible());
+  EXPECT_TRUE(GetExpandButton(notification_view())->label()->GetVisible());
 
   auto* child_view = GetFirstGroupedChildNotificationView(notification_view());
   EXPECT_TRUE(GetCollapsedSummaryView(child_view)->GetVisible());
@@ -640,8 +641,7 @@ TEST_F(AshNotificationViewTest, GroupedNotificationExpandState) {
   // timestamp invisible and the child notifications should now have the main
   // view visible instead of the summary.
   notification_view()->SetExpanded(true);
-  EXPECT_FALSE(
-      GetExpandButton(notification_view())->label_for_test()->GetVisible());
+  EXPECT_FALSE(GetExpandButton(notification_view())->label()->GetVisible());
   EXPECT_FALSE(GetTimestamp(notification_view())->GetVisible());
   EXPECT_FALSE(GetCollapsedSummaryView(child_view)->GetVisible());
   EXPECT_TRUE(GetMainView(child_view)->GetVisible());
@@ -919,6 +919,7 @@ TEST_F(AshNotificationViewTest, ExpandCollapseAnimationsRecordSmoothness) {
       "Ash.NotificationView.ActionsRow.FadeIn.AnimationSmoothness");
 }
 
+// TODO(crbug.com/41495194): Re-enable this test
 TEST_F(AshNotificationViewTest, ImageExpandCollapseAnimationsRecordSmoothness) {
   // Enable animations.
   ui::ScopedAnimationDurationScaleMode duration(
@@ -1006,6 +1007,8 @@ TEST_F(AshNotificationViewTest, GroupExpandCollapseAnimationsRecordSmoothness) {
   notification_view->ToggleExpand();
   EXPECT_TRUE(notification_view->IsExpanded());
 
+  auto* const expand_button = GetExpandButton(notification_view);
+
   // All the animations of views in expanded state should be performed and
   // recorded here.
   CheckSmoothnessRecorded(
@@ -1018,11 +1021,13 @@ TEST_F(AshNotificationViewTest, GroupExpandCollapseAnimationsRecordSmoothness) {
       GetMainView(GetFirstGroupedChildNotificationView(notification_view)),
       "Ash.NotificationView.MainView.FadeIn.AnimationSmoothness");
   CheckSmoothnessRecorded(
-      histograms_expanded, GetExpandButton(notification_view)->label_for_test(),
-      "Ash.NotificationView.ExpandButtonLabel.FadeOut.AnimationSmoothness");
+      histograms_expanded, expand_button->label(),
+      expand_button->GetAnimationHistogramName(
+          AshNotificationExpandButton::AnimationType::kFadeOutLabel));
   CheckSmoothnessRecorded(
-      histograms_expanded, GetExpandButton(notification_view),
-      "Ash.NotificationView.ExpandButton.BoundsChange.AnimationSmoothness");
+      histograms_expanded, expand_button,
+      expand_button->GetAnimationHistogramName(
+          AshNotificationExpandButton::AnimationType::kBoundsChange));
 
   base::HistogramTester histograms_collapsed;
   notification_view->ToggleExpand();
@@ -1040,13 +1045,13 @@ TEST_F(AshNotificationViewTest, GroupExpandCollapseAnimationsRecordSmoothness) {
           GetFirstGroupedChildNotificationView(notification_view)),
       "Ash.NotificationView.CollapsedSummaryView.FadeIn.AnimationSmoothness");
   CheckSmoothnessRecorded(
-      histograms_collapsed,
-      GetExpandButton(notification_view)->label_for_test(),
-      "Ash.NotificationView.ExpandButtonLabel.FadeIn.AnimationSmoothness");
+      histograms_collapsed, expand_button->label(),
+      expand_button->GetAnimationHistogramName(
+          AshNotificationExpandButton::AnimationType::kFadeInLabel));
   CheckSmoothnessRecorded(
-      histograms_collapsed,
-      GetExpandButton(notification_view)->label_for_test(),
-      "Ash.NotificationView.ExpandButton.BoundsChange.AnimationSmoothness");
+      histograms_collapsed, expand_button->label(),
+      expand_button->GetAnimationHistogramName(
+          AshNotificationExpandButton::AnimationType::kBoundsChange));
 }
 
 TEST_F(AshNotificationViewTest, SingleToGroupAnimationsRecordSmoothness) {
@@ -1074,7 +1079,7 @@ TEST_F(AshNotificationViewTest, SingleToGroupAnimationsRecordSmoothness) {
       histograms, GetGroupedNotificationsContainer(notification_view),
       "Ash.NotificationView.ConvertSingleToGroup.FadeIn.AnimationSmoothness");
   CheckSmoothnessRecorded(
-      histograms, GetExpandButton(notification_view)->label_for_test(),
+      histograms, GetExpandButton(notification_view)->label(),
       "Ash.NotificationView.ExpandButton.ConvertSingleToGroup."
       "FadeIn.AnimationSmoothness");
   CheckSmoothnessRecorded(
@@ -1125,16 +1130,7 @@ TEST_F(AshNotificationViewTest, InlineReplyAnimationsRecordSmoothness) {
       "Ash.NotificationView.InlineReply.FadeOut.AnimationSmoothness");
 }
 
-// TODO(crbug.com/1518434): Flaky on ChromeOS.
-#if BUILDFLAG(IS_CHROMEOS)
-#define MAYBE_InlineSettingsAnimationsRecordSmoothness \
-  DISABLED_InlineSettingsAnimationsRecordSmoothness
-#else
-#define MAYBE_InlineSettingsAnimationsRecordSmoothness \
-  InlineSettingsAnimationsRecordSmoothness
-#endif
-TEST_F(AshNotificationViewTest,
-       MAYBE_InlineSettingsAnimationsRecordSmoothness) {
+TEST_F(AshNotificationViewTest, InlineSettingsAnimationsRecordSmoothness) {
   base::HistogramTester histograms;
 
   // Enable animations.
@@ -1262,12 +1258,12 @@ TEST_F(AshNotificationViewTest, ExpandButtonAccessibleName) {
 
   EXPECT_EQ(l10n_util::GetStringFUTF16(IDS_ASH_NOTIFICATION_EXPAND_TOOLTIP,
                                        notification_title),
-            expand_button->GetAccessibleName());
+            expand_button->GetViewAccessibility().GetCachedName());
 
   notification_view()->ToggleExpand();
   EXPECT_EQ(l10n_util::GetStringFUTF16(IDS_ASH_NOTIFICATION_COLLAPSE_TOOLTIP,
                                        notification_title),
-            expand_button->GetAccessibleName());
+            expand_button->GetViewAccessibility().GetCachedName());
 
   // Update the notification title. The expand button tooltip text should be
   // updated accordingly.
@@ -1277,7 +1273,7 @@ TEST_F(AshNotificationViewTest, ExpandButtonAccessibleName) {
 
   EXPECT_EQ(l10n_util::GetStringFUTF16(IDS_ASH_NOTIFICATION_COLLAPSE_TOOLTIP,
                                        notification_title),
-            expand_button->GetAccessibleName());
+            expand_button->GetViewAccessibility().GetCachedName());
 }
 
 TEST_F(AshNotificationViewTest, OnThemeChangedWithoutMessageLabel) {
@@ -1344,7 +1340,7 @@ TEST_F(AshNotificationViewTest, ButtonStateUpdated) {
 
   auto* notification_view =
       GetNotificationViewFromMessageCenter(notification->id());
-  ash::AshNotificationInputContainer* inline_reply =
+  AshNotificationInputContainer* inline_reply =
       static_cast<AshNotificationInputContainer*>(
           GetInlineReply(notification_view));
 
@@ -1380,6 +1376,289 @@ TEST_F(AshNotificationViewTest, LeftContentAndTitleRowHeightMatches) {
             GetTitleRow(notification_view())->height());
 }
 
+// AshNotificationLimitTest ----------------------------------------------------
+
+class AshNotificationLimitTest : public AshNotificationViewTestBase,
+                                 public testing::WithParamInterface<
+                                     /*is_notification_limit_enabled=*/bool> {
+ public:
+  AshNotificationLimitTest()
+      : AshNotificationViewTestBase(
+            base::test::TaskEnvironment::TimeSource::MOCK_TIME) {
+    scoped_feature_list_.InitWithFeatureState(features::kNotificationLimit,
+                                              GetParam());
+  }
+
+  std::unique_ptr<Notification> CreateTestNotificationOfPriority(
+      message_center::NotificationPriority priority) {
+    return CreateTestNotification(
+        /*has_image=*/false, /*show_snooze_button=*/false, /*has_message=*/true,
+        message_center::NOTIFICATION_TYPE_SIMPLE, /*image_path=*/std::nullopt,
+        /*pinned=*/false, priority);
+  }
+
+  std::unique_ptr<Notification> CreateTestPinnedNotification() {
+    return CreateTestNotification(
+        /*has_image=*/false, /*show_snooze_button=*/false, /*has_message=*/true,
+        message_center::NOTIFICATION_TYPE_SIMPLE,
+        /*image_path=*/std::nullopt, /*pinned=*/true);
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+  message_center::ScopedNotificationLimitOverrider limit_overrider_{
+      kOverridingCountLimit, kOverridingTargetCountAfterRemoval};
+};
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         AshNotificationLimitTest,
+                         /*is_notification_limit_enabled=*/Bool());
+
+// Verifies the feature when all notifications are pinned.
+TEST_P(AshNotificationLimitTest, AllNotificationsPinned) {
+  std::vector<std::unique_ptr<Notification>> notifications;
+  while (notifications.size() < kOverridingCountLimit) {
+    notifications.push_back(CreateTestPinnedNotification());
+  }
+
+  auto over_limit_notification = CreateTestPinnedNotification();
+
+  // Fast forward to handle the over-limit notification.
+  task_environment()->FastForwardBy(kWaitTime);
+
+  // Pinned notifications should be kept regardless of the notification limit
+  // feature's enabling state.
+  EXPECT_THAT(message_center::MessageCenter::Get()->GetNotifications(),
+              UnorderedElementsAre(
+                  NotificationIdMatches(notifications[0]->id()),
+                  NotificationIdMatches(notifications[1]->id()),
+                  NotificationIdMatches(notifications[2]->id()),
+                  NotificationIdMatches(notifications[3]->id()),
+                  NotificationIdMatches(notifications[4]->id()),
+                  NotificationIdMatches(over_limit_notification->id())));
+}
+
+// If the notification limit feature is enabled, the pinned notifications should
+// not be removed when the notification count is over limit; otherwise, all
+// added notifications should exist.
+TEST_P(AshNotificationLimitTest, KeepPinnedNotification) {
+  // Add a pinned notification.
+  std::vector<std::unique_ptr<Notification>> notifications;
+  notifications.push_back(CreateTestPinnedNotification());
+
+  // Add a group child notification of a high priority.
+  notifications.push_back(
+      CreateTestNotificationInAGroup(message_center::HIGH_PRIORITY));
+
+  // Add a pinned notification.
+  notifications.push_back(CreateTestPinnedNotification());
+
+  // Keep adding the notifications of high priority until reaching the limit.
+  while (notifications.size() < kOverridingCountLimit) {
+    notifications.push_back(
+        CreateTestNotificationOfPriority(message_center::HIGH_PRIORITY));
+  }
+
+  task_environment()->FastForwardBy(kNotificationAgingWaitTime);
+  auto over_limit_notification = CreateTestNotification();
+
+  // Fast forward to handle the over-limit notification.
+  task_environment()->FastForwardBy(kWaitTime);
+
+  message_center::MessageCenter* const message_center =
+      message_center::MessageCenter::Get();
+  if (features::IsNotificationLimitEnabled()) {
+    // Among the elements of `notifications`, the two pinned ones are kept.
+    EXPECT_THAT(message_center->GetNotifications(),
+                UnorderedElementsAre(
+                    NotificationIdMatches(notifications[0]->id()),
+                    NotificationIdMatches(notifications[2]->id()),
+                    NotificationIdMatches(over_limit_notification->id())));
+  } else {
+    EXPECT_THAT(message_center->GetNotifications(),
+                UnorderedElementsAre(
+                    NotificationIdMatches(notifications[0]->id()),
+                    NotificationIdMatches(notifications[1]->id()),
+                    NotificationIdMatches(notifications[2]->id()),
+                    NotificationIdMatches(notifications[3]->id()),
+                    NotificationIdMatches(notifications[4]->id()),
+                    NotificationIdMatches(over_limit_notification->id())));
+  }
+}
+
+// If the notification limit feature is enabled, the notifications with lower
+// priorities should be removed when the notification count is over limit;
+// otherwise, all added notifications should exist.
+TEST_P(AshNotificationLimitTest, LimitByPriorityOrder) {
+  // Add two notifications with a high priority.
+  std::vector<std::unique_ptr<Notification>> notifications;
+  ASSERT_GT(kOverridingCountLimit, 2u);
+  while (notifications.size() < 2) {
+    notifications.push_back(
+        CreateTestNotificationOfPriority(message_center::HIGH_PRIORITY));
+  }
+
+  // Keep adding notifications of a default priority until reaching the limit.
+  while (notifications.size() < kOverridingCountLimit) {
+    notifications.push_back(CreateTestNotification());
+  }
+
+  task_environment()->FastForwardBy(kNotificationAgingWaitTime);
+  auto over_limit_notification = CreateTestNotification();
+
+  // Fast forward to handle the over-limit notification.
+  task_environment()->FastForwardBy(kWaitTime);
+
+  message_center::MessageCenter* const message_center =
+      message_center::MessageCenter::Get();
+  if (features::IsNotificationLimitEnabled()) {
+    // Among the elements of `notifications`, those of high priority are kept.
+    EXPECT_THAT(message_center->GetNotifications(),
+                UnorderedElementsAre(
+                    NotificationIdMatches(notifications[0]->id()),
+                    NotificationIdMatches(notifications[1]->id()),
+                    NotificationIdMatches(over_limit_notification->id())));
+  } else {
+    EXPECT_THAT(message_center->GetNotifications(),
+                UnorderedElementsAre(
+                    NotificationIdMatches(notifications[0]->id()),
+                    NotificationIdMatches(notifications[1]->id()),
+                    NotificationIdMatches(notifications[2]->id()),
+                    NotificationIdMatches(notifications[3]->id()),
+                    NotificationIdMatches(notifications[4]->id()),
+                    NotificationIdMatches(over_limit_notification->id())));
+  }
+}
+
+// If the notification limit feature is enabled and the notification count is
+// over limit, when deciding the notifications to remove among those of the
+// same priority, the oldest ones should be removed.
+TEST_P(AshNotificationLimitTest, LimitByPriorityTimestampOrder) {
+  std::vector<std::unique_ptr<Notification>> notifications;
+  notifications.push_back(CreateTestNotification());
+  notifications.push_back(
+      CreateTestNotificationOfPriority(message_center::HIGH_PRIORITY));
+
+  while (notifications.size() < kOverridingCountLimit) {
+    // Fast forward to ensure a larger timestamp.
+    task_environment()->FastForwardBy(kWaitTime);
+
+    notifications.push_back(CreateTestNotification());
+  }
+
+  task_environment()->FastForwardBy(kNotificationAgingWaitTime);
+  auto over_limit_notification =
+      CreateTestNotificationOfPriority(message_center::HIGH_PRIORITY);
+
+  // Fast forward to handle the over-limit notification.
+  task_environment()->FastForwardBy(kWaitTime);
+
+  message_center::MessageCenter* const message_center =
+      message_center::MessageCenter::Get();
+  if (features::IsNotificationLimitEnabled()) {
+    // Among the elements in `notifications` of the default priority, the last
+    // one is kept because it has the largest timestamp.
+    EXPECT_THAT(message_center->GetNotifications(),
+                UnorderedElementsAre(
+                    NotificationIdMatches(notifications[1]->id()),
+                    NotificationIdMatches(notifications[4]->id()),
+                    NotificationIdMatches(over_limit_notification->id())));
+  } else {
+    EXPECT_THAT(message_center->GetNotifications(),
+                UnorderedElementsAre(
+                    NotificationIdMatches(notifications[0]->id()),
+                    NotificationIdMatches(notifications[1]->id()),
+                    NotificationIdMatches(notifications[2]->id()),
+                    NotificationIdMatches(notifications[3]->id()),
+                    NotificationIdMatches(notifications[4]->id()),
+                    NotificationIdMatches(over_limit_notification->id())));
+  }
+}
+
+// If the notification limit feature is enabled, among the notifications of the
+// same priority, the oldest ones should be removed; otherwise, all added
+// notifications should exist.
+TEST_P(AshNotificationLimitTest, LimitByTimestampOrder) {
+  std::vector<std::unique_ptr<Notification>> notifications;
+  while (notifications.size() < kOverridingCountLimit) {
+    notifications.push_back(CreateTestNotification());
+    // Ensure the members of `notifications` have increasing timestamps.
+    task_environment()->FastForwardBy(kWaitTime);
+  }
+
+  task_environment()->FastForwardBy(kNotificationAgingWaitTime);
+  auto over_limit_notification1 = CreateTestNotification();
+  auto over_limit_notification2 = CreateTestNotification();
+
+  // Fast forward to handle the over-limit notification.
+  task_environment()->FastForwardBy(kWaitTime);
+
+  message_center::MessageCenter* const message_center =
+      message_center::MessageCenter::Get();
+  if (features::IsNotificationLimitEnabled()) {
+    // Among the elements of `notifications`, the last one is kept because it
+    // has the largest timestamp.
+    EXPECT_THAT(message_center->GetNotifications(),
+                UnorderedElementsAre(
+                    NotificationIdMatches(notifications[4]->id()),
+                    NotificationIdMatches(over_limit_notification1->id()),
+                    NotificationIdMatches(over_limit_notification2->id())));
+  } else {
+    EXPECT_THAT(message_center->GetNotifications(),
+                UnorderedElementsAre(
+                    NotificationIdMatches(notifications[0]->id()),
+                    NotificationIdMatches(notifications[1]->id()),
+                    NotificationIdMatches(notifications[2]->id()),
+                    NotificationIdMatches(notifications[3]->id()),
+                    NotificationIdMatches(notifications[4]->id()),
+                    NotificationIdMatches(over_limit_notification1->id()),
+                    NotificationIdMatches(over_limit_notification2->id())));
+  }
+}
+
+// If the notification limit feature is enabled, the most recent notifications
+// should be kept regardless of their priorities.
+TEST_P(AshNotificationLimitTest, MostRecentNotifications) {
+  std::vector<std::unique_ptr<Notification>> notifications;
+  while (notifications.size() < kOverridingCountLimit) {
+    notifications.push_back(
+        CreateTestNotificationOfPriority(message_center::MAX_PRIORITY));
+  }
+
+  task_environment()->FastForwardBy(kNotificationAgingWaitTime);
+  auto over_limit_notification1 = CreateTestNotification();
+  auto over_limit_notification2 =
+      CreateTestNotificationOfPriority(message_center::LOW_PRIORITY);
+  auto over_limit_notification3 =
+      CreateTestNotificationOfPriority(message_center::MIN_PRIORITY);
+
+  // Fast forward to handle the over-limit notification.
+  task_environment()->FastForwardBy(kWaitTime);
+
+  message_center::MessageCenter* const message_center =
+      message_center::MessageCenter::Get();
+  if (features::IsNotificationLimitEnabled()) {
+    EXPECT_THAT(message_center->GetNotifications(),
+                UnorderedElementsAre(
+                    NotificationIdMatches(over_limit_notification1->id()),
+                    NotificationIdMatches(over_limit_notification2->id()),
+                    NotificationIdMatches(over_limit_notification3->id())));
+  } else {
+    EXPECT_THAT(message_center->GetNotifications(),
+                UnorderedElementsAre(
+                    NotificationIdMatches(notifications[0]->id()),
+                    NotificationIdMatches(notifications[1]->id()),
+                    NotificationIdMatches(notifications[2]->id()),
+                    NotificationIdMatches(notifications[3]->id()),
+                    NotificationIdMatches(notifications[4]->id()),
+                    NotificationIdMatches(over_limit_notification1->id()),
+                    NotificationIdMatches(over_limit_notification2->id()),
+                    NotificationIdMatches(over_limit_notification3->id())));
+  }
+}
+
+// AshNotificationViewDragTestBase ---------------------------------------------
+
 class AshNotificationViewDragTestBase : public AshNotificationViewTestBase {
  public:
   // AshNotificationViewTestBase:
@@ -1392,6 +1671,7 @@ class AshNotificationViewDragTestBase : public AshNotificationViewTestBase {
 
     // Configure the widget that handles notification drop.
     drop_handling_widget_ = CreateTestWidget(
+        views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET,
         /*delegate=*/nullptr, desks_util::GetActiveDeskContainerId(),
         /*bounds=*/gfx::Rect(100, 100, 300, 300), /*show=*/true);
     aura::client::SetDragDropDelegate(drop_handling_widget_->GetNativeView(),
@@ -1734,9 +2014,10 @@ TEST_P(AshNotificationViewDragAsyncDropTest, Basics) {
   // Configure `dlp_controller_` to hold the drop callback. `drop_callback` will
   // run later if drop is allowed.
   base::OnceClosure drop_callback;
-  EXPECT_CALL(dlp_controller_, DropIfAllowed(_, _, _))
-      .WillOnce([&](const ui::OSExchangeData* drag_data,
-                    base::optional_ref<const ui::DataTransferEndpoint> data_dst,
+  EXPECT_CALL(dlp_controller_, DropIfAllowed(_, _, _, _))
+      .WillOnce([&](std::optional<ui::DataTransferEndpoint> data_src,
+                    std::optional<ui::DataTransferEndpoint> data_dst,
+                    std::optional<std::vector<ui::FileInfo>> filenames,
                     base::OnceClosure drop_cb) {
         drop_callback = std::move(drop_cb);
       });
@@ -1772,20 +2053,20 @@ TEST_P(AshNotificationViewDragAsyncDropTest,
   {
     // Configure `dlp_controller_` to hold all drop callbacks.
     testing::InSequence s;
-    EXPECT_CALL(dlp_controller_, DropIfAllowed(_, _, _))
-        .WillOnce(
-            [&](const ui::OSExchangeData* drag_data,
-                base::optional_ref<const ui::DataTransferEndpoint> data_dst,
-                base::OnceClosure drop_cb) {
-              first_drop_callback = std::move(drop_cb);
-            });
-    EXPECT_CALL(dlp_controller_, DropIfAllowed(_, _, _))
-        .WillOnce(
-            [&](const ui::OSExchangeData* drag_data,
-                base::optional_ref<const ui::DataTransferEndpoint> data_dst,
-                base::OnceClosure drop_cb) {
-              second_drop_callback = std::move(drop_cb);
-            });
+    EXPECT_CALL(dlp_controller_, DropIfAllowed(_, _, _, _))
+        .WillOnce([&](std::optional<ui::DataTransferEndpoint> data_src,
+                      std::optional<ui::DataTransferEndpoint> data_dst,
+                      std::optional<std::vector<ui::FileInfo>> filenames,
+                      base::OnceClosure drop_cb) {
+          first_drop_callback = std::move(drop_cb);
+        });
+    EXPECT_CALL(dlp_controller_, DropIfAllowed(_, _, _, _))
+        .WillOnce([&](std::optional<ui::DataTransferEndpoint> data_src,
+                      std::optional<ui::DataTransferEndpoint> data_dst,
+                      std::optional<std::vector<ui::FileInfo>> filenames,
+                      base::OnceClosure drop_cb) {
+          second_drop_callback = std::move(drop_cb);
+        });
   }
 
   // Add one image notification then perform drag-and-drop.
@@ -1831,20 +2112,20 @@ TEST_P(AshNotificationViewDragAsyncDropTest, InterruptAsyncDropWithViewDrag) {
   {
     // Configure `dlp_controller_` to hold all drop callbacks.
     testing::InSequence s;
-    EXPECT_CALL(dlp_controller_, DropIfAllowed(_, _, _))
-        .WillOnce(
-            [&](const ui::OSExchangeData* drag_data,
-                base::optional_ref<const ui::DataTransferEndpoint> data_dst,
-                base::OnceClosure drop_cb) {
-              first_drop_callback = std::move(drop_cb);
-            });
-    EXPECT_CALL(dlp_controller_, DropIfAllowed(_, _, _))
-        .WillOnce(
-            [&](const ui::OSExchangeData* drag_data,
-                base::optional_ref<const ui::DataTransferEndpoint> data_dst,
-                base::OnceClosure drop_cb) {
-              second_drop_callback = std::move(drop_cb);
-            });
+    EXPECT_CALL(dlp_controller_, DropIfAllowed(_, _, _, _))
+        .WillOnce([&](std::optional<ui::DataTransferEndpoint> data_src,
+                      std::optional<ui::DataTransferEndpoint> data_dst,
+                      std::optional<std::vector<ui::FileInfo>> filenames,
+                      base::OnceClosure drop_cb) {
+          first_drop_callback = std::move(drop_cb);
+        });
+    EXPECT_CALL(dlp_controller_, DropIfAllowed(_, _, _, _))
+        .WillOnce([&](std::optional<ui::DataTransferEndpoint> data_src,
+                      std::optional<ui::DataTransferEndpoint> data_dst,
+                      std::optional<std::vector<ui::FileInfo>> filenames,
+                      base::OnceClosure drop_cb) {
+          second_drop_callback = std::move(drop_cb);
+        });
   }
 
   // Add one image notification then perform drag-and-drop.
@@ -1910,7 +2191,7 @@ INSTANTIATE_TEST_SUITE_P(All,
 // capture notification's image is always file-backed.
 TEST_P(ScreenCaptureNotificationViewDragTest, Basics) {
   // Take a full screenshot then wait for the file path to the saved image.
-  ash::CaptureModeController* controller = StartCaptureSession(
+  CaptureModeController* controller = StartCaptureSession(
       CaptureModeSource::kFullscreen, CaptureModeType::kImage);
   controller->PerformCapture();
   const base::FilePath image_file_path = WaitForCaptureFileToBeSaved();
@@ -1938,7 +2219,7 @@ TEST_P(ScreenCaptureNotificationViewDragTest, Basics) {
 
   // Check the notification catalog name.
   tester.ExpectBucketCount("Ash.NotificationView.ImageDrag.Start",
-                           ash::NotificationCatalogName::kScreenCapture, 1);
+                           NotificationCatalogName::kScreenCapture, 1);
 }
 
 class DragAfterNotificationRemovalTest

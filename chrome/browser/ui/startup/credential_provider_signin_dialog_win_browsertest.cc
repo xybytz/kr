@@ -223,7 +223,7 @@ IN_PROC_BROWSER_TEST_F(CredentialProviderSigninDialogWinDialogTest,
       nullptr /* source_site_instance */,
       content::mojom::WindowContainerType::NORMAL /* window_container_type */,
       GURL() /* opener_url */, "foo" /* frame_name */,
-      GURL::EmptyGURL() /* target_url */));
+      GURL() /* target_url */));
 
   web_view_->GetWidget()->CloseWithReason(
       views::Widget::ClosedReason::kEscKeyPressed);
@@ -541,7 +541,7 @@ IN_PROC_BROWSER_TEST_F(
     EscapeClosesDialogTest) {
   WaitForDialogToLoad();
   views::Widget::Widgets all_widgets = views::test::WidgetTest::GetAllWidgets();
-  ui::KeyEvent escape_key_event(ui::EventType::ET_KEY_PRESSED,
+  ui::KeyEvent escape_key_event(ui::EventType::kKeyPressed,
                                 ui::KeyboardCode::VKEY_ESCAPE,
                                 ui::DomCode::ESCAPE, 0);
   (*all_widgets.begin())->OnKeyEvent(&escape_key_event);

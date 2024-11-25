@@ -9,12 +9,17 @@
 #include <optional>
 #include <vector>
 
+#include "base/functional/callback_forward.h"
 #include "components/sessions/core/session_id.h"
 #include "components/tab_groups/tab_group_id.h"
 
 class Browser;
+class BrowserWindowInterface;
 class GURL;
-struct DetachedWebContents;
+
+namespace tabs {
+class TabModel;
+}
 
 namespace content {
 class WebContents;
@@ -72,15 +77,14 @@ class TabStripModelDelegate {
     NewStripContents& operator=(const NewStripContents&) = delete;
     ~NewStripContents();
     NewStripContents(NewStripContents&&);
-    // The WebContents to add.
-    std::unique_ptr<content::WebContents> web_contents;
+    // The TabModel to add.
+    std::unique_ptr<tabs::TabModel> tab;
     // A bitmask of TabStripModel::AddTabTypes to apply to the added contents.
     int add_types = 0;
   };
-  virtual Browser* CreateNewStripWithContents(
-      std::vector<NewStripContents> contentses,
-      const gfx::Rect& window_bounds,
-      bool maximize) = 0;
+  virtual Browser* CreateNewStripWithTabs(std::vector<NewStripContents> tabs,
+                                          const gfx::Rect& window_bounds,
+                                          bool maximize) = 0;
 
   // Notifies the delegate that the specified WebContents will be added to the
   // tab strip (via insertion/appending/replacing existing) and allows it to do
@@ -127,6 +131,14 @@ class TabStripModelDelegate {
   // |group|.
   virtual void CreateHistoricalGroup(const tab_groups::TabGroupId& group) = 0;
 
+  // Called on group creation after the group has been added to the tabstrip and
+  // all tabs have been added.
+  virtual void GroupAdded(const tab_groups::TabGroupId& group) = 0;
+
+  // Notifies the delegate that a group is about to be closed, and allows it
+  // to perform any preparation neccessary.
+  virtual void WillCloseGroup(const tab_groups::TabGroupId& group) = 0;
+
   // Notifies the tab restore service that the group is no longer closing.
   virtual void GroupCloseStopped(const tab_groups::TabGroupId& group) = 0;
 
@@ -156,24 +168,6 @@ class TabStripModelDelegate {
   // Returns whether the tabstrip supports the read later feature.
   virtual bool SupportsReadLater() = 0;
 
-  // Gives the delegate an opportunity to cache (take ownership) of
-  // WebContents before they are destroyed. The delegate takes ownership by way
-  // of using std::move() on the `owned_contents` and resetting `remove_reason`
-  // to kCached. It is expected that any WebContents the delegate takes
-  // ownership of remain valid until the next message is pumped. In other
-  // words, the delegate must not immediately destroy any of the supplied
-  // WebContents.
-  // TODO(https://crbug.com/1234332): Provide active web contents.
-  virtual void CacheWebContents(
-      const std::vector<std::unique_ptr<DetachedWebContents>>&
-          web_contents) = 0;
-
-  // Follows a web feed for the specified WebContents.
-  virtual void FollowSite(content::WebContents* web_contents) = 0;
-
-  // Unfollows a web feed for the specified WebContents.
-  virtual void UnfollowSite(content::WebContents* web_contents) = 0;
-
   // Returns whether this tab strip model is for a web app.
   virtual bool IsForWebApp() = 0;
 
@@ -185,6 +179,28 @@ class TabStripModelDelegate {
 
   // Returns whether the web_contents can be navigated back.
   virtual bool CanGoBack(content::WebContents* web_contents) = 0;
+
+  // Whether the associated window is a normal browser window.
+  virtual bool IsNormalWindow() = 0;
+
+  // Returns the BrowserWindow that owns the TabStripModel. Never changes.
+  virtual BrowserWindowInterface* GetBrowserWindowInterface() = 0;
+
+  // When performing actions to groups, some features may need to show
+  // interstitials before allowing deletion. `groups` is a list of all of the
+  // groups that would be Closed by the `close_callback` which may be called by
+  // the implementation. This should be called with a non empty `group_ids`.
+  // callback will either be executed by the delegate or asynchronously handled.
+  // When true `delete_groups` also deletes any saved groups that are closing.
+  // When false, groups will close normally but continue to be saved.
+  virtual void OnGroupsDestruction(
+      const std::vector<tab_groups::TabGroupId>& group_ids,
+      base::OnceCallback<void()> close_callback,
+      bool delete_groups) = 0;
+
+  virtual void OnRemovingAllTabsFromGroups(
+      const std::vector<tab_groups::TabGroupId>& group_ids,
+      base::OnceCallback<void()> callback) = 0;
 };
 
 #endif  // CHROME_BROWSER_UI_TABS_TAB_STRIP_MODEL_DELEGATE_H_

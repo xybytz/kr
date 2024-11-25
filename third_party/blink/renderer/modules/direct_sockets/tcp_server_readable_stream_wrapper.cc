@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/modules/direct_sockets/tcp_server_readable_stream_wrapper.h"
 
+#include "base/metrics/histogram_functions.h"
 #include "base/notreached.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_throw_dom_exception.h"
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
@@ -68,6 +69,10 @@ void TCPServerReadableStreamWrapper::ErrorStream(int32_t error_code) {
   }
   SetState(State::kAborted);
 
+  // Error codes are negative.
+  base::UmaHistogramSparse("DirectSockets.TCPServerReadableStreamError",
+                           -error_code);
+
   tcp_server_socket_.reset();
 
   auto* script_state = GetScriptState();
@@ -93,7 +98,7 @@ void TCPServerReadableStreamWrapper::OnAccept(
     mojo::PendingReceiver<network::mojom::blink::SocketObserver>
         socket_observer,
     int result,
-    const absl::optional<net::IPEndPoint>& remote_addr,
+    const std::optional<net::IPEndPoint>& remote_addr,
     mojo::PendingRemote<network::mojom::blink::TCPConnectedSocket>
         tcp_socket_remote,
     mojo::ScopedDataPipeConsumerHandle receive_stream,

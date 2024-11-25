@@ -24,19 +24,12 @@ namespace device_sync {
 void RegisterProfilePrefs(PrefRegistrySimple* registry) {
   CryptAuthGCMManager::RegisterPrefs(registry);
   CryptAuthDeviceManager::RegisterPrefs(registry);
-  if (base::FeatureList::IsEnabled(features::kCryptAuthV2Enrollment)) {
-    CryptAuthV2EnrollmentManagerImpl::RegisterPrefs(registry);
-    CryptAuthKeyRegistryImpl::RegisterPrefs(registry);
-    CryptAuthSchedulerImpl::RegisterPrefs(registry);
-  } else {
-    CryptAuthEnrollmentManagerImpl::RegisterPrefs(registry);
-  }
-
-  if (features::ShouldUseV2DeviceSync()) {
-    CryptAuthDeviceRegistryImpl::RegisterPrefs(registry);
-    CryptAuthMetadataSyncerImpl::RegisterPrefs(registry);
-    SyncedBluetoothAddressTrackerImpl::RegisterPrefs(registry);
-  }
+  CryptAuthV2EnrollmentManagerImpl::RegisterPrefs(registry);
+  CryptAuthKeyRegistryImpl::RegisterPrefs(registry);
+  CryptAuthSchedulerImpl::RegisterPrefs(registry);
+  CryptAuthDeviceRegistryImpl::RegisterPrefs(registry);
+  CryptAuthMetadataSyncerImpl::RegisterPrefs(registry);
+  SyncedBluetoothAddressTrackerImpl::RegisterPrefs(registry);
 
   if (features::IsCryptauthAttestationSyncingEnabled()) {
     AttestationCertificatesSyncerImpl::RegisterPrefs(registry);

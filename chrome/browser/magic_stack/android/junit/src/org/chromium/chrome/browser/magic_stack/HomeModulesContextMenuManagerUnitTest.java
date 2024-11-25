@@ -8,9 +8,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import android.content.Context;
 import android.graphics.Point;
@@ -49,14 +51,16 @@ public class HomeModulesContextMenuManagerUnitTest {
     @Mock private Context mContext;
 
     private @ModuleType int mModuleType;
+    private String mContextMenuHide = "Hide module";
     private Point mPoint = new Point(0, 0);
     private HomeModulesContextMenuManager mManager;
 
     @Before
     public void setUp() {
-        mModuleType = 0;
+        mModuleType = ModuleType.SINGLE_TAB;
         doReturn(mContext).when(mView).getContext();
         doReturn(mModuleType).when(mModuleProvider).getModuleType();
+        when(mModuleProvider.getModuleContextMenuHideText(any())).thenReturn(mContextMenuHide);
         mManager = new HomeModulesContextMenuManager(mModuleDelegate, mPoint);
     }
 
@@ -65,7 +69,7 @@ public class HomeModulesContextMenuManagerUnitTest {
     public void testOnMenuItemClick() {
         doReturn(ContextMenuItemId.HIDE_MODULE).when(mMenuItem).getItemId();
         mManager.onMenuItemClickImpl(mMenuItem, mModuleProvider);
-        verify(mModuleDelegate).onHideModuleFromContextMenu(eq(mModuleType));
+        verify(mModuleDelegate).removeModuleAndDisable(eq(mModuleType));
 
         doReturn(ContextMenuItemId.SHOW_CUSTOMIZE_SETTINGS).when(mMenuItem).getItemId();
         mManager.onMenuItemClickImpl(mMenuItem, mModuleProvider);
@@ -75,11 +79,11 @@ public class HomeModulesContextMenuManagerUnitTest {
     @Test
     @SmallTest
     public void testShouldShowItem() {
-        // Verifies that two default items are shown.
-        assertTrue(mManager.shouldShowItem(ContextMenuItemId.HIDE_MODULE, mModuleProvider));
+        // Verifies that the "customize" and "hide" menu items are default shown for all modules.
         assertTrue(
                 mManager.shouldShowItem(
                         ContextMenuItemId.SHOW_CUSTOMIZE_SETTINGS, mModuleProvider));
+        assertTrue(mManager.shouldShowItem(ContextMenuItemId.HIDE_MODULE, mModuleProvider));
 
         // Cases for a customized menu item.
         doReturn(false).when(mModuleProvider).isContextMenuItemSupported(2);
@@ -93,7 +97,6 @@ public class HomeModulesContextMenuManagerUnitTest {
     @SmallTest
     public void testCreateContextMenu() {
         MenuItem menuItem1 = Mockito.mock(MenuItem.class);
-        MenuItem menuItem2 = Mockito.mock(MenuItem.class);
         doReturn(menuItem1)
                 .when(mContextMenu)
                 .add(
@@ -101,9 +104,12 @@ public class HomeModulesContextMenuManagerUnitTest {
                         eq(ContextMenuItemId.SHOW_CUSTOMIZE_SETTINGS),
                         eq(Menu.NONE),
                         anyInt());
-        doReturn(menuItem2).when(mContextMenu).add(any());
+        MenuItem menuItem2 = Mockito.mock(MenuItem.class);
+        when(mContextMenu.add(anyString())).thenReturn(menuItem2);
 
         mManager.createContextMenu(mContextMenu, mView, mModuleProvider);
+
+        // Verifies context menu items SHOW_CUSTOMIZE_SETTINGS and HIDE_MODULE are shown.
         verify(menuItem1).setOnMenuItemClickListener(any());
         verify(menuItem2).setOnMenuItemClickListener(any());
         verify(mModuleProvider).onContextMenuCreated();

@@ -7,6 +7,7 @@
 #import <Foundation/Foundation.h>
 
 #include <deque>
+#include <optional>
 
 #include "base/apple/foundation_util.h"
 #include "base/files/file_path.h"
@@ -25,7 +26,7 @@
 #include "components/download/public/background_service/background_download_service.h"
 #include "components/download/public/background_service/download_params.h"
 #include "components/download/public/background_service/features.h"
-#include "net/base/mac/url_conversions.h"
+#include "net/base/apple/url_conversions.h"
 
 namespace {
 bool g_ignore_localhost_ssl_error_for_testing = false;
@@ -186,8 +187,9 @@ class DownloadTaskInfo {
   }
 
   // Get the file size on current thread.
-  int64_t fileSize = 0;
-  if (!base::GetFileSize(it->second->download_path_, &fileSize)) {
+  std::optional<int64_t> fileSize =
+      base::GetFileSize(it->second->download_path_);
+  if (!fileSize.has_value()) {
     LOG(ERROR) << "Failed to get file size from:" << it->second->download_path_;
     [self onDownloadCompletion:/*success=*/false
                   downloadTask:downloadTask
@@ -196,7 +198,7 @@ class DownloadTaskInfo {
   }
   [self onDownloadCompletion:/*success=*/true
                 downloadTask:downloadTask
-                    fileSize:fileSize];
+                    fileSize:fileSize.value()];
 }
 
 - (void)URLSessionDidFinishEventsForBackgroundURLSession:

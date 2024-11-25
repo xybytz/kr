@@ -20,6 +20,8 @@ std::ostream& operator<<(std::ostream& out, const KeepAliveOrigin& origin) {
       return out << "BROWSER_PROCESS_LACROS";
     case KeepAliveOrigin::SESSION_RESTORE:
       return out << "SESSION_RESTORE";
+    case KeepAliveOrigin::HEADLESS_COMMAND:
+      return out << "HEADLESS_COMMAND";
     case KeepAliveOrigin::APP_LAUNCH:
       return out << "APP_LAUNCH";
     case KeepAliveOrigin::BACKGROUND_MODE_MANAGER:
@@ -44,6 +46,8 @@ std::ostream& operator<<(std::ostream& out, const KeepAliveOrigin& origin) {
       return out << "DEVTOOLS_WINDOW";
     case KeepAliveOrigin::NATIVE_MESSAGING_HOST_ERROR_REPORT:
       return out << "NATIVE_MESSAGING_HOST_ERROR_REPORT";
+    case KeepAliveOrigin::GLIC_LAUNCHER:
+      return out << "GLIC_LAUNCHER";
     case KeepAliveOrigin::NOTIFICATION:
       return out << "NOTIFICATION";
     case KeepAliveOrigin::PENDING_NOTIFICATION_CLICK_EVENT:
@@ -92,8 +96,7 @@ std::ostream& operator<<(std::ostream& out, const KeepAliveOrigin& origin) {
       return out << "UMA_LOG";
   }
 
-  NOTREACHED();
-  return out << static_cast<int>(origin);
+  NOTREACHED() << static_cast<int>(origin);
 }
 
 std::ostream& operator<<(std::ostream& out,
@@ -105,6 +108,5 @@ std::ostream& operator<<(std::ostream& out,
       return out << "ENABLED";
   }
 
-  NOTREACHED();
-  return out << static_cast<int>(restart);
+  NOTREACHED() << static_cast<int>(restart);
 }

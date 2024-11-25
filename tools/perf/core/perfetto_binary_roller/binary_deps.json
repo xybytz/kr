@@ -1,28 +1,28 @@
 {
     "trace_processor_shell": {
         "linux_arm64": {
-            "hash": "b533942d9cf1c3821cf95cadf43c71a16cbba74c",
-            "full_remote_path": "perfetto-luci-artifacts/v41.0/linux-arm64/trace_processor_shell"
+            "hash": "80bd2494622d3d9dfa14e1e0c616756ee56848ed",
+            "full_remote_path": "perfetto-luci-artifacts/65d6491a008cb4d626effb25f72219dc179188d8/linux-arm64/trace_processor_shell"
         },
         "win": {
-            "hash": "c58ed032aae058ce98faa48a1a4816318e173b8a",
-            "full_remote_path": "chromium-telemetry/perfetto_binaries/trace_processor_shell/win/01d95d319a097389be4a01a24f6e6dc6b242f642/trace_processor_shell.exe"
+            "hash": "e40164181f57e0826851fc670a4f1deb9aff683d",
+            "full_remote_path": "chromium-telemetry/perfetto_binaries/trace_processor_shell/win/65d6491a008cb4d626effb25f72219dc179188d8/trace_processor_shell.exe"
         },
         "linux_arm": {
-            "hash": "b1a376729d0b7aefc4c38db1348d94d068be07f1",
-            "full_remote_path": "perfetto-luci-artifacts/v41.0/linux-arm/trace_processor_shell"
+            "hash": "8d23f6f07e4b3472196a878035fc304903813da3",
+            "full_remote_path": "perfetto-luci-artifacts/65d6491a008cb4d626effb25f72219dc179188d8/linux-arm/trace_processor_shell"
         },
         "mac": {
-            "hash": "044153cc4bd001720e05497082867934c88c3580",
-            "full_remote_path": "chromium-telemetry/perfetto_binaries/trace_processor_shell/mac/01d95d319a097389be4a01a24f6e6dc6b242f642/trace_processor_shell"
+            "hash": "f5d83eca972747f7c3db9f35c07ed57902418e8c",
+            "full_remote_path": "chromium-telemetry/perfetto_binaries/trace_processor_shell/mac/881ad50c05049ca13d4b34e4f92f4167de5ac52a/trace_processor_shell"
         },
         "mac_arm64": {
-            "hash": "8cd6239efb03863974fdc94e5ee004352f999e3a",
-            "full_remote_path": "perfetto-luci-artifacts/v41.0/mac-arm64/trace_processor_shell"
+            "hash": "0c2da236a4cf131076ed578f51fca302327d93c3",
+            "full_remote_path": "perfetto-luci-artifacts/65d6491a008cb4d626effb25f72219dc179188d8/mac-arm64/trace_processor_shell"
         },
         "linux": {
-            "hash": "a6c586829160d1a75bbcf940b05d88effd049dbc",
-            "full_remote_path": "chromium-telemetry/perfetto_binaries/trace_processor_shell/linux/01d95d319a097389be4a01a24f6e6dc6b242f642/trace_processor_shell"
+            "hash": "8f89ef3d212ab82bbcad5158e405c2f609b014c1",
+            "full_remote_path": "chromium-telemetry/perfetto_binaries/trace_processor_shell/linux/834aa3bcb441e93a04b85dca12736955687be7ad/trace_processor_shell"
         }
     },
     "power_profile.sql": {

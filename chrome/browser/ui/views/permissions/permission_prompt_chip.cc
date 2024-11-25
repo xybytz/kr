@@ -3,14 +3,16 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/permissions/permission_prompt_chip.h"
+
 #include <algorithm>
 #include <memory>
+
 #include "base/containers/contains.h"
 #include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/ranges/algorithm.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
-#include "chrome/browser/ui/views/permissions/chip_controller.h"
+#include "chrome/browser/ui/views/permissions/chip/chip_controller.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/permissions/features.h"
 #include "components/permissions/permission_prompt.h"
@@ -20,7 +22,6 @@
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/permission_controller.h"
 #include "content/public/browser/web_contents.h"
-#include "permission_prompt_chip_model.h"
 #include "third_party/blink/public/common/permissions/permission_utils.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
@@ -129,7 +130,8 @@ void PermissionPromptChip::PreemptivelyResolvePermissionRequest(
       ContentSettingsType type = request->GetContentSettingsType();
 
       blink::PermissionType permission_type =
-          permissions::PermissionUtil::ContentSettingTypeToPermissionType(type);
+          permissions::PermissionUtil::ContentSettingsTypeToPermissionType(
+              type);
 
       // Pre-ignore is allowed only for the quiet chip. The quiet chip is
       // enabled only for `NOTIFICATIONS` and `GEOLOCATION`.

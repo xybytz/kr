@@ -38,7 +38,7 @@ public class BookmarkSearchBoxRow extends LinearLayout {
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
-        mSearchText = findViewById(R.id.search_text);
+        mSearchText = findViewById(R.id.row_search_text);
         mSearchText.setOnEditorActionListener(this::onEditorAction);
         mSearchText.addTextChangedListener(
                 new EmptyTextWatcher() {
@@ -95,7 +95,7 @@ public class BookmarkSearchBoxRow extends LinearLayout {
     private boolean onEditorAction(TextView textView, int actionId, KeyEvent keyEvent) {
         assert textView == mSearchText;
         if (actionId == EditorInfo.IME_ACTION_SEARCH
-                || keyEvent != null && keyEvent.getKeyCode() == KeyEvent.KEYCODE_ENTER) {
+                || (keyEvent != null && keyEvent.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
             KeyboardVisibilityDelegate.getInstance().hideKeyboard(textView);
             mSearchText.clearFocus();
             return true;

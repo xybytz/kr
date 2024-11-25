@@ -24,21 +24,6 @@ using chromeos::network_config::mojom::DeviceStateProperties;
 using chromeos::network_config::mojom::InhibitReason;
 using chromeos::network_config::mojom::NetworkType;
 
-std::string GetNetworkTypeStringForMetrics(NetworkType network_type) {
-  switch (network_type) {
-    case NetworkType::kCellular:
-      return "Cellular";
-    case NetworkType::kMobile:
-      return "Mobile";
-    case NetworkType::kWiFi:
-      return "WiFi";
-    default:
-      // A network type of other is unexpected, and no success
-      // metric for it exists.
-      NOTREACHED_NORETURN();
-  }
-}
-
 }  // namespace
 
 int GetStringIdForNetworkDetailedViewTitleRow(
@@ -54,14 +39,16 @@ int GetStringIdForNetworkDetailedViewTitleRow(
   }
 }
 
-int GetAddESimTooltipMessageId() {
+InhibitReason GetCellularInhibitReason() {
   const DeviceStateProperties* cellular_device =
       Shell::Get()->system_tray_model()->network_state_model()->GetDevice(
           NetworkType::kCellular);
-
   CHECK(cellular_device);
+  return cellular_device->inhibit_reason;
+}
 
-  switch (cellular_device->inhibit_reason) {
+int GetCellularInhibitReasonMessageId(InhibitReason inhibit_reason) {
+  switch (inhibit_reason) {
     case InhibitReason::kInstallingProfile:
       return IDS_ASH_STATUS_TRAY_INHIBITED_CELLULAR_INSTALLING_PROFILE;
     case InhibitReason::kRenamingProfile:
@@ -83,26 +70,6 @@ int GetAddESimTooltipMessageId() {
   }
 }
 
-void RecordNetworkRowClickedAction(NetworkRowClickedAction action) {
-  base::UmaHistogramEnumeration("ChromeOS.SystemTray.Network.RowClickedAction",
-                                action);
-}
-
-void RecordDetailedViewSection(DetailedViewSection section) {
-  base::UmaHistogramEnumeration("ChromeOS.SystemTray.Network.SectionShown",
-                                section);
-}
-
-void RecordNetworkTypeToggled(NetworkType network_type, bool new_state) {
-  const std::string network_name = GetNetworkTypeStringForMetrics(network_type);
-
-  DCHECK(!network_name.empty());
-
-  base::UmaHistogramBoolean(
-      base::StrCat({"ChromeOS.SystemTray.Network.", network_name, ".Toggled"}),
-      new_state);
-}
-
 std::optional<std::u16string> GetPortalStateSubtext(
     const chromeos::network_config::mojom::PortalState& portal_state) {
   using chromeos::network_config::mojom::PortalState;
@@ -111,18 +78,18 @@ std::optional<std::u16string> GetPortalStateSubtext(
       [[fallthrough]];
     case PortalState::kOnline:
       return std::nullopt;
-    case PortalState::kPortalSuspected:
-      [[fallthrough]];
     case PortalState::kNoInternet:
       // Use 'no internet' for portal suspected and no internet states.
       return l10n_util::GetStringUTF16(
           IDS_ASH_STATUS_TRAY_NETWORK_STATUS_CONNECTED_NO_INTERNET);
-    case PortalState::kPortal:
+    case PortalState::kPortalSuspected:
       [[fallthrough]];
-    case PortalState::kProxyAuthRequired:
+    case PortalState::kPortal:
       // Use 'signin to network' for portal and proxy auth required states.
       return l10n_util::GetStringUTF16(
           IDS_ASH_STATUS_TRAY_NETWORK_STATUS_SIGNIN);
+    case PortalState::kDeprecatedProxyAuthRequired:
+      NOTREACHED();
   }
 }
 
@@ -162,6 +129,10 @@ bool IsNetworkDisabled(
     return true;
   }
 
+  if (IsCellularDeviceFlashing(network_properties)) {
+    return true;
+  }
+
   return false;
 }
 
@@ -179,6 +150,21 @@ bool IsNetworkInhibited(
 
   return cellular_device &&
          chromeos::network_config::IsInhibited(cellular_device);
+}
+
+bool IsCellularDeviceFlashing(
+    const chromeos::network_config::mojom::NetworkStatePropertiesPtr&
+        network_properties) {
+  if (!chromeos::network_config::NetworkTypeMatchesType(
+          network_properties->type, NetworkType::kCellular)) {
+    return false;
+  }
+
+  const DeviceStateProperties* cellular_device =
+      Shell::Get()->system_tray_model()->network_state_model()->GetDevice(
+          NetworkType::kCellular);
+
+  return cellular_device && cellular_device->is_flashing;
 }
 
 }  // namespace ash

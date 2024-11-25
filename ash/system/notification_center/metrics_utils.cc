@@ -73,8 +73,10 @@ NotificationTypeDetailed GetNotificationTypeForChromeApp(
       case 2:
         return CHROME_APP_PRIORITY_TWO_REQUIRE_INTERACTION;
       default:
-        NOTREACHED();
-        return OTHER;
+        // Note that after launch/4288967, we will ignore require interaction in
+        // chromeOS. Thus, we don't need to record require interaction metrics
+        // in CrOS from now on.
+        return CHROME_APP_PRIORITY_OTHER;
     }
   } else {
     switch (priority) {
@@ -89,8 +91,7 @@ NotificationTypeDetailed GetNotificationTypeForChromeApp(
       case 2:
         return CHROME_APP_PRIORITY_TWO;
       default:
-        NOTREACHED();
-        return OTHER;
+        return CHROME_APP_PRIORITY_OTHER;
     }
   }
 }
@@ -114,7 +115,6 @@ NotificationTypeDetailed GetNotificationTypeForArc(
         return ARC_PRIORITY_TWO_PINNED;
       default:
         NOTREACHED();
-        return OTHER;
     }
   } else {
     switch (priority) {
@@ -130,7 +130,6 @@ NotificationTypeDetailed GetNotificationTypeForArc(
         return ARC_PRIORITY_TWO;
       default:
         NOTREACHED();
-        return OTHER;
     }
   }
 }
@@ -207,7 +206,6 @@ NotificationTypeDetailed GetNotificationTypeForCros(
         return CROS_PRIORITY_TWO_PINNED;
       default:
         NOTREACHED();
-        return OTHER;
     }
   } else {
     switch (priority) {
@@ -223,7 +221,6 @@ NotificationTypeDetailed GetNotificationTypeForCros(
         return CROS_PRIORITY_TWO;
       default:
         NOTREACHED();
-        return OTHER;
     }
   }
 }
@@ -251,7 +248,6 @@ NotificationTypeDetailed GetNotificationTypeForPhoneHub(
       return PHONEHUB_PRIORITY_TWO;
     default:
       NOTREACHED();
-      return OTHER;
   }
 }
 
@@ -270,6 +266,7 @@ NotificationTypeDetailed GetNotificationType(
     case message_center::NotifierType::PHONE_HUB:
       return GetNotificationTypeForPhoneHub(notification);
     case message_center::NotifierType::CROSTINI_APPLICATION:
+      return CROSTINI;
     default:
       return OTHER;
   }
@@ -645,6 +642,18 @@ void LogExpandButtonClickAction(ExpandButtonClickAction action) {
 void LogGroupNotificationAddedType(GroupNotificationType type) {
   base::UmaHistogramEnumeration("Ash.Notification.GroupNotificationAdded",
                                 type);
+}
+
+void LogOngoingProcessShownWithoutIcon(NotificationCatalogName catalog_name) {
+  base::UmaHistogramEnumeration(
+      "Ash.NotifierFramework.PinnedSystemNotification.ShownWithoutIcon",
+      catalog_name);
+}
+
+void LogOngoingProcessShownWithoutTitle(NotificationCatalogName catalog_name) {
+  base::UmaHistogramEnumeration(
+      "Ash.NotifierFramework.PinnedSystemNotification.ShownWithoutTitle",
+      catalog_name);
 }
 
 }  // namespace metrics_utils

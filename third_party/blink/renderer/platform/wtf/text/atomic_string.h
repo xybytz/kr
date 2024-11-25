@@ -18,6 +18,11 @@
  *
  */
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/377326291): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_ATOMIC_STRING_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_ATOMIC_STRING_H_
 
@@ -25,6 +30,7 @@
 #include <iosfwd>
 #include <type_traits>
 
+#include "base/compiler_specific.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_table_deleted_value_type.h"
@@ -55,24 +61,18 @@ class WTF_EXPORT AtomicString {
 
   AtomicString() = default;
   explicit AtomicString(const LChar* chars)
-      : AtomicString(chars,
-                     chars ? strlen(reinterpret_cast<const char*>(chars)) : 0) {
-  }
-
-#if defined(ARCH_CPU_64_BITS)
-  // Only define a size_t constructor if size_t is 64 bit otherwise
-  // we'd have a duplicate define.
-  AtomicString(const LChar* chars, size_t length);
-#endif  // defined(ARCH_CPU_64_BITS)
+      : AtomicString(base::span<const LChar>{
+            chars, chars ? strlen(reinterpret_cast<const char*>(chars)) : 0}) {}
 
   explicit AtomicString(const char* chars)
       : AtomicString(reinterpret_cast<const LChar*>(chars)) {}
-  AtomicString(const LChar* chars, unsigned length);
-  AtomicString(
-      const UChar* chars,
-      unsigned length,
+  explicit AtomicString(base::span<const LChar> chars);
+  explicit AtomicString(
+      base::span<const UChar> chars,
       AtomicStringUCharEncoding encoding = AtomicStringUCharEncoding::kUnknown);
   explicit AtomicString(const UChar* chars);
+
+  explicit AtomicString(const StringView& view);
 
   // Constructing an AtomicString from a String / StringImpl can be expensive if
   // the StringImpl is not already atomic.
@@ -90,6 +90,8 @@ class WTF_EXPORT AtomicString {
   const LChar* Characters8() const { return string_.Characters8(); }
   const UChar* Characters16() const { return string_.Characters16(); }
   wtf_size_t length() const { return string_.length(); }
+  base::span<const LChar> Span8() const { return string_.Span8(); }
+  base::span<const UChar> Span16() const { return string_.Span16(); }
 
   UChar operator[](wtf_size_t i) const { return string_[i]; }
 
@@ -118,10 +120,10 @@ class WTF_EXPORT AtomicString {
 
   // Unicode aware case insensitive string matching. Non-ASCII characters might
   // match to ASCII characters. This function is rarely used to implement web
-  // platform features.
-  wtf_size_t FindIgnoringCase(const StringView& value,
-                              wtf_size_t start = 0) const {
-    return string_.FindIgnoringCase(value, start);
+  // platform features.  See crbug.com/40476285.
+  wtf_size_t DeprecatedFindIgnoringCase(const StringView& value,
+                                        wtf_size_t start = 0) const {
+    return string_.DeprecatedFindIgnoringCase(value, start);
   }
 
   // ASCII case insensitive string matching.
@@ -163,6 +165,12 @@ class WTF_EXPORT AtomicString {
       TextCaseSensitivity case_sensitivity = kTextCaseSensitive) const {
     return string_.EndsWith(suffix, case_sensitivity);
   }
+  // Unicode aware case insensitive string matching. Non-ASCII characters might
+  // match to ASCII characters. This function is rarely used to implement web
+  // platform features.  See crbug.com/40476285.
+  bool DeprecatedEndsWithIgnoringCase(const StringView& suffix) const {
+    return string_.DeprecatedEndsWithIgnoringCase(suffix);
+  }
   bool EndsWith(UChar character) const { return string_.EndsWith(character); }
 
   // Returns a lowercase/uppercase version of the string.
@@ -181,7 +189,7 @@ class WTF_EXPORT AtomicString {
   template <typename IntegerType>
   static AtomicString Number(IntegerType number) {
     IntegerToStringConverter<IntegerType> converter(number);
-    return AtomicString(converter.Characters8(), converter.length());
+    return AtomicString(converter.Span());
   }
 
   static AtomicString Number(double, unsigned precision = 6);
@@ -196,9 +204,9 @@ class WTF_EXPORT AtomicString {
 #endif
   // AtomicString::fromUTF8 will return a null string if
   // the input data contains invalid UTF-8 sequences.
-  // NOTE: Passing a zero size means use the whole string.
-  static AtomicString FromUTF8(const char*, size_t length);
+  static AtomicString FromUTF8(base::span<const uint8_t>);
   static AtomicString FromUTF8(const char*);
+  static AtomicString FromUTF8(std::string_view);
 
   std::string Ascii() const { return string_.Ascii(); }
   std::string Latin1() const { return string_.Latin1(); }
@@ -295,13 +303,14 @@ struct HashTraits<AtomicString>;
 // double-quotes, and escapes characters other than ASCII printables.
 WTF_EXPORT std::ostream& operator<<(std::ostream&, const AtomicString&);
 
-inline StringView::StringView(const AtomicString& string,
+inline StringView::StringView(const AtomicString& string LIFETIME_BOUND,
                               unsigned offset,
                               unsigned length)
     : StringView(string.Impl(), offset, length) {}
-inline StringView::StringView(const AtomicString& string, unsigned offset)
+inline StringView::StringView(const AtomicString& string LIFETIME_BOUND,
+                              unsigned offset)
     : StringView(string.Impl(), offset) {}
-inline StringView::StringView(const AtomicString& string)
+inline StringView::StringView(const AtomicString& string LIFETIME_BOUND)
     : StringView(string.Impl()) {}
 
 }  // namespace WTF

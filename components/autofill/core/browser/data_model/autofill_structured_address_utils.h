@@ -16,6 +16,7 @@
 #include "base/no_destructor.h"
 #include "base/synchronization/lock.h"
 #include "components/autofill/core/browser/autofill_type.h"
+#include "components/autofill/core/browser/country_type.h"
 #include "components/autofill/core/browser/data_model/autofill_structured_address_constants.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/browser/geo/address_rewriter.h"
@@ -93,9 +94,6 @@ struct CaptureOptions {
   // Indicates if the group is required, optional or even lazy optional.
   MatchQuantifier quantifier = MatchQuantifier::kRequired;
 };
-
-// Returns true if honorific prefixes are enabled.
-bool HonorificPrefixEnabled();
 
 // A cache for compiled RE2 regular expressions.
 class Re2RegExCache {
@@ -191,7 +189,7 @@ std::vector<std::string> ExtractAllPlaceholders(const std::string& value);
 std::string GetPlaceholderToken(std::string_view value);
 
 // Returns a named capture group created by the concatenation of the
-// StringPieces in |pattern_span_initializer_list|. The group is named by the
+// string_views in |pattern_span_initializer_list|. The group is named by the
 // string representation of |type| and respects |options|.
 std::string CaptureTypeWithPattern(
     const FieldType& type,
@@ -242,9 +240,9 @@ std::string CaptureTypeWithPattern(
     const std::string& pattern,
     const CaptureOptions options = CaptureOptions());
 
-// Normalizes and rewrites |text| using the rules for |country_code|.
-// If |country_code| is empty, it defaults to US.
-std::u16string NormalizeAndRewrite(const std::u16string& country_code,
+// Normalizes and rewrites `text` using the rules for `country_code`.
+// If `country_code` is empty, it defaults to US.
+std::u16string NormalizeAndRewrite(const AddressCountryCode& country_code,
                                    const std::u16string& text,
                                    bool keep_white_space);
 
@@ -252,7 +250,7 @@ std::u16string NormalizeAndRewrite(const std::u16string& country_code,
 // removes diacritics.
 // If |keep_white_spaces| is true, white spaces are collapsed. Otherwise,
 // white spaces are completely removed.
-std::u16string NormalizeValue(const base::StringPiece16 value,
+std::u16string NormalizeValue(std::u16string_view value,
                               bool keep_white_space = true);
 
 // Returns true of both vectors contain the same tokens in the same order.

@@ -32,8 +32,8 @@
 #include "chrome/updater/constants.h"
 #include "chrome/updater/ipc/ipc_support.h"
 #include "chrome/updater/test/integration_tests_impl.h"
+#include "chrome/updater/test/unit_test_util.h"
 #include "chrome/updater/updater_scope.h"
-#include "chrome/updater/util/unit_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
@@ -42,8 +42,7 @@
 #include "chrome/updater/util/win_util.h"
 #endif
 
-namespace updater {
-namespace test {
+namespace updater::test {
 namespace {
 
 using ::testing::EmptyTestEventListener;
@@ -151,7 +150,7 @@ base::RepeatingCallback<bool(Args...)> WithSwitch(
 template <typename... Args>
 base::RepeatingCallback<bool(Args...)> WithSwitch(
     const std::string& flag,
-    base::RepeatingCallback<bool(const base::Time&, Args...)> callback) {
+    base::RepeatingCallback<bool(base::Time, Args...)> callback) {
   return WithSwitch(
       flag,
       base::BindLambdaForTesting([=](const std::string& flag, Args... args) {
@@ -169,7 +168,7 @@ base::RepeatingCallback<bool(Args...)> WithSwitch(
 template <typename... Args>
 base::RepeatingCallback<bool(Args...)> WithSwitch(
     const std::string& flag,
-    base::RepeatingCallback<bool(const base::TimeDelta&, Args...)> callback) {
+    base::RepeatingCallback<bool(base::TimeDelta, Args...)> callback) {
   return WithSwitch(
       flag,
       base::BindLambdaForTesting([=](const std::string& flag, Args... args) {
@@ -288,11 +287,19 @@ void AppTestHelper::FirstTaskRun() {
           {"clean", WithSystemScope(Wrap(&Clean))},
           {"enter_test_mode",
            WithSwitch(
-               "idle_timeout",
-               WithSwitch("device_management_url",
-                          WithSwitch("crash_upload_url",
-                                     WithSwitch("update_url",
-                                                Wrap(&EnterTestMode)))))},
+               "ceca_connection_timeout",
+               WithSwitch(
+                   "server_keep_alive_time",
+                   WithSwitch(
+                       "idle_timeout",
+                       WithSwitch(
+                           "app_logo_url",
+                           WithSwitch(
+                               "device_management_url",
+                               WithSwitch(
+                                   "crash_upload_url",
+                                   WithSwitch("update_url",
+                                              Wrap(&EnterTestMode))))))))},
           {"exit_test_mode", WithSystemScope(Wrap(&ExitTestMode))},
           {"set_group_policies", WithSwitch("values", Wrap(&SetGroupPolicies))},
           {"set_platform_policies",
@@ -308,9 +315,12 @@ void AppTestHelper::FirstTaskRun() {
           {"expect_app_tag",
            WithSwitch("tag", WithSwitch("app_id",
                                         WithSystemScope(Wrap(&ExpectAppTag))))},
+          {"set_app_tag",
+           WithSwitch("tag",
+                      WithSwitch("app_id", WithSystemScope(Wrap(&SetAppTag))))},
           {"expect_app_version",
            WithSwitch(
-               "version",
+               "app_version",
                WithSwitch("app_id", WithSystemScope(Wrap(&ExpectAppVersion))))},
           {"expect_candidate_uninstalled",
            WithSystemScope(Wrap(&ExpectCandidateUninstalled))},
@@ -323,14 +333,17 @@ void AppTestHelper::FirstTaskRun() {
            WithSystemScope(Wrap(&ExpectMarshalInterfaceSucceeds))},
           {"expect_legacy_update3web_succeeds",
            WithSwitch(
-               "expected_error_code",
+               "cancel_when_downloading",
                WithSwitch(
-                   "expected_final_state",
+                   "expected_error_code",
                    WithSwitch(
-                       "app_bundle_web_create_mode",
-                       WithSwitch("app_id",
-                                  WithSystemScope(Wrap(
-                                      &ExpectLegacyUpdate3WebSucceeds))))))},
+                       "expected_final_state",
+                       WithSwitch(
+                           "app_bundle_web_create_mode",
+                           WithSwitch(
+                               "app_id",
+                               WithSystemScope(
+                                   Wrap(&ExpectLegacyUpdate3WebSucceeds)))))))},
           {"expect_legacy_process_launcher_succeeds",
            WithSystemScope(Wrap(&ExpectLegacyProcessLauncherSucceeds))},
           {"expect_legacy_app_command_web_succeeds",
@@ -351,25 +364,37 @@ void AppTestHelper::FirstTaskRun() {
            WithSwitch("app_id", WithSystemScope(Wrap(&RunHandoff)))},
 #endif  // BUILDFLAG(IS_WIN)
           {"expect_version_active",
-           WithSwitch("version", WithSystemScope(Wrap(&ExpectVersionActive)))},
+           WithSwitch("updater_version",
+                      WithSystemScope(Wrap(&ExpectVersionActive)))},
           {"expect_version_not_active",
-           WithSwitch("version",
+           WithSwitch("updater_version",
                       WithSystemScope(Wrap(&ExpectVersionNotActive)))},
-          {"install", WithSystemScope(Wrap(&Install))},
+          {"install", WithSwitch("switches", WithSystemScope(Wrap(&Install)))},
           {"install_updater_and_app",
            WithSwitch(
-               "always_launch_cmd",
+               "additional_switches",
                WithSwitch(
-                   "child_window_text_to_find",
+                   "wait_for_the_installer",
                    WithSwitch(
-                       "tag",
-                       WithSwitch("is_silent_install",
-                                  WithSwitch("app_id",
-                                             WithSystemScope(Wrap(
-                                                 &InstallUpdaterAndApp)))))))},
+                       "expect_success",
+                       WithSwitch(
+                           "verify_app_logo_loaded",
+                           WithSwitch(
+                               "always_launch_cmd",
+                               WithSwitch(
+                                   "child_window_text_to_find",
+                                   WithSwitch(
+                                       "tag",
+                                       WithSwitch(
+                                           "is_silent_install",
+                                           WithSwitch(
+                                               "app_id",
+                                               WithSystemScope(Wrap(
+                                                   &InstallUpdaterAndApp)))))))))))},
           {"print_log", WithSystemScope(Wrap(&PrintLog))},
           {"run_wake",
-           WithSwitch("exit_code", WithSystemScope(Wrap(&RunWake)))},
+           WithSwitch("version", WithSwitch("exit_code",
+                                            WithSystemScope(Wrap(&RunWake))))},
           {"run_wake_all", WithSystemScope(Wrap(&RunWakeAll))},
           {"run_wake_active",
            WithSwitch("exit_code", WithSystemScope(Wrap(&RunWakeActive)))},
@@ -380,6 +405,9 @@ void AppTestHelper::FirstTaskRun() {
           {"update",
            WithSwitch("install_data_index",
                       (WithSwitch("app_id", WithSystemScope(Wrap(&Update)))))},
+          {"register_app",
+           WithSwitch("registration",
+                      WithSystemScope(Wrap(&RegisterAppByValue)))},
           {"check_for_update",
            (WithSwitch("app_id", WithSystemScope(Wrap(&CheckForUpdate))))},
           {"update_all", WithSystemScope(Wrap(&UpdateAll))},
@@ -392,8 +420,8 @@ void AppTestHelper::FirstTaskRun() {
           {"delete_file",
            (WithSwitch("path", WithSystemScope(Wrap(&DeleteFile))))},
           {"install_app",
-           WithSwitch("version", WithSwitch("app_id", WithSystemScope(
-                                                          Wrap(&InstallApp))))},
+           WithSwitch("app_version", WithSwitch("app_id", WithSystemScope(Wrap(
+                                                              &InstallApp))))},
           {"install_app_via_service",
            WithSwitch("expected_final_values",
                       WithSwitch("app_id", WithSystemScope(
@@ -408,8 +436,9 @@ void AppTestHelper::FirstTaskRun() {
            WithSystemScope(Wrap(&SetupFakeUpdaterHigherVersion))},
           {"setup_fake_updater_lower_version",
            WithSystemScope(Wrap(&SetupFakeUpdaterLowerVersion))},
-          {"setup_real_updater_lower_version",
-           WithSystemScope(Wrap(&SetupRealUpdaterLowerVersion))},
+          {"setup_real_updater",
+           WithSwitch("updater_path",
+                      WithSystemScope(Wrap(&SetupRealUpdater)))},
           {"set_first_registration_counter",
            WithSwitch("value", WithSystemScope(Wrap(&SetServerStarts)))},
           {"stress_update_service",
@@ -438,7 +467,7 @@ void AppTestHelper::FirstTaskRun() {
           {"expect_legacy_updater_migrated",
            WithSystemScope(Wrap(&ExpectLegacyUpdaterMigrated))},
           {"run_recovery_component",
-           WithSwitch("version",
+           WithSwitch("browser_version",
                       WithSwitch("app_id", WithSystemScope(
                                                Wrap(&RunRecoveryComponent))))},
           {"set_last_checked",
@@ -458,14 +487,27 @@ void AppTestHelper::FirstTaskRun() {
            WithSwitch("enrollment_token", Wrap(DMPushEnrollmentToken))},
           {"dm_deregister_device", WithSystemScope(Wrap(&DMDeregisterDevice))},
           {"dm_cleanup", WithSystemScope(Wrap(&DMCleanup))},
+          {"install_enterprise_companion_app",
+           Wrap(&InstallEnterpriseCompanionApp)},
+          {"install_broken_enterprise_companion_app",
+           Wrap(&InstallBrokenEnterpriseCompanionApp)},
+          {"uninstall_broken_enterprise_companion_app",
+           Wrap(&UninstallBrokenEnterpriseCompanionApp)},
+          {"install_enterprise_companion_app_overrides",
+           WithSwitch("external_overrides",
+                      Wrap(&InstallEnterpriseCompanionAppOverrides))},
+          {"expect_enterprise_companion_app_not_installed",
+           Wrap(&ExpectEnterpriseCompanionAppNotInstalled)},
+          {"uninstall_enterprise_companion_app",
+           Wrap(&UninstallEnterpriseCompanionApp)},
       };
 
   const base::CommandLine* command_line =
       base::CommandLine::ForCurrentProcess();
-  for (const auto& entry : commands) {
-    if (command_line->HasSwitch(entry.first)) {
+  for (const auto& [command, callback] : commands) {
+    if (command_line->HasSwitch(command)) {
       base::ScopedAllowBlockingForTesting allow_blocking;
-      if (!entry.second.Run(base::BindOnce(&AppTestHelper::Shutdown, this))) {
+      if (!callback.Run(base::BindOnce(&AppTestHelper::Shutdown, this))) {
         Shutdown(kBadCommand);
       }
       return;
@@ -551,8 +593,7 @@ TEST(TestHelperCommandRunner, Run) {
 }
 
 }  // namespace
-}  // namespace test
-}  // namespace updater
+}  // namespace updater::test
 
 // Wraps the execution of one integration test command in a unit test. The test
 // commands contain gtest assertions, therefore the invocation of test commands

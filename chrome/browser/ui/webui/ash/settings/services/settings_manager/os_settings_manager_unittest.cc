@@ -23,6 +23,7 @@
 #include "chrome/browser/ash/printing/cups_printers_manager_factory.h"
 #include "chrome/browser/nearby_sharing/nearby_sharing_service_factory.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
+#include "chrome/browser/ui/ash/graduation/graduation_manager_impl.h"
 #include "chrome/browser/ui/webui/ash/settings/constants/constants_util.h"
 #include "chrome/browser/ui/webui/ash/settings/pages/os_settings_sections.h"
 #include "chrome/browser/ui/webui/ash/settings/search/hierarchy.h"
@@ -33,6 +34,8 @@
 #include "chromeos/ash/components/local_search_service/public/cpp/local_search_service_proxy.h"
 #include "chromeos/ash/components/local_search_service/public/cpp/local_search_service_proxy_factory.h"
 #include "chromeos/ash/components/local_search_service/search_metrics_reporter.h"
+#include "chromeos/ash/components/system/fake_statistics_provider.h"
+#include "chromeos/ash/components/system/statistics_provider.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "components/user_manager/user_manager.h"
@@ -85,6 +88,9 @@ class OsSettingsManagerTest : public testing::Test {
         ->SetLocalState(&pref_service_);
     input_method::MockInputMethodManager::Initialize(
         new input_method::MockInputMethodManager);
+    statistics_provider_.SetMachineStatistic(ash::system::kRegionKey, "us");
+    graduation_manager_ =
+        std::make_unique<ash::graduation::GraduationManagerImpl>();
 
     UserDataAuthClient::InitializeFake();
 
@@ -112,11 +118,13 @@ class OsSettingsManagerTest : public testing::Test {
               /*for_testing=*/true);
   std::unique_ptr<OsSettingsManager> manager_;
   base::test::ScopedFeatureList scoped_feature_list_;
+  ash::system::ScopedFakeStatisticsProvider statistics_provider_;
+  std::unique_ptr<ash::graduation::GraduationManager> graduation_manager_;
 };
 
 TEST_F(OsSettingsManagerTest, Initialization) {
   std::optional<base::HistogramEnumEntryMap> sections_enum_entry_map =
-      base::ReadEnumFromEnumsXml("OsSettingsSection");
+      base::ReadEnumFromEnumsXml("OsSettingsSection", "chromeos_settings");
   ASSERT_TRUE(sections_enum_entry_map);
   for (const auto& section : AllSections()) {
     // For each mojom::Section value, there should be an associated
@@ -133,7 +141,7 @@ TEST_F(OsSettingsManagerTest, Initialization) {
   }
 
   std::optional<base::HistogramEnumEntryMap> subpages_enum_entry_map =
-      base::ReadEnumFromEnumsXml("OsSettingsSubpage");
+      base::ReadEnumFromEnumsXml("OsSettingsSubpage", "chromeos_settings");
   ASSERT_TRUE(subpages_enum_entry_map);
   for (const auto& subpage : AllSubpages()) {
     // Each mojom::Subpage should be registered in the hierarchy. Note that
@@ -147,7 +155,7 @@ TEST_F(OsSettingsManagerTest, Initialization) {
   }
 
   std::optional<base::HistogramEnumEntryMap> settings_enum_entry_map =
-      base::ReadEnumFromEnumsXml("OsSetting");
+      base::ReadEnumFromEnumsXml("OsSetting", "chromeos_settings");
   ASSERT_TRUE(settings_enum_entry_map);
   for (const auto& setting : AllSettings()) {
     // Each mojom::Setting should be registered in the hierarchy. Note that

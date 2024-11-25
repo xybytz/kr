@@ -163,10 +163,6 @@ IN_PROC_BROWSER_TEST_F(SwitchAccessTest, NavigateButtonsInTextFieldMenu) {
   // Wait for switch access to focus on the text field.
   utils()->WaitForFocusRing("primary", "textField", "MyTextField");
 
-  // TODO(b/301253962): This fails in Lacros because the virtual keyboard is
-  // automatically opened when focus reached the text field, so the key press of
-  // "select" does not open the switch access menu.
-
   // Send "select", which opens the switch access menu.
   SendVirtualKeyPress(ui::KeyboardCode::VKEY_1);
 
@@ -184,6 +180,12 @@ IN_PROC_BROWSER_TEST_F(SwitchAccessTest, NavigateButtonsInTextFieldMenu) {
 
   // The next menu item is the "dictation" button.
   utils()->WaitForFocusRing("primary", "button", "Dictation");
+
+  // Send "next".
+  SendVirtualKeyPress(ui::KeyboardCode::VKEY_2);
+
+  // The next menu item is the "enter" button.
+  utils()->WaitForFocusRing("primary", "button", "Drill down");
 
   // Send "next".
   SendVirtualKeyPress(ui::KeyboardCode::VKEY_2);
@@ -211,7 +213,7 @@ IN_PROC_BROWSER_TEST_F(SwitchAccessTest, NavigateButtonsInTextFieldMenu) {
   utils()->WaitForFocusRing("primary", "button", "Keyboard");
 }
 
-// TODO(crbug.com/1472440): Enable after fixing flakiness.
+// TODO(crbug.com/40926594): Enable after fixing flakiness.
 IN_PROC_BROWSER_TEST_F(SwitchAccessTest, DISABLED_TypeIntoVirtualKeyboard) {
   utils()->EnableSwitchAccess({'1', 'A'} /* select */, {'2', 'B'} /* next */,
                               {'3', 'C'} /* previous */);

@@ -25,14 +25,28 @@ declare namespace chrome {
 
     export interface CrazyObject {}
 
-    export function funcWithInlineObj(inlineObj: {
-      foo?: boolean,
-         bar: number,
-         baz: {
-           depth: number,
-         },
-         quu: ArrayBuffer,
-    }): {
+    export type ArraySimple = string[];
+
+    export type ArrayOfInlineObject = Array<{
+      name: string,
+      value?: string,
+      binaryValue?: number[],
+    }>;
+
+    export type TwoChoices = ArrayBuffer|string;
+
+    export function funcWithInlineObj(
+        inlineObj: {
+          foo?: boolean,
+             bar: number,
+             baz: {
+               depth: number,
+             },
+             quu: ArrayBuffer,
+        },
+        callback: (returnObj: {
+          str: string,
+        }) => void): {
       str: string,
       int: number,
     };

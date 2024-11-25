@@ -29,6 +29,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/core/html/parser/html_srcset_parser.h"
 
 #include <algorithm>
@@ -87,7 +92,8 @@ struct DescriptorToken {
       }
       ++position;
     }
-    return CharactersToInt(attribute + start, length_excluding_descriptor,
+    return CharactersToInt(base::span<const CharType>(
+                               attribute + start, length_excluding_descriptor),
                            WTF::NumberParsingOptions(), &is_valid);
   }
 
@@ -101,7 +107,7 @@ struct DescriptorToken {
       return 0;
     }
     Decimal result = ParseToDecimalForNumberType(
-        String(attribute + start, length_excluding_descriptor));
+        String(base::span(attribute + start, length_excluding_descriptor)));
     is_valid = result.IsFinite();
     if (!is_valid)
       return 0;
@@ -277,10 +283,9 @@ static bool ParseDescriptors(const String& attribute,
                              DescriptorParsingResult& result,
                              Document* document) {
   // FIXME: See if StringView can't be extended to replace DescriptorToken here.
-  return WTF::VisitCharacters(
-      attribute, [&](const auto* chars, unsigned length) {
-        return ParseDescriptors(chars, descriptors, result, document);
-      });
+  return WTF::VisitCharacters(attribute, [&](auto chars) {
+    return ParseDescriptors(chars.data(), descriptors, result, document);
+  });
 }
 
 // http://picture.responsiveimages.org/#parse-srcset-attr
@@ -338,10 +343,8 @@ static void ParseImageCandidatesFromSrcsetAttribute(
                     mojom::ConsoleMessageSource::kOther,
                     mojom::ConsoleMessageLevel::kWarning,
                     String("Dropped srcset candidate ") +
-                        JSONValue::QuoteString(
-                            String(image_url_start,
-                                   static_cast<wtf_size_t>(image_url_end -
-                                                           image_url_start)))));
+                        JSONValue::QuoteString(String(
+                            base::span(image_url_start, image_url_end)))));
           }
         }
         continue;
@@ -413,7 +416,9 @@ static unsigned AvoidDownloadIfHigherDensityResourceIsInCache(
     KURL url = document->CompleteURL(
         StripLeadingAndTrailingHTMLSpaces(image_candidates[i]->Url()));
     auto* resource = MemoryCache::Get()->ResourceForURL(
-        url, document->Fetcher()->GetCacheIdentifier(url));
+        url,
+        document->Fetcher()->GetCacheIdentifier(url,
+                                                /*skip_service_worker=*/false));
     if ((resource && resource->IsLoaded()) || url.ProtocolIsData()) {
       return i;
     }

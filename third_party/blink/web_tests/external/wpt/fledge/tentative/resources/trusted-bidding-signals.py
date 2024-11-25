@@ -1,6 +1,9 @@
+import collections
 import json
 from urllib.parse import unquote_plus
-from fledge.tentative.resources.fledge_http_server_util import headersToAscii
+
+from fledge.tentative.resources import fledge_http_server_util
+
 
 # Script to generate trusted bidding signals. The response depends on the
 # keys and interestGroupNames - some result in entire response failures, others
@@ -36,6 +39,13 @@ def main(request, response):
             continue
         return fail(response, "Unexpected query parameter: " + param)
 
+    # If trusted signal keys are passed in, and one of them is "cors",
+    # add appropriate Access-Control-* headers to normal requests, and handle
+    # CORS preflights.
+    if keys and "cors" in keys and fledge_http_server_util.handle_cors_headers_and_preflight(
+            request, response):
+        return
+
     # "interestGroupNames" and "hostname" are mandatory.
     if not hostname:
         return fail(response, "hostname missing")
@@ -45,7 +55,8 @@ def main(request, response):
     response.status = (200, b"OK")
 
     # The JSON representation of this is used as the response body. This does
-    # not currently include a "perInterestGroupData" object.
+    # not currently include a "perInterestGroupData" object except for
+    # updateIfOlderThanMs.
     responseBody = {"keys": {}}
 
     # Set when certain special keys are observed, used in place of the JSON
@@ -103,15 +114,33 @@ def main(request, response):
             elif key == "hostname":
                 value = request.GET.first(b"hostname", b"not-found").decode("ASCII")
             elif key == "headers":
-                value = headersToAscii(request.headers)
+                value = fledge_http_server_util.headers_to_ascii(request.headers)
             elif key == "slotSize":
                 value = request.GET.first(b"slotSize", b"not-found").decode("ASCII")
             elif key == "allSlotsRequestedSizes":
                 value = request.GET.first(b"allSlotsRequestedSizes", b"not-found").decode("ASCII")
+            elif key == "url":
+                value = request.url
             responseBody["keys"][key] = value
 
     if "data-version" in interestGroupNames:
         dataVersion = "4"
+
+    per_interest_group_data = collections.defaultdict(dict)
+    for name in interestGroupNames:
+      if name == "use-update-if-older-than-ms":
+        # One hour in milliseconds.
+        per_interest_group_data[name]["updateIfOlderThanMs"] = 3_600_000
+      elif name == "use-update-if-older-than-ms-small":
+        # A value less than the minimum of 10 minutes.
+        per_interest_group_data[name]["updateIfOlderThanMs"] = 1
+      elif name == "use-update-if-older-than-ms-zero":
+        per_interest_group_data[name]["updateIfOlderThanMs"] = 0
+      elif name == "use-update-if-older-than-ms-negative":
+        per_interest_group_data[name]["updateIfOlderThanMs"] = -1
+
+    if per_interest_group_data:
+      responseBody["perInterestGroupData"] = dict(per_interest_group_data)
 
     if contentType:
         response.headers.set("Content-Type", contentType)

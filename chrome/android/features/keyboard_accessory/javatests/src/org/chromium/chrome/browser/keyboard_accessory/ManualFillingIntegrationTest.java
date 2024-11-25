@@ -38,12 +38,16 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
+import org.chromium.base.test.util.Features;
 import org.chromium.base.test.util.Restriction;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.infobar.InfoBarIdentifier;
 import org.chromium.chrome.browser.keyboard_accessory.button_group_component.KeyboardAccessoryButtonGroupView;
@@ -55,8 +59,7 @@ import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.InfoBarTestAnimationListener;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.ui.test.util.UiRestriction;
+import org.chromium.ui.base.DeviceFormFactor;
 
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -64,6 +67,10 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Integration tests for keyboard accessory and accessory sheet with other Chrome components. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
+@Features.DisableFeatures({
+    ChromeFeatureList.EDGE_TO_EDGE_BOTTOM_CHIN,
+    ChromeFeatureList.EDGE_TO_EDGE_WEB_OPT_IN
+})
 public class ManualFillingIntegrationTest {
     @Rule
     public final ChromeTabbedActivityTestRule mActivityTestRule =
@@ -149,7 +156,7 @@ public class ManualFillingIntegrationTest {
         mHelper.registerSheetDataProvider(AccessoryTabType.CREDIT_CARDS);
 
         // Show the passwords accessory sheet without focusing on any fields.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () ->
                         mHelper.getManualFillingCoordinator()
                                 .showAccessorySheetTab(AccessoryTabType.CREDIT_CARDS));
@@ -266,7 +273,7 @@ public class ManualFillingIntegrationTest {
 
     @Test
     @SmallTest
-    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    @Restriction(DeviceFormFactor.PHONE)
     public void testInvokingTabSwitcherHidesAccessory() throws TimeoutException {
         mHelper.loadTestPage(false);
 
@@ -315,7 +322,7 @@ public class ManualFillingIntegrationTest {
         whenDisplayed(withChild(withId(R.id.keyboard_accessory_sheet_frame)));
 
         // Simulate backgrounding the main activity.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mActivityTestRule.getActivity().onPauseWithNative();
                 });
@@ -326,7 +333,7 @@ public class ManualFillingIntegrationTest {
         mHelper.waitForKeyboardAccessoryToDisappear();
 
         // Simulate foregrounding the main activity.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mActivityTestRule.getActivity().onResumeWithNative();
                 });
@@ -375,13 +382,14 @@ public class ManualFillingIntegrationTest {
 
     @Test
     @SmallTest
+    @DisableIf.Device(DeviceFormFactor.TABLET) // crbug.com/362214348
     public void testInfobarStaysHiddenWhileChangingFieldsWithOpenKeyboard()
             throws TimeoutException {
         mHelper.loadTestPage(false);
 
         // Initialize and wait for the infobar.
         InfoBarTestAnimationListener listener = new InfoBarTestAnimationListener();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> mActivityTestRule.getInfoBarContainer().addAnimationListener(listener));
         final String kInfoBarText = "SomeInfoBar";
         PostTask.runOrPostTask(
@@ -406,7 +414,7 @@ public class ManualFillingIntegrationTest {
         assertThat(mActivityTestRule.getInfoBarContainer().getVisibility(), is(not(View.VISIBLE)));
 
         // Close the keyboard to bring back the InfoBar.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mActivityTestRule
                             .getKeyboardDelegate()
@@ -430,7 +438,7 @@ public class ManualFillingIntegrationTest {
 
         // Initialize and wait for the infobar.
         InfoBarTestAnimationListener listener = new InfoBarTestAnimationListener();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> mActivityTestRule.getInfoBarContainer().addAnimationListener(listener));
         final String kInfoBarText = "SomeInfoBar";
         PostTask.runOrPostTask(
@@ -465,7 +473,7 @@ public class ManualFillingIntegrationTest {
         // Reopen the keyboard, then close it.
         whenDisplayed(withId(R.id.show_keyboard)).perform(click());
         mHelper.waitForKeyboardAccessoryToBeShown();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mActivityTestRule
                             .getKeyboardDelegate()
@@ -534,7 +542,7 @@ public class ManualFillingIntegrationTest {
 
         // Initialize and wait for the infobar.
         InfoBarTestAnimationListener listener = new InfoBarTestAnimationListener();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> mActivityTestRule.getInfoBarContainer().addAnimationListener(listener));
         final String kInfoBarText = "SomeInfoBar";
         PostTask.runOrPostTask(

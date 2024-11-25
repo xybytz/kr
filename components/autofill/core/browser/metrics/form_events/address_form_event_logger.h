@@ -6,12 +6,12 @@
 #define COMPONENTS_AUTOFILL_CORE_BROWSER_METRICS_FORM_EVENTS_ADDRESS_FORM_EVENT_LOGGER_H_
 
 #include <string>
+#include <vector>
 
 #include "components/autofill/core/browser/autofill_field.h"
-#include "components/autofill/core/browser/autofill_trigger_details.h"
+#include "components/autofill/core/browser/autofill_trigger_source.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/form_structure.h"
-#include "components/autofill/core/browser/metrics/autofill_metrics.h"
 #include "components/autofill/core/browser/metrics/autofill_metrics_utils.h"
 #include "components/autofill/core/browser/metrics/form_events/form_event_logger_base.h"
 #include "components/autofill/core/browser/metrics/form_events/form_events.h"
@@ -19,11 +19,11 @@
 
 namespace autofill::autofill_metrics {
 
-// To measure the added value of kAccount profiles, the filling assistance
-// metric is split by profile category. Since the metric is emitted at
-// navigation (not at filling time), multiple profiles can be used to fill a
-// single form. This is represented by kMixed.
-enum class CategoryResolvedFillingAssistanceBucket {
+// To measure the added value of kAccount profiles, the filling readiness and
+// assistance metrics are split by profile category.
+// Even for assistance, the `kMixed` case is possible, since the metric is
+// emitted at navigation (rather than filling) time.
+enum class CategoryResolvedKeyMetricBucket {
   kNone = 0,
   kLocalOrSyncable = 1,
   kAccountChrome = 2,
@@ -34,37 +34,20 @@ enum class CategoryResolvedFillingAssistanceBucket {
 
 class AddressFormEventLogger : public FormEventLoggerBase {
  public:
-  AddressFormEventLogger(
-      bool is_in_any_main_frame,
-      AutofillMetrics::FormInteractionsUkmLogger* form_interactions_ukm_logger,
-      AutofillClient* client);
+  explicit AddressFormEventLogger(BrowserAutofillManager* owner);
 
   ~AddressFormEventLogger() override;
 
-  void set_record_type_count(size_t record_type_count) {
-    record_type_count_ = record_type_count;
-  }
+  void UpdateProfileAvailabilityForReadiness(
+      const std::vector<const AutofillProfile*>& profiles);
 
-  void OnDidFillSuggestion(
+  void OnDidFillFormFillingSuggestion(
       const AutofillProfile& profile,
       const FormStructure& form,
       const AutofillField& field,
-      AutofillMetrics::PaymentsSigninState signin_state_for_metrics,
       const AutofillTriggerSource trigger_source);
 
   void OnDidUndoAutofill();
-
-  void OnDidSeeFillableDynamicForm(
-      AutofillMetrics::PaymentsSigninState signin_state_for_metrics,
-      const FormStructure& form);
-
-  void OnDidRefill(
-      AutofillMetrics::PaymentsSigninState signin_state_for_metrics,
-      const FormStructure& form);
-
-  void OnSubsequentRefillAttempt(
-      AutofillMetrics::PaymentsSigninState signin_state_for_metrics,
-      const FormStructure& form);
 
  protected:
   void RecordPollSuggestions() override;
@@ -74,18 +57,25 @@ class AddressFormEventLogger : public FormEventLoggerBase {
              FormEvent event,
              const FormStructure& form) const override;
 
-  // Assistance and correctness metrics resolved by profile category.
+  // Readiness, assistance and correctness metrics resolved by profile category.
+  void RecordFillingReadiness(LogBuffer& logs) const override;
   void RecordFillingAssistance(LogBuffer& logs) const override;
   void RecordFillingCorrectness(LogBuffer& logs) const override;
 
   void LogUkmInteractedWithForm(FormSignature form_signature) override;
 
   bool HasLoggedDataToFillAvailable() const override;
+  DenseSet<FormTypeNameForLogging> GetSupportedFormTypeNamesForLogging()
+      const override;
+  DenseSet<FormTypeNameForLogging> GetFormTypesForLogging(
+      const FormStructure& form) const override;
 
  private:
+  // All profile categories for which the user has at least one profile stored.
+  DenseSet<AutofillProfileRecordTypeCategory> profile_categories_available_;
   // All profile categories for which the user has accepted at least one
-  // suggestion - used for metrics.
-  DenseSet<AutofillProfileSourceCategory> profile_categories_filled_;
+  // suggestion.
+  DenseSet<AutofillProfileRecordTypeCategory> profile_categories_filled_;
 
   size_t record_type_count_ = 0;
 };

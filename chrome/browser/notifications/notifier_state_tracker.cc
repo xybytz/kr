@@ -91,7 +91,6 @@ bool NotifierStateTracker::IsNotifierEnabled(
       return true;
 #else
       NOTREACHED();
-      break;
 #endif
     case message_center::NotifierType::PHONE_HUB:
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -103,7 +102,6 @@ bool NotifierStateTracker::IsNotifierEnabled(
   }
 
   NOTREACHED();
-  return false;
 }
 
 void NotifierStateTracker::SetNotifierEnabled(
@@ -121,10 +119,10 @@ void NotifierStateTracker::SetNotifierEnabled(
       add_new_item = !enabled;
       id = base::Value(notifier_id.id);
       FirePermissionLevelChangedEvent(notifier_id, enabled);
+      break;
 #else
       NOTREACHED();
 #endif
-      break;
     default:
       NOTREACHED();
   }

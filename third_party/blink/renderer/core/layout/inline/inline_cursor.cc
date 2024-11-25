@@ -2,9 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/core/layout/inline/inline_cursor.h"
 
 #include "base/containers/adapters.h"
+#include "base/not_fatal_until.h"
 #include "base/ranges/algorithm.h"
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
 #include "third_party/blink/renderer/core/editing/position_with_affinity.h"
@@ -100,18 +106,17 @@ bool ShouldIgnoreForPositionForPoint(const FragmentItem& item) {
     case FragmentItem::kGeneratedText:
       return true;
     case FragmentItem::kText:
-      if (UNLIKELY(item.IsLayoutObjectDestroyedOrMoved())) {
+      if (item.IsLayoutObjectDestroyedOrMoved()) [[unlikely]] {
         // See http://crbug.com/1217079
         NOTREACHED() << item;
-        return true;
       }
       // Returns true when |item.GetLayoutObject().IsStyleGenerated()|.
       // All/LayoutViewHitTestTest.PseudoElementAfter* needs this.
       return item.IsGeneratedText();
     case FragmentItem::kLine:
+      return true;
     case FragmentItem::kInvalid:
       NOTREACHED();
-      break;
   }
   return false;
 }
@@ -169,7 +174,7 @@ void InlineCursor::SetRoot(const PhysicalBoxFragment& box_fragment,
 bool InlineCursor::TrySetRootFragmentItems() {
   DCHECK(root_block_flow_);
   DCHECK(!fragment_items_ || fragment_items_->Equals(items_));
-  if (UNLIKELY(!root_block_flow_->MayHaveFragmentItems())) {
+  if (!root_block_flow_->MayHaveFragmentItems()) [[unlikely]] {
 #if EXPENSIVE_DCHECKS_ARE_ON()
     DCHECK(!root_block_flow_->PhysicalFragments().SlowHasFragmentItems());
 #endif
@@ -251,14 +256,12 @@ const LayoutBlockFlow* InlineCursor::GetLayoutBlockFlow() const {
     return To<LayoutBlockFlow>(layout_object);
   }
   NOTREACHED();
-  return nullptr;
 }
 
 bool InlineCursorPosition::HasChildren() const {
   if (item_)
     return item_->HasChildren();
   NOTREACHED();
-  return false;
 }
 
 InlineCursor InlineCursor::CursorForDescendants() const {
@@ -274,7 +277,6 @@ InlineCursor InlineCursor::CursorForDescendants() const {
     return InlineCursor();
   }
   NOTREACHED();
-  return InlineCursor();
 }
 
 InlineCursor InlineCursor::CursorForMovingAcrossFragmentainer() const {
@@ -311,13 +313,16 @@ bool InlineCursorPosition::HasSoftWrapToNextLine() const {
 }
 
 bool InlineCursorPosition::IsInlineLeaf() const {
-  if (IsHiddenForPaint())
+  if (IsHiddenForPaint()) {
     return false;
-  if (IsText())
+  }
+  if (IsText()) {
     return !IsLayoutGeneratedText();
-  if (!IsAtomicInline())
-    return false;
-  return !IsListMarker();
+  }
+  if (IsAtomicInline()) {
+    return !IsListMarker();
+  }
+  return false;
 }
 
 bool InlineCursorPosition::IsPartOfCulledInlineBox(
@@ -399,7 +404,6 @@ bool InlineCursorPosition::CanHaveChildren() const {
            (item_->Type() == FragmentItem::kBox && !item_->IsAtomicInline());
   }
   NOTREACHED();
-  return false;
 }
 
 TextDirection InlineCursorPosition::BaseDirection() const {
@@ -407,7 +411,6 @@ TextDirection InlineCursorPosition::BaseDirection() const {
   if (item_)
     return item_->BaseDirection();
   NOTREACHED();
-  return TextDirection::kLtr;
 }
 
 UBiDiLevel InlineCursorPosition::BidiLevel() const {
@@ -430,7 +433,7 @@ UBiDiLevel InlineCursorPosition::BidiLevel() const {
           return item.StartOffset() <= offset.start &&
                  item.EndOffset() >= offset.end;
         });
-    DCHECK(item != items->end()) << this;
+    CHECK(item != items->end(), base::NotFatalUntil::M130) << this;
     return item->BidiLevel();
   }
 
@@ -440,14 +443,13 @@ UBiDiLevel InlineCursorPosition::BidiLevel() const {
         *GetLayoutObject()->FragmentItemsContainer();
     const auto& items =
         block_flow.GetInlineNodeData()->ItemsData(UsesFirstLineStyle()).items;
-    const auto* const item = base::ranges::find(items, GetLayoutObject(),
-                                                &InlineItem::GetLayoutObject);
-    DCHECK(item != items.end()) << this;
+    const auto item = base::ranges::find(items, GetLayoutObject(),
+                                         &InlineItem::GetLayoutObject);
+    CHECK(item != items.end(), base::NotFatalUntil::M130) << this;
     return item->BidiLevel();
   }
 
   NOTREACHED();
-  return 0;
 }
 
 const DisplayItemClient* InlineCursorPosition::GetSelectionDisplayItemClient()
@@ -484,7 +486,6 @@ StringView InlineCursorPosition::Text(const InlineCursor& cursor) const {
   if (item_)
     return item_->Text(cursor.Items());
   NOTREACHED();
-  return "";
 }
 
 PhysicalRect InlineCursor::CurrentLocalRect(unsigned start_offset,
@@ -495,7 +496,6 @@ PhysicalRect InlineCursor::CurrentLocalRect(unsigned start_offset,
                                      start_offset, end_offset);
   }
   NOTREACHED();
-  return PhysicalRect();
 }
 
 PhysicalRect InlineCursor::CurrentLocalSelectionRectForText(
@@ -545,12 +545,14 @@ PhysicalRect InlineCursor::CurrentRectInBlockFlow() const {
   // consumed in previous fragments.
   auto writing_direction = ContainerFragment().Style().GetWritingDirection();
   switch (writing_direction.GetWritingMode()) {
-    default:
+    case WritingMode::kHorizontalTb:
       rect.offset.top += previously_consumed_block_size_;
       break;
+    case WritingMode::kSidewaysLr:
     case WritingMode::kVerticalLr:
       rect.offset.left += previously_consumed_block_size_;
       break;
+    case WritingMode::kSidewaysRl:
     case WritingMode::kVerticalRl: {
       // For vertical-rl writing-mode it's a bit more complicated. We need to
       // convert to logical coordinates in the containing box fragment, in order
@@ -581,7 +583,6 @@ LayoutUnit InlineCursor::CaretInlinePositionForOffset(unsigned offset) const {
         current_.item_->Text(*fragment_items_), offset);
   }
   NOTREACHED();
-  return LayoutUnit();
 }
 
 LogicalRect InlineCursorPosition::ConvertChildToLogical(
@@ -723,9 +724,12 @@ PositionWithAffinity InlineCursor::PositionForPointInInlineBox(
          container->Type() == FragmentItem::kBox);
   const auto* const text_combine =
       DynamicTo<LayoutTextCombine>(container->GetLayoutObject());
-  const PhysicalOffset point =
-      UNLIKELY(text_combine) ? text_combine->AdjustOffsetForHitTest(point_in)
-                             : point_in;
+  PhysicalOffset point;
+  if (text_combine) [[unlikely]] {
+    point = text_combine->AdjustOffsetForHitTest(point_in);
+  } else {
+    point = point_in;
+  }
   const auto writing_direction = container->Style().GetWritingDirection();
   const PhysicalSize& container_size = container->Size();
   const LayoutUnit point_inline_offset =
@@ -855,7 +859,6 @@ PositionWithAffinity InlineCursor::PositionForPointInChild(
     case FragmentItem::kLine:
     case FragmentItem::kInvalid:
       NOTREACHED();
-      break;
   }
   return PositionWithAffinity();
 }
@@ -883,7 +886,6 @@ PositionWithAffinity InlineCursor::PositionForStartOfLine() const {
   Node* const node = layout_object.NonPseudoNode();
   if (!node) {
     NOTREACHED() << "MoveToFirstLeaf returns invalid node: " << first_leaf;
-    return PositionWithAffinity();
   }
   if (!IsA<Text>(node))
     return PositionWithAffinity(Position::BeforeNode(*node));
@@ -909,17 +911,23 @@ PositionWithAffinity InlineCursor::PositionForEndOfLine() const {
   Node* const node = layout_object.NonPseudoNode();
   if (!node) {
     NOTREACHED() << "MoveToLastLeaf returns invalid node: " << last_leaf;
-    return PositionWithAffinity();
   }
   if (IsA<HTMLBRElement>(node))
     return PositionWithAffinity(Position::BeforeNode(*node));
   if (!IsA<Text>(node))
     return PositionWithAffinity(Position::AfterNode(*node));
-  const unsigned text_offset =
-      Current().BaseDirection() == last_leaf.Current().ResolvedDirection()
-          ? last_leaf.Current().TextOffset().end
-          : last_leaf.Current().TextOffset().start;
+  const wtf_size_t text_offset = GetTextOffsetForEndOfLine(last_leaf);
   return last_leaf.PositionForPointInText(text_offset);
+}
+
+inline wtf_size_t InlineCursor::GetTextOffsetForEndOfLine(
+    InlineCursor& last_leaf) const {
+  wtf_size_t text_offset = last_leaf.Current().TextOffset().start;
+  if (Current().BaseDirection() == last_leaf.Current().ResolvedDirection() &&
+      !last_leaf.Current().IsLineBreak()) {
+    text_offset = last_leaf.Current().TextOffset().end;
+  }
+  return text_offset;
 }
 
 void InlineCursor::MoveTo(const InlineCursorPosition& position) {
@@ -977,8 +985,9 @@ void InlineCursor::MoveTo(const InlineCursor& cursor) {
 
 void InlineCursor::MoveToParent() {
   wtf_size_t count = 0;
-  if (UNLIKELY(!Current()))
+  if (!Current()) [[unlikely]] {
     return;
+  }
   for (;;) {
     MoveToPrevious();
     if (!Current())
@@ -1302,8 +1311,10 @@ bool InlineCursor::TryMoveToLastChild() {
 
 void InlineCursor::MoveToNext() {
   DCHECK(HasRoot());
-  if (UNLIKELY(!current_.item_))
+  if (!current_.item_) [[unlikely]] {
     return;
+  }
+  // Expensive DCHECK as MoveToNext() is called frequently.
   DCHECK(current_.item_iter_ != items_.end());
   if (++current_.item_iter_ != items_.end()) {
     current_.item_ = &*current_.item_iter_;
@@ -1314,8 +1325,9 @@ void InlineCursor::MoveToNext() {
 
 void InlineCursor::MoveToNextSkippingChildren() {
   DCHECK(HasRoot());
-  if (UNLIKELY(!current_.item_))
+  if (!current_.item_) [[unlikely]] {
     return;
+  }
   // If the current item has |DescendantsCount|, add it to move to the next
   // sibling, skipping all children and their descendants.
   if (wtf_size_t descendants_count = current_.item_->DescendantsCount())
@@ -1325,8 +1337,9 @@ void InlineCursor::MoveToNextSkippingChildren() {
 
 void InlineCursor::MoveToPrevious() {
   DCHECK(HasRoot());
-  if (UNLIKELY(!current_.item_))
+  if (!current_.item_) [[unlikely]] {
     return;
+  }
   if (current_.item_iter_ == items_.begin())
     return MakeNull();
   --current_.item_iter_;
@@ -1396,8 +1409,7 @@ void InlineCursor::SlowMoveToNextForSameLayoutObject(
 
 void InlineCursor::MoveTo(const LayoutObject& layout_object) {
   DCHECK(layout_object.IsInLayoutNGInlineFormattingContext());
-  if (UNLIKELY(layout_object.IsOutOfFlowPositioned())) {
-    NOTREACHED();
+  if (layout_object.IsOutOfFlowPositioned()) [[unlikely]] {
     MakeNull();
     return;
   }
@@ -1408,7 +1420,7 @@ void InlineCursor::MoveTo(const LayoutObject& layout_object) {
     const LayoutBlockFlow* root = layout_object.FragmentItemsContainer();
     DCHECK(root);
     SetRoot(*root);
-    if (UNLIKELY(!HasRoot())) {
+    if (!HasRoot()) [[unlikely]] {
       MakeNull();
       return;
     }
@@ -1418,7 +1430,7 @@ void InlineCursor::MoveTo(const LayoutObject& layout_object) {
   }
 
   wtf_size_t item_index = layout_object.FirstInlineFragmentItemIndex();
-  if (UNLIKELY(!item_index)) {
+  if (!item_index) [[unlikely]] {
 #if EXPENSIVE_DCHECKS_ARE_ON()
     const LayoutBlockFlow* root = layout_object.FragmentItemsContainer();
     InlineCursor check_cursor(*root);
@@ -1429,6 +1441,7 @@ void InlineCursor::MoveTo(const LayoutObject& layout_object) {
     return;
   }
   // |FirstInlineFragmentItemIndex| is 1-based. Convert to 0-based index.
+  DCHECK_GT(item_index, 0UL);
   --item_index;
 
   // Find |FragmentItems| that contains |item_index|.
@@ -1440,6 +1453,7 @@ void InlineCursor::MoveTo(const LayoutObject& layout_object) {
       if (!Current())
         return;
     }
+    DCHECK_GE(item_index, fragment_items_->SizeOfEarlierFragments());
     item_index -= fragment_items_->SizeOfEarlierFragments();
 #if EXPENSIVE_DCHECKS_ARE_ON()
     InlineCursor check_cursor(*root_block_flow_);
@@ -1451,6 +1465,7 @@ void InlineCursor::MoveTo(const LayoutObject& layout_object) {
     // If |this| is not rooted at |LayoutBlockFlow|, iterate |FragmentItems|
     // from |LayoutBlockFlow|.
     if (fragment_items_->HasItemIndex(item_index)) {
+      DCHECK_GE(item_index, fragment_items_->SizeOfEarlierFragments());
       item_index -= fragment_items_->SizeOfEarlierFragments();
     } else {
       InlineCursor cursor;
@@ -1462,6 +1477,7 @@ void InlineCursor::MoveTo(const LayoutObject& layout_object) {
           return;
         }
         if (cursor.fragment_items_ == fragment_items_) {
+          DCHECK_GE(cursor.Current().Item(), fragment_items_->Items().data());
           item_index = base::checked_cast<wtf_size_t>(
               cursor.Current().Item() - fragment_items_->Items().data());
           break;
@@ -1479,9 +1495,9 @@ void InlineCursor::MoveTo(const LayoutObject& layout_object) {
 #endif
 
     // Skip items before |items_|, in case |this| is part of IFC.
-    if (UNLIKELY(is_descendants_cursor)) {
+    if (is_descendants_cursor) [[unlikely]] {
       const wtf_size_t span_begin_item_index = SpanBeginItemIndex();
-      while (UNLIKELY(item_index < span_begin_item_index)) {
+      while (item_index < span_begin_item_index) [[unlikely]] {
         const FragmentItem& item = fragment_items_->Items()[item_index];
         const wtf_size_t next_delta = item.DeltaToNextForSameLayoutObject();
         if (!next_delta) {
@@ -1490,10 +1506,11 @@ void InlineCursor::MoveTo(const LayoutObject& layout_object) {
         }
         item_index += next_delta;
       }
-      if (UNLIKELY(item_index >= span_begin_item_index + items_.size())) {
+      if (item_index >= span_begin_item_index + items_.size()) [[unlikely]] {
         MakeNull();
         return;
       }
+      DCHECK_GE(item_index, span_begin_item_index);
       item_index -= span_begin_item_index;
     }
   }
@@ -1523,7 +1540,6 @@ void InlineCursor::MoveToNextForSameLayoutObjectExceptCulledInline() {
       MoveToNextFragmentainer();
       if (!Current()) {
         NOTREACHED();
-        break;
       }
       DCHECK_GE(delta, delta_to_end);
       delta -= delta_to_end;
@@ -1703,7 +1719,7 @@ void InlineCursor::MoveToIncludingCulledInline(
 }
 
 void InlineCursor::MoveToNextForSameLayoutObject() {
-  if (UNLIKELY(culled_inline_)) {
+  if (culled_inline_) [[unlikely]] {
     MoveToNextForCulledInline();
     return;
   }
@@ -1724,7 +1740,8 @@ void InlineCursor::MoveToVisualFirstForSameLayoutObject() {
 
 void InlineCursor::MoveToVisualFirstOrLastForCulledInline(bool last) {
   InlineCursorPosition found_position;
-  absl::optional<size_t> found_index;
+  std::optional<size_t> found_index;
+  wtf_size_t found_fragment_index = 0;
 
   // Iterate through the remaining fragments to find the lowest/greatest index.
   for (; Current(); MoveToNextForSameLayoutObject()) {
@@ -1735,6 +1752,7 @@ void InlineCursor::MoveToVisualFirstOrLastForCulledInline(bool last) {
         (!last && index < *found_index)) {
       found_position = Current();
       found_index = index;
+      found_fragment_index = fragment_index_;
 
       // Break if there cannot be any fragment lower/greater than this one.
       if ((last && index == fragment_items_->Size() - 1) ||
@@ -1744,6 +1762,12 @@ void InlineCursor::MoveToVisualFirstOrLastForCulledInline(bool last) {
   }
 
   DCHECK(found_position);
+  if (fragment_index_ > found_fragment_index) {
+    while (fragment_index_ > found_fragment_index) {
+      DecrementFragmentIndex();
+    }
+    CHECK(TrySetRootFragmentItems());
+  }
   MoveTo(found_position);
 }
 
@@ -1773,7 +1797,6 @@ InlineCursor InlineBackwardCursor::CursorForDescendants() const {
     return cursor.CursorForDescendants();
   }
   NOTREACHED();
-  return InlineCursor();
 }
 
 void InlineBackwardCursor::MoveToPreviousSibling() {

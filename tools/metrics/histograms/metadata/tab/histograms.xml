@@ -42,19 +42,30 @@ chromium-metrics-reviews@google.com.
 <variants name="TabDiscardReason">
   <variant name=".External"
       summary="from outside of TabManager (e.g. by an extension)"/>
+  <variant name=".FrozenWithGrowingMemory"
+      summary="due to growing memory usage while frozen"/>
   <variant name=".Proactive"
       summary="proactively by Performance Manager before the system is in a
                critical condition, such as when Memory Saver Mode discards
                the tab"/>
+  <variant name=".Suggested"
+      summary="suggested by the Performance Detection manager when the
+               resource usage health may improve from discarding the tab"/>
   <variant name=".Urgent"
       summary="urgently by TabManager when the system is in a critical
                condition"/>
 </variants>
 
+<variants name="TabModelSelectorType">
+  <variant name="Archived" summary="The archived tab model selector"/>
+  <variant name="Custom" summary="The custom tab model selector."/>
+  <variant name="Regular" summary="The regular tab model selector."/>
+</variants>
+
 <variants name="TabOrganizationEntryPoint">
   <variant name=".AllEntrypoints" summary="any of the entrypoints"/>
   <variant name=".Proactive"
-      summary="the 'Organize Tabs' button in the tab strip."/>
+      summary="the 'Organize Tabs' button in the tab strip"/>
   <variant name=".TabContextMenu" summary="the option in the tab context menu"/>
   <variant name=".TabSearch"
       summary="the start request button in the tab search ui"/>
@@ -62,7 +73,7 @@ chromium-metrics-reviews@google.com.
 </variants>
 
 <histogram name="Discarding.DailyDiscards{TabDiscardReason}" units="tabs"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>vovoy@chromium.org</owner>
   <owner>fdoray@chromium.org</owner>
   <summary>
@@ -74,7 +85,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Discarding.DailyReloads{TabDiscardReason}" units="tabs"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>vovoy@chromium.org</owner>
   <owner>fdoray@chromium.org</owner>
   <summary>
@@ -95,8 +106,41 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Discarding.DiscardingFocusedTab" enum="BooleanFocusedTab"
+    expires_after="2025-04-06">
+  <owner>kalutes@chromium.org</owner>
+  <owner>cros-core-systems-perf@google.com</owner>
+  <summary>
+    Logged every time a tab is set to be discarded. Tracks the porportion of tab
+    discards that are focused at the time of discard.
+  </summary>
+</histogram>
+
+<histogram name="Discarding.DiscardingProtectedTab" enum="BooleanProtectedTab"
+    expires_after="2025-04-06">
+  <owner>kalutes@chromium.org</owner>
+  <owner>cros-core-systems-perf@google.com</owner>
+  <summary>
+    Logged every time a tab is set to be discarded. Tracks the porportion of tab
+    discards that are protected at the time of discard.
+  </summary>
+</histogram>
+
+<histogram name="Discarding.DiscardLatency" units="ms"
+    expires_after="2025-04-06">
+  <owner>kalutes@chromium.org</owner>
+  <owner>kawasin@chromium.org</owner>
+  <owner>vovoy@chromium.org</owner>
+  <summary>
+    Reported for ChromeOS only. The latency since Chrome start handling a
+    discard request and until the first tab discarding from the request
+    completes. This is recorded when discarding tabs for the request completes
+    in success.
+  </summary>
+</histogram>
+
 <histogram name="Discarding.DiscardsDrivenByStaleSignal" units="tabs"
-    expires_after="2024-12-01">
+    expires_after="2025-04-06">
   <owner>kalutes@chromium.org</owner>
   <owner>vovoy@chromium.org</owner>
   <summary>
@@ -129,8 +173,21 @@ chromium-metrics-reviews@google.com.
   <summary>The resident set of the oldest urgent discarding candidate.</summary>
 </histogram>
 
+<histogram name="Discarding.ReclaimArrivalLatency" units="ms"
+    expires_after="2025-04-20">
+  <owner>kalutes@chromium.org</owner>
+  <owner>kawasin@chromium.org</owner>
+  <owner>vovoy@chromium.org</owner>
+  <summary>
+    Reported for ChromeOS only. The latency since a critical memory pressure
+    signal is sent from resourced and until Chrome start handling the discard
+    request. This is recorded when discarding tabs for the request completes in
+    success.
+  </summary>
+</histogram>
+
 <histogram name="Discarding.ReclaimTargetAge" units="ms"
-    expires_after="2024-12-01">
+    expires_after="2025-04-06">
   <owner>kalutes@chromium.org</owner>
   <owner>vovoy@chromium.org</owner>
   <summary>
@@ -141,7 +198,7 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tab.AgeAtDeletion" units="ms" expires_after="2024-06-30">
+<histogram name="Tab.AgeAtDeletion" units="ms" expires_after="2025-01-05">
   <owner>ewannpv@chromium.org</owner>
   <owner>gambard@chromium.org</owner>
   <owner>bling-team@google.com</owner>
@@ -178,7 +235,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.CloseAllTabsDialog.ClosedAllTabs.{CloseType}"
-    enum="Boolean" expires_after="2024-09-11">
+    enum="Boolean" expires_after="2025-03-23">
   <owner>ckitagawa@chromium.org</owner>
   <owner>fredmello@chromium.org</owner>
   <summary>
@@ -193,7 +250,7 @@ chromium-metrics-reviews@google.com.
   </token>
 </histogram>
 
-<histogram name="Tab.Count.Guest" units="units" expires_after="2024-05-19">
+<histogram name="Tab.Count.Guest" units="units" expires_after="2025-04-13">
   <owner>rhalavati@chromium.org</owner>
   <owner>chrome-incognito@google.com</owner>
   <summary>
@@ -209,7 +266,7 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tab.Count.Incognito" units="units" expires_after="2024-05-19">
+<histogram name="Tab.Count.Incognito" units="units" expires_after="2025-04-13">
   <owner>rhalavati@chromium.org</owner>
   <owner>chrome-incognito@google.com</owner>
   <summary>
@@ -226,7 +283,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.ExternalApplicationOpened{Cause}"
-    enum="ExternalLauncherOption" expires_after="2024-10-15">
+    enum="ExternalLauncherOption" expires_after="2025-04-06">
   <owner>olivierrobin@chromium.org</owner>
   <owner>bling-team@google.com</owner>
   <summary>
@@ -244,8 +301,8 @@ chromium-metrics-reviews@google.com.
   </token>
 </histogram>
 
-<histogram name="Tab.HasCustomUnderPageBackgroundColor" units="BooleanPresent"
-    expires_after="2024-11-29">
+<histogram name="Tab.HasCustomUnderPageBackgroundColor" enum="BooleanPresent"
+    expires_after="2025-11-29">
   <owner>gambard@chromium.org</owner>
   <owner>bling-team@google.com</owner>
   <summary>
@@ -257,8 +314,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tab.HasThemeColor" units="BooleanPresent"
-    expires_after="2024-11-29">
+<histogram name="Tab.HasThemeColor" enum="BooleanPresent"
+    expires_after="2025-04-06">
   <owner>gambard@chromium.org</owner>
   <owner>bling-team@google.com</owner>
   <summary>
@@ -267,7 +324,7 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tab.NewTab" enum="NewTabType" expires_after="2024-06-30">
+<histogram name="Tab.NewTab" enum="NewTabType" expires_after="2025-05-11">
   <owner>tbergquist@chromium.org</owner>
   <owner>bsep@chromium.org</owner>
   <summary>
@@ -278,8 +335,100 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Tab.Organization.Declutter.DeclutterTabCount" units="tabs"
+    expires_after="2025-02-10">
+  <owner>emshack@chromium.org</owner>
+  <owner>shibalik@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Logs the number of tabs selected for removal using Tab Declutter on Desktop.
+    This is logged from the controller before closing the stale tabs.
+  </summary>
+</histogram>
+
+<histogram name="Tab.Organization.Declutter.EntryPoint"
+    enum="TabDeclutterEntryPoint" expires_after="2025-02-10">
+  <owner>emshack@chromium.org</owner>
+  <owner>shibalik@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Logs the entry point that caused the Tab Declutter feature to be shown on
+    Desktop. This is logged each time the feature is invoked.
+  </summary>
+</histogram>
+
+<histogram name="Tab.Organization.Declutter.ExcludedTabCount" units="tabs"
+    expires_after="2025-02-10">
+  <owner>emshack@chromium.org</owner>
+  <owner>shibalik@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Logs the number of tabs excluded from removal during Tab Declutter on
+    Desktop. This is logged from the controller before closing the stale tabs.
+  </summary>
+</histogram>
+
+<histogram name="Tab.Organization.Declutter.TotalTabCount" units="tabs"
+    expires_after="2025-02-10">
+  <owner>emshack@chromium.org</owner>
+  <owner>shibalik@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Logs the total number of tabs in the tab strip when the user initiates Tab
+    Declutter on Desktop. This is logged from the controller before closing the
+    stale tabs.
+  </summary>
+</histogram>
+
+<histogram name="Tab.Organization.Declutter.TotalUsageCount" units="units"
+    expires_after="2025-02-10">
+  <owner>emshack@chromium.org</owner>
+  <owner>shibalik@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    On Desktop, logs the total number of times a user has ever decluttered the
+    tabstrip. This is logged from the controller on each declutter.
+  </summary>
+</histogram>
+
+<histogram name="Tab.Organization.Declutter.Trigger.BucketedCTR"
+    enum="TabOrganizationDeclutterTriggerCTRBucket" expires_after="2025-02-10">
+  <owner>emshack@chromium.org</owner>
+  <owner>shibalik@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    On each show and each click of the proactive declutter nudge UI, logs the
+    bucket the user falls into based on total tab count and stale tab count. CTR
+    for any given bucket can be calculated by dividing its click count by its
+    shown count.
+  </summary>
+</histogram>
+
+<histogram name="Tab.Organization.Declutter.Trigger.Outcome"
+    enum="TabOrganizationTriggerOutcome" expires_after="2025-02-10">
+  <owner>emshack@chromium.org</owner>
+  <owner>shibalik@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Records user actions (or lack thereof) taken on the proactive declutter
+    nudge UI each time it is triggered to suggest the user declutter their tabs.
+  </summary>
+</histogram>
+
+<histogram name="Tab.Organization.DeclutterCTR"
+    enum="TabOrganizationDeclutterCTREvent" expires_after="2025-02-10">
+  <owner>emshack@chromium.org</owner>
+  <owner>shibalik@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    On Desktop, logs once each time the declutter UI in the tab search bubble is
+    shown, and once each time the close tabs button is clicked. CTR can be
+    determined by dividing the click count by the show count.
+  </summary>
+</histogram>
+
 <histogram name="Tab.Organization.Organization.LabelEdited" enum="Boolean"
-    expires_after="2024-05-01">
+    expires_after="2025-04-13">
   <owner>dpenning@chromium.org</owner>
   <owner>emshack@chromium.org</owner>
   <owner>tbergquist@chromium.org</owner>
@@ -293,7 +442,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.Organization.Organization.TabRemovedCount" units="tabs"
-    expires_after="2024-05-01">
+    expires_after="2025-04-13">
   <owner>dpenning@chromium.org</owner>
   <owner>emshack@chromium.org</owner>
   <owner>tbergquist@chromium.org</owner>
@@ -307,7 +456,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.Organization.Response.Latency" units="ms"
-    expires_after="2024-05-01">
+    expires_after="2025-04-13">
   <owner>dpenning@chromium.org</owner>
   <owner>emshack@chromium.org</owner>
   <owner>tbergquist@chromium.org</owner>
@@ -320,7 +469,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.Organization.Response.Succeeded" enum="Boolean"
-    expires_after="2024-05-01">
+    expires_after="2025-04-13">
   <owner>dpenning@chromium.org</owner>
   <owner>emshack@chromium.org</owner>
   <owner>tbergquist@chromium.org</owner>
@@ -334,7 +483,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.Organization.Response.TabCount" units="tabs"
-    expires_after="2024-05-01">
+    expires_after="2025-04-13">
   <owner>dpenning@chromium.org</owner>
   <owner>emshack@chromium.org</owner>
   <owner>tbergquist@chromium.org</owner>
@@ -345,8 +494,21 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Tab.Organization.SelectorCTR"
+    enum="TabOrganizationSelectorCTREvent" expires_after="2025-02-10">
+  <owner>emshack@chromium.org</owner>
+  <owner>shibalik@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    On Desktop, logs once each time the tab organization feature selector is
+    shown, and once each time the feature buttons are pressed. CTR for each
+    feature can be determined by dividing the feature click count by the
+    selector show count.
+  </summary>
+</histogram>
+
 <histogram name="Tab.Organization.Trigger.Outcome"
-    enum="TabOrganizationTriggerOutcome" expires_after="2024-11-20">
+    enum="TabOrganizationTriggerOutcome" expires_after="2025-03-30">
   <owner>tbergquist@chromium.org</owner>
   <owner>dpenning@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
@@ -357,7 +519,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.Organization.TriggeredInPeriod" enum="Boolean"
-    expires_after="2024-11-20">
+    expires_after="2025-11-20">
   <owner>tbergquist@chromium.org</owner>
   <owner>dpenning@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
@@ -369,20 +531,35 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.Organization{EntryPoint}.Clicked" enum="Boolean"
-    expires_after="2024-05-01">
+    expires_after="2025-04-13">
   <owner>dpenning@chromium.org</owner>
   <owner>emshack@chromium.org</owner>
   <owner>tbergquist@chromium.org</owner>
   <summary>
     Logged when the user clicks {EntryPoint}. In cases where the entrypoint is
     proactively shown, logs false if the user did not interact with the
-    entrypoint.
+    entrypoint. All first run experience users will go through the tab search
+    entrypoint even if entering the tab search UI from a different entrypoint,
+    in which case both entrypoints will be logged.
+  </summary>
+  <token key="EntryPoint" variants="TabOrganizationEntryPoint"/>
+</histogram>
+
+<histogram name="Tab.Organization{EntryPoint}.GroupCount" units="groups"
+    expires_after="2025-04-13">
+  <owner>dpenning@chromium.org</owner>
+  <owner>emshack@chromium.org</owner>
+  <owner>tbergquist@chromium.org</owner>
+  <summary>
+    Number of organizations that were suggested as a result of {EntryPoint}
+    being clicked. Logs when the suggestion is destroyed, regardless of whether
+    the user accepted it.
   </summary>
   <token key="EntryPoint" variants="TabOrganizationEntryPoint"/>
 </histogram>
 
 <histogram name="Tab.Organization{EntryPoint}.UserChoice"
-    enum="TabOrganizationUserChoice" expires_after="2024-05-01">
+    enum="TabOrganizationUserChoice" expires_after="2025-04-13">
   <owner>dpenning@chromium.org</owner>
   <owner>emshack@chromium.org</owner>
   <owner>tbergquist@chromium.org</owner>
@@ -406,7 +583,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.PerceivedRestoreTime" units="ms"
-    expires_after="2024-05-19">
+    expires_after="2025-04-20">
   <owner>ckitagawa@chromium.org</owner>
   <owner>dtrainor@chromium.org</owner>
   <owner>yfriedman@chromium.org</owner>
@@ -420,7 +597,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.Preview.TimeToStoreAfterTabSwitch" units="ms"
-    expires_after="2024-06-02">
+    expires_after="2025-04-13">
   <owner>dfried@chromium.org</owner>
   <owner>collinbaker@chromium.org</owner>
   <summary>
@@ -431,7 +608,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.PullDownGesture" enum="PullDownGestureAction"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>gambard@chromium.org</owner>
   <owner>chromeleon@google.com</owner>
   <summary>
@@ -447,8 +624,8 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.RendererTermination.AliveRenderersCount" units="renderers"
-    expires_after="2024-06-02">
-  <owner>ajuma@chromium.org</owner>
+    expires_after="2025-12-30">
+  <owner>justincohen@chromium.org</owner>
   <owner>bling-fundamentals@google.com</owner>
   <summary>
     [iOS] A count of the number of alive renderers in the current window when a
@@ -466,8 +643,8 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.RendererTermination.TotalTabCount" units="tabs"
-    expires_after="2024-07-14">
-  <owner>ajuma@chromium.org</owner>
+    expires_after="2025-01-26">
+  <owner>justincohen@chromium.org</owner>
   <owner>thegreenfrog@chromium.org</owner>
   <summary>
     [iOS] The number of tabs of the current window at the time of a renderer
@@ -476,7 +653,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.RestoreClosedTab" enum="Boolean"
-    expires_after="2024-06-30">
+    expires_after="2024-09-01">
   <owner>sreejakshetty@chromium.org</owner>
   <owner>chrome-brapp-loading@google.com</owner>
   <summary>
@@ -510,7 +687,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.StateAtRendererTermination" enum="TabForegroundState"
-    expires_after="2024-06-02">
+    expires_after="2025-10-06">
   <owner>gambard@chromium.org</owner>
   <owner>olivierrobin@chromium.org</owner>
   <summary>
@@ -519,31 +696,39 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tab.StatusWhenSwitchedBackToForeground" enum="TabStatus"
-    expires_after="2024-05-19">
+    expires_after="2025-04-13">
   <owner>ckitagawa@chromium.org</owner>
   <owner>marq@chromium.org</owner>
   <summary>
     [Android and iOS] The status of a tab collected each time the user switches
     to it on mobile. That does not include tabs being created at the time the
     user switches to them, such as NTP or tabs opened to handle intents.
+    However, it does include the Tab opened/restored when launching an Activity
+    (on Android).
 
-    Warning this historgram was expired between M86 and 2022-08-24.
+    Warning this histogram was expired between M86 and 2022-08-24.
+
+    In M130, this metric was updated to include Custom Tabs on Android, which
+    were probably unintentionally excluded.
   </summary>
 </histogram>
 
 <histogram name="Tab.SwitchedToForegroundAge" units="ms"
-    expires_after="2024-06-09">
+    expires_after="2025-03-30">
   <owner>dtrainor@chromium.org</owner>
   <owner>ckitagawa@chroimum.org</owner>
   <summary>
     [Android] Age (in ms) when the tab was switched to foreground. Note that
     this data is invalid from M85 until 2023-11-22 because this histogram was
     expired.
+
+    In M130, this metric was updated to include Custom Tabs on Android, which
+    were probably unintentionally excluded.
   </summary>
 </histogram>
 
 <histogram name="TabGroups.CollapsedGroupCountPerLoad" units="groups"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>dpenning@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -567,6 +752,13 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="TabGroups.CountAtStartup" units="groups"
+    expires_after="2025-04-11">
+  <owner>gambard@chromium.org</owner>
+  <owner>chromeleon@google.com</owner>
+  <summary>[iOS] The number of tab groups opened at cold launch.</summary>
+</histogram>
+
 <histogram name="TabGroups.NonZeroUserGroupCountPerLoad" units="groups"
     expires_after="2021-09-12">
   <owner>dpenning@chromium.org</owner>
@@ -577,8 +769,44 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="TabGroups.NumberOfRootIdsFixed" units="groups"
+    expires_after="2025-01-26">
+  <owner>ckitagawa@chromium.org</owner>
+  <owner>clank-tab-dev@chromium.org</owner>
+  <summary>
+    [Android] Records the number of tab groups where the root identifier did not
+    match a tab from its tab group and the root identifier had to be corrected.
+    Emitted once per start during tab state initialization.
+  </summary>
+</histogram>
+
+<histogram
+    name="TabGroups.ParseSavedTabGroupDataEntries.ParseFailurePercentage"
+    units="%" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the percentage of stored entries in the saved tab group
+    DataTypeStore that failed to parse as a SavedTabGroupData in the final stage
+    of startup. Recorded during SavedTabGroupSyncBridge initialization after
+    sucessfully passing through the migration stages.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.SavedTabGroupActiveCount" units="groups"
+    expires_after="2025-04-13">
+  <owner>dljames@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Records per hour once the SavedTabGroupKeyedService is instantiated upon
+    profile open. Tracks the total number of active groups (groups that have
+    been modified within the last 30 days) saved in the profile. Nothing is
+    recorded for sessions shorter than one hour.
+  </summary>
+</histogram>
+
 <histogram name="TabGroups.SavedTabGroupAge" units="minutes"
-    expires_after="2024-07-07">
+    expires_after="2025-03-23">
   <owner>dljames@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -589,7 +817,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabGroups.SavedTabGroupCount" units="groups"
-    expires_after="2024-07-07">
+    expires_after="2025-03-23">
   <owner>dljames@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -600,7 +828,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabGroups.SavedTabGroupLifespan" units="minutes"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>dljames@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -610,8 +838,55 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="TabGroups.SavedTabGroupPinnedCount" units="groups"
+    expires_after="2025-03-30">
+  <owner>dljames@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Records per hour once the SavedTabGroupKeyedService is instantiated upon
+    profile open. Tracks the total number of pinned groups saved in the profile.
+    Nothing is recorded for sessions shorter than one hour.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.SavedTabGroups.TabCountDifference.Negative"
+    units="tabs" expires_after="2025-04-20">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Records the difference in the number of tabs between local tab group and its
+    synced counterpart when the synced version has more tabs compared to the
+    local version. Recorded on connect which happens on startup and also when
+    sync is turned on from an off state.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.SavedTabGroups.TabCountDifference.Positive"
+    units="tabs" expires_after="2025-04-20">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Records the difference in the number of tabs between local tab group and its
+    synced counterpart when the local version has more tabs compared to the
+    synced version. Recorded on connect which happens on startup and also when
+    sync is turned on from an off state.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.SavedTabGroupSyncBridge.MigrationResult"
+    enum="SavedTabGroupSyncBridge.MigrationResult" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Histogram for recording various steps of the SavedTabGroupSyncBridge
+    initialization, such as the migration steps and their results. Care has been
+    taken to ensure that a certain step isn't recorded more than once during a
+    chrome session. Recorded on startup.
+  </summary>
+</histogram>
+
 <histogram name="TabGroups.SavedTabGroupTabCount" units="tabs"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>dljames@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -622,7 +897,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabGroups.SavedTabGroupTabTimeSinceModification"
-    units="minutes" expires_after="2024-06-30">
+    units="minutes" expires_after="2025-05-11">
   <owner>dljames@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -634,7 +909,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabGroups.SavedTabGroupTimeSinceModification" units="minutes"
-    expires_after="2024-07-07">
+    expires_after="2025-03-23">
   <owner>dljames@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -644,14 +919,508 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="TabGroups.SavedTabGroupUnpinnedCount" units="groups"
+    expires_after="2025-04-13">
+  <owner>dljames@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Records per hour once the SavedTabGroupKeyedService is instantiated upon
+    profile open. Tracks the total number of unpinned groups saved in the
+    profile. Nothing is recorded for sessions shorter than one hour.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.SelectedTabInTabGroup" enum="Boolean"
+    expires_after="2025-05-04">
+  <owner>ckitagawa@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Recorded on Android when a user switches tabs. Records whether the tab that
+    was selected was in a tab group.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Shared.LoadFromDiskResult"
+    enum="SharedTabGroupDataLoadFromDiskResult" expires_after="2025-10-10">
+  <owner>rushans@google.com</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the result of loading a SharedTabGroupData entry from disk. Recorded
+    on browser startup or profile open for each entry in the store.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Shared.Recall.Desktop"
+    enum="SharedTabGroupRecallTypeDesktop" expires_after="2025-10-10">
+  <owner>dljames@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    [ Desktop ] Tracks the type of recall action a user explicitly performs on a
+    shared tab group such as closing a group but not deleting it, or opening a
+    group from the bookmarks bar. Recorded when a user triggers a recall action.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Shared.UseUrlForTitle.{SanitizationRequestType}"
+    enum="Boolean" expires_after="2025-10-10">
+  <owner>qinmin@google.com</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records whether a tab in a shared tab group uses page URL as its title, if
+    the page is http(s) and optimization guide is enabled to retrieve the
+    alternative title. Recorded when a tab is added to a shared tab group, or
+    when a tab in a shared tab group finishes a navigation, or after the
+    tabgroup owning the tab was converted to a shared group. No metrics are
+    recorded for tabs in non-shared tab groups. This is recorded on all
+    platforms.
+  </summary>
+  <token key="SanitizationRequestType">
+    <variant name="AddTab" summary="Add a tab"/>
+    <variant name="NavigateTab" summary="Navigate a tab"/>
+    <variant name="ShareTabGroup" summary="Share a tab group"/>
+  </token>
+</histogram>
+
+<histogram name="TabGroups.SpecificsToDataMigration.ParseFailurePercentage"
+    units="%" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the percentage of stored entries in the saved tab group
+    DataTypeStore that failed to parse as a SavedTabGroupSpecfics during
+    migration to SavedTabGroupData. Recorded during the one-time migration. If
+    the data is already migrated, this histogram is not recorded.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.ActiveTabGroupCount.{NumberOfDays}Day"
+    units="groups" expires_after="2025-03-30">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Tracks the number of active tab groups on startup. A group is active iff
+    there was explicit user interaction with the group in last {NumberOfDays}
+    days. An explicit user interaction is currently defined as a tab addition,
+    tab removal or a tab navigation inside the group.
+
+    Recorded on startup 10 seconds after TabGroupSyncService initialization.
+    Android and iOS only.
+  </summary>
+  <token key="NumberOfDays">
+    <variant name="1" summary="1 day"/>
+    <variant name="7" summary="7 day"/>
+    <variant name="28" summary="28 day"/>
+  </token>
+</histogram>
+
+<histogram name="TabGroups.Sync.AddedGroupIsEmptyFromSync" enum="Boolean"
+    expires_after="2025-10-10">
+  <owner>tbergquist@google.com</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Records whether a newly saved tab group was empty or not. Recorded on all
+    platforms (Android, iOS, Desktop) whenever a tab group is added to the
+    SavedTabGroupModel by syncing it from another device. Note that since
+    messages are not received/processed in any particular order, it should not
+    be surprising if this is a large value; however, each empty group should be
+    filled, so the counts should be similar to TabAddedToEmptyGroupFromSync.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.AddedGroupIsEmptyLocally" enum="Boolean"
+    expires_after="2025-10-10">
+  <owner>tbergquist@google.com</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Records whether a newly saved tab group was empty or not. Recorded on all
+    platforms (Android, iOS, Desktop) whenever a tab group is added to the
+    SavedTabGroupModel by the local device.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.ClosedTabGroupCount" units="groups"
+    expires_after="2025-03-30">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Tracks the number of closed tab groups on startup.
+
+    Recorded on startup 10 seconds after TabGroupSyncService initialization.
+    Android and iOS only.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.GroupClosedByUser.HasTitle"
+    enum="BooleanHasTitle" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records whether a tab group that was closed by user has non-empty title.
+    Recorded when the group is closed due to the user action which could be a
+    deletion, ungroup or close action via UI.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.GroupOpenedByUser.HasTitle"
+    enum="BooleanHasTitle" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records whether a tab group that was opened by user has non-empty title.
+    Recorded when the group is opened from revisit surface.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.NumberOfGroupsDeletedOnStartup" units="groups"
+    expires_after="2025-01-19">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Tracks the number of tab groups that are deleted on startup due to a forced
+    cleanup. This is only enabled for a certain finch group of users who have
+    network layer disabled.
+
+    Recorded on startup after TabGroupSyncService initialization after notifying
+    the observers. Android only.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.OpenTabGroupCount" units="groups"
+    expires_after="2025-03-30">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Tracks the number of open tab groups on startup.
+
+    Recorded on startup 10 seconds after TabGroupSyncService initialization.
+    Android and iOS only.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.RemoteActiveTabGroupCount.{NumberOfDays}Day"
+    units="groups" expires_after="2025-03-23">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Tracks the number of active tab groups on startup that were remotely
+    created. A group is active iff there was explicit user interaction with the
+    group in last {NumberOfDays} days. An explicit user interaction is currently
+    defined as a tab addition, tab removal or a tab navigation inside the group.
+
+    Recorded on startup 10 seconds after TabGroupSyncService initialization.
+    Android and iOS only.
+  </summary>
+  <token key="NumberOfDays">
+    <variant name="1" summary="1 day"/>
+    <variant name="7" summary="7 day"/>
+    <variant name="28" summary="28 day"/>
+  </token>
+</histogram>
+
+<histogram name="TabGroups.Sync.RemoteTabGroupCount" units="groups"
+    expires_after="2025-03-30">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Tracks the number of active tab groups on startup that were remotely
+    created.
+
+    Recorded on startup 10 seconds after TabGroupSyncService initialization.
+    Android and iOS only.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.SavedTabGroupAge" units="minutes"
+    expires_after="2025-05-11">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Tracks the age of a SavedTabGroup (since creation). Recorded once per group
+    on startup 10 seconds after TabGroupSyncService initialization. Android and
+    iOS only.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.SavedTabGroupTabCount" units="tabs"
+    expires_after="2025-03-30">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Tracks the number of tabs in a SavedTabGroup.
+
+    Recorded once per group on startup 10 seconds after TabGroupSyncService
+    initialization. Android and iOS only.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.SavedTabGroupTabTimeSinceModification"
+    units="minutes" expires_after="2025-03-30">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Tracks the duration since a saved tab's last modification.
+
+    Recorded once per tab on startup 10 seconds after TabGroupSyncService
+    initialization. Android and iOS only.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabAddedToEmptyGroupFromSync" enum="Boolean"
+    expires_after="2025-10-10">
+  <owner>tbergquist@google.com</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Records whether a tab added to a saved group was the first tab or not.
+    Recorded on all platforms (Android, iOS, Desktop) whenever a tab is added to
+    a tab group by syncing it from another device.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabAddedToEmptyGroupLocally" enum="Boolean"
+    expires_after="2025-10-10">
+  <owner>tbergquist@google.com</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Records whether a tab added to a saved group was the first tab or not.
+    Recorded on all platforms (Android, iOS, Desktop) whenever a tab is added to
+    a tab group by the local device.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.Closed.GroupCreateOrigin"
+    enum="DeviceType" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the DeviceType of the device in which a tab group was created.
+    Recorded when the group is closed. This includes all types of group closures
+    initiated by the user such as close, ungroup or delete event on the group.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.Closed.Reason"
+    enum="GroupClosingSource" expires_after="2025-03-30">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Records the source from which a tab group was closed. Recorded whenever a
+    group is being closed in the UI which could be due to various trigger
+    sources such as manually closed by user or deletion from sync.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.Created.GroupCreateOrigin"
+    enum="DeviceType" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the DeviceType of the device in which a tab group was created.
+    Recorded when the group is created.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.Opened.GroupCreateOrigin"
+    enum="DeviceType" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the DeviceType of the device in which a tab group was created.
+    Recorded when the group is opened due to user action such as opening the
+    group from revisit surface.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.Opened.Reason"
+    enum="GroupOpeningSource" expires_after="2025-03-23">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Records the source from which a tab group was opened. Recorded whenever a
+    group is being opened in the UI which could be due to various trigger
+    sources such as manually opened by user or auto-opened from sync.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.Removed.GroupCreateOrigin"
+    enum="DeviceType" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the DeviceType of the device in which a tab group was created.
+    Recorded when the group is removed.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.TabAdded.GroupCreateOrigin"
+    enum="DeviceType" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the DeviceType of the device in which a tab group was created.
+    Recorded when a tab was added to the tab group.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.TabNavigated.GroupCreateOrigin"
+    enum="DeviceType" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the DeviceType of the device in which a tab group was created.
+    Recorded when a tab was navigated in the tab group.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.TabRemoved.GroupCreateOrigin"
+    enum="DeviceType" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the DeviceType of the device in which a tab group was created.
+    Recorded when a tab was was removed from the tab group.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.TabSelected.GroupCreateOrigin"
+    enum="DeviceType" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the DeviceType of the device in which a tab group was created.
+    Recorded when the a tab is selected by user action. Note that this can
+    happen multiple times during a user session.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.TabSelected.TabCreateOrigin"
+    enum="DeviceType" expires_after="2025-02-02">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the DeviceType of the device in which a tab was created. Recorded
+    when the a tab is selected by user action. Note that this can happen
+    multiple times during a user session.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.TabsReordered.GroupCreateOrigin"
+    enum="DeviceType" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the DeviceType of the device in which a tab group was created.
+    Recorded when the tabs are reordered inside the group.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.UserInteracted.GroupCreateOrigin"
+    enum="DeviceType" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the DeviceType of the device in which a tab group was created.
+    Recorded when the group is interacted with by user. Tab addition, removal
+    and selection are considered as user interaction
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.UserInteracted.HasTitle"
+    enum="BooleanHasTitle" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records whether a tab group that was interacted by user has non-empty title.
+    Tab addition, removal and selection are considered as user interaction. Note
+    that this can happen multiple times during a user session.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroup.VisualsChanged.GroupCreateOrigin"
+    enum="DeviceType" expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>chrome-multiplayer-eng@google.com</owner>
+  <summary>
+    Records the DeviceType of the device in which a tab group was created.
+    Recorded when the group visuals (title or color) is changed.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroupLoadedEmptiness"
+    enum="TabGroupLoadedEmptiness" expires_after="2025-10-10">
+  <owner>tbergquist@google.com</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Records whether a tab group loaded from disk was empty, not empty, or if it
+    became empty after removing tabs already in a shared group. Recorded on all
+    platforms (Android, iOS, Desktop) on browser startup or profile open for
+    each saved or shared tab group loaded.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabGroupTitleLength" units="characters"
+    expires_after="2025-04-06">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Records the number of characters in the tab group title. Recorded when
+    TabGroupSyncService::UpdateVisualData is invoked which is typically invoked
+    whenever there is any change to title, color, or even when tab group dialog
+    is closed.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TabRemovedFromGroupWasLastTab" enum="Boolean"
+    expires_after="2025-10-10">
+  <owner>tbergquist@google.com</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Records whether a tab removed from a saved group was the last tab or not.
+    Recorded on all platforms (Android, iOS, Desktop) whenever a tab is removed
+    from a tab group.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TimeSinceLastUserInteractionWithGroup"
+    units="minutes" expires_after="2025-03-30">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Tracks the duration since a saved group's last user interaction which is
+    typically defined as tab addition, tab removal or tab navigation.
+
+    Recorded once per group on startup 10 seconds after TabGroupSyncService
+    initialization. Android and iOS only.
+  </summary>
+</histogram>
+
+<histogram name="TabGroups.Sync.TotalTabGroupCount" units="groups"
+    expires_after="2025-03-23">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Tracks the number of total tab groups on startup which includes both open
+    and closed tab groups.
+
+    Recorded on startup 10 seconds after TabGroupSyncService initialization.
+    Android and iOS only.
+  </summary>
+</histogram>
+
 <histogram name="TabGroups.TabGroupBubble.TabCount" units="tabs"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>sophiechang@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
     Records the number of tabs in a group whenever a tab group editor bubble
     closes.
   </summary>
+</histogram>
+
+<histogram name="TabGroups.TabsPerGroupCountAtStartup" units="tabs"
+    expires_after="2025-04-11">
+  <owner>gambard@chromium.org</owner>
+  <owner>chromeleon@google.com</owner>
+  <summary>[iOS] The number of tabs per group at cold launch.</summary>
 </histogram>
 
 <histogram name="TabGroups.TimeSpentCollapsed2" units="seconds"
@@ -675,7 +1444,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabGroups.UnsavedTabGroupCount" units="groups"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>dljames@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -686,7 +1455,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabGroups.UnsavedTabGroupTabCount" units="tabs"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>dljames@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -697,7 +1466,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabGroups.UserCustomizedGroupCountPerLoad" units="groups"
-    expires_after="2024-05-19">
+    expires_after="2025-04-13">
   <owner>dpenning@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -712,7 +1481,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabGroups.UserGroupCount" units="groups"
-    expires_after="2024-07-14">
+    expires_after="2025-03-30">
   <owner>ckitagawa@chromium.org</owner>
   <owner>meiliang@chromium.org</owner>
   <summary>
@@ -722,7 +1491,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabGroups.UserGroupCountPerLoad" units="groups"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>dpenning@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -737,7 +1506,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabGroups.UserPinnedTabCountPerLoad" units="tabs"
-    expires_after="2024-05-19">
+    expires_after="2025-04-13">
   <owner>dpenning@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -749,6 +1518,33 @@ chromium-metrics-reviews@google.com.
     would not have affected the recorded value. It would only duplicate a
     previous recording.
   </summary>
+</histogram>
+
+<histogram name="TabGroups.{ConsentLevel}.{GroupsOrTabs}" units="count"
+    expires_after="2025-03-29">
+  <owner>treib@chromium.org</owner>
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Records the number of {GroupsOrTabs}, at the moment when the user is
+    {ConsentLevel} Chrome. Android and iOS only.
+  </summary>
+  <token key="GroupsOrTabs">
+    <variant name="ClosedTabGroupCount" summary="closed tab groups"/>
+    <variant name="ClosedTabGroupTabsCount"
+        summary="tabs that are part of a closed tab group"/>
+    <variant name="OpenTabGroupCount" summary="open tab groups"/>
+    <variant name="OpenTabGroupTabsCount"
+        summary="tabs that are part of an open tab group"/>
+    <variant name="TotalTabGroupCount"
+        summary="all tab groups (open or closed)"/>
+    <variant name="TotalTabGroupTabsCount"
+        summary="all tabs that are part of a tab group (open or closed)"/>
+  </token>
+  <token key="ConsentLevel">
+    <variant name="OnSignin" summary="signing in to"/>
+    <variant name="OnSync" summary="enabling sync in"/>
+  </token>
 </histogram>
 
 <histogram name="TabManager.BackgroundTabOpening.TabCount" units="tabs"
@@ -819,7 +1615,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabManager.Discarding.DiscardCount" units="Discards"
-    expires_after="2024-07-14">
+    expires_after="2025-03-23">
   <owner>chrisha@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -831,7 +1627,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabManager.Discarding.DiscardToReloadTime" units="ms"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>chrisha@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -851,7 +1647,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabManager.Discarding.InactiveToReloadTime" units="ms"
-    expires_after="2024-05-19">
+    expires_after="2025-04-13">
   <owner>chrisha@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -872,7 +1668,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabManager.Discarding.ReloadCount" units="Reloads"
-    expires_after="2024-07-14">
+    expires_after="2025-03-30">
   <owner>chrisha@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -884,7 +1680,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabManager.Discarding.ReloadToCloseTime" units="ms"
-    expires_after="2024-05-26">
+    expires_after="2025-04-13">
   <owner>chrisha@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -906,20 +1702,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="TabManager.TabRanker.Result" enum="TabManagerTabRankerResult"
-    expires_after="M85">
-  <owner>michaelpg@chromium.org</owner>
-  <owner>charleszhao@chromium.org</owner>
-  <summary>
-    Logged when calculating a tab reactivation score for a background tab. Any
-    value other than &quot;none&quot; may indicate a bug in the inference code,
-    a problem with the preprocessor configuration shipped with the model, or a
-    bug in the code that populates the RankerExample for a tab.
-  </summary>
-</histogram>
-
 <histogram name="TabRestore.{RestoreType}.TimeBetweenClosedAndRestored"
-    units="ms" expires_after="2024-06-30">
+    units="ms" expires_after="2025-05-11">
   <owner>sreejakshetty@chromium.org</owner>
   <owner>chrome-brapp-loading@google.com</owner>
   <summary>
@@ -935,7 +1719,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.Active.AbsolutePosition" units="index"
-    expires_after="2024-06-30">
+    expires_after="2025-01-05">
   <owner>emshack@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -945,7 +1729,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.Active.RelativePosition" units="%"
-    expires_after="2024-07-01">
+    expires_after="2025-01-05">
   <owner>emshack@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -955,7 +1739,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.ActiveCountAtStartup" units="tabs"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>alionadangla@chromium.org</owner>
   <owner>lpromero@chromium.org</owner>
   <owner>chromeleon@google.com</owner>
@@ -965,24 +1749,100 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tabs.CountAtResume" units="tabs" expires_after="2024-05-19">
-<!-- This histogram was expired between 2022-11-02 and M111 -->
+<histogram name="Tabs.ArchiveSettings.AutoDeleteEnabled" enum="Boolean"
+    expires_after="2025-03-02">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Records when a user toggles the settings entry for automatically deleting
+    inactive tabs on Android. The default state is enabled and is not recorded.
+    This histogram tracks the new state of the toggle and is emitted each time
+    it is changed. True corresponds to enabled and false corresponds to
+    disabled.
+  </summary>
+</histogram>
 
+<histogram name="Tabs.ArchiveSettings.TimeDeltaPreference" units="days"
+    expires_after="2025-05-04">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>Records when a user selects an archive time preference.</summary>
+</histogram>
+
+<histogram name="Tabs.AutoOpenSyncedTabGroupsSwitch.ToggledToState"
+    enum="Boolean" expires_after="2025-04-30">
+  <owner>ckitagawa@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Records when a user toggles the settings entry for automatically opening
+    synced tab groups on Android. The default state is enabled and is not
+    recorded. This histogram tracks the new state of the toggle and is emitted
+    each time it is changed. True corresponds to enabled and false corresponds
+    to disabled.
+  </summary>
+</histogram>
+
+<histogram name="Tabs.CloseAllArchivedTabs.TabCount" units="tabs"
+    expires_after="2025-05-04">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Records the number of tabs that are currently selected when the close all
+    inactive tabs button is clicked.
+  </summary>
+</histogram>
+
+<histogram name="Tabs.CloseArchivedTabsMenuItem.TabCount" units="tabs"
+    expires_after="2025-05-04">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Records the number of tabs that are currently selected when the close menu
+    item is clicked.
+  </summary>
+</histogram>
+
+<histogram name="Tabs.CountAtResume2" units="tabs" expires_after="2025-03-30">
   <owner>marq@chromium.org</owner>
   <owner>olivierrobin@chromium.org</owner>
   <summary>
     [iOS] The number of tabs opened when the app comes out of the background.
+    With a wider range than Tabs.CountAtResume (100 -&gt; 1M)
   </summary>
 </histogram>
 
-<histogram name="Tabs.CountAtStartup" units="tabs" expires_after="2024-05-19">
+<histogram name="Tabs.CountAtStartup" units="tabs" expires_after="2025-04-13">
   <owner>marq@chromium.org</owner>
   <owner>chromeleon@google.com</owner>
-  <summary>[Android and iOS] The number of tabs opened at cold launch.</summary>
+  <summary>
+    [Android] The number of tabs opened at cold launch. iOS uses
+    Tabs.CountAtStartup2
+  </summary>
+</histogram>
+
+<histogram name="Tabs.CountAtStartup2" units="tabs" expires_after="2025-04-13">
+  <owner>marq@chromium.org</owner>
+  <owner>chromeleon@google.com</owner>
+  <summary>
+    [iOS] The number of tabs opened at cold launch. With a wider range than
+    Tabs.CountAtStartup (100 -&gt; 1M)
+  </summary>
+</histogram>
+
+<histogram name="Tabs.DeserializationResultForAppendPendingNavigation"
+    enum="BooleanSuccess" expires_after="2025-01-05">
+  <owner>ckitagawa@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    [Android] Recorded when a tab's WebContentsState is being modified by
+    freezing and appending to it. Success indicates that the previous state was
+    safely deserialized and could be appended to. Failure indicates that the
+    previous WebContentsState could not be read and will be clobbered.
+  </summary>
 </histogram>
 
 <histogram name="Tabs.DroppedDuplicatesCountOn{Occasion}" units="tabs"
-    expires_after="2024-10-16">
+    expires_after="2025-04-20">
   <owner>lpromero@google.com</owner>
   <owner>chromeleon@google.com</owner>
   <summary>
@@ -1010,8 +1870,56 @@ chromium-metrics-reviews@google.com.
   </token>
 </histogram>
 
+<histogram name="Tabs.Duplicates.Count.AllProfileWindows" units="tabs"
+    expires_after="2025-04-06">
+  <owner>emshack@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Every 5 minutes, for each profile with at least one open window, records the
+    number of duplicate tabs across all tab strips for that profile. E.g. if
+    there are 3 tabs with the same URL, 2 are duplicates and a value of 2 will
+    be logged. If a tab in a different window has the same URL, it will count as
+    a duplicate.
+  </summary>
+</histogram>
+
+<histogram name="Tabs.Duplicates.Count.SingleWindow" units="tabs"
+    expires_after="2025-04-06">
+  <owner>emshack@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Every 5 minutes, records the number of duplicate tabs in each open tab
+    strip. Logs once per browser window. E.g. if in one window there are 3 tabs
+    with the same URL, and in another window there are 2 tabs with that URL, a
+    value of 2 and a value of 1 will be logged.
+  </summary>
+</histogram>
+
+<histogram name="Tabs.Duplicates.Percentage.AllProfileWindows" units="%"
+    expires_after="2025-04-06">
+  <owner>emshack@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Every 5 minutes, for each profile with at least one open window, records the
+    percentage of all tabs across all windows for that profile that are
+    duplicates of other tabs. If there are 3 tabs with the same URL, 2 are
+    considered duplicates.
+  </summary>
+</histogram>
+
+<histogram name="Tabs.Duplicates.Percentage.SingleWindow" units="%"
+    expires_after="2025-04-06">
+  <owner>emshack@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Every 5 minutes, records the percentage of all tabs in each window that are
+    duplicates of other tabs in that window. Logs once per browser window. If
+    there are 3 tabs with the same URL, 2 are considered duplicates.
+  </summary>
+</histogram>
+
 <histogram name="Tabs.DuplicatesCountAtStartup" units="tabs"
-    expires_after="2024-05-19">
+    expires_after="2025-04-13">
   <owner>ewannpv@chromium.org</owner>
   <owner>lpromero@google.com</owner>
   <owner>chromeleon@google.com</owner>
@@ -1048,8 +1956,29 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Tabs.FreezeAndAppendPendingNavigationResult"
+    enum="BooleanSuccess" expires_after="2025-01-05">
+  <owner>ckitagawa@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    [Android] Recorded when a tab's WebContentsState is being frozen and
+    appended to. Success indicates that the append succeeded. Failure indicates
+    it was not possible to freeze the tab and we had to fallback to a lazy load.
+  </summary>
+</histogram>
+
+<histogram name="Tabs.GridTabSwitcher.ScrollToTabById.HasTab" enum="Boolean"
+    expires_after="2025-03-09">
+  <owner>ckitagawa@chromium.org</owner>
+  <owner>skym@chromium.org</owner>
+  <summary>
+    Records whether the scrollToTabById operation had a valid tab. This is being
+    used to investigate the frequency with which this operation fails.
+  </summary>
+</histogram>
+
 <histogram name="Tabs.InactiveCountAtStartup" units="tabs"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>alionadangla@chromium.org</owner>
   <owner>lpromero@chromium.org</owner>
   <owner>chromeleon@google.com</owner>
@@ -1060,7 +1989,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.LiveNTPCountAtResume" units="tabs"
-    expires_after="2024-04-28">
+    expires_after="2025-04-28">
   <owner>thegreenfrog@chromium.org</owner>
   <owner>bling-team@google.com</owner>
   <summary>
@@ -1138,7 +2067,7 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tabs.NTPCountAtResume" units="tabs" expires_after="2024-10-08">
+<histogram name="Tabs.NTPCountAtResume" units="tabs" expires_after="2025-04-13">
   <owner>thegreenfrog@chromium.org</owner>
   <owner>sugoi@chromium.org</owner>
   <summary>
@@ -1147,7 +2076,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.NTPCountAtStartup" units="tabs"
-    expires_after="2024-10-08">
+    expires_after="2025-04-13">
   <owner>thegreenfrog@chromium.org</owner>
   <owner>sugoi@chromium.org</owner>
   <summary>[iOS] The number of NTP tabs open at cold launch.</summary>
@@ -1167,8 +2096,8 @@ chromium-metrics-reviews@google.com.
   <token key="BatteryState" variants="BatteryState"/>
 </histogram>
 
-<histogram name="Tabs.OldCountAtStartup" units="tabs"
-    expires_after="2024-06-30">
+<histogram name="Tabs.OldCountAtStartup2" units="tabs"
+    expires_after="2025-02-08">
   <owner>alionadangla@chromium.org</owner>
   <owner>lpromero@chromium.org</owner>
   <owner>chromeleon@google.com</owner>
@@ -1177,8 +2106,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tabs.PageLoad.TimeSinceActive" units="ms"
-    expires_after="2024-07-07">
+<histogram name="Tabs.PageLoad.TimeSinceActive2" units="ms"
+    expires_after="2025-05-04">
   <owner>emshack@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -1187,8 +2116,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tabs.PageLoad.TimeSinceCreated" units="ms"
-    expires_after="2024-07-07">
+<histogram name="Tabs.PageLoad.TimeSinceCreated2" units="ms"
+    expires_after="2025-03-30">
   <owner>emshack@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -1251,7 +2180,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.PersistedTabData.Storage.Exists.File"
-    enum="BooleanSuccess" expires_after="2024-05-17">
+    enum="BooleanSuccess" expires_after="2025-04-12">
   <owner>yusufo@chromium.org</owner>
   <owner>nyquist@chromium.org</owner>
   <owner>dtrainor@chromium.org</owner>
@@ -1264,7 +2193,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.PersistedTabData.Storage.LevelDB.OrphanedDataCount"
-    units="keys" expires_after="2024-05-22">
+    units="keys" expires_after="2025-04-12">
   <owner>davidjm@chromium.org</owner>
   <owner>dtrainor@chromium.org</owner>
   <summary>
@@ -1374,15 +2303,42 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.PinnedCountAtStartup" units="tabs"
-    expires_after="2024-06-28">
+    expires_after="2025-05-11">
   <owner>ewannpv@chromium.org</owner>
   <owner>chromeleon@google.com</owner>
   <summary>[iOS] The number of pinned tabs opened at cold launch.</summary>
 </histogram>
 
+<histogram name="Tabs.PotentialDoubleDirty.SaveQueueSize" units="tabs"
+    expires_after="2025-01-12">
+  <owner>skym@chromium.org</owner>
+  <owner>ckitagawa@chroimum.org</owner>
+  <summary>
+    On Android, when a tab becomes dirty, it is queued to be saved to disk.
+    Clients that make multiple modifications in a sequence to the same tab can
+    cause poor performance by triggering a synchronous save from the first
+    modification, and then a second one from the others. This can be manually
+    worked around by notifying the TabStateAttributes, but clients that need
+    this change need to be identified first. This histogram is trying to help
+    identify the frequency that this situation is encountered.
+
+    This histogram, only on Android, is specifically recorded when we go to
+    queue a tab's data to be saved to persistent storage, and we notice that
+    we're also currently writing the same tab to disk. This is not always a
+    problem, as there could be many pending async writes happening to various
+    tabs, when new fresh modifications come in.
+
+    The value being recorded is the number of tabs in the save queue in front of
+    the tab being added. If the number is zero, it's very likely because of a
+    client making multiple sequential modifications. On the other hand, a larger
+    number is likely just the same tab being modified asynchronously and the
+    queue is backed up with other changes.
+  </summary>
+</histogram>
+
 <histogram
     name="Tabs.RecentlyClosed.EntriesRestoredInPage.{RecentlyClosedType}"
-    units="entries restored" expires_after="2024-08-05">
+    units="entries restored" expires_after="2025-12-08">
   <owner>ckitagawa@chromium.org</owner>
   <owner>fredmello@chromium.org</owner>
   <summary>
@@ -1395,7 +2351,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.RecentlyClosed.EntriesShownInPage.{RecentlyClosedType}"
-    units="entries shown" expires_after="2024-08-05">
+    units="entries shown" expires_after="2025-04-13">
   <owner>ckitagawa@chromium.org</owner>
   <owner>fredmello@chromium.org</owner>
   <summary>
@@ -1407,7 +2363,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.RecentlyClosed.HistoricalSaverCloseType"
-    enum="HistoricalSaverCloseType" expires_after="2024-08-05">
+    enum="HistoricalSaverCloseType" expires_after="2025-12-08">
   <owner>ckitagawa@chromium.org</owner>
   <owner>fredmello@chromium.org</owner>
   <summary>
@@ -1419,22 +2375,28 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram
-    name="Tabs.RecentlyClosed.PercentOfEntriesRestoredInPage.{RecentlyClosedType}"
-    units="percentage restored" expires_after="2024-08-05">
-  <owner>ckitagawa@chromium.org</owner>
-  <owner>fredmello@chromium.org</owner>
+<histogram name="Tabs.RestoreAllArchivedTabsMenuItem.TabCount" units="tabs"
+    expires_after="2025-05-04">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
   <summary>
-    The percentage of entries from TabRestoreService of {RecentlyClosedType}
-    type that were restored relative to the number shown in one Recent Tabs page
-    session on Android. This is recorded when destroying the Recent Tabs page if
-    any entires of {RecentlyClosedType} type were shown.
+    Records the number of tabs that are currently selected when the restore all
+    menu item is clicked.
   </summary>
-  <token key="RecentlyClosedType" variants="RecentlyClosedType"/>
+</histogram>
+
+<histogram name="Tabs.RestoreArchivedTabsMenuItem.TabCount" units="tabs"
+    expires_after="2025-05-04">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Records the number of tabs that are currently selected when the restore menu
+    item is clicked.
+  </summary>
 </histogram>
 
 <histogram name="Tabs.RestoredFromInactiveCount" units="tabs"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>lpromero@google.com</owner>
   <owner>chromeleon@google.com</owner>
   <summary>
@@ -1445,7 +2407,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.RestoreTabStateException" enum="RestoreTabStateException"
-    expires_after="2024-05-19">
+    expires_after="2025-04-13">
   <owner>ckitagawa@chromium.org</owner>
   <owner>fredmello@chromium.org</owner>
   <summary>
@@ -1458,7 +2420,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.SadTab.Feedback.Event" enum="SadTabEvent"
-    expires_after="2024-05-19">
+    expires_after="2025-04-13">
   <owner>sonnyrao@chromium.org</owner>
   <owner>jamescook@chromium.org</owner>
   <summary>
@@ -1469,7 +2431,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.SadTab.Reload.Event" enum="SadTabEvent"
-    expires_after="2024-05-19">
+    expires_after="2025-04-13">
   <owner>sonnyrao@chromium.org</owner>
   <owner>jamescook@chromium.org</owner>
   <summary>
@@ -1547,8 +2509,32 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Tabs.Startup.RestoreDuration.{TabModelSelectorType}"
+    units="ms" expires_after="2025-03-30">
+  <owner>ckitagawa@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Records the realtime duration it took to restore all the tab states per
+    {TabModelSelectorType}. Recorded after tab model selector restoration
+    completes successfully. Android-only.
+  </summary>
+  <token key="TabModelSelectorType" variants="TabModelSelectorType"/>
+</histogram>
+
+<histogram name="Tabs.Startup.RestoreDurationPerTab.{TabModelSelectorType}"
+    units="ms" expires_after="2025-03-30">
+  <owner>ckitagawa@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Records the average realtime duration it took per-tab to restore all the tab
+    states. Bucketed by {TabModelSelectorType}. Recorded after tab model
+    selector restoration completes successfully. Android-only.
+  </summary>
+  <token key="TabModelSelectorType" variants="TabModelSelectorType"/>
+</histogram>
+
 <histogram name="Tabs.Startup.TabCount.{TabType}" units="count"
-    expires_after="2024-07-14">
+    expires_after="2025-03-30">
   <owner>davidjm@chromium.org</owner>
   <owner>nyquist@chromium.org</owner>
   <summary>Records the number of {TabType} Tabs loaded on startup.</summary>
@@ -1558,18 +2544,30 @@ chromium-metrics-reviews@google.com.
   </token>
 </histogram>
 
-<histogram name="Tabs.StateTransfer.NumberOfOtherTabsActivatedBeforeMadeActive"
-    units="tabs" expires_after="M77">
-  <owner>kouhei@chromium.org</owner>
-  <owner>tzik@chromium.org</owner>
+<histogram name="Tabs.Startup.TabCount2.{TabModelSelectorType}.DuplicateTabIds"
+    units="count" expires_after="2025-05-04">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
   <summary>
-    Recorded once per tab activation. The number of tabs that were activated
-    while the tab was inactive.
-
-    This metric is to be removed after M46 hits stable. We don't expect this
-    metric to change over release, so we will remove this once we have the
-    numbers from stable.
+    Records the number of duplicate tabs in the tab metadata found at startup
+    per {TabModelSelectorType}.
   </summary>
+  <token key="TabModelSelectorType" variants="TabModelSelectorType"/>
+</histogram>
+
+<histogram name="Tabs.Startup.TabCount2.{TabModelSelectorType}.{TabType}"
+    units="count" expires_after="2025-03-30">
+  <owner>davidjm@chromium.org</owner>
+  <owner>nyquist@chromium.org</owner>
+  <summary>
+    Records the number of {TabType} Tabs loaded on startup per
+    {TabModelSelectorType}.
+  </summary>
+  <token key="TabModelSelectorType" variants="TabModelSelectorType"/>
+  <token key="TabType">
+    <variant name="Incognito" summary="Incognito"/>
+    <variant name="Regular" summary="Regular"/>
+  </token>
 </histogram>
 
 <histogram name="Tabs.StateTransfer.TabDistanceInactiveToActive" units="tabs"
@@ -1585,33 +2583,58 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tabs.Suggestions.NumSuggestionsChanged{TabSuggestionType}"
-    units="count" expires_after="2023-10-16">
-  <owner>yusufo@chromium.org</owner>
-  <owner>davidjm@chromium.org</owner>
-  <owner>meiliang@chromium.org</owner>
+<histogram name="Tabs.TabArchived.FoundDuplicateInRegularModel" units="count"
+    expires_after="2025-05-04">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
   <summary>
-    The user is presented with recommendations on which Tabs they could take the
-    suggested action. The user has the option to: 1) Remove a Tab from the
-    recommendation 2) Add a Tab which wasn't in the recommendation to the
-    recommendation.
-
-    This metric records the sum of the number of times the user does 1) or 2)
-    and is a measure of how useful the recommendation is. This metric is
-    recorded after the user accepts a recommendation - potentially with edits by
-    performing 1) or 2).
-
-    Note: Adding and removing the same Tab, or vice versa, would be counted as
-    0. {TabSuggestionType}
+    (Android only) Records how many tabs were found in the regular model which
+    have already been archvied. Recorded on each declutter pass.
   </summary>
-  <token key="TabSuggestionType">
-    <variant name=".ClosingSuggestion"
-        summary="This bukect is for the closing suggestion. It suggests users
-                 to close the recommended tabs."/>
-    <variant name=".GroupingSuggestion"
-        summary="This bukect is for the grouping suggestion. It suggests
-                 users to group the recommended tabs."/>
-  </token>
+</histogram>
+
+<histogram name="Tabs.TabArchived.TabCount" units="tabs"
+    expires_after="2025-05-04">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    (Android only) Records how many tabs were archived from the normal tab model
+    selector during an archive pass.
+  </summary>
+</histogram>
+
+<histogram name="Tabs.TabArchiveEligibilityCheck.AfterNDays" units="days"
+    expires_after="2025-03-02">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    (Android only) Records how old, in days, a tab is when it's checked for
+    archive eligibility. Recorded at startup when the archived tab model is
+    loaded and at regular intervals after that (default interval is 7d, but is
+    configurable via finch.). Only recorded if tab declutter is enabled.
+  </summary>
+</histogram>
+
+<histogram name="Tabs.TabAutoDeleted.AfterNDays" units="days"
+    expires_after="2025-03-02">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    (Android only) Records how old, in days, a tab is when it's autodeleted. Age
+    is calculated based on when a tab was archived.
+  </summary>
+</histogram>
+
+<histogram name="Tabs.TabAutoDeleteEligibilityCheck.AfterNDays" units="days"
+    expires_after="2025-03-02">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    (Android only) Records how old, in days, a tab is when it's checked for
+    auto-deletion eligibility. Recorded at startup when the archived tab model
+    is loaded and at regular intervals after that (default interval is 7d, but
+    is configurable via finch.). Only recorded if tab declutter is enabled.
+  </summary>
 </histogram>
 
 <histogram name="Tabs.TabCountActiveWindow" units="tabs" expires_after="never">
@@ -1629,7 +2652,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabCountInGroupPerLoad" units="tabs"
-    expires_after="2024-06-18">
+    expires_after="2025-05-04">
   <owner>dpenning@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -1643,7 +2666,7 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tabs.TabCountPerLoad" units="tabs" expires_after="2024-05-19">
+<histogram name="Tabs.TabCountPerLoad" units="tabs" expires_after="2025-04-13">
   <owner>mpearson@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <owner>sbirch@google.com</owner>
@@ -1661,7 +2684,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabCountPerWindow" units="tabs"
-    expires_after="2024-05-19">
+    expires_after="2025-04-13">
   <owner>mpearson@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -1714,7 +2737,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabRestoreMethod" enum="TabRestoreMethod"
-    expires_after="2024-05-19">
+    expires_after="2025-07-08">
   <owner>davidjm@chromium.org</owner>
   <owner>dtrainor@chromium.org</owner>
   <owner>nyquist@chromium.org</owner>
@@ -1733,8 +2756,18 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Tabs.TabRestoreUrlMatch" enum="Boolean"
+    expires_after="2025-07-08">
+  <owner>ckitagawa@chromium.org</owner>
+  <owner>dtrainor@chromium.org</owner>
+  <summary>
+    Records whether the URL in the tab state file and the tab state metadata
+    list match when each tab is restored. Android-only.
+  </summary>
+</histogram>
+
 <histogram name="Tabs.TabSearch.BubbleWidgetInitializationTime" units="ms"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>temao@chromium.org</owner>
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
@@ -1749,7 +2782,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.ButtonPressedToNextFramePresented" units="ms"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>temao@chromium.org</owner>
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
@@ -1770,7 +2803,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.CloseAction" enum="TabSearchCloseActions"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <summary>
@@ -1786,7 +2819,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.Mojo.SwitchToTab" units="ms"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>kerenzhu@chromium.org</owner>
   <owner>romanarora@chromium.org</owner>
   <owner>yuhengh@chromium.org</owner>
@@ -1799,7 +2832,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.Mojo.SwitchToTab.IsOverlap" enum="Boolean"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>kerenzhu@chromium.org</owner>
   <owner>romanarora@chromium.org</owner>
   <owner>yuhengh@chromium.org</owner>
@@ -1812,7 +2845,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.Mojo.TabUpdated" units="ms"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>kerenzhu@chromium.org</owner>
   <owner>romanarora@chromium.org</owner>
   <owner>yuhengh@chromium.org</owner>
@@ -1826,7 +2859,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.Mojo.TabUpdated.IsOverlap" enum="Boolean"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>kerenzhu@chromium.org</owner>
   <owner>romanarora@chromium.org</owner>
   <owner>yuhengh@chromium.org</owner>
@@ -1839,7 +2872,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.NumTabsClosedPerInstance" units="tabs"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <summary>
@@ -1852,7 +2885,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.NumTabsOnOpen" units="tabs"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <summary>
@@ -1863,7 +2896,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.NumWindowsOnOpen" units="windows"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <summary>
@@ -1875,7 +2908,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.OpenAction" enum="TabSearchOpenActions"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <summary>
@@ -1890,7 +2923,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.PageHandlerConstructionDelay" units="ms"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <owner>yuhengh@chromium.org</owner>
@@ -1908,8 +2941,18 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Tabs.TabSearch.PositionInTabstrip" enum="TabSearchPosition"
+    expires_after="2025-07-08">
+  <owner>dpenning@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    [Desktop] Logs the position of the tab search button in the tabstrip region
+    view. Trailing implies right side in LTR, leading implies left in LTR.
+  </summary>
+</histogram>
+
 <histogram name="Tabs.TabSearch.RecentlyClosedSectionToggleAction"
-    enum="TabSearchRecentlyClosedToggleActions" expires_after="2024-12-31">
+    enum="TabSearchRecentlyClosedToggleActions" expires_after="2025-07-08">
   <owner>romanarora@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <owner>tluk@chromium.org</owner>
@@ -1926,7 +2969,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.RecentlyClosedSectionToggleStateOnOpen"
-    enum="TabSearchRecentlyClosedToggleActions" expires_after="2024-12-31">
+    enum="TabSearchRecentlyClosedToggleActions" expires_after="2025-07-08">
   <owner>romanarora@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <owner>tluk@chromium.org</owner>
@@ -1942,8 +2985,54 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Tabs.TabSearch.TimeToClose" units="ms"
+    expires_after="2025-07-08">
+  <owner>emshack@chromium.org</owner>
+  <owner>shibalik@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    Tab Search is a feature that allows users to better search for and switch to
+    their desired tabs. The Tab Search UI is shown in a bubble anchored to an
+    element of the UI in the browser window.
+
+    This metric measures the length of time the Tab Search bubble widget was
+    open, recorded on close.
+  </summary>
+</histogram>
+
+<histogram name="Tabs.TabSearch.TimeToShow.{WarmUpLevel}" units="ms"
+    expires_after="2025-07-08">
+  <owner>kerenzhu@chromium.org</owner>
+  <owner>dayeung@chromium.org</owner>
+  <owner>tluk@chromium.org</owner>
+  <owner>robliao@chromium.org</owner>
+  <summary>
+    This tracks the time between when the Tab Search WebUI bubble widget is
+    first created and when it is first shown to users as reported by the bubble
+    widget's ui compositor. This metric is only logged for the specific warm-up
+    level. The warm-up level indicates the readiness of the browser when it was
+    about to show this WebUI.
+
+    This metric is emitted when the bubble window is first revealed.
+  </summary>
+  <token key="WarmUpLevel">
+    <variant name="DedicatedRenderer"
+        summary="Uses a renderer that already hosts other top chrome WebUIs"/>
+    <variant name="NoRenderer" summary="No renderer can be used"/>
+    <variant name="PreloadedWebContents"
+        summary="Uses a preloaded WebContents."/>
+    <variant name="RedirectedWebContents"
+        summary="Uses a redirected preloaded WebContents that was on a
+                 different WebUI."/>
+    <variant name="ReshowingWebContents"
+        summary="Reshowing a WebContents that has already navigated to this
+                 WebUI"/>
+    <variant name="SpareRenderer" summary="Uses a spare renderer"/>
+  </token>
+</histogram>
+
 <histogram name="Tabs.TabSearch.WebUI.IndexOf{Action}In{State}List"
-    units="tabs" expires_after="2024-12-31">
+    units="tabs" expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <owner>yuhengh@chromium.org</owner>
@@ -1967,7 +3056,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.WebUI.LoadCompletedTime" units="ms"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <summary>
@@ -1978,7 +3067,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.WebUI.LoadDocumentTime" units="ms"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <summary>
@@ -1988,7 +3077,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.WebUI.RecentlyClosed{Item}OpenAction"
-    enum="TabSearchRecentlyClosedItemOpenAction" expires_after="2024-12-31">
+    enum="TabSearchRecentlyClosedItemOpenAction" expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>chrome-cros@chromium.org</owner>
   <summary>
@@ -2004,7 +3093,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.WebUI.SearchAlgorithmDuration" units="ms"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>yuhengh@chromium.org</owner>
   <owner>chrome-cros@chromium.org</owner>
   <summary>
@@ -2014,21 +3103,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tabs.TabSearch.WebUI.TabListDataReceived" units="ms"
-    expires_after="2024-12-31">
-  <owner>tluk@chromium.org</owner>
-  <owner>robliao@chromium.org</owner>
-  <owner>yuhengh@chromium.org</owner>
-  <summary>
-    The time taken for the WebUI in the renderer to receive the full list of
-    tabs for the current user profile. This is measured as the time from when
-    the data was first requested by the WebUI to when the data was received by
-    the WebUI.
-  </summary>
-</histogram>
-
 <histogram name="Tabs.TabSearch.WebUI.TabListDataReceived2" units="ms"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>kerenzhu@chromium.org</owner>
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
@@ -2045,7 +3121,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.WebUI.TabListDataReceived2.IsOverlap"
-    enum="Boolean" expires_after="2024-12-31">
+    enum="Boolean" expires_after="2025-07-08">
   <owner>kerenzhu@chromium.org</owner>
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
@@ -2058,7 +3134,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.WebUI.TabSwitchAction"
-    enum="TabSearchTabSwitchAction" expires_after="2024-12-31">
+    enum="TabSearchTabSwitchAction" expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <summary>
@@ -2070,7 +3146,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.WebUI.TimeTo{Action}In{State}List" units="ms"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>yuhengh@chromium.org</owner>
   <owner>chrome-cros@chromium.org</owner>
   <summary>
@@ -2089,7 +3165,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.WindowDisplayedDuration3" units="ms"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <summary>
@@ -2112,7 +3188,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.WindowTimeToShowCachedWebView2" units="ms"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <owner>yuhengh@chromium.org</owner>
@@ -2130,7 +3206,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TabSearch.WindowTimeToShowUncachedWebView2" units="ms"
-    expires_after="2024-12-31">
+    expires_after="2025-07-08">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <owner>yuhengh@chromium.org</owner>
@@ -2147,15 +3223,20 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tabs.TabsStatsDailyEventInterval"
-    enum="DailyEventIntervalType" expires_after="M77">
-  <owner>sebmarchand@chromium.org</owner>
+<histogram name="Tabs.TabState.FlatBufferDeserializeResult"
+    enum="TabStateFlatBufferDeserializeResult" expires_after="2025-04-06">
+  <owner>davidjm@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
   <summary>
-    Counts how often tab stats daily interval events were fired.
+    TabState (Tab metadata persistence system on Chrome for Android) is being
+    migrated from a hand-written schema to a FlatBuffer based schema. This
+    metric records the number of successful and unsuccessful FlatBuffer
+    deserializations and where known what the reason for unsuccessful
+    deserialization was.
   </summary>
 </histogram>
 
-<histogram name="Tabs.TabState.LoadTime" units="ms" expires_after="2024-06-30">
+<histogram name="Tabs.TabState.LoadTime" units="ms" expires_after="2025-04-20">
   <owner>yusufo@chromium.org</owner>
   <owner>nyquist@chromium.org</owner>
   <owner>dtrainor@chromium.org</owner>
@@ -2165,30 +3246,74 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tabs.TabState.SaveTime" units="ms" expires_after="2024-05-14">
-  <owner>yusufo@chromium.org</owner>
+<histogram name="Tabs.TabState.RestoreMethod" enum="TabStateRestoreMethod"
+    expires_after="2025-04-27">
+  <owner>davidjm@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    TabState (Tab metadata persistence system on Chrome for Android) is being
+    migrated from a hand-written schema to a FlatBuffer based schema. This
+    metric records the whether a TabState was restored using the FlatBuffer
+    schema, legacy TabState schema (e.g. if a FlatBuffer file hasn't been saved
+    for the Tab yet) or if TabState was failed to be restored (e.g. both the
+    FlatBuffer and legacy TabState file are corrupt). Recorded once per TabState
+    restoration (i.e. once per tab) at cold startup.
+  </summary>
+</histogram>
+
+<histogram name="Tabs.TabState.SaveTime{Schema}" units="ms"
+    expires_after="2025-04-12">
   <owner>nyquist@chromium.org</owner>
   <owner>dtrainor@chromium.org</owner>
   <owner>davidjm@chromium.org</owner>
   <summary>
     Time taken to save a TabState file in the event of a successful save.
+    Includes differentiation between the original legacy based format and
+    FlatBuffer based format.
+  </summary>
+  <token key="Schema">
+    <variant name="" summary="Original metric, kept for continuity."/>
+    <variant name=".FlatBuffer" summary="Using FlatBuffer based format."/>
+    <variant name=".Legacy" summary="Using legacy Pickle based format."/>
+  </token>
+</histogram>
+
+<histogram name="Tabs.TabStateCleanupAbortedByArchive" enum="Boolean"
+    expires_after="2025-03-02">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Records when a tab is marked as not ready for cleanup because it could
+    possibly be an archived tab. This enum tracks the case specifically for tab
+    state cleanup.
   </summary>
 </histogram>
 
-<histogram name="Tabs.Tasks.OrderValidOnStartup" units="boolean"
-    expires_after="2024-03-24">
+<histogram name="Tabs.TabThumbnailCleanupAbortedByArchive" enum="Boolean"
+    expires_after="2025-03-02">
+  <owner>wylieb@chromium.org</owner>
+  <owner>clank-tab-dev@google.com</owner>
+  <summary>
+    Records when a tab is marked as not ready for cleanup because it could
+    possibly be an archived tab. This enum tracks the case specifically for tab
+    thumbnail cleanup.
+  </summary>
+</histogram>
+
+<histogram name="Tabs.Tasks.OrderValidOnStartup" enum="Boolean"
+    expires_after="2025-12-08">
   <owner>ckitagawa@chromium.org</owner>
-  <owner>fredmello@chromium.org</owner>
+  <owner>clank-tab-dev@chromium.org</owner>
   <summary>
     [Android] boolean value indicating whether the invariant that tab groups are
     contiguous holds. Recorded on cold start after all tabs are restored.
   </summary>
 </histogram>
 
-<histogram name="Tabs.Tasks.TabAddedWithValidProposedPosition" units="boolean"
-    expires_after="2024-05-19">
+<histogram name="Tabs.Tasks.TabAddedWithValidProposedPosition" enum="Boolean"
+    expires_after="2025-12-08">
   <owner>ckitagawa@chromium.org</owner>
-  <owner>fredmello@chromium.org</owner>
+  <owner>clank-tab-dev@chromium.org</owner>
   <summary>
     [Android] boolean value indicating whether a tab that was added to the
     TabModel would have been added at the correct position if
@@ -2198,7 +3323,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.TimeSinceCreationAtStartup" enum="IOSAllOpenTabsAge"
-    expires_after="2024-05-19">
+    expires_after="2025-05-11">
   <owner>ewannpv@chromium.org</owner>
   <owner>chromeleon@google.com</owner>
   <summary>
@@ -2207,8 +3332,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Tabs.UnusedCountAtStartup" units="tabs"
-    expires_after="2024-05-19">
+<histogram name="Tabs.UnusedCountAtStartup2" units="tabs"
+    expires_after="2025-02-08">
   <owner>ewannpv@chromium.org</owner>
   <owner>chromeleon@google.com</owner>
   <summary>
@@ -2229,7 +3354,7 @@ chromium-metrics-reviews@google.com.
   <token key="BatteryState" variants="BatteryState"/>
 </histogram>
 
-<histogram name="Tabs.WindowWidth" units="DIPs" expires_after="2024-05-19">
+<histogram name="Tabs.WindowWidth" units="DIPs" expires_after="2025-04-13">
   <owner>collinbaker@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -2239,7 +3364,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Tabs.{TabActiveState}TabWidth" units="px"
-    expires_after="2024-06-30">
+    expires_after="2025-05-11">
   <owner>dpenning@chromium.org</owner>
   <owner>tbergquist@chromium.org</owner>
   <summary>
@@ -2276,7 +3401,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabStrip.Dragging.TimeFromLastDrag" units="ms"
-    expires_after="2024-11-01">
+    expires_after="2025-05-11">
   <owner>kerenzhu@chromium.org</owner>
   <owner>yuhengh@chromium.org</owner>
   <owner>temao@chromium.org</owner>
@@ -2300,22 +3425,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="TabStrip.Failures.Action" enum="TabStripFailureContext"
-    expires_after="2024-01-01">
-  <owner>dayeung@chromium.org</owner>
-  <owner>kerenzhu@chromium.org</owner>
-  <owner>temao@chromium.org</owner>
-  <owner>yuhengh@chromium.org</owner>
-  <owner>tluk@chromium.org</owner>
-  <owner>robliao@chromium.org</owner>
-  <summary>
-    Reports a failure event in the tabstrip flow. This could be something like
-    mis-matching tab count when opening or closing a tab.
-  </summary>
-</histogram>
-
 <histogram name="TabStrip.Tab.{Framework}.ActivationAction"
-    enum="TabActivationTypes" expires_after="2024-06-30">
+    enum="TabActivationTypes" expires_after="2025-05-11">
   <owner>yuhengh@chromium.org</owner>
   <owner>tluk@chromium.org</owner>
   <owner>romanarora@chromium.org</owner>
@@ -2330,7 +3441,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabStrip.TabCountOnPageLoad" units="tabs"
-    expires_after="2024-05-19">
+    expires_after="2025-04-13">
   <owner>yusufo@chromium.org</owner>
   <owner>wychen@chromium.org</owner>
   <summary>
@@ -2342,7 +3453,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TabStrip.TimeToCreateNewTabFromPress" units="ms"
-    expires_after="2024-05-19">
+    expires_after="2025-04-13">
   <owner>robliao@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -2351,7 +3462,7 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="TabStrip.TimeToSwitch" units="ms" expires_after="2024-06-30">
+<histogram name="TabStrip.TimeToSwitch" units="ms" expires_after="2025-05-11">
   <owner>dpenning@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>

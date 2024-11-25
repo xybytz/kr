@@ -23,6 +23,7 @@
 #include "components/bookmarks/browser/bookmark_node_data.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/mojom/menu_source_type.mojom-forward.h"
 #include "ui/compositor/layer_tree_owner.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/views/accessible_pane_view.h"
@@ -38,7 +39,6 @@ class BookmarkContextMenu;
 class Browser;
 class BrowserView;
 class Profile;
-class SavedTabGroupBar;
 
 namespace bookmarks {
 class BookmarkModel;
@@ -51,6 +51,10 @@ class PageNavigator;
 
 namespace gfx {
 class FontList;
+}
+
+namespace tab_groups {
+class SavedTabGroupBar;
 }
 
 namespace views {
@@ -82,6 +86,8 @@ class BookmarkBarView : public views::AccessiblePaneView,
   BookmarkBarView(const BookmarkBarView&) = delete;
   BookmarkBarView& operator=(const BookmarkBarView&) = delete;
   ~BookmarkBarView() override;
+
+  static bool GetAnimationsEnabled();
 
   static void DisableAnimationsForTesting(bool disabled);
 
@@ -129,6 +135,10 @@ class BookmarkBarView : public views::AccessiblePaneView,
     return all_bookmarks_button_;
   }
 
+  const tab_groups::SavedTabGroupBar* saved_tab_group_bar() const {
+    return saved_tab_group_bar_;
+  }
+
   // Returns the button used when not all the items on the bookmark bar fit.
   views::MenuButton* overflow_button() const { return overflow_button_; }
 
@@ -158,9 +168,10 @@ class BookmarkBarView : public views::AccessiblePaneView,
       const std::u16string& title);
 
   // views::View:
-  gfx::Size CalculatePreferredSize() const override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
   gfx::Size GetMinimumSize() const override;
-  void Layout() override;
+  void Layout(PassKey) override;
   void ViewHierarchyChanged(
       const views::ViewHierarchyChangedDetails& details) override;
   void PaintChildren(const views::PaintInfo& paint_info) override;
@@ -176,9 +187,7 @@ class BookmarkBarView : public views::AccessiblePaneView,
   void OnThemeChanged() override;
   void VisibilityChanged(views::View* starting_from, bool is_visible) override;
   void ChildPreferredSizeChanged(views::View* child) override;
-
-  // AccessiblePaneView:
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+  void AddedToWidget() override;
 
   // views::AnimationDelegateViews:
   void AnimationProgressed(const gfx::Animation* animation) override;
@@ -189,32 +198,26 @@ class BookmarkBarView : public views::AccessiblePaneView,
       BookmarkMenuController* controller) override;
 
   // bookmarks::BookmarkModelObserver:
-  void BookmarkModelLoaded(bookmarks::BookmarkModel* model,
-                           bool ids_reassigned) override;
-  void BookmarkModelBeingDeleted(bookmarks::BookmarkModel* model) override;
-  void BookmarkNodeMoved(bookmarks::BookmarkModel* model,
-                         const bookmarks::BookmarkNode* old_parent,
+  void BookmarkModelLoaded(bool ids_reassigned) override;
+  void BookmarkModelBeingDeleted() override;
+  void BookmarkNodeMoved(const bookmarks::BookmarkNode* old_parent,
                          size_t old_index,
                          const bookmarks::BookmarkNode* new_parent,
                          size_t new_index) override;
-  void BookmarkNodeAdded(bookmarks::BookmarkModel* model,
-                         const bookmarks::BookmarkNode* parent,
+  void BookmarkNodeAdded(const bookmarks::BookmarkNode* parent,
                          size_t index,
                          bool added_by_user) override;
-  void BookmarkNodeRemoved(bookmarks::BookmarkModel* model,
-                           const bookmarks::BookmarkNode* parent,
+  void BookmarkNodeRemoved(const bookmarks::BookmarkNode* parent,
                            size_t old_index,
                            const bookmarks::BookmarkNode* node,
-                           const std::set<GURL>& removed_urls) override;
-  void BookmarkAllUserNodesRemoved(bookmarks::BookmarkModel* model,
-                                   const std::set<GURL>& removed_urls) override;
-  void BookmarkNodeChanged(bookmarks::BookmarkModel* model,
-                           const bookmarks::BookmarkNode* node) override;
+                           const std::set<GURL>& removed_urls,
+                           const base::Location& location) override;
+  void BookmarkAllUserNodesRemoved(const std::set<GURL>& removed_urls,
+                                   const base::Location& location) override;
+  void BookmarkNodeChanged(const bookmarks::BookmarkNode* node) override;
   void BookmarkNodeChildrenReordered(
-      bookmarks::BookmarkModel* model,
       const bookmarks::BookmarkNode* node) override;
-  void BookmarkNodeFaviconChanged(bookmarks::BookmarkModel* model,
-                                  const bookmarks::BookmarkNode* node) override;
+  void BookmarkNodeFaviconChanged(const bookmarks::BookmarkNode* node) override;
 
   // views::DragController:
   void WriteDragDataForView(views::View* sender,
@@ -227,9 +230,18 @@ class BookmarkBarView : public views::AccessiblePaneView,
                            const gfx::Point& p) override;
 
   // views::ContextMenuController:
-  void ShowContextMenuForViewImpl(views::View* source,
-                                  const gfx::Point& point,
-                                  ui::MenuSourceType source_type) override;
+  void ShowContextMenuForViewImpl(
+      views::View* source,
+      const gfx::Point& point,
+      ui::mojom::MenuSourceType source_type) override;
+
+  // Calculate the available width for the saved tab group bar.
+  // This is used in Tab Group v2 UI to allocate space for both saved tab groups
+  // and bookmark buttons.
+  static int GetAvailableWidthForSavedTabGroupsBar(
+      int saved_tab_group_bar_width,
+      int bookmark_buttons_width,
+      int available_width);
 
  private:
   struct DropInfo;
@@ -287,26 +299,19 @@ class BookmarkBarView : public views::AccessiblePaneView,
   void ConfigureButton(const bookmarks::BookmarkNode* node,
                        views::LabelButton* button);
 
-  // Returns true when the TabGroupsSave feature should be added to the
-  // bookmarks bar.
-  bool IsSavedTabGroupsEnabled();
-
   // Implementation for BookmarkNodeAddedImpl. Returns true if LayoutAndPaint()
   // is required.
-  bool BookmarkNodeAddedImpl(bookmarks::BookmarkModel* model,
-                             const bookmarks::BookmarkNode* parent,
+  bool BookmarkNodeAddedImpl(const bookmarks::BookmarkNode* parent,
                              size_t index);
 
   // Implementation for BookmarkNodeRemoved. Returns true if LayoutAndPaint() is
   // required.
-  bool BookmarkNodeRemovedImpl(bookmarks::BookmarkModel* model,
-                               const bookmarks::BookmarkNode* parent,
+  bool BookmarkNodeRemovedImpl(const bookmarks::BookmarkNode* parent,
                                size_t index);
 
   // If the node is a child of the root node, the button is updated
   // appropriately.
-  void BookmarkNodeChangedImpl(bookmarks::BookmarkModel* model,
-                               const bookmarks::BookmarkNode* node);
+  void BookmarkNodeChangedImpl(const bookmarks::BookmarkNode* node);
 
   // Shows the menu used during drag and drop for the specified node.
   void ShowDropFolderForNode(const bookmarks::BookmarkNode* node);
@@ -349,10 +354,16 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // Updates the visibility of the apps shortcut based on the pref value.
   void OnAppsPageShortcutVisibilityPrefChanged();
 
+  // Updates the visibility of the tab groups based on the pref value.
+  void OnTabGroupsVisibilityPrefChanged();
+
   void OnShowManagedBookmarksPrefChanged();
 
+  // Updates the look and feel of the bookmarks bar based on the pref value.
+  void OnCompactModeChanged();
+
   void LayoutAndPaint() {
-    Layout();
+    InvalidateLayout();
     SchedulePaint();
   }
 
@@ -379,9 +390,16 @@ class BookmarkBarView : public views::AccessiblePaneView,
                    std::unique_ptr<ui::LayerTreeOwner> drag_image_layer_owner);
 
   int GetDropLocationModelIndexForTesting() const;
+  const views::View* GetSavedTabGroupsSeparatorViewForTesting() const;
 
-  // Needed to react to kShowAppsShortcutInBookmarkBar changes.
+  void MaybeShowSavedTabGroupsIntroPromo() const;
+
+  // Needed to react to bookmark bar pref changes.
   PrefChangeRegistrar profile_pref_registrar_;
+
+  // When true denotes if the bookmarks bar view should use the compact mode
+  // layout. Otherwise, layout normally.
+  bool is_compact_mode_ = false;
 
   // Used for opening urls.
   raw_ptr<content::PageNavigator, AcrossTasksDanglingUntriaged>
@@ -408,7 +426,7 @@ class BookmarkBarView : public views::AccessiblePaneView,
   std::unique_ptr<BookmarkContextMenu> context_menu_;
 
   // Saved Tab Group section
-  raw_ptr<SavedTabGroupBar> saved_tab_group_bar_ = nullptr;
+  raw_ptr<tab_groups::SavedTabGroupBar> saved_tab_group_bar_ = nullptr;
 
   // Shows the "Other Bookmarks" folder button.
   raw_ptr<views::MenuButton> all_bookmarks_button_ = nullptr;

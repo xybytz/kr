@@ -18,8 +18,8 @@
 #include "dbus/exported_object.h"
 #include "dbus/message.h"
 #include "dbus/object_proxy.h"
-#include "ui/base/models/simple_menu_model.h"
 #include "ui/linux/status_icon_linux.h"
+#include "ui/menus/simple_menu_model.h"
 #include "ui/views/controls/menu/menu_runner.h"
 
 namespace gfx {
@@ -107,8 +107,8 @@ class StatusIconLinuxDbus : public ui::StatusIconLinux,
   scoped_refptr<dbus::Bus> bus_;
 
   int service_id_ = 0;
-  raw_ptr<dbus::ObjectProxy> watcher_ = nullptr;
-  raw_ptr<dbus::ExportedObject> item_ = nullptr;
+  raw_ptr<dbus::ObjectProxy, DanglingUntriaged> watcher_ = nullptr;
+  raw_ptr<dbus::ExportedObject, DanglingUntriaged> item_ = nullptr;
 
   base::RepeatingCallback<void(bool)> barrier_;
 

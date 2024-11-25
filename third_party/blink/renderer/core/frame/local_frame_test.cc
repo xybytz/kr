@@ -7,7 +7,6 @@
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/css/properties/longhands.h"
-#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
 #include "third_party/blink/renderer/platform/testing/task_environment.h"
 #if BUILDFLAG(IS_MAC)
@@ -36,7 +35,7 @@ class TestTextInputHostWaiter : public mojom::blink::TextInputHost {
   ~TestTextInputHostWaiter() override = default;
 
   void Init(base::OnceClosure callback,
-            blink::BrowserInterfaceBrokerProxy& provider) {
+            const blink::BrowserInterfaceBrokerProxy& provider) {
     callback_ = std::move(callback);
     provider.SetBinderForTesting(
         mojom::blink::TextInputHost::Name_,
@@ -91,8 +90,8 @@ void TestGreenDiv(DummyPageHolder& page_holder) {
 TEST_F(LocalFrameTest, ForceSynchronousDocumentInstall_XHTMLStyleInBody) {
   auto page_holder = std::make_unique<DummyPageHolder>(gfx::Size(800, 600));
 
-  scoped_refptr<SharedBuffer> data = SharedBuffer::Create();
-  data->Append(
+  SegmentedBuffer data;
+  data.Append(
       "<html xmlns='http://www.w3.org/1999/xhtml'><body><style>div { color: "
       "green }</style><div id='div'></div></body></html>",
       static_cast<size_t>(118));
@@ -104,8 +103,8 @@ TEST_F(LocalFrameTest, ForceSynchronousDocumentInstall_XHTMLStyleInBody) {
 TEST_F(LocalFrameTest, ForceSynchronousDocumentInstall_XHTMLLinkInBody) {
   auto page_holder = std::make_unique<DummyPageHolder>(gfx::Size(800, 600));
 
-  scoped_refptr<SharedBuffer> data = SharedBuffer::Create();
-  data->Append(
+  SegmentedBuffer data;
+  data.Append(
       "<html xmlns='http://www.w3.org/1999/xhtml'><body><link rel='stylesheet' "
       "href='data:text/css,div{color:green}' /><div "
       "id='div'></div></body></html>",
@@ -118,8 +117,8 @@ TEST_F(LocalFrameTest, ForceSynchronousDocumentInstall_XHTMLLinkInBody) {
 TEST_F(LocalFrameTest, ForceSynchronousDocumentInstall_XHTMLStyleInHead) {
   auto page_holder = std::make_unique<DummyPageHolder>(gfx::Size(800, 600));
 
-  scoped_refptr<SharedBuffer> data = SharedBuffer::Create();
-  data->Append(
+  SegmentedBuffer data;
+  data.Append(
       "<html xmlns='http://www.w3.org/1999/xhtml'><head><style>div { color: "
       "green }</style></head><body><div id='div'></div></body></html>",
       static_cast<size_t>(131));
@@ -131,8 +130,8 @@ TEST_F(LocalFrameTest, ForceSynchronousDocumentInstall_XHTMLStyleInHead) {
 TEST_F(LocalFrameTest, ForceSynchronousDocumentInstall_XHTMLLinkInHead) {
   auto page_holder = std::make_unique<DummyPageHolder>(gfx::Size(800, 600));
 
-  scoped_refptr<SharedBuffer> data = SharedBuffer::Create();
-  data->Append(
+  SegmentedBuffer data;
+  data.Append(
       "<html xmlns='http://www.w3.org/1999/xhtml'><head><link rel='stylesheet' "
       "href='data:text/css,div{color:green}' /></head><body><div "
       "id='div'></div></body></html>",
@@ -145,8 +144,8 @@ TEST_F(LocalFrameTest, ForceSynchronousDocumentInstall_XHTMLLinkInHead) {
 TEST_F(LocalFrameTest, ForceSynchronousDocumentInstall_XMLStyleSheet) {
   auto page_holder = std::make_unique<DummyPageHolder>(gfx::Size(800, 600));
 
-  scoped_refptr<SharedBuffer> data = SharedBuffer::Create();
-  data->Append(
+  SegmentedBuffer data;
+  data.Append(
       "<?xml-stylesheet type='text/css' "
       "href='data:text/css,div{color:green}'?><html "
       "xmlns='http://www.w3.org/1999/xhtml'><body><div "

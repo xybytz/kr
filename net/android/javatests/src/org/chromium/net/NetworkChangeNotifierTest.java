@@ -28,6 +28,7 @@ import android.os.StrictMode;
 import android.telephony.TelephonyManager;
 
 import androidx.test.InstrumentationRegistry;
+import androidx.test.annotation.UiThreadTest;
 import androidx.test.filters.MediumTest;
 
 import org.junit.After;
@@ -44,7 +45,7 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
-import org.chromium.base.test.UiThreadTest;
+import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.net.NetworkChangeNotifierAutoDetect.ConnectivityManagerDelegate;
@@ -156,7 +157,7 @@ public class NetworkChangeNotifierTest {
     /** Mocks out calls to the ConnectivityManager. */
     private class MockConnectivityManagerDelegate extends ConnectivityManagerDelegate {
         // A network we're pretending is currently connected.
-        private class MockNetwork {
+        private static class MockNetwork {
             // Network identifier
             final int mNetId;
             // Transport, one of android.net.NetworkCapabilities.TRANSPORT_*
@@ -606,8 +607,10 @@ public class NetworkChangeNotifierTest {
     @Feature({"Android-AppBase"})
     public void testNetworkChangeNotifierConnectionCost() {
         mConnectivityDelegate.setIsMetered(true);
+        mReceiver.updateCurrentNetworkState();
         Assert.assertEquals(ConnectionCost.METERED, getCurrentConnectionCost());
         mConnectivityDelegate.setIsMetered(false);
+        mReceiver.updateCurrentNetworkState();
         Assert.assertEquals(ConnectionCost.UNMETERED, getCurrentConnectionCost());
     }
 
@@ -619,6 +622,7 @@ public class NetworkChangeNotifierTest {
     public void testNetworkChangeNotifierConnectionSubtypeEthernet() {
         // Show that for Ethernet the link speed is unknown (+Infinity).
         mConnectivityDelegate.setNetworkType(ConnectivityManager.TYPE_ETHERNET);
+        mReceiver.updateCurrentNetworkState();
         Assert.assertEquals(ConnectionType.CONNECTION_ETHERNET, getCurrentConnectionType());
         Assert.assertEquals(ConnectionSubtype.SUBTYPE_UNKNOWN, getCurrentConnectionSubtype());
     }
@@ -630,6 +634,7 @@ public class NetworkChangeNotifierTest {
     public void testNetworkChangeNotifierConnectionSubtypeWifi() {
         // Show that for WiFi the link speed is unknown (+Infinity).
         mConnectivityDelegate.setNetworkType(ConnectivityManager.TYPE_WIFI);
+        mReceiver.updateCurrentNetworkState();
         Assert.assertEquals(ConnectionType.CONNECTION_WIFI, getCurrentConnectionType());
         Assert.assertEquals(ConnectionSubtype.SUBTYPE_UNKNOWN, getCurrentConnectionSubtype());
     }
@@ -643,6 +648,7 @@ public class NetworkChangeNotifierTest {
         // TODO(jkarlin): Add support for CONNECTION_WIMAX as specified in
         // http://w3c.github.io/netinfo/.
         mConnectivityDelegate.setNetworkType(ConnectivityManager.TYPE_WIMAX);
+        mReceiver.updateCurrentNetworkState();
         Assert.assertEquals(ConnectionType.CONNECTION_4G, getCurrentConnectionType());
         Assert.assertEquals(ConnectionSubtype.SUBTYPE_UNKNOWN, getCurrentConnectionSubtype());
     }
@@ -654,6 +660,7 @@ public class NetworkChangeNotifierTest {
     public void testNetworkChangeNotifierConnectionSubtypeBluetooth() {
         // Show that for bluetooth the link speed is unknown (+Infinity).
         mConnectivityDelegate.setNetworkType(ConnectivityManager.TYPE_BLUETOOTH);
+        mReceiver.updateCurrentNetworkState();
         Assert.assertEquals(ConnectionType.CONNECTION_BLUETOOTH, getCurrentConnectionType());
         Assert.assertEquals(ConnectionSubtype.SUBTYPE_UNKNOWN, getCurrentConnectionSubtype());
     }
@@ -666,6 +673,7 @@ public class NetworkChangeNotifierTest {
         // Test that for mobile types the subtype is used to determine the connection subtype.
         mConnectivityDelegate.setNetworkType(ConnectivityManager.TYPE_MOBILE);
         mConnectivityDelegate.setNetworkSubtype(TelephonyManager.NETWORK_TYPE_LTE);
+        mReceiver.updateCurrentNetworkState();
         Assert.assertEquals(ConnectionType.CONNECTION_4G, getCurrentConnectionType());
         Assert.assertEquals(ConnectionSubtype.SUBTYPE_LTE, getCurrentConnectionSubtype());
     }
@@ -691,6 +699,9 @@ public class NetworkChangeNotifierTest {
     @UiThreadTest
     @MediumTest
     @Feature({"Android-AppBase"})
+    @DisableIf.Build(
+            sdk_is_greater_than = Build.VERSION_CODES.Q,
+            message = "https://crbug.com/40173842")
     public void testNetworkChangeNotifierJavaObservers() {
         mReceiver.register();
         // Initialize the NetworkChangeNotifier with a connection.
@@ -1031,6 +1042,8 @@ public class NetworkChangeNotifierTest {
         mConnectivityDelegate.addNetwork(102, TRANSPORT_VPN, false);
         NetworkChangeNotifierTestUtil.flushUiThreadTaskQueue();
         Assert.assertEquals(observer.mChanges.size(), 0);
+        networkCallback.onLosing(Helper.netIdToNetwork(102), 30);
+        Assert.assertEquals(observer.mChanges.size(), 0);
         // The disconnect will be ignored in
         // NetworkChangeNotifierDelegateAndroid::NotifyOfNetworkDisconnect() because no
         // connect event was witnessed, but it will be sent to {@code observer}
@@ -1086,6 +1099,9 @@ public class NetworkChangeNotifierTest {
     @Test
     @MediumTest
     @MinAndroidSdkLevel(Build.VERSION_CODES.LOLLIPOP) // android.net.Network available in L+.
+    @DisableIf.Build(
+            sdk_is_greater_than = Build.VERSION_CODES.R,
+            message = "https://crbug.com/40173842")
     public void testVpnAccessibleDoesNotLeak() {
         ConnectivityManagerDelegate connectivityManagerDelegate =
                 new ConnectivityManagerDelegate(

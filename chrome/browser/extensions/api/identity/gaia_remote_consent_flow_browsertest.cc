@@ -9,6 +9,8 @@
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/keep_alive_registry/keep_alive_types.h"
+#include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
@@ -23,14 +25,10 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "chromeos/ash/components/network/portal_detector/mock_network_portal_detector.h"
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
-// TODO(rsult): Issues with creating a primary account on Lacros on test setup.
-// Should be reworked asap to make it pass as this feature is available on
-// Lacros as well.
-#if !BUILDFLAG(IS_CHROMEOS_LACROS)
 namespace extensions {
 
 namespace {
@@ -58,19 +56,14 @@ class GaiaRemoteConsentFlowParamBrowserTest : public InProcessBrowserTest {
  public:
   GaiaRemoteConsentFlowParamBrowserTest()
       : fake_gaia_test_server_(net::EmbeddedTestServer::TYPE_HTTPS) {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
     std::unique_ptr<ash::MockNetworkPortalDetector>
         mock_network_portal_detector_ =
             std::make_unique<ash::MockNetworkPortalDetector>();
 
-    EXPECT_CALL(*mock_network_portal_detector_, GetCaptivePortalStatus())
-        .Times(testing::AnyNumber())
-        .WillRepeatedly(
-            testing::Return(ash::NetworkPortalDetector::CaptivePortalStatus::
-                                CAPTIVE_PORTAL_STATUS_ONLINE));
     ash::network_portal_detector::InitializeForTesting(
         mock_network_portal_detector_.release());
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
     fake_gaia_test_server()->AddDefaultHandlers(GetChromeTestDataDir());
     fake_gaia_test_server_.RegisterRequestHandler(base::BindRepeating(
         &FakeGaia::HandleRequest, base::Unretained(&fake_gaia_)));
@@ -130,18 +123,23 @@ class GaiaRemoteConsentFlowParamBrowserTest : public InProcessBrowserTest {
     return primary_account_info;
   }
 
-  void LaunchAndWaitGaiaRemoteConsentFlow() {
+  void CreateGaiaRemoteConsentFlow(const GURL& url) {
     CoreAccountInfo account_info = CreateFakeAccountInfoAndSetAsPrimary();
     ExtensionTokenKey token_key("extension_id", account_info,
                                 std::set<std::string>());
     RemoteConsentResolutionData resolution_data;
-    resolution_data.url = fake_gaia_test_server()->GetURL("/title1.html");
+    resolution_data.url = url;
 
     flow_ = std::make_unique<GaiaRemoteConsentFlow>(&mock(), profile(),
                                                     token_key, resolution_data,
                                                     /*user_gesture=*/true);
+  }
 
-    content::TestNavigationObserver navigation_observer(resolution_data.url);
+  void LaunchAndWaitGaiaRemoteConsentFlow() {
+    GURL url = fake_gaia_test_server()->GetURL("/title1.html");
+    CreateGaiaRemoteConsentFlow(url);
+
+    content::TestNavigationObserver navigation_observer(url);
     navigation_observer.StartWatchingNewWebContents();
 
     flow_->Start();
@@ -214,5 +212,20 @@ IN_PROC_BROWSER_TEST_F(GaiaRemoteConsentFlowParamBrowserTest,
   SimulateConsentResult(approved_consent);
 }
 
+IN_PROC_BROWSER_TEST_F(GaiaRemoteConsentFlowParamBrowserTest,
+                       SimulateProfileShutdownWhileLoading) {
+  // We want to interrupt the flow before `auth_url` gets loaded. To ensure that
+  // an URL doesn't load prematurely, use a default test URL that never returns
+  // a response.
+  CreateGaiaRemoteConsentFlow(fake_gaia_test_server()->GetURL("/hung"));
+  flow()->Start();
+  // Delegate shouldn't be called after the profile is destroyed.
+  EXPECT_CALL(mock(), OnGaiaRemoteConsentFlowFailed).Times(0);
+  auto keep_alive = std::make_unique<ScopedKeepAlive>(
+      KeepAliveOrigin::BROWSER, KeepAliveRestartOption::DISABLED);
+  CloseBrowserSynchronously(browser());
+  base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(
+      FROM_HERE, std::move(keep_alive));
+}
+
 }  // namespace extensions
-#endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)

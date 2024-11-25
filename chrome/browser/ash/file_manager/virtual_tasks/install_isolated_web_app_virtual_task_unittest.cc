@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/ash/file_manager/virtual_tasks/install_isolated_web_app_virtual_task.h"
+
 #include <memory>
 #include <vector>
 
@@ -9,14 +11,14 @@
 #include "base/ranges/algorithm.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
-#include "chrome/browser/ash/file_manager/app_id.h"
 #include "chrome/browser/ash/file_manager/file_tasks.h"
 #include "chrome/browser/ash/file_manager/virtual_file_tasks.h"
-#include "chrome/browser/ash/file_manager/virtual_tasks/install_isolated_web_app_virtual_task.h"
 #include "chrome/browser/web_applications/test/fake_web_app_provider.h"
 #include "chrome/browser/web_applications/test/fake_web_app_ui_manager.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chromeos/ash/components/file_manager/app_id.h"
 #include "content/public/common/content_features.h"
 #include "content/public/test/browser_task_environment.h"
 #include "extensions/browser/entry_info.h"
@@ -41,6 +43,10 @@ class MockWebAppUiManager : public web_app::FakeWebAppUiManager {
 class InstallIsolatedWebAppVirtualTaskTest : public testing::Test {
  public:
   void SetUp() override {
+    feature_list_.InitWithFeatures(
+        {features::kIsolatedWebApps, features::kIsolatedWebAppUnmanagedInstall},
+        {});
+
     auto ui_manager = std::make_unique<MockWebAppUiManager>();
     ui_manager_ = ui_manager.get();
     web_app::FakeWebAppProvider::Get(&profile_)->SetWebAppUiManager(
@@ -68,8 +74,8 @@ class InstallIsolatedWebAppVirtualTaskTest : public testing::Test {
         });
 
     std::vector<FullTaskDescriptor> tasks;
-    FindVirtualTasks(&profile_, entries, file_urls, /*dlp_source_urls=*/{},
-                     &tasks);
+    MatchVirtualTasks(&profile_, entries, file_urls, /*dlp_source_urls=*/{},
+                      &tasks);
 
     return tasks.size() == 1 &&
            tasks[0].task_descriptor.action_id == task_.id();
@@ -97,7 +103,7 @@ class InstallIsolatedWebAppVirtualTaskTest : public testing::Test {
   InstallIsolatedWebAppVirtualTask task_;
   raw_ptr<MockWebAppUiManager> ui_manager_ = nullptr;
 
-  base::test::ScopedFeatureList feature_list_{features::kIsolatedWebApps};
+  base::test::ScopedFeatureList feature_list_;
 };
 
 TEST_F(InstallIsolatedWebAppVirtualTaskTest, MatchesSwbnFiles) {
@@ -110,9 +116,18 @@ TEST_F(InstallIsolatedWebAppVirtualTaskTest, DoesNotMatchMultipleExtensions) {
       Matches({GURL("file:///bundle.swbn"), GURL("file:///bundle.wbn")}));
 }
 
-TEST_F(InstallIsolatedWebAppVirtualTaskTest, DoesNotMatchIfFeatureDisabled) {
+TEST_F(InstallIsolatedWebAppVirtualTaskTest, DoesNotMatchIfIwasDisabled) {
   base::test::ScopedFeatureList disable_feature;
   disable_feature.InitAndDisableFeature(features::kIsolatedWebApps);
+
+  EXPECT_FALSE(Matches({GURL("file:///bundle.swbn")}));
+}
+
+TEST_F(InstallIsolatedWebAppVirtualTaskTest,
+       DoesNotMatchIfUnmanagedInstallDisabled) {
+  base::test::ScopedFeatureList disable_feature;
+  disable_feature.InitAndDisableFeature(
+      features::kIsolatedWebAppUnmanagedInstall);
 
   EXPECT_FALSE(Matches({GURL("file:///bundle.swbn")}));
 }

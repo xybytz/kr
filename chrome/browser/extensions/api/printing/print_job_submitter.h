@@ -33,11 +33,11 @@ class NativeWindowTracker;
 }  // namespace views
 
 namespace printing {
-class MetafileSkia;
 class PdfBlobDataFlattener;
 class PrintedDocument;
 class PrintJobController;
 class PrintSettings;
+struct FlattenPdfResult;
 struct PrintJobCreatedInfo;
 }  // namespace printing
 
@@ -94,7 +94,9 @@ class PrintJobSubmitter {
                           int64_t total_blob_length);
 
   void OnPdfReadAndFlattened(
-      std::unique_ptr<printing::MetafileSkia> flattened_pdf);
+      std::unique_ptr<printing::FlattenPdfResult> result);
+
+  void OnImageDataRead(std::string data, int64_t);
 
   void ShowPrintJobConfirmationDialog(const gfx::Image& extension_icon);
 
@@ -116,15 +118,15 @@ class PrintJobSubmitter {
   const raw_ptr<printing::PrintJobController> print_job_controller_;
   const raw_ref<printing::PdfBlobDataFlattener> pdf_blob_data_flattener_;
 
-  // TODO(crbug.com/996785): Consider tracking extension being unloaded instead
-  // of storing scoped_refptr.
+  // TODO(crbug.com/40641692): Consider tracking extension being unloaded
+  // instead of storing scoped_refptr.
   scoped_refptr<const extensions::Extension> extension_;
 
   api::printing::SubmitJobRequest request_;
   std::unique_ptr<printing::PrintSettings> settings_;
   std::u16string printer_name_;
 
-  std::unique_ptr<printing::MetafileSkia> flattened_pdf_;
+  std::unique_ptr<printing::FlattenPdfResult> flatten_pdf_result_;
 
   const raw_ptr<crosapi::mojom::LocalPrinter> local_printer_;
   SubmitJobCallback callback_;

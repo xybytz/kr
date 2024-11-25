@@ -19,10 +19,15 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/grit/branded_strings.h"
+#include "components/password_manager/core/browser/password_manager_switches.h"
 #include "content/public/browser/browser_thread.h"
 #include "device/bluetooth/dbus/bluez_dbus_manager.h"
 #include "device/bluetooth/dbus/bluez_dbus_thread_manager.h"
 #include "ui/base/l10n/l10n_util.h"
+
+#if BUILDFLAG(IS_LINUX)
+#include "ui/ozone/public/ozone_platform.h"
+#endif
 
 #if BUILDFLAG(IS_CHROMEOS)
 #include "chrome/browser/chromeos/tast_support/stack_sampling_recorder.h"
@@ -33,7 +38,7 @@
 #include "chromeos/lacros/dbus/lacros_dbus_thread_manager.h"
 #endif
 
-#if defined(USE_DBUS) && !BUILDFLAG(IS_CHROMEOS)
+#if BUILDFLAG(USE_DBUS) && !BUILDFLAG(IS_CHROMEOS)
 #include "chrome/browser/dbus_memory_pressure_evaluator_linux.h"
 #endif
 
@@ -78,19 +83,27 @@ void ChromeBrowserMainPartsLinux::PostCreateMainMessageLoop() {
   std::unique_ptr<os_crypt::Config> config =
       std::make_unique<os_crypt::Config>();
   // Forward to os_crypt the flag to use a specific password store.
-  config->store = command_line->GetSwitchValueASCII(switches::kPasswordStore);
+  config->store =
+      command_line->GetSwitchValueASCII(password_manager::kPasswordStore);
   // Forward the product name
   config->product_name = l10n_util::GetStringUTF8(IDS_PRODUCT_NAME);
   // OSCrypt can be disabled in a special settings file.
   config->should_use_preference =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableEncryptionSelection);
+          password_manager::kEnableEncryptionSelection);
   chrome::GetDefaultUserDataDirectory(&config->user_data_path);
   OSCrypt::SetConfig(std::move(config));
 #endif  // !BUILDFLAG(IS_CHROMEOS)
 
   ChromeBrowserMainPartsPosix::PostCreateMainMessageLoop();
 }
+
+#if BUILDFLAG(IS_LINUX)
+void ChromeBrowserMainPartsLinux::PostMainMessageLoopRun() {
+  ChromeBrowserMainPartsPosix::PostMainMessageLoopRun();
+  ui::OzonePlatform::GetInstance()->PostMainMessageLoopRun();
+}
+#endif
 
 void ChromeBrowserMainPartsLinux::PreProfileInit() {
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
@@ -105,7 +118,7 @@ void ChromeBrowserMainPartsLinux::PreProfileInit() {
   ChromeBrowserMainPartsPosix::PreProfileInit();
 }
 
-#if defined(USE_DBUS) && !BUILDFLAG(IS_CHROMEOS)
+#if BUILDFLAG(USE_DBUS) && !BUILDFLAG(IS_CHROMEOS)
 void ChromeBrowserMainPartsLinux::PostBrowserStart() {
   // static_cast is safe because this is the only implementation of
   // MemoryPressureMonitor.
@@ -118,10 +131,9 @@ void ChromeBrowserMainPartsLinux::PostBrowserStart() {
         std::make_unique<DbusMemoryPressureEvaluatorLinux>(
             monitor->CreateVoter()));
   }
-
   ChromeBrowserMainPartsPosix::PostBrowserStart();
 }
-#endif  // defined(USE_DBUS) && !BUILDFLAG(IS_CHROMEOS)
+#endif  // BUILDFLAG(USE_DBUS) && !BUILDFLAG(IS_CHROMEOS)
 
 void ChromeBrowserMainPartsLinux::PostDestroyThreads() {
 #if BUILDFLAG(IS_CHROMEOS)

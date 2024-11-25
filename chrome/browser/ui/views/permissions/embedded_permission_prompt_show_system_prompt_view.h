@@ -18,6 +18,8 @@ class Browser;
 class EmbeddedPermissionPromptShowSystemPromptView
     : public EmbeddedPermissionPromptBaseView {
  public:
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kMainViewId);
+
   EmbeddedPermissionPromptShowSystemPromptView(
       Browser* browser,
       base::WeakPtr<EmbeddedPermissionPromptViewDelegate> delegate);
@@ -29,6 +31,7 @@ class EmbeddedPermissionPromptShowSystemPromptView
 
   std::u16string GetAccessibleWindowTitle() const override;
   std::u16string GetWindowTitle() const override;
+  bool ShowLoadingIcon() const override;
   void RunButtonCallback(int type) override;
 
  protected:

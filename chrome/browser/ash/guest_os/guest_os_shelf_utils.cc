@@ -4,14 +4,16 @@
 
 #include "chrome/browser/ash/guest_os/guest_os_shelf_utils.h"
 
+#include <string_view>
+
 #include "base/logging.h"
 #include "base/no_destructor.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/ash/borealis/borealis_window_manager.h"
 #include "chrome/browser/ash/guest_os/guest_id.h"
 #include "chrome/browser/ash/guest_os/guest_os_pref_names.h"
 #include "chrome/browser/ash/guest_os/guest_os_session_tracker.h"
+#include "chrome/browser/ash/guest_os/guest_os_session_tracker_factory.h"
 #include "chrome/browser/ash/guest_os/public/types.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/prefs/pref_service.h"
@@ -39,7 +41,7 @@ constexpr char kWmClassPrefix[] = "wmclass.";
 // TODO(b/267377562): Borealis windows have a hardcoded "borealis" token.
 constexpr char kBorealisToken[] = "borealis";
 
-const std::string* GetAppNameForWMClass(base::StringPiece wmclass) {
+const std::string* GetAppNameForWMClass(std::string_view wmclass) {
   // A hard-coded mapping from WMClass to app names.
   // This is used to deal with the Linux apps that don't specify the correct
   // WMClass in their desktop files so that their aura windows can be identified
@@ -70,8 +72,8 @@ enum class FindAppIdResult { NoMatch, UniqueMatch, NonUniqueMatch };
 // Looks for an app where prefs_key is set to search_value. Returns the apps id
 // if there was only one app matching, otherwise returns an empty string.
 FindAppIdResult FindAppId(const base::Value::Dict& prefs,
-                          base::StringPiece prefs_key,
-                          base::StringPiece search_value,
+                          std::string_view prefs_key,
+                          std::string_view search_value,
                           const std::optional<GuestId>& guest_id,
                           std::string* result,
                           bool require_startup_notify = false,
@@ -152,7 +154,7 @@ std::string GetGuestTokenForWindowId(const std::string* window_app_id) {
   return token;
 }
 
-std::string GetUnregisteredAppIdPrefix(const std::optional<std::string> token) {
+std::string GetUnregisteredAppIdPrefix(const std::string& token) {
   if (token == kBorealisToken) {
     return borealis::kBorealisAnonymousPrefix;
   }
@@ -200,7 +202,8 @@ std::string GetGuestOsShelfAppId(Profile* profile,
 
   std::string token = GetGuestTokenForWindowId(window_app_id);
   std::optional<GuestId> guest_id =
-      GuestOsSessionTracker::GetForProfile(profile)->GetGuestIdForToken(token);
+      GuestOsSessionTrackerFactory::GetForProfile(profile)->GetGuestIdForToken(
+          token);
 
   if (window_startup_id) {
     if (FindAppId(apps, guest_os::prefs::kAppDesktopFileIdKey,
@@ -228,14 +231,14 @@ std::string GetGuestOsShelfAppId(Profile* profile,
   // Get the suffix by stripping "org.chromium.guest_os.<token>.".
   // token.length() + 1 is used since the '.' separator was not included in the
   // token.
-  base::StringPiece suffix = base::MakeStringPiece(
+  std::string_view suffix = base::MakeStringPiece(
       window_app_id->begin() + strlen(kGuestOsWindowAppIdPrefix) +
           token.length() + 1,
       window_app_id->end());
 
   // Wayland apps will have a "wayland." identifier.
   if (base::StartsWith(suffix, kWaylandPrefix, base::CompareCase::SENSITIVE)) {
-    const base::StringPiece wayland_app = suffix.substr(strlen(kWaylandPrefix));
+    const std::string_view wayland_app = suffix.substr(strlen(kWaylandPrefix));
     if (FindAppId(apps, guest_os::prefs::kAppDesktopFileIdKey, wayland_app,
                   guest_id, &app_id) == FindAppIdResult::UniqueMatch) {
       return app_id;
@@ -250,7 +253,7 @@ std::string GetGuestOsShelfAppId(Profile* profile,
 
   // If an app had StartupWMClass set to the given WM class, use that,
   // otherwise look for a desktop file id matching the WM class.
-  base::StringPiece key = suffix.substr(strlen(kWmClassPrefix));
+  std::string_view key = suffix.substr(strlen(kWmClassPrefix));
   FindAppIdResult result = FindAppId(
       apps, guest_os::prefs::kAppStartupWMClassKey, key, guest_id, &app_id,
       false /* require_startup_notification */, true /* need_display */);
@@ -282,19 +285,19 @@ std::string GetGuestOsShelfAppId(Profile* profile,
   return GetUnregisteredAppIdPrefix(token) + *window_app_id;
 }
 
-bool IsUnregisteredCrostiniShelfAppId(base::StringPiece shelf_app_id) {
+bool IsUnregisteredCrostiniShelfAppId(std::string_view shelf_app_id) {
   return base::StartsWith(shelf_app_id, kCrostiniShelfIdPrefix,
                           base::CompareCase::SENSITIVE);
 }
 
-bool IsUnregisteredGuestOsShelfAppId(base::StringPiece shelf_app_id) {
+bool IsUnregisteredGuestOsShelfAppId(std::string_view shelf_app_id) {
   return IsUnregisteredCrostiniShelfAppId(shelf_app_id) ||
          base::StartsWith(shelf_app_id, borealis::kBorealisAnonymousPrefix,
                           base::CompareCase::SENSITIVE);
 }
 
 bool IsCrostiniShelfAppId(const Profile* profile,
-                          base::StringPiece shelf_app_id) {
+                          std::string_view shelf_app_id) {
   if (IsUnregisteredCrostiniShelfAppId(shelf_app_id)) {
     return true;
   }
@@ -310,14 +313,15 @@ bool IsCrostiniShelfAppId(const Profile* profile,
   return apps.contains(shelf_app_id);
 }
 
-apps::AppType GetAppType(Profile* profile, base::StringPiece shelf_app_id) {
+apps::AppType GetAppType(Profile* profile, std::string_view shelf_app_id) {
   if (shelf_app_id.starts_with(kCrostiniShelfIdPrefix)) {
     shelf_app_id.remove_prefix(strlen(kCrostiniShelfIdPrefix));
   }
   const std::string id(shelf_app_id);
   const std::string token = GetGuestTokenForWindowId(&id);
   std::optional<GuestId> guest_id =
-      GuestOsSessionTracker::GetForProfile(profile)->GetGuestIdForToken(token);
+      GuestOsSessionTrackerFactory::GetForProfile(profile)->GetGuestIdForToken(
+          token);
   if (guest_id.has_value()) {
     return ToAppType(guest_id->vm_type);
   }

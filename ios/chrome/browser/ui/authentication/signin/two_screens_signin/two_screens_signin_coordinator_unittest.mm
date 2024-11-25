@@ -11,10 +11,10 @@
 #import "base/test/ios/wait_util.h"
 #import "base/test/metrics/histogram_tester.h"
 #import "base/test/metrics/user_action_tester.h"
-#import "components/sync/base/features.h"
+#import "ios/chrome/browser/first_run/ui_bundled/signin/signin_screen_view_controller.h"
 #import "ios/chrome/browser/shared/model/application_context/application_context.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/signin/model/authentication_service.h"
 #import "ios/chrome/browser/signin/model/authentication_service_factory.h"
 #import "ios/chrome/browser/signin/model/fake_authentication_service_delegate.h"
@@ -23,10 +23,7 @@
 #import "ios/chrome/browser/sync/model/mock_sync_service_utils.h"
 #import "ios/chrome/browser/sync/model/sync_service_factory.h"
 #import "ios/chrome/browser/ui/authentication/history_sync/history_sync_view_controller.h"
-#import "ios/chrome/browser/ui/authentication/signin/signin_completion_info.h"
 #import "ios/chrome/browser/ui/authentication/signin/signin_constants.h"
-#import "ios/chrome/browser/ui/authentication/tangible_sync/tangible_sync_view_controller.h"
-#import "ios/chrome/browser/ui/first_run/signin/signin_screen_view_controller.h"
 #import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/gtest_mac.h"
@@ -36,17 +33,15 @@
 class TwoScreensSigninCoordinatorTest : public PlatformTest {
  public:
   TwoScreensSigninCoordinatorTest() {
-    TestChromeBrowserState::Builder builder;
+    TestProfileIOS::Builder builder;
     builder.AddTestingFactory(
         AuthenticationServiceFactory::GetInstance(),
-        AuthenticationServiceFactory::GetDefaultFactory());
+        AuthenticationServiceFactory::GetFactoryWithDelegate(
+            std::make_unique<FakeAuthenticationServiceDelegate>()));
     builder.AddTestingFactory(SyncServiceFactory::GetInstance(),
                               base::BindRepeating(&CreateMockSyncService));
-    browser_state_ = builder.Build();
-    AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
-        browser_state_.get(),
-        std::make_unique<FakeAuthenticationServiceDelegate>());
-    browser_ = std::make_unique<TestBrowser>(browser_state_.get());
+    profile_ = std::move(builder).Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get());
 
     NSUserDefaults* standardDefaults = [NSUserDefaults standardUserDefaults];
     [standardDefaults removeObjectForKey:kDisplayedSSORecallPromoCountKey];
@@ -63,8 +58,8 @@ class TwoScreensSigninCoordinatorTest : public PlatformTest {
         FakeSystemIdentityManager::FromSystemIdentityManager(
             GetApplicationContext()->GetSystemIdentityManager());
     // Resets all preferences related to upgrade promo.
-    FakeSystemIdentity* fake_identity = [FakeSystemIdentity fakeIdentity1];
-    system_identity_manager->AddIdentity(fake_identity);
+    fake_identity_ = [FakeSystemIdentity fakeIdentity1];
+    system_identity_manager->AddIdentity(fake_identity_);
 
     coordinator_ = [[TwoScreensSigninCoordinator alloc]
         initWithBaseViewController:window_.rootViewController
@@ -109,15 +104,9 @@ class TwoScreensSigninCoordinatorTest : public PlatformTest {
 
   // Signs in a fake identity.
   void SigninFakeIdentity() {
-    FakeSystemIdentity* fake_identity = [FakeSystemIdentity fakeIdentity1];
-    FakeSystemIdentityManager* system_identity_manager =
-        FakeSystemIdentityManager::FromSystemIdentityManager(
-            GetApplicationContext()->GetSystemIdentityManager());
-    system_identity_manager->AddIdentity(fake_identity);
-    AuthenticationService* auth_service = static_cast<AuthenticationService*>(
-        AuthenticationServiceFactory::GetInstance()->GetForBrowserState(
-            browser_state_.get()));
-    auth_service->SignIn(fake_identity,
+    AuthenticationService* auth_service =
+        AuthenticationServiceFactory::GetForProfile(profile_.get());
+    auth_service->SignIn(fake_identity_,
                          signin_metrics::AccessPoint::ACCESS_POINT_UNKNOWN);
   }
 
@@ -130,12 +119,13 @@ class TwoScreensSigninCoordinatorTest : public PlatformTest {
 
  protected:
   web::WebTaskEnvironment task_environment_;
-  IOSChromeScopedTestingLocalState local_state_;
+  IOSChromeScopedTestingLocalState scoped_testing_local_state_;
   std::unique_ptr<Browser> browser_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   TwoScreensSigninCoordinator* coordinator_;
   base::UserActionTester user_actions_;
   UIWindow* window_;
+  FakeSystemIdentity* fake_identity_ = nil;
 };
 
 #pragma mark - Tests
@@ -144,13 +134,13 @@ class TwoScreensSigninCoordinatorTest : public PlatformTest {
 TEST_F(TwoScreensSigninCoordinatorTest, PresentScreens) {
   base::HistogramTester histogram_tester;
   __block SigninCoordinatorResult signin_result;
-  __block SigninCompletionInfo* signin_completion_info;
+  __block id<SystemIdentity> signin_completion_identity;
   __block BOOL completion_block_done = NO;
   coordinator_.signinCompletion =
       ^(SigninCoordinatorResult signinResult,
-        SigninCompletionInfo* signinCompletionInfo) {
+        id<SystemIdentity> signinCompletionIdentity) {
         signin_result = signinResult;
-        signin_completion_info = signinCompletionInfo;
+        signin_completion_identity = signinCompletionIdentity;
         completion_block_done = YES;
       };
 
@@ -165,16 +155,9 @@ TEST_F(TwoScreensSigninCoordinatorTest, PresentScreens) {
 
   NextScreen();
 
-  if (base::FeatureList::IsEnabled(
-          syncer::kReplaceSyncPromosWithSignInPromos)) {
-    // Expect the history sync opt-in screen to be presented.
-    EXPECT_TRUE(
-        [TopViewController() isKindOfClass:[HistorySyncViewController class]]);
-  } else {
-    // Expect the tangible sync screen to be presented.
-    EXPECT_TRUE(
-        [TopViewController() isKindOfClass:[TangibleSyncViewController class]]);
-  }
+  // Expect the history sync opt-in screen to be presented.
+  EXPECT_TRUE(
+      [TopViewController() isKindOfClass:[HistorySyncViewController class]]);
 
   // Shut it down.
   __block BOOL interrupt_completion_done = NO;
@@ -189,9 +172,7 @@ TEST_F(TwoScreensSigninCoordinatorTest, PresentScreens) {
   ASSERT_TRUE(base::test::ios::WaitUntilConditionOrTimeout(
       base::Seconds(1), true, completion_condition));
   EXPECT_EQ(signin_result, SigninCoordinatorResultInterrupted);
-  EXPECT_EQ(signin_completion_info.identity, nil);
-  EXPECT_EQ(signin_completion_info.signinCompletionAction,
-            SigninCompletionActionNone);
+  EXPECT_EQ(signin_completion_identity, nil);
   [coordinator_ stop];
   ExpectNoUpgradePromoHistogram(&histogram_tester);
 }
@@ -200,13 +181,13 @@ TEST_F(TwoScreensSigninCoordinatorTest, PresentScreens) {
 TEST_F(TwoScreensSigninCoordinatorTest, StopWillInterrupt) {
   base::HistogramTester histogram_tester;
   __block SigninCoordinatorResult signin_result;
-  __block SigninCompletionInfo* signin_completion_info;
+  __block id<SystemIdentity> signin_completion_identity;
   __block BOOL completion_block_done = NO;
   coordinator_.signinCompletion =
       ^(SigninCoordinatorResult signinResult,
-        SigninCompletionInfo* signinCompletionInfo) {
+        id<SystemIdentity> signinCompletionIdentity) {
         signin_result = signinResult;
-        signin_completion_info = signinCompletionInfo;
+        signin_completion_identity = signinCompletionIdentity;
         completion_block_done = YES;
       };
 
@@ -218,9 +199,7 @@ TEST_F(TwoScreensSigninCoordinatorTest, StopWillInterrupt) {
   EXPECT_TRUE(completion_block_done);
 
   EXPECT_EQ(signin_result, SigninCoordinatorResultInterrupted);
-  EXPECT_EQ(signin_completion_info.identity, nil);
-  EXPECT_EQ(signin_completion_info.signinCompletionAction,
-            SigninCompletionActionNone);
+  EXPECT_EQ(signin_completion_identity, nil);
   ExpectNoUpgradePromoHistogram(&histogram_tester);
 }
 
@@ -228,13 +207,13 @@ TEST_F(TwoScreensSigninCoordinatorTest, StopWillInterrupt) {
 TEST_F(TwoScreensSigninCoordinatorTest, CanceledByUser) {
   base::HistogramTester histogram_tester;
   __block SigninCoordinatorResult signin_result;
-  __block SigninCompletionInfo* signin_completion_info;
+  __block id<SystemIdentity> signin_completion_identity;
   __block BOOL completion_block_done = NO;
   coordinator_.signinCompletion =
       ^(SigninCoordinatorResult signinResult,
-        SigninCompletionInfo* signinCompletionInfo) {
+        id<SystemIdentity> signinCompletionIdentity) {
         signin_result = signinResult;
-        signin_completion_info = signinCompletionInfo;
+        signin_completion_identity = signinCompletionIdentity;
         completion_block_done = YES;
       };
 
@@ -247,9 +226,7 @@ TEST_F(TwoScreensSigninCoordinatorTest, CanceledByUser) {
   ASSERT_TRUE(base::test::ios::WaitUntilConditionOrTimeout(
       base::Seconds(1), true, completion_condition));
   EXPECT_EQ(signin_result, SigninCoordinatorResultCanceledByUser);
-  EXPECT_EQ(signin_completion_info.identity, nil);
-  EXPECT_EQ(signin_completion_info.signinCompletionAction,
-            SigninCompletionActionNone);
+  EXPECT_EQ(signin_completion_identity, nil);
   [coordinator_ stop];
   ExpectNoUpgradePromoHistogram(&histogram_tester);
 }
@@ -258,13 +235,13 @@ TEST_F(TwoScreensSigninCoordinatorTest, CanceledByUser) {
 TEST_F(TwoScreensSigninCoordinatorTest, SwipeToDismiss) {
   base::HistogramTester histogram_tester;
   __block SigninCoordinatorResult signin_result;
-  __block SigninCompletionInfo* signin_completion_info;
+  __block id<SystemIdentity> signin_completion_identity;
   __block BOOL completion_block_done = NO;
   coordinator_.signinCompletion =
       ^(SigninCoordinatorResult signinResult,
-        SigninCompletionInfo* signinCompletionInfo) {
+        id<SystemIdentity> signinCompletionIdentity) {
         signin_result = signinResult;
-        signin_completion_info = signinCompletionInfo;
+        signin_completion_identity = signinCompletionIdentity;
         completion_block_done = YES;
       };
 
@@ -283,9 +260,7 @@ TEST_F(TwoScreensSigninCoordinatorTest, SwipeToDismiss) {
   ASSERT_TRUE(base::test::ios::WaitUntilConditionOrTimeout(
       base::Seconds(1), true, completion_condition));
   EXPECT_EQ(signin_result, SigninCoordinatorResultInterrupted);
-  EXPECT_EQ(signin_completion_info.identity, nil);
-  EXPECT_EQ(signin_completion_info.signinCompletionAction,
-            SigninCompletionActionNone);
+  EXPECT_EQ(signin_completion_identity, nil);
   EXPECT_EQ(1, user_actions_.GetActionCount("Signin_TwoScreens_SwipeDismiss"));
 
   [coordinator_ stop];

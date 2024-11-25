@@ -4,6 +4,7 @@
 
 #import "ios/chrome/browser/ui/authentication/history_sync/history_sync_coordinator.h"
 
+#import "base/memory/raw_ptr.h"
 #import "base/metrics/histogram_functions.h"
 #import "base/metrics/user_metrics.h"
 #import "components/signin/public/base/signin_metrics.h"
@@ -12,7 +13,7 @@
 #import "components/sync/service/sync_user_settings.h"
 #import "ios/chrome/browser/first_run/model/first_run_metrics.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/signin/model/authentication_service.h"
 #import "ios/chrome/browser/signin/model/authentication_service_factory.h"
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service_factory.h"
@@ -35,7 +36,7 @@
   // History view controller.
   HistorySyncViewController* _viewController;
   // Pref service.
-  PrefService* _prefService;
+  raw_ptr<PrefService> _prefService;
   // `YES` if coordinator used during the first run.
   BOOL _firstRun;
   // `YES` if the user's email should be shown in the footer text.
@@ -113,7 +114,7 @@
       // If a metric should be recorded in this case, it should be handled in
       // HistorySyncCoordinator instance methods instead of this class method
       // to avoid duplicated recording.
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
 
@@ -142,13 +143,11 @@
 
 - (void)start {
   [super start];
-  ChromeBrowserState* browserState = self.browser->GetBrowserState();
-  CHECK_EQ(browserState, browserState->GetOriginalChromeBrowserState());
+  ProfileIOS* profile = self.browser->GetProfile()->GetOriginalProfile();
   AuthenticationService* authenticationService =
-      AuthenticationServiceFactory::GetForBrowserState(browserState);
-  syncer::SyncService* syncService =
-      SyncServiceFactory::GetForBrowserState(browserState);
-  _prefService = browserState->GetPrefs();
+      AuthenticationServiceFactory::GetForProfile(profile);
+  syncer::SyncService* syncService = SyncServiceFactory::GetForProfile(profile);
+  _prefService = profile->GetPrefs();
   // Check if History Sync Opt-In should be skipped.
   HistorySyncSkipReason skipReason = [HistorySyncCoordinator
       getHistorySyncOptInSkipReason:syncService
@@ -164,10 +163,11 @@
 
   _viewController = [[HistorySyncViewController alloc] init];
   _viewController.delegate = self;
+
   ChromeAccountManagerService* chromeAccountManagerService =
-      ChromeAccountManagerServiceFactory::GetForBrowserState(browserState);
+      ChromeAccountManagerServiceFactory::GetForProfile(profile);
   signin::IdentityManager* identityManager =
-      IdentityManagerFactory::GetForBrowserState(browserState);
+      IdentityManagerFactory::GetForProfile(profile);
   _mediator = [[HistorySyncMediator alloc]
       initWithAuthenticationService:authenticationService
         chromeAccountManagerService:chromeAccountManagerService
@@ -176,9 +176,10 @@
                       showUserEmail:_showUserEmail];
   _mediator.consumer = _viewController;
   _mediator.delegate = self;
+
   if (_firstRun) {
     _viewController.modalInPresentation = YES;
-    base::UmaHistogramEnumeration("FirstRun.Stage",
+    base::UmaHistogramEnumeration(first_run::kFirstRunStageHistogram,
                                   first_run::kHistorySyncScreenStart);
   }
   base::RecordAction(base::UserMetricsAction("Signin_HistorySync_Started"));
@@ -233,9 +234,11 @@
 
   history_sync::ResetDeclinePrefs(_prefService);
   base::RecordAction(base::UserMetricsAction("Signin_HistorySync_Completed"));
+  [self recordActionButtonTappedWithHistorySyncCompleted:YES];
   if (_firstRun) {
     base::UmaHistogramEnumeration(
-        "FirstRun.Stage", first_run::kHistorySyncScreenCompletionWithSync);
+        first_run::kFirstRunStageHistogram,
+        first_run::kHistorySyncScreenCompletionWithSync);
   }
   base::UmaHistogramEnumeration("Signin.HistorySyncOptIn.Completed",
                                 _accessPoint,
@@ -248,9 +251,11 @@
 - (void)didTapSecondaryActionButton {
   history_sync::RecordDeclinePrefs(_prefService);
   base::RecordAction(base::UserMetricsAction("Signin_HistorySync_Declined"));
+  [self recordActionButtonTappedWithHistorySyncCompleted:NO];
   if (_firstRun) {
     base::UmaHistogramEnumeration(
-        "FirstRun.Stage", first_run::kHistorySyncScreenCompletionWithoutSync);
+        first_run::kFirstRunStageHistogram,
+        first_run::kHistorySyncScreenCompletionWithoutSync);
   }
   base::UmaHistogramEnumeration("Signin.HistorySyncOptIn.Declined",
                                 _accessPoint,
@@ -258,6 +263,31 @@
   _recordOptInEndAtStop = NO;
 
   [_delegate closeHistorySyncCoordinator:self declinedByUser:YES];
+}
+
+#pragma mark - Private
+
+- (void)recordActionButtonTappedWithHistorySyncCompleted:(BOOL)completed {
+  std::optional<signin_metrics::SyncButtonClicked> buttonClicked;
+  switch (_viewController.actionButtonsVisibility) {
+    case ActionButtonsVisibility::kDefault:
+    case ActionButtonsVisibility::kRegularButtonsShown:
+      buttonClicked = completed ? signin_metrics::SyncButtonClicked::
+                                      kHistorySyncOptInNotEqualWeighted
+                                : signin_metrics::SyncButtonClicked::
+                                      kHistorySyncCancelNotEqualWeighted;
+      break;
+    case ActionButtonsVisibility::kEquallyWeightedButtonShown:
+      buttonClicked = completed ? signin_metrics::SyncButtonClicked::
+                                      kHistorySyncOptInEqualWeighted
+                                : signin_metrics::SyncButtonClicked::
+                                      kHistorySyncCancelEqualWeighted;
+      break;
+    default:
+      NOTREACHED();
+  }
+
+  base::UmaHistogramEnumeration("Signin.SyncButtons.Clicked", *buttonClicked);
 }
 
 @end

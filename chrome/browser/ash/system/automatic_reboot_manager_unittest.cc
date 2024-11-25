@@ -8,6 +8,7 @@
 #include <string>
 
 #include "ash/constants/ash_paths.h"
+#include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
@@ -238,7 +239,6 @@ class AutomaticRebootManagerBasicTest : public testing::Test {
 enum AutomaticRebootManagerTestScenario {
   AUTOMATIC_REBOOT_MANAGER_TEST_SCENARIO_LOGIN_SCREEN,
   AUTOMATIC_REBOOT_MANAGER_TEST_SCENARIO_KIOSK_APP_SESSION,
-  AUTOMATIC_REBOOT_MANAGER_TEST_SCENARIO_ARC_KIOSK_APP_SESSION,
   AUTOMATIC_REBOOT_MANAGER_TEST_SCENARIO_NON_KIOSK_APP_SESSION,
 };
 
@@ -618,9 +618,6 @@ AutomaticRebootManagerTest::AutomaticRebootManagerTest() {
       break;
     case AUTOMATIC_REBOOT_MANAGER_TEST_SCENARIO_KIOSK_APP_SESSION:
       LogIn(user_manager->AddKioskAppUser(account_id_));
-      break;
-    case AUTOMATIC_REBOOT_MANAGER_TEST_SCENARIO_ARC_KIOSK_APP_SESSION:
-      LogIn(user_manager->AddArcKioskAppUser(account_id_));
       break;
     case AUTOMATIC_REBOOT_MANAGER_TEST_SCENARIO_NON_KIOSK_APP_SESSION:
       LogIn(user_manager->AddUser(account_id_));
@@ -2506,7 +2503,6 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Values(
         AUTOMATIC_REBOOT_MANAGER_TEST_SCENARIO_LOGIN_SCREEN,
         AUTOMATIC_REBOOT_MANAGER_TEST_SCENARIO_KIOSK_APP_SESSION,
-        AUTOMATIC_REBOOT_MANAGER_TEST_SCENARIO_ARC_KIOSK_APP_SESSION,
         AUTOMATIC_REBOOT_MANAGER_TEST_SCENARIO_NON_KIOSK_APP_SESSION));
 
 }  // namespace system

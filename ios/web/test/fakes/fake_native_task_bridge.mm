@@ -22,10 +22,9 @@
 - (instancetype)initWithDownload:(WKDownload*)download
                         delegate:
                             (id<DownloadNativeTaskBridgeDelegate>)delegate {
-  if (self = [super initWithDownload:download delegate:delegate]) {
+  if ((self = [super initWithDownload:download delegate:delegate])) {
     _calledStartDownloadBlock = NO;
-    if (@available(iOS 15, *))
-      [self downloadInitialized];
+    [self downloadInitialized];
   }
   return self;
 }

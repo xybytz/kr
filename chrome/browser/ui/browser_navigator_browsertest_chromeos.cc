@@ -20,12 +20,12 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/constants/ash_switches.h"
+#include "ash/wm/window_pin_util.h"
 #include "chrome/browser/ash/login/chrome_restart_request.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_window_manager_helper.h"
 #include "chrome/browser/ui/ash/multi_user/test_multi_user_window_manager.h"
-#include "chrome/browser/ui/chromeos/window_pin_util.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
@@ -96,6 +96,37 @@ IN_PROC_BROWSER_TEST_F(BrowserNavigatorTestChromeOS,
       GURL(chrome::kChromeUIVersionURL),
       params.browser->tab_strip_model()->GetActiveWebContents()->GetURL());
 }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+// Verify that page navigation is allowed in locked fullscreen mode when locked
+// for OnTask. Only applicable for non-web browser scenarios.
+IN_PROC_BROWSER_TEST_F(BrowserNavigatorTestChromeOS,
+                       NavigationAllowedInLockedFullscreenWhenLockedForOnTask) {
+  // Set locked fullscreen state.
+  aura::Window* const window = browser()->window()->GetNativeWindow();
+  PinWindow(window, /*trusted=*/true);
+  browser()->SetLockedForOnTask(true);
+
+  // Navigate to a page.
+  const GURL kUrl(chrome::kChromeUIVersionURL);
+  NavigateParams params(MakeNavigateParams(browser()));
+  params.disposition = WindowOpenDisposition::NEW_WINDOW;
+  params.url = kUrl;
+  params.window_action = NavigateParams::SHOW_WINDOW;
+  Navigate(&params);
+
+  // The original browser should still be at the same page, but the newly
+  // opened browser should sit on the chrome:version page.
+  ASSERT_EQ(2u, chrome::GetTotalBrowserCount());
+  ASSERT_EQ(1, browser()->tab_strip_model()->count());
+  EXPECT_EQ(GURL(url::kAboutBlankURL),
+            browser()->tab_strip_model()->GetActiveWebContents()->GetURL());
+  ASSERT_EQ(1, params.browser->tab_strip_model()->count());
+  EXPECT_EQ(
+      kUrl,
+      params.browser->tab_strip_model()->GetActiveWebContents()->GetURL());
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // Subclass that tests navigation while in the Guest session.
 class BrowserGuestSessionNavigatorTest : public BrowserNavigatorTest {
@@ -234,12 +265,6 @@ IN_PROC_BROWSER_TEST_F(BrowserNavigatorTestChromeOS, OsSchemeRedirectSucceed) {
   base::test::TestFuture<uint32_t> window_count_future;
   test_controller->GetOpenAshBrowserWindows(window_count_future.GetCallback());
   EXPECT_EQ(0u, window_count_future.Take());
-
-  // First we make sure that the GURL we are interested in is in our allow list.
-  auto init_params = crosapi::mojom::BrowserInitParams::New();
-  init_params->accepted_internal_ash_urls =
-      std::vector<GURL>{GURL(chrome::kChromeUIFlagsURL)};
-  chromeos::BrowserInitParams::SetInitParamsForTests(std::move(init_params));
 
   EXPECT_EQ(1u, chrome::GetTotalBrowserCount());
   EXPECT_EQ(1, browser()->tab_strip_model()->count());

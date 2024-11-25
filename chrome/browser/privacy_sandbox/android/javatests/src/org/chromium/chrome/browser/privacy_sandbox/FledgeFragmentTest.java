@@ -41,14 +41,14 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.base.test.util.UserActionTester;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.preferences.Pref;
-import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
 import org.chromium.chrome.test.ChromeBrowserTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -56,7 +56,6 @@ import org.chromium.chrome.test.util.ChromeRenderTestRule;
 import org.chromium.components.policy.test.annotations.Policies;
 import org.chromium.components.prefs.PrefService;
 import org.chromium.components.user_prefs.UserPrefs;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.test.util.RenderTestRule;
 import org.chromium.ui.test.util.ViewUtils;
 
@@ -83,24 +82,23 @@ public final class FledgeFragmentTest {
     public SettingsActivityTestRule<FledgeFragment> mSettingsActivityTestRule =
             new SettingsActivityTestRule<>(FledgeFragment.class);
 
-    @Rule public JniMocker mocker = new JniMocker();
-
     private FakePrivacySandboxBridge mFakePrivacySandboxBridge;
     private UserActionTester mUserActionTester;
 
     @Before
     public void setUp() {
         mFakePrivacySandboxBridge = new FakePrivacySandboxBridge();
-        mocker.mock(PrivacySandboxBridgeJni.TEST_HOOKS, mFakePrivacySandboxBridge);
+        PrivacySandboxBridgeJni.setInstanceForTesting(mFakePrivacySandboxBridge);
 
         mUserActionTester = new UserActionTester();
     }
 
     @After
     public void tearDown() {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
-                    PrefService prefService = UserPrefs.get(Profile.getLastUsedRegularProfile());
+                    PrefService prefService =
+                            UserPrefs.get(ProfileManager.getLastUsedRegularProfile());
                     prefService.clearPref(Pref.PRIVACY_SANDBOX_M1_FLEDGE_ENABLED);
                 });
 
@@ -141,15 +139,17 @@ public final class FledgeFragmentTest {
     }
 
     private void setFledgePrefEnabled(boolean isEnabled) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () ->
                         FledgeFragment.setFledgePrefEnabled(
-                                Profile.getLastUsedRegularProfile(), isEnabled));
+                                ProfileManager.getLastUsedRegularProfile(), isEnabled));
     }
 
     private boolean isFledgePrefEnabled() {
-        return TestThreadUtils.runOnUiThreadBlockingNoException(
-                () -> FledgeFragment.isFledgePrefEnabled(Profile.getLastUsedRegularProfile()));
+        return ThreadUtils.runOnUiThreadBlocking(
+                () ->
+                        FledgeFragment.isFledgePrefEnabled(
+                                ProfileManager.getLastUsedRegularProfile()));
     }
 
     private void scrollToSetting(Matcher<View> matcher) {
@@ -231,7 +231,7 @@ public final class FledgeFragmentTest {
         setFledgePrefEnabled(true);
         mFakePrivacySandboxBridge.setCurrentFledgeSites(SITE_NAME_1, SITE_NAME_2);
         startFledgeSettings();
-        onView(withText(containsString("Learn more"))).perform(clickOnClickableSpan(0));
+        onView(withText(containsString("30 days. Learn more"))).perform(clickOnClickableSpan(0));
         mRenderTestRule.render(getLearnMoreRootView(), "fledge_learn_more");
     }
 
@@ -496,7 +496,7 @@ public final class FledgeFragmentTest {
     public void testLearnMoreLink() {
         startFledgeSettings();
         // Open the Fledge learn more activity
-        onView(withText(containsString("Learn more"))).perform(clickOnClickableSpan(0));
+        onView(withText(containsString("30 days. Learn more"))).perform(clickOnClickableSpan(0));
         onViewWaiting(withText(R.string.settings_fledge_page_learn_more_heading))
                 .check(matches(isDisplayed()));
         // Close the additional activity
@@ -512,8 +512,8 @@ public final class FledgeFragmentTest {
         setFledgePrefEnabled(true);
         startFledgeSettings();
         // Open a Topics settings activity.
-        onView(withText(containsString("Ad topics"))).perform(clickOnClickableSpan(0));
-        onViewWaiting(withText(R.string.settings_topics_page_toggle_sub_label))
+        onView(withText(containsString("ad topics"))).perform(clickOnClickableSpan(0));
+        onViewWaiting(withText(R.string.settings_topics_page_toggle_sub_label_v2))
                 .check(matches(isDisplayed()));
         // Close the additional activity by navigating back.
         pressBack();

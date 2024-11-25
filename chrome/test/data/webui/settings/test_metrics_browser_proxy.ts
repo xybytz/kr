@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {DeleteBrowsingDataAction, MetricsBrowserProxy, PrivacyElementInteractions, PrivacyGuideInteractions, PrivacyGuideSettingsStates, PrivacyGuideStepsEligibleAndReached, SafeBrowsingInteractions, SafetyCheckInteractions, SafetyCheckNotificationsModuleInteractions, SafetyCheckUnusedSitePermissionsModuleInteractions, SafetyHubCardState, SafetyHubEntryPoint, SafetyHubModuleType, SafetyHubSurfaces} from 'chrome://settings/settings.js';
+import type {AiPageCompareInteractions, AiPageComposeInteractions, AiPageHistorySearchInteractions, AiPageInteractions, AiPageTabOrganizationInteractions, DeleteBrowsingDataAction, MetricsBrowserProxy, PrivacyElementInteractions, PrivacyGuideInteractions, PrivacyGuideSettingsStates, PrivacyGuideStepsEligibleAndReached, SafeBrowsingInteractions, SafetyCheckInteractions, SafetyCheckNotificationsModuleInteractions, SafetyCheckUnusedSitePermissionsModuleInteractions, SafetyHubCardState, SafetyHubEntryPoint, SafetyHubModuleType, SafetyHubSurfaces} from 'chrome://settings/settings.js';
 import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
 
 export class TestMetricsBrowserProxy extends TestBrowserProxy implements
@@ -10,6 +10,7 @@ export class TestMetricsBrowserProxy extends TestBrowserProxy implements
   constructor() {
     super([
       'recordAction',
+      'recordBooleanHistogram',
       'recordSafetyCheckInteractionHistogram',
       'recordSafetyCheckNotificationsListCountHistogram',
       'recordSafetyCheckNotificationsModuleInteractionsHistogram',
@@ -25,6 +26,7 @@ export class TestMetricsBrowserProxy extends TestBrowserProxy implements
       'recordPrivacyGuideSettingsStatesHistogram',
       'recordPrivacyGuideStepsEligibleAndReachedHistogram',
       'recordDeleteBrowsingDataAction',
+      'recordSafetyHubAbusiveNotificationPermissionRevocationInteractionsHistogram',
       'recordSafetyHubCardStateClicked',
       'recordSafetyHubDashboardAnyWarning',
       'recordSafetyHubEntryPointClicked',
@@ -36,11 +38,23 @@ export class TestMetricsBrowserProxy extends TestBrowserProxy implements
       'recordSafetyHubNotificationPermissionsModuleListCountHistogram',
       'recordSafetyHubUnusedSitePermissionsModuleInteractionsHistogram',
       'recordSafetyHubUnusedSitePermissionsModuleListCountHistogram',
+      // <if expr="_google_chrome and is_win">
+      'recordFeatureNotificationsChange',
+      // </if>
+      'recordAiPageInteractions',
+      'recordAiPageHistorySearchInteractions',
+      'recordAiPageCompareInteractions',
+      'recordAiPageComposeInteractions',
+      'recordAiPageTabOrganizationInteractions',
     ]);
   }
 
   recordAction(action: string) {
     this.methodCalled('recordAction', action);
+  }
+
+  recordBooleanHistogram(histogramName: string, visible: boolean) {
+    this.methodCalled('recordBooleanHistogram', [histogramName, visible]);
   }
 
   recordSafetyCheckInteractionHistogram(interaction: SafetyCheckInteractions) {
@@ -120,6 +134,13 @@ export class TestMetricsBrowserProxy extends TestBrowserProxy implements
     this.methodCalled('recordDeleteBrowsingDataAction', action);
   }
 
+  recordSafetyHubAbusiveNotificationPermissionRevocationInteractionsHistogram(
+      interaction: SafetyCheckUnusedSitePermissionsModuleInteractions) {
+    this.methodCalled(
+        'recordSafetyHubAbusiveNotificationPermissionRevocationInteractionsHistogram',
+        interaction);
+  }
+
   recordSafetyHubCardStateClicked(
       histogramName: string, state: SafetyHubCardState) {
     this.methodCalled(
@@ -176,5 +197,33 @@ export class TestMetricsBrowserProxy extends TestBrowserProxy implements
     this.methodCalled(
         'recordSafetyHubUnusedSitePermissionsModuleListCountHistogram',
         suggestions);
+  }
+
+  // <if expr="_google_chrome and is_win">
+  recordFeatureNotificationsChange(enabled: boolean) {
+    this.methodCalled('recordFeatureNotificationsChange', enabled);
+  }
+  // </if>
+
+  recordAiPageInteractions(interaction: AiPageInteractions) {
+    this.methodCalled('recordAiPageInteractions', interaction);
+  }
+
+  recordAiPageHistorySearchInteractions(interaction:
+                                            AiPageHistorySearchInteractions) {
+    this.methodCalled('recordAiPageHistorySearchInteractions', interaction);
+  }
+
+  recordAiPageCompareInteractions(interaction: AiPageCompareInteractions) {
+    this.methodCalled('recordAiPageCompareInteractions', interaction);
+  }
+
+  recordAiPageComposeInteractions(interaction: AiPageComposeInteractions) {
+    this.methodCalled('recordAiPageComposeInteractions', interaction);
+  }
+
+  recordAiPageTabOrganizationInteractions(
+      interaction: AiPageTabOrganizationInteractions) {
+    this.methodCalled('recordAiPageTabOrganizationInteractions', interaction);
   }
 }

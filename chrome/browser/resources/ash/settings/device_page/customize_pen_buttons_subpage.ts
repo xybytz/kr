@@ -12,17 +12,20 @@ import '../icons.html.js';
 import '../settings_shared.css.js';
 import './input_device_settings_shared.css.js';
 
-import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
-import {PolymerElementProperties} from 'chrome://resources/polymer/v3_0/polymer/interfaces.js';
+import {getInstance as getAnnouncerInstance} from 'chrome://resources/ash/common/cr_elements/cr_a11y_announcer/cr_a11y_announcer.js';
+import {I18nMixin} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
+import type {PolymerElementProperties} from 'chrome://resources/polymer/v3_0/polymer/interfaces.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {castExists} from '../assert_extras.js';
 import {RouteObserverMixin} from '../common/route_observer_mixin.js';
-import {Route, Router, routes} from '../router.js';
+import type {Route} from '../router.js';
+import {Router, routes} from '../router.js';
 
 import {getTemplate} from './customize_pen_buttons_subpage.html.js';
 import {getInputDeviceSettingsProvider} from './input_device_mojo_interface_provider.js';
-import {ActionChoice, GraphicsTablet, InputDeviceSettingsProviderInterface} from './input_device_settings_types.js';
+import type {ActionChoice, GraphicsTablet, InputDeviceSettingsProviderInterface} from './input_device_settings_types.js';
+import {GraphicsTabletButtonConfig, MetaKey} from './input_device_settings_types.js';
 
 const SettingsCustomizePenButtonsSubpageElementBase =
     RouteObserverMixin(I18nMixin(PolymerElement));
@@ -48,11 +51,9 @@ export class SettingsCustomizePenButtonsSubpageElement extends
       },
 
       /**
-       * Use hasLauncherButton to decide which meta key icon to display.
+       * Use metaKey to decide which meta key icon to display.
        */
-      hasLauncherButton_: {
-        type: Boolean,
-      },
+      metaKey_: Object,
     };
   }
 
@@ -69,15 +70,15 @@ export class SettingsCustomizePenButtonsSubpageElement extends
       getInputDeviceSettingsProvider();
   private previousRoute_: Route|null = null;
   private isInitialized_: boolean = false;
-  private hasLauncherButton_: boolean;
+  private metaKey_: MetaKey = MetaKey.kSearch;
 
   override async connectedCallback(): Promise<void> {
     super.connectedCallback();
 
     this.addEventListener('button-remapping-changed', this.onSettingsChanged);
-    this.hasLauncherButton_ =
-        (await this.inputDeviceSettingsProvider_.hasLauncherButton())
-            ?.hasLauncherButton;
+    this.metaKey_ =
+        (await this.inputDeviceSettingsProvider_.getMetaKeyToDisplay())
+            ?.metaKey;
   }
 
   override disconnectedCallback(): void {
@@ -107,6 +108,9 @@ export class SettingsCustomizePenButtonsSubpageElement extends
       await this.initializePen();
     }
     this.inputDeviceSettingsProvider_.startObserving(this.selectedTablet.id);
+    getAnnouncerInstance().announce(
+        this.getcustomizePenButtonsNudgeHeader_() + ' ' +
+        this.getDescription_());
   }
 
   /**
@@ -172,7 +176,16 @@ export class SettingsCustomizePenButtonsSubpageElement extends
       return '';
     }
     return this.i18n(
-        'customizeButtonSubpageDescription', this.selectedTablet!.name);
+        'customizeTabletButtonSubpageDescription', this.selectedTablet!.name);
+  }
+
+  private getcustomizePenButtonsNudgeHeader_(): string {
+    if (this.selectedTablet?.graphicsTabletButtonConfig !==
+        GraphicsTabletButtonConfig.kNoConfig) {
+      return this.i18n('customizePenButtonsNudgeHeaderWithMetadata');
+    } else {
+      return this.i18n('customizePenButtonsNudgeHeaderWithoutMetadata');
+    }
   }
 }
 

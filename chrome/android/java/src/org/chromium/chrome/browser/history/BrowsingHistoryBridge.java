@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.history;
 
 import org.jni_zero.CalledByNative;
+import org.jni_zero.JniType;
 import org.jni_zero.NativeMethods;
 
 import org.chromium.base.Callback;
@@ -43,13 +44,14 @@ public class BrowsingHistoryBridge implements HistoryProvider {
     }
 
     @Override
-    public void queryHistory(String query) {
+    public void queryHistory(String query, String appId) {
         BrowsingHistoryBridgeJni.get()
                 .queryHistory(
                         mNativeHistoryBridge,
                         BrowsingHistoryBridge.this,
                         new ArrayList<HistoryItem>(),
                         query,
+                        appId,
                         false);
     }
 
@@ -61,6 +63,7 @@ public class BrowsingHistoryBridge implements HistoryProvider {
                         BrowsingHistoryBridge.this,
                         new ArrayList<HistoryItem>(),
                         hostName,
+                        null,
                         true);
     }
 
@@ -71,6 +74,18 @@ public class BrowsingHistoryBridge implements HistoryProvider {
                         mNativeHistoryBridge,
                         BrowsingHistoryBridge.this,
                         new ArrayList<HistoryItem>());
+    }
+
+    @Override
+    public void queryApps() {
+        BrowsingHistoryBridgeJni.get()
+                .getAllAppIds(
+                        mNativeHistoryBridge, BrowsingHistoryBridge.this, new ArrayList<String>());
+    }
+
+    @CalledByNative
+    public static void addAppIdToList(List<String> items, String appId) {
+        items.add(appId);
     }
 
     @Override
@@ -88,6 +103,7 @@ public class BrowsingHistoryBridge implements HistoryProvider {
                         mNativeHistoryBridge,
                         BrowsingHistoryBridge.this,
                         item.getUrl(),
+                        item.getAppId(),
                         item.getNativeTimestamps());
     }
 
@@ -117,6 +133,7 @@ public class BrowsingHistoryBridge implements HistoryProvider {
             GURL url,
             String domain,
             String title,
+            String appId,
             long mostRecentJavaTimestamp,
             long[] nativeTimestamps,
             boolean blockedVisit) {
@@ -125,6 +142,7 @@ public class BrowsingHistoryBridge implements HistoryProvider {
                         url,
                         domain,
                         title,
+                        appId,
                         mostRecentJavaTimestamp,
                         nativeTimestamps,
                         blockedVisit));
@@ -133,6 +151,11 @@ public class BrowsingHistoryBridge implements HistoryProvider {
     @CalledByNative
     public void onQueryHistoryComplete(List<HistoryItem> items, boolean hasMorePotentialMatches) {
         if (mObserver != null) mObserver.onQueryHistoryComplete(items, hasMorePotentialMatches);
+    }
+
+    @CalledByNative
+    public void onQueryAppsComplete(List<String> items) {
+        if (mObserver != null) mObserver.onQueryAppsComplete(items);
     }
 
     @CalledByNative
@@ -162,7 +185,7 @@ public class BrowsingHistoryBridge implements HistoryProvider {
 
     @NativeMethods
     interface Natives {
-        long init(BrowsingHistoryBridge caller, Profile profile);
+        long init(BrowsingHistoryBridge caller, @JniType("Profile*") Profile profile);
 
         void destroy(long nativeBrowsingHistoryBridge, BrowsingHistoryBridge caller);
 
@@ -171,6 +194,7 @@ public class BrowsingHistoryBridge implements HistoryProvider {
                 BrowsingHistoryBridge caller,
                 List<HistoryItem> historyItems,
                 String query,
+                String appId,
                 boolean hostOnly);
 
         void queryHistoryContinuation(
@@ -188,8 +212,14 @@ public class BrowsingHistoryBridge implements HistoryProvider {
                 long nativeBrowsingHistoryBridge,
                 BrowsingHistoryBridge caller,
                 GURL url,
+                String appId,
                 long[] nativeTimestamps);
 
         void removeItems(long nativeBrowsingHistoryBridge, BrowsingHistoryBridge caller);
+
+        void getAllAppIds(
+                long nativeBrowsingHistoryBridge,
+                BrowsingHistoryBridge caller,
+                List<String> appIds);
     }
 }

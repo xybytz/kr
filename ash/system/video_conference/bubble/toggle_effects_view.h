@@ -5,6 +5,7 @@
 #ifndef ASH_SYSTEM_VIDEO_CONFERENCE_BUBBLE_TOGGLE_EFFECTS_VIEW_H_
 #define ASH_SYSTEM_VIDEO_CONFERENCE_BUBBLE_TOGGLE_EFFECTS_VIEW_H_
 
+#include "ash/system/video_conference/effects/video_conference_tray_effects_manager.h"
 #include "base/memory/raw_ptr.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/button.h"
@@ -33,10 +34,11 @@ namespace video_conference {
 // A single toggle button for a video conference effect, combined with a text
 // label. WARNING: `callback` provided must not destroy the button or the bubble
 // (i.e. close the bubble) as it would result in a crash in `OnButtonClicked()`.
-class ToggleEffectsButton : public views::Button {
- public:
-  METADATA_HEADER(ToggleEffectsButton);
+class ToggleEffectsButton : public views::Button,
+                            public VideoConferenceTrayEffectsManager::Observer {
+  METADATA_HEADER(ToggleEffectsButton, views::Button)
 
+ public:
   ToggleEffectsButton(views::Button::PressedCallback callback,
                       const gfx::VectorIcon* vector_icon,
                       bool toggle_state,
@@ -51,6 +53,9 @@ class ToggleEffectsButton : public views::Button {
 
   ~ToggleEffectsButton() override;
 
+  // VideoConferenceTrayEffectsManager::Observer:
+  void OnEffectChanged(VcEffectId effect_id, bool is_on) override;
+
   views::FlexLayout* layout() { return layout_; }
 
   views::ImageView* icon() { return icon_; }
@@ -61,6 +66,9 @@ class ToggleEffectsButton : public views::Button {
 
   // Update the color of icon/label and background.
   void UpdateColorsAndBackground();
+
+  // Update the tooltip text.
+  void UpdateTooltip();
 
   views::Button::PressedCallback callback_;
 
@@ -90,9 +98,9 @@ class ToggleEffectsButton : public views::Button {
 // `VideoConferenceTrayEffectsManager`, which is in turn owned by the passed-in
 // controller.
 class ToggleEffectsView : public views::View {
- public:
-  METADATA_HEADER(ToggleEffectsView);
+  METADATA_HEADER(ToggleEffectsView, views::View)
 
+ public:
   explicit ToggleEffectsView(VideoConferenceTrayController* controller);
   ToggleEffectsView(const ToggleEffectsView&) = delete;
   ToggleEffectsView& operator=(const ToggleEffectsView&) = delete;

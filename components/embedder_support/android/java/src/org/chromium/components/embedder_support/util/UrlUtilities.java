@@ -149,24 +149,35 @@ public class UrlUtilities {
         return isSchemeHttpOrHttps(Uri.parse(url).getScheme());
     }
 
+    /**
+     * @param url A URL.
+     * @return Whether the URL's scheme is HTTPS.
+     */
+    public static boolean isHttps(@NonNull String url) {
+        return isSchemeHttps(Uri.parse(url).getScheme());
+    }
+
+    private static boolean isSchemeHttps(String scheme) {
+        return UrlConstants.HTTPS_SCHEME.equals(scheme);
+    }
+
     private static boolean isSchemeHttpOrHttps(String scheme) {
-        return UrlConstants.HTTP_SCHEME.equals(scheme) || UrlConstants.HTTPS_SCHEME.equals(scheme);
+        return UrlConstants.HTTP_SCHEME.equals(scheme) || isSchemeHttps(scheme);
     }
 
     /**
-     * Determines whether or not the given URLs belong to the same broad domain or host.
-     * "Broad domain" is defined as the TLD + 1 or the host.
+     * Determines whether or not the given URLs belong to the same broad domain or host. "Broad
+     * domain" is defined as the TLD + 1 or the host.
      *
-     * For example, the TLD + 1 for http://news.google.com would be "google.com" and would be shared
-     * with other Google properties like http://finance.google.com.
+     * <p>For example, the TLD + 1 for http://news.google.com would be "google.com" and would be
+     * shared with other Google properties like http://finance.google.com.
      *
-     * If {@code includePrivateRegistries} is marked as true, then private domain registries (like
-     * appspot.com) are considered "effective TLDs" -- all subdomains of appspot.com would be
-     * considered distinct (effective TLD = ".appspot.com" + 1).
-     * This means that http://chromiumreview.appspot.com and http://example.appspot.com would not
-     * belong to the same host.
-     * If {@code includePrivateRegistries} is false, all subdomains of appspot.com
-     * would be considered to be the same domain (TLD = ".com" + 1).
+     * <p>If {@code includePrivateRegistries} is marked as true, then private domain registries
+     * (like appspot.com) are considered "effective TLDs" -- all subdomains of appspot.com would be
+     * considered distinct (effective TLD = ".appspot.com" + 1). This means that
+     * http://chromiumreview.appspot.com and http://example.appspot.com would not belong to the same
+     * host. If {@code includePrivateRegistries} is false, all subdomains of appspot.com would be
+     * considered to be the same domain (TLD = ".com" + 1).
      *
      * @param primaryUrl First URL
      * @param secondaryUrl Second URL
@@ -181,10 +192,10 @@ public class UrlUtilities {
 
     /**
      * Returns a new URL without the port in the hostname if it was present.
+     *
      * @param url The url to process.
-     * @return
      */
-    // TODO(crbug/783819): Expose GURL::Replacements to Java.
+    // TODO(crbug.com/40549331): Expose GURL::Replacements to Java.
     public static GURL clearPort(GURL url) {
         if (url == null || TextUtils.isEmpty(url.getPort())) return url;
         return UrlUtilitiesJni.get().clearPort(url);
@@ -195,14 +206,13 @@ public class UrlUtilities {
      *
      * @param uri A URI
      * @param includePrivateRegistries Whether or not to consider private registries.
-     *
      * @return The registered, organization-identifying host and all its registry information, but
-     * no subdomains, from the given URI. Returns an empty string if the URI is invalid, has no host
-     * (e.g. a file: URI), has multiple trailing dots, is an IP address, has only one subcomponent
-     * (i.e. no dots other than leading/trailing ones), or is itself a recognized registry
-     * identifier.
+     *     no subdomains, from the given URI. Returns an empty string if the URI is invalid, has no
+     *     host (e.g. a file: URI), has multiple trailing dots, is an IP address, has only one
+     *     subcomponent (i.e. no dots other than leading/trailing ones), or is itself a recognized
+     *     registry identifier.
      */
-    // TODO(crbug/783819): Convert to GURL.
+    // TODO(crbug.com/40549331): Convert to GURL.
     public static String getDomainAndRegistry(String uri, boolean includePrivateRegistries) {
         if (TextUtils.isEmpty(uri)) return uri;
         return UrlUtilitiesJni.get().getDomainAndRegistry(uri, includePrivateRegistries);
@@ -240,7 +250,8 @@ public class UrlUtilities {
     }
 
     /**
-     * TODO(https://crbug.com/783819): This should use UrlFormatter, or GURL machinery.
+     * TODO(crbug.com/40549331): This should use UrlFormatter, or GURL machinery.
+     *
      * @param url An HTTP or HTTPS URL.
      * @return The URL without the scheme.
      */
@@ -276,7 +287,8 @@ public class UrlUtilities {
      */
     public static boolean isNtpUrl(GURL gurl) {
         if (!gurl.isValid() || !isInternalScheme(gurl)) return false;
-        return UrlConstants.NTP_HOST.equals(gurl.getHost());
+        return UrlConstants.NTP_HOST.equals(gurl.getHost())
+                || UrlConstants.NEW_TAB_PAGE_URL_LEGACY.equals(gurl.getValidSpecOrEmpty());
     }
 
     /**
@@ -306,7 +318,7 @@ public class UrlUtilities {
      * @return Whether the given URL matches the NTP urls exactly.
      */
     public static boolean isCanonicalizedNtpUrl(String url) {
-        // TODO(crbug.com/1267266): Let callers check if the library is initialized and make them
+        // TODO(crbug.com/40204389): Let callers check if the library is initialized and make them
         // call this method only before native is initialized.
         // After native initialization, the homepage url could become
         // "chrome://newtab/#most_visited" on carrier phones. Simply comparing the text of the URL

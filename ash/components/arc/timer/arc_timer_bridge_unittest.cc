@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/components/arc/timer/arc_timer_bridge.h"
+
 #include <map>
 #include <memory>
 #include <optional>
@@ -14,7 +16,6 @@
 #include "ash/components/arc/session/connection_holder.h"
 #include "ash/components/arc/test/connection_holder_util.h"
 #include "ash/components/arc/test/fake_timer_instance.h"
-#include "ash/components/arc/timer/arc_timer_bridge.h"
 #include "ash/components/arc/timer/arc_timer_mojom_traits.h"
 #include "base/files/file_descriptor_watcher_posix.h"
 #include "base/files/scoped_file.h"
@@ -135,7 +136,7 @@ class ArcTimerTest : public testing::Test {
  private:
   // Stores |read_fds| corresponding to clock ids in |clocks| in
   // |arc_timer_store_|.
-  bool StoreReadFds(const std::vector<clockid_t> clocks,
+  bool StoreReadFds(const std::vector<clockid_t>& clocks,
                     std::vector<base::ScopedFD> read_fds);
 
   content::BrowserTaskEnvironment task_environment_;
@@ -148,7 +149,7 @@ class ArcTimerTest : public testing::Test {
   raw_ptr<ArcTimerBridge> timer_bridge_;
 };
 
-bool ArcTimerTest::StoreReadFds(const std::vector<clockid_t> clocks,
+bool ArcTimerTest::StoreReadFds(const std::vector<clockid_t>& clocks,
                                 std::vector<base::ScopedFD> read_fds) {
   auto read_fd_iter = read_fds.begin();
   for (auto clock_id : clocks) {
@@ -300,7 +301,7 @@ TEST_F(ArcTimerTest, CheckMultipleCreateTimersTest) {
   EXPECT_TRUE(CreateTimers(clocks));
 }
 
-TEST_F(ArcTimerTest, SetTimeTest_RequestedTimeIsInvalid) {
+TEST_F(ArcTimerTest, SetTimeTestRequestedTimeIsInvalid) {
   // Time::Now() + 25 hours should be rejected.
   base::Time time_to_set =
       base::Time::Now() + kArcSetTimeMaxTimeDelta + base::Hours(1);
@@ -315,7 +316,7 @@ TEST_F(ArcTimerTest, SetTimeTest_RequestedTimeIsInvalid) {
   EXPECT_EQ(future2.Get(), mojom::ArcTimerResult::FAILURE);
 }
 
-TEST_F(ArcTimerTest, SetTimeTest_RequestedTimeIsValid) {
+TEST_F(ArcTimerTest, SetTimeTestRequestedTimeIsValid) {
   // Time::Now() + 23 hours should be accepted.
   const base::Time time_to_set =
       base::Time::Now() + kArcSetTimeMaxTimeDelta - base::Hours(1);
@@ -337,7 +338,7 @@ TEST_F(ArcTimerTest, SetTimeTest_RequestedTimeIsValid) {
   EXPECT_EQ(future.Get(), mojom::ArcTimerResult::SUCCESS);
 }
 
-TEST_F(ArcTimerTest, SetTimeTest_UpstartJobFails) {
+TEST_F(ArcTimerTest, SetTimeTestUpstartJobFails) {
   const base::Time time_to_set =
       base::Time::Now() + kArcSetTimeMaxTimeDelta - base::Hours(1);
 

@@ -6,6 +6,7 @@
 #define DEVICE_VR_OPENXR_TEST_OPENXR_TEST_HELPER_H_
 
 #include <array>
+#include <optional>
 #include <queue>
 #include <unordered_map>
 #include <unordered_set>
@@ -16,7 +17,6 @@
 #include "device/vr/openxr/openxr_platform.h"
 #include "device/vr/openxr/openxr_view_configuration.h"
 #include "device/vr/test/test_hook.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/openxr/src/include/openxr/openxr.h"
 
 #if BUILDFLAG(IS_WIN)
@@ -77,6 +77,8 @@ class OpenXrTestHelper : public device::ServiceTestHook {
   XrResult DestroyActionSet(XrActionSet action_set);
   XrPath GetPath(std::string path_string);
   XrPath GetCurrentInteractionProfile();
+  XrHandTrackerEXT CreateHandTracker(XrHandEXT hand);
+  XrResult DestroyHandTracker(XrHandTrackerEXT hand_tracker);
 
   device::OpenXrViewConfiguration& GetViewConfigInfo(
       XrViewConfigurationType view_config);
@@ -115,6 +117,10 @@ class OpenXrTestHelper : public device::ServiceTestHook {
   void UpdateEventQueue();
   XrResult PollEvent(XrEventDataBuffer* event_data);
 
+  void LocateJoints(XrHandTrackerEXT hand_tracker,
+                    const XrHandJointsLocateInfoEXT* locate_info,
+                    XrHandJointLocationsEXT* locations);
+
   // Methods that validate the parameter with the current state of the runtime.
   XrResult ValidateAction(XrAction action) const;
   XrResult ValidateActionCreateInfo(
@@ -125,6 +131,7 @@ class OpenXrTestHelper : public device::ServiceTestHook {
   XrResult ValidateActionSetNotAttached(XrActionSet action_set) const;
   XrResult ValidateActionSpaceCreateInfo(
       const XrActionSpaceCreateInfo& create_info) const;
+  XrResult ValidateHandTracker(XrHandTrackerEXT hand_tracker) const;
   XrResult ValidateInstance(XrInstance instance) const;
   XrResult ValidateSystemId(XrSystemId system_id) const;
   XrResult ValidateSession(XrSession session) const;
@@ -147,8 +154,10 @@ class OpenXrTestHelper : public device::ServiceTestHook {
       XR_EXT_HP_MIXED_REALITY_CONTROLLER_EXTENSION_NAME,
       XR_MSFT_HAND_INTERACTION_EXTENSION_NAME,
       XR_EXT_HAND_INTERACTION_EXTENSION_NAME,
+      XR_FB_HAND_TRACKING_MESH_EXTENSION_NAME,
       XR_HTC_VIVE_COSMOS_CONTROLLER_INTERACTION_EXTENSION_NAME,
       XR_MSFT_SECONDARY_VIEW_CONFIGURATION_EXTENSION_NAME,
+      XR_EXT_HAND_TRACKING_EXTENSION_NAME,
   };
 
   static constexpr uint32_t kPrimaryViewDimension = 128;
@@ -173,6 +182,12 @@ class OpenXrTestHelper : public device::ServiceTestHook {
 
   static constexpr uint32_t kNumExtensionsSupported = std::size(kExtensions);
 
+  static constexpr XrSpaceLocationFlags kValidTrackedPoseFlags =
+      XR_SPACE_LOCATION_ORIENTATION_VALID_BIT |
+      XR_SPACE_LOCATION_POSITION_VALID_BIT |
+      XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT |
+      XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
+
  private:
   struct ActionProperties {
     std::unordered_map<XrPath, XrPath> profile_binding_map;
@@ -190,8 +205,8 @@ class OpenXrTestHelper : public device::ServiceTestHook {
                      uint32_t& height) const;
   XrResult UpdateAction(XrAction action);
   void SetSessionState(XrSessionState state);
-  absl::optional<gfx::Transform> GetPose();
-  absl::optional<device::DeviceConfig> GetDeviceConfig();
+  std::optional<gfx::Transform> GetPose();
+  std::optional<device::DeviceConfig> GetDeviceConfig();
   device::ControllerFrameData GetControllerDataFromPath(
       std::string path_string) const;
   void UpdateInteractionProfile(
@@ -202,6 +217,7 @@ class OpenXrTestHelper : public device::ServiceTestHook {
       uint32_t view_count,
       uint32_t index);
   bool GetCanCreateSession();
+  std::optional<gfx::Transform> GetTransformForSpace(XrSpace space);
 
   // Properties of the mock OpenXR runtime that doesn't change throughout the
   // lifetime of the instance. However, these aren't static because they are
@@ -211,6 +227,8 @@ class OpenXrTestHelper : public device::ServiceTestHook {
   XrSystemId system_id_;
   XrSession session_;
   XrSwapchain swapchain_;
+  XrHandTrackerEXT left_hand_;
+  XrHandTrackerEXT right_hand_;
 
   // Properties that changes depending on the state of the runtime.
   uint32_t frame_count_ = 0;

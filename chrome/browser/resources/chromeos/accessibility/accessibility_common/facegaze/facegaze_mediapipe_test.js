@@ -2,62 +2,32 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-GEN_INCLUDE(['../../common/testing/e2e_test_base.js']);
+GEN_INCLUDE(['facegaze_test_base.js']);
 
 /** FazeGaze MediaPipe tests. */
-FaceGazeMediaPipeTest = class extends E2ETestBase {
+FaceGazeMediaPipeTest = class extends FaceGazeTestBase {
   /** @override */
   async setUpDeferred() {
+    this.overrideIntervalFunctions_ = false;
     await super.setUpDeferred();
-    await importModule(
-        ['FaceLandmarker', 'FilesetResolver'],
-        '/accessibility_common/third_party/mediapipe_task_vision/task_vision.js');
-  }
-
-  /** @override */
-  testGenCppIncludes() {
-    super.testGenCppIncludes();
-    GEN(`
-#include "base/functional/bind.h"
-#include "base/functional/callback.h"
-#include "chrome/browser/ash/accessibility/accessibility_manager.h"
-#include "ui/accessibility/accessibility_features.h"
-    `);
   }
 
   /** @override */
   testGenPreamble() {
     super.testGenPreamble();
-    GEN(`base::OnceClosure load_cb =
-        base::BindOnce(&ash::AccessibilityManager::EnableFaceGaze,
-            base::Unretained(ash::AccessibilityManager::Get()), true);`);
-    // TODO(b/309121742): change `failOnConsoleError` to true and specify
-    // allowed messages from mediapipe wasm.
+    // The mediapipe wasm emits console messages when the FaceLandmarker is
+    // initialized. Some of these messages are variable because they include
+    // information about time, so we cannot set a static list of allowed
+    // messages. As a result, we set `failOnConsoleError` to false.
     super.testGenPreambleCommon(
         /*extensionIdName=*/ 'kAccessibilityCommonExtensionId',
         /*failOnConsoleError=*/ false);
   }
-
-  /** @override */
-  get featureList() {
-    return {enabled: ['features::kAccessibilityFaceGaze']};
-  }
 };
 
-AX_TEST_F('FaceGazeMediaPipeTest', 'SmokeTest', async function() {
-  assertTrue(Boolean(FilesetResolver));
-  assertTrue(Boolean(FaceLandmarker));
-
-  const resolver = await FilesetResolver.forVisionTasks(
-      '/accessibility_common/third_party/mediapipe_task_vision');
-  assertTrue(Boolean(resolver));
-  const faceLandmarker = await FaceLandmarker.createFromOptions(resolver, {
-    baseOptions: {
-      modelAssetPath:
-          '/accessibility_common/third_party/mediapipe_task_vision/' +
-          'face_landmarker.task',
-    },
-    runningMode: 'VIDEO',
-  });
-  assertTrue(Boolean(faceLandmarker));
+AX_TEST_F('FaceGazeMediaPipeTest', 'CreateFaceLandmarker', async function() {
+  const webCamFaceLandmarker = this.getFaceGaze().webCamFaceLandmarker_;
+  await this.mockAccessibilityPrivate.initializeFaceGazeAssets();
+  await webCamFaceLandmarker.createFaceLandmarker_();
+  assertTrue(!!webCamFaceLandmarker.faceLandmarker_);
 });

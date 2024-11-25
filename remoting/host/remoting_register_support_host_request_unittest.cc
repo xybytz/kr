@@ -5,6 +5,7 @@
 #include "remoting/host/remoting_register_support_host_request.h"
 
 #include <optional>
+
 #include "base/memory/raw_ptr.h"
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
@@ -94,8 +95,8 @@ class RemotingRegisterSupportHostTest : public testing::Test {
     register_host_request_ =
         std::make_unique<RemotingRegisterSupportHostRequest>(
             std::make_unique<FakeOAuthTokenGetter>(
-                OAuthTokenGetter::Status::SUCCESS, "fake_email",
-                "fake_access_token"),
+                OAuthTokenGetter::Status::SUCCESS,
+                OAuthTokenInfo("fake_access_token", "fake_email")),
             nullptr);
 
     auto register_host_client =

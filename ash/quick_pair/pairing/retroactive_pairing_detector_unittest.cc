@@ -198,10 +198,11 @@ class RetroactivePairingDetectorTest
     retroactive_device_ = device;
   }
 
-  void PairFastPairDeviceWithFastPair(std::string address) {
-    auto fp_device = base::MakeRefCounted<Device>(kValidModelId, address,
+  void PairFastPairDeviceWithFastPair(std::string classic_address,
+                                      std::string ble_address) {
+    auto fp_device = base::MakeRefCounted<Device>(kValidModelId, ble_address,
                                                   Protocol::kFastPairInitial);
-    fp_device->set_classic_address(address);
+    fp_device->set_classic_address(classic_address);
     mock_pairer_broker_->NotifyDevicePaired(fp_device);
   }
 
@@ -298,7 +299,7 @@ class RetroactivePairingDetectorTest
 
 TEST_F(RetroactivePairingDetectorTest,
        DevicedPaired_FastPair_BluetoothEventFiresFirst) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_IN);
   base::RunLoop().RunUntilIdle();
@@ -308,7 +309,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
   PairFastPairDeviceWithClassicBluetooth(
       /*new_paired_status=*/true, kTestDeviceAddress);
-  PairFastPairDeviceWithFastPair(kTestDeviceAddress);
+  PairFastPairDeviceWithFastPair(kTestDeviceAddress, kBleAddress);
 
   EXPECT_FALSE(retroactive_pair_found_);
 }
@@ -316,7 +317,7 @@ TEST_F(RetroactivePairingDetectorTest,
 // Regression test for b/261041950
 TEST_F(RetroactivePairingDetectorTest,
        FastPairPairingEventCalledDuringBluetoothAdapterPairingEvent) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_IN);
   CreateRetroactivePairingDetector();
@@ -336,7 +337,7 @@ TEST_F(RetroactivePairingDetectorTest,
   // pairing event call stack. The Bluetooth Adapter system
   // event response has not finished completing because of the delay set in
   // `SetIsDeviceSavedToAccountCallbackDelayed`.
-  PairFastPairDeviceWithFastPair(kTestDeviceAddress);
+  PairFastPairDeviceWithFastPair(kTestDeviceAddress, kBleAddress);
 
   // Trigger the callback to check the repository after the Fast Pair pairing
   // event fires. This will conclude the BluetoothAdapter pairing event call
@@ -354,7 +355,7 @@ TEST_F(RetroactivePairingDetectorTest,
 }
 
 TEST_F(RetroactivePairingDetectorTest, DeviceUnpaired) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_IN);
   base::RunLoop().RunUntilIdle();
@@ -368,7 +369,7 @@ TEST_F(RetroactivePairingDetectorTest, DeviceUnpaired) {
 }
 
 TEST_F(RetroactivePairingDetectorTest, NoMessageStream) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_IN);
   base::RunLoop().RunUntilIdle();
@@ -384,8 +385,8 @@ TEST_F(RetroactivePairingDetectorTest, NoMessageStream) {
   EXPECT_FALSE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, MessageStream_NoBle) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, MessageStreamNoBle) {
+  Login(user_manager::UserType::kRegular);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_IN);
   base::RunLoop().RunUntilIdle();
@@ -405,8 +406,8 @@ TEST_F(RetroactivePairingDetectorTest, MessageStream_NoBle) {
   EXPECT_FALSE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, MessageStream_NoModelId) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, MessageStreamNoModelId) {
+  Login(user_manager::UserType::kRegular);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_IN);
   base::RunLoop().RunUntilIdle();
@@ -427,8 +428,8 @@ TEST_F(RetroactivePairingDetectorTest, MessageStream_NoModelId) {
   EXPECT_FALSE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, MessageStream_SocketError) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, MessageStreamSocketError) {
+  Login(user_manager::UserType::kRegular);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_IN);
   base::RunLoop().RunUntilIdle();
@@ -449,8 +450,8 @@ TEST_F(RetroactivePairingDetectorTest, MessageStream_SocketError) {
   EXPECT_FALSE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, MessageStream_NoBytes) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, MessageStreamNoBytes) {
+  Login(user_manager::UserType::kRegular);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_IN);
   base::RunLoop().RunUntilIdle();
@@ -472,8 +473,8 @@ TEST_F(RetroactivePairingDetectorTest, MessageStream_NoBytes) {
   EXPECT_FALSE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, MessageStream_Ble_ModelId_Lost) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, MessageStreamBleModelIdLost) {
+  Login(user_manager::UserType::kRegular);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_IN);
   base::RunLoop().RunUntilIdle();
@@ -495,8 +496,8 @@ TEST_F(RetroactivePairingDetectorTest, MessageStream_Ble_ModelId_Lost) {
   EXPECT_FALSE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, MessageStream_Ble_ModelId_FlagEnabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, MessageStreamBleModelIdFlagEnabled) {
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices,
@@ -529,8 +530,8 @@ TEST_F(RetroactivePairingDetectorTest, MessageStream_Ble_ModelId_FlagEnabled) {
   EXPECT_EQ(retroactive_device_->metadata_id(), kModelId);
 }
 
-TEST_F(RetroactivePairingDetectorTest, MessageStream_Ble_ModelId_FlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, MessageStreamBleModelIdFlagDisabled) {
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{},
@@ -565,7 +566,7 @@ TEST_F(RetroactivePairingDetectorTest, MessageStream_Ble_ModelId_FlagDisabled) {
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_Ble_ModelId_StrictFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices},
@@ -599,7 +600,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_Ble_ModelId_SavedFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevicesStrictOptIn},
@@ -633,7 +634,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_Ble_ModelId_GuestUserLoggedIn) {
-  Login(user_manager::UserType::USER_TYPE_GUEST);
+  Login(user_manager::UserType::kGuest);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_IN);
   base::RunLoop().RunUntilIdle();
@@ -655,7 +656,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_Ble_ModelId_KioskUserLoggedIn) {
-  Login(user_manager::UserType::USER_TYPE_KIOSK_APP);
+  Login(user_manager::UserType::kKioskApp);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_IN);
   base::RunLoop().RunUntilIdle();
@@ -677,7 +678,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_GetMessageStream_Ble_ModelId_FlagEnabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices,
@@ -710,7 +711,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_GetMessageStream_Ble_ModelId_FlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // With SavedDevices and StrictOptIn flags disabled, the user's opt-in status
@@ -740,7 +741,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_GetMessageStream_Ble_ModelId_StrictFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // With only one flag enabled and the other disabled, the user's opt-in status
@@ -769,7 +770,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_GetMessageStream_Ble_ModelId_SavedFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // With only one flag enabled and the other disabled, the user's opt-in status
@@ -798,7 +799,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        EnableScenarioIfLoggedInLater_FlagEnabled) {
-  Login(user_manager::UserType::USER_TYPE_GUEST);
+  Login(user_manager::UserType::kGuest);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices,
@@ -811,7 +812,7 @@ TEST_F(RetroactivePairingDetectorTest,
   CreateRetroactivePairingDetector();
   base::RunLoop().RunUntilIdle();
 
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   AddMessageStream(kModelIdBleAddressBytes);
   PairFastPairDeviceWithClassicBluetooth(
       /*new_paired_status=*/true, kTestDeviceAddress);
@@ -825,7 +826,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        EnableScenarioIfLoggedInLater_FlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_GUEST);
+  Login(user_manager::UserType::kGuest);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{},
@@ -838,7 +839,7 @@ TEST_F(RetroactivePairingDetectorTest,
   CreateRetroactivePairingDetector();
   base::RunLoop().RunUntilIdle();
 
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   AddMessageStream(kModelIdBleAddressBytes);
   PairFastPairDeviceWithClassicBluetooth(
       /*new_paired_status=*/true, kTestDeviceAddress);
@@ -852,7 +853,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        EnableScenarioIfLoggedInLater_StrictFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_GUEST);
+  Login(user_manager::UserType::kGuest);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices},
@@ -864,7 +865,7 @@ TEST_F(RetroactivePairingDetectorTest,
   CreateRetroactivePairingDetector();
   base::RunLoop().RunUntilIdle();
 
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   AddMessageStream(kModelIdBleAddressBytes);
   PairFastPairDeviceWithClassicBluetooth(
       /*new_paired_status=*/true, kTestDeviceAddress);
@@ -878,7 +879,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        EnableScenarioIfLoggedInLater_SavedFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_GUEST);
+  Login(user_manager::UserType::kGuest);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevicesStrictOptIn},
@@ -890,7 +891,7 @@ TEST_F(RetroactivePairingDetectorTest,
   CreateRetroactivePairingDetector();
   base::RunLoop().RunUntilIdle();
 
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   AddMessageStream(kModelIdBleAddressBytes);
   PairFastPairDeviceWithClassicBluetooth(
       /*new_paired_status=*/true, kTestDeviceAddress);
@@ -904,13 +905,13 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        DontEnableScenarioIfLoggedInLaterAsGuest) {
-  Login(user_manager::UserType::USER_TYPE_GUEST);
+  Login(user_manager::UserType::kGuest);
   EXPECT_FALSE(retroactive_pair_found_);
 
   CreateRetroactivePairingDetector();
   base::RunLoop().RunUntilIdle();
 
-  Login(user_manager::UserType::USER_TYPE_GUEST);
+  Login(user_manager::UserType::kGuest);
   base::RunLoop().RunUntilIdle();
 
   EXPECT_FALSE(retroactive_pair_found_);
@@ -918,7 +919,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_GetMessageStream_Ble_ModelId_GuestUser) {
-  Login(user_manager::UserType::USER_TYPE_GUEST);
+  Login(user_manager::UserType::kGuest);
   base::RunLoop().RunUntilIdle();
   CreateRetroactivePairingDetector();
 
@@ -935,7 +936,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_GetMessageStream_ModelId_FlagEnabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices,
@@ -966,7 +967,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_GetMessageStream_ModelId_FlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // With both SavedDevices and StrictOptIn disabled, we expect to be notified
@@ -996,7 +997,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_GetMessageStream_ModelId_StrictFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // With the SavedDevices flag enabled but the StrictOptIn disabled, we
@@ -1025,7 +1026,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_GetMessageStream_ModelId_SavedFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // With the StrictOptIn flag enabled but the SavedDevices disabled, we
@@ -1054,7 +1055,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_Observer_Ble_ModelId_FlagEnabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices,
@@ -1089,7 +1090,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_Observer_Ble_ModelId_GuestAccount) {
-  Login(user_manager::UserType::USER_TYPE_GUEST);
+  Login(user_manager::UserType::kGuest);
   base::RunLoop().RunUntilIdle();
   CreateRetroactivePairingDetector();
 
@@ -1111,7 +1112,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_Observer_ModelId_FlagEnabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // With the SavedDevices and StrictOptIn flags enabled, we do not expect
@@ -1144,7 +1145,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_Observer_ModelId_FlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // With the SavedDevices and StrictOptIn flags disabled, we do not expect
@@ -1180,7 +1181,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_Observer_ModelId_StrictFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // With only the StrictOptIn flag disabled, we do not expect
@@ -1215,7 +1216,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStream_Observer_ModelId_SavedFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // With only the SavedDevices flag disabled, we do not expect
@@ -1250,7 +1251,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStreamRemovedOnDestroyed_FlagEnabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_IN);
   base::test::ScopedFeatureList feature_list;
@@ -1283,7 +1284,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStreamRemovedOnDestroyed_FlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_OUT);
   base::test::ScopedFeatureList feature_list;
@@ -1316,7 +1317,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStreamRemovedOnDestroyed_StrictFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_OUT);
   base::test::ScopedFeatureList feature_list;
@@ -1348,7 +1349,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStreamRemovedOnDestroyed_SavedFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   fast_pair_repository_->SetOptInStatus(
       nearby::fastpair::OptInStatus::STATUS_OPTED_OUT);
   base::test::ScopedFeatureList feature_list;
@@ -1380,7 +1381,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStreamRemovedOnDisconnect_FlagEnabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // This test is verifying that we are notified when the Message Stream
@@ -1420,7 +1421,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStreamRemovedOnDisconnect_FlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // This test is verifying that we are notified when the Message Stream
@@ -1460,7 +1461,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStreamRemovedOnDisconnect_StrictFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // This test is verifying that we are notified when the Message Stream
@@ -1499,7 +1500,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        MessageStreamRemovedOnDisconnect_SavedFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // This test is verifying that we are notified when the Message Stream
@@ -1536,8 +1537,8 @@ TEST_F(RetroactivePairingDetectorTest,
   EXPECT_FALSE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, DontNotify_OptedOut_FlagEnabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, DontNotifyOptedOutFlagEnabled) {
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // If the SavedDevices and StrictOptIn flags are enabled and the user is
@@ -1568,8 +1569,8 @@ TEST_F(RetroactivePairingDetectorTest, DontNotify_OptedOut_FlagEnabled) {
   EXPECT_FALSE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, Notify_OptedOut_FlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, NotifyOptedOutFlagDisabled) {
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // If the SavedDevices and StrictOptIn flags are disabled, we expect to be
@@ -1599,8 +1600,8 @@ TEST_F(RetroactivePairingDetectorTest, Notify_OptedOut_FlagDisabled) {
   EXPECT_TRUE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, Notify_OptedOut_StrictFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, NotifyOptedOutStrictFlagDisabled) {
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // If the SavedDevices flag is enabled but the StrictOptin flag is disabled,
@@ -1630,8 +1631,8 @@ TEST_F(RetroactivePairingDetectorTest, Notify_OptedOut_StrictFlagDisabled) {
   EXPECT_TRUE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, Notify_OptedOut_SavedFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, NotifyOptedOutSavedFlagDisabled) {
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // If the SavedDevices flag is disabled but the StrictOptin flag is enabled,
@@ -1661,8 +1662,8 @@ TEST_F(RetroactivePairingDetectorTest, Notify_OptedOut_SavedFlagDisabled) {
   EXPECT_TRUE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, Notify_OptedIn_FlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, NotifyOptedInFlagDisabled) {
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{},
@@ -1689,8 +1690,8 @@ TEST_F(RetroactivePairingDetectorTest, Notify_OptedIn_FlagDisabled) {
   EXPECT_TRUE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, Notify_OptedIn_StrictFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, NotifyOptedInStrictFlagDisabled) {
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // When the strict interpretation is disabled, we expect to be notified about
@@ -1719,8 +1720,8 @@ TEST_F(RetroactivePairingDetectorTest, Notify_OptedIn_StrictFlagDisabled) {
   EXPECT_TRUE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, Notify_OptedIn_SavedFlagDisabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, NotifyOptedInSavedFlagDisabled) {
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
 
   // When only the SavedDevices flag is disabled, we expect to be notified about
@@ -1751,7 +1752,7 @@ TEST_F(RetroactivePairingDetectorTest, Notify_OptedIn_SavedFlagDisabled) {
 
 TEST_F(RetroactivePairingDetectorTest,
        DontNotify_OptedOut_OptedIn_FlagEnabled) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices,
@@ -1802,7 +1803,7 @@ TEST_F(RetroactivePairingDetectorTest,
 }
 
 TEST_F(RetroactivePairingDetectorTest, DontNotifyIfAlreadySavedToAcount) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   fast_pair_repository_->SaveMacAddressToAccount(kTestDeviceAddress);
 
@@ -1844,7 +1845,7 @@ TEST_F(RetroactivePairingDetectorTest, DontNotifyIfAlreadySavedToAcount) {
 // on.
 TEST_F(RetroactivePairingDetectorTest,
        DontNotify_ExpiryTimeoutReached_GetModelIdAndAddressFromMessageStream) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices},
@@ -1878,7 +1879,7 @@ TEST_F(RetroactivePairingDetectorTest,
 
 TEST_F(RetroactivePairingDetectorTest,
        DontNotify_ExpiryTimeoutReached_CheckPairingInformation) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices},
@@ -1924,7 +1925,7 @@ TEST_F(RetroactivePairingDetectorTest,
 TEST_F(
     RetroactivePairingDetectorTest,
     DontNotify_ExpiryTimeoutReached_DifferentDeviceTriggerRemoval_DeviceToBeRemovedHashesToFirstPosition) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices},
@@ -1976,7 +1977,7 @@ TEST_F(
 TEST_F(
     RetroactivePairingDetectorTest,
     DontNotify_ExpiryTimeoutReached_DifferentDeviceTriggerRemoval_DeviceToBeRemovedHashesToSecondPosition) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices},
@@ -2028,7 +2029,7 @@ TEST_F(
 TEST_F(
     RetroactivePairingDetectorTest,
     DontNotify_ExpiryTimeoutReached_DifferentDeviceTriggerRemoval_MultipleDevicesPaired) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices},
@@ -2076,7 +2077,7 @@ TEST_F(
 }
 
 TEST_F(RetroactivePairingDetectorTest, NotifyAfterDeviceRepairs) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices},
@@ -2111,7 +2112,7 @@ TEST_F(RetroactivePairingDetectorTest, NotifyAfterDeviceRepairs) {
 }
 
 TEST_F(RetroactivePairingDetectorTest, NoCrashWhenFootprintsResponseIsSlow) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{},
@@ -2132,7 +2133,7 @@ TEST_F(RetroactivePairingDetectorTest, NoCrashWhenFootprintsResponseIsSlow) {
   PairFastPairDeviceWithClassicBluetooth(true, kTestDeviceAddress);
 
   // This calls OnDevicePaired.
-  PairFastPairDeviceWithFastPair(kTestDeviceAddress);
+  PairFastPairDeviceWithFastPair(kTestDeviceAddress, kBleAddress);
 
   fake_socket_->TriggerReceiveCallback();
   base::RunLoop().RunUntilIdle();
@@ -2146,8 +2147,8 @@ TEST_F(RetroactivePairingDetectorTest, NoCrashWhenFootprintsResponseIsSlow) {
   fast_pair_repository_->TriggerIsDeviceSavedToAccountCallback();
 }
 
-TEST_F(RetroactivePairingDetectorTest, FastPairHID_Success) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, FastPairHIDSuccess) {
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices,
@@ -2174,8 +2175,8 @@ TEST_F(RetroactivePairingDetectorTest, FastPairHID_Success) {
   EXPECT_EQ(retroactive_device_->metadata_id(), kModelId);
 }
 
-TEST_F(RetroactivePairingDetectorTest, FastPairHID_GattConnectionOpen_Success) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, FastPairHIDGattConnectionOpenSuccess) {
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices,
@@ -2202,8 +2203,8 @@ TEST_F(RetroactivePairingDetectorTest, FastPairHID_GattConnectionOpen_Success) {
   EXPECT_EQ(retroactive_device_->metadata_id(), kModelId);
 }
 
-TEST_F(RetroactivePairingDetectorTest, FastPairHID_GattConnectionFailure) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, FastPairHIDGattConnectionFailure) {
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices,
@@ -2228,8 +2229,8 @@ TEST_F(RetroactivePairingDetectorTest, FastPairHID_GattConnectionFailure) {
   EXPECT_FALSE(retroactive_pair_found_);
 }
 
-TEST_F(RetroactivePairingDetectorTest, FastPairHID_ReadModelIdFailure) {
-  Login(user_manager::UserType::USER_TYPE_REGULAR);
+TEST_F(RetroactivePairingDetectorTest, FastPairHIDReadModelIdFailure) {
+  Login(user_manager::UserType::kRegular);
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatures(
       /*enabled_features=*/{features::kFastPairSavedDevices,
@@ -2254,6 +2255,48 @@ TEST_F(RetroactivePairingDetectorTest, FastPairHID_ReadModelIdFailure) {
   RunReadModelIdCallback(
       /*error_code=*/device::BluetoothGattService::GattErrorCode::kNotSupported,
       kModelIdBytesNoMetadata);
+  EXPECT_FALSE(retroactive_pair_found_);
+}
+
+TEST_F(RetroactivePairingDetectorTest,
+       ClassicBluetoothPairedLEDeviceDoesNotTriggerRetroactivePair) {
+  Login(user_manager::UserType::kRegular);
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{features::kFastPairKeyboards},
+      /*disabled_features=*/{});
+  fast_pair_repository_->SetOptInStatus(
+      nearby::fastpair::OptInStatus::STATUS_OPTED_IN);
+  base::RunLoop().RunUntilIdle();
+  CreateRetroactivePairingDetector();
+
+  EXPECT_FALSE(retroactive_pair_found_);
+
+  SetMessageStream(kModelIdBleAddressBytes);
+
+  // Simulate the Bluetooth Adapter event firing for the LE address, with the
+  // callback to`IsDeviceSavedToAccount` delayed.
+  fast_pair_repository_->SetIsDeviceSavedToAccountCallbackDelayed(
+      /*is_delayed=*/true);
+  PairFastPairDeviceWithClassicBluetooth(
+      /*new_paired_status=*/true, kTestDeviceAddress);
+
+  // Simulate the Fast Pair pairing event firing during the Bluetooth Adapter
+  // pairing event call stack.
+  PairFastPairDeviceWithFastPair(kTestDeviceAddress2, kTestDeviceAddress);
+
+  // Trigger the callback to check the repository after the Fast Pair pairing
+  // event fires. This will conclude the BluetoothAdapter pairing event call
+  // stack.
+  fast_pair_repository_->TriggerIsDeviceSavedToAccountCallback();
+
+  // Simulate data being received via Message Stream for the device. It should
+  // not be detected since the Fast Pair event has been fired, removing it
+  // as a possible retroactive device.
+  fake_socket_->TriggerReceiveCallback();
+  NotifyMessageStreamConnected(kTestDeviceAddress);
+  base::RunLoop().RunUntilIdle();
+
   EXPECT_FALSE(retroactive_pair_found_);
 }
 

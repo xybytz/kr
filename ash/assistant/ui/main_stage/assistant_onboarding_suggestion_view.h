@@ -27,9 +27,9 @@ class AssistantViewDelegate;
 
 class COMPONENT_EXPORT(ASSISTANT_UI) AssistantOnboardingSuggestionView
     : public views::Button {
- public:
-  METADATA_HEADER(AssistantOnboardingSuggestionView);
+  METADATA_HEADER(AssistantOnboardingSuggestionView, views::Button)
 
+ public:
   AssistantOnboardingSuggestionView(
       AssistantViewDelegate* delegate,
       const assistant::AssistantSuggestion& suggestion,
@@ -42,7 +42,8 @@ class COMPONENT_EXPORT(ASSISTANT_UI) AssistantOnboardingSuggestionView
   ~AssistantOnboardingSuggestionView() override;
 
   // views::View:
-  int GetHeightForWidth(int width) const override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
   void AddLayerToRegion(ui::Layer* layer, views::LayerRegion region) override;
   void RemoveLayerFromRegions(ui::Layer* layer) override;
   void ChildPreferredSizeChanged(views::View* child) override;

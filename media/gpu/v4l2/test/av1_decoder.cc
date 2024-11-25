@@ -11,9 +11,9 @@
 #include "base/memory/ptr_util.h"
 #include "base/notreached.h"
 #include "media/base/video_types.h"
-#include "media/filters/ivf_parser.h"
 #include "media/gpu/macros.h"
 #include "media/gpu/v4l2/test/upstream_pix_fmt.h"
+#include "media/parsers/ivf_parser.h"
 #include "third_party/libgav1/src/src/warp_prediction.h"
 
 namespace media {
@@ -93,7 +93,7 @@ const gfx::Size GetResolutionFromBitstream(
 // https://aomediacodec.github.io/av1-spec/av1-spec.pdf
 void FillSequenceParams(
     struct v4l2_ctrl_av1_sequence* v4l2_seq_params,
-    const absl::optional<libgav1::ObuSequenceHeader>& seq_header) {
+    const std::optional<libgav1::ObuSequenceHeader>& seq_header) {
   conditionally_set_u32_flags(&v4l2_seq_params->flags,
                               seq_header->still_picture,
                               V4L2_AV1_SEQUENCE_FLAG_STILL_PICTURE);
@@ -233,7 +233,7 @@ void FillQuantizationParams(struct v4l2_av1_quantization* v4l2_quant,
 // Section 5.9.17. Quantizer index delta parameters syntax
 void FillQuantizerIndexDeltaParams(
     struct v4l2_av1_quantization* v4l2_quant,
-    const absl::optional<libgav1::ObuSequenceHeader>& seq_header,
+    const std::optional<libgav1::ObuSequenceHeader>& seq_header,
     const libgav1::ObuFrameHeader& frm_header) {
   // |diff_uv_delta| in the spec doesn't exist in libgav1,
   // because libgav1 infers it using the following logic.
@@ -633,7 +633,7 @@ void Av1Decoder::CopyFrameData(const libgav1::ObuFrameHeader& frame_hdr,
 // 5.9.2. Uncompressed header syntax
 void Av1Decoder::SetupFrameParams(
     struct v4l2_ctrl_av1_frame* v4l2_frame_params,
-    const absl::optional<libgav1::ObuSequenceHeader>& seq_header,
+    const std::optional<libgav1::ObuSequenceHeader>& seq_header,
     const libgav1::ObuFrameHeader& frm_header) {
   FillLoopFilterParams(&v4l2_frame_params->loop_filter, frm_header.loop_filter);
 
@@ -953,7 +953,8 @@ VideoDecoder::Result Av1Decoder::DecodeNextFrame(const int frame_number,
                                                  std::vector<uint8_t>& y_plane,
                                                  std::vector<uint8_t>& u_plane,
                                                  std::vector<uint8_t>& v_plane,
-                                                 gfx::Size& size) {
+                                                 gfx::Size& size,
+                                                 BitDepth& bit_depth) {
   libgav1::RefCountedBufferPtr current_frame;
   const ParsingResult parser_res = ReadNextFrame(current_frame);
 
@@ -996,9 +997,10 @@ VideoDecoder::Result Av1Decoder::DecodeNextFrame(const int frame_number,
     scoped_refptr<MmappedBuffer> repeated_frame_buffer =
         ref_frames_[current_frame_header.frame_to_show];
 
-    ConvertToYUV(y_plane, u_plane, v_plane, OUTPUT_queue_->resolution(),
-                 repeated_frame_buffer->mmapped_planes(),
-                 CAPTURE_queue_->resolution(), CAPTURE_queue_->fourcc());
+    bit_depth =
+        ConvertToYUV(y_plane, u_plane, v_plane, OUTPUT_queue_->resolution(),
+                     repeated_frame_buffer->mmapped_planes(),
+                     CAPTURE_queue_->resolution(), CAPTURE_queue_->fourcc());
 
     // Repeated frames normally don't need to update reference frames. But in
     // this special case when the repeated frame is pointing to a key frame, all
@@ -1077,13 +1079,16 @@ VideoDecoder::Result Av1Decoder::DecodeNextFrame(const int frame_number,
     CreateCAPTUREQueue(kNumberOfBuffersInCaptureQueue);
   }
 
+  v4l2_ioctl_->WaitForRequestCompletion(OUTPUT_queue_);
+
   uint32_t buffer_id;
   v4l2_ioctl_->DQBuf(CAPTURE_queue_, &buffer_id);
 
   scoped_refptr<MmappedBuffer> buffer = CAPTURE_queue_->GetBuffer(buffer_id);
-  ConvertToYUV(y_plane, u_plane, v_plane, OUTPUT_queue_->resolution(),
-               buffer->mmapped_planes(), CAPTURE_queue_->resolution(),
-               CAPTURE_queue_->fourcc());
+  bit_depth =
+      ConvertToYUV(y_plane, u_plane, v_plane, OUTPUT_queue_->resolution(),
+                   buffer->mmapped_planes(), CAPTURE_queue_->resolution(),
+                   CAPTURE_queue_->fourcc());
 
   const std::set<int> reusable_buffer_ids = RefreshReferenceSlots(
       current_frame_header, current_frame, CAPTURE_queue_->GetBuffer(buffer_id),

@@ -2,10 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {AutomationPredicate} from '../../../common/automation_predicate.js';
-import {AutomationUtil} from '../../../common/automation_util.js';
-import {constants} from '../../../common/constants.js';
-import {CursorRange} from '../../../common/cursors/range.js';
+import {AutomationPredicate} from '/common/automation_predicate.js';
+import {AutomationUtil} from '/common/automation_util.js';
+import {constants} from '/common/constants.js';
+import {CursorRange} from '/common/cursors/range.js';
+import {TestImportManager} from '/common/testing/test_import_manager.js';
+
 import {ChromeVoxEvent} from '../../common/custom_automation_event.js';
 import {ChromeVoxRange} from '../chromevox_range.js';
 
@@ -59,12 +61,7 @@ export class TextEditHandler {
   private useRichText_(): boolean {
     // TODO(b/314203187): Not null asserted, check to make sure it's correct.
     return this.node.state![StateType.RICHLY_EDITABLE] ||
-        // This condition is a full proof way to ensure the node is editable
-        // and has the content editable attribute set to any valid value.
-        (this.node.state![StateType.EDITABLE] && this.node.htmlAttributes &&
-         this.node.htmlAttributes['contenteditable'] !== undefined &&
-         this.node.htmlAttributes['contenteditable'] !== 'false') ||
-        false;
+        this.node.nonAtomicTextFieldRoot;
   }
 
   private createEditableText_(): AutomationEditableText {
@@ -160,3 +157,5 @@ function isSetOrClear(intent: AutomationIntent): boolean {
   return intent.command === IntentCommandType.SET_SELECTION ||
       intent.command === IntentCommandType.CLEAR_SELECTION;
 }
+
+TestImportManager.exportForTesting(TextEditHandler);

@@ -17,11 +17,13 @@
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/ash/arc/test/test_arc_session_manager.h"
 #include "chrome/browser/ash/guest_os/guest_os_session_tracker.h"
+#include "chrome/browser/ash/guest_os/guest_os_session_tracker_factory.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "chromeos/ash/components/dbus/concierge/fake_concierge_client.h"
 #include "chromeos/ash/components/dbus/upstart/fake_upstart_client.h"
+#include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -85,9 +87,10 @@ class ArcAdbdMonitorBridgeTest : public testing::Test {
         ArcServiceManager::Get()->arc_bridge_service()->adbd_monitor());
 
     const guest_os::GuestId arcvm_id(guest_os::VmType::ARCVM, kArcVmName, "");
-    guest_os::GuestOsSessionTracker::GetForProfile(profile)->AddGuestForTesting(
-        arcvm_id,
-        guest_os::GuestInfo{arcvm_id, kArcVmCidForTesting, {}, {}, {}, {}});
+    guest_os::GuestOsSessionTrackerFactory::GetForProfile(profile)
+        ->AddGuestForTesting(
+            arcvm_id,
+            guest_os::GuestInfo{arcvm_id, kArcVmCidForTesting, {}, {}, {}, {}});
   }
 
   void TearDown() override {
@@ -126,6 +129,7 @@ class ArcAdbdMonitorBridgeTest : public testing::Test {
 
  private:
   content::BrowserTaskEnvironment task_environment_;
+  session_manager::SessionManager session_manager_;
   std::unique_ptr<FakeAdbdMonitorInstance> instance_;
   std::unique_ptr<ArcAdbdMonitorBridge> bridge_;
   std::unique_ptr<arc::ArcSessionManager> arc_session_manager_;

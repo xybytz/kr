@@ -16,10 +16,6 @@
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 
-namespace ui {
-struct AXNodeData;
-}  // namespace ui
-
 namespace ash {
 
 namespace {
@@ -33,8 +29,9 @@ class DictationHintView;
 
 // View for the Dictation bubble.
 class ASH_EXPORT DictationBubbleView : public views::BubbleDialogDelegateView {
+  METADATA_HEADER(DictationBubbleView, views::BubbleDialogDelegateView)
+
  public:
-  METADATA_HEADER(DictationBubbleView);
   DictationBubbleView();
   DictationBubbleView(const DictationBubbleView&) = delete;
   DictationBubbleView& operator=(const DictationBubbleView&) = delete;
@@ -51,9 +48,6 @@ class ASH_EXPORT DictationBubbleView : public views::BubbleDialogDelegateView {
   void OnBeforeBubbleWidgetInit(views::Widget::InitParams* params,
                                 views::Widget* widget) const override;
 
-  // views::View:
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
-
   std::u16string GetTextForTesting();
   bool IsStandbyViewVisibleForTesting();
   bool IsMacroSucceededImageVisibleForTesting();
@@ -64,6 +58,8 @@ class ASH_EXPORT DictationBubbleView : public views::BubbleDialogDelegateView {
 
  private:
   friend class DictationBubbleControllerTest;
+
+  views::View* GetTopRowView();
 
   raw_ptr<TopRowView> top_row_view_ = nullptr;
   raw_ptr<DictationHintView> hint_view_ = nullptr;
@@ -78,8 +74,9 @@ END_VIEW_BUILDER
 // **important**: Chromevox expects this class to have a specific name to
 // compute when to announce hints differently. Don't change it!
 class ASH_EXPORT DictationHintView : public views::View {
+  METADATA_HEADER(DictationHintView, views::View)
+
  public:
-  METADATA_HEADER(DictationHintView);
   DictationHintView();
   DictationHintView(const DictationHintView&) = delete;
   DictationHintView& operator=(const DictationHintView&) = delete;
@@ -87,9 +84,6 @@ class ASH_EXPORT DictationHintView : public views::View {
 
   // Updates the text content and visibility of all labels in this view.
   void Update(const std::optional<std::vector<DictationBubbleHintType>>& hints);
-
-  // views::View:
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
  private:
   friend class DictationBubbleView;

@@ -4,12 +4,14 @@
 
 package org.chromium.net.impl;
 
-import static android.os.Process.THREAD_PRIORITY_BACKGROUND;
+import org.chromium.net.ConnectionCloseSource;
 
 import java.time.Duration;
+import java.util.List;
 
 /** Base class for implementing a CronetLogger. */
 public abstract class CronetLogger {
+    // TODO(b/313418339): align the naming with the atom definition.
     public static enum CronetSource {
         // Safe default, don't use explicitly.
         CRONET_SOURCE_UNSPECIFIED,
@@ -21,10 +23,17 @@ public abstract class CronetLogger {
         CRONET_SOURCE_FALLBACK,
         // The library is loaded through the bootclasspath.
         CRONET_SOURCE_PLATFORM,
+        // The application is using the fake implementation.
+        CRONET_SOURCE_FAKE,
     }
 
     /** Generates a new unique ID suitable for use as reference for cross-linking log events. */
     public abstract long generateId();
+
+    public abstract void logCronetEngineBuilderInitializedInfo(
+            CronetEngineBuilderInitializedInfo info);
+
+    public abstract void logCronetInitializedInfo(CronetInitializedInfo info);
 
     /**
      * Logs a cronetEngine creation action with the details of the creation.
@@ -49,6 +58,34 @@ public abstract class CronetLogger {
      */
     public abstract void logCronetTrafficInfo(long cronetEngineId, CronetTrafficInfo trafficInfo);
 
+    // TODO(crbug.com/41494309): consider using AutoValue for this.
+    public static final class CronetEngineBuilderInitializedInfo {
+        public long cronetInitializationRef;
+
+        public static enum Author {
+            API,
+            IMPL
+        }
+
+        public Author author;
+        public int engineBuilderCreatedLatencyMillis = -1;
+        public CronetSource source = CronetSource.CRONET_SOURCE_UNSPECIFIED;
+        public Boolean creationSuccessful;
+        public CronetVersion apiVersion;
+        public CronetVersion implVersion;
+        public int uid;
+    }
+
+    public static final class CronetInitializedInfo {
+        public long cronetInitializationRef;
+        public int engineCreationLatencyMillis = -1;
+        public int engineAsyncLatencyMillis = -1;
+        public int httpFlagsLatencyMillis = -1;
+        public Boolean httpFlagsSuccessful;
+        public List<Long> httpFlagsNames;
+        public List<Long> httpFlagsValues;
+    }
+
     /** Aggregates the information about a CronetEngine configuration. */
     public static class CronetEngineBuilderInfo {
         private final boolean mPublicKeyPinningBypassForLocalTrustAnchorsEnabled;
@@ -61,19 +98,32 @@ public abstract class CronetLogger {
         private final String mExperimentalOptions;
         private final boolean mNetworkQualityEstimatorEnabled;
         private final int mThreadPriority;
+        private final long mCronetInitializationRef;
 
-        public CronetEngineBuilderInfo(CronetEngineBuilderImpl builder) {
+        public CronetEngineBuilderInfo(
+                boolean publicKeyPinningBypassForLocalTrustAnchorsEnabled,
+                String userAgent,
+                String storagePath,
+                boolean quicEnabled,
+                boolean http2Enabled,
+                boolean brotiEnabled,
+                int httpCacheMode,
+                String experimentalOptions,
+                boolean networkQualityEstimatorEnabled,
+                int threadPriority,
+                long cronetInitializationRef) {
             mPublicKeyPinningBypassForLocalTrustAnchorsEnabled =
-                    builder.publicKeyPinningBypassForLocalTrustAnchorsEnabled();
-            mUserAgent = builder.getUserAgent();
-            mStoragePath = builder.storagePath();
-            mQuicEnabled = builder.quicEnabled();
-            mHttp2Enabled = builder.http2Enabled();
-            mBrotiEnabled = builder.brotliEnabled();
-            mHttpCacheMode = builder.publicBuilderHttpCacheMode();
-            mExperimentalOptions = builder.experimentalOptions();
-            mNetworkQualityEstimatorEnabled = builder.networkQualityEstimatorEnabled();
-            mThreadPriority = builder.threadPriority(THREAD_PRIORITY_BACKGROUND);
+                    publicKeyPinningBypassForLocalTrustAnchorsEnabled;
+            mUserAgent = userAgent;
+            mStoragePath = storagePath;
+            mQuicEnabled = quicEnabled;
+            mHttp2Enabled = http2Enabled;
+            mBrotiEnabled = brotiEnabled;
+            mHttpCacheMode = httpCacheMode;
+            mExperimentalOptions = experimentalOptions;
+            mNetworkQualityEstimatorEnabled = networkQualityEstimatorEnabled;
+            mThreadPriority = threadPriority;
+            mCronetInitializationRef = cronetInitializationRef;
         }
 
         /** @return Whether public key pinning bypass for local trust anchors is enabled */
@@ -128,6 +178,10 @@ public abstract class CronetLogger {
         public int getThreadPriority() {
             return mThreadPriority;
         }
+
+        public long getCronetInitializationRef() {
+            return mCronetInitializationRef;
+        }
     }
 
     /**
@@ -135,6 +189,19 @@ public abstract class CronetLogger {
      * particular CronetEngine.
      */
     public static class CronetTrafficInfo {
+        public static enum RequestTerminalState {
+            SUCCEEDED,
+            ERROR,
+            CANCELLED,
+        }
+
+        // TODO(b/355615357): Add more specific failure reasons.
+        public static enum RequestFailureReason {
+            UNKNOWN,
+            NETWORK,
+            OTHER,
+        }
+
         private final long mRequestHeaderSizeInBytes;
         private final long mRequestBodySizeInBytes;
         private final long mResponseHeaderSizeInBytes;
@@ -145,6 +212,18 @@ public abstract class CronetLogger {
         private final String mNegotiatedProtocol;
         private final boolean mWasConnectionMigrationAttempted;
         private final boolean mDidConnectionMigrationSucceed;
+        private final RequestTerminalState mTerminalState;
+        private final int mNonfinalUserCallbackExceptionCount;
+        private final int mReadCount;
+        private final int mOnUploadReadCount;
+        private final boolean mIsBidiStream;
+        private final boolean mFinalUserCallbackThrew;
+        private final int mUid;
+        private final int mNetworkInternalErrorCode;
+        private final int mQuicErrorCode;
+        private final @ConnectionCloseSource int mSource;
+        private final RequestFailureReason mFailureReason;
+        private final boolean mSocketReused;
 
         public CronetTrafficInfo(
                 long requestHeaderSizeInBytes,
@@ -156,7 +235,19 @@ public abstract class CronetLogger {
                 Duration totalLatency,
                 String negotiatedProtocol,
                 boolean wasConnectionMigrationAttempted,
-                boolean didConnectionMigrationSucceed) {
+                boolean didConnectionMigrationSucceed,
+                RequestTerminalState terminalState,
+                int nonfinalUserCallbackExceptionCount,
+                int readCount,
+                int uploadReadCount,
+                boolean isBidiStream,
+                boolean finalUserCallbackThrew,
+                int uid,
+                int networkInternalErrorCode,
+                int quicErrorCode,
+                @ConnectionCloseSource int source,
+                RequestFailureReason failureReason,
+                boolean sockedReused) {
             mRequestHeaderSizeInBytes = requestHeaderSizeInBytes;
             mRequestBodySizeInBytes = requestBodySizeInBytes;
             mResponseHeaderSizeInBytes = responseHeaderSizeInBytes;
@@ -167,9 +258,23 @@ public abstract class CronetLogger {
             mNegotiatedProtocol = negotiatedProtocol;
             mWasConnectionMigrationAttempted = wasConnectionMigrationAttempted;
             mDidConnectionMigrationSucceed = didConnectionMigrationSucceed;
+            mTerminalState = terminalState;
+            mNonfinalUserCallbackExceptionCount = nonfinalUserCallbackExceptionCount;
+            mReadCount = readCount;
+            mOnUploadReadCount = uploadReadCount;
+            mIsBidiStream = isBidiStream;
+            mFinalUserCallbackThrew = finalUserCallbackThrew;
+            mUid = uid;
+            mNetworkInternalErrorCode = networkInternalErrorCode;
+            mQuicErrorCode = quicErrorCode;
+            mSource = source;
+            mFailureReason = failureReason;
+            mSocketReused = sockedReused;
         }
 
-        /** @return The total size of headers sent in bytes */
+        /**
+         * @return The total size of headers sent in bytes
+         */
         public long getRequestHeaderSizeInBytes() {
             return mRequestHeaderSizeInBytes;
         }
@@ -227,6 +332,54 @@ public abstract class CronetLogger {
         /** @return True if the connection migration was attempted and succeeded, else False */
         public boolean didConnectionMigrationSucceed() {
             return mDidConnectionMigrationSucceed;
+        }
+
+        public RequestTerminalState getTerminalState() {
+            return mTerminalState;
+        }
+
+        public int getNonfinalUserCallbackExceptionCount() {
+            return mNonfinalUserCallbackExceptionCount;
+        }
+
+        public int getReadCount() {
+            return mReadCount;
+        }
+
+        public int getOnUploadReadCount() {
+            return mOnUploadReadCount;
+        }
+
+        public boolean getIsBidiStream() {
+            return mIsBidiStream;
+        }
+
+        public boolean getFinalUserCallbackThrew() {
+            return mFinalUserCallbackThrew;
+        }
+
+        public int getUid() {
+            return mUid;
+        }
+
+        public int getNetworkInternalErrorCode() {
+            return mNetworkInternalErrorCode;
+        }
+
+        public int getQuicErrorCode() {
+            return mQuicErrorCode;
+        }
+
+        public @ConnectionCloseSource int getConnectionCloseSource() {
+            return mSource;
+        }
+
+        public RequestFailureReason getFailureReason() {
+            return mFailureReason;
+        }
+
+        public boolean getIsSocketReused() {
+            return mSocketReused;
         }
     }
 

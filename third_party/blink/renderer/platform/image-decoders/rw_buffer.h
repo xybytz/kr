@@ -29,7 +29,7 @@ class PLATFORM_EXPORT RWBuffer {
    public:
     explicit ROIter(RWBuffer*, size_t);
     size_t size() const;
-    const void* data() const;
+    const uint8_t* data() const;
     // Checks whether there is another block available and advances the iterator
     // if there is.
     bool Next();
@@ -38,8 +38,8 @@ class PLATFORM_EXPORT RWBuffer {
     bool HasNext() const;
 
    private:
-    raw_ptr<const RWBuffer, ExperimentalRenderer> rw_buffer_;
-    raw_ptr<RWBuffer::BufferBlock, ExperimentalRenderer> block_;
+    raw_ptr<const RWBuffer> rw_buffer_;
+    raw_ptr<RWBuffer::BufferBlock> block_;
     size_t remaining_;
   };
 
@@ -47,7 +47,7 @@ class PLATFORM_EXPORT RWBuffer {
   // |writer| is a function used to initialize the RWBuffer.
   // |writer| is responsible for not writing off the edge of the buffer.
   // |writer| should return the amount of memory written to the buffer.
-  RWBuffer(base::OnceCallback<size_t(void*, size_t)> writer,
+  RWBuffer(base::OnceCallback<size_t(base::span<uint8_t>)> writer,
            size_t initial_capacity);
 
   ~RWBuffer();
@@ -78,8 +78,8 @@ class PLATFORM_EXPORT RWBuffer {
   void Validate() const;
 
  private:
-  raw_ptr<BufferHead, ExperimentalRenderer> head_ = nullptr;
-  raw_ptr<BufferBlock, ExperimentalRenderer> tail_ = nullptr;
+  raw_ptr<BufferHead> head_ = nullptr;
+  raw_ptr<BufferBlock> tail_ = nullptr;
   size_t total_used_ = 0;
 };
 
@@ -107,7 +107,7 @@ class PLATFORM_EXPORT ROBuffer : public WTF::ThreadSafeRefCounted<ROBuffer> {
      * Return the current continuous block of memory, or nullptr if the
      * iterator is exhausted
      */
-    const void* data() const;
+    const uint8_t* data() const;
 
     /**
      * Returns the number of bytes in the current contiguous block of memory,
@@ -122,9 +122,9 @@ class PLATFORM_EXPORT ROBuffer : public WTF::ThreadSafeRefCounted<ROBuffer> {
     bool Next();
 
    private:
-    raw_ptr<const RWBuffer::BufferBlock, ExperimentalRenderer> block_;
+    raw_ptr<const RWBuffer::BufferBlock> block_;
     size_t remaining_;
-    raw_ptr<const ROBuffer, ExperimentalRenderer> buffer_;
+    raw_ptr<const ROBuffer> buffer_;
   };
 
  private:
@@ -134,9 +134,9 @@ class PLATFORM_EXPORT ROBuffer : public WTF::ThreadSafeRefCounted<ROBuffer> {
            const RWBuffer::BufferBlock* tail);
   ~ROBuffer();
 
-  raw_ptr<const RWBuffer::BufferHead, ExperimentalRenderer> head_;
+  raw_ptr<const RWBuffer::BufferHead> head_;
   const size_t available_;
-  raw_ptr<const RWBuffer::BufferBlock, ExperimentalRenderer> tail_;
+  raw_ptr<const RWBuffer::BufferBlock> tail_;
 
   friend class RWBuffer;
 };

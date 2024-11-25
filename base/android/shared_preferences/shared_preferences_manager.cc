@@ -6,8 +6,10 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
-#include "base/base_shared_preferences_jni/SharedPreferencesManager_jni.h"
 #include "base/check.h"
+
+// Must come after all headers that specialize FromJniType() / ToJniType().
+#include "base/base_shared_preferences_jni/SharedPreferencesManager_jni.h"
 
 namespace base::android {
 
@@ -19,7 +21,7 @@ SharedPreferencesManager::SharedPreferencesManager(
     const SharedPreferencesManager& other)
     : java_obj_(other.java_obj_), env_(other.env_) {}
 
-SharedPreferencesManager::~SharedPreferencesManager() {}
+SharedPreferencesManager::~SharedPreferencesManager() = default;
 
 void SharedPreferencesManager::RemoveKey(
     const std::string& shared_preference_key) {

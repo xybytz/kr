@@ -33,8 +33,9 @@ class ArcBridgeHostImplTest : public testing::Test {
     mojo::PendingReceiver<mojom::ArcBridgeHost> pending_receiver;
     mojo::PendingRemote<mojom::ArcBridgeHost> pending_remote =
         pending_receiver.InitWithNewPipeAndPassRemote();
-    arc_bridge_host_impl_ = std::make_unique<ArcBridgeHostImpl>(
-        &bridge_service_, std::move(pending_receiver));
+    arc_bridge_host_impl_ =
+        std::make_unique<ArcBridgeHostImpl>(&bridge_service_);
+    arc_bridge_host_impl_->AddReceiver(std::move(pending_receiver));
     remote_.Bind(std::move(pending_remote));
   }
 
@@ -141,17 +142,17 @@ TEST_F(ArcBridgeHostImplTest, TestOnInstanceReady) {
     MAKE_INSTANCE_READY(App);
     MAKE_INSTANCE_READY(AppPermissions);
     MAKE_INSTANCE_READY(Appfuse);
+    MAKE_INSTANCE_READY(ArcShellExecution);
     MAKE_INSTANCE_READY(Audio);
     MAKE_INSTANCE_READY(Auth);
     MAKE_INSTANCE_READY(BackupSettings);
     MAKE_INSTANCE_READY(Bluetooth);
     MAKE_INSTANCE_READY(BootPhaseMonitor);
     MAKE_INSTANCE_READY(Camera);
-    MAKE_INSTANCE_READY(Clipboard);
     MAKE_INSTANCE_READY(CompatibilityMode);
     MAKE_INSTANCE_READY(CrashCollector);
     MAKE_INSTANCE_READY(DigitalGoods);
-    MAKE_INSTANCE_READY(DiskQuota);
+    MAKE_INSTANCE_READY(DiskSpace);
     MAKE_INSTANCE_READY(EnterpriseReporting);
     MAKE_INSTANCE_READY(FileSystem);
     MAKE_INSTANCE_READY(Ime);
@@ -160,7 +161,6 @@ TEST_F(ArcBridgeHostImplTest, TestOnInstanceReady) {
     MAKE_INSTANCE_READY(IntentHelper);
     MAKE_INSTANCE_READY(Keymaster);
     MAKE_INSTANCE_READY_WITH_NAMESPACE(mojom::keymint, KeyMint);
-    MAKE_INSTANCE_READY(Kiosk);
     MAKE_INSTANCE_READY(MediaSession);
     MAKE_INSTANCE_READY(Metrics);
     MAKE_INSTANCE_READY(Midis);
@@ -171,16 +171,15 @@ TEST_F(ArcBridgeHostImplTest, TestOnInstanceReady) {
     // instance is forwarded to ash, we need a completely different test.
     MAKE_INSTANCE_READY(ObbMounter);
     MAKE_INSTANCE_READY(OemCrypto);
+    MAKE_INSTANCE_READY(OnDeviceSafety);
     MAKE_INSTANCE_READY_WITH_NAMESPACE(chromeos::payments::mojom, PaymentApp);
     MAKE_INSTANCE_READY(Pip);
     MAKE_INSTANCE_READY(Policy);
     MAKE_INSTANCE_READY(Power);
     MAKE_INSTANCE_READY(PrintSpooler);
     MAKE_INSTANCE_READY(Process);
-    MAKE_INSTANCE_READY(Property);
     MAKE_INSTANCE_READY(ScreenCapture);
     MAKE_INSTANCE_READY(Sharesheet);
-    MAKE_INSTANCE_READY(StorageManager);
     MAKE_INSTANCE_READY(Timer);
     MAKE_INSTANCE_READY(Tracing);
     MAKE_INSTANCE_READY(Tts);

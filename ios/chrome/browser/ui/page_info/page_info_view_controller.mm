@@ -7,9 +7,16 @@
 #import "base/apple/foundation_util.h"
 #import "base/metrics/user_metrics.h"
 #import "base/metrics/user_metrics_action.h"
-#import "base/notreached.h"
 #import "base/strings/sys_string_conversions.h"
+#import "base/strings/utf_string_conversions.h"
+#import "base/time/time.h"
+#import "components/page_info/core/page_info_history_data_source.h"
+#import "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/keyboard/ui_bundled/UIKeyCommand+Chrome.h"
 #import "ios/chrome/browser/net/model/crurl.h"
+#import "ios/chrome/browser/permissions/ui_bundled/permission_info.h"
+#import "ios/chrome/browser/permissions/ui_bundled/permissions_constants.h"
+#import "ios/chrome/browser/permissions/ui_bundled/permissions_delegate.h"
 #import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
 #import "ios/chrome/browser/shared/public/commands/page_info_commands.h"
 #import "ios/chrome/browser/shared/ui/symbols/symbols.h"
@@ -23,12 +30,10 @@
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_text_item.h"
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_text_link_item.h"
 #import "ios/chrome/browser/shared/ui/table_view/table_view_utils.h"
-#import "ios/chrome/browser/ui/keyboard/UIKeyCommand+Chrome.h"
 #import "ios/chrome/browser/ui/page_info/features.h"
+#import "ios/chrome/browser/ui/page_info/page_info_about_this_site_info.h"
 #import "ios/chrome/browser/ui/page_info/page_info_constants.h"
-#import "ios/chrome/browser/ui/permissions/permission_info.h"
-#import "ios/chrome/browser/ui/permissions/permissions_constants.h"
-#import "ios/chrome/browser/ui/permissions/permissions_delegate.h"
+#import "ios/chrome/browser/ui/page_info/page_info_history_mutator.h"
 #import "ios/chrome/common/string_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/table_view/table_view_cells_constants.h"
@@ -39,23 +44,27 @@
 
 namespace {
 
-const CGFloat kTableViewSeparatorInset = 16;
-
 typedef NS_ENUM(NSInteger, SectionIdentifier) {
   SectionIdentifierSecurityContent,
   SectionIdentifierPermissions,
+  SectionIdentifierAboutThisSite,
+  SectionIdentifierLastVisited
 };
 
 typedef NS_ENUM(NSInteger, ItemIdentifier) {
-  ItemIdentifierSecurityHeader,
+  ItemIdentifierSecurity,
   ItemIdentifierPermissionsCamera,
   ItemIdentifierPermissionsMicrophone,
+  ItemIdentifierAboutThisSite,
+  ItemIdentifierLastVisited
 };
 
-// The vertical padding between the navigation bar and the Security header.
-float kPaddingSecurityHeader = 28.0f;
 // The minimum scale factor of the title label showing the URL.
-float kTitleLabelMinimumScaleFactor = 0.7f;
+const float kTitleLabelMinimumScaleFactor = 0.7f;
+
+// The maximum number of lines we should show for a page's description in the
+// AboutThisSite section.
+const NSInteger kAboutThisSiteDetailTextNumberOfLines = 2;
 
 }  // namespace
 
@@ -73,6 +82,8 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
 
 @implementation PageInfoViewController {
   UITableViewDiffableDataSource<NSNumber*, NSNumber*>* _dataSource;
+  PageInfoAboutThisSiteInfo* _aboutThisSiteInfo;
+  NSString* _lastVisitedTimestamp;
 }
 
 #pragma mark - UIViewController
@@ -90,9 +101,11 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
 - (void)viewDidLoad {
   [super viewDidLoad];
 
-  self.navigationItem.titleView =
-      [self titleViewLabelForURL:self.pageInfoSecurityDescription.siteURL];
   self.title = l10n_util::GetNSString(IDS_IOS_PAGE_INFO_SITE_INFORMATION);
+  self.navigationItem.largeTitleDisplayMode =
+      UINavigationItemLargeTitleDisplayModeNever;
+  self.navigationItem.prompt = self.pageInfoSecurityDescription.siteURL;
+
   self.tableView.accessibilityIdentifier = kPageInfoViewAccessibilityIdentifier;
   self.navigationController.navigationBar.accessibilityIdentifier =
       kPageInfoViewNavigationBarAccessibilityIdentifier;
@@ -103,8 +116,7 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
                            action:@selector(hidePageInfo)];
   self.navigationItem.rightBarButtonItem = dismissButton;
   self.tableView.separatorInset =
-      UIEdgeInsetsMake(0, kTableViewSeparatorInset, 0, 0);
-  self.tableView.allowsSelection = NO;
+      UIEdgeInsetsMake(0, kPageInfoTableViewSeparatorInsetWithIcon, 0, 0);
 
   if (self.pageInfoSecurityDescription.isEmpty) {
     [self addEmptyTableViewWithMessage:self.pageInfoSecurityDescription.message
@@ -114,7 +126,28 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
     return;
   }
 
+  // Update the security information if it was fetched while the page was being
+  // loaded. If page info is opened while the page is being loaded, its
+  // certificates might not have been loaded yet and so the page is shown as
+  // insecure. The next time the user opens page info, we should update the
+  // security information when the page is fully loaded so it's up to date.
+  if (self.pageInfoSecurityDescription.isPageLoading) {
+    _pageInfoSecurityDescription =
+        [self.pageInfoPresentationHandler updatedSiteSecurityDescription];
+  }
+
   [self loadModel];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+  [super viewWillAppear:animated];
+
+  if (IsPageInfoLastVisitedIOSEnabled()) {
+    // The Last Visited timestamp needs to be updated when the view is first
+    // loaded and subsequencenly since there could have been deletions performed
+    // on the Last Visited or History UI.
+    [self.pageInfoHistoryMutator lastVisitedTimestampNeedsUpdate];
+  }
 }
 
 #pragma mark - LegacyChromeTableViewController
@@ -140,49 +173,70 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
   RegisterTableViewHeaderFooter<TableViewAttributedStringHeaderFooterView>(
       self.tableView);
 
-  if (IsRevampPageInfoIosEnabled()) {
-    // TODO(crbug.com/1512580): Start implementation for Page Info's revamp.
-  }
-
   NSDiffableDataSourceSnapshot* snapshot =
       [[NSDiffableDataSourceSnapshot alloc] init];
   [snapshot
       appendSectionsWithIdentifiers:@[ @(SectionIdentifierSecurityContent) ]];
-  [snapshot appendItemsWithIdentifiers:@[ @(ItemIdentifierSecurityHeader) ]];
+  [snapshot appendItemsWithIdentifiers:@[ @(ItemIdentifierSecurity) ]
+             intoSectionWithIdentifier:@(SectionIdentifierSecurityContent)];
 
   // Permissions section.
   for (NSNumber* permission in self.permissionsInfo.allKeys) {
     [self updateSnapshot:snapshot forPermission:permission];
   }
+
+  if (IsAboutThisSiteFeatureEnabled()) {
+    [self updateSnapshotForAboutThisSite:snapshot];
+  }
+
+  // Append cell for the Last Visited row only if the `kPageInfoLastVisitedIOS`
+  // flag is enabled and the Last Visited timestamp is available.
+  if (IsPageInfoLastVisitedIOSEnabled() && _lastVisitedTimestamp) {
+    [snapshot
+        appendSectionsWithIdentifiers:@[ @(SectionIdentifierLastVisited) ]];
+    [snapshot appendItemsWithIdentifiers:@[ @(ItemIdentifierLastVisited) ]
+               intoSectionWithIdentifier:@(SectionIdentifierLastVisited)];
+  }
+
   [_dataSource applySnapshot:snapshot animatingDifferences:NO];
 }
 
 #pragma mark - UITableViewDelegate
 
-- (CGFloat)tableView:(UITableView*)tableView
-    heightForHeaderInSection:(NSInteger)section {
-  return section == SectionIdentifierSecurityContent
-             ? kPaddingSecurityHeader
-             : UITableViewAutomaticDimension;
+- (void)tableView:(UITableView*)tableView
+    didSelectRowAtIndexPath:(NSIndexPath*)indexPath {
+  DCHECK(self.pageInfoPresentationHandler);
+  ItemIdentifier itemType = static_cast<ItemIdentifier>(
+      [_dataSource itemIdentifierForIndexPath:indexPath].integerValue);
+  switch (itemType) {
+    case ItemIdentifierSecurity:
+        [self.pageInfoPresentationHandler showSecurityPage];
+      break;
+    case ItemIdentifierAboutThisSite:
+        [self.pageInfoPresentationHandler
+            showAboutThisSitePage:_aboutThisSiteInfo.moreAboutURL];
+      break;
+    case ItemIdentifierLastVisited:
+      CHECK(IsPageInfoLastVisitedIOSEnabled());
+      [self.pageInfoPresentationHandler showLastVisitedPage];
+      break;
+    case ItemIdentifierPermissionsCamera:
+    case ItemIdentifierPermissionsMicrophone:
+      break;
+  }
+
+  // Deselect the row so the UI seems responsive when the action triggered by
+  // the selection (e.g. opening a new tab, opening a subpage) takes a bit
+  // longer to happen.
+  [tableView deselectRowAtIndexPath:indexPath animated:YES];
 }
 
-- (UIView*)tableView:(UITableView*)tableView
-    viewForHeaderInSection:(NSInteger)section {
+- (CGFloat)tableView:(UITableView*)tableView
+    heightForHeaderInSection:(NSInteger)section {
   SectionIdentifier sectionIdentifier = static_cast<SectionIdentifier>(
       [_dataSource sectionIdentifierForIndex:section].integerValue);
-  switch (sectionIdentifier) {
-    case SectionIdentifierSecurityContent:
-      return nil;
-    case SectionIdentifierPermissions: {
-      TableViewTextHeaderFooterView* header =
-          DequeueTableViewHeaderFooter<TableViewTextHeaderFooterView>(
-              self.tableView);
-      header.textLabel.text =
-          l10n_util::GetNSString(IDS_IOS_PAGE_INFO_PERMISSIONS_HEADER);
-      [header setSubtitle:nil];
-      return header;
-    }
-  }
+
+    return ChromeTableViewHeightForHeaderInSection(sectionIdentifier);
 }
 
 - (UIView*)tableView:(UITableView*)tableView
@@ -190,17 +244,10 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
   SectionIdentifier sectionIdentifier = static_cast<SectionIdentifier>(
       [_dataSource sectionIdentifierForIndex:section].integerValue);
   switch (sectionIdentifier) {
-    case SectionIdentifierSecurityContent: {
-      TableViewLinkHeaderFooterView* footer =
-          DequeueTableViewHeaderFooter<TableViewLinkHeaderFooterView>(
-              self.tableView);
-      footer.urls =
-          @[ [[CrURL alloc] initWithGURL:GURL(kPageInfoHelpCenterURL)] ];
-      [footer setText:self.pageInfoSecurityDescription.message
-            withColor:[UIColor colorNamed:kTextSecondaryColor]];
-      footer.delegate = self;
-      return footer;
-    }
+    case SectionIdentifierSecurityContent:
+    case SectionIdentifierAboutThisSite:
+    case SectionIdentifierLastVisited:
+      return nil;
     case SectionIdentifierPermissions: {
       TableViewAttributedStringHeaderFooterView* footer =
           DequeueTableViewHeaderFooter<
@@ -209,13 +256,15 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
       return footer;
     }
   }
+
+  NOTREACHED();
 }
 
 #pragma mark - TableViewLinkHeaderFooterItemDelegate
 
 - (void)view:(TableViewLinkHeaderFooterView*)view didTapLinkURL:(CrURL*)URL {
   DCHECK(URL.gurl == GURL(kPageInfoHelpCenterURL));
-  [self.pageInfoCommandsHandler showSecurityHelpPage];
+  [self.pageInfoPresentationHandler showSecurityHelpPage];
 }
 
 #pragma mark - UIAdaptivePresentationControllerDelegate
@@ -249,16 +298,18 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
                            indexPath:(NSIndexPath*)indexPath
                       itemIdentifier:(ItemIdentifier)itemIdentifier {
   switch (itemIdentifier) {
-    case ItemIdentifierSecurityHeader: {
+    case ItemIdentifierSecurity: {
       TableViewDetailIconCell* cell =
           DequeueTableViewCell<TableViewDetailIconCell>(tableView);
       cell.textLabel.text =
-          l10n_util::GetNSString(IDS_IOS_PAGE_INFO_SITE_SECURITY);
+          l10n_util::GetNSString(IDS_IOS_PAGE_INFO_CONNECTION);
       cell.detailText = self.pageInfoSecurityDescription.status;
       [cell setIconImage:self.pageInfoSecurityDescription.iconImage
                 tintColor:UIColor.whiteColor
           backgroundColor:self.pageInfoSecurityDescription.iconBackgroundColor
              cornerRadius:kColorfulBackgroundSymbolCornerRadius];
+      cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+
       return cell;
     }
     case ItemIdentifierPermissionsCamera: {
@@ -278,6 +329,13 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
       [cell.switchView addTarget:self
                           action:@selector(permissionSwitchToggled:)
                 forControlEvents:UIControlEventValueChanged];
+        [cell setIconImage:CustomSymbolWithPointSize(kCameraSymbol,
+                                                     kPageInfoSymbolPointSize)
+                  tintColor:UIColor.whiteColor
+            backgroundColor:[UIColor colorNamed:kOrange500Color]
+               cornerRadius:kColorfulBackgroundSymbolCornerRadius
+                borderWidth:0];
+
       return cell;
     }
     case ItemIdentifierPermissionsMicrophone: {
@@ -297,6 +355,58 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
       [cell.switchView addTarget:self
                           action:@selector(permissionSwitchToggled:)
                 forControlEvents:UIControlEventValueChanged];
+        [cell setIconImage:DefaultSymbolWithPointSize(kMicrophoneSymbol,
+                                                      kPageInfoSymbolPointSize)
+                  tintColor:UIColor.whiteColor
+            backgroundColor:[UIColor colorNamed:kOrange500Color]
+               cornerRadius:kColorfulBackgroundSymbolCornerRadius
+                borderWidth:0];
+
+      return cell;
+    }
+    case ItemIdentifierAboutThisSite: {
+      TableViewDetailIconCell* cell =
+          DequeueTableViewCell<TableViewDetailIconCell>(tableView);
+      cell.textLabel.text =
+          l10n_util::GetNSString(IDS_IOS_PAGE_INFO_ABOUT_THIS_PAGE);
+      cell.detailText = _aboutThisSiteInfo.summary;
+      cell.detailTextNumberOfLines = kAboutThisSiteDetailTextNumberOfLines;
+      cell.textLayoutConstraintAxis = UILayoutConstraintAxisVertical;
+
+      UIImage* icon =
+#if BUILDFLAG(IOS_USE_BRANDED_SYMBOLS)
+          CustomSymbolTemplateWithPointSize(kPageInsightsSymbol,
+                                            kPageInfoSymbolPointSize);
+#else
+          DefaultSymbolTemplateWithPointSize(kInfoCircleSymbol,
+                                             kPageInfoSymbolPointSize);
+#endif  // BUILDFLAG(IOS_USE_BRANDED_SYMBOLS),
+
+      [cell setIconImage:icon
+                tintColor:UIColor.whiteColor
+          backgroundColor:[UIColor colorNamed:kPurple500Color]
+             cornerRadius:kColorfulBackgroundSymbolCornerRadius];
+
+      cell.accessoryView = [[UIImageView alloc]
+          initWithImage:DefaultAccessorySymbolConfigurationWithRegularWeight(
+                            kExternalLinkSymbol)];
+      cell.accessoryView.tintColor = [UIColor colorNamed:kTextQuaternaryColor];
+      return cell;
+    }
+    case ItemIdentifierLastVisited: {
+      TableViewDetailIconCell* cell =
+          DequeueTableViewCell<TableViewDetailIconCell>(tableView);
+      cell.textLabel.text = l10n_util::GetNSString(IDS_PAGE_INFO_HISTORY);
+
+      cell.detailText = _lastVisitedTimestamp;
+      cell.textLayoutConstraintAxis = UILayoutConstraintAxisVertical;
+      [cell setIconImage:DefaultSymbolTemplateWithPointSize(
+                             kClockSymbol, kPageInfoSymbolPointSize)
+                tintColor:UIColor.whiteColor
+          backgroundColor:[UIColor colorNamed:kBlue500Color]
+             cornerRadius:kColorfulBackgroundSymbolCornerRadius];
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+
       return cell;
     }
   }
@@ -320,7 +430,7 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
   return descriptionAttributedString;
 }
 
-// Returns the navigationItem titleView for `siteURL`.
+// Returns an UILabel for the navigationItem titleView for `siteURL`.
 - (UILabel*)titleViewLabelForURL:(NSString*)siteURL {
   UILabel* labelURL = [[UILabel alloc] init];
   labelURL.lineBreakMode = NSLineBreakByTruncatingHead;
@@ -329,6 +439,26 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
   labelURL.adjustsFontSizeToFitWidth = YES;
   labelURL.minimumScaleFactor = kTitleLabelMinimumScaleFactor;
   return labelURL;
+}
+
+// Updates `snapshot` to reflect the changes to AboutThisSite info.
+- (void)updateSnapshotForAboutThisSite:
+    (NSDiffableDataSourceSnapshot<NSNumber*, NSNumber*>*)snapshot {
+  CHECK(IsAboutThisSiteFeatureEnabled());
+  if (!_aboutThisSiteInfo || !self.pageInfoSecurityDescription.secure) {
+    return;
+  }
+
+  NSInteger sectionIndex =
+      [snapshot indexOfSectionIdentifier:@(SectionIdentifierPermissions)];
+  SectionIdentifier afterSectionWithIdentifier =
+      (sectionIndex == NSNotFound) ? SectionIdentifierSecurityContent
+                                   : SectionIdentifierPermissions;
+  [snapshot insertSectionsWithIdentifiers:@[ @(SectionIdentifierAboutThisSite) ]
+               afterSectionWithIdentifier:@(afterSectionWithIdentifier)];
+
+  [snapshot appendItemsWithIdentifiers:@[ @(ItemIdentifierAboutThisSite) ]
+             intoSectionWithIdentifier:@(SectionIdentifierAboutThisSite)];
 }
 
 // Updates `snapshot` to reflect the changes done to `permissions`.
@@ -407,6 +537,13 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
   }
 }
 
+#pragma mark - PageInfoAboutThisSiteConsumer
+
+- (void)setAboutThisSiteSection:(PageInfoAboutThisSiteInfo*)info {
+  CHECK(IsAboutThisSiteFeatureEnabled());
+  _aboutThisSiteInfo = info;
+}
+
 #pragma mark - PermissionsConsumer
 
 - (void)setPermissionsInfo:
@@ -421,6 +558,51 @@ float kTitleLabelMinimumScaleFactor = 0.7f;
       [_dataSource snapshot];
   [self updateSnapshot:snapshot forPermission:@(permissionInfo.permission)];
   [_dataSource applySnapshot:snapshot animatingDifferences:YES];
+}
+
+#pragma mark - PageInfoHistoryConsumer
+
+- (void)setLastVisitedTimestamp:(std::optional<base::Time>)lastVisited {
+  CHECK(IsPageInfoLastVisitedIOSEnabled());
+
+  if (lastVisited.has_value()) {
+    _lastVisitedTimestamp = base::SysUTF16ToNSString(
+        page_info::PageInfoHistoryDataSource::FormatLastVisitedTimestamp(
+            lastVisited.value()));
+  } else {
+    _lastVisitedTimestamp = nil;
+  }
+
+  NSDiffableDataSourceSnapshot<NSNumber*, NSNumber*>* snapshot =
+      [_dataSource snapshot];
+
+  // The Last Visited timestamp can be available before the view is loaded. If
+  // that occurs, just store the value of the timestamp and rely on `loadModel`
+  // to add the Last Visited section and row to the snapshot.
+  if (!_dataSource || !snapshot) {
+    return;
+  }
+
+  // Update or remove the Last Visited section based on the timestamp.
+  if (_lastVisitedTimestamp) {
+    if ([snapshot indexOfSectionIdentifier:@(SectionIdentifierLastVisited)] ==
+        NSNotFound) {
+      // Add the Last Visited section.
+      [snapshot
+          appendSectionsWithIdentifiers:@[ @(SectionIdentifierLastVisited) ]];
+      [snapshot appendItemsWithIdentifiers:@[ @(ItemIdentifierLastVisited) ]
+                 intoSectionWithIdentifier:@(SectionIdentifierLastVisited)];
+    }
+    // If the section already exists, no need to update the snapshot.
+    // The timestamp change will be handled when the cell is configured.
+  } else {
+    // Remove the Last Visited section.
+    [snapshot
+        deleteSectionsWithIdentifiers:@[ @(SectionIdentifierLastVisited) ]];
+  }
+
+  // Update the UI.
+  [_dataSource applySnapshot:snapshot animatingDifferences:NO];
 }
 
 @end

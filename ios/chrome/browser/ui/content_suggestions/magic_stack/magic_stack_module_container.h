@@ -14,26 +14,16 @@ enum class ContentSuggestionsModuleType;
 // Container View for a module in the Magic Stack.
 @interface MagicStackModuleContainer : UIView
 
-// Initialize and configure with `contentView` for `type`. DEPRECATED: Please
-// use -initWithFrame: and -configureWithConfig: if adding a module before
-// UICollectionView migration is complete.
-- (instancetype)initWithContentView:(UIView*)contentView
-                               type:(ContentSuggestionsModuleType)type
-                           delegate:
-                               (id<MagicStackModuleContainerDelegate>)delegate;
 - (instancetype)initWithCoder:(NSCoder*)aDecoder NS_UNAVAILABLE;
 
 // Configures this container with `config`.
 - (void)configureWithConfig:(MagicStackModule*)config;
 
+// Reset the main configurations of the view.
+- (void)resetView;
+
 // Delegate for this container.
 @property(nonatomic, weak) id<MagicStackModuleContainerDelegate> delegate;
-
-// Returns the title string for the module `type`.
-+ (NSString*)titleStringForModule:(ContentSuggestionsModuleType)type;
-
-// The type of this container.
-@property(nonatomic, assign, readonly) ContentSuggestionsModuleType type;
 
 @end
 

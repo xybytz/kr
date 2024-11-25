@@ -2,11 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <stdint.h>
 
 #include <memory>
 #include <tuple>
 
+#include "base/containers/heap_array.h"
 #include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/task/sequenced_task_runner.h"
@@ -68,9 +74,10 @@ class CopyOutputScalingPixelTest
   // The scene is drawn, which also causes the copy request to execute. Then,
   // the resulting bitmap is compared against an expected bitmap.
   void RunTest() {
-    // TODO(b/297344089): Enable these tests once Skia Graphite supports stale
-    // mipmap regeneration.
-    if (is_skia_graphite()) {
+    // TODO(b/341104760): Enable these once non-rescale cases are handled
+    // correctly.
+    if (is_skia_graphite() && scale_from_ == scale_to_ &&
+        result_format_ == CopyOutputResult::Format::I420_PLANES) {
       GTEST_SKIP();
     }
 
@@ -84,6 +91,7 @@ class CopyOutputScalingPixelTest
       result_format_as_str = "I420_PLANES";
     else
       NOTIMPLEMENTED();
+
     SCOPED_TRACE(testing::Message()
                  << "scale_from=" << scale_from_.ToString()
                  << ", scale_to=" << scale_to_.ToString()
@@ -139,44 +147,18 @@ class CopyOutputScalingPixelTest
     {
       base::RunLoop loop;
 
-      // Add a dummy copy request to be executed when the RED RenderPass is
-      // drawn (before the root RenderPass). This is a regression test to
-      // confirm GLRenderer state is consistent with the GL context after each
-      // copy request executes, and before the next RenderPass is drawn.
-      // http://crbug.com/792734
-      bool dummy_ran = false;
+      // Add a copy request to the root RenderPass, to capture the results of
+      // drawing all passes for this frame.
       auto request = std::make_unique<CopyOutputRequest>(
           result_format_, CopyOutputRequest::ResultDestination::kSystemMemory,
           base::BindOnce(
-              [](bool* dummy_ran, std::unique_ptr<CopyOutputResult> result) {
-                EXPECT_TRUE(!result->IsEmpty());
-                EXPECT_FALSE(*dummy_ran);
-                *dummy_ran = true;
-              },
-              &dummy_ran));
-      // Set a 10X zoom, which should be more than sufficient to disturb the
-      // results of the main copy request (below) if the GL state is not
-      // properly restored.
-      request->SetUniformScaleRatio(1, 10);
-      // Ensure the result callback is run on test main thread.
-      request->set_result_task_runner(
-          base::SequencedTaskRunner::GetCurrentDefault());
-      list.front()->copy_requests.push_back(std::move(request));
-
-      // Add a copy request to the root RenderPass, to capture the results of
-      // drawing all passes for this frame.
-      request = std::make_unique<CopyOutputRequest>(
-          result_format_, CopyOutputRequest::ResultDestination::kSystemMemory,
-          base::BindOnce(
-              [](bool* dummy_ran,
-                 std::unique_ptr<CopyOutputResult>* test_result,
+              [](std::unique_ptr<CopyOutputResult>* test_result,
                  const base::RepeatingClosure& quit_closure,
                  std::unique_ptr<CopyOutputResult> result_from_renderer) {
-                EXPECT_TRUE(*dummy_ran);
                 *test_result = std::move(result_from_renderer);
                 quit_closure.Run();
               },
-              &dummy_ran, &result, loop.QuitClosure()));
+              &result, loop.QuitClosure()));
       request->set_result_selection(
           copy_output::ComputeResultRect(copy_rect, scale_from_, scale_to_));
       request->SetScaleRatio(scale_from_, scale_to_);
@@ -201,7 +183,7 @@ class CopyOutputScalingPixelTest
         copy_output::ComputeResultRect(copy_rect, scale_from_, scale_to_);
     EXPECT_EQ(expected_result_rect, result->rect());
     EXPECT_EQ(result_format_, result->format());
-    absl::optional<CopyOutputResult::ScopedSkBitmap> scoped_bitmap;
+    std::optional<CopyOutputResult::ScopedSkBitmap> scoped_bitmap;
     SkBitmap result_bitmap;
     if (result_format_ == CopyOutputResult::Format::I420_PLANES) {
       result_bitmap = ReadI420ResultToSkBitmap(*result);
@@ -271,17 +253,18 @@ class CopyOutputScalingPixelTest
     // through.
     const int y_width = result_width;
     const int y_stride = y_width + 7;
-    std::unique_ptr<uint8_t[]> y_data(new uint8_t[y_stride * result_height]);
+    auto y_data = base::HeapArray<uint8_t>::Uninit(y_stride * result_height);
     const int chroma_width = (result_width + 1) / 2;
     const int u_stride = chroma_width + 11;
     const int v_stride = chroma_width + 17;
     const int chroma_height = (result_height + 1) / 2;
-    std::unique_ptr<uint8_t[]> u_data(new uint8_t[u_stride * chroma_height]);
-    std::unique_ptr<uint8_t[]> v_data(new uint8_t[v_stride * chroma_height]);
+    auto u_data = base::HeapArray<uint8_t>::Uninit(u_stride * chroma_height);
+    auto v_data = base::HeapArray<uint8_t>::Uninit(v_stride * chroma_height);
 
     // Do the read.
-    const bool success = result.ReadI420Planes(
-        y_data.get(), y_stride, u_data.get(), u_stride, v_data.get(), v_stride);
+    const bool success =
+        result.ReadI420Planes(y_data.data(), y_stride, u_data.data(), u_stride,
+                              v_data.data(), v_stride);
     CHECK(success);
 
     // Convert to an SkBitmap.
@@ -290,8 +273,8 @@ class CopyOutputScalingPixelTest
                                          kBGRA_8888_SkColorType,
                                          kPremul_SkAlphaType));
     const int error_code = libyuv::I420ToARGB(
-        y_data.get(), y_stride, u_data.get(), u_stride, v_data.get(), v_stride,
-        static_cast<uint8_t*>(bitmap.getPixels()), bitmap.rowBytes(),
+        y_data.data(), y_stride, u_data.data(), u_stride, v_data.data(),
+        v_stride, static_cast<uint8_t*>(bitmap.getPixels()), bitmap.rowBytes(),
         result_width, result_height);
     CHECK_EQ(0, error_code);
 

@@ -7,11 +7,13 @@
 #include <cstdint>
 #include <memory>
 
+#include "base/android/build_info.h"
 #include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/task/bind_post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
+#include "chrome/browser/password_manager/android/password_manager_android_util.h"
 #include "chrome/browser/password_manager/android/password_store_android_backend_dispatcher_bridge.h"
 #include "chrome/browser/password_manager/android/password_store_android_backend_receiver_bridge.h"
 #include "components/password_manager/core/browser/password_form.h"
@@ -20,22 +22,28 @@ namespace password_manager {
 
 namespace {
 
+constexpr int kGMSCoreMinVersionForGetAffiliatedAPI = 232012000;
+constexpr int kGMSCoreMinVersionForGetAllLoginsWithBrandingAPI = 233812000;
+
 using JobId = PasswordStoreAndroidBackendBridgeHelper::JobId;
 
 }
 
 std::unique_ptr<PasswordStoreAndroidBackendBridgeHelper>
-PasswordStoreAndroidBackendBridgeHelper::Create() {
-  return std::make_unique<PasswordStoreAndroidBackendBridgeHelperImpl>();
-}
-
-bool PasswordStoreAndroidBackendBridgeHelper::CanCreateBackend() {
-  return PasswordStoreAndroidBackendDispatcherBridge::CanCreateBackend();
+PasswordStoreAndroidBackendBridgeHelper::Create(
+    password_manager::IsAccountStore is_account_store) {
+  // The bridge is not supposed to be created when UPM is completely unusable.
+  // But it should be created for non-syncing users if sync is enabled later.
+  CHECK(password_manager_android_util::AreMinUpmRequirementsMet());
+  return std::make_unique<PasswordStoreAndroidBackendBridgeHelperImpl>(
+      is_account_store);
 }
 
 PasswordStoreAndroidBackendBridgeHelperImpl::
-    PasswordStoreAndroidBackendBridgeHelperImpl()
-    : receiver_bridge_(PasswordStoreAndroidBackendReceiverBridge::Create()),
+    PasswordStoreAndroidBackendBridgeHelperImpl(
+        password_manager::IsAccountStore is_account_store)
+    : receiver_bridge_(
+          PasswordStoreAndroidBackendReceiverBridge::Create(is_account_store)),
       dispatcher_bridge_(PasswordStoreAndroidBackendDispatcherBridge::Create()),
       background_task_runner_(base::ThreadPool::CreateSingleThreadTaskRunner(
           {base::TaskPriority::USER_VISIBLE})) {
@@ -80,18 +88,31 @@ PasswordStoreAndroidBackendBridgeHelperImpl::
 
 bool PasswordStoreAndroidBackendBridgeHelperImpl::
     CanUseGetAffiliatedPasswordsAPI() {
-  return PasswordStoreAndroidBackendDispatcherBridge::
-      CanUseGetAffiliatedPasswordsAPI();
+  base::android::BuildInfo* info = base::android::BuildInfo::GetInstance();
+  int current_gms_core_version;
+  if (!base::StringToInt(info->gms_version_code(), &current_gms_core_version)) {
+    return false;
+  }
+  if (kGMSCoreMinVersionForGetAffiliatedAPI > current_gms_core_version) {
+    return false;
+  }
+
+  return true;
 }
 
 bool PasswordStoreAndroidBackendBridgeHelperImpl::
     CanUseGetAllLoginsWithBrandingInfoAPI() {
-  return PasswordStoreAndroidBackendDispatcherBridge::
-      CanUseGetAllLoginsWithBrandingInfoAPI();
-}
+  base::android::BuildInfo* info = base::android::BuildInfo::GetInstance();
+  int current_gms_core_version;
+  if (!base::StringToInt(info->gms_version_code(), &current_gms_core_version)) {
+    return false;
+  }
+  if (kGMSCoreMinVersionForGetAllLoginsWithBrandingAPI >
+      current_gms_core_version) {
+    return false;
+  }
 
-bool PasswordStoreAndroidBackendBridgeHelperImpl::CanRemoveUnenrollment() {
-  return PasswordStoreAndroidBackendDispatcherBridge::CanRemoveUnenrollment();
+  return true;
 }
 
 void PasswordStoreAndroidBackendBridgeHelperImpl::SetConsumer(

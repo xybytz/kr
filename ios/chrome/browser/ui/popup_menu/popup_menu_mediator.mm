@@ -41,9 +41,12 @@
 #import "ios/chrome/browser/overlays/model/public/web_content_area/http_auth_overlay.h"
 #import "ios/chrome/browser/policy/model/browser_policy_connector_ios.h"
 #import "ios/chrome/browser/policy/model/policy_util.h"
+#import "ios/chrome/browser/reading_list/ui_bundled/reading_list_menu_notification_delegate.h"
+#import "ios/chrome/browser/reading_list/ui_bundled/reading_list_menu_notifier.h"
+#import "ios/chrome/browser/reading_list/ui_bundled/reading_list_utils.h"
 #import "ios/chrome/browser/search_engines/model/search_engines_util.h"
 #import "ios/chrome/browser/search_engines/model/template_url_service_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer_bridge.h"
@@ -62,9 +65,6 @@
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
 #import "ios/chrome/browser/ui/popup_menu/public/cells/popup_menu_item.h"
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_consumer.h"
-#import "ios/chrome/browser/ui/reading_list/reading_list_menu_notification_delegate.h"
-#import "ios/chrome/browser/ui/reading_list/reading_list_menu_notifier.h"
-#import "ios/chrome/browser/ui/reading_list/reading_list_utils.h"
 #import "ios/chrome/browser/url_loading/model/image_search_param_generator.h"
 #import "ios/chrome/browser/url_loading/model/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/model/url_loading_params.h"
@@ -174,10 +174,6 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 
 // Items notifying this items of changes happening to the ReadingList model.
 @property(nonatomic, strong) ReadingListMenuNotifier* readingListMenuNotifier;
-
-// Whether the hint for the "New Incognito Tab" item should be triggered.
-@property(nonatomic, assign) BOOL triggerNewIncognitoTabTip;
-
 // The current browser policy connector.
 @property(nonatomic, assign) BrowserPolicyConnectorIOS* browserPolicyConnector;
 
@@ -224,7 +220,6 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 
 - (instancetype)initWithIsIncognito:(BOOL)isIncognito
                    readingListModel:(ReadingListModel*)readingListModel
-          triggerNewIncognitoTabTip:(BOOL)triggerNewIncognitoTabTip
              browserPolicyConnector:
                  (BrowserPolicyConnectorIOS*)browserPolicyConnector {
   self = [super init];
@@ -237,7 +232,6 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
     _webStateListObserver = std::make_unique<WebStateListObserverBridge>(self);
     _overlayPresenterObserver =
         std::make_unique<OverlayPresenterObserverBridge>(self);
-    _triggerNewIncognitoTabTip = triggerNewIncognitoTabTip;
     _browserPolicyConnector = browserPolicyConnector;
   }
   return self;
@@ -358,35 +352,31 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 
 // If an added or removed bookmark is the same as the current url, update the
 // toolbar so the star highlight is kept in sync.
-- (void)bookmarkModel:(bookmarks::BookmarkModel*)model
-    didChangeChildrenForNode:(const bookmarks::BookmarkNode*)bookmarkNode {
+- (void)didChangeChildrenForNode:(const bookmarks::BookmarkNode*)bookmarkNode {
   [self updateBookmarkItem];
 }
 
 // If all bookmarks are removed, update the toolbar so the star highlight is
 // kept in sync.
-- (void)bookmarkModelRemovedAllNodes:(bookmarks::BookmarkModel*)model {
+- (void)bookmarkModelRemovedAllNodes {
   [self updateBookmarkItem];
 }
 
 // In case we are on a bookmarked page before the model is loaded.
-- (void)bookmarkModelLoaded:(bookmarks::BookmarkModel*)model {
+- (void)bookmarkModelLoaded {
   [self updateBookmarkItem];
 }
 
-- (void)bookmarkModel:(bookmarks::BookmarkModel*)model
-        didChangeNode:(const bookmarks::BookmarkNode*)bookmarkNode {
+- (void)didChangeNode:(const bookmarks::BookmarkNode*)bookmarkNode {
   [self updateBookmarkItem];
 }
 
-- (void)bookmarkModel:(bookmarks::BookmarkModel*)model
-          didMoveNode:(const bookmarks::BookmarkNode*)bookmarkNode
-           fromParent:(const bookmarks::BookmarkNode*)oldParent
-             toParent:(const bookmarks::BookmarkNode*)newParent {
+- (void)didMoveNode:(const bookmarks::BookmarkNode*)bookmarkNode
+         fromParent:(const bookmarks::BookmarkNode*)oldParent
+           toParent:(const bookmarks::BookmarkNode*)newParent {
   // No-op -- required by BookmarkModelBridgeObserver but not used.
 }
-- (void)bookmarkModel:(bookmarks::BookmarkModel*)model
-        didDeleteNode:(const bookmarks::BookmarkNode*)node
+- (void)didDeleteNode:(const bookmarks::BookmarkNode*)node
            fromFolder:(const bookmarks::BookmarkNode*)folder {
   [self updateBookmarkItem];
 }
@@ -402,6 +392,10 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 - (void)overlayPresenter:(OverlayPresenter*)presenter
     didHideOverlayForRequest:(OverlayRequest*)request {
   self.webContentAreaShowingOverlay = NO;
+}
+
+- (void)overlayPresenterDestroyed:(OverlayPresenter*)presenter {
+  self.webContentAreaOverlayPresenter = nullptr;
 }
 
 #pragma mark - PrefObserverDelegate
@@ -472,10 +466,6 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
   _popupMenu = popupMenu;
 
   [_popupMenu setPopupMenuItems:self.items];
-  if (self.triggerNewIncognitoTabTip) {
-    _popupMenu.itemToHighlight = self.openNewIncognitoTabItem;
-    self.triggerNewIncognitoTabTip = NO;
-  }
   if (self.webState) {
     [self updatePopupMenu];
   }
@@ -955,9 +945,8 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
       IDS_IOS_PRICE_NOTIFICATIONS_PRICE_TRACK_TITLE,
       PopupMenuActionPriceNotifications, @"popup_menu_price_notifications",
       kToolsMenuPriceNotifications);
-  if (self.webState &&
-      IsPriceTrackingEnabled(ChromeBrowserState::FromBrowserState(
-          self.webState->GetBrowserState()))) {
+  if (self.webState && IsPriceTrackingEnabled(ProfileIOS::FromBrowserState(
+                           self.webState->GetBrowserState()))) {
     [actionsArray addObject:self.priceNotificationsItem];
   }
 

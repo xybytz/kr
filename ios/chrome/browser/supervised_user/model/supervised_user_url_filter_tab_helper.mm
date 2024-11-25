@@ -7,21 +7,19 @@
 #import "base/functional/callback.h"
 #import "base/memory/weak_ptr.h"
 #import "base/strings/sys_string_conversions.h"
-#import "components/prefs/pref_service.h"
 #import "components/supervised_user/core/browser/supervised_user_interstitial.h"
-#import "components/supervised_user/core/browser/supervised_user_preferences.h"
 #import "components/supervised_user/core/browser/supervised_user_service.h"
 #import "components/supervised_user/core/browser/supervised_user_url_filter.h"
+#import "components/supervised_user/core/browser/supervised_user_utils.h"
 #import "components/supervised_user/core/common/features.h"
-#import "components/supervised_user/core/common/pref_names.h"
 #import "components/supervised_user/core/common/supervised_user_constants.h"
-#import "components/supervised_user/core/common/supervised_user_utils.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
+#import "ios/chrome/browser/supervised_user/model/supervised_user_capabilities.h"
 #import "ios/chrome/browser/supervised_user/model/supervised_user_error.h"
 #import "ios/chrome/browser/supervised_user/model/supervised_user_error_container.h"
 #import "ios/chrome/browser/supervised_user/model/supervised_user_service_factory.h"
 #import "ios/net/protocol_handler_util.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "net/base/net_errors.h"
 #import "url/gurl.h"
 
@@ -73,23 +71,22 @@ void SupervisedUserURLFilterTabHelper::ShouldAllowRequest(
     NSURLRequest* request,
     web::WebStatePolicyDecider::RequestInfo request_info,
     web::WebStatePolicyDecider::PolicyDecisionCallback callback) {
-  ChromeBrowserState* chrome_browser_state =
-      ChromeBrowserState::FromBrowserState(web_state()->GetBrowserState());
+  ProfileIOS* profile =
+      ProfileIOS::FromBrowserState(web_state()->GetBrowserState());
 
-  // SupervisedUserService is not created for the off-the-record browser state.
-  if (chrome_browser_state->IsOffTheRecord()) {
+  // SupervisedUserService is not created for the off-the-record profile.
+  if (profile->IsOffTheRecord()) {
     std::move(callback).Run(PolicyDecision::Allow());
     return;
   }
 
-  if (!supervised_user::IsUrlFilteringEnabled(
-          *chrome_browser_state->GetPrefs())) {
+  if (!supervised_user::IsSubjectToParentalControls(profile)) {
     std::move(callback).Run(PolicyDecision::Allow());
     return;
   }
 
   supervised_user::SupervisedUserService* supervised_user_service =
-      SupervisedUserServiceFactory::GetForBrowserState(chrome_browser_state);
+      SupervisedUserServiceFactory::GetForProfile(profile);
 
   // Set up the callback taking filtering results, and perform URL filtering.
   GURL request_url = net::GURLWithNSURL(request.URL);

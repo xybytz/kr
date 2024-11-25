@@ -3,8 +3,10 @@
 // found in the LICENSE file.
 
 #include <memory>
+
 #include "base/metrics/metrics_hashes.h"
 #include "base/metrics/statistics_recorder.h"
+#include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -20,6 +22,7 @@
 #include "chrome/browser/segmentation_platform/ukm_data_manager_test_utils.h"
 #include "chrome/browser/segmentation_platform/ukm_database_client.h"
 #include "chrome/test/base/chrome_test_utils.h"
+#include "chrome/test/base/platform_browser_test.h"
 #include "components/optimization_guide/core/model_info.h"
 #include "components/optimization_guide/core/test_model_info_builder.h"
 #include "components/optimization_guide/proto/models.pb.h"
@@ -73,7 +76,10 @@ constexpr char kSqlFeatureQuery[] = "SELECT COUNT(*) from metrics";
 
 class SegmentationPlatformTest : public PlatformBrowserTest {
  public:
-  SegmentationPlatformTest() {
+  explicit SegmentationPlatformTest(bool setup_feature_list = true) {
+    if (!setup_feature_list) {
+      return;
+    }
     // Low Engagement Segment is used to test segmentation service without multi
     // output. Search User Segment supports  multi output path.
     feature_list_.InitWithFeaturesAndParameters(
@@ -264,7 +270,7 @@ class SegmentationPlatformTest : public PlatformBrowserTest {
     proto::SegmentationModelMetadata search_user_metadata;
     MetadataWriter writer = MetadataWriter(&search_user_metadata);
     writer.SetSegmentationMetadataConfig(proto::TimeUnit::DAY, 1, 7, 7, 7);
-    writer.AddUmaFeatures(uma_features.begin(), uma_features.size());
+    writer.AddUmaFeatures(uma_features.data(), uma_features.size());
 
     return search_user_metadata;
   }
@@ -663,6 +669,30 @@ IN_PROC_BROWSER_TEST_F(SegmentationPlatformUkmModelTest, SumGroupDatabaseApi) {
         const std::vector<float> kExpectedResults = {0, 11, 22};
         EXPECT_EQ(result, kExpectedResults);
       }));
+}
+
+class SegmentationPlatformUkmDisabledTest : public SegmentationPlatformTest {
+ public:
+  SegmentationPlatformUkmDisabledTest()
+      : SegmentationPlatformTest(/*setup_feature_list=*/false) {
+    feature_list_.InitWithFeaturesAndParameters(
+        {base::test::FeatureRefAndParams(features::kSegmentationPlatformFeature,
+                                         {}),
+         base::test::FeatureRefAndParams(
+             kSegmentationPlatformOptimizationTargetSegmentationDummy, {})},
+        /*disabled_features=*/{
+            features::kSegmentationPlatformUkmEngine,
+            features::kSegmentationPlatformUmaFromSqlDb,
+        });
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(SegmentationPlatformUkmDisabledTest, DatabaseApi) {
+  WaitForPlatformInit();
+
+  SegmentationPlatformService* service = GetService();
+  DatabaseClient* client = service->GetDatabaseClient();
+  EXPECT_FALSE(client);
 }
 
 }  // namespace segmentation_platform

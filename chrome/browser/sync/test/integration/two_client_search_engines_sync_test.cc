@@ -10,6 +10,7 @@
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/sync/test/integration/updated_progress_marker_checker.h"
 #include "chrome/test/base/search_test_utils.h"
+#include "components/search_engines/search_engines_switches.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/signin/public/base/signin_switches.h"
@@ -35,10 +36,8 @@ class TwoClientSearchEnginesSyncTest : public SyncTest {
  public:
   TwoClientSearchEnginesSyncTest() : SyncTest(TWO_CLIENT) {
     // The search engine pref will stop being synced when the
-    // `kSearchEngineChoice` or `kSearchEngineChoiceFre` feature is enabled.
-    feature_list_.InitWithFeatures(
-        /*enabled_features=*/{}, /*disabled_features=*/{
-            switches::kSearchEngineChoice, switches::kSearchEngineChoiceFre});
+    // `kSearchEngineChoiceTrigger` feature is enabled.
+    feature_list_.InitAndDisableFeature(switches::kSearchEngineChoiceTrigger);
   }
   ~TwoClientSearchEnginesSyncTest() override = default;
 
@@ -69,7 +68,7 @@ class TwoClientSearchEnginesSyncTestWithVerifier
   ~TwoClientSearchEnginesSyncTestWithVerifier() override = default;
 
   bool UseVerifier() override {
-    // TODO(crbug.com/1137771): rewrite test to not use verifier.
+    // TODO(crbug.com/40724973): rewrite test to not use verifier.
     return true;
   }
 
@@ -86,7 +85,7 @@ class TwoClientSearchEnginesSyncTestWithVerifier
 IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest, E2E_ENABLED(Add)) {
   ResetSyncForPrimaryAccount();
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  // TODO(crbug.com/953711): Ideally we could immediately assert
+  // TODO(crbug.com/41453418): Ideally we could immediately assert
   // AllServicesMatch(), but that's not possible today without introducing
   // flakiness due to random GUIDs in prepopulated engines.
   ASSERT_TRUE(SearchEnginesMatchChecker().Wait());
@@ -102,7 +101,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest, E2E_ENABLED(Add)) {
 IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest, E2E_ENABLED(Delete)) {
   ResetSyncForPrimaryAccount();
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  // TODO(crbug.com/953711): Ideally we could immediately assert
+  // TODO(crbug.com/41453418): Ideally we could immediately assert
   // AllServicesMatch(), but that's not possible today without introducing
   // flakiness due to random GUIDs in prepopulated engines.
   ASSERT_TRUE(SearchEnginesMatchChecker().Wait());
@@ -124,7 +123,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest,
                        E2E_ENABLED(AddMultiple)) {
   ResetSyncForPrimaryAccount();
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  // TODO(crbug.com/953711): Ideally we could immediately assert
+  // TODO(crbug.com/41453418): Ideally we could immediately assert
   // AllServicesMatch(), but that's not possible today without introducing
   // flakiness due to random GUIDs in prepopulated engines.
   ASSERT_TRUE(SearchEnginesMatchChecker().Wait());
@@ -139,7 +138,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest,
 
 IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTestWithVerifier, Duplicates) {
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  // TODO(crbug.com/953711): Ideally we could immediately assert
+  // TODO(crbug.com/41453418): Ideally we could immediately assert
   // AllServicesMatch(), but that's not possible today without introducing
   // flakiness due to random GUIDs in prepopulated engines.
   ASSERT_TRUE(SearchEnginesMatchChecker().Wait());
@@ -162,7 +161,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest,
                        E2E_ENABLED(UpdateKeyword)) {
   ResetSyncForPrimaryAccount();
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  // TODO(crbug.com/953711): Ideally we could immediately assert
+  // TODO(crbug.com/41453418): Ideally we could immediately assert
   // AllServicesMatch(), but that's not possible today without introducing
   // flakiness due to random GUIDs in prepopulated engines.
   ASSERT_TRUE(SearchEnginesMatchChecker().Wait());
@@ -181,7 +180,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest,
 IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest, E2E_ENABLED(UpdateUrl)) {
   ResetSyncForPrimaryAccount();
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  // TODO(crbug.com/953711): Ideally we could immediately assert
+  // TODO(crbug.com/41453418): Ideally we could immediately assert
   // AllServicesMatch(), but that's not possible today without introducing
   // flakiness due to random GUIDs in prepopulated engines.
   ASSERT_TRUE(SearchEnginesMatchChecker().Wait());
@@ -201,7 +200,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest,
                        E2E_ENABLED(UpdateName)) {
   ResetSyncForPrimaryAccount();
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  // TODO(crbug.com/953711): Ideally we could immediately assert
+  // TODO(crbug.com/41453418): Ideally we could immediately assert
   // AllServicesMatch(), but that's not possible today without introducing
   // flakiness due to random GUIDs in prepopulated engines.
   ASSERT_TRUE(SearchEnginesMatchChecker().Wait());
@@ -219,7 +218,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest,
 
 IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest, ConflictKeyword) {
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  // TODO(crbug.com/953711): Ideally we could immediately assert
+  // TODO(crbug.com/41453418): Ideally we could immediately assert
   // AllServicesMatch(), but that's not possible today without introducing
   // flakiness due to random GUIDs in prepopulated engines.
   ASSERT_TRUE(SearchEnginesMatchChecker().Wait());
@@ -239,7 +238,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest, ConflictKeyword) {
 
 IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest, MergeMultiple) {
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  // TODO(crbug.com/953711): Ideally we could immediately assert
+  // TODO(crbug.com/41453418): Ideally we could immediately assert
   // AllServicesMatch(), but that's not possible today without introducing
   // flakiness due to random GUIDs in prepopulated engines.
   ASSERT_TRUE(SearchEnginesMatchChecker().Wait());
@@ -268,7 +267,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest, MergeMultiple) {
 IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTestWithVerifier,
                        DisableSync) {
   ASSERT_TRUE(SetupSync());
-  // TODO(crbug.com/953711): Ideally we could immediately assert
+  // TODO(crbug.com/41453418): Ideally we could immediately assert
   // AllServicesMatch(), but that's not possible today without introducing
   // flakiness due to random GUIDs in prepopulated engines.
   ASSERT_TRUE(SearchEnginesMatchChecker().Wait());
@@ -288,7 +287,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest,
                        E2E_ENABLED(SyncDefault)) {
   ResetSyncForPrimaryAccount();
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  // TODO(crbug.com/953711): Ideally we could immediately assert
+  // TODO(crbug.com/41453418): Ideally we could immediately assert
   // AllServicesMatch(), but that's not possible today without introducing
   // flakiness due to random GUIDs in prepopulated engines.
   ASSERT_TRUE(SearchEnginesMatchChecker().Wait());
@@ -309,7 +308,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest,
                        E2E_ENABLED(DeleteSyncedDefault)) {
   ResetSyncForPrimaryAccount();
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-  // TODO(crbug.com/953711): Ideally we could immediately assert
+  // TODO(crbug.com/41453418): Ideally we could immediately assert
   // AllServicesMatch(), but that's not possible today without introducing
   // flakiness due to random GUIDs in prepopulated engines.
   ASSERT_TRUE(SearchEnginesMatchChecker().Wait());
@@ -336,14 +335,14 @@ IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest,
 IN_PROC_BROWSER_TEST_F(TwoClientSearchEnginesSyncTest,
                        DeleteSyncedDefaultWithoutPrefSync) {
   ASSERT_TRUE(SetupClients());
-
   AddSearchEngine(/*profile_index=*/0, "test0");
   AddSearchEngine(/*profile_index=*/0, "test1");
   AddSearchEngine(/*profile_index=*/1, "test0");
   AddSearchEngine(/*profile_index=*/1, "test1");
-  ChangeDefaultSearchProvider(/*profile_index=*/0, "test0");
 
   ASSERT_TRUE(SetupSync());
+
+  ChangeDefaultSearchProvider(/*profile_index=*/0, "test0");
   ASSERT_TRUE(SearchEnginesMatchChecker().Wait());
 
   // Throttle PREFERENCES to block any commits to them, which in this case

@@ -26,7 +26,9 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/stop_find_action.h"
+#include "extensions/browser/extension_api_frame_id_map.h"
 #include "extensions/browser/extensions_browser_client.h"
+#include "extensions/browser/guest_view/web_view/controlled_frame_embedder_url_fetcher.h"
 #include "extensions/browser/guest_view/web_view/web_view_constants.h"
 #include "extensions/browser/guest_view/web_view/web_view_content_script_manager.h"
 #include "extensions/common/api/web_view_internal.h"
@@ -105,10 +107,10 @@ std::optional<extensions::mojom::HostID> GenerateHostIDFromEmbedder(
 
   if (embedder_rfh->GetWebExposedIsolationLevel() >=
       content::WebExposedIsolationLevel::kIsolatedApplication) {
-    const GURL& url = embedder_rfh->GetMainFrame()->GetLastCommittedURL();
+    const std::string origin =
+        embedder_rfh->GetMainFrame()->GetLastCommittedOrigin().Serialize();
     return extensions::mojom::HostID(
-        extensions::mojom::HostID::HostType::kControlledFrameEmbedder,
-        url.spec());
+        extensions::mojom::HostID::HostType::kControlledFrameEmbedder, origin);
   }
   return std::nullopt;
 }
@@ -295,7 +297,8 @@ bool WebViewInternalExtensionFunction::PreRunValidation(std::string* error) {
   const auto& instance_id_value = args()[0];
   EXTENSION_FUNCTION_PRERUN_VALIDATE(instance_id_value.is_int());
   instance_id_ = instance_id_value.GetInt();
-  // TODO(780728): Remove crash key once the cause of the kill is known.
+  // TODO(crbug.com/41353094): Remove crash key once the cause of the kill is
+  // known.
   static crash_reporter::CrashKeyString<128> name_key("webview-function");
   crash_reporter::ScopedCrashKeyString name_key_scope(&name_key, name());
   if (!WebViewGuest::FromInstanceID(source_process_id(), instance_id_)) {
@@ -322,7 +325,7 @@ WebViewInternalCaptureVisibleRegionFunction::Run() {
       web_view_internal::CaptureVisibleRegion::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
 
-  absl::optional<ImageDetails> image_details;
+  std::optional<ImageDetails> image_details;
   if (args().size() > 1) {
     image_details = ImageDetails::FromValue(args()[1]);
   }
@@ -353,6 +356,11 @@ void WebViewInternalCaptureVisibleRegionFunction::GetQuotaLimitHeuristics(
       "MAX_CAPTURE_VISIBLE_REGION_CALLS_PER_SECOND"));
 }
 
+bool WebViewInternalCaptureVisibleRegionFunction::ShouldSkipQuotaLimiting()
+    const {
+  return user_gesture();
+}
+
 WebContentsCaptureClient::ScreenshotAccess
 WebViewInternalCaptureVisibleRegionFunction::GetScreenshotAccess(
     content::WebContents* web_contents) const {
@@ -379,23 +387,21 @@ void WebViewInternalCaptureVisibleRegionFunction::OnCaptureSuccess(
 void WebViewInternalCaptureVisibleRegionFunction::EncodeBitmapOnWorkerThread(
     scoped_refptr<base::TaskRunner> reply_task_runner,
     const SkBitmap& bitmap) {
-  std::string base64_result;
-  bool success = EncodeBitmap(bitmap, &base64_result);
+  std::optional<std::string> base64_result = EncodeBitmap(bitmap);
   reply_task_runner->PostTask(
       FROM_HERE, base::BindOnce(&WebViewInternalCaptureVisibleRegionFunction::
                                     OnBitmapEncodedOnUIThread,
-                                this, success, std::move(base64_result)));
+                                this, std::move(base64_result)));
 }
 
 void WebViewInternalCaptureVisibleRegionFunction::OnBitmapEncodedOnUIThread(
-    bool success,
-    std::string base64_result) {
-  if (!success) {
+    std::optional<std::string> base64_result) {
+  if (!base64_result) {
     OnCaptureFailure(FAILURE_REASON_ENCODING_FAILED);
     return;
   }
 
-  Respond(WithArguments(std::move(base64_result)));
+  Respond(WithArguments(std::move(base64_result.value())));
 }
 
 void WebViewInternalCaptureVisibleRegionFunction::OnCaptureFailure(
@@ -423,7 +429,6 @@ std::string WebViewInternalCaptureVisibleRegionFunction::GetErrorMessage(
     case OK:
       NOTREACHED()
           << "GetErrorMessage should not be called with a successful result";
-      return "";
   }
   return ErrorUtils::FormatErrorMessage("Failed to capture webview: *",
                                         reason_description);
@@ -434,7 +439,8 @@ ExtensionFunction::ResponseAction WebViewInternalNavigateFunction::Run() {
       web_view_internal::Navigate::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
   std::string src = params->src;
-  GetGuest().NavigateGuest(src, true /* force_navigation */);
+  GetGuest().NavigateGuest(src, /*navigation_handle_callback=*/{},
+                           true /* force_navigation */);
   return RespondNow(NoArguments());
 }
 
@@ -510,29 +516,49 @@ bool WebViewInternalExecuteCodeFunction::IsWebView() const {
   return true;
 }
 
+int WebViewInternalExecuteCodeFunction::GetRootFrameId() const {
+  WebViewGuest* guest =
+      WebViewGuest::FromInstanceID(source_process_id(), guest_instance_id_);
+  CHECK(guest);
+  return ExtensionApiFrameIdMap::GetFrameId(guest->GetGuestMainFrame());
+}
+
 const GURL& WebViewInternalExecuteCodeFunction::GetWebViewSrc() const {
   return guest_src_;
 }
 
-bool WebViewInternalExecuteCodeFunction::LoadFileForWebUI(
+bool WebViewInternalExecuteCodeFunction::LoadFileForEmbedder(
     const std::string& file_src,
-    WebUIURLFetcher::WebUILoadFileCallback callback) {
+    LoadFileCallback callback) {
   WebViewGuest* guest =
       WebViewGuest::FromInstanceID(source_process_id(), guest_instance_id_);
-  if (!guest || host_id().type != mojom::HostID::HostType::kWebUi)
+  if (!guest || host_id().type == mojom::HostID::HostType::kExtensions) {
     return false;
+  }
 
   GURL owner_base_url(guest->GetOwnerSiteURL().GetWithEmptyPath());
   GURL file_url(owner_base_url.Resolve(file_src));
 
-  url_fetcher_ = std::make_unique<WebUIURLFetcher>(
-      source_process_id(), render_frame_host()->GetRoutingID(), file_url,
-      std::move(callback));
+  switch (host_id().type) {
+    case mojom::HostID::HostType::kExtensions:
+      NOTREACHED();
+    case mojom::HostID::HostType::kControlledFrameEmbedder:
+      url_fetcher_ = std::make_unique<ControlledFrameEmbedderURLFetcher>(
+          source_process_id(), render_frame_host()->GetRoutingID(), file_url,
+          std::move(callback));
+      break;
+    case mojom::HostID::HostType::kWebUi:
+      url_fetcher_ = std::make_unique<WebUIURLFetcher>(
+          source_process_id(), render_frame_host()->GetRoutingID(), file_url,
+          std::move(callback));
+      break;
+  }
   url_fetcher_->Start();
+
   return true;
 }
 
-void WebViewInternalExecuteCodeFunction::DidLoadFileForWebUI(
+void WebViewInternalExecuteCodeFunction::DidLoadFileForEmbedder(
     const std::string& file,
     bool success,
     std::unique_ptr<std::string> data) {
@@ -551,12 +577,13 @@ void WebViewInternalExecuteCodeFunction::DidLoadFileForWebUI(
 bool WebViewInternalExecuteCodeFunction::LoadFile(const std::string& file,
                                                   std::string* error) {
   if (!extension()) {
-    if (LoadFileForWebUI(
+    if (LoadFileForEmbedder(
             *details_->file,
             base::BindOnce(
-                &WebViewInternalExecuteCodeFunction::DidLoadFileForWebUI, this,
-                file)))
+                &WebViewInternalExecuteCodeFunction::DidLoadFileForEmbedder,
+                this, file))) {
       return true;
+    }
 
     *error = ErrorUtils::FormatErrorMessage(kLoadFileError, file);
     return false;
@@ -902,7 +929,7 @@ WebViewInternalLoadDataWithBaseUrlFunction::Run() {
   content::NavigationController::LoadURLParams load_params(data_url);
   load_params.load_type = content::NavigationController::LOAD_TYPE_DATA;
   load_params.base_url_for_data_url = base_url;
-  load_params.virtual_url_for_data_url = virtual_url;
+  load_params.virtual_url_for_special_cases = virtual_url;
   load_params.override_user_agent =
       content::NavigationController::UA_OVERRIDE_INHERIT;
 
@@ -1022,7 +1049,7 @@ ExtensionFunction::ResponseAction WebViewInternalSetAudioMutedFunction::Run() {
       web_view_internal::SetAudioMuted::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
 
-  GetGuest().web_contents()->SetAudioMuted(params->mute);
+  GetGuest().SetAudioMuted(params->mute);
   return RespondNow(NoArguments());
 }
 
@@ -1037,8 +1064,7 @@ ExtensionFunction::ResponseAction WebViewInternalIsAudioMutedFunction::Run() {
       web_view_internal::IsAudioMuted::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
 
-  content::WebContents* web_contents = GetGuest().web_contents();
-  return RespondNow(WithArguments(web_contents->IsAudioMuted()));
+  return RespondNow(WithArguments(GetGuest().IsAudioMuted()));
 }
 
 WebViewInternalGetAudioStateFunction::WebViewInternalGetAudioStateFunction() =

@@ -10,16 +10,14 @@ import static org.chromium.chrome.browser.hub.HubLayoutConstants.TIMEOUT_MS;
 import static org.chromium.chrome.browser.hub.HubLayoutConstants.TRANSLATE_DURATION_MS;
 
 import android.content.Context;
-import android.content.res.Configuration;
-import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.RectF;
-import android.util.DisplayMetrics;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewGroup.LayoutParams;
+import android.widget.FrameLayout;
 
 import androidx.annotation.ColorInt;
 import androidx.annotation.NonNull;
@@ -27,18 +25,22 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
+import org.chromium.base.Promise;
+import org.chromium.base.TraceEvent;
+import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.ObservableSupplierImpl;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.base.supplier.SyncOneshotSupplierImpl;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
+import org.chromium.chrome.R;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.chrome.browser.compositor.layouts.Layout;
-import org.chromium.chrome.browser.compositor.layouts.Layout.ViewportMode;
 import org.chromium.chrome.browser.compositor.layouts.LayoutRenderHost;
 import org.chromium.chrome.browser.compositor.layouts.LayoutUpdateHost;
 import org.chromium.chrome.browser.compositor.layouts.components.LayoutTab;
-import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
+import org.chromium.chrome.browser.compositor.scene_layer.SolidColorSceneLayer;
 import org.chromium.chrome.browser.compositor.scene_layer.StaticTabSceneLayer;
 import org.chromium.chrome.browser.layouts.EventFilter;
 import org.chromium.chrome.browser.layouts.LayoutManager;
@@ -47,14 +49,22 @@ import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.browser.layouts.scene_layer.SceneLayer;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabHidingType;
+import org.chromium.chrome.browser.tab.TabLoadIfNeededCaller;
 import org.chromium.chrome.browser.tab.TabSelectionType;
+import org.chromium.chrome.browser.tab_ui.TabContentManager;
+import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
+import org.chromium.components.browser_ui.desktop_windowing.AppHeaderState;
+import org.chromium.components.browser_ui.desktop_windowing.DesktopWindowStateManager;
+import org.chromium.components.browser_ui.desktop_windowing.DesktopWindowStateManager.AppHeaderObserver;
 import org.chromium.components.browser_ui.styles.ChromeColors;
+import org.chromium.components.omnibox.OmniboxFeatures;
 import org.chromium.ui.base.DeviceFormFactor;
-import org.chromium.ui.base.ViewUtils;
+import org.chromium.ui.base.LocalizationUtils;
 import org.chromium.ui.resources.ResourceManager;
 
 import java.util.Collections;
+import java.util.function.DoubleConsumer;
 
 /**
  * A {@link Layout} for Hub that has an empty or single tab {@link SceneLayer}. Android UI for a
@@ -66,13 +76,17 @@ import java.util.Collections;
  * <p>Normally, this layout will show an empty {@link SceneLayer}. However, to facilitate thumbnail
  * capture and animations it may transiently host a {@link StaticTabSceneLayer}.
  */
-public class HubLayout extends Layout implements HubLayoutController {
-
+public class HubLayout extends Layout implements HubLayoutController, AppHeaderObserver {
+    private final @NonNull Callback<Pane> mOnPaneFocused = this::updateEmptyLayerColor;
     private final @NonNull LayoutStateProvider mLayoutStateProvider;
     private final @NonNull ViewGroup mRootView;
+    private final @NonNull HubManager mHubManager;
     private final @NonNull HubController mHubController;
     private final @NonNull PaneManager mPaneManager;
     private final @NonNull HubLayoutScrimController mScrimController;
+    private final @NonNull DoubleConsumer mOnToolbarAlphaChange;
+    private final @NonNull HubShowPaneHelper mHubShowPaneHelper;
+    private final @Nullable DesktopWindowStateManager mDesktopWindowStateManager;
 
     /**
      * The previous {@link LayoutType}, valid between {@link #show(long, boolean)} and {@link
@@ -83,11 +97,13 @@ public class HubLayout extends Layout implements HubLayoutController {
 
     private @Nullable SceneLayer mCurrentSceneLayer;
 
+    private boolean mFullyShown;
+
     /** Scene layer to facilitate thumbnail capture prior to starting a transition animation. */
     private @Nullable StaticTabSceneLayer mTabSceneLayer;
 
     /** An empty scene layer used to avoid drawing anything. */
-    private @Nullable SceneLayer mEmptySceneLayer;
+    private @Nullable SolidColorSceneLayer mEmptySceneLayer;
 
     private @Nullable HubLayoutAnimationRunner mCurrentAnimationRunner;
 
@@ -100,13 +116,16 @@ public class HubLayout extends Layout implements HubLayoutController {
      * @param layoutStateProvider The {@link LayoutStateProvider} for the {@link LayoutManager}.
      * @param dependencyHolder The {@link HubLayoutDependencyHolder} that holds dependencies for
      *     HubLayout.
+     * @param tabModelSelectorSupplier Supplier for an interface to talk to the Tab Model Selector.
      */
     public HubLayout(
             @NonNull Context context,
             @NonNull LayoutUpdateHost updateHost,
             @NonNull LayoutRenderHost renderHost,
             @NonNull LayoutStateProvider layoutStateProvider,
-            @NonNull HubLayoutDependencyHolder dependencyHolder) {
+            @NonNull HubLayoutDependencyHolder dependencyHolder,
+            Supplier<TabModelSelector> tabModelSelectorSupplier,
+            @Nullable DesktopWindowStateManager desktopWindowStateManager) {
         super(context, updateHost, renderHost);
         mPreviousLayoutTypeSupplier.set(layoutStateProvider.getActiveLayoutType());
 
@@ -115,15 +134,29 @@ public class HubLayout extends Layout implements HubLayoutController {
         // but in that case it is the animated object and is opaque. Here we will animate the
         // HubContainerView instead and just animate and just use this view as a transparent
         // container for z-indexing and geometry.
-        // TODO(crbug/1499984): Consider removing the tab_switcher_view_holder post launch.
+        // TODO(crbug.com/40288013): Consider removing the tab_switcher_view_holder post launch.
         mRootView = dependencyHolder.getHubRootView();
         mRootView.setBackgroundColor(Color.TRANSPARENT);
 
-        HubManager hubManager = dependencyHolder.getHubManager();
-        mHubController = hubManager.getHubController();
+        mHubManager = dependencyHolder.getHubManager();
+        mHubController = mHubManager.getHubController();
         mHubController.setHubLayoutController(this);
-        mPaneManager = hubManager.getPaneManager();
+        mPaneManager = mHubManager.getPaneManager();
+        mPaneManager.getFocusedPaneSupplier().addObserver(mOnPaneFocused);
+        mHubShowPaneHelper = mHubManager.getHubShowPaneHelper();
         mScrimController = dependencyHolder.getScrimController();
+        mOnToolbarAlphaChange = dependencyHolder.getOnToolbarAlphaChange();
+        mTabModelSelector = tabModelSelectorSupplier.get();
+        mDesktopWindowStateManager = desktopWindowStateManager;
+        if (mDesktopWindowStateManager != null) {
+            mDesktopWindowStateManager.addObserver(this);
+            maybeUpdateLayout();
+        }
+    }
+
+    @Override
+    public void onAppHeaderStateChanged(AppHeaderState newState) {
+        maybeUpdateLayout();
     }
 
     /** Returns the current {@link HubLayoutAnimationType}. */
@@ -136,7 +169,7 @@ public class HubLayout extends Layout implements HubLayoutController {
 
     @Override
     public void selectTabAndHideHubLayout(int tabId) {
-        TabModelUtils.selectTabById(mTabModelSelector, tabId, TabSelectionType.FROM_USER, false);
+        TabModelUtils.selectTabById(mTabModelSelector, tabId, TabSelectionType.FROM_USER);
         startHiding();
     }
 
@@ -171,6 +204,10 @@ public class HubLayout extends Layout implements HubLayoutController {
             mEmptySceneLayer = null;
         }
         mCurrentSceneLayer = null;
+        mPaneManager.getFocusedPaneSupplier().removeObserver(mOnPaneFocused);
+        if (mDesktopWindowStateManager != null) {
+            mDesktopWindowStateManager.removeObserver(this);
+        }
     }
 
     @Override
@@ -194,7 +231,8 @@ public class HubLayout extends Layout implements HubLayoutController {
     @Override
     public @ViewportMode int getViewportMode() {
         // Hub has its own toolbar.
-        // TODO(crbug/1487209): Confirm this doesn't cause the toolbar to disappear too early or
+        // TODO(crbug.com/40283200): Confirm this doesn't cause the toolbar to disappear too early
+        // or
         // without animation.
         return ViewportMode.ALWAYS_FULLSCREEN;
     }
@@ -203,136 +241,188 @@ public class HubLayout extends Layout implements HubLayoutController {
     public void show(long time, boolean animate) {
         if (isStartingToShow()) return;
 
-        super.show(time, animate);
+        try (TraceEvent e = TraceEvent.scoped("HubLayout.show")) {
+            super.show(time, animate);
 
-        forceAnimationToFinish();
+            forceAnimationToFinish();
 
-        // TODO(crbug/1516760): This is a stop gap solution that will work until we have more panes.
-        // While we only have tab switcher panes, selecting the pane based on the currently
-        // selected tab model is correct. However, if we have more panes we likely want to be able
-        // to "select" a pane to focus as part of the HubLayout show transition.
-        mPaneManager.focusPane(
-                mTabModelSelector.isIncognitoSelected()
-                        ? PaneId.INCOGNITO_TAB_SWITCHER
-                        : PaneId.TAB_SWITCHER);
+            Promise<Bitmap> bitmapPromise = new Promise<>();
+            @LayoutType int previousLayoutType = mPreviousLayoutTypeSupplier.get();
+            if (previousLayoutType == LayoutType.BROWSING) {
+                final Tab currentTab = mTabModelSelector.getCurrentTab();
+                createLayoutTabForTabId(getIdForTab(currentTab));
+                mCurrentSceneLayer = mTabSceneLayer;
+                captureTabThumbnail(currentTab, bitmapPromise);
+            } else {
+                mCurrentSceneLayer = mEmptySceneLayer;
+                bitmapPromise.fulfill(null);
+            }
 
-        mHubController.onHubLayoutShow();
+            mPaneManager.focusPane(
+                    mHubShowPaneHelper.consumeNextPaneId(mTabModelSelector.isIncognitoSelected()));
 
-        HubContainerView containerView = mHubController.getContainerView();
-        HubLayoutAnimatorProvider animatorProvider = createShowAnimatorProvider(containerView);
+            mHubController.onHubLayoutShow();
 
-        Callback<Bitmap> thumbnailCallback = animatorProvider.getThumbnailCallback();
-        if (mPreviousLayoutTypeSupplier.get() == LayoutType.BROWSING) {
-            final Tab currentTab = mTabModelSelector.getCurrentTab();
-            createLayoutTabForTabId(getIdForTab(currentTab));
-            mCurrentSceneLayer = mTabSceneLayer;
-            captureTabThumbnail(currentTab, thumbnailCallback);
-        } else {
-            mCurrentSceneLayer = mEmptySceneLayer;
-            Callback.runNullSafe(thumbnailCallback, null);
-        }
+            HubContainerView containerView = mHubController.getContainerView();
+            HubLayoutAnimatorProvider animatorProvider = createShowAnimatorProvider(containerView);
 
-        assert mCurrentAnimationRunner == null;
-        mCurrentAnimationRunner =
-                HubLayoutAnimationRunnerFactory.createHubLayoutAnimationRunner(animatorProvider);
-        mCurrentAnimationRunner.addListener(
-                new HubLayoutAnimationListener() {
-                    @Override
-                    public void onEnd(boolean wasForcedToFinish) {
-                        doneShowing();
-                        if (!wasForcedToFinish) {
-                            // We don't want to hide the tab if the animation was forced to finish
-                            // since that means another layout is going to show and hiding the tab
-                            // could leave the tab in a bad state.
-                            hideCurrentTab();
+            Callback<Bitmap> thumbnailCallback = animatorProvider.getThumbnailCallback();
+            if (thumbnailCallback != null) {
+                bitmapPromise.then(thumbnailCallback);
+            }
+            updateEmptyLayerColor(mPaneManager.getFocusedPaneSupplier().get());
+
+            assert mCurrentAnimationRunner == null;
+            mCurrentAnimationRunner =
+                    HubLayoutAnimationRunnerFactory.createHubLayoutAnimationRunner(
+                            animatorProvider);
+            mCurrentAnimationRunner.addListener(
+                    new HubLayoutAnimationListener() {
+                        @Override
+                        public void onEnd(boolean wasForcedToFinish) {
+                            doneShowing();
+                            if (!wasForcedToFinish) {
+                                // We don't want to hide the tab if the animation was forced to
+                                // finish since that means another layout is going to show and
+                                // hiding the tab could leave the tab in a bad state.
+                                hideCurrentTab();
+                            }
                         }
-                    }
-                });
+                    });
+            maybeAddPaneAnimationListener(mCurrentAnimationRunner);
 
-        mRootView.setVisibility(View.VISIBLE);
-        containerView.setVisibility(View.INVISIBLE);
-        mRootView.addView(
-                containerView,
-                /* index= */ 0,
-                new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
-        containerView.runOnNextLayout(this::queueAnimation);
+            mRootView.setVisibility(View.VISIBLE);
+            containerView.setVisibility(View.INVISIBLE);
+            LayoutParams params = (LayoutParams) containerView.getLayoutParams();
+            // TODO(crbug.com/41495991): Change this to an assert and fix any broken tests.
+            if (params == null) {
+                params = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT);
+            }
+            mRootView.addView(containerView, /* index= */ 0, params);
+
+            if (!animate) {
+                // Don't post or wait for a layout as HubLayout is not in control of when the
+                // previous layout was hidden and this avoids a possibly empty frame.
+                queueAnimation();
+                forceAnimationToFinish();
+                hideCurrentTab();
+            } else {
+                containerView.runOnNextLayout(this::queueAnimation);
+            }
+        }
     }
 
     @Override
     public void doneShowing() {
-        super.doneShowing();
-        mCurrentSceneLayer = mEmptySceneLayer;
-        mCurrentAnimationRunner = null;
-        resetLayoutTabs(/* clearVisibleIds= */ true);
+        try (TraceEvent e = TraceEvent.scoped("HubLayout.doneShowing")) {
+            super.doneShowing();
+            mCurrentSceneLayer = mEmptySceneLayer;
+            mCurrentAnimationRunner = null;
+            resetLayoutTabs(/* clearVisibleIds= */ true);
+            // We are now fully shown as all animations are finished.
+            mFullyShown = true;
+
+            // This is a legacy value from the stack tab switcher, we are using at a proxy for Hub
+            // shown. Prior to Hub this was recorded in when the TabSwitcherMediator finished
+            // showing. However, this location is a better analog than TabSwitcherPaneMediator and
+            // it keeps the call with doneHiding() symmetric.
+            RecordUserAction.record("MobileToolbarShowStackView");
+        }
     }
 
     @Override
     public void startHiding() {
         if (isStartingToHide()) return;
 
-        super.startHiding();
+        try (TraceEvent e = TraceEvent.scoped("HubLayout.startHiding")) {
+            super.startHiding();
 
-        // Use the EXPAND_NEW_TAB animation if it is already prepared.
-        if (getCurrentAnimationType() == HubLayoutAnimationType.EXPAND_NEW_TAB) {
-            PostTask.postTask(TaskTraits.UI_DEFAULT, this::queueAnimation);
-            return;
-        }
+            // Since we are hiding this is no-longer fully shown.
+            mFullyShown = false;
 
-        forceAnimationToFinish();
-
-        int tabId = mTabModelSelector.getCurrentTabId();
-        @LayoutType int nextLayoutType = mLayoutStateProvider.getNextLayoutType();
-        if (nextLayoutType == LayoutType.BROWSING) {
-            // During fade and translate animations the composited scene layer is visible. At the
-            // end of the animation a composited tab will be fully visible. To ensure continuity
-            // during the animation create and show the mTabSceneLayer with the LayoutTab for the
-            // tabId that will be shown once the animation finishes.
-            createLayoutTabForTabId(tabId);
-            mCurrentSceneLayer = mTabSceneLayer;
-        }
-
-        HubContainerView containerView = mHubController.getContainerView();
-        HubLayoutAnimatorProvider animatorProvider =
-                createHideAnimatorProvider(containerView, nextLayoutType);
-
-        Callback<Bitmap> thumbnailCallback = animatorProvider.getThumbnailCallback();
-        if (thumbnailCallback != null) {
-            if (nextLayoutType == LayoutType.BROWSING
-                    && mTabContentManager != null
-                    && tabId != Tab.INVALID_TAB_ID) {
-                mTabContentManager.getEtc1TabThumbnailWithCallback(tabId, thumbnailCallback);
-            } else {
-                thumbnailCallback.onResult(null);
+            // Use the EXPAND_NEW_TAB animation if it is already prepared.
+            if (getCurrentAnimationType() == HubLayoutAnimationType.EXPAND_NEW_TAB) {
+                PostTask.postTask(TaskTraits.UI_DEFAULT, this::queueAnimation);
+                return;
             }
+
+            forceAnimationToFinish();
+
+            Tab currentTab = mTabModelSelector.getCurrentTab();
+            if (currentTab != null && currentTab.isHidden()) {
+                currentTab.show(TabSelectionType.FROM_USER, TabLoadIfNeededCaller.SET_TAB);
+            }
+
+            int tabId = mTabModelSelector.getCurrentTabId();
+            @LayoutType int nextLayoutType = mLayoutStateProvider.getNextLayoutType();
+            if (nextLayoutType == LayoutType.BROWSING) {
+                // During fade and translate animations the composited scene layer is visible. At
+                // the end of the animation a composited tab will be fully visible. To ensure
+                // continuity during the animation create and show the mTabSceneLayer with the
+                // LayoutTab for the tabId that will be shown once the animation finishes.
+                createLayoutTabForTabId(tabId);
+                mCurrentSceneLayer = mTabSceneLayer;
+            } else {
+                mCurrentSceneLayer = mEmptySceneLayer;
+            }
+            updateEmptyLayerColor(mPaneManager.getFocusedPaneSupplier().get());
+
+            HubContainerView containerView = mHubController.getContainerView();
+            HubLayoutAnimatorProvider animatorProvider = createHideAnimatorProvider(containerView);
+
+            Callback<Bitmap> thumbnailCallback = animatorProvider.getThumbnailCallback();
+            if (thumbnailCallback != null) {
+                if (nextLayoutType == LayoutType.BROWSING
+                        && mTabContentManager != null
+                        && tabId != Tab.INVALID_TAB_ID) {
+                    mTabContentManager.getEtc1TabThumbnailWithCallback(tabId, thumbnailCallback);
+                } else {
+                    thumbnailCallback.onResult(null);
+                }
+            }
+
+            assert mCurrentAnimationRunner == null;
+            mCurrentAnimationRunner =
+                    HubLayoutAnimationRunnerFactory.createHubLayoutAnimationRunner(
+                            animatorProvider);
+            mCurrentAnimationRunner.addListener(
+                    new HubLayoutAnimationListener() {
+                        @Override
+                        public void onEnd(boolean wasForcedToFinish) {
+                            doneHiding();
+                        }
+                    });
+            maybeAddPaneAnimationListener(mCurrentAnimationRunner);
+
+            PostTask.postTask(TaskTraits.UI_DEFAULT, this::queueAnimation);
         }
-
-        assert mCurrentAnimationRunner == null;
-        mCurrentAnimationRunner =
-                HubLayoutAnimationRunnerFactory.createHubLayoutAnimationRunner(animatorProvider);
-        mCurrentAnimationRunner.addListener(
-                new HubLayoutAnimationListener() {
-                    @Override
-                    public void onEnd(boolean wasForcedToFinish) {
-                        doneHiding();
-                    }
-                });
-
-        PostTask.postTask(TaskTraits.UI_DEFAULT, this::queueAnimation);
     }
 
     @Override
     public void doneHiding() {
-        super.doneHiding();
-        HubContainerView containerView = mHubController.getContainerView();
-        containerView.setVisibility(View.INVISIBLE);
-        mRootView.removeView(containerView);
-        mRootView.setVisibility(View.GONE);
-        mCurrentAnimationRunner = null;
-        mHubController.onHubLayoutDoneHiding();
+        try (TraceEvent e = TraceEvent.scoped("HubLayout.doneHiding")) {
+            HubContainerView containerView = mHubController.getContainerView();
+            containerView.setVisibility(View.INVISIBLE);
+            mRootView.removeView(containerView);
+            mRootView.setVisibility(View.GONE);
+            mCurrentAnimationRunner = null;
+            mHubController.onHubLayoutDoneHiding();
 
-        mCurrentSceneLayer = mEmptySceneLayer;
-        // Don't clear the visible ids because the next layout might have already updated them.
-        resetLayoutTabs(/* clearVisibleIds= */ false);
+            mCurrentSceneLayer = mEmptySceneLayer;
+            // Don't clear the visible ids because the next layout might have already updated them.
+            resetLayoutTabs(/* clearVisibleIds= */ false);
+
+            // This is defensive and probably is not necessary as it is set in startHiding; however,
+            // to ensure the toolbar does not become broken also set this here.
+            mFullyShown = false;
+
+            // This is a legacy value from the stack tab switcher, we are using at a proxy for Hub
+            // hidden.
+            RecordUserAction.record("MobileExitStackView");
+
+            // Do this last so the Hub is ready to show again.
+            super.doneHiding();
+        }
     }
 
     @Override
@@ -370,12 +460,16 @@ public class HubLayout extends Layout implements HubLayoutController {
         super.onTabCreated(
                 time, tabId, tabIndex, sourceTabId, newIsIncognito, background, originX, originY);
 
-        // Background tab creation does not trigger a Hub layout transition.
-        if (background) return;
+        // Background tab creation or creation while hiding does not trigger a Hub layout
+        // transition.
+        if (background || isStartingToHide()) return;
 
-        // Tablet Hub doesn't handle new tab animations.
-        if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext())) {
-            // TODO(crbug/1497472): Trigger this from inside Hub when the tab is created.
+        HubContainerView containerView = mHubController.getContainerView();
+
+        // Skip animation:
+        // * If ContainerView is not laid out there will be no geometry for an animation.
+        // * For LFF devices which don't have new tab animations in the tab switcher.
+        if (!containerView.isLaidOut() || DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext())) {
             selectTabAndHideHubLayout(tabId);
             return;
         }
@@ -383,9 +477,17 @@ public class HubLayout extends Layout implements HubLayoutController {
         forceAnimationToFinish();
 
         mCurrentSceneLayer = mEmptySceneLayer;
+        updateEmptyLayerColor(mPaneManager.getFocusedPaneSupplier().get());
 
-        @ColorInt
-        int backgroundColor = ChromeColors.getPrimaryBackgroundColor(getContext(), newIsIncognito);
+        @ColorInt int backgroundColor;
+        if (newIsIncognito) {
+            backgroundColor = ChromeColors.getPrimaryBackgroundColor(getContext(), newIsIncognito);
+        } else {
+            // See https://crbug/1507124.
+            backgroundColor =
+                    ChromeColors.getSurfaceColor(
+                            getContext(), R.dimen.home_surface_background_color_elevation);
+        }
         SyncOneshotSupplierImpl<ShrinkExpandAnimationData> animationDataSupplier =
                 new SyncOneshotSupplierImpl<>();
         HubLayoutAnimatorProvider animatorProvider =
@@ -393,22 +495,39 @@ public class HubLayout extends Layout implements HubLayoutController {
                         mHubController.getContainerView(),
                         animationDataSupplier,
                         backgroundColor,
-                        EXPAND_NEW_TAB_DURATION_MS);
+                        EXPAND_NEW_TAB_DURATION_MS,
+                        mOnToolbarAlphaChange);
 
-        // TODO(crbug/1492207): Supply this from HubController so it can look like the animation
-        // originated from wherever on the Hub was clicked. The originX/originY data here is stale
-        // because it comes from the compositorView which we are masking.
-        int x = Math.round(originX);
-        int y = Math.round(originY);
-        Rect initialRect = new Rect(x, y, x + 1, y + 1);
+        Rect containerViewRect = new Rect();
+        containerView.getGlobalVisibleRect(containerViewRect);
+        int searchBoxHeight =
+                OmniboxFeatures.sAndroidHubSearch.isEnabled()
+                        ? HubUtils.getSearchBoxHeight(
+                                containerView, R.id.hub_toolbar, R.id.toolbar_action_container)
+                        : 0;
 
-        // TODO(crbug/1492207): Final rect should be the rect of the tab area not the whole screen.
-        Resources resources = getContext().getResources();
-        Configuration configuration = resources.getConfiguration();
-        DisplayMetrics displayMetrics = resources.getDisplayMetrics();
-        int width = ViewUtils.dpToPx(displayMetrics, configuration.screenWidthDp);
-        int height = ViewUtils.dpToPx(displayMetrics, configuration.screenHeightDp);
-        Rect finalRect = new Rect(0, 0, width, height);
+        View paneHost = mHubController.getPaneHostView();
+        assert paneHost.isLaidOut();
+        Rect finalRect = new Rect();
+        paneHost.getGlobalVisibleRect(finalRect);
+        // Account for the hub's search box container height.
+        finalRect.offset(0, -searchBoxHeight);
+        finalRect.bottom += searchBoxHeight;
+        // Ignore edge offset and just ensure the width is correct. See crbug/1502437.
+        finalRect.offset(-finalRect.left, -containerViewRect.top);
+
+        // TODO(crbug.com/40285429): Supply this from HubController so it can look like the
+        // animation originated from wherever on the Hub was clicked. This defaults to the top
+        // left/right of the pane host view.
+        boolean isRtl = LocalizationUtils.isLayoutRtl();
+        Rect initialRect = null;
+        int x = isRtl ? finalRect.right : finalRect.left;
+        int y = finalRect.top;
+        if (isRtl) {
+            initialRect = new Rect(x - 1, y, x, y + 1);
+        } else {
+            initialRect = new Rect(x, y, x + 1, y + 1);
+        }
 
         animationDataSupplier.set(
                 new ShrinkExpandAnimationData(
@@ -426,6 +545,7 @@ public class HubLayout extends Layout implements HubLayoutController {
                         doneHiding();
                     }
                 });
+        maybeAddPaneAnimationListener(mCurrentAnimationRunner);
 
         selectTabAndHideHubLayout(tabId);
     }
@@ -450,7 +570,7 @@ public class HubLayout extends Layout implements HubLayoutController {
 
     @Override
     public boolean canHostBeFocusable() {
-        // TODO(crbug/1487209): Consider returning false here so that the omnibox doesn't steal
+        // TODO(crbug.com/40283200): Consider returning false here so that the omnibox doesn't steal
         // focus.
         return super.canHostBeFocusable();
     }
@@ -485,6 +605,14 @@ public class HubLayout extends Layout implements HubLayoutController {
     }
 
     @Override
+    public boolean forceHideBrowserControlsAndroidView() {
+        // Fixes being able to click the toolbar through the Hub on LFF devices see b/337616153.
+        // This is not always `true` because it results in a visible flicker when exiting the Hub
+        // into an NTP when using the expand animation.
+        return mFullyShown;
+    }
+
+    @Override
     public @LayoutType int getLayoutType() {
         // Pretend to be the TAB_SWITCHER for initial development to minimize churn outside of
         // LayoutManager.
@@ -504,27 +632,36 @@ public class HubLayout extends Layout implements HubLayoutController {
 
         if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext())) {
             return TranslateHubLayoutAnimationFactory.createTranslateUpAnimatorProvider(
-                    containerView, mScrimController, TRANSLATE_DURATION_MS);
-        } else if (mPreviousLayoutTypeSupplier.get() == LayoutType.START_SURFACE || pane == null) {
+                    containerView, mScrimController, TRANSLATE_DURATION_MS, getContainerYOffset());
+        } else if (pane == null) {
             return FadeHubLayoutAnimationFactory.createFadeInAnimatorProvider(
-                    containerView, FADE_DURATION_MS);
+                    containerView, FADE_DURATION_MS, mOnToolbarAlphaChange);
         }
         return pane.createShowHubLayoutAnimatorProvider(containerView);
     }
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
-    HubLayoutAnimatorProvider createHideAnimatorProvider(
-            @NonNull HubContainerView containerView, @LayoutType int nextLayoutType) {
+    HubLayoutAnimatorProvider createHideAnimatorProvider(@NonNull HubContainerView containerView) {
         @Nullable Pane pane = mPaneManager.getFocusedPaneSupplier().get();
 
         if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext())) {
             return TranslateHubLayoutAnimationFactory.createTranslateDownAnimatorProvider(
-                    containerView, mScrimController, TRANSLATE_DURATION_MS);
-        } else if (nextLayoutType == LayoutType.START_SURFACE || pane == null) {
+                    containerView, mScrimController, TRANSLATE_DURATION_MS, getContainerYOffset());
+        } else if (pane == null) {
             return FadeHubLayoutAnimationFactory.createFadeOutAnimatorProvider(
-                    containerView, FADE_DURATION_MS);
+                    containerView, FADE_DURATION_MS, mOnToolbarAlphaChange);
         }
         return pane.createHideHubLayoutAnimatorProvider(containerView);
+    }
+
+    private void maybeAddPaneAnimationListener(HubLayoutAnimationRunner animationRunner) {
+        @Nullable Pane pane = mPaneManager.getFocusedPaneSupplier().get();
+        if (pane == null) return;
+
+        HubLayoutAnimationListener listener = pane.getHubLayoutAnimationListener();
+        if (listener == null) return;
+
+        animationRunner.addListener(listener);
     }
 
     private void queueAnimation() {
@@ -541,7 +678,7 @@ public class HubLayout extends Layout implements HubLayoutController {
             }
         }
         if (mEmptySceneLayer == null) {
-            mEmptySceneLayer = new SceneLayer();
+            mEmptySceneLayer = new SolidColorSceneLayer();
         }
         if (mCurrentSceneLayer == null && mEmptySceneLayer != null) {
             mCurrentSceneLayer = mEmptySceneLayer;
@@ -583,15 +720,16 @@ public class HubLayout extends Layout implements HubLayoutController {
         }
     }
 
-    private void captureTabThumbnail(
-            @Nullable Tab currentTab, @Nullable Callback<Bitmap> thumbnailCallback) {
-        if (currentTab == null) {
-            Callback.runNullSafe(thumbnailCallback, null);
-            return;
-        }
+    private void updateEmptyLayerColor(@Nullable Pane pane) {
+        if (mEmptySceneLayer == null) return;
 
-        if (thumbnailCallback == null) {
-            mTabContentManager.cacheTabThumbnail(currentTab);
+        mEmptySceneLayer.setBackgroundColor(mHubController.getBackgroundColor(pane));
+    }
+
+    private void captureTabThumbnail(
+            @Nullable Tab currentTab, @NonNull Promise<Bitmap> bitmapPromise) {
+        if (currentTab == null) {
+            bitmapPromise.fulfill(null);
             return;
         }
 
@@ -600,7 +738,7 @@ public class HubLayout extends Layout implements HubLayoutController {
                 /* returnBitmap= */ true,
                 (bitmap) -> {
                     if (bitmap != null || !currentTab.isNativePage()) {
-                        thumbnailCallback.onResult(bitmap);
+                        bitmapPromise.fulfill(bitmap);
                         return;
                     }
 
@@ -608,7 +746,7 @@ public class HubLayout extends Layout implements HubLayoutController {
                     // disk. For a normal tab we can't do this fallback as the thumbnail may be
                     // stale.
                     mTabContentManager.getEtc1TabThumbnailWithCallback(
-                            currentTab.getId(), thumbnailCallback);
+                            currentTab.getId(), bitmapPromise::fulfill);
                 });
     }
 
@@ -619,5 +757,43 @@ public class HubLayout extends Layout implements HubLayoutController {
      */
     private int getIdForTab(@Nullable Tab tab) {
         return tab == null ? Tab.INVALID_TAB_ID : tab.getId();
+    }
+
+    /**
+     * @return The y-offset for the container view that may be impacted by the status indicator and
+     *     app header heights.
+     */
+    private float getContainerYOffset() {
+        var params = (FrameLayout.LayoutParams) mHubController.getContainerView().getLayoutParams();
+        return params.topMargin;
+    }
+
+    /**
+     * Update the top margin and y-offset of the container view in response to an app header state
+     * change.
+     */
+    private void maybeUpdateLayout() {
+        int appHeaderHeight =
+                (mDesktopWindowStateManager != null
+                                && mDesktopWindowStateManager.getAppHeaderState() != null)
+                        ? mDesktopWindowStateManager.getAppHeaderState().getAppHeaderHeight()
+                        : 0;
+        mHubManager.setAppHeaderHeight(appHeaderHeight);
+        // If the app header height or desktop windowing mode changes while the HubLayout is active,
+        // adjust the container view's y-offset. This update will be posted because it has been
+        // observed that an immediate update causes unexpected visual positioning in this scenario,
+        // potentially because the top margin for the view is also updated at nearly the same time,
+        // but the root cause is unknown.
+        // TODO (crbug/335651375): Investigate and remove the use of a PostTask for this update.
+        // TODO (crbug/334156232): Also update container height.
+        if (isActive()) {
+            PostTask.postTask(
+                    TaskTraits.UI_DEFAULT,
+                    () -> mHubController.getContainerView().setY(getContainerYOffset()));
+        }
+    }
+
+    public HubController getHubControllerForTesting() {
+        return mHubController;
     }
 }

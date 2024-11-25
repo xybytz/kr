@@ -17,7 +17,6 @@
 #include "chrome/browser/ash/arc/fileapi/arc_content_file_system_url_util.h"
 #include "chrome/browser/ash/arc/fileapi/arc_documents_provider_util.h"
 #include "chrome/browser/ash/arc/fileapi/arc_select_files_util.h"
-#include "chrome/browser/ash/file_manager/app_id.h"
 #include "chrome/browser/ash/file_manager/fileapi_util.h"
 #include "chrome/browser/ash/file_manager/path_util.h"
 #include "chrome/browser/ash/policy/dlp/dlp_files_controller_ash.h"
@@ -27,7 +26,7 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
 #include "chrome/browser/ui/chrome_select_file_policy.h"
-#include "chrome/browser/ui/views/select_file_dialog_extension.h"
+#include "chrome/browser/ui/views/select_file_dialog_extension/select_file_dialog_extension.h"
 #include "chrome/common/chrome_isolated_world_ids.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
@@ -102,15 +101,14 @@ base::FilePath GetInitialFilePath(const mojom::SelectFilesRequestPtr& request) {
   if (!document_path)
     return base::FilePath(kRecentAllFakePath);
 
-  if (document_path->path.empty()) {
-    LOG(ERROR) << "path should at least contain root Document ID.";
+  if (!document_path->root_id.has_value()) {
+    LOG(ERROR) << "root ID is missing; falling back to opening Recent";
     return base::FilePath(kRecentAllFakePath);
   }
 
-  const std::string& root_document_id = document_path->path[0];
   // TODO(niwa): Convert non-root document IDs to the relative path and append.
   return arc::GetDocumentsProviderMountPath(document_path->authority,
-                                            root_document_id);
+                                            document_path->root_id.value());
 }
 
 void BuildFileTypeInfo(const mojom::SelectFilesRequestPtr& request,
@@ -242,8 +240,7 @@ void ArcSelectFilesHandler::SelectFiles(
 }
 
 void ArcSelectFilesHandler::FileSelected(const ui::SelectedFileInfo& file,
-                                         int index,
-                                         void* params) {
+                                         int index) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(callback_);
 
@@ -256,17 +253,16 @@ void ArcSelectFilesHandler::FileSelected(const ui::SelectedFileInfo& file,
     return;
   }
 
-  FilesSelectedInternal({file}, params);
+  FilesSelectedInternal({file});
 }
 
 void ArcSelectFilesHandler::MultiFilesSelected(
-    const std::vector<ui::SelectedFileInfo>& files,
-    void* params) {
+    const std::vector<ui::SelectedFileInfo>& files) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  FilesSelectedInternal(files, params);
+  FilesSelectedInternal(files);
 }
 
-void ArcSelectFilesHandler::FileSelectionCanceled(void* params) {
+void ArcSelectFilesHandler::FileSelectionCanceled() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(callback_);
   // Returns an empty result if the user cancels file selection.
@@ -274,8 +270,7 @@ void ArcSelectFilesHandler::FileSelectionCanceled(void* params) {
 }
 
 void ArcSelectFilesHandler::FilesSelectedInternal(
-    const std::vector<ui::SelectedFileInfo>& files,
-    void* params) {
+    const std::vector<ui::SelectedFileInfo>& files) {
   DCHECK(callback_);
 
   storage::FileSystemContext* file_system_context =
@@ -379,8 +374,7 @@ bool SelectFileDialogHolder::SelectFile(
   select_file_dialog_->SelectFileWithFileManagerParams(
       type,
       /*title=*/std::u16string(), default_path, file_types,
-      /*file_type_index=*/0,
-      /*params=*/nullptr, owner, search_query, show_android_picker_apps,
+      /*file_type_index=*/0, owner, search_query, show_android_picker_apps,
       use_media_store_filter);
   return true;
 }

@@ -5,31 +5,31 @@
 #ifndef IOS_CHROME_BROWSER_PASSWORDS_MODEL_IOS_CHROME_PASSWORD_MANAGER_CLIENT_H_
 #define IOS_CHROME_BROWSER_PASSWORDS_MODEL_IOS_CHROME_PASSWORD_MANAGER_CLIENT_H_
 
-#include <memory>
-#include <optional>
-#include <string>
+#import <memory>
+#import <optional>
+#import <string>
 
-#include "base/memory/weak_ptr.h"
-#include "base/scoped_observation.h"
-#include "components/autofill/core/common/language_code.h"
-#include "components/password_manager/core/browser/leak_detection_dialog_utils.h"
-#include "components/password_manager/core/browser/password_feature_manager_impl.h"
-#include "components/password_manager/core/browser/password_manager_client.h"
-#include "components/password_manager/core/browser/password_manager_client_helper.h"
-#include "components/password_manager/core/browser/password_manager_metrics_recorder.h"
-#include "components/password_manager/core/browser/password_manager_metrics_util.h"
-#include "components/password_manager/core/browser/password_reuse_manager.h"
-#include "components/password_manager/core/browser/sync_credentials_filter.h"
-#include "components/password_manager/ios/password_manager_client_bridge.h"
-#include "components/prefs/pref_member.h"
-#include "components/sync/service/sync_service.h"
+#import "base/memory/weak_ptr.h"
+#import "base/scoped_observation.h"
+#import "components/autofill/core/common/language_code.h"
+#import "components/password_manager/core/browser/leak_detection_dialog_utils.h"
+#import "components/password_manager/core/browser/password_feature_manager_impl.h"
+#import "components/password_manager/core/browser/password_manager_client.h"
+#import "components/password_manager/core/browser/password_manager_client_helper.h"
+#import "components/password_manager/core/browser/password_manager_metrics_recorder.h"
+#import "components/password_manager/core/browser/password_manager_metrics_util.h"
+#import "components/password_manager/core/browser/password_reuse_manager.h"
+#import "components/password_manager/core/browser/sync_credentials_filter.h"
+#import "components/password_manager/ios/password_manager_client_bridge.h"
+#import "components/prefs/pref_member.h"
+#import "components/sync/service/sync_service.h"
 #import "ios/chrome/browser/safe_browsing/model/input_event_observer.h"
 #import "ios/chrome/browser/safe_browsing/model/password_protection_java_script_feature.h"
 #import "ios/web/public/web_state.h"
-#include "ios/web/public/web_state_observer.h"
-#include "services/metrics/public/cpp/ukm_source_id.h"
+#import "ios/web/public/web_state_observer.h"
+#import "services/metrics/public/cpp/ukm_source_id.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 
 namespace autofill {
 class LogManager;
@@ -46,7 +46,7 @@ enum class WarningAction;
 
 @protocol IOSChromePasswordManagerClientBridge <PasswordManagerClientBridge>
 
-@property(readonly, nonatomic) ChromeBrowserState* browserState;
+@property(readonly, nonatomic) ProfileIOS* profile;
 
 // Shows UI to notify the user about auto sign in.
 - (void)showAutosigninNotification:
@@ -55,7 +55,7 @@ enum class WarningAction;
 @end
 
 // An iOS implementation of password_manager::PasswordManagerClient.
-// TODO(crbug.com/958833): write unit tests for this class.
+// TODO(crbug.com/41456340): write unit tests for this class.
 class IOSChromePasswordManagerClient
     : public password_manager::PasswordManagerClient {
  public:
@@ -70,7 +70,6 @@ class IOSChromePasswordManagerClient
   ~IOSChromePasswordManagerClient() override;
 
   // password_manager::PasswordManagerClient implementation.
-  password_manager::SyncState GetPasswordSyncState() const override;
   bool PromptUserToSaveOrUpdatePassword(
       std::unique_ptr<password_manager::PasswordFormManagerForUI> form_to_save,
       bool update_password) override;
@@ -102,11 +101,14 @@ class IOSChromePasswordManagerClient
   PrefService* GetPrefs() const override;
   PrefService* GetLocalStatePrefs() const override;
   const syncer::SyncService* GetSyncService() const override;
+  affiliations::AffiliationService* GetAffiliationService() override;
   password_manager::PasswordStoreInterface* GetProfilePasswordStore()
       const override;
   password_manager::PasswordStoreInterface* GetAccountPasswordStore()
       const override;
   password_manager::PasswordReuseManager* GetPasswordReuseManager()
+      const override;
+  password_manager::PasswordChangeServiceInterface* GetPasswordChangeService()
       const override;
 
   void NotifyUserAutoSignin(
@@ -119,10 +121,7 @@ class IOSChromePasswordManagerClient
           submitted_manager) override;
   void NotifyStorePasswordCalled() override;
   void NotifyUserCredentialsWereLeaked(
-      password_manager::CredentialLeakType leak_type,
-      const GURL& origin,
-      const std::u16string& username,
-      bool in_account_store) override;
+      password_manager::LeakedPasswordDetails details) override;
   void NotifyKeychainError() override;
   bool IsSavingAndFillingEnabled(const GURL& url) const override;
   bool IsFillingEnabled(const GURL& url) const override;

@@ -9,6 +9,7 @@ import androidx.annotation.VisibleForTesting;
 
 import org.jni_zero.CalledByNative;
 import org.jni_zero.JNINamespace;
+import org.jni_zero.JniType;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -23,7 +24,7 @@ import java.util.Map;
 @JNINamespace("autofill")
 public class AutofillProfile {
     private String mGUID;
-    private @Source int mSource;
+    private @RecordType int mRecordType;
     private Map<Integer, ValueWithStatus> mFields;
     private String mLabel;
     private String mLanguageCode;
@@ -53,8 +54,7 @@ public class AutofillProfile {
     /** Builder for the {@link AutofillProfile}. */
     public static final class Builder {
         private String mGUID = "";
-        private @Source int mSource = Source.LOCAL_OR_SYNCABLE;
-        private ValueWithStatus mHonorificPrefix = ValueWithStatus.EMPTY;
+        private @RecordType int mRecordType = RecordType.LOCAL_OR_SYNCABLE;
         private ValueWithStatus mFullName = ValueWithStatus.EMPTY;
         private ValueWithStatus mCompanyName = ValueWithStatus.EMPTY;
         private ValueWithStatus mStreetAddress = ValueWithStatus.EMPTY;
@@ -66,7 +66,6 @@ public class AutofillProfile {
         private ValueWithStatus mCountryCode = ValueWithStatus.EMPTY;
         private ValueWithStatus mPhoneNumber = ValueWithStatus.EMPTY;
         private ValueWithStatus mEmailAddress = ValueWithStatus.EMPTY;
-        private String mLabel = "";
         private String mLanguageCode = "";
 
         public Builder setGUID(String guid) {
@@ -74,19 +73,8 @@ public class AutofillProfile {
             return this;
         }
 
-        public Builder setSource(@Source int source) {
-            mSource = source;
-            return this;
-        }
-
-        public Builder setHonorificPrefix(String honorificPrefix) {
-            mHonorificPrefix =
-                    new ValueWithStatus(honorificPrefix, VerificationStatus.USER_VERIFIED);
-            return this;
-        }
-
-        public Builder setHonorificPrefix(String honorificPrefix, @VerificationStatus int status) {
-            mHonorificPrefix = new ValueWithStatus(honorificPrefix, status);
+        public Builder setRecordType(@RecordType int recordType) {
+            mRecordType = recordType;
             return this;
         }
 
@@ -202,11 +190,6 @@ public class AutofillProfile {
             return this;
         }
 
-        public Builder setLabel(String label) {
-            mLabel = label;
-            return this;
-        }
-
         public Builder setLanguageCode(String languageCode) {
             mLanguageCode = languageCode;
             return this;
@@ -215,8 +198,7 @@ public class AutofillProfile {
         public AutofillProfile build() {
             return new AutofillProfile(
                     mGUID,
-                    mSource,
-                    mHonorificPrefix,
+                    mRecordType,
                     mFullName,
                     mCompanyName,
                     mStreetAddress,
@@ -237,17 +219,19 @@ public class AutofillProfile {
     }
 
     @CalledByNative
-    private AutofillProfile(String guid, @Source int source, String languageCode) {
+    private AutofillProfile(
+            @JniType("std::string") String guid,
+            @RecordType int recordType,
+            @JniType("std::string") String languageCode) {
         mGUID = guid;
-        mSource = source;
+        mRecordType = recordType;
         mLanguageCode = languageCode;
         mFields = new HashMap<>();
     }
 
     private AutofillProfile(
             String guid,
-            @Source int source,
-            ValueWithStatus honorificPrefix,
+            @RecordType int recordType,
             ValueWithStatus fullName,
             ValueWithStatus companyName,
             ValueWithStatus streetAddress,
@@ -260,8 +244,7 @@ public class AutofillProfile {
             ValueWithStatus phoneNumber,
             ValueWithStatus emailAddress,
             String languageCode) {
-        this(guid, source, languageCode);
-        mFields.put(FieldType.NAME_HONORIFIC_PREFIX, honorificPrefix);
+        this(guid, recordType, languageCode);
         mFields.put(FieldType.NAME_FULL, fullName);
         mFields.put(FieldType.COMPANY_NAME, companyName);
         mFields.put(FieldType.ADDRESS_HOME_STREET_ADDRESS, streetAddress);
@@ -278,7 +261,7 @@ public class AutofillProfile {
     /* Builds an AutofillProfile that is an exact copy of the one passed as parameter. */
     public AutofillProfile(AutofillProfile profile) {
         mGUID = profile.getGUID();
-        mSource = profile.getSource();
+        mRecordType = profile.getRecordType();
 
         mFields = new HashMap<>(profile.mFields);
 
@@ -287,18 +270,18 @@ public class AutofillProfile {
     }
 
     @CalledByNative
-    private int[] getFieldTypes() {
+    private @JniType("std::vector<int32_t>") int[] getFieldTypes() {
         return mFields.keySet().stream().mapToInt(i -> i).toArray();
     }
 
     @CalledByNative
-    public String getGUID() {
+    public @JniType("std::string") String getGUID() {
         return mGUID;
     }
 
     @CalledByNative
-    public @Source int getSource() {
-        return mSource;
+    public @JniType("AutofillProfile::RecordType") @RecordType int getRecordType() {
+        return mRecordType;
     }
 
     public String getLabel() {
@@ -306,7 +289,7 @@ public class AutofillProfile {
     }
 
     @CalledByNative
-    public String getInfo(@FieldType int fieldType) {
+    public @JniType("std::u16string") String getInfo(@FieldType int fieldType) {
         if (!mFields.containsKey(fieldType)) {
             return "";
         }
@@ -314,19 +297,12 @@ public class AutofillProfile {
     }
 
     @CalledByNative
-    public @VerificationStatus int getInfoStatus(@FieldType int fieldType) {
+    public @JniType("VerificationStatus") @VerificationStatus int getInfoStatus(
+            @FieldType int fieldType) {
         if (!mFields.containsKey(fieldType)) {
             return VerificationStatus.NO_STATUS;
         }
         return mFields.get(fieldType).getStatus();
-    }
-
-    public String getHonorificPrefix() {
-        return getInfo(FieldType.NAME_HONORIFIC_PREFIX);
-    }
-
-    private @VerificationStatus int getHonorificPrefixStatus() {
-        return getInfoStatus(FieldType.NAME_HONORIFIC_PREFIX);
     }
 
     public String getFullName() {
@@ -405,7 +381,7 @@ public class AutofillProfile {
     }
 
     @CalledByNative
-    public String getCountryCode() {
+    public @JniType("std::string") String getCountryCode() {
         return getInfo(FieldType.ADDRESS_HOME_COUNTRY);
     }
 
@@ -430,7 +406,7 @@ public class AutofillProfile {
     }
 
     @CalledByNative
-    public String getLanguageCode() {
+    public @JniType("std::string") String getLanguageCode() {
         return mLanguageCode;
     }
 
@@ -442,23 +418,21 @@ public class AutofillProfile {
         mLabel = label;
     }
 
-    public void setSource(@Source int source) {
-        mSource = source;
+    public void setRecordType(@RecordType int recordType) {
+        mRecordType = recordType;
     }
 
     @CalledByNative
     public void setInfo(
-            @FieldType int fieldType, @Nullable String value, @VerificationStatus int status) {
+            @FieldType int fieldType,
+            @JniType("std::u16string") @Nullable String value,
+            @VerificationStatus int status) {
         value = value == null ? "" : value;
         mFields.put(fieldType, new ValueWithStatus(value, status));
     }
 
     public void setInfo(@FieldType int fieldType, @Nullable String value) {
         setInfo(fieldType, value, VerificationStatus.USER_VERIFIED);
-    }
-
-    public void setHonorificPrefix(String honorificPrefix) {
-        setInfo(FieldType.NAME_HONORIFIC_PREFIX, honorificPrefix);
     }
 
     public void setFullName(String fullName) {

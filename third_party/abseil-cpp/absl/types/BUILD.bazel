@@ -117,6 +117,7 @@ cc_library(
     linkopts = ABSL_DEFAULT_LINKOPTS,
     deps = [
         "//absl/algorithm",
+        "//absl/base:config",
         "//absl/base:core_headers",
         "//absl/base:nullability",
         "//absl/base:throw_delegate",
@@ -138,6 +139,7 @@ cc_test(
         "//absl/container:fixed_array",
         "//absl/container:inlined_vector",
         "//absl/hash:hash_testing",
+        "//absl/meta:type_traits",
         "//absl/strings",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",

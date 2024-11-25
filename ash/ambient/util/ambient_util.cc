@@ -4,6 +4,8 @@
 
 #include "ash/ambient/util/ambient_util.h"
 
+#include <string_view>
+
 #include "ash/ambient/ambient_constants.h"
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/ambient/ambient_backend_controller.h"
@@ -48,8 +50,6 @@ SkColor GetColor(const ui::ColorProvider* color_provider,
                                : SK_ColorWHITE;
     default:
       NOTREACHED() << "Unsupported content layer type";
-      // Return a very bright color so it's obvious there is a mistake.
-      return gfx::kPlaceholderColor;
   }
 }
 
@@ -94,7 +94,7 @@ bool ParsedDynamicAssetId::operator<(const ParsedDynamicAssetId& other) const {
   return idx == other.idx ? position_id < other.position_id : idx < other.idx;
 }
 
-bool ParseDynamicLottieAssetId(base::StringPiece asset_id,
+bool ParseDynamicLottieAssetId(std::string_view asset_id,
                                ParsedDynamicAssetId& parsed_output) {
   static const base::NoDestructor<std::string> kAssetIdPatternStr(
       base::StrCat({kLottieCustomizableIdPrefix,
@@ -104,7 +104,7 @@ bool ParseDynamicLottieAssetId(base::StringPiece asset_id,
                         &parsed_output.idx);
 }
 
-base::StringPiece AmbientThemeToString(
+std::string_view AmbientThemeToString(
     personalization_app::mojom::AmbientTheme theme) {
   // See the "AmbientModeThemes" <variants> tag in histograms.xml. These names
   // are currently used for metrics purposes, so they cannot be arbitrarily

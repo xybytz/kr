@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ash/file_manager/volume.h"
 
+#include <string_view>
+
 #include "ash/constants/ash_features.h"
 #include "base/strings/strcat.h"
 #include "chrome/browser/ash/arc/fileapi/arc_documents_provider_util.h"
@@ -36,11 +38,10 @@ VolumeType MountTypeToVolumeType(ash::MountType type) {
   }
 
   NOTREACHED();
-  return VOLUME_TYPE_DOWNLOADS_DIRECTORY;
 }
 
 // Returns a string representation of the given volume type.
-base::StringPiece VolumeTypeToString(const VolumeType type) {
+std::string_view VolumeTypeToString(const VolumeType type) {
   switch (type) {
     case VOLUME_TYPE_GOOGLE_DRIVE:
       return "drive";
@@ -76,7 +77,6 @@ base::StringPiece VolumeTypeToString(const VolumeType type) {
 
   NOTREACHED() << "Unexpected VolumeType value "
                << static_cast<std::underlying_type_t<VolumeType>>(type);
-  return "";
 }
 
 // Generates a unique volume ID for the given volume info.
@@ -88,25 +88,24 @@ std::string GenerateVolumeId(const Volume& volume) {
 }
 
 // Returns the localized label for a given media view.
-std::string MediaViewDocumentIdToLabel(const base::StringPiece id) {
-  if (id == arc::kAudioRootDocumentId) {
+std::string MediaViewRootIdToLabel(std::string_view root_id) {
+  if (root_id == arc::kAudioRootId) {
     return GetStringUTF8(IDS_FILE_BROWSER_MEDIA_VIEW_AUDIO_ROOT_LABEL);
   }
 
-  if (id == arc::kImagesRootDocumentId) {
+  if (root_id == arc::kImagesRootId) {
     return GetStringUTF8(IDS_FILE_BROWSER_MEDIA_VIEW_IMAGES_ROOT_LABEL);
   }
 
-  if (id == arc::kVideosRootDocumentId) {
+  if (root_id == arc::kVideosRootId) {
     return GetStringUTF8(IDS_FILE_BROWSER_MEDIA_VIEW_VIDEOS_ROOT_LABEL);
   }
 
-  if (id == arc::kDocumentsRootDocumentId) {
+  if (root_id == arc::kDocumentsRootId) {
     return GetStringUTF8(IDS_FILE_BROWSER_MEDIA_VIEW_DOCUMENTS_ROOT_LABEL);
   }
 
-  NOTREACHED() << "Unexpected root document ID: " << id;
-  return "";
+  NOTREACHED() << "Unexpected root ID: " << root_id;
 }
 
 }  // namespace
@@ -135,7 +134,8 @@ std::unique_ptr<Volume> Volume::CreateForDrive(base::FilePath drive_path) {
 std::unique_ptr<Volume> Volume::CreateForDownloads(
     base::FilePath downloads_path,
     base::FilePath optional_fusebox_path,
-    const char* optional_fusebox_volume_label) {
+    const char* optional_fusebox_volume_label,
+    bool read_only) {
   std::unique_ptr<Volume> volume(new Volume());
   volume->type_ = VOLUME_TYPE_DOWNLOADS_DIRECTORY;
   // Keep source_path empty.
@@ -144,6 +144,7 @@ std::unique_ptr<Volume> Volume::CreateForDownloads(
   volume->volume_id_ = GenerateVolumeId(*volume);
   volume->volume_label_ = GetStringUTF8(IDS_FILE_BROWSER_MY_FILES_ROOT_LABEL);
   volume->watchable_ = true;
+  volume->is_read_only_ = read_only;
 
   if (!optional_fusebox_path.empty()) {
     // Leaving the type_ as VOLUME_TYPE_DOWNLOADS_DIRECTORY means that, for
@@ -232,6 +233,8 @@ std::unique_ptr<Volume> Volume::CreateForProvidedFileSystem(
   volume->icon_set_ = file_system_info.icon_set();
 
   volume->volume_id_ = GenerateVolumeId(*volume);
+  volume->file_system_id_ = file_system_info.file_system_id();
+  volume->provider_id_ = file_system_info.provider_id();
 
   if (!optional_fusebox_path.empty()) {
     volume->file_system_type_ = util::kFuseBox;
@@ -246,10 +249,6 @@ std::unique_ptr<Volume> Volume::CreateForProvidedFileSystem(
     // "fusebox" prefix the original FSP volume id.
     volume->volume_id_ =
         base::StrCat({util::kFuseBox, GenerateVolumeId(*volume)});
-
-  } else {
-    volume->file_system_id_ = file_system_info.file_system_id();
-    volume->provider_id_ = file_system_info.provider_id();
   }
 
   return volume;
@@ -288,17 +287,16 @@ std::unique_ptr<Volume> Volume::CreateForMTP(base::FilePath mount_path,
 }
 
 // static
-std::unique_ptr<Volume> Volume::CreateForMediaView(
-    const std::string& root_document_id) {
+std::unique_ptr<Volume> Volume::CreateForMediaView(const std::string& root_id) {
   std::unique_ptr<Volume> volume(new Volume());
   volume->type_ = VOLUME_TYPE_MEDIA_VIEW;
   volume->source_ = SOURCE_SYSTEM;
   volume->mount_path_ = arc::GetDocumentsProviderMountPath(
-      arc::kMediaDocumentsProviderAuthority, root_document_id);
-  volume->volume_label_ = MediaViewDocumentIdToLabel(root_document_id);
+      arc::kMediaDocumentsProviderAuthority, root_id);
+  volume->volume_label_ = MediaViewRootIdToLabel(root_id);
   volume->is_read_only_ = false;
   volume->watchable_ = false;
-  volume->volume_id_ = arc::GetMediaViewVolumeId(root_document_id);
+  volume->volume_id_ = arc::GetMediaViewVolumeId(root_id);
   return volume;
 }
 
@@ -358,7 +356,6 @@ std::unique_ptr<Volume> Volume::CreateForAndroidFiles(
 std::unique_ptr<Volume> Volume::CreateForDocumentsProvider(
     const std::string& authority,
     const std::string& root_id,
-    const std::string& document_id,
     const std::string& title,
     const std::string& summary,
     const GURL& icon_url,
@@ -368,8 +365,7 @@ std::unique_ptr<Volume> Volume::CreateForDocumentsProvider(
   volume->type_ = VOLUME_TYPE_DOCUMENTS_PROVIDER;
   // Keep source_path empty.
   volume->source_ = SOURCE_SYSTEM;
-  volume->mount_path_ =
-      arc::GetDocumentsProviderMountPath(authority, document_id);
+  volume->mount_path_ = arc::GetDocumentsProviderMountPath(authority, root_id);
   volume->volume_label_ = title;
   volume->is_read_only_ = read_only;
   volume->watchable_ = false;

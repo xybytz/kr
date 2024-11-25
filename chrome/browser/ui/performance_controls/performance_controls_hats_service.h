@@ -9,7 +9,6 @@
 #include "chrome/browser/performance_manager/public/user_tuning/user_performance_tuning_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "components/prefs/pref_change_registrar.h"
 
 class PerformanceControlsHatsService
     : public KeyedService,
@@ -37,11 +36,6 @@ class PerformanceControlsHatsService
 
  private:
   raw_ptr<Profile> profile_;
-  PrefChangeRegistrar local_pref_registrar_;
-  base::ScopedObservation<
-      performance_manager::user_tuning::BatterySaverModeManager,
-      performance_manager::user_tuning::BatterySaverModeManager::Observer>
-      battery_saver_observer_{this};
 };
 
 #endif  // CHROME_BROWSER_UI_PERFORMANCE_CONTROLS_PERFORMANCE_CONTROLS_HATS_SERVICE_H_

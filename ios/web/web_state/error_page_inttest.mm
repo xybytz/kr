@@ -29,7 +29,7 @@
 #import "ios/web/public/web_client.h"
 #import "ios/web/public/web_state.h"
 #import "ios/web/test/test_url_constants.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "net/base/net_errors.h"
 #import "net/test/embedded_test_server/default_handlers.h"
 #import "net/test/embedded_test_server/request_handler_util.h"
@@ -158,12 +158,6 @@ class ErrorPageTest : public WebTestWithWebState {
 // Tests that the error page is correctly displayed after navigating back to it
 // multiple times. See http://crbug.com/944037 .
 TEST_F(ErrorPageTest, BackForwardErrorPage) {
-  // TODO(crbug.com/1153261): this test should be fixed in newer versions of
-  // WebKit.
-  if (@available(iOS 15, *)) {
-  } else {
-    return;
-  }
   test::LoadUrl(web_state(), server_.GetURL("/close-socket"));
   ASSERT_TRUE(WaitForErrorText(web_state(), server_.GetURL("/close-socket")));
 
@@ -311,7 +305,7 @@ TEST_F(ErrorPageTest, GoBackFromErrorPageAndForwardToErrorPage) {
 // Sucessfully loads the page, then loads the URL which fails to load, then
 // sucessfully goes back to the first page and goes forward to error page.
 // Back-forward navigations are renderer-initiated.
-// TODO(crbug.com/867927): Re-enable this test.
+// TODO(crbug.com/41404136): Re-enable this test.
 TEST_F(ErrorPageTest,
        DISABLED_RendererInitiatedGoBackFromErrorPageAndForwardToErrorPage) {
   // First page loads sucessfully.
@@ -366,7 +360,7 @@ TEST_F(ErrorPageTest, OtrError) {
   server_responds_with_content_ = false;
   test::LoadUrl(web_state.get(), server_.GetURL("/echo-query?foo"));
   // LoadIfNecessary is needed because the view is not created (but needed) when
-  // loading the page. TODO(crbug.com/705819): Remove this call.
+  // loading the page. TODO(crbug.com/41309809): Remove this call.
   web_state->GetNavigationManager()->LoadIfNecessary();
   ASSERT_TRUE(test::WaitForWebViewContainingText(
       web_state.get(),

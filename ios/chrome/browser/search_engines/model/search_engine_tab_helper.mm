@@ -11,7 +11,7 @@
 #import "components/search_engines/template_url_service.h"
 #import "ios/chrome/browser/search_engines/model/template_url_fetcher_factory.h"
 #import "ios/chrome/browser/search_engines/model/template_url_service_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/web/public/favicon/favicon_status.h"
 #import "ios/web/public/navigation/navigation_context.h"
 #import "ios/web/public/navigation/navigation_item.h"
@@ -39,8 +39,8 @@ std::u16string GenerateKeywordFromNavigationItem(
   // The code from Desktop will try NavigationEntry::GetUserTypedURL() first if
   // available since that represents what the user typed to get here, and fall
   // back on the regular URL if not.
-  // TODO(crbug.com/433824): Use GetUserTypedURL() once NavigationItem supports
-  // it.
+  // TODO(crbug.com/40394195): Use GetUserTypedURL() once NavigationItem
+  // supports it.
   GURL url = item->GetURL();
   if (!url.is_valid()) {
     return std::u16string();
@@ -84,10 +84,10 @@ void SearchEngineTabHelper::OnFaviconUpdated(
     const GURL& icon_url,
     bool icon_url_changed,
     const gfx::Image& image) {
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(web_state_->GetBrowserState());
+  ProfileIOS* profile =
+      ProfileIOS::FromBrowserState(web_state_->GetBrowserState());
   TemplateURLService* url_service =
-      ios::TemplateURLServiceFactory::GetForBrowserState(browser_state);
+      ios::TemplateURLServiceFactory::GetForProfile(profile);
   const GURL potential_search_url = driver->GetActiveURL();
   if (url_service && url_service->loaded() && potential_search_url.is_valid())
     url_service->UpdateProviderFavicons(potential_search_url, icon_url);
@@ -129,12 +129,13 @@ void SearchEngineTabHelper::AddTemplateURLByOSDD(const GURL& page_url,
   if (!osdd_url.is_valid() || !osdd_url.SchemeIsHTTPOrHTTPS())
     return;
 
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(web_state_->GetBrowserState());
+  ProfileIOS* profile =
+      ProfileIOS::FromBrowserState(web_state_->GetBrowserState());
   if ((page_url != web_state_->GetLastCommittedURL()) ||
-      (!ios::TemplateURLFetcherFactory::GetForBrowserState(browser_state)) ||
-      (browser_state->IsOffTheRecord()))
+      (!ios::TemplateURLFetcherFactory::GetForProfile(profile)) ||
+      (profile->IsOffTheRecord())) {
     return;
+  }
 
   // If the current page is a form submit, find the last page that was not a
   // form submit and use its url to generate the keyword from.
@@ -159,12 +160,12 @@ void SearchEngineTabHelper::AddTemplateURLByOSDD(const GURL& page_url,
   // by network::ResourceRequest::render_frame_id, we don't use Blink so leave
   // it to be the default value defined here:
   //   https://cs.chromium.org/chromium/src/services/network/public/cpp/resource_request.h?rcl=39c6fbea496641a6514e34c0ab689871d14e6d52&l=194;
-  ios::TemplateURLFetcherFactory::GetForBrowserState(browser_state)
-      ->ScheduleDownload(keyword, osdd_url, item->GetFaviconStatus().url,
-                         url::Origin::Create(web_state_->GetLastCommittedURL()),
-                         browser_state->GetURLLoaderFactory(),
-                         /* render_frame_id */ MSG_ROUTING_NONE,
-                         /* request_id */ 0);
+  ios::TemplateURLFetcherFactory::GetForProfile(profile)->ScheduleDownload(
+      keyword, osdd_url, item->GetFaviconStatus().url,
+      url::Origin::Create(web_state_->GetLastCommittedURL()),
+      profile->GetURLLoaderFactory(),
+      /* render_frame_id */ MSG_ROUTING_NONE,
+      /* request_id */ 0);
 }
 
 // Creates a TemplateURL by `searchable_url` and adds it to TemplateURLService.
@@ -176,11 +177,12 @@ void SearchEngineTabHelper::AddTemplateURLBySearchableURL(
     return;
   }
 
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(web_state_->GetBrowserState());
+  ProfileIOS* profile =
+      ProfileIOS::FromBrowserState(web_state_->GetBrowserState());
   // Don't add TemplateURL under incognito mode.
-  if (browser_state->IsOffTheRecord())
+  if (profile->IsOffTheRecord()) {
     return;
+  }
 
   const web::NavigationManager* manager = web_state_->GetNavigationManager();
   int last_index = manager->GetLastCommittedItemIndex();
@@ -197,7 +199,7 @@ void SearchEngineTabHelper::AddTemplateURLBySearchableURL(
     return;
 
   TemplateURLService* url_service =
-      ios::TemplateURLServiceFactory::GetForBrowserState(browser_state);
+      ios::TemplateURLServiceFactory::GetForProfile(profile);
   if (!url_service)
     return;
 

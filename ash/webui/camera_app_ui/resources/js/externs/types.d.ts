@@ -5,9 +5,6 @@
 // TODO(pihsun): Remove this once we fully specify all the types.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// ESLint doesn't like "declare class" without jsdoc.
-/* eslint-disable require-jsdoc */
-
 // File System Access API: This is currently a Chrome only API, and the spec is
 // still in working draft stage.
 // https://wicg.github.io/file-system-access/
@@ -46,6 +43,26 @@ interface CallSite {
   getFunctionName(): string|undefined;
   getLineNumber(): number|undefined;
   getColumnNumber(): number|undefined;
+}
+
+// Compute Pressure API, see
+// https://developer.chrome.com/docs/web-platform/compute-pressure
+interface PressureObseverOptions {
+  sampleInterval?: number;
+}
+
+interface PressureRecord {
+  readonly source: string;
+  readonly state: 'critical'|'fair'|'nominal'|'serious';
+  readonly time: number;
+}
+
+type PressureObserverCallback = (records: PressureRecord[]) => void;
+
+declare class PressureObserver {
+  constructor(
+      callback: PressureObserverCallback, options: PressureObseverOptions);
+  observe(source: string): void;
 }
 
 // v8 specific stack trace customizing, see https://v8.dev/docs/stack-trace-api.
@@ -123,34 +140,12 @@ interface VideoFrameMetadata {
   rtpTimestamp?: number;
 }
 
+// This is a builtin name.
+// eslint-disable-next-line @typescript-eslint/naming-convention
 interface HTMLVideoElement {
   requestVideoFrameCallback(callback: VideoFrameRequestCallback): number;
   cancelVideoFrameCallback(handle: number): undefined;
 }
-
-// Barcode Detection API, this is currently only supported in Chrome on
-// ChromeOS, Android or macOS.
-// https://wicg.github.io/shape-detection-api/
-declare class BarcodeDetector {
-  static getSupportedFormats(): Promise<BarcodeFormat[]>;
-  constructor(barcodeDetectorOptions?: BarcodeDetectorOptions);
-  detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
-}
-
-interface BarcodeDetectorOptions {
-  formats?: BarcodeFormat[];
-}
-
-interface DetectedBarcode {
-  boundingBox: DOMRectReadOnly;
-  rawValue: string;
-  format: BarcodeFormat;
-  cornerPoints: readonly Point2D[];
-}
-
-type BarcodeFormat =
-    'aztec'|'codabar'|'code_39'|'code_93'|'code_128'|'data_matrix'|'ean_8'|
-    'ean_13'|'itf'|'pdf417'|'qr_code'|'unknown'|'upc_a'|'upc_e';
 
 // Web Workers API interface. This is included in lib.webworker.d.ts and
 // available if we enable lib: ["webworker"] in tsconfig.json, but it conflicts

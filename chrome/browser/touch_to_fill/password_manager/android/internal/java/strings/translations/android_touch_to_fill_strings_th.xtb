@@ -1,6 +1,7 @@
 <?xml version="1.0" ?>
 <!DOCTYPE translationbundle>
 <translationbundle lang="th">
+<translation id="102916930470544692">พาสคีย์</translation>
 <translation id="1220509181886849806">ใช้รหัสผ่านที่บันทึกไว้ไหม</translation>
 <translation id="1435940442311036198">ใช้พาสคีย์ในอุปกรณ์อื่น</translation>
 <translation id="1717486229951421299">รายการข้อมูลเข้าสู่ระบบที่จะกรอกเมื่อแตะเปิดอยู่ที่ระดับความสูงครึ่งหนึ่งของหน้าจอ</translation>
@@ -12,7 +13,6 @@
 <translation id="4553044860350038560">พาสคีย์เพิ่มเติม</translation>
 <translation id="4598345735110653698">จัดการพาสคีย์</translation>
 <translation id="4722735765955348426">รหัสผ่านของ <ph name="USERNAME" /></translation>
-<translation id="4907224763885298217">ใช้การล็อกหน้าจอ</translation>
 <translation id="5012523644916800014">จัดการรหัสผ่านและพาสคีย์</translation>
 <translation id="5441504010984421144">รายการข้อมูลเข้าสู่ระบบที่จะกรอกเมื่อแตะเปิดอยู่ที่ระดับความสูงเต็มหน้าจอ</translation>
 <translation id="5591247451101092906">ใช้รหัสผ่านหรือพาสคีย์ที่บันทึกไว้ไหม</translation>

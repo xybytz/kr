@@ -48,7 +48,6 @@
 #include "components/viz/test/test_context_provider.h"
 #include "components/viz/test/test_context_support.h"
 #include "components/viz/test/test_gles2_interface.h"
-#include "components/viz/test/test_gpu_memory_buffer_manager.h"
 #include "components/viz/test/test_raster_interface.h"
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
@@ -176,7 +175,6 @@ class RasterBufferProviderTest
   void SetUp() override {
     RasterCapabilities raster_caps;
     raster_caps.tile_format = viz::SinglePlaneFormat::kRGBA_8888;
-    raster_caps.tile_texture_target = GL_TEXTURE_2D;
 
     switch (GetParam()) {
       case RASTER_BUFFER_PROVIDER_TYPE_ZERO_COPY:
@@ -192,8 +190,7 @@ class RasterBufferProviderTest
         raster_buffer_provider_ = std::make_unique<OneCopyRasterBufferProvider>(
             base::SingleThreadTaskRunner::GetCurrentDefault().get(),
             context_provider_.get(), worker_context_provider_.get(),
-            &gpu_memory_buffer_manager_, kMaxBytesPerCopyOperation, false,
-            kMaxStagingBuffers, raster_caps);
+            kMaxBytesPerCopyOperation, false, kMaxStagingBuffers, raster_caps);
         break;
       case RASTER_BUFFER_PROVIDER_TYPE_GPU:
         Create3dResourceProvider();
@@ -215,7 +212,8 @@ class RasterBufferProviderTest
         resource_provider_.get(), context_provider_.get(),
         base::SingleThreadTaskRunner::GetCurrentDefault(), base::TimeDelta(),
         true);
-    tile_task_manager_ = TileTaskManagerImpl::Create(&task_graph_runner_);
+    tile_task_manager_ =
+        TileTaskManagerImpl::Create(&task_graph_runner_, base::DoNothing());
   }
 
   void TearDown() override {
@@ -369,7 +367,6 @@ class RasterBufferProviderTest
   std::unique_ptr<viz::ClientResourceProvider> resource_provider_;
   std::unique_ptr<TileTaskManager> tile_task_manager_;
   std::unique_ptr<RasterBufferProvider> raster_buffer_provider_;
-  viz::TestGpuMemoryBufferManager gpu_memory_buffer_manager_;
   SynchronousTaskGraphRunner task_graph_runner_;
   UniqueNotifier all_tile_tasks_finished_;
   int timeout_seconds_;

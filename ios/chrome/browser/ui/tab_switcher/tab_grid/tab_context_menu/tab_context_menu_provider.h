@@ -7,17 +7,22 @@
 
 #import <UIKit/UIKit.h>
 
-#import "ios/chrome/browser/ui/menu/menu_histograms.h"
+#import "ios/chrome/browser/menu/ui_bundled/menu_histograms.h"
 
 @class TabCell;
 
 // Protocol for instances that will provide tab context menus.
 @protocol TabContextMenuProvider
 
-// Returns a context menu configuration instance for the given `cell`.
+// Returns a context menu configuration instance for the given tab cell.
 - (UIContextMenuConfiguration*)
     contextMenuConfigurationForTabCell:(TabCell*)cell
                           menuScenario:(MenuScenarioHistogram)scenario;
+
+// Returns a context menu configuration instance for the given group cell.
+- (UIContextMenuConfiguration*)
+    contextMenuConfigurationForTabGroupCell:(TabCell*)cell
+                               menuScenario:(MenuScenarioHistogram)scenario;
 
 @end
 

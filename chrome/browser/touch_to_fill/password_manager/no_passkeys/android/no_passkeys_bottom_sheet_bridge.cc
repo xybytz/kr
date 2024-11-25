@@ -5,8 +5,8 @@
 #include "chrome/browser/touch_to_fill/password_manager/no_passkeys/android/no_passkeys_bottom_sheet_bridge.h"
 
 #include "base/android/jni_string.h"
+// Must come after all headers that specialize FromJniType() / ToJniType().
 #include "chrome/browser/touch_to_fill/password_manager/no_passkeys/internal/android/jni/NoPasskeysBottomSheetBridge_jni.h"
-#include "ui/android/window_android.h"
 
 namespace {
 
@@ -20,22 +20,22 @@ class JniDelegateImpl : public JniDelegate {
   JniDelegateImpl& operator=(const JniDelegateImpl&) = delete;
   ~JniDelegateImpl() override = default;
 
-  void Create(ui::WindowAndroid* window_android) override {
+  void Create(ui::WindowAndroid& window_android) override {
     java_object_.Reset(Java_NoPasskeysBottomSheetBridge_Constructor(
-        base::android::AttachCurrentThread(),
+        jni_zero::AttachCurrentThread(),
         reinterpret_cast<intptr_t>(bridge_.get()),
-        window_android->GetJavaObject()));
+        window_android.GetJavaObject()));
   }
 
   void Show(const std::string& origin) override {
-    JNIEnv* env = base::android::AttachCurrentThread();
+    JNIEnv* env = jni_zero::AttachCurrentThread();
     Java_NoPasskeysBottomSheetBridge_show(
         env, java_object_, base::android::ConvertUTF8ToJavaString(env, origin));
   }
 
   void Dismiss() override {
-    Java_NoPasskeysBottomSheetBridge_dismiss(
-        base::android::AttachCurrentThread(), java_object_);
+    Java_NoPasskeysBottomSheetBridge_dismiss(jni_zero::AttachCurrentThread(),
+                                             java_object_);
   }
 
  private:
@@ -63,10 +63,12 @@ NoPasskeysBottomSheetBridge::NoPasskeysBottomSheetBridge(
     std::unique_ptr<JniDelegate> jni_delegate)
     : jni_delegate_(std::move(jni_delegate)) {}
 
-NoPasskeysBottomSheetBridge::~NoPasskeysBottomSheetBridge() = default;
+NoPasskeysBottomSheetBridge::~NoPasskeysBottomSheetBridge() {
+  Dismiss();
+}
 
 void NoPasskeysBottomSheetBridge::Show(
-    ui::WindowAndroid* window_android,
+    const gfx::NativeWindow window_android,
     const std::string& origin,
     base::OnceClosure on_dismissed_callback,
     base::OnceClosure on_click_use_another_device_callback) {
@@ -78,7 +80,7 @@ void NoPasskeysBottomSheetBridge::Show(
   on_dismissed_callback_ = std::move(on_dismissed_callback);
   on_click_use_another_device_callback_ =
       std::move(on_click_use_another_device_callback);
-  jni_delegate_->Create(window_android);
+  jni_delegate_->Create(*window_android);
   jni_delegate_->Show(origin);
 }
 

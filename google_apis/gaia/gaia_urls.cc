@@ -34,6 +34,8 @@ const char kDefaultAccountCapabilitiesBaseUrl[] =
 constexpr char kDefaultClassroomApiBaseUrl[] =
     "https://classroom.googleapis.com";
 constexpr char kDefaultTasksApiBaseUrl[] = "https://tasks.googleapis.com";
+constexpr std::string_view kDefaultPeopleApiBaseUrl =
+    "https://people.googleapis.com";
 
 // API calls from accounts.google.com
 const char kEmbeddedSetupChromeOsUrlSuffix[] = "embedded/setup/v2/chromeos";
@@ -269,11 +271,11 @@ const GURL& GaiaUrls::account_capabilities_url() const {
 }
 
 const std::string& GaiaUrls::oauth2_chrome_client_id() const {
-  return oauth2_chrome_client_id_;
+  return google_apis::GetOAuth2ClientID(google_apis::CLIENT_MAIN);
 }
 
 const std::string& GaiaUrls::oauth2_chrome_client_secret() const {
-  return oauth2_chrome_client_secret_;
+  return google_apis::GetOAuth2ClientSecret(google_apis::CLIENT_MAIN);
 }
 
 const GURL& GaiaUrls::oauth2_token_url() const {
@@ -306,6 +308,10 @@ const GURL& GaiaUrls::classroom_api_origin_url() const {
 
 const GURL& GaiaUrls::tasks_api_origin_url() const {
   return tasks_api_origin_url_;
+}
+
+const GURL& GaiaUrls::people_api_origin_url() const {
+  return people_api_origin_url_;
 }
 
 const GURL& GaiaUrls::blank_page_url() const {
@@ -348,6 +354,11 @@ GURL GaiaUrls::LogOutURLWithContinueURL(const GURL& continue_url) {
   return service_logout_url_.Resolve(params);
 }
 
+bool GaiaUrls::IsUsingDefaultGaiaOrigin() const {
+  return gaia_origin().IsSameOriginWith(
+      url::Origin::Create(GURL(kDefaultGaiaUrl)));
+}
+
 void GaiaUrls::InitializeDefault() {
   SetDefaultURLIfInvalid(&google_url_, switches::kGoogleUrl, kDefaultGoogleUrl);
   SetDefaultOriginIfOpaqueOrInvalidScheme(&gaia_origin_, switches::kGaiaUrl,
@@ -372,11 +383,9 @@ void GaiaUrls::InitializeDefault() {
   if (!tasks_api_origin_url_.is_valid()) {
     tasks_api_origin_url_ = GURL(kDefaultTasksApiBaseUrl);
   }
-
-  oauth2_chrome_client_id_ =
-      google_apis::GetOAuth2ClientID(google_apis::CLIENT_MAIN);
-  oauth2_chrome_client_secret_ =
-      google_apis::GetOAuth2ClientSecret(google_apis::CLIENT_MAIN);
+  if (!people_api_origin_url_.is_valid()) {
+    people_api_origin_url_ = GURL(kDefaultPeopleApiBaseUrl);
+  }
 
   CHECK(!gaia_origin_.opaque());
   const GURL gaia_url = gaia_origin_.GetURL();
@@ -459,6 +468,7 @@ void GaiaUrls::InitializeFromConfig() {
   config->GetURLIfExists(URL_KEY_AND_PTR(account_capabilities_origin_url));
   config->GetURLIfExists(URL_KEY_AND_PTR(classroom_api_origin_url));
   config->GetURLIfExists(URL_KEY_AND_PTR(tasks_api_origin_url));
+  config->GetURLIfExists(URL_KEY_AND_PTR(people_api_origin_url));
   config->GetURLIfExists(URL_KEY_AND_PTR(embedded_setup_chromeos_url));
   config->GetURLIfExists(
       URL_KEY_AND_PTR(embedded_setup_chromeos_kid_signup_url));

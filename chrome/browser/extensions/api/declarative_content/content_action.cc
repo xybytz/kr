@@ -11,7 +11,7 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
-#include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
+#include "chrome/browser/extensions/extension_action_dispatcher.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/extensions/extension_ui_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -27,7 +27,6 @@
 #include "extensions/browser/user_script_manager.h"
 #include "extensions/common/api/declarative/declarative_constants.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/extension_messages.h"
 #include "extensions/common/image_util.h"
 #include "extensions/common/mojom/host_id.mojom.h"
 #include "extensions/common/mojom/run_location.mojom-shared.h"
@@ -99,8 +98,8 @@ class ShowExtensionAction : public ContentAction {
     ExtensionAction* action =
         GetAction(apply_info.browser_context, apply_info.extension);
     action->DeclarativeShow(ExtensionTabUtil::GetTabId(apply_info.tab));
-    ExtensionActionAPI::Get(apply_info.browser_context)->NotifyChange(
-        action, apply_info.tab, apply_info.browser_context);
+    ExtensionActionDispatcher::Get(apply_info.browser_context)
+        ->NotifyChange(action, apply_info.tab, apply_info.browser_context);
   }
   // The page action is already showing, so nothing needs to be done here.
   void Reapply(const ApplyInfo& apply_info) const override {}
@@ -108,8 +107,8 @@ class ShowExtensionAction : public ContentAction {
     if (ExtensionAction* action =
             GetAction(apply_info.browser_context, apply_info.extension)) {
       action->UndoDeclarativeShow(ExtensionTabUtil::GetTabId(apply_info.tab));
-      ExtensionActionAPI::Get(apply_info.browser_context)->NotifyChange(
-          action, apply_info.tab, apply_info.browser_context);
+      ExtensionActionDispatcher::Get(apply_info.browser_context)
+          ->NotifyChange(action, apply_info.tab, apply_info.browser_context);
     }
   }
 
@@ -146,8 +145,8 @@ class SetIcon : public ContentAction {
       action->DeclarativeSetIcon(ExtensionTabUtil::GetTabId(apply_info.tab),
                                  apply_info.priority,
                                  icon_);
-      ExtensionActionAPI::Get(profile)
-          ->NotifyChange(action, apply_info.tab, profile);
+      ExtensionActionDispatcher::Get(profile)->NotifyChange(
+          action, apply_info.tab, profile);
     }
   }
 
@@ -162,7 +161,7 @@ class SetIcon : public ContentAction {
           ExtensionTabUtil::GetTabId(apply_info.tab),
           apply_info.priority,
           icon_);
-      ExtensionActionAPI::Get(apply_info.browser_context)
+      ExtensionActionDispatcher::Get(apply_info.browser_context)
           ->NotifyChange(action, apply_info.tab, profile);
     }
   }
@@ -372,7 +371,7 @@ void RequestContentScript::InstructRenderProcessToInject(
       ExtensionWebContentsObserver::GetForWebContents(contents)->GetLocalFrame(
           contents->GetPrimaryMainFrame());
   if (!local_frame) {
-    // TODO(https://crbug.com/1203579): Need to review when this method is
+    // TODO(crbug.com/40763607): Need to review when this method is
     // called with non-live frame.
     return;
   }

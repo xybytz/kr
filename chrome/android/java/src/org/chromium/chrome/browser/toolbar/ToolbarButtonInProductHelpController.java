@@ -9,7 +9,9 @@ import android.os.Handler;
 import android.view.View;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
+import org.chromium.base.BuildInfo;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.Supplier;
@@ -17,11 +19,9 @@ import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.bookmarks.PowerBookmarkUtils;
-import org.chromium.chrome.browser.commerce.ShoppingFeatures;
+import org.chromium.chrome.browser.commerce.ShoppingServiceFactory;
 import org.chromium.chrome.browser.download.DownloadUtils;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
-import org.chromium.chrome.browser.feature_guide.notifications.FeatureNotificationUtils;
-import org.chromium.chrome.browser.feature_guide.notifications.FeatureType;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.PauseResumeWithNativeObserver;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
@@ -33,14 +33,13 @@ import org.chromium.chrome.browser.screenshot_monitor.ScreenshotTabObserver;
 import org.chromium.chrome.browser.tab.CurrentTabObserver;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarFeatures;
 import org.chromium.chrome.browser.translate.TranslateBridge;
 import org.chromium.chrome.browser.translate.TranslateUtils;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuCoordinator;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuHandler;
-import org.chromium.chrome.browser.ui.appmenu.AppMenuPropertiesDelegate;
-import org.chromium.chrome.browser.user_education.IPHCommandBuilder;
+import org.chromium.chrome.browser.user_education.IphCommandBuilder;
 import org.chromium.chrome.browser.user_education.UserEducationHelper;
+import org.chromium.components.commerce.core.CommerceFeatureUtils;
 import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.feature_engagement.FeatureConstants;
 import org.chromium.components.feature_engagement.Tracker;
@@ -49,8 +48,8 @@ import org.chromium.ui.base.WindowAndroid;
 import org.chromium.url.GURL;
 
 /**
- * A helper class for IPH shown on the toolbar.
- * TODO(https://crbug.com/865801): Remove feature-specific IPH from here.
+ * A helper class for IPH shown on the toolbar. TODO(crbug.com/40585866): Remove feature-specific
+ * IPH from here.
  */
 public class ToolbarButtonInProductHelpController
         implements ScreenshotMonitorDelegate, PauseResumeWithNativeObserver {
@@ -58,13 +57,11 @@ public class ToolbarButtonInProductHelpController
     private final Activity mActivity;
     private final WindowAndroid mWindowAndroid;
     private final ActivityLifecycleDispatcher mLifecycleDispatcher;
-    private final AppMenuPropertiesDelegate mAppMenuPropertiesDelegate;
-    private final ScreenshotMonitor mScreenshotMonitor;
+    @Nullable private ScreenshotMonitor mScreenshotMonitor;
     private final View mMenuButtonAnchorView;
-    private final View mSecurityIconAnchorView;
     private final AppMenuHandler mAppMenuHandler;
     private final UserEducationHelper mUserEducationHelper;
-    private final ObservableSupplier<Profile> mProfileSupplier;
+    private final Profile mProfile;
     private final Supplier<Tab> mCurrentTabSupplier;
     private final Supplier<Boolean> mIsInOverviewModeSupplier;
 
@@ -74,34 +71,32 @@ public class ToolbarButtonInProductHelpController
      * @param appMenuCoordinator {@link AppMenuCoordinator} whose visual state is to be updated
      *     accordingly.
      * @param lifecycleDispatcher {@link LifecycleDispatcher} that helps observe activity lifecycle.
-     * @param profileSupplier A supplier of the Profile associated with the current visible state.
+     * @param profile The current Profile.
      * @param tabSupplier An observable supplier of the current {@link Tab}.
      * @param isInOverviewModeSupplier Supplies whether the app is in overview mode.
      * @param menuButtonAnchorView The menu button view to serve as an anchor.
-     * @param securityIconAnchorView The security icon to serve as an anchor.
      */
     public ToolbarButtonInProductHelpController(
             @NonNull Activity activity,
             @NonNull WindowAndroid windowAndroid,
             @NonNull AppMenuCoordinator appMenuCoordinator,
             @NonNull ActivityLifecycleDispatcher lifecycleDispatcher,
-            @NonNull ObservableSupplier<Profile> profileSupplier,
+            @NonNull Profile profile,
             @NonNull ObservableSupplier<Tab> tabSupplier,
             @NonNull Supplier<Boolean> isInOverviewModeSupplier,
-            @NonNull View menuButtonAnchorView,
-            @NonNull View securityIconAnchorView) {
+            @NonNull View menuButtonAnchorView) {
         mActivity = activity;
         mWindowAndroid = windowAndroid;
         mAppMenuHandler = appMenuCoordinator.getAppMenuHandler();
-        mAppMenuPropertiesDelegate = appMenuCoordinator.getAppMenuPropertiesDelegate();
         mMenuButtonAnchorView = menuButtonAnchorView;
-        mSecurityIconAnchorView = securityIconAnchorView;
         mIsInOverviewModeSupplier = isInOverviewModeSupplier;
-        mUserEducationHelper = new UserEducationHelper(mActivity, new Handler());
-        mScreenshotMonitor = new ScreenshotMonitorImpl(this, mActivity);
+        mUserEducationHelper = new UserEducationHelper(mActivity, profile, new Handler());
+        if (!BuildInfo.getInstance().isAutomotive) {
+            mScreenshotMonitor = new ScreenshotMonitorImpl(this, mActivity);
+        }
         mLifecycleDispatcher = lifecycleDispatcher;
         mLifecycleDispatcher.register(this);
-        mProfileSupplier = profileSupplier;
+        mProfile = profile;
         mCurrentTabSupplier = tabSupplier;
         mPageLoadObserver =
                 new CurrentTabObserver(
@@ -115,22 +110,22 @@ public class ToolbarButtonInProductHelpController
                                         TraceEvent.scoped(
                                                 "ToolbarButtonInProductHelpController::onPageLoadFinished")) {
                                     if (tab.isShowingErrorPage()) {
-                                        handleIPHForErrorPageShown(tab);
+                                        handleIphForErrorPageShown(tab);
                                         return;
                                     }
 
-                                    handleIPHForSuccessfulPageLoad(tab);
+                                    handleIphForSuccessfulPageLoad(tab);
                                 }
                             }
 
-                            private void handleIPHForSuccessfulPageLoad(final Tab tab) {
+                            private void handleIphForSuccessfulPageLoad(final Tab tab) {
                                 showDownloadPageTextBubble(
                                         tab, FeatureConstants.DOWNLOAD_PAGE_FEATURE);
                                 showTranslateMenuButtonTextBubble(tab);
-                                showPriceTrackingIPH(tab);
+                                showPriceTrackingIph(tab);
                             }
 
-                            private void handleIPHForErrorPageShown(Tab tab) {
+                            private void handleIphForErrorPageShown(Tab tab) {
                                 if (DeviceFormFactor.isWindowOnTablet(mWindowAndroid)) {
                                     return;
                                 }
@@ -150,32 +145,29 @@ public class ToolbarButtonInProductHelpController
                             }
                         },
                         /* swapCallback= */ null);
-
-        FeatureNotificationUtils.registerIPHCallback(
-                FeatureType.INCOGNITO_TAB, this::showIncognitoTabIPH);
     }
 
     public void destroy() {
-        FeatureNotificationUtils.unregisterIPHCallback(FeatureType.INCOGNITO_TAB);
         mPageLoadObserver.destroy();
         mLifecycleDispatcher.unregister(this);
     }
 
     /**
      * Attempt to show the IPH for price tracking.
+     *
      * @param tab The tab currently being displayed to the user.
      */
-    private void showPriceTrackingIPH(Tab tab) {
+    private void showPriceTrackingIph(Tab tab) {
         if (tab == null || tab.getWebContents() == null) return;
 
-        if (!ShoppingFeatures.isShoppingListEligible(tab.getProfile())
-                || !PowerBookmarkUtils.isPriceTrackingEligible(tab)
-                || AdaptiveToolbarFeatures.isContextualPageActionUiEnabled()) {
+        if (!CommerceFeatureUtils.isShoppingListEligible(
+                        ShoppingServiceFactory.getForProfile(tab.getProfile()))
+                || !PowerBookmarkUtils.isPriceTrackingEligible(tab)) {
             return;
         }
 
-        mUserEducationHelper.requestShowIPH(
-                new IPHCommandBuilder(
+        mUserEducationHelper.requestShowIph(
+                new IphCommandBuilder(
                                 mActivity.getResources(),
                                 FeatureConstants.SHOPPING_LIST_MENU_ITEM_FEATURE,
                                 R.string.iph_price_tracking_menu_item,
@@ -190,9 +182,9 @@ public class ToolbarButtonInProductHelpController
     }
 
     /** Attempts to show an IPH text bubble for download continuing. */
-    public void showDownloadContinuingIPH() {
-        mUserEducationHelper.requestShowIPH(
-                new IPHCommandBuilder(
+    public void showDownloadContinuingIph() {
+        mUserEducationHelper.requestShowIph(
+                new IphCommandBuilder(
                                 mActivity.getResources(),
                                 FeatureConstants.DOWNLOAD_INFOBAR_DOWNLOAD_CONTINUING_FEATURE,
                                 R.string.iph_download_infobar_download_continuing_text,
@@ -204,8 +196,8 @@ public class ToolbarButtonInProductHelpController
     }
 
     /** Attempts to show an IPH text bubble for those that trigger on a cold start. */
-    public void showColdStartIPH() {
-        showDownloadHomeIPH();
+    public void showColdStartIph() {
+        showDownloadHomeIph();
     }
 
     // Overridden public methods.
@@ -216,19 +208,18 @@ public class ToolbarButtonInProductHelpController
         // check when the help UI is accessed than it is to start/stop monitoring per tab change
         // (e.g. tab switch or in overview mode).
         if (DeviceFormFactor.isWindowOnTablet(mWindowAndroid)) return;
-        mScreenshotMonitor.startMonitoring();
+        if (mScreenshotMonitor != null) mScreenshotMonitor.startMonitoring();
     }
 
     @Override
     public void onPauseWithNative() {
-        mScreenshotMonitor.stopMonitoring();
+        if (mScreenshotMonitor != null) mScreenshotMonitor.stopMonitoring();
     }
 
     @Override
     public void onScreenshotTaken() {
         Tab currentTab = mCurrentTabSupplier.get();
-        Profile currentProfile =
-                currentTab != null ? currentTab.getProfile() : mProfileSupplier.get();
+        Profile currentProfile = currentTab != null ? currentTab.getProfile() : mProfile;
 
         Tracker tracker = TrackerFactory.getTrackerForProfile(currentProfile);
         tracker.notifyEvent(EventConstants.SCREENSHOT_TAKEN_CHROME_IN_FOREGROUND);
@@ -251,30 +242,15 @@ public class ToolbarButtonInProductHelpController
         return R.id.app_menu_footer;
     }
 
-    private void showDownloadHomeIPH() {
-        mUserEducationHelper.requestShowIPH(
-                new IPHCommandBuilder(
+    private void showDownloadHomeIph() {
+        mUserEducationHelper.requestShowIph(
+                new IphCommandBuilder(
                                 mActivity.getResources(),
                                 FeatureConstants.DOWNLOAD_HOME_FEATURE,
                                 R.string.iph_download_home_text,
                                 R.string.iph_download_home_accessibility_text)
                         .setAnchorView(mMenuButtonAnchorView)
                         .setOnShowCallback(() -> turnOnHighlightForMenuItem(R.id.downloads_menu_id))
-                        .setOnDismissCallback(this::turnOffHighlightForMenuItem)
-                        .build());
-    }
-
-    private void showIncognitoTabIPH() {
-        mUserEducationHelper.requestShowIPH(
-                new IPHCommandBuilder(
-                                mActivity.getResources(),
-                                FeatureConstants
-                                        .FEATURE_NOTIFICATION_GUIDE_INCOGNITO_TAB_HELP_BUBBLE_FEATURE,
-                                R.string.feature_notification_guide_tooltip_message_incognito_tab,
-                                R.string.feature_notification_guide_tooltip_message_incognito_tab)
-                        .setAnchorView(mMenuButtonAnchorView)
-                        .setOnShowCallback(
-                                () -> turnOnHighlightForMenuItem(R.id.new_incognito_tab_menu_id))
                         .setOnDismissCallback(this::turnOffHighlightForMenuItem)
                         .build());
     }
@@ -291,8 +267,8 @@ public class ToolbarButtonInProductHelpController
             return;
         }
 
-        mUserEducationHelper.requestShowIPH(
-                new IPHCommandBuilder(
+        mUserEducationHelper.requestShowIph(
+                new IphCommandBuilder(
                                 mActivity.getResources(),
                                 featureName,
                                 R.string.iph_download_page_for_offline_usage_text,
@@ -316,12 +292,12 @@ public class ToolbarButtonInProductHelpController
     private void showTranslateMenuButtonTextBubble(final Tab tab) {
         if (tab == null) return;
         if (!TranslateUtils.canTranslateCurrentTab(tab)
-                || !TranslateBridge.shouldShowManualTranslateIPH(tab)) {
+                || !TranslateBridge.shouldShowManualTranslateIph(tab)) {
             return;
         }
 
-        mUserEducationHelper.requestShowIPH(
-                new IPHCommandBuilder(
+        mUserEducationHelper.requestShowIph(
+                new IphCommandBuilder(
                                 mActivity.getResources(),
                                 FeatureConstants.TRANSLATE_MENU_BUTTON_FEATURE,
                                 R.string.iph_translate_menu_button_text,

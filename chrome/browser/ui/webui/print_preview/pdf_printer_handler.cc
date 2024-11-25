@@ -63,10 +63,6 @@
 #include "chrome/browser/ui/ash/holding_space/holding_space_keyed_service.h"
 #include "chrome/browser/ui/ash/holding_space/holding_space_keyed_service_factory.h"
 #include "components/user_manager/user.h"
-#elif BUILDFLAG(IS_CHROMEOS_LACROS)
-#include "chrome/common/chrome_paths_lacros.h"
-#include "chromeos/crosapi/mojom/holding_space_service.mojom.h"
-#include "chromeos/lacros/lacros_service.h"
 #endif
 
 #if defined(USE_AURA)
@@ -194,7 +190,6 @@ void PrintToPdfCallback(scoped_refptr<base::RefCountedMemory> data,
 
 // Callback that runs after `PrintToPdfCallback()` returns.
 void OnPdfPrintedCallback(const AccountId& account_id,
-                          bool from_incognito_profile,
                           const base::FilePath& path,
                           base::OnceClosure pdf_file_saved_closure) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -204,14 +199,10 @@ void OnPdfPrintedCallback(const AccountId& account_id,
     ash::HoldingSpaceKeyedService* holding_space_keyed_service =
         ash::HoldingSpaceKeyedServiceFactory::GetInstance()->GetService(
             profile);
-    if (holding_space_keyed_service)
-      holding_space_keyed_service->AddPrintedPdf(path, from_incognito_profile);
-  }
-#elif BUILDFLAG(IS_CHROMEOS_LACROS)
-  auto* service = chromeos::LacrosService::Get();
-  if (service && service->IsAvailable<crosapi::mojom::HoldingSpaceService>()) {
-    service->GetRemote<crosapi::mojom::HoldingSpaceService>()->AddPrintedPdf(
-        path, from_incognito_profile);
+    if (holding_space_keyed_service) {
+      holding_space_keyed_service->AddItemOfType(
+          ash::HoldingSpaceItem::Type::kPrintedPdf, path);
+    }
   }
 #endif
   if (!pdf_file_saved_closure.is_null())
@@ -336,8 +327,7 @@ void PdfPrinterHandler::StartPrint(
 }
 
 void PdfPrinterHandler::FileSelected(const ui::SelectedFileInfo& file,
-                                     int /* index */,
-                                     void* /* params */) {
+                                     int /* index */) {
   // Update downloads location and save sticky settings.
   DownloadPrefs* download_prefs = DownloadPrefs::FromBrowserContext(profile_);
   download_prefs->SetSaveFilePath(file.path().DirName());
@@ -347,7 +337,7 @@ void PdfPrinterHandler::FileSelected(const ui::SelectedFileInfo& file,
   PostPrintToPdfTask();
 }
 
-void PdfPrinterHandler::FileSelectionCanceled(void* params) {
+void PdfPrinterHandler::FileSelectionCanceled() {
   std::move(print_callback_).Run(base::Value("PDFPrintCanceled"));
   select_file_dialog_.reset();
 }
@@ -368,7 +358,7 @@ base::FilePath PdfPrinterHandler::GetFileNameForPrintJobTitle(
   DCHECK(!job_title.empty());
 #if BUILDFLAG(IS_WIN)
   base::FilePath::StringType print_job_title(base::AsWString(job_title));
-#elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
+#elif BUILDFLAG(IS_POSIX)
   base::FilePath::StringType print_job_title = base::UTF16ToUTF8(job_title);
 #endif
 
@@ -441,19 +431,7 @@ void PdfPrinterHandler::SelectFile(const base::FilePath& default_filename,
 
   sticky_settings_->SaveInPrefs(profile_->GetPrefs());
 
-#if BUILDFLAG(IS_FUCHSIA)
-  // Fuchsia does not support system dialog yet. So skip the dialog
-  // and store the default download directory. See crbug.com/1226242 for the
-  // details.
-  base::ThreadPool::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-      base::BindOnce(&CreateDirectoryIfNotExists, GetSaveLocation()),
-      base::BindOnce(&PdfPrinterHandler::OnSaveLocationReady,
-                     weak_ptr_factory_.GetWeakPtr(), default_filename,
-                     /*prompt_user=*/false));
-#else
   OnSaveLocationReady(default_filename, prompt_user, GetSaveLocation());
-#endif
 }
 
 void PdfPrinterHandler::OnSaveLocationReady(
@@ -494,8 +472,7 @@ void PdfPrinterHandler::PostPrintToPdfTask() {
       FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&PrintToPdfCallback, print_data_, print_to_pdf_path_),
       base::BindOnce(&OnPdfPrintedCallback, GetAccountId(profile_),
-                     profile_->IsIncognitoProfile(), print_to_pdf_path_,
-                     std::move(pdf_file_saved_closure_)));
+                     print_to_pdf_path_, std::move(pdf_file_saved_closure_)));
 
   print_to_pdf_path_.clear();
 
@@ -504,7 +481,7 @@ void PdfPrinterHandler::PostPrintToPdfTask() {
 }
 
 void PdfPrinterHandler::OnGotUniqueFileName(const base::FilePath& path) {
-  FileSelected(ui::SelectedFileInfo(path), 0, nullptr);
+  FileSelected(ui::SelectedFileInfo(path), 0);
 }
 
 void PdfPrinterHandler::OnDirectorySelected(const base::FilePath& filename,
@@ -555,11 +532,6 @@ base::FilePath PdfPrinterHandler::GetSaveLocation() const {
   if (use_drive_mount_ && drive_service && drive_service->IsMounted()) {
     return drive_service->GetMountPointPath().Append(
         drive::util::kDriveMyDriveRootDirName);
-  }
-#elif BUILDFLAG(IS_CHROMEOS_LACROS)
-  base::FilePath drivefs;
-  if (use_drive_mount_ && chrome::GetDriveFsMountPointPath(&drivefs)) {
-    return drivefs.Append(drive::util::kDriveMyDriveRootDirName);
   }
 #endif
   DownloadPrefs* download_prefs = DownloadPrefs::FromBrowserContext(profile_);

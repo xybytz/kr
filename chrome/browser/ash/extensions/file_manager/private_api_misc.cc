@@ -14,7 +14,6 @@
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/multi_user_window_manager.h"
-#include "ash/public/cpp/new_window_delegate.h"
 #include "ash/webui/settings/public/constants/routes_util.h"
 #include "base/command_line.h"
 #include "base/files/file.h"
@@ -25,14 +24,17 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ash/crostini/crostini_export_import.h"
+#include "chrome/browser/ash/crostini/crostini_export_import_factory.h"
 #include "chrome/browser/ash/crostini/crostini_features.h"
 #include "chrome/browser/ash/crostini/crostini_package_service.h"
+#include "chrome/browser/ash/crostini/crostini_package_service_factory.h"
 #include "chrome/browser/ash/drive/drive_integration_service.h"
 #include "chrome/browser/ash/drive/file_system_util.h"
 #include "chrome/browser/ash/extensions/file_manager/private_api_util.h"
 #include "chrome/browser/ash/file_manager/file_tasks.h"
 #include "chrome/browser/ash/file_manager/fileapi_util.h"
 #include "chrome/browser/ash/file_manager/path_util.h"
+#include "chrome/browser/ash/file_manager/trash_common_util.h"
 #include "chrome/browser/ash/file_manager/url_util.h"
 #include "chrome/browser/ash/file_manager/volume_manager.h"
 #include "chrome/browser/ash/file_system_provider/mount_path_util.h"
@@ -40,13 +42,18 @@
 #include "chrome/browser/ash/fileapi/recent_file.h"
 #include "chrome/browser/ash/fileapi/recent_model.h"
 #include "chrome/browser/ash/fileapi/recent_model_factory.h"
+#include "chrome/browser/ash/guest_os/guest_os_session_tracker_factory.h"
 #include "chrome/browser/ash/guest_os/guest_os_share_path.h"
+#include "chrome/browser/ash/guest_os/guest_os_share_path_factory.h"
 #include "chrome/browser/ash/guest_os/public/guest_os_service.h"
+#include "chrome/browser/ash/policy/skyvault/policy_utils.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/upload_office_to_cloud/upload_office_to_cloud.h"
 #include "chrome/browser/devtools/devtools_window.h"
+#include "chrome/browser/download/download_dir_util.h"
 #include "chrome/browser/extensions/devtools_util.h"
+#include "chrome/browser/feedback/show_feedback_page.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile.h"
@@ -60,6 +67,7 @@
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/webui/ash/cloud_upload/cloud_upload_dialog.h"
+#include "chrome/browser/ui/webui/ash/cloud_upload/cloud_upload_util.h"
 #include "chrome/common/extensions/api/file_manager_private.h"
 #include "chrome/common/extensions/api/file_manager_private_internal.h"
 #include "chrome/common/extensions/extension_constants.h"
@@ -202,7 +210,6 @@ bool IsAllowedSource(storage::FileSystemType type,
   switch (restriction) {
     case fmp::SourceRestriction::kNone:
       NOTREACHED();
-      return false;
 
     case fmp::SourceRestriction::kAnySource:
       return true;
@@ -218,6 +225,51 @@ std::string Redact(const std::string& s) {
 
 std::string Redact(const base::FilePath& path) {
   return Redact(path.value());
+}
+
+// Gets the default location/volume that the user should use, usually MyFiles,
+// based on `path`. When SkyVault is enabled the admin might choose between
+// Google Drive and OneDrive. If SkyVault is misconfigured, e.g. local files are
+// disabled but the download policy isn't set correctly defaults to MyFiles.
+api::file_manager_private::DefaultLocation GetDefaultLocation(
+    const std::string& pref) {
+  if (policy::local_user_files::LocalUserFilesAllowed()) {
+    // If local files are allowed, always default to MyFiles.
+    return api::file_manager_private::DefaultLocation::kMyFiles;
+  }
+
+  if (pref == download_dir_util::kLocationGoogleDrive) {
+    return api::file_manager_private::DefaultLocation::kGoogleDrive;
+  }
+  if (pref == download_dir_util::kLocationOneDrive) {
+    return api::file_manager_private::DefaultLocation::kOnedrive;
+  }
+  // SkyVault is misconfigured - local files are disabled but no cloud location
+  // is enforced as the download location.
+  LOG(ERROR) << "SkyVault is misconfigured: Invalid cloud pref: " << pref
+             << " defaulting to MyFiles.";
+  return api::file_manager_private::DefaultLocation::kMyFiles;
+}
+
+// Converts the value of LocalUserFilesMigrationDestination policy to
+// api::file_manager_private::CloudProvider. If SkyVault is misconfigured,
+// e.g. local files are enabled returns kNotSpecified, regardless of the policy
+// value.
+api::file_manager_private::CloudProvider GetSkyVaultMigrationDestination() {
+  if (policy::local_user_files::LocalUserFilesAllowed()) {
+    // If local files are allowed, just return kNotSpecified.
+    return api::file_manager_private::CloudProvider::kNotSpecified;
+  }
+
+  auto cloud_provider = policy::local_user_files::GetMigrationDestination();
+  switch (cloud_provider) {
+    case policy::local_user_files::CloudProvider::kNotSpecified:
+      return api::file_manager_private::CloudProvider::kNotSpecified;
+    case policy::local_user_files::CloudProvider::kGoogleDrive:
+      return api::file_manager_private::CloudProvider::kGoogleDrive;
+    case policy::local_user_files::CloudProvider::kOneDrive:
+      return api::file_manager_private::CloudProvider::kOnedrive;
+  }
 }
 
 }  // namespace
@@ -248,7 +300,7 @@ FileManagerPrivateGetPreferencesFunction::Run() {
   result.arc_enabled = prefs->GetBoolean(arc::prefs::kArcEnabled);
   result.arc_removable_media_access_enabled =
       prefs->GetBoolean(arc::prefs::kArcHasAccessToRemovableMedia);
-  result.trash_enabled = prefs->GetBoolean(ash::prefs::kFilesAppTrashEnabled);
+  result.trash_enabled = file_manager::trash::IsTrashEnabledForProfile(profile);
   std::vector<std::string> folder_shortcuts;
   const auto& value_list = prefs->GetList(ash::prefs::kFilesAppFolderShortcuts);
   for (const base::Value& value : value_list) {
@@ -261,6 +313,11 @@ FileManagerPrivateGetPreferencesFunction::Run() {
   result.office_file_moved_google_drive =
       prefs->GetTime(prefs::kOfficeFileMovedToGoogleDrive)
           .InMillisecondsFSinceUnixEpoch();
+  result.local_user_files_allowed =
+      policy::local_user_files::LocalUserFilesAllowed();
+  result.default_location =
+      GetDefaultLocation(prefs->GetString(prefs::kFilesAppDefaultLocation));
+  result.sky_vault_migration_destination = GetSkyVaultMigrationDestination();
 
   return RespondNow(WithArguments(result.ToValue()));
 }
@@ -327,7 +384,6 @@ ExtensionFunction::ResponseAction FileManagerPrivateZoomFunction::Run() {
       break;
     default:
       NOTREACHED();
-      return RespondNow(Error(kUnknownErrorDoNotUse));
   }
   zoom::PageZoom::Zoom(GetSenderWebContents(), zoom_type);
   return RespondNow(NoArguments());
@@ -396,9 +452,6 @@ FileManagerPrivateOpenInspectorFunction::Run() {
       break;
     default:
       NOTREACHED();
-      return RespondNow(Error(
-          base::StringPrintf("Unexpected inspection type(%d) is specified.",
-                             static_cast<int>(params->type))));
   }
   return RespondNow(NoArguments());
 }
@@ -419,15 +472,14 @@ FileManagerPrivateOpenSettingsSubpageFunction::Run() {
   return RespondNow(NoArguments());
 }
 
-FileManagerPrivateInternalGetMimeTypeFunction::
-    FileManagerPrivateInternalGetMimeTypeFunction() = default;
+FileManagerPrivateGetMimeTypeFunction::FileManagerPrivateGetMimeTypeFunction() =
+    default;
 
-FileManagerPrivateInternalGetMimeTypeFunction::
-    ~FileManagerPrivateInternalGetMimeTypeFunction() = default;
+FileManagerPrivateGetMimeTypeFunction::
+    ~FileManagerPrivateGetMimeTypeFunction() = default;
 
-ExtensionFunction::ResponseAction
-FileManagerPrivateInternalGetMimeTypeFunction::Run() {
-  using fmpi::GetMimeType::Params;
+ExtensionFunction::ResponseAction FileManagerPrivateGetMimeTypeFunction::Run() {
+  using fmp::GetMimeType::Params;
   const optional<Params> params = Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
 
@@ -442,13 +494,13 @@ FileManagerPrivateInternalGetMimeTypeFunction::Run() {
 
   app_file_handler_util::GetMimeTypeForLocalPath(
       profile, file_system_url.path(),
-      base::BindOnce(
-          &FileManagerPrivateInternalGetMimeTypeFunction::OnGetMimeType, this));
+      base::BindOnce(&FileManagerPrivateGetMimeTypeFunction::OnGetMimeType,
+                     this));
 
   return RespondLater();
 }
 
-void FileManagerPrivateInternalGetMimeTypeFunction::OnGetMimeType(
+void FileManagerPrivateGetMimeTypeFunction::OnGetMimeType(
     const std::string& mimeType) {
   Respond(WithArguments(mimeType));
 }
@@ -518,7 +570,9 @@ FileManagerPrivateAddProvidedFileSystemFunction::Run() {
   // Show Connect To OneDrive dialog only when mounting ODFS for the first time.
   // There will already a ODFS mount if the user is requesting a new mount to
   // replace the unauthenticated one.
-  if (chromeos::cloud_upload::IsMicrosoftOfficeCloudUploadAllowed(profile) &&
+  if (ash::cloud_upload::
+          IsMicrosoftOfficeOneDriveIntegrationAllowedAndOdfsInstalled(
+              profile) &&
       params->provider_id == extension_misc::kODFSExtensionId &&
       first_file_system) {
     // Get Files App window, if it exists.
@@ -678,16 +732,17 @@ FileManagerPrivateInternalImportCrostiniImageFunction::Run() {
       file_system_context->CrackURLInFirstPartyContext(GURL(params->url))
           .path();
 
-  crostini::CrostiniExportImport::GetForProfile(profile)->ImportContainer(
-      crostini::DefaultContainerId(), path,
-      base::BindOnce(
-          [](base::FilePath path, crostini::CrostiniResult result) {
-            if (result != crostini::CrostiniResult::SUCCESS) {
-              LOG(ERROR) << "Error importing crostini image " << Redact(path)
-                         << ": " << (int)result;
-            }
-          },
-          path));
+  crostini::CrostiniExportImportFactory::GetForProfile(profile)
+      ->ImportContainer(
+          crostini::DefaultContainerId(), path,
+          base::BindOnce(
+              [](base::FilePath path, crostini::CrostiniResult result) {
+                if (result != crostini::CrostiniResult::SUCCESS) {
+                  LOG(ERROR) << "Error importing crostini image "
+                             << Redact(path) << ": " << (int)result;
+                }
+              },
+              path));
   return RespondNow(NoArguments());
 }
 
@@ -709,9 +764,10 @@ FileManagerPrivateInternalSharePathsWithCrostiniFunction::Run() {
   }
 
   auto vm_info =
-      guest_os::GuestOsSessionTracker::GetForProfile(profile)->GetVmInfo(
+      guest_os::GuestOsSessionTrackerFactory::GetForProfile(profile)->GetVmInfo(
           params->vm_name);
-  auto* share_service = guest_os::GuestOsSharePath::GetForProfile(profile);
+  auto* share_service =
+      guest_os::GuestOsSharePathFactory::GetForProfile(profile);
 
   share_service->RegisterPersistedPaths(params->vm_name, paths);
   if (vm_info) {
@@ -746,7 +802,7 @@ FileManagerPrivateInternalUnsharePathWithCrostiniFunction::Run() {
           profile, render_frame_host());
   storage::FileSystemURL cracked =
       file_system_context->CrackURLInFirstPartyContext(GURL(params->url));
-  guest_os::GuestOsSharePath::GetForProfile(profile)->UnsharePath(
+  guest_os::GuestOsSharePathFactory::GetForProfile(profile)->UnsharePath(
       params->vm_name, cracked.path(), /*unpersist=*/true,
       base::BindOnce(
           &FileManagerPrivateInternalUnsharePathWithCrostiniFunction::
@@ -771,7 +827,7 @@ FileManagerPrivateInternalGetCrostiniSharedPathsFunction::Run() {
   Profile* profile =
       Profile::FromBrowserContext(browser_context())->GetOriginalProfile();
   auto* guest_os_share_path =
-      guest_os::GuestOsSharePath::GetForProfile(profile);
+      guest_os::GuestOsSharePathFactory::GetForProfile(profile);
   bool first_for_session =
       params->observe_first_for_session &&
       guest_os_share_path->GetAndSetFirstForSession(params->vm_name);
@@ -816,12 +872,14 @@ FileManagerPrivateInternalGetLinuxPackageInfoFunction::Run() {
       file_manager::util::GetFileSystemContextForRenderFrameHost(
           profile, render_frame_host());
 
-  crostini::CrostiniPackageService::GetForProfile(profile)->GetLinuxPackageInfo(
-      crostini::DefaultContainerId(),
-      file_system_context->CrackURLInFirstPartyContext(GURL(params->url)),
-      base::BindOnce(&FileManagerPrivateInternalGetLinuxPackageInfoFunction::
-                         OnGetLinuxPackageInfo,
-                     this));
+  crostini::CrostiniPackageServiceFactory::GetForProfile(profile)
+      ->GetLinuxPackageInfo(
+          crostini::DefaultContainerId(),
+          file_system_context->CrackURLInFirstPartyContext(GURL(params->url)),
+          base::BindOnce(
+              &FileManagerPrivateInternalGetLinuxPackageInfoFunction::
+                  OnGetLinuxPackageInfo,
+              this));
   return RespondLater();
 }
 
@@ -853,7 +911,7 @@ FileManagerPrivateInternalInstallLinuxPackageFunction::Run() {
       file_manager::util::GetFileSystemContextForRenderFrameHost(
           profile, render_frame_host());
 
-  crostini::CrostiniPackageService::GetForProfile(profile)
+  crostini::CrostiniPackageServiceFactory::GetForProfile(profile)
       ->QueueInstallLinuxPackage(
           crostini::DefaultContainerId(),
           file_system_context->CrackURLInFirstPartyContext(GURL(params->url)),
@@ -1000,16 +1058,28 @@ FileManagerPrivateInternalGetRecentFilesFunction::Run() {
     return RespondNow(Error("Cannot convert category to file type"));
   }
 
-  if (base::FeatureList::IsEnabled(ash::features::kFSPsInRecents)) {
-    // If File System Provider is enabled, we set the maximum latency to be 3s.
-    // This is based on "User Preference and Search Engine Latency" paper, which
-    // stated that "[...] once latency exceeds 3 seconds for the slower engine,
-    // users are 1.5 times as likely to choose the faster engine."
-    model->SetScanTimeout(base::Milliseconds(3000));
-  }
+  ash::RecentModelOptions options;
+  options.now_delta = base::Days(params->cutoff_days);
+  options.max_files = 1000u;
+  options.invalidate_cache = params->invalidate_cache;
+  options.file_type = file_type;
+  options.source_specs = {
+      {.volume_type = fmp::VolumeType::kCrostini},
+      {.volume_type = fmp::VolumeType::kMediaView},
+      {.volume_type = fmp::VolumeType::kDownloads},
+      {.volume_type = fmp::VolumeType::kDrive},
+      {.volume_type = fmp::VolumeType::kProvided},
+  };
+
+  // We set the maximum latency to be 3s due to File System Provider volumes.
+  // As these types of volumes may be located in the cloud, they may be slow.
+  // 3s is based on "User Preference and Search Engine Latency" paper, which
+  // stated that "[...] once latency exceeds 3 seconds for the slower engine,
+  // users are 1.5 times as likely to choose the faster engine."
+  options.scan_timeout = base::Milliseconds(3000);
+
   model->GetRecentFiles(
-      file_system_context.get(), source_url(), params->query,
-      base::Days(params->cutoff_days), file_type, params->invalidate_cache,
+      file_system_context.get(), source_url(), params->query, options,
       base::BindOnce(
           &FileManagerPrivateInternalGetRecentFilesFunction::OnGetRecentFiles,
           this, params->restriction));
@@ -1079,23 +1149,6 @@ FileManagerPrivateIsTabletModeEnabledFunction::Run() {
       WithArguments(display::Screen::GetScreen()->InTabletMode()));
 }
 
-ExtensionFunction::ResponseAction FileManagerPrivateOpenURLFunction::Run() {
-  using fmp::OpenURL::Params;
-  const optional<Params> params = Params::Create(args());
-  EXTENSION_FUNCTION_VALIDATE(params);
-  const GURL url(params->url);
-
-  if (!ash::NewWindowDelegate::GetPrimary()) {
-    return RespondNow(
-        Error("Could not get NewWindowDelegate's primary browser"));
-  }
-  ash::NewWindowDelegate::GetPrimary()->OpenUrl(
-      url, ash::NewWindowDelegate::OpenUrlFrom::kUserInteraction,
-      ash::NewWindowDelegate::Disposition::kNewForegroundTab);
-
-  return RespondNow(NoArguments());
-}
-
 ExtensionFunction::ResponseAction FileManagerPrivateOpenWindowFunction::Run() {
   using fmp::OpenWindow::Params;
   const optional<Params> params = Params::Create(args());
@@ -1139,7 +1192,7 @@ FileManagerPrivateSendFeedbackFunction::Run() {
   }
 
   Profile* profile = Profile::FromBrowserContext(browser_context());
-  chrome::ShowFeedbackPage(url, profile, chrome::kFeedbackSourceFilesApp,
+  chrome::ShowFeedbackPage(url, profile, feedback::kFeedbackSourceFilesApp,
                            /*description_template=*/std::string(),
                            /*description_placeholder_text=*/std::string(),
                            /*category_tag=*/"chromeos-files-app",

@@ -28,6 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/modules/crypto/normalize_algorithm.h"
 
 #include <algorithm>
@@ -43,6 +48,7 @@
 #include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
 #include "third_party/blink/renderer/modules/crypto/crypto_key.h"
 #include "third_party/blink/renderer/modules/crypto/crypto_utilities.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
@@ -139,8 +145,7 @@ bool VerifyAlgorithmNameMappings(const AlgorithmNameMapping* begin,
   for (const AlgorithmNameMapping* it = begin; it != end; ++it) {
     if (it->algorithm_name_length != strlen(it->algorithm_name))
       return false;
-    String str(it->algorithm_name,
-               static_cast<unsigned>(it->algorithm_name_length));
+    String str(base::span(it->algorithm_name, it->algorithm_name_length));
     if (!str.ContainsOnlyASCIIOrEmpty())
       return false;
     if (str.UpperASCII() != str)
@@ -239,20 +244,18 @@ class ErrorContext {
       return String();
 
     StringBuilder result;
-    constexpr const char* const separator = ": ";
-    constexpr wtf_size_t separator_length =
-        std::char_traits<char>::length(separator);
+    const base::span<const LChar> separator =
+        base::byte_span_from_cstring(": ");
 
-    wtf_size_t length = (messages_.size() - 1) * separator_length;
+    wtf_size_t length = (messages_.size() - 1) * separator.size();
     for (wtf_size_t i = 0; i < messages_.size(); ++i)
       length += strlen(messages_[i]);
     result.ReserveCapacity(length);
 
     for (wtf_size_t i = 0; i < messages_.size(); ++i) {
       if (i)
-        result.Append(separator, separator_length);
-      result.Append(messages_[i],
-                    static_cast<wtf_size_t>(strlen(messages_[i])));
+        result.Append(separator);
+      result.Append(StringView(messages_[i]));
     }
 
     return result.ToString();
@@ -523,7 +526,7 @@ V8AlgorithmIdentifier* GetAlgorithmIdentifier(v8::Isolate* isolate,
         ScriptValue(isolate, dictionary.V8Value()));
   }
 
-  absl::optional<String> algorithm_name =
+  std::optional<String> algorithm_name =
       raw.Get<IDLString>(property_name, exception_state);
   if (exception_state.HadException()) {
     return nullptr;
@@ -832,7 +835,7 @@ bool ParseNamedCurve(const Dictionary& raw,
                      WebCryptoNamedCurve& named_curve,
                      ErrorContext context,
                      ExceptionState& exception_state) {
-  absl::optional<String> named_curve_string =
+  std::optional<String> named_curve_string =
       raw.Get<IDLString>("namedCurve", exception_state);
   if (exception_state.HadException()) {
     return false;
@@ -1068,7 +1071,6 @@ bool ParseAlgorithmParams(v8::Isolate* isolate,
       return ParsePbkdf2Params(isolate, raw, params, context, exception_state);
   }
   NOTREACHED();
-  return false;
 }
 
 const char* OperationToString(WebCryptoOperation op) {
@@ -1162,7 +1164,7 @@ bool ParseAlgorithmIdentifier(v8::Isolate* isolate,
     return false;
   }
 
-  absl::optional<String> algorithm_name =
+  std::optional<String> algorithm_name =
       params.Get<IDLString>("name", exception_state);
   if (exception_state.HadException()) {
     return false;

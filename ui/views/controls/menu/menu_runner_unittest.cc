@@ -16,7 +16,7 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "build/build_config.h"
-#include "ui/base/ui_base_types.h"
+#include "ui/base/mojom/menu_source_type.mojom.h"
 #include "ui/compositor/compositor.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/test/event_generator.h"
@@ -87,8 +87,8 @@ class MenuRunnerTest : public ViewsTestBase {
 #endif
 
     menu_delegate_ = std::make_unique<TestMenuDelegate>();
-    Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
-    params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+    Widget::InitParams params = CreateParams(
+        Widget::InitParams::CLIENT_OWNS_WIDGET, Widget::InitParams::TYPE_POPUP);
     owner_ = std::make_unique<Widget>();
     owner_->Init(std::move(params));
     owner_->Show();
@@ -135,7 +135,7 @@ TEST_F(MenuRunnerTest, AsynchronousRun) {
   InitMenuRunner(0);
   MenuRunner* runner = menu_runner();
   runner->RunMenuAt(owner(), nullptr, gfx::Rect(), MenuAnchorPosition::kTopLeft,
-                    ui::MENU_SOURCE_NONE, nullptr);
+                    ui::mojom::MenuSourceType::kNone, nullptr);
   EXPECT_TRUE(runner->IsRunning());
 
   runner->Cancel();
@@ -151,7 +151,7 @@ TEST_F(MenuRunnerTest, AsynchronousKeyEventHandling) {
   InitMenuRunner(0);
   MenuRunner* runner = menu_runner();
   runner->RunMenuAt(owner(), nullptr, gfx::Rect(), MenuAnchorPosition::kTopLeft,
-                    ui::MENU_SOURCE_NONE, nullptr);
+                    ui::mojom::MenuSourceType::kNone, nullptr);
   EXPECT_TRUE(runner->IsRunning());
 
   ui::test::EventGenerator generator(GetContext(), owner()->GetNativeWindow());
@@ -178,7 +178,7 @@ TEST_F(MenuRunnerTest, MAYBE_LatinMnemonic) {
   InitMenuRunner(0);
   MenuRunner* runner = menu_runner();
   runner->RunMenuAt(owner(), nullptr, gfx::Rect(), MenuAnchorPosition::kTopLeft,
-                    ui::MENU_SOURCE_NONE, nullptr);
+                    ui::mojom::MenuSourceType::kNone, nullptr);
   EXPECT_TRUE(runner->IsRunning());
 
   ui::test::EventGenerator generator(GetContext(), owner()->GetNativeWindow());
@@ -202,7 +202,7 @@ TEST_F(MenuRunnerTest, NonLatinMnemonic) {
   InitMenuRunner(0);
   MenuRunner* runner = menu_runner();
   runner->RunMenuAt(owner(), nullptr, gfx::Rect(), MenuAnchorPosition::kTopLeft,
-                    ui::MENU_SOURCE_NONE, nullptr);
+                    ui::mojom::MenuSourceType::kNone, nullptr);
   EXPECT_TRUE(runner->IsRunning());
 
   ui::test::EventGenerator generator(GetContext(), owner()->GetNativeWindow());
@@ -225,8 +225,8 @@ TEST_F(MenuRunnerTest, MenuItemViewShowsMnemonics) {
   InitMenuRunner(MenuRunner::HAS_MNEMONICS | MenuRunner::SHOULD_SHOW_MNEMONICS);
 
   menu_runner()->RunMenuAt(owner(), nullptr, gfx::Rect(),
-                           MenuAnchorPosition::kTopLeft, ui::MENU_SOURCE_NONE,
-                           nullptr);
+                           MenuAnchorPosition::kTopLeft,
+                           ui::mojom::MenuSourceType::kNone, nullptr);
 
   EXPECT_TRUE(menu_item_view()->show_mnemonics());
 }
@@ -238,8 +238,8 @@ TEST_F(MenuRunnerTest, MenuItemViewDoesNotShowMnemonics) {
   InitMenuRunner(MenuRunner::HAS_MNEMONICS);
 
   menu_runner()->RunMenuAt(owner(), nullptr, gfx::Rect(),
-                           MenuAnchorPosition::kTopLeft, ui::MENU_SOURCE_NONE,
-                           nullptr);
+                           MenuAnchorPosition::kTopLeft,
+                           ui::mojom::MenuSourceType::kNone, nullptr);
 
   EXPECT_FALSE(menu_item_view()->show_mnemonics());
 }
@@ -263,7 +263,7 @@ TEST_F(MenuRunnerTest, PrefixSelect) {
 
   MenuRunner* runner = menu_runner();
   runner->RunMenuAt(owner(), nullptr, gfx::Rect(), MenuAnchorPosition::kTopLeft,
-                    ui::MENU_SOURCE_NONE, nullptr);
+                    ui::mojom::MenuSourceType::kNone, nullptr);
   EXPECT_TRUE(runner->IsRunning());
 
   menu_item_view()
@@ -306,7 +306,7 @@ TEST_F(MenuRunnerTest, SpaceActivatesItem) {
 
   MenuRunner* runner = menu_runner();
   runner->RunMenuAt(owner(), nullptr, gfx::Rect(), MenuAnchorPosition::kTopLeft,
-                    ui::MENU_SOURCE_NONE, nullptr);
+                    ui::mojom::MenuSourceType::kNone, nullptr);
   EXPECT_TRUE(runner->IsRunning());
 
   ui::test::EventGenerator generator(GetContext(), owner()->GetNativeWindow());
@@ -330,7 +330,7 @@ TEST_F(MenuRunnerTest, NestingDuringDrag) {
   InitMenuRunner(MenuRunner::FOR_DROP);
   MenuRunner* runner = menu_runner();
   runner->RunMenuAt(owner(), nullptr, gfx::Rect(), MenuAnchorPosition::kTopLeft,
-                    ui::MENU_SOURCE_NONE, nullptr);
+                    ui::mojom::MenuSourceType::kNone, nullptr);
   EXPECT_TRUE(runner->IsRunning());
 
   auto nested_delegate = std::make_unique<TestMenuDelegate>();
@@ -338,8 +338,8 @@ TEST_F(MenuRunnerTest, NestingDuringDrag) {
       MenuRunner(std::make_unique<MenuItemView>(nested_delegate.get()),
                  MenuRunner::IS_NESTED));
   nested_runner.RunMenuAt(owner(), nullptr, gfx::Rect(),
-                          MenuAnchorPosition::kTopLeft, ui::MENU_SOURCE_NONE,
-                          nullptr);
+                          MenuAnchorPosition::kTopLeft,
+                          ui::mojom::MenuSourceType::kNone, nullptr);
   EXPECT_TRUE(nested_runner.IsRunning());
   EXPECT_FALSE(runner->IsRunning());
   EXPECT_EQ(1, menu_delegate()->on_menu_closed_called());
@@ -362,10 +362,10 @@ class MenuLauncherEventHandler : public ui::EventHandler {
  private:
   // ui::EventHandler:
   void OnMouseEvent(ui::MouseEvent* event) override {
-    if (event->type() == ui::ET_MOUSE_PRESSED) {
+    if (event->type() == ui::EventType::kMousePressed) {
       runner_->RunMenuAt(owner_, nullptr, gfx::Rect(),
-                         MenuAnchorPosition::kTopLeft, ui::MENU_SOURCE_NONE,
-                         nullptr);
+                         MenuAnchorPosition::kTopLeft,
+                         ui::mojom::MenuSourceType::kNone, nullptr);
       event->SetHandled();
     }
   }
@@ -386,7 +386,7 @@ class MenuRunnerWidgetTest : public MenuRunnerTest {
   MenuRunnerWidgetTest(const MenuRunnerWidgetTest&) = delete;
   MenuRunnerWidgetTest& operator=(const MenuRunnerWidgetTest&) = delete;
 
-  Widget* widget() { return widget_; }
+  Widget* widget() { return widget_.get(); }
   EventCountView* event_count_view() {
     return static_cast<EventCountView*>(
         widget()->GetRootView()->GetViewByID(kEventCountViewID));
@@ -407,8 +407,10 @@ class MenuRunnerWidgetTest : public MenuRunnerTest {
   // ViewsTestBase:
   void SetUp() override {
     MenuRunnerTest::SetUp();
-    widget_ = new Widget;
-    Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
+    widget_ = std::make_unique<Widget>();
+    Widget::InitParams params =
+        CreateParams(Widget::InitParams::CLIENT_OWNS_WIDGET,
+                     Widget::InitParams::TYPE_WINDOW);
     widget_->Init(std::move(params));
     widget_->Show();
     widget_->SetSize(gfx::Size(300, 300));
@@ -423,12 +425,12 @@ class MenuRunnerWidgetTest : public MenuRunnerTest {
 
   void TearDown() override {
     consumer_.reset();
-    widget_.ExtractAsDangling()->CloseNow();
+    widget_->CloseNow();
     MenuRunnerTest::TearDown();
   }
 
  private:
-  raw_ptr<Widget> widget_ = nullptr;
+  std::unique_ptr<Widget> widget_;
   std::unique_ptr<MenuLauncherEventHandler> consumer_;
 };
 
@@ -443,7 +445,7 @@ TEST_F(MenuRunnerWidgetTest, WidgetDoesntTakeCapture) {
   generator->MoveMouseTo(widget()->GetClientAreaBoundsInScreen().CenterPoint());
   // Implicit capture should not be held by |widget|.
   generator->PressLeftButton();
-  EXPECT_EQ(1, event_count_view()->GetEventCount(ui::ET_MOUSE_PRESSED));
+  EXPECT_EQ(1, event_count_view()->GetEventCount(ui::EventType::kMousePressed));
   EXPECT_NE(widget()->GetNativeView(),
             internal::NativeWidgetPrivate::GetGlobalCapture(
                 widget()->GetNativeView()));
@@ -490,7 +492,8 @@ TEST_F(MenuRunnerWidgetTest, ClearsMouseHandlerOnRun) {
   generator->MoveMouseTo(
       second_event_count_view->GetBoundsInScreen().CenterPoint());
   generator->PressLeftButton();
-  EXPECT_EQ(1, second_event_count_view->GetEventCount(ui::ET_MOUSE_PRESSED));
+  EXPECT_EQ(
+      1, second_event_count_view->GetEventCount(ui::EventType::kMousePressed));
 }
 
 class MenuRunnerImplTest : public MenuRunnerTest {
@@ -763,7 +766,7 @@ TEST_F(MenuRunnerTest, ShowMenuHostDurationMetricsDoesLog) {
   InitMenuRunner(0);
   MenuRunner* runner = menu_runner();
   runner->RunMenuAt(owner(), nullptr, gfx::Rect(), MenuAnchorPosition::kTopLeft,
-                    ui::MENU_SOURCE_NONE, nullptr, absl::nullopt,
+                    ui::mojom::MenuSourceType::kNone, nullptr, std::nullopt,
                     histogram_name);
 
   base::RunLoop run_loop;
@@ -773,7 +776,8 @@ TEST_F(MenuRunnerTest, ShowMenuHostDurationMetricsDoesLog) {
       ->GetWidget()
       ->GetCompositor()
       ->RequestSuccessfulPresentationTimeForNextFrame(base::BindOnce(
-          [](base::RunLoop* run_loop, base::TimeTicks bubble_created_time) {
+          [](base::RunLoop* run_loop,
+             const viz::FrameTimingDetails& frame_timing_details) {
             run_loop->Quit();
           },
           &run_loop));
@@ -793,7 +797,7 @@ TEST_F(MenuRunnerTest, ShowMenuHostDurationMetricsDoesNotLog) {
   InitMenuRunner(0);
   MenuRunner* runner = menu_runner();
   runner->RunMenuAt(owner(), nullptr, gfx::Rect(), MenuAnchorPosition::kTopLeft,
-                    ui::MENU_SOURCE_NONE, nullptr, absl::nullopt);
+                    ui::mojom::MenuSourceType::kNone, nullptr, std::nullopt);
 
   base::RunLoop run_loop;
   views::MenuController::GetActiveInstance()
@@ -802,7 +806,8 @@ TEST_F(MenuRunnerTest, ShowMenuHostDurationMetricsDoesNotLog) {
       ->GetWidget()
       ->GetCompositor()
       ->RequestSuccessfulPresentationTimeForNextFrame(base::BindOnce(
-          [](base::RunLoop* run_loop, base::TimeTicks bubble_created_time) {
+          [](base::RunLoop* run_loop,
+             const viz::FrameTimingDetails& frame_timing_details) {
             run_loop->Quit();
           },
           &run_loop));

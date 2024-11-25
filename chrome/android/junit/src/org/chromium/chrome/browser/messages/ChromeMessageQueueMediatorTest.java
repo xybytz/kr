@@ -16,9 +16,7 @@ import android.os.Handler;
 
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -28,11 +26,13 @@ import org.robolectric.annotation.Config;
 import org.robolectric.annotation.LooperMode;
 
 import org.chromium.base.Callback;
+import org.chromium.base.CallbackUtils;
 import org.chromium.base.UserDataHost;
 import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.supplier.OneshotSupplierImpl;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.chrome.browser.ActivityTabProvider;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsUtils;
 import org.chromium.chrome.browser.browser_controls.BrowserStateBrowserControlsVisibilityDelegate;
@@ -44,8 +44,6 @@ import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.PauseResumeWithNativeObserver;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetObserver;
 import org.chromium.components.messages.ManagedMessageDispatcher;
@@ -62,8 +60,6 @@ import java.util.concurrent.TimeoutException;
 @LooperMode(LooperMode.Mode.LEGACY)
 public class ChromeMessageQueueMediatorTest {
     private static final int EXPECTED_TOKEN = 42;
-
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
 
     @Mock private BrowserControlsManager mBrowserControlsManager;
 
@@ -183,7 +179,7 @@ public class ChromeMessageQueueMediatorTest {
         ChromeMessageQueueMediator.BrowserControlsObserver observer =
                 observerArgumentCaptor.getValue();
         Assert.assertFalse(mMediator.isReadyForShowing());
-        Runnable runnable = () -> {};
+        Runnable runnable = CallbackUtils.emptyRunnable();
         mMediator.onRequestShowing(runnable);
         Assert.assertNotNull(observer.getRunnableForTesting());
         Assert.assertFalse(mMediator.isReadyForShowing());
@@ -220,7 +216,7 @@ public class ChromeMessageQueueMediatorTest {
         // Mock TabBrowserControlsConstraintsHelper to avoid NPE.
         when(mTab.getUserDataHost()).thenReturn(new UserDataHost());
 
-        mMediator.onRequestShowing(() -> {});
+        mMediator.onRequestShowing(CallbackUtils.emptyRunnable());
         Assert.assertTrue(mMediator.isReadyForShowing());
 
         mMediator.onFinishHiding();
@@ -261,7 +257,7 @@ public class ChromeMessageQueueMediatorTest {
         Assert.assertFalse(mediator.isReadyForShowing());
         CallbackHelper callbackHelper = new CallbackHelper();
         mediator.onRequestShowing(callbackHelper::notifyCalled);
-        callbackHelper.waitForFirst();
+        callbackHelper.waitForOnly();
         ChromeMessageQueueMediator.BrowserControlsObserver observer =
                 observerArgumentCaptor.getValue();
         Assert.assertFalse(observer.isRequesting());
@@ -273,7 +269,7 @@ public class ChromeMessageQueueMediatorTest {
                 BrowserControlsUtils.areBrowserControlsFullyVisible(mBrowserControlsManager));
         Assert.assertFalse(mediator.areBrowserControlsReady());
         Assert.assertFalse(mediator.isReadyForShowing());
-        mediator.onRequestShowing(() -> {});
+        mediator.onRequestShowing(CallbackUtils.emptyRunnable());
         Assert.assertTrue(observer.isRequesting());
     }
 

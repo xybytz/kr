@@ -73,7 +73,7 @@ void MediaRouterDialogControllerViews::CreateMediaRouterDialog(
       browser ? BrowserView::GetBrowserViewForBrowser(browser) : nullptr;
   if (browser_view) {
     // Show the Cast dialog anchored to the Cast toolbar button.
-    if (browser_view->toolbar()->cast_button()) {
+    if (browser_view->toolbar()->GetCastButton()) {
       cast_dialog_coordinator_.ShowDialogWithToolbarAction(
           ui_.get(), browser, dialog_creation_time, activation_location);
     } else {
@@ -259,12 +259,12 @@ MediaToolbarButtonView* MediaRouterDialogControllerViews::GetMediaButton() {
   // Show the |media_button| before opening the dialog so that when the bubble
   // dialog is opened, it has an anchor.
   media_button->media_toolbar_button_controller()->ShowToolbarButton();
-  toolbar_view->Layout();
+  toolbar_view->DeprecatedLayoutImmediately();
 
   return media_button;
 }
 
-MediaRouterActionController*
+CastToolbarButtonController*
 MediaRouterDialogControllerViews::GetActionController() {
   return media_router_ui_service_->action_controller();
 }

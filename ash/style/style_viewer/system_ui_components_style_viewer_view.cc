@@ -36,7 +36,8 @@ namespace {
 
 // The width and height of viewer contents.
 constexpr int kContentWidth = 960;
-constexpr int kContentHeight = 480;
+constexpr int kContentHeight = 496;
+constexpr int kBottomSpacing = 16;
 // The width of components menu.
 constexpr int kMenuWidth = 160;
 // The height of component button.
@@ -52,6 +53,30 @@ constexpr ui::ColorId kInactiveButtonBackgroundColorId =
 // The text color id of inactive component button.
 constexpr ui::ColorId kInactiveButtonTextColorId =
     cros_tokens::kCrosSysOnSurface;
+
+class SystemUIComponentsStyleViewerClientView : public views::ClientView {
+ public:
+  SystemUIComponentsStyleViewerClientView(views::Widget* widget,
+                                          views::View* contents_view)
+      : views::ClientView(widget, contents_view) {}
+
+  SystemUIComponentsStyleViewerClientView(
+      const SystemUIComponentsStyleViewerClientView&) = delete;
+  SystemUIComponentsStyleViewerClientView& operator=(
+      const SystemUIComponentsStyleViewerClientView&) = delete;
+
+  ~SystemUIComponentsStyleViewerClientView() override = default;
+
+  // ClientView:
+  void UpdateWindowRoundedCorners(int corner_radius) override {
+    //  The top corners will be rounded by NonClientFrameViewAsh. The
+    // client-view is responsible for rounding the bottom corners.
+
+    const gfx::RoundedCornersF radii(0, 0, corner_radius, corner_radius);
+    contents_view()->SetBackground(views::CreateThemedRoundedRectBackground(
+        ui::kColorDialogBackground, radii));
+  }
+};
 
 }  // namespace
 
@@ -96,11 +121,10 @@ class SystemUIComponentsStyleViewerView::ComponentButton
         GetColorProvider()->GetColor(background_color_id_)));
   }
 
-  gfx::Size CalculatePreferredSize() const override {
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override {
     return gfx::Size(kMenuWidth, kDefaultButtonHeight);
   }
-
-  int GetHeightForWidth(int w) const override { return kDefaultButtonHeight; }
 
   void OnThemeChanged() override {
     views::LabelButton::OnThemeChanged();
@@ -119,9 +143,7 @@ class SystemUIComponentsStyleViewerView::ComponentButton
   ui::ColorId text_color_id_ = kInactiveButtonTextColorId;
 };
 
-BEGIN_METADATA(SystemUIComponentsStyleViewerView,
-               ComponentButton,
-               views::LabelButton)
+BEGIN_METADATA(SystemUIComponentsStyleViewerView, ComponentButton)
 END_METADATA
 
 // -----------------------------------------------------------------------------
@@ -134,6 +156,8 @@ SystemUIComponentsStyleViewerView::SystemUIComponentsStyleViewerView()
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kHorizontal));
   SetBackground(views::CreateThemedSolidBackground(ui::kColorDialogBackground));
+  SetBorder(
+      views::CreateEmptyBorder(gfx::Insets::TLBR(0, 0, kBottomSpacing, 0)));
 
   // Set menu scroll view.
   menu_scroll_view_->SetPreferredSize(gfx::Size(kMenuWidth, kContentHeight));
@@ -189,14 +213,17 @@ void SystemUIComponentsStyleViewerView::CreateAndShowWidget() {
       u"Combobox", base::BindRepeating(&CreateComboboxInstancesGridView));
   viewer_view->AddComponent(
       u"Typography", base::BindRepeating(&CreateTypographyInstancesGridView));
+  viewer_view->AddComponent(u"Cutouts",
+                            base::BindRepeating(&CreateCutoutsGridView));
 
   // Show PillButton on start.
   viewer_view->ShowComponentInstances(u"PillButton");
 
-  views::Widget::InitParams params;
+  views::Widget::InitParams params(
+      views::Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET,
+      views::Widget::InitParams::TYPE_WINDOW);
   params.parent =
       desks_util::GetActiveDeskContainerForRoot(Shell::GetPrimaryRootWindow());
-  params.type = views::Widget::InitParams::TYPE_WINDOW;
   params.delegate = viewer_view;
 
   // The widget is owned by the native widget.
@@ -234,19 +261,25 @@ void SystemUIComponentsStyleViewerView::ShowComponentInstances(
   }
 
   // Toggle corresponding components grid view.
+  components_grid_view_ = nullptr;
   components_grid_view_ = component_instances_scroll_view_->SetContents(
       components_grid_view_factories_[name].Run());
 }
 
-void SystemUIComponentsStyleViewerView::Layout() {
+void SystemUIComponentsStyleViewerView::Layout(PassKey) {
   menu_contents_view_->SetSize(
       gfx::Size(kMenuWidth, menu_contents_view_->GetPreferredSize().height()));
   components_grid_view_->SizeToPreferredSize();
-  views::View::Layout();
+  LayoutSuperclass<views::View>(this);
 }
 
 std::u16string SystemUIComponentsStyleViewerView::GetWindowTitle() const {
   return u"System Components Style Viewer";
+}
+
+views::ClientView* SystemUIComponentsStyleViewerView::CreateClientView(
+    views::Widget* widget) {
+  return new SystemUIComponentsStyleViewerClientView(widget, this);
 }
 
 void SystemUIComponentsStyleViewerView::OnWidgetDestroyed(

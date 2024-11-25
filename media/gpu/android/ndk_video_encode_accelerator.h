@@ -11,6 +11,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/android/requires_api.h"
 #include "base/containers/circular_deque.h"
 #include "base/containers/flat_map.h"
 #include "base/memory/weak_ptr.h"
@@ -26,10 +27,11 @@
 namespace media {
 
 class BitstreamBuffer;
+class TemporalScalabilityIdExtractor;
 
-class MEDIA_GPU_EXPORT NdkVideoEncodeAccelerator final
-    : public VideoEncodeAccelerator,
-      public NdkMediaCodecWrapper::Client {
+class REQUIRES_ANDROID_API(NDK_MEDIA_CODEC_MIN_API) MEDIA_GPU_EXPORT
+    NdkVideoEncodeAccelerator final : public VideoEncodeAccelerator,
+                                      public NdkMediaCodecWrapper::Client {
  public:
   // |runner| - a task runner that will be used for all callbacks and external
   // calls to this instance.
@@ -41,8 +43,6 @@ class MEDIA_GPU_EXPORT NdkVideoEncodeAccelerator final
       delete;
   ~NdkVideoEncodeAccelerator() override;
 
-  static bool IsSupported();
-
   // VideoEncodeAccelerator implementation.
   VideoEncodeAccelerator::SupportedProfiles GetSupportedProfiles() override;
   bool Initialize(const Config& config,
@@ -53,7 +53,7 @@ class MEDIA_GPU_EXPORT NdkVideoEncodeAccelerator final
   void RequestEncodingParametersChange(
       const Bitrate& bitrate,
       uint32_t framerate,
-      const absl::optional<gfx::Size>& size) override;
+      const std::optional<gfx::Size>& size) override;
   void Destroy() override;
   bool IsFlushSupported() override;
 
@@ -95,6 +95,8 @@ class MEDIA_GPU_EXPORT NdkVideoEncodeAccelerator final
   bool ResetMediaCodec();
 
   void SetEncoderColorSpace();
+
+  void NotifyEncoderInfo();
 
   SEQUENCE_CHECKER(sequence_checker_);
 
@@ -141,16 +143,28 @@ class MEDIA_GPU_EXPORT NdkVideoEncodeAccelerator final
   std::vector<uint8_t> config_data_;
 
   // Required for encoders which are missing stride information.
-  absl::optional<gfx::Size> aligned_size_;
+  std::optional<gfx::Size> aligned_size_;
 
   // Currently configured color space.
-  absl::optional<gfx::ColorSpace> encoder_color_space_;
+  std::optional<gfx::ColorSpace> encoder_color_space_;
 
   // Pending color space to be set on the MediaCodec after flushing.
-  absl::optional<gfx::ColorSpace> pending_color_space_;
+  std::optional<gfx::ColorSpace> pending_color_space_;
+
+  // Number of layers for temporal scalable encoding
+  int num_temporal_layers_ = 1;
+
+  // Counter of inputs which is used to assign temporal layer indexes
+  // according to the corresponding layer pattern. Reset for every key frame.
+  uint32_t input_since_keyframe_count_ = 0;
+
+  // This helper is used for parsing bitstream and assign SVC metadata.
+  std::unique_ptr<TemporalScalabilityIdExtractor> svc_parser_;
 
   // True if any frames have been sent to the encoder.
   bool have_encoded_frames_ = false;
+
+  media::VideoEncoderInfo encoder_info_;
 };
 
 }  // namespace media

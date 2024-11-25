@@ -58,13 +58,11 @@ IntentPickerAction GetIntentPickerAction(
         case apps::PickerEntryType::kMacOs:
         case apps::PickerEntryType::kUnknown:
           NOTREACHED();
-          return IntentPickerAction::kInvalid;
       }
     case apps::IntentPickerCloseReason::PREFERRED_APP_FOUND:
       // For the HTTP/HTTPS Intent Picker, preferred app metrics are recorded
       // separately in RecordPreferredAppLinkClickMetrics.
       NOTREACHED();
-      return IntentPickerAction::kInvalid;
   }
 }
 
@@ -83,7 +81,6 @@ Platform GetIntentPickerDestinationPlatform(IntentPickerAction action) {
       return Platform::CHROME;
     case IntentPickerAction::kInvalid:
       NOTREACHED();
-      return Platform::CHROME;
   }
 }
 

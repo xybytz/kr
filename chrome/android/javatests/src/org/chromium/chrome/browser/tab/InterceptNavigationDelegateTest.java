@@ -16,11 +16,13 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.Features.EnableFeatures;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationDelegateImpl;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
@@ -28,12 +30,10 @@ import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.external_intents.ExternalNavigationHandler;
 import org.chromium.components.external_intents.ExternalNavigationParams;
 import org.chromium.components.external_intents.InterceptNavigationDelegateImpl;
 import org.chromium.content_public.browser.NavigationHandle;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.TouchCommon;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.base.PageTransition;
@@ -110,7 +110,7 @@ public class InterceptNavigationDelegateTest {
     public void setUp() throws Exception {
         mActivity = sActivityTestRule.getActivity();
         final Tab tab = mActivity.getActivityTab();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     InterceptNavigationDelegateClientImpl client =
                             new InterceptNavigationDelegateClientImpl(tab);
@@ -235,7 +235,7 @@ public class InterceptNavigationDelegateTest {
         TouchCommon.singleClickView(mActivity.getActivityTab().getView());
         waitTillExpectedCallsComplete(2, DEFAULT_MAX_TIME_TO_WAIT_IN_MS);
 
-        mSubframeExternalProtocolCalled.waitForFirst();
+        mSubframeExternalProtocolCalled.waitForOnly();
     }
 
     @Test

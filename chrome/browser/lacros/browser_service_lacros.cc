@@ -19,6 +19,7 @@
 #include "base/task/thread_pool.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/arc/arc_web_contents_data.h"
+#include "chrome/browser/chromeos/network/network_portal_signin_window.h"
 #include "chrome/browser/feedback/feedback_dialog_utils.h"
 #include "chrome/browser/lacros/app_mode/kiosk_session_service_lacros.h"
 #include "chrome/browser/lacros/browser_launcher.h"
@@ -64,9 +65,9 @@
 #include "components/sessions/content/session_tab_helper.h"
 #include "content/public/browser/browser_thread.h"
 #include "google_apis/gaia/gaia_auth_util.h"
+#include "ui/base/mojom/window_show_state.mojom.h"
 #include "ui/display/scoped_display_for_new_windows.h"
 #include "ui/platform_window/platform_window.h"
-#include "ui/views/widget/desktop_aura/desktop_window_tree_host_lacros.h"
 #include "url/gurl.h"
 
 namespace {
@@ -76,14 +77,13 @@ constexpr char kHistogramsFilename[] = "lacros_histograms.txt";
 std::string GetCompressedHistograms() {
   std::string histograms =
       base::StatisticsRecorder::ToJSON(base::JSON_VERBOSITY_LEVEL_FULL);
-  std::string compressed_histograms;
-  if (feedback_util::ZipString(base::FilePath(kHistogramsFilename),
-                               std::move(histograms), &compressed_histograms)) {
-    return compressed_histograms;
-  } else {
+  std::optional<std::string> compressed_histograms =
+      feedback_util::ZipString(base::FilePath(kHistogramsFilename), histograms);
+  if (!compressed_histograms.has_value()) {
     LOG(ERROR) << "Failed to compress lacros histograms.";
     return std::string();
   }
+  return compressed_histograms.value();
 }
 
 NavigateParams::PathBehavior ConvertPathBehavior(
@@ -125,7 +125,8 @@ Browser* FindBrowserWithTabId(const std::string& tab_id_str) {
 }
 
 // The return value indicates whether the profile picker was shown.
-bool ShowProfilePickerIfNeeded(bool incognito) {
+bool ShowProfilePickerIfNeeded(bool incognito,
+                               std::optional<int64_t> target_display_id) {
   if (StartupProfileModeFromReason(ProfilePicker::GetStartupModeReason()) ==
           StartupProfileMode::kProfilePicker &&
       chrome::GetTotalBrowserCount() == 0 && !incognito) {
@@ -136,6 +137,10 @@ bool ShowProfilePickerIfNeeded(bool incognito) {
     // default behavior for the first browser window supports session restore,
     // additional windows are opened blank and thus it works reasonably well for
     // BrowserServiceLacros.
+    std::optional<display::ScopedDisplayForNewWindows> scoped_display;
+    if (target_display_id.has_value()) {
+      scoped_display.emplace(target_display_id.value());
+    }
     ProfilePicker::Show(ProfilePicker::Params::FromEntryPoint(
         ProfilePicker::EntryPoint::kNewSessionOnExistingProcess));
     return true;
@@ -195,11 +200,11 @@ BrowserServiceLacros::~BrowserServiceLacros() {
   BrowserList::RemoveObserver(this);
 }
 
-void BrowserServiceLacros::REMOVED_0(REMOVED_0Callback callback) {
+void BrowserServiceLacros::REMOVED_0() {
   NOTIMPLEMENTED();
 }
 
-void BrowserServiceLacros::REMOVED_2(crosapi::mojom::BrowserInitParamsPtr) {
+void BrowserServiceLacros::REMOVED_2() {
   NOTIMPLEMENTED();
 }
 
@@ -223,6 +228,12 @@ void BrowserServiceLacros::NewWindow(bool incognito,
     return;
   }
 
+  if (ShowProfilePickerIfNeeded(incognito, target_display_id)) {
+    std::move(callback).Run(
+        crosapi::mojom::CreationResult::kBrowserWindowUnavailable);
+    return;
+  }
+
   if (profile_id.has_value()) {
     LoadProfileWithId(
         base::BindOnce(&BrowserServiceLacros::NewWindowWithProfile,
@@ -233,11 +244,6 @@ void BrowserServiceLacros::NewWindow(bool incognito,
     return;
   }
 
-  if (ShowProfilePickerIfNeeded(incognito)) {
-    std::move(callback).Run(
-        crosapi::mojom::CreationResult::kBrowserWindowUnavailable);
-    return;
-  }
   LoadMainProfile(base::BindOnce(&BrowserServiceLacros::NewWindowWithProfile,
                                  weak_ptr_factory_.GetWeakPtr(), incognito,
                                  should_trigger_session_restore,
@@ -306,16 +312,32 @@ void BrowserServiceLacros::NewWindowForDetachingTab(
                                       browser->profile());
 }
 
-void BrowserServiceLacros::NewTab(NewTabCallback callback) {
+void BrowserServiceLacros::NewTab(std::optional<uint64_t> profile_id,
+                                  NewTabCallback callback) {
   if (g_browser_process->IsShuttingDown()) {
     std::move(callback).Run(crosapi::mojom::CreationResult::kBrowserShutdown);
     return;
   }
-  if (ShowProfilePickerIfNeeded(false)) {
+
+  // TODO: crbug.com/333312496 - Update newtab to pass the target display id
+  // through the crosapi.
+  if (ShowProfilePickerIfNeeded(false, std::nullopt)) {
     std::move(callback).Run(
         crosapi::mojom::CreationResult::kBrowserWindowUnavailable);
     return;
   }
+
+  if (profile_id.has_value()) {
+    LoadProfileWithId(
+        base::BindOnce(&BrowserServiceLacros::LaunchOrNewTabWithProfile,
+                       weak_ptr_factory_.GetWeakPtr(),
+                       /*should_trigger_session_restore=*/false, -1,
+                       std::move(callback),
+                       /*is_new_tab=*/true),
+        /*can_trigger_fre=*/true, profile_id.value());
+    return;
+  }
+
   LoadMainProfile(
       base::BindOnce(&BrowserServiceLacros::LaunchOrNewTabWithProfile,
                      weak_ptr_factory_.GetWeakPtr(),
@@ -333,6 +355,12 @@ void BrowserServiceLacros::Launch(int64_t target_display_id,
     return;
   }
 
+  if (ShowProfilePickerIfNeeded(false, target_display_id)) {
+    std::move(callback).Run(
+        crosapi::mojom::CreationResult::kBrowserWindowUnavailable);
+    return;
+  }
+
   if (profile_id.has_value()) {
     LoadProfileWithId(
         base::BindOnce(&BrowserServiceLacros::LaunchOrNewTabWithProfile,
@@ -344,11 +372,6 @@ void BrowserServiceLacros::Launch(int64_t target_display_id,
     return;
   }
 
-  if (ShowProfilePickerIfNeeded(false)) {
-    std::move(callback).Run(
-        crosapi::mojom::CreationResult::kBrowserWindowUnavailable);
-    return;
-  }
   LoadMainProfile(
       base::BindOnce(&BrowserServiceLacros::LaunchOrNewTabWithProfile,
                      weak_ptr_factory_.GetWeakPtr(),
@@ -368,6 +391,20 @@ void BrowserServiceLacros::OpenUrl(const GURL& url,
                                  weak_ptr_factory_.GetWeakPtr(), url,
                                  std::move(params), std::move(callback)),
                   /*can_trigger_fre=*/true);
+}
+
+void BrowserServiceLacros::OpenCaptivePortalSignin(const GURL& url,
+                                                   OpenUrlCallback callback) {
+  if (g_browser_process->IsShuttingDown()) {
+    std::move(callback).Run(crosapi::mojom::CreationResult::kBrowserShutdown);
+    return;
+  }
+  // Ensure that the main profile is loaded so that the captive portal signin
+  // profile (which is derived from the main profile) can be created if needed.
+  LoadMainProfile(
+      base::BindOnce(&BrowserServiceLacros::OpenCaptivePortalSigninWithProfile,
+                     weak_ptr_factory_.GetWeakPtr(), url, std::move(callback)),
+      /*can_trigger_fre=*/true);
 }
 
 void BrowserServiceLacros::RestoreTab(RestoreTabCallback callback) {
@@ -431,6 +468,10 @@ void BrowserServiceLacros::NotifyPolicyFetchAttempt() {
 }
 
 void BrowserServiceLacros::UpdateKeepAlive(bool enabled) {
+  if (g_browser_process->IsShuttingDown()) {
+    return;
+  }
+
   if (enabled == static_cast<bool>(keep_alive_))
     return;
 
@@ -444,6 +485,10 @@ void BrowserServiceLacros::UpdateKeepAlive(bool enabled) {
 }
 
 void BrowserServiceLacros::OpenForFullRestore(bool skip_crash_restore) {
+  if (g_browser_process->IsShuttingDown()) {
+    return;
+  }
+
   LoadMainProfile(
       base::BindOnce(&BrowserServiceLacros::OpenForFullRestoreWithProfile,
                      weak_ptr_factory_.GetWeakPtr(), skip_crash_restore),
@@ -566,7 +611,7 @@ void BrowserServiceLacros::OpenUrlImpl(Profile* profile,
 
   Navigate(&navigate_params);
 
-  auto* tab = navigate_params.navigated_or_inserted_contents;
+  auto* tab = navigate_params.navigated_or_inserted_contents.get();
   if (tab && params->from == crosapi::mojom::OpenUrlFrom::kArc) {
     // Add a flag to remember this tab originated in the ARC context.
     tab->SetUserData(&arc::ArcWebContentsData::kArcTransitionFlag,
@@ -601,14 +646,13 @@ void BrowserServiceLacros::NewWindowWithProfile(
       break;
     case policy::IncognitoModeAvailability::kNumTypes:
       NOTREACHED();
-      break;
   }
 
   display::ScopedDisplayForNewWindows scoped(target_display_id);
 
   if (HasPendingUncleanExit(profile) &&
       BrowserLauncher::GetForProfile(profile)->LaunchForLastOpenedProfiles(
-          /*skip_crash_restore=*/false)) {
+          /*skip_crash_restore=*/false, /*restore_tabbed_browser=*/true)) {
     // Restore all previously open profiles when recovering from a crash with
     // the profile picker disabled.
     std::move(callback).Run(crosapi::mojom::CreationResult::kUnknown);
@@ -638,7 +682,7 @@ void BrowserServiceLacros::NewFullscreenWindowWithProfile(
   // target URL.
   Browser::CreateParams params = Browser::CreateParams::CreateForApp(
       "app_name", true, gfx::Rect(), profile, false);
-  params.initial_show_state = ui::SHOW_STATE_FULLSCREEN;
+  params.initial_show_state = ui::mojom::WindowShowState::kFullscreen;
   Browser* browser = Browser::Create(params);
   NavigateParams nav_params(browser, url,
                             ui::PageTransition::PAGE_TRANSITION_AUTO_TOPLEVEL);
@@ -652,11 +696,6 @@ void BrowserServiceLacros::NewFullscreenWindowWithProfile(
   }
 
   browser->window()->Show();
-
-  if (chromeos::BrowserParamsProxy::Get()->SessionType() ==
-      crosapi::mojom::SessionType::kWebKioskSession) {
-    KioskSessionServiceLacros::Get()->InitWebKioskSession(browser, url);
-  }
 
   // Report a success result to ash. Please note that showing Lacros window is
   // asynchronous. Ash-chrome should use the `exo::WMHelper` class rather than
@@ -687,7 +726,7 @@ void BrowserServiceLacros::NewWindowForDetachingTabWithProfile(
 
   Browser::CreateParams params = browser->create_params();
   params.user_gesture = true;
-  params.initial_show_state = ui::SHOW_STATE_DEFAULT;
+  params.initial_show_state = ui::mojom::WindowShowState::kDefault;
   Browser* new_browser = Browser::Create(params);
   CHECK(new_browser);
 
@@ -701,13 +740,6 @@ void BrowserServiceLacros::NewWindowForDetachingTabWithProfile(
   }
 
   new_browser->window()->Show();
-
-  auto* native_window = new_browser->window()->GetNativeWindow();
-  auto* dwth_platform =
-      views::DesktopWindowTreeHostLacros::From(native_window->GetHost());
-  auto* platform_window = dwth_platform->platform_window();
-  std::move(callback).Run(crosapi::mojom::CreationResult::kSuccess,
-                          platform_window->GetWindowUniqueId());
 }
 
 void BrowserServiceLacros::LaunchOrNewTabWithProfile(
@@ -727,7 +759,7 @@ void BrowserServiceLacros::LaunchOrNewTabWithProfile(
 
   if (HasPendingUncleanExit(profile) &&
       BrowserLauncher::GetForProfile(profile)->LaunchForLastOpenedProfiles(
-          /*skip_crash_restore=*/false)) {
+          /*skip_crash_restore=*/false, /*restore_tabbed_browser=*/true)) {
     // Restore all previously open profiles when recovering from a crash with
     // the profile picker disabled.
     std::move(callback).Run(crosapi::mojom::CreationResult::kUnknown);
@@ -780,6 +812,21 @@ void BrowserServiceLacros::OpenUrlWithProfile(
   }
 }
 
+void BrowserServiceLacros::OpenCaptivePortalSigninWithProfile(
+    const GURL& url,
+    OpenUrlCallback callback,
+    Profile* profile) {
+  if (!profile) {
+    LOG(WARNING) << "No profile, it might be an early exit from the FRE. "
+                    "Aborting the requested action.";
+    std::move(callback).Run(crosapi::mojom::CreationResult::kProfileNotExist);
+    return;
+  }
+
+  chromeos::NetworkPortalSigninWindow::Get()->Show(url);
+  std::move(callback).Run(crosapi::mojom::CreationResult::kSuccess);
+}
+
 void BrowserServiceLacros::RestoreTabWithProfile(RestoreTabCallback callback,
                                                  Profile* profile) {
   if (!profile) {
@@ -807,7 +854,7 @@ void BrowserServiceLacros::OpenForFullRestoreWithProfile(
     return;
   }
   BrowserLauncher::GetForProfile(profile)->LaunchForLastOpenedProfiles(
-      skip_crash_restore);
+      skip_crash_restore, /*restore_tabbed_browser=*/false);
 }
 
 void BrowserServiceLacros::UpdateComponentPolicy(

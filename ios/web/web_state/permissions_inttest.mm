@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#import "base/memory/raw_ptr.h"
 #import "base/run_loop.h"
 #import "base/test/ios/wait_util.h"
 #import "base/time/time.h"
@@ -59,8 +60,8 @@ class TestPrerenderWebClient : public web::WebClient {
   }
 
  private:
-  web::WebTestWithWebState* test_case_;
-  web::WebState* web_state_;
+  raw_ptr<web::WebTestWithWebState> test_case_;
+  raw_ptr<web::WebState> web_state_;
 };
 
 // Verifies that the current permission states matches expected.
@@ -145,6 +146,11 @@ constexpr std::string_view kInsecureUrl = "http://www.chromium.org";
 // API afterwards.
 TEST_F(PermissionsInttest,
        TestsThatPermissionStateChangedObserverInvokedForCameraOnly) {
+  // TODO(crbug.com/342245057): Camera access is broken in the simulator on iOS
+  // 17.5.
+  if (@available(iOS 17.5, *)) {
+    GTEST_SKIP() << "Test disabled on iOS 17.5.";
+  }
   EXPECT_CALL(observer_, PermissionStateChanged(web_state(), PermissionCamera))
       .Times(testing::Exactly(2))
       .WillOnce(VerifyPermissionState(web_state(), PermissionCamera,
@@ -210,6 +216,11 @@ TEST_F(PermissionsInttest,
 // when both are requested by the web page and set via web_state() afterwards.
 TEST_F(PermissionsInttest,
        TestsThatPermissionStateChangedObserverInvokedForCameraAndMicrophone) {
+  // TODO(crbug.com/342245057): Camera access is broken in the simulator on iOS
+  // 17.5.
+  if (@available(iOS 17.5, *)) {
+    GTEST_SKIP() << "Test disabled on iOS 17.5.";
+  }
   EXPECT_CALL(observer_, PermissionStateChanged(web_state(), PermissionCamera))
       .Times(testing::Exactly(2))
       .WillOnce(VerifyPermissionState(web_state(), PermissionCamera,
@@ -272,7 +283,7 @@ TEST_F(PermissionsInttest,
 TEST_F(PermissionsInttest,
        TestsThatWebStateShouldNotAlterPermissionIfNotAccessible) {
   if (@available(iOS 17.0, *)) {
-    // TODO(crbug.com/1462372): This crashes on iOS17, waiting for Apple fix.
+    // TODO(crbug.com/40921852): This crashes on iOS17, waiting for Apple fix.
     GTEST_SKIP() << "This crashes on iOS17, waiting for Apple fix.";
   }
 
@@ -312,7 +323,7 @@ TEST_F(PermissionsInttest,
 // Tests that page reload resets permission states.
 TEST_F(PermissionsInttest, TestsThatPageReloadResetsPermissionState) {
   if (@available(iOS 17.0, *)) {
-    // TODO(crbug.com/1462372): This crashes on iOS17, waiting for Apple fix.
+    // TODO(crbug.com/40921852): This crashes on iOS17, waiting for Apple fix.
     GTEST_SKIP() << "This crashes on iOS17, waiting for Apple fix.";
   }
 
@@ -348,7 +359,7 @@ TEST_F(PermissionsInttest, TestsThatPageReloadResetsPermissionState) {
 // navigations.
 TEST_F(PermissionsInttest, TestsThatWebStateDoesNotPreservePermissionState) {
   if (@available(iOS 17.0, *)) {
-    // TODO(crbug.com/1462372): This crashes on iOS17, waiting for Apple fix.
+    // TODO(crbug.com/40921852): This crashes on iOS17, waiting for Apple fix.
     GTEST_SKIP() << "This crashes on iOS17, waiting for Apple fix.";
   }
 
@@ -391,7 +402,7 @@ TEST_F(PermissionsInttest, TestsThatWebStateDoesNotPreservePermissionState) {
 TEST_F(PermissionsInttest,
        TestsThatMovingBackwardOrForwardResetsPermissionState) {
   if (@available(iOS 17.0, *)) {
-    // TODO(crbug.com/1462372): This crashes on iOS17, waiting for Apple fix.
+    // TODO(crbug.com/40921852): This crashes on iOS17, waiting for Apple fix.
     GTEST_SKIP() << "This crashes on iOS17, waiting for Apple fix.";
   }
 

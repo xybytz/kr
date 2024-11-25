@@ -78,10 +78,13 @@ class MockDownloadManagerDelegate : public DownloadManagerDelegate {
   ~MockDownloadManagerDelegate() override;
 
   MOCK_METHOD0(Shutdown, void());
+  MOCK_METHOD1(OnDownloadCanceledAtShutdown,
+               void(download::DownloadItem* item));
   void GetNextId(DownloadIdCallback cb) override { GetNextId_(cb); }
   MOCK_METHOD1(GetNextId_, void(DownloadIdCallback&));
   MOCK_METHOD2(DetermineDownloadTarget,
-               bool(download::DownloadItem*, DownloadTargetCallback*));
+               bool(download::DownloadItem*,
+                    download::DownloadTargetCallback*));
   MOCK_METHOD1(ShouldOpenFileBasedOnExtension, bool(const base::FilePath&));
   bool ShouldCompleteDownload(download::DownloadItem* item,
                               base::OnceClosure cb) override {
@@ -111,9 +114,7 @@ MockDownloadManagerDelegate::MockDownloadManagerDelegate() {}
 
 MockDownloadManagerDelegate::~MockDownloadManagerDelegate() {}
 
-class MockDownloadItemFactory
-    : public download::DownloadItemFactory,
-      public base::SupportsWeakPtr<MockDownloadItemFactory> {
+class MockDownloadItemFactory final : public download::DownloadItemFactory {
  public:
   MockDownloadItemFactory();
 
@@ -155,7 +156,7 @@ class MockDownloadItemFactory
       base::Time start_time,
       base::Time end_time,
       const std::string& etag,
-      const std::string& last_modofied,
+      const std::string& last_modified,
       int64_t received_bytes,
       int64_t total_bytes,
       const std::string& hash,
@@ -184,10 +185,16 @@ class MockDownloadItemFactory
     is_download_persistent_ = is_download_persistent;
   }
 
+  base::WeakPtr<MockDownloadItemFactory> AsWeakPtr() {
+    return weak_ptr_factory_.GetWeakPtr();
+  }
+
  private:
-  std::map<uint32_t, download::MockDownloadItemImpl*> items_;
+  std::map<uint32_t, raw_ptr<download::MockDownloadItemImpl, CtnExperimental>>
+      items_;
   download::DownloadItemImplDelegate item_delegate_;
   bool is_download_persistent_;
+  base::WeakPtrFactory<MockDownloadItemFactory> weak_ptr_factory_{this};
 };
 
 MockDownloadItemFactory::MockDownloadItemFactory()
@@ -339,9 +346,7 @@ download::DownloadItemImpl* MockDownloadItemFactory::CreateSavePageItem(
   return result;
 }
 
-class MockDownloadFileFactory
-    : public download::DownloadFileFactory,
-      public base::SupportsWeakPtr<MockDownloadFileFactory> {
+class MockDownloadFileFactory final : public download::DownloadFileFactory {
  public:
   MockDownloadFileFactory() {}
   ~MockDownloadFileFactory() override {}
@@ -356,9 +361,17 @@ class MockDownloadFileFactory
       const base::FilePath& default_download_directory,
       std::unique_ptr<download::InputStream> stream,
       uint32_t download_id,
+      const base::FilePath& duplicate_download_file_path,
       base::WeakPtr<download::DownloadDestinationObserver> observer) override {
     return MockCreateFile(*save_info, stream.get());
   }
+
+  base::WeakPtr<MockDownloadFileFactory> AsWeakPtr() {
+    return weak_ptr_factory_.GetWeakPtr();
+  }
+
+ private:
+  base::WeakPtrFactory<MockDownloadFileFactory> weak_ptr_factory_{this};
 };
 
 class MockDownloadManagerObserver : public DownloadManager::Observer {
@@ -540,21 +553,14 @@ class DownloadManagerTest : public testing::Test {
   }
 
   void DownloadTargetDeterminedCallback(
-      const base::FilePath& target_path,
-      download::DownloadItem::TargetDisposition disposition,
-      download::DownloadDangerType danger_type,
-      download::DownloadItem::InsecureDownloadStatus insecure_download_status,
-      const base::FilePath& intermediate_path,
-      const base::FilePath& display_name,
-      const std::string& mime_type,
-      download::DownloadInterruptReason interrupt_reason) {
+      download::DownloadTargetInfo target_info) {
     callback_called_ = true;
-    target_path_ = target_path;
-    target_disposition_ = disposition;
-    danger_type_ = danger_type;
-    intermediate_path_ = intermediate_path;
-    mime_type_ = mime_type;
-    interrupt_reason_ = interrupt_reason;
+    target_path_ = target_info.target_path;
+    target_disposition_ = target_info.target_disposition;
+    danger_type_ = target_info.danger_type;
+    intermediate_path_ = target_info.intermediate_path;
+    mime_type_ = target_info.mime_type;
+    interrupt_reason_ = target_info.interrupt_reason;
   }
 
   void DetermineDownloadTarget(download::DownloadItemImpl* item) {
@@ -584,7 +590,7 @@ class DownloadManagerTest : public testing::Test {
   base::WeakPtr<MockDownloadFileFactory> mock_download_file_factory_;
   base::WeakPtr<MockDownloadItemFactory> mock_download_item_factory_;
 
-  // Target detetermined callback.
+  // Target determined callback.
   bool callback_called_;
   base::FilePath target_path_;
   download::DownloadItem::TargetDisposition target_disposition_;
@@ -965,6 +971,40 @@ TEST_F(DownloadManagerWithExpirationTest, DeleteExpiredDownload) {
                                      download::DownloadItem::COMPLETE);
   EXPECT_TRUE(download_item)
       << "Expired complete download will not be deleted.";
+}
+
+class DownloadManagerShutdownTest : public DownloadManagerTest {
+ public:
+  void TearDown() override { download_manager_.reset(); }
+
+ protected:
+  void RunOnDownloadCanceledAtShutdownCalledTest(
+      download::DownloadItem::DownloadState state,
+      int expected_canceled_call_times) {
+    download::MockDownloadItemImpl& item(AddItemToManager());
+
+    EXPECT_CALL(item, GetState()).WillRepeatedly(Return(state));
+    EXPECT_CALL(item, Cancel(false)).Times(expected_canceled_call_times);
+    EXPECT_CALL(GetMockDownloadManagerDelegate(),
+                OnDownloadCanceledAtShutdown(&item))
+        .Times(expected_canceled_call_times);
+    EXPECT_CALL(GetMockObserver(), ManagerGoingDown(download_manager_.get()))
+        .WillOnce(Return());
+    download_manager_->Shutdown();
+    base::RunLoop().RunUntilIdle();
+  }
+};
+
+TEST_F(DownloadManagerShutdownTest,
+       OnDownloadCanceledAtShutdownCalledForInProgressDownload) {
+  RunOnDownloadCanceledAtShutdownCalledTest(download::DownloadItem::IN_PROGRESS,
+                                            /*expected_canceled_call_times=*/1);
+}
+
+TEST_F(DownloadManagerShutdownTest,
+       OnDownloadCanceledAtShutdownNotCalledForCompleteDownload) {
+  RunOnDownloadCanceledAtShutdownCalledTest(download::DownloadItem::COMPLETE,
+                                            /*expected_canceled_call_times=*/0);
 }
 
 }  // namespace content

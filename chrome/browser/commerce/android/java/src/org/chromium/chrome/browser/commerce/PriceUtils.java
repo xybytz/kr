@@ -21,13 +21,14 @@ public class PriceUtils {
 
     /**
      * Format the price based on shopping requirement, with an existing {@link CurrencyFormatter}.
+     *
      * @param currencyFormatter The currency formatter, which already set the currency code. Must
-     *         call {@link CurrencyFormatter#destroy()} afterward.
+     *     call {@link CurrencyFormatter#destroy()} afterward.
      * @param priceMicros The price in micros.
      * @return The formatted price.
      */
     public static String formatPrice(CurrencyFormatter currencyFormatter, long priceMicros) {
-        // TODO(crbug.com/1130068) support all currencies
+        // TODO(crbug.com/40720561) support all currencies
         String formattedPrice;
         // 2 fractional digits below 10 units.
         if (priceMicros < TEN_UNITS) {
@@ -36,7 +37,7 @@ public class PriceUtils {
                     String.format(
                             Locale.getDefault(),
                             "%.2f",
-                            (100 * priceMicros / MICROS_TO_UNITS) / 100.0);
+                            (100 * priceMicros / ((double) MICROS_TO_UNITS)) / 100.0);
         } else {
             // Round up when greater than 10 units, 0 fractional digits.
             currencyFormatter.setMaximumFractionalDigits(FRACTIONAL_DIGITS_GREATER_THAN_TEN_UNITS);

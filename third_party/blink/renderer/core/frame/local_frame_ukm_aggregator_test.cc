@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame_ukm_aggregator.h"
 
 #include "base/metrics/statistics_recorder.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/test_mock_time_task_runner.h"
@@ -58,7 +59,6 @@ class LocalFrameUkmAggregatorTest : public testing::Test {
   void RestartAggregator() {
     source_id_ = ukm::UkmRecorder::GetNewSourceID();
     aggregator_ = base::MakeRefCounted<LocalFrameUkmAggregator>();
-    // ukm::UkmRecorder::GetNewSourceID(), &recorder_, true);
     aggregator_->SetTickClockForTesting(test_task_runner_->GetMockTickClock());
   }
 
@@ -67,7 +67,10 @@ class LocalFrameUkmAggregatorTest : public testing::Test {
   }
 
   std::string GetMetricName(int index) {
-    std::string name = LocalFrameUkmAggregator::metrics_data()[index].name;
+    std::string name =
+        LocalFrameUkmAggregator::metrics_data()[base::checked_cast<size_t>(
+                                                    index)]
+            .name;
 
     // If `name` is an UMA metric of the form Blink.[MetricName].UpdateTime, the
     // following code extracts out [MetricName] for building up the UKM metric.
@@ -214,12 +217,13 @@ class LocalFrameUkmAggregatorTest : public testing::Test {
       LocalFrameUkmAggregator::MetricId target_metric,
       unsigned expected_num_entries) {
     base::TimeTicks start_time = Now();
-    test_task_runner_->FastForwardBy(base::Milliseconds(10));
-    base::TimeTicks end_time = Now();
-
     aggregator().BeginMainFrame();
-    aggregator().RecordForcedLayoutSample(reason, start_time, end_time);
-    aggregator().RecordEndOfFrameMetrics(start_time, end_time, 0, source_id(),
+    {
+      LocalFrameUkmAggregator::ScopedForcedLayoutTimer timer =
+          aggregator().GetScopedForcedLayoutTimer(reason);
+      test_task_runner_->FastForwardBy(base::Milliseconds(10));
+    }
+    aggregator().RecordEndOfFrameMetrics(start_time, Now(), 0, source_id(),
                                          &recorder());
     ResetAggregator();
 
@@ -261,7 +265,7 @@ class LocalFrameUkmAggregatorTest : public testing::Test {
 
  private:
   // Deterministically record metrics in test.
-  base::MetricsSubSampler::ScopedDisableForTesting no_subsampling_;
+  base::MetricsSubSampler::ScopedAlwaysSampleForTesting no_subsampling_;
 
   int64_t source_id_;
   scoped_refptr<LocalFrameUkmAggregator> aggregator_;
@@ -697,10 +701,10 @@ class LocalFrameUkmAggregatorSimTest : public SimTest {
     observer_init->setRoot(
         MakeGarbageCollected<V8UnionDocumentOrElement>(&document));
     TestIntersectionObserverDelegate* internal_delegate =
-        MakeGarbageCollected<TestIntersectionObserverDelegate>(
-            document, LocalFrameUkmAggregator::kLazyLoadIntersectionObserver);
-    IntersectionObserver* internal_observer =
-        IntersectionObserver::Create(observer_init, *internal_delegate);
+        MakeGarbageCollected<TestIntersectionObserverDelegate>(document);
+    IntersectionObserver* internal_observer = IntersectionObserver::Create(
+        observer_init, *internal_delegate,
+        LocalFrameUkmAggregator::kLazyLoadIntersectionObserver);
     DCHECK(!Compositor().NeedsBeginFrame());
     internal_observer->observe(target1);
     internal_observer->observe(target2);
@@ -715,10 +719,10 @@ class LocalFrameUkmAggregatorSimTest : public SimTest {
         0);
 
     TestIntersectionObserverDelegate* javascript_delegate =
-        MakeGarbageCollected<TestIntersectionObserverDelegate>(
-            document, LocalFrameUkmAggregator::kJavascriptIntersectionObserver);
-    IntersectionObserver* javascript_observer =
-        IntersectionObserver::Create(observer_init, *javascript_delegate);
+        MakeGarbageCollected<TestIntersectionObserverDelegate>(document);
+    IntersectionObserver* javascript_observer = IntersectionObserver::Create(
+        observer_init, *javascript_delegate,
+        LocalFrameUkmAggregator::kJavascriptIntersectionObserver);
     javascript_observer->observe(target1);
     javascript_observer->observe(target2);
     Compositor().BeginFrame();
@@ -761,7 +765,7 @@ class LocalFrameUkmAggregatorSimTest : public SimTest {
 
  private:
   // Deterministically record metrics in test.
-  base::MetricsSubSampler::ScopedDisableForTesting no_subsampling_;
+  base::MetricsSubSampler::ScopedAlwaysSampleForTesting no_subsampling_;
 };
 
 TEST_F(LocalFrameUkmAggregatorSimTest, GetUkmAggregator) {
@@ -840,98 +844,6 @@ TEST_F(LocalFrameUkmAggregatorSimTest, LocalFrameRootPrePostFCPMetrics) {
   // Simulate the first contentful paint.
   PaintTiming::From(*local_frame_root.GetDocument()).MarkFirstContentfulPaint();
   EXPECT_FALSE(IsBeforeFCPForTesting());
-}
-
-TEST_F(LocalFrameUkmAggregatorSimTest, DidReachFirstContentfulPaintMetric) {
-  base::HistogramTester histogram_tester;
-
-  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
-  SimRequest main_resource("https://example.com/", "text/html");
-  LoadURL("https://example.com/");
-  main_resource.Complete(R"HTML(
-    <!doctype html>
-    <div id=target></div>
-  )HTML");
-
-  // Do a pre-FCP frame.
-  Compositor().BeginFrame();
-
-  // Cause FCP on the next frame.
-  Element* target = GetDocument().getElementById(AtomicString("target"));
-  target->setInnerHTML("hello world");
-
-  // Do a frame that will cause FCP, but the frame itself will still be pre-FCP.
-  Compositor().BeginFrame();
-
-  GetDocument().Shutdown();
-
-  histogram_tester.ExpectTotalCount("Blink.MainFrame.UpdateTime.PreFCP", 2);
-  histogram_tester.ExpectTotalCount("Blink.MainFrame.UpdateTime.PostFCP", 0);
-  histogram_tester.ExpectTotalCount(
-      "Blink.MainFrame.UpdateTime.AggregatedPreFCP", 1);
-  EXPECT_THAT(histogram_tester.GetAllSamples(
-                  "Blink.LocalFrameRoot.DidReachFirstContentfulPaint"),
-              BucketsAre(base::Bucket(false, 0), base::Bucket(true, 1)));
-  EXPECT_THAT(
-      histogram_tester.GetAllSamples(
-          "Blink.LocalFrameRoot.DidReachFirstContentfulPaint.MainFrame"),
-      BucketsAre(base::Bucket(false, 0), base::Bucket(true, 1)));
-}
-
-TEST_F(LocalFrameUkmAggregatorSimTest,
-       RemoteDidReachFirstContentfulPaintMetric) {
-  base::HistogramTester histogram_tester;
-
-  InitializeRemote();
-  LocalFrame& local_frame_root = *LocalFrameRoot().GetFrame();
-  ASSERT_FALSE(local_frame_root.IsMainFrame());
-  ASSERT_TRUE(local_frame_root.IsLocalRoot());
-
-  // Simulate the first contentful paint.
-  PaintTiming::From(*local_frame_root.GetDocument()).MarkFirstContentfulPaint();
-
-  local_frame_root.GetDocument()->Shutdown();
-
-  EXPECT_THAT(histogram_tester.GetAllSamples(
-                  "Blink.LocalFrameRoot.DidReachFirstContentfulPaint"),
-              BucketsAre(base::Bucket(false, 0), base::Bucket(true, 1)));
-  EXPECT_THAT(
-      histogram_tester.GetAllSamples(
-          "Blink.LocalFrameRoot.DidReachFirstContentfulPaint.MainFrame"),
-      BucketsAre(base::Bucket(false, 0), base::Bucket(true, 0)));
-}
-
-TEST_F(LocalFrameUkmAggregatorSimTest, DidNotReachFirstContentfulPaintMetric) {
-  base::HistogramTester histogram_tester;
-
-  WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
-  SimRequest main_resource("https://example.com/", "text/html");
-  LoadURL("https://example.com/");
-  main_resource.Complete(R"HTML(
-    <!doctype html>
-    <div id=target></div>
-  )HTML");
-
-  // Do a pre-FCP frame.
-  Compositor().BeginFrame();
-
-  // Make a change that does not result in FCP on the next frame.
-  Element* target = GetDocument().getElementById(AtomicString("target"));
-  target->setAttribute(html_names::kStyleAttr,
-                       AtomicString("background: blue;"));
-
-  // Do another pre-FCP frame.
-  Compositor().BeginFrame();
-
-  GetDocument().Shutdown();
-
-  histogram_tester.ExpectTotalCount("Blink.MainFrame.UpdateTime.PreFCP", 2);
-  histogram_tester.ExpectTotalCount("Blink.MainFrame.UpdateTime.PostFCP", 0);
-  histogram_tester.ExpectTotalCount(
-      "Blink.MainFrame.UpdateTime.AggregatedPreFCP", 0);
-  EXPECT_THAT(histogram_tester.GetAllSamples(
-                  "Blink.LocalFrameRoot.DidReachFirstContentfulPaint"),
-              BucketsAre(base::Bucket(false, 1), base::Bucket(true, 0)));
 }
 
 TEST_F(LocalFrameUkmAggregatorSimTest, PrePostFCPMetricsWithChildFrameFCP) {
@@ -1302,10 +1214,6 @@ TEST_P(LocalFrameUkmAggregatorSyncScrollTest, SyncScrollHeuristicRAFSetTop) {
     // Should only have triggered for the one post FCP scroll.
     histogram_tester.ExpectTotalCount(
         "Blink.PossibleSynchronizedScrollCount2.UpdateTime.PostFCP", 1);
-    // Should only trigger for the two scroll top adjustments.
-    EXPECT_THAT(
-        histogram_tester.GetAllSamples("Renderer.PossibleSynchronizedScroll2"),
-        base::BucketsInclude(base::Bucket(0, 2), base::Bucket(1, 2)));
   } else {
     // Should never trigger.
     EXPECT_THAT(
@@ -1314,9 +1222,6 @@ TEST_P(LocalFrameUkmAggregatorSyncScrollTest, SyncScrollHeuristicRAFSetTop) {
         base::BucketsAre(base::Bucket(0, 1)));
     histogram_tester.ExpectTotalCount(
         "Blink.PossibleSynchronizedScrollCount2.UpdateTime.PostFCP", 0);
-    EXPECT_THAT(
-        histogram_tester.GetAllSamples("Renderer.PossibleSynchronizedScroll2"),
-        base::BucketsInclude(base::Bucket(0, 4)));
   }
 }
 

@@ -4,6 +4,7 @@
 
 #include "extensions/renderer/extension_localization_throttle.h"
 
+#include "base/containers/span.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_util.h"
@@ -37,7 +38,7 @@ class ExtensionLocalizationURLLoader : public network::mojom::URLLoaderClient,
  public:
   ExtensionLocalizationURLLoader(
       const std::optional<blink::LocalFrameToken>& frame_token,
-      const std::string& extension_id,
+      const ExtensionId& extension_id,
       mojo::PendingRemote<network::mojom::URLLoaderClient>
           destination_url_loader_client)
       : frame_token_(frame_token),
@@ -129,8 +130,8 @@ class ExtensionLocalizationURLLoader : public network::mojom::URLLoaderClient,
   }
 
   // mojo::DataPipeDrainer
-  void OnDataAvailable(const void* data, size_t num_bytes) override {
-    data_.append(static_cast<const char*>(data), num_bytes);
+  void OnDataAvailable(base::span<const uint8_t> data) override {
+    data_.append(base::as_string_view(data));
   }
   void OnDataComplete() override {
     data_drainer_.reset();
@@ -182,10 +183,6 @@ class ExtensionLocalizationURLLoader : public network::mojom::URLLoaderClient,
 
   void ReplaceMessages() {
     extensions::SharedL10nMap::IPCTarget* ipc_target = nullptr;
-#if BUILDFLAG(ENABLE_EXTENSIONS_LEGACY_IPC)
-    ipc_target = content::RenderThread::Get();
-    (void)frame_token_;
-#else
     // TODO(dtapuska): content::RenderThread::Get() returns nullptr so the old
     // version will never send it to the browser. Figure out why we are even
     // doing this on worker threads.
@@ -201,7 +198,6 @@ class ExtensionLocalizationURLLoader : public network::mojom::URLLoaderClient,
         ipc_target = ExtensionFrameHelper::Get(render_frame)->GetRendererHost();
       }
     }
-#endif
     extensions::SharedL10nMap::GetInstance().ReplaceMessages(
         extension_id_, &data_, ipc_target);
   }

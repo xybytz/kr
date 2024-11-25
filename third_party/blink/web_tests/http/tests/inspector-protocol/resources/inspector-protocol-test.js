@@ -14,6 +14,7 @@
 var TestRunner = class {
   constructor(testBaseURL, targetBaseURL, log, completeTest, fetch, params) {
     this._dumpInspectorProtocolMessages = false;
+    this._protocolTimeout = 0;
     this._testBaseURL = testBaseURL;
     this._targetBaseURL = targetBaseURL;
     this._log = log;
@@ -21,6 +22,7 @@ var TestRunner = class {
     this._fetch = fetch;
     this._params = params;
     this._browserSession = new TestRunner.Session(this, '');
+    this._stableValues = new Map();
   }
 
   static get stabilizeNames() {
@@ -38,6 +40,7 @@ var TestRunner = class {
       'documentURL',
       'styleSheetId',
       'executionContextId',
+      'executionContextUniqueId',
       'openerId',
       'targetId',
       'browserContextId',
@@ -48,6 +51,7 @@ var TestRunner = class {
       'requestId',
       'openerFrameId',
       'issueId',
+      'initiatingFrameId'
     ];
   }
 
@@ -66,9 +70,9 @@ var TestRunner = class {
     this._completeTest.call(null);
   }
 
-  log(item, title, stabilizeNames) {
+  log(item, title, stabilizeNames, stabilizeValues) {
     if (typeof item === 'object')
-      return this._logObject(item, title, stabilizeNames);
+      return this._logObject(item, title, stabilizeNames, stabilizeValues);
     this._log.call(null, item);
   }
 
@@ -81,8 +85,9 @@ var TestRunner = class {
     return this._params;
   }
 
-  _logObject(object, title, stabilizeNames = TestRunner.stabilizeNames) {
+  _logObject(object, title, stabilizeNames = TestRunner.stabilizeNames, stabilizeValues = []) {
     var lines = [];
+    const stableValues = this._stableValues;
 
     function dumpValue(value, prefix, prefixWithName) {
       if (typeof value === 'object' && value !== null) {
@@ -108,8 +113,14 @@ var TestRunner = class {
           continue;
         var prefixWithName = '    ' + prefix + name + ' : ';
         var value = object[name];
-        if (stabilizeNames && stabilizeNames.includes(name))
+        if (stabilizeValues && stabilizeValues.includes(name)) {
+          if (!stableValues.has(value)) {
+            stableValues.set(value, `<${typeof value} ${stableValues.size}>`);
+          }
+          value = stableValues.get(value);
+        } else if (stabilizeNames && stabilizeNames.includes(name)) {
           value = `<${typeof value}>`;
+        }
         dumpValue(value, '    ' + prefix, prefixWithName);
       }
       lines.push(prefix + '}');
@@ -412,7 +423,9 @@ TestRunner.Session = class {
   }
 
   async disconnect() {
-    await DevToolsAPI._sendCommandOrDie(this._parentSessionId, 'Target.detachFromTarget', {sessionId: this._sessionId});
+    await DevToolsAPI._sendCommandOrDie(
+        this._parentSessionId, 'Target.detachFromTarget',
+        {sessionId: this._sessionId}, this._testRunner._protocolTimeout);
   }
 
   createChild(sessionId) {
@@ -427,10 +440,10 @@ TestRunner.Session = class {
   }
 
   async sendCommand(method, params) {
-    var requestId = ++this._requestId;
     if (this._testRunner._dumpInspectorProtocolMessages)
       this._testRunner.log(`frontend => backend: ${JSON.stringify({method, params, sessionId: this._sessionId})}`);
-    const result = await DevToolsAPI._sendCommand(this._sessionId, method, params);
+    const result = await DevToolsAPI._sendCommand(
+        this._sessionId, method, params, this._testRunner._protocolTimeout);
     if (this._testRunner._dumpInspectorProtocolMessages)
       this._testRunner.log(`backend => frontend: ${JSON.stringify(result)}`);
     return result;
@@ -464,16 +477,19 @@ TestRunner.Session = class {
     }
   }
 
-  navigate(url) {
-    return this._navigate(this._testRunner.url(url));
+  navigate(url, waitUntil = 'load') {
+    return this._navigate(this._testRunner.url(url), waitUntil);
   }
 
-  async _navigate(url) {
+  async _navigate(url, waitUntil = 'load') {
     await this.protocol.Page.enable();
     await this.protocol.Page.setLifecycleEventsEnabled({enabled: true});
-    const frameId = (await this.protocol.Page.navigate({url: url})).result.frameId;
+    const frameTree = await this.protocol.Page.getFrameTree();
+    const frameId = frameTree.result.frameTree.frame.id;
+    const navigatePromise = this.protocol.Page.navigate({url: url});
     await this.protocol.Page.onceLifecycleEvent(
-        event => event.params.name === 'load' && event.params.frameId === frameId);
+        event => event.params.name === waitUntil && event.params.frameId === frameId);
+    await navigatePromise;
   }
 
   _dispatchMessage(message) {
@@ -485,7 +501,7 @@ TestRunner.Session = class {
   }
 
   /**
-   * @returns {import("devtools-protocol/types/protocol-proxy-api.d.ts").ProtocolProxyApi.ProtocolApi}
+   * @returns {import("devtools-protocol/types/protocol-tests-proxy-api").ProtocolTestsProxyApi.ProtocolApi}
    */
   _setupProtocol() {
     return new Proxy({}, {
@@ -527,15 +543,18 @@ TestRunner.Session = class {
   }
 
   _waitForEvent(eventName, eventMatcher) {
-    return new Promise(callback => {
-      var handler = result => {
-        if (eventMatcher && !eventMatcher(result))
-          return;
-        this._removeEventHandler(eventName, handler);
-        callback(result);
-      };
-      this._addEventHandler(eventName, handler);
-    });
+    return TestRunner.wrapPromiseWithTimeout(
+        new Promise(callback => {
+          var handler = result => {
+            if (eventMatcher && !eventMatcher(result))
+              return;
+            this._removeEventHandler(eventName, handler);
+            callback(result);
+          };
+          this._addEventHandler(eventName, handler);
+        }),
+        this._testRunner._protocolTimeout,
+        `Waiting for ${eventName} timed out`);
   }
 };
 
@@ -642,22 +661,27 @@ DevToolsAPI.dispatchMessage = function(messageOrObject) {
   }
 };
 
-DevToolsAPI._sendCommand = function(sessionId, method, params) {
+DevToolsAPI._sendCommand = function(sessionId, method, params, timeout = 0) {
   var requestId = ++DevToolsAPI._requestId;
   var messageObject = {'id': requestId, 'method': method, 'params': params};
   if (sessionId)
     messageObject.sessionId = sessionId;
   var embedderMessage = {'id': ++DevToolsAPI._embedderMessageId, 'method': 'dispatchProtocolMessage', 'params': [JSON.stringify(messageObject)]};
   DevToolsHost.sendMessageToEmbedder(JSON.stringify(embedderMessage));
-  return new Promise(f => DevToolsAPI._dispatchTable.set(requestId, f));
+  return TestRunner.wrapPromiseWithTimeout(
+      new Promise(f => DevToolsAPI._dispatchTable.set(requestId, f)), timeout,
+      `${method} command timed out`);
 };
 
-DevToolsAPI._sendCommandOrDie = function(sessionId, method, params) {
-  return DevToolsAPI._sendCommand(sessionId, method, params).then(message => {
-    if (message.error)
-      DevToolsAPI._die('Error communicating with harness', new Error(JSON.stringify(message.error)));
-    return message.result;
-  });
+DevToolsAPI._sendCommandOrDie = function(sessionId, method, params, timeout) {
+  return DevToolsAPI._sendCommand(sessionId, method, params, timeout)
+      .then(message => {
+        if (message.error)
+          DevToolsAPI._die(
+              'Error communicating with harness',
+              new Error(JSON.stringify(message.error)));
+        return message.result;
+      });
 };
 
 DevToolsAPI._fetch = function(url) {
@@ -727,5 +751,23 @@ window.addEventListener('unhandledrejection', e => {
   DevToolsAPI._log(`Promise rejection: ${e.reason}\n${e.reason ? e.reason.stack : ''}`);
   DevToolsAPI._completeTest();
 }, false);
+
+TestRunner.wrapPromiseWithTimeout = (promise, timeout, label) => {
+  if (!timeout)
+    return promise;
+  let timerId;
+  // For a clearer stack trace, creating the error first.
+  const error = new Error(`Timed out at ${label}`);
+  const timeoutPromise = new Promise(resolve => {
+    timerId = setTimeout(resolve, timeout);
+  });
+  return Promise.race([
+    promise.then(result => {
+      clearTimeout(timerId);
+      return result;
+    }),
+    timeoutPromise.then(() => Promise.reject(error))
+  ]);
+};
 
 exports.TestRunner = TestRunner;

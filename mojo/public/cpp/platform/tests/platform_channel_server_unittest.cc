@@ -2,12 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "mojo/public/cpp/platform/platform_channel_server.h"
 
+#include <optional>
 #include <tuple>
 #include <utility>
 
-#include <optional>
 #include "base/containers/span.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/functional/callback.h"
@@ -17,6 +22,7 @@
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "mojo/core/channel.h"
+#include "mojo/core/ipcz_driver/envelope.h"
 #include "mojo/public/cpp/platform/named_platform_channel.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -84,9 +90,11 @@ class TestChannel : public core::Channel::Delegate {
     return true;
   }
 
-  void OnChannelMessage(const void* payload,
-                        size_t payload_size,
-                        std::vector<PlatformHandle> handles) override {
+  void OnChannelMessage(
+      const void* payload,
+      size_t payload_size,
+      std::vector<PlatformHandle> handles,
+      scoped_refptr<core::ipcz_driver::Envelope> envelope) override {
     received_message_ =
         std::string(static_cast<const char*>(payload), payload_size);
     std::move(quit_).Run();

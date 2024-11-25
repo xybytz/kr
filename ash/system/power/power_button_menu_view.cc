@@ -23,6 +23,7 @@
 #include "ash/wm/lock_state_controller.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -67,16 +68,18 @@ PowerButtonMenuView::PowerButtonMenuView(
   SetBackground(
       views::CreateThemedSolidBackground(kPowerButtonMenuBackgroundColorId));
 
-  layer()->SetFillsBoundsOpaquely(false);
   layer()->SetRoundedCornerRadius(
       gfx::RoundedCornersF(kPowerButtonMenuCornerRadius));
-  if (features::IsBackgroundBlurEnabled()) {
+  if (features::IsBackgroundBlurEnabled() &&
+      chromeos::features::IsSystemBlurEnabled()) {
+    layer()->SetFillsBoundsOpaquely(false);
     layer()->SetBackgroundBlur(ColorProvider::kBackgroundBlurSigma);
     layer()->SetBackdropFilterQuality(ColorProvider::kBackgroundBlurQuality);
   }
-  GetViewAccessibility().OverrideRole(ax::mojom::Role::kMenu);
-  GetViewAccessibility().OverrideName(
-      l10n_util::GetStringUTF16(IDS_ASH_POWER_BUTTON_MENU_ACCESSIBLE));
+  GetViewAccessibility().SetRole(ax::mojom::Role::kMenu);
+  GetViewAccessibility().SetName(
+      l10n_util::GetStringUTF16(IDS_ASH_POWER_BUTTON_MENU_ACCESSIBLE),
+      ax::mojom::NameFrom::kAttribute);
   RecreateItems();
 
   // Create a system shadow for current view.
@@ -161,7 +164,7 @@ void PowerButtonMenuView::RecreateItems() {
       [this](bool create, PowerButtonMenuActionType action,
              base::RepeatingClosure callback, const gfx::VectorIcon& icon,
              const std::u16string& string,
-             PowerButtonMenuItemView** out_item_ptr) -> void {
+             raw_ptr<PowerButtonMenuItemView>* out_item_ptr) -> void {
     // If an item needs to be created and exists, or needs to be destroyed but
     // does not exist, there is nothing to be done.
     if (create && *out_item_ptr) {
@@ -200,19 +203,19 @@ void PowerButtonMenuView::RecreateItems() {
   add_remove_item(
       true, PowerButtonMenuActionType::kPowerOff,
       base::BindRepeating(
-          &LockStateController::StartShutdownAnimation,
+          &LockStateController::RequestShutdown,
           base::Unretained(Shell::Get()->lock_state_controller()),
           shutdown_reason_),
       kSystemPowerButtonMenuPowerOffIcon,
       l10n_util::GetStringUTF16(IDS_ASH_POWER_BUTTON_MENU_POWER_OFF_BUTTON),
       &power_off_item_);
-  add_remove_item(
-      create_sign_out, PowerButtonMenuActionType::kSignOut,
-      base::BindRepeating(&SessionControllerImpl::RequestSignOut,
-                          base::Unretained(Shell::Get()->session_controller())),
-      kSystemPowerButtonMenuSignOutIcon,
-      user::GetLocalizedSignOutStringForStatus(login_status, false),
-      &sign_out_item_);
+  add_remove_item(create_sign_out, PowerButtonMenuActionType::kSignOut,
+                  base::BindRepeating(
+                      &LockStateController::RequestSignOut,
+                      base::Unretained(Shell::Get()->lock_state_controller())),
+                  kSystemPowerButtonMenuSignOutIcon,
+                  user::GetLocalizedSignOutStringForStatus(login_status, false),
+                  &sign_out_item_);
   add_remove_item(
       create_lock_screen, PowerButtonMenuActionType::kLockScreen,
       base::BindRepeating(&SessionControllerImpl::LockScreen,
@@ -250,11 +253,7 @@ void PowerButtonMenuView::RecreateItems() {
       &feedback_item_);
 }
 
-const char* PowerButtonMenuView::GetClassName() const {
-  return "PowerButtonMenuView";
-}
-
-void PowerButtonMenuView::Layout() {
+void PowerButtonMenuView::Layout(PassKey) {
   gfx::Rect rect(GetContentsBounds().origin(),
                  power_off_item_->GetPreferredSize());
   const int y_offset =
@@ -288,7 +287,8 @@ void PowerButtonMenuView::Layout() {
   }
 }
 
-gfx::Size PowerButtonMenuView::CalculatePreferredSize() const {
+gfx::Size PowerButtonMenuView::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
   gfx::Size menu_size;
   DCHECK(power_off_item_);
   menu_size = gfx::Size(0, PowerButtonMenuItemView::kMenuItemHeight +

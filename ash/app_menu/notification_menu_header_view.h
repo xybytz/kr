@@ -31,9 +31,10 @@ class NotificationMenuHeaderView : public views::View {
 
   void UpdateCounter(int number_of_notifications);
 
-  // Overidden from views::View:
-  gfx::Size CalculatePreferredSize() const override;
-  void Layout() override;
+  // Overridden from views::View:
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
+  void Layout(PassKey) override;
 
  private:
   friend class NotificationMenuViewTestAPI;

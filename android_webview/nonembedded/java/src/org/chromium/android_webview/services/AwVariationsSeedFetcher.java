@@ -41,16 +41,15 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * AwVariationsSeedFetcher is a JobService which periodically downloads the variations seed.
- * The job is scheduled whenever an app requests the seed, and it's been at least 1 day
- * since the last fetch. If WebView is never used, the job will never run. The 1-day minimum fetch
- * period is chosen as a trade-off between seed freshness (and prompt delivery of feature
- * killswitches) and data and battery usage. Various Android versions may enforce longer periods,
- * depending on WebView usage and battery-saving features. AwVariationsSeedFetcher is not meant to
- * be used outside the variations service. For the equivalent fetch in Chrome, see
- * AsyncInitTaskRunner$FetchSeedTask.
+ * AwVariationsSeedFetcher is a JobService which periodically downloads the variations seed. The job
+ * is scheduled whenever an app requests the seed, and it's been at least 1 day since the last
+ * fetch. If WebView is never used, the job will never run. The 1-day minimum fetch period is chosen
+ * as a trade-off between seed freshness (and prompt delivery of feature killswitches) and data and
+ * battery usage. Various Android versions may enforce longer periods, depending on WebView usage
+ * and battery-saving features. AwVariationsSeedFetcher is not meant to be used outside the
+ * variations service. For the equivalent fetch in Chrome, see AsyncInitTaskRunner$FetchSeedTask.
  */
-// TODO(https://crbug.com/1328637): consider using BackgroundTaskScheduler instead of JobService
+// TODO(crbug.com/40842120): consider using BackgroundTaskScheduler instead of JobService
 public class AwVariationsSeedFetcher extends JobService {
     @VisibleForTesting public static final String JOB_REQUEST_COUNT_KEY = "RequestCount";
     @VisibleForTesting public static final int JOB_MAX_REQUEST_COUNT = 5;
@@ -345,7 +344,7 @@ public class AwVariationsSeedFetcher extends JobService {
             return null;
         }
 
-        private void saveMetrics(long startTime, long endTime) {
+        private void saveMetrics(long startTime) {
             Context context = ContextUtils.getApplicationContext();
             VariationsServiceMetricsHelper metrics =
                     VariationsServiceMetricsHelper.fromVariationsSharedPreferences(context);
@@ -386,7 +385,7 @@ public class AwVariationsSeedFetcher extends JobService {
                             .build();
             SeedFetchInfo fetchInfo = downloader.downloadContent(params, info);
 
-            saveMetrics(startTime, /* endTime= */ currentTimeMillis());
+            saveMetrics(startTime);
 
             if (isCancelled()) {
                 return new FetchSeedOutput(
@@ -409,22 +408,18 @@ public class AwVariationsSeedFetcher extends JobService {
                 needsReschedule = (requestCount <= JOB_MAX_REQUEST_COUNT);
             }
             if (fetchInfo.seedInfo != null) {
-                if (fastMode) {
-                    VariationsSeedHolder.getInstance()
-                            .updateSeedFilesSynchronously(fetchInfo.seedInfo);
-                } else {
-                    VariationsSeedHolder.getInstance()
-                            .updateSeed(
-                                    fetchInfo.seedInfo,
-                                    /* onFinished= */ () ->
-                                            onFinished(mParams, /* needsReschedule= */ false));
-                    shouldFinish = false; // jobFinished will be deferred until updateSeed is done.
-                }
+                VariationsSeedHolder.getInstance()
+                        .updateSeed(
+                                fetchInfo.seedInfo,
+                                /* onFinished= */ () -> {
+                                    onFinished(mParams, /* needsReschedule= */ false);
+                                });
+                shouldFinish = false; // jobFinished will be deferred until updateSeed is done.
             }
             return new FetchSeedOutput(shouldFinish, needsReschedule, /* cancelled= */ false);
         }
 
-        private class FetchSeedOutput {
+        private static class FetchSeedOutput {
             private boolean mShouldFinish;
             private boolean mNeedsReschedule;
             private boolean mCancelled;

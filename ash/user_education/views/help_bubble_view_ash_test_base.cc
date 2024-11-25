@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -14,7 +15,7 @@
 #include "ash/user_education/views/help_bubble_view_ash.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
-#include "components/user_education/common/help_bubble_params.h"
+#include "components/user_education/common/help_bubble/help_bubble_params.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/color_palette.h"
@@ -31,8 +32,8 @@ using user_education::HelpBubbleParams;
 
 // Helpers ---------------------------------------------------------------------
 
-std::u16string Repeat(base::StringPiece16 str, size_t times) {
-  std::vector<base::StringPiece16> strs(times);
+std::u16string Repeat(std::u16string_view str, size_t times) {
+  std::vector<std::u16string_view> strs(times);
   base::ranges::fill(strs, str);
   return base::JoinString(strs, u" ");
 }
@@ -40,6 +41,14 @@ std::u16string Repeat(base::StringPiece16 str, size_t times) {
 }  // namespace
 
 // HelpBubbleViewAshTestBase ---------------------------------------------------
+
+HelpBubbleViewAsh* HelpBubbleViewAshTestBase::CreateHelpBubbleView() {
+  HelpBubbleParams params;
+  params.arrow = HelpBubbleArrow::kNone;
+
+  // NOTE: The returned help bubble view is owned by its widget.
+  return CreateHelpBubbleView(std::move(params));
+}
 
 HelpBubbleViewAsh* HelpBubbleViewAshTestBase::CreateHelpBubbleView(
     HelpBubbleArrow arrow,
@@ -91,20 +100,6 @@ HelpBubbleViewAsh* HelpBubbleViewAshTestBase::CreateHelpBubbleView(
                                std::move(params));
 }
 
-HelpBubbleViewAsh* HelpBubbleViewAshTestBase::CreateHelpBubbleView(
-    const std::optional<HelpBubbleStyle>& style) {
-  HelpBubbleParams params;
-  params.arrow = HelpBubbleArrow::kNone;
-
-  if (style.has_value()) {
-    params.extended_properties =
-        user_education_util::CreateExtendedProperties(style.value());
-  }
-
-  // NOTE: The returned help bubble view is owned by its widget.
-  return CreateHelpBubbleView(std::move(params));
-}
-
 void HelpBubbleViewAshTestBase::SetUp() {
   AshTestBase::SetUp();
 
@@ -115,7 +110,8 @@ void HelpBubbleViewAshTestBase::SetUp() {
   // Initialize a test `widget_` to be used as an anchor for help bubble
   // views. Note that shadow is removed since pixel tests of help bubble views
   // should not fail solely due to changes in shadow appearance of the anchor.
-  views::Widget::InitParams params;
+  views::Widget::InitParams params(
+      views::Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET);
   params.layer_type = ui::LAYER_SOLID_COLOR;
   params.shadow_type = views::Widget::InitParams::ShadowType::kNone;
   widget_ = std::make_unique<views::Widget>();

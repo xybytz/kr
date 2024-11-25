@@ -88,19 +88,34 @@ TEST_F(MoveToAccountStoreBubbleControllerTest, CloseExplicitly) {
 TEST_F(MoveToAccountStoreBubbleControllerTest, AcceptMoveIfOptedIn) {
   ON_CALL(*password_feature_manager(), IsOptedInForAccountStorage)
       .WillByDefault(Return(true));
+  ON_CALL(*delegate(), GetState)
+      .WillByDefault(
+          Return(password_manager::ui::MOVE_CREDENTIAL_AFTER_LOG_IN_STATE));
   EXPECT_CALL(*delegate(), MovePasswordToAccountStore);
   controller()->AcceptMove();
 }
 
 TEST_F(MoveToAccountStoreBubbleControllerTest, RejectMove) {
+  ON_CALL(*delegate(), GetState)
+      .WillByDefault(
+          Return(password_manager::ui::MOVE_CREDENTIAL_AFTER_LOG_IN_STATE));
   EXPECT_CALL(*delegate(), BlockMovingPasswordToAccountStore);
+  controller()->RejectMove();
+}
+
+TEST_F(MoveToAccountStoreBubbleControllerTest, RejectMoveForSelectedPassword) {
+  ON_CALL(*delegate(), GetState)
+      .WillByDefault(Return(
+          password_manager::ui::MOVE_CREDENTIAL_FROM_MANAGE_BUBBLE_STATE));
+  EXPECT_CALL(*delegate(), BlockMovingPasswordToAccountStore).Times(0);
   controller()->RejectMove();
 }
 
 TEST_F(MoveToAccountStoreBubbleControllerTest, ProvidesTitle) {
   PasswordBubbleControllerBase* controller_ptr = controller();
   EXPECT_EQ(controller_ptr->GetTitle(),
-            l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_MOVE_TITLE));
+            l10n_util::GetStringUTF16(
+                IDS_PASSWORD_MANAGER_SAVE_IN_ACCOUNT_BUBBLE_TITLE));
 }
 
 TEST_F(MoveToAccountStoreBubbleControllerTest, ProvidesProfileIcon) {

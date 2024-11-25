@@ -114,12 +114,6 @@ public class BookmarkUiPrefs {
 
     /** Returns how the bookmark rows should be displayed, doesn't write anything to prefs. */
     public @BookmarkRowDisplayPref int getBookmarkRowDisplayPref() {
-        // Special cases for when the new visuals aren't enabled. We should either fallback to the
-        // shopping visuals or the compact.
-        if (!BookmarkFeatures.isAndroidImprovedBookmarksEnabled()) {
-            return getDisplayPrefForLegacy();
-        }
-
         return mPrefsManager.readInt(
                 ChromePreferenceKeys.BOOKMARKS_VISUALS_PREF, INITIAL_BOOKMARK_ROW_DISPLAY_PREF);
     }
@@ -183,7 +177,6 @@ public class BookmarkUiPrefs {
      * Returns the text resource which is read aloud when a view option is selected (for talkback).
      *
      * @param context The android context to get strings.
-     * @param sortOrder The currently active display pref.
      * @return The string to be read aloud when the view option is selected.
      */
     public String getViewOptionsAccessibilityAnnouncementText(
@@ -202,16 +195,5 @@ public class BookmarkUiPrefs {
 
     void notifyObserversForSortOrderChange(@BookmarkRowSortOrder int sortOrder) {
         for (Observer obs : mObservers) obs.onBookmarkRowSortOrderChanged(sortOrder);
-    }
-
-    /**
-     * Some places use {@link BookmarkRowDisplayPref} even for legacy handling. This converts to the
-     * new display pref from feature flags.
-     */
-    public static @BookmarkRowDisplayPref int getDisplayPrefForLegacy() {
-        assert !BookmarkFeatures.isAndroidImprovedBookmarksEnabled();
-        return BookmarkFeatures.isLegacyBookmarksVisualRefreshEnabled()
-                ? BookmarkRowDisplayPref.VISUAL
-                : BookmarkRowDisplayPref.COMPACT;
     }
 }

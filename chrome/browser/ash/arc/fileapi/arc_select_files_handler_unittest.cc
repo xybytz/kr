@@ -287,10 +287,11 @@ TEST_F(ArcSelectFilesHandlerTest, SelectFiles_InitialDocumentPath) {
   request->initial_document_path = arc::mojom::DocumentPath::New();
   request->initial_document_path->authority = "testing.provider";
   request->initial_document_path->path = {"doc:root", "doc:file1"};
+  request->initial_document_path->root_id = "root";
 
-  // "doc:file1" is expected to be ignored.
-  base::FilePath expected_file_path = base::FilePath(
-      "/special/arc-documents-provider/testing.provider/doc:root");
+  // |initial_document_path->path| is expected to be ignored.
+  base::FilePath expected_file_path =
+      base::FilePath("/special/arc-documents-provider/testing.provider/root");
 
   EXPECT_CALL(*mock_dialog_holder_,
               SelectFile(_, FilePathMatcher(expected_file_path), _, _, _, _, _))
@@ -308,7 +309,7 @@ TEST_F(ArcSelectFilesHandlerTest, FileSelected_CallbackCalled) {
   arc_select_files_handler_->SelectFiles(request, callback.Get());
 
   EXPECT_CALL(std::move(callback), Run(_)).Times(1);
-  arc_select_files_handler_->FileSelected(ui::SelectedFileInfo(), 0, nullptr);
+  arc_select_files_handler_->FileSelected(ui::SelectedFileInfo(), 0);
 }
 
 TEST_F(ArcSelectFilesHandlerTest, FileSelected_PickerActivitySelected) {
@@ -331,8 +332,7 @@ TEST_F(ArcSelectFilesHandlerTest, FileSelected_PickerActivitySelected) {
 
   base::FilePath path =
       ConvertAndroidActivityToFilePath(package_name, activity_name);
-  arc_select_files_handler_->FileSelected(ui::SelectedFileInfo(path), 0,
-                                          nullptr);
+  arc_select_files_handler_->FileSelected(ui::SelectedFileInfo(path), 0);
 }
 
 TEST_F(ArcSelectFilesHandlerTest, FileSelectionCanceled_CallbackCalled) {
@@ -347,7 +347,7 @@ TEST_F(ArcSelectFilesHandlerTest, FileSelectionCanceled_CallbackCalled) {
   EXPECT_CALL(std::move(callback),
               Run(SelectFilesResultMatcher(expected_result.get())))
       .Times(1);
-  arc_select_files_handler_->FileSelectionCanceled(nullptr);
+  arc_select_files_handler_->FileSelectionCanceled();
 }
 
 TEST_F(ArcSelectFilesHandlerTest, OnFileSelectorEvent) {

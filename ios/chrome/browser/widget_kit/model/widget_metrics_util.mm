@@ -32,7 +32,7 @@ enum class WidgetKitExtensionKind {
 };
 
 WidgetKitExtensionKind UMAKindForWidgetKind(NSString* kind) {
-  // TODO(crbug.com/1138721): Share this names in a constant file everywhere
+  // TODO(crbug.com/40725610): Share this names in a constant file everywhere
   // they are used. Currently names matches the declared names in each widget
   // file in ios/c/widget_kit_extension.
   if ([kind isEqualToString:@"DinoGameWidget"]) {
@@ -67,7 +67,6 @@ WidgetKitExtensionKind UMAKindForWidgetKind(NSString* kind) {
   }
 
   NOTREACHED() << base::SysNSStringToUTF8(kind);
-  return WidgetKitExtensionKind::kObsolete;
 }
 
 }  // namespace

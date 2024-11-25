@@ -6,7 +6,7 @@
 
 #import "base/notreached.h"
 #import "ios/net/cookies/system_cookie_util.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "net/cookies/canonical_cookie.h"
 #import "net/cookies/cookie_constants.h"
 
@@ -49,7 +49,7 @@
 - (NSArray<NSHTTPCookie*>*)cookiesForURL:(NSURL*)URL {
   NSMutableArray<NSHTTPCookie*>* result = [NSMutableArray array];
   GURL gURL = net::GURLWithNSURL(URL);
-  // TODO(crbug.com/1018272): Compute the cookie access semantic, and update
+  // TODO(crbug.com/40104865): Compute the cookie access semantic, and update
   // `options` with it.
   net::CookieOptions options = net::CookieOptions::MakeAllInclusive();
   net::CookieAccessSemantics cookieAccessSemantics =

@@ -33,6 +33,7 @@
 #include "third_party/blink/renderer/core/layout/geometry/physical_offset.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_rect.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_size.h"
+#include "third_party/blink/renderer/core/layout/geometry/writing_mode_converter.h"
 #include "third_party/blink/renderer/core/layout/inline/inline_cursor.h"
 #include "third_party/blink/renderer/core/layout/intrinsic_sizing_info.h"
 #include "third_party/blink/renderer/core/layout/layout_block.h"
@@ -49,8 +50,6 @@
 #include "third_party/blink/renderer/core/style/basic_shapes.h"
 #include "third_party/blink/renderer/core/style/computed_style_base_constants.h"
 #include "third_party/blink/renderer/platform/geometry/layout_point.h"
-#include "third_party/blink/renderer/platform/geometry/layout_rect.h"
-#include "third_party/blink/renderer/platform/geometry/layout_size.h"
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/geometry/length_functions.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -94,8 +93,9 @@ void LayoutReplaced::StyleDidChange(StyleDifference diff,
 
   // Replaced elements can have border-radius clips without clipping overflow;
   // the overflow clipping case is already covered in LayoutBox::StyleDidChange
-  if (old_style && !old_style->RadiiEqual(StyleRef()))
+  if (old_style && diff.BorderRadiusChanged()) {
     SetNeedsPaintPropertyUpdate();
+  }
 
   bool had_style = !!old_style;
   float old_zoom = had_style ? old_style->EffectiveZoom()
@@ -117,16 +117,6 @@ void LayoutReplaced::StyleDidChange(StyleDifference diff,
     constexpr bool kDiscardDuplicates = true;
     GetDocument().AddConsoleMessage(console_message, kDiscardDuplicates);
   }
-}
-
-void LayoutReplaced::UpdateLayout() {
-  NOT_DESTROYED();
-  DCHECK(NeedsLayout());
-
-  ClearScrollableOverflow();
-  ClearSelfNeedsScrollableOverflowRecalc();
-  ClearChildNeedsScrollableOverflowRecalc();
-  ClearNeedsLayout();
 }
 
 void LayoutReplaced::IntrinsicSizeChanged() {
@@ -187,34 +177,22 @@ void LayoutReplaced::RecalcVisualOverflow() {
     AddContentsVisualOverflow(ReplacedContentRect());
 }
 
-absl::optional<gfx::SizeF>
-LayoutReplaced::ComputeObjectViewBoxSizeForIntrinsicSizing() const {
-  if (IntrinsicWidthOverride() || IntrinsicHeightOverride())
-    return absl::nullopt;
-
-  if (auto view_box = ComputeObjectViewBoxRect())
-    return static_cast<gfx::SizeF>(view_box->size);
-
-  return absl::nullopt;
-}
-
-absl::optional<PhysicalRect> LayoutReplaced::ComputeObjectViewBoxRect(
+std::optional<PhysicalRect> LayoutReplaced::ComputeObjectViewBoxRect(
     const PhysicalSize* overridden_intrinsic_size) const {
   const BasicShape* object_view_box = StyleRef().ObjectViewBox();
-  if (LIKELY(!object_view_box))
-    return absl::nullopt;
+  if (!object_view_box) [[likely]] {
+    return std::nullopt;
+  }
 
   const auto& intrinsic_size =
       overridden_intrinsic_size ? *overridden_intrinsic_size : intrinsic_size_;
   if (intrinsic_size.IsEmpty())
-    return absl::nullopt;
+    return std::nullopt;
 
   if (!CanApplyObjectViewBox())
-    return absl::nullopt;
+    return std::nullopt;
 
-  DCHECK(object_view_box->GetType() == BasicShape::kBasicShapeRectType ||
-         object_view_box->GetType() == BasicShape::kBasicShapeInsetType ||
-         object_view_box->GetType() == BasicShape::kBasicShapeXYWHType);
+  DCHECK_EQ(object_view_box->GetType(), BasicShape::kBasicShapeInsetType);
 
   Path path;
   gfx::RectF bounding_box(0, 0, intrinsic_size.width.ToFloat(),
@@ -224,11 +202,11 @@ absl::optional<PhysicalRect> LayoutReplaced::ComputeObjectViewBoxRect(
   const PhysicalRect view_box_rect =
       PhysicalRect::EnclosingRect(path.BoundingRect());
   if (view_box_rect.IsEmpty())
-    return absl::nullopt;
+    return std::nullopt;
 
   const PhysicalRect intrinsic_rect(PhysicalOffset(), intrinsic_size);
   if (view_box_rect == intrinsic_rect)
-    return absl::nullopt;
+    return std::nullopt;
 
   return view_box_rect;
 }
@@ -378,11 +356,6 @@ PhysicalRect LayoutReplaced::ReplacedContentRectFrom(
   return ComputeReplacedContentRect(base_content_rect);
 }
 
-PhysicalRect LayoutReplaced::PhysicalContentBoxRectFromNG() const {
-  NOT_DESTROYED();
-  return new_content_rect_ ? *new_content_rect_ : PhysicalContentBoxRect();
-}
-
 PhysicalRect LayoutReplaced::PreSnappedRectForPersistentSizing(
     const PhysicalRect& rect) {
   return PhysicalRect(rect.offset, PhysicalSize(ToRoundedSize(rect.size)));
@@ -393,8 +366,8 @@ void LayoutReplaced::ComputeIntrinsicSizingInfo(
   NOT_DESTROYED();
   DCHECK(!ShouldApplySizeContainment());
 
-  if (auto view_box_size = ComputeObjectViewBoxSizeForIntrinsicSizing()) {
-    intrinsic_sizing_info.size = *view_box_size;
+  if (auto view_box = ComputeObjectViewBoxRect()) {
+    intrinsic_sizing_info.size = gfx::SizeF(view_box->size);
   } else {
     intrinsic_sizing_info.size = gfx::SizeF(IntrinsicSize());
   }
@@ -452,14 +425,24 @@ PositionWithAffinity LayoutReplaced::PositionForPoint(
 
   auto [top, bottom] = SelectionTopAndBottom(*this);
 
-  LayoutPoint flipped_point_in_container =
-      LocationContainer()->FlipForWritingMode(point + PhysicalLocation());
-  LayoutUnit block_direction_position = IsHorizontalWritingMode()
-                                            ? flipped_point_in_container.Y()
-                                            : flipped_point_in_container.X();
-  LayoutUnit line_direction_position = IsHorizontalWritingMode()
-                                           ? flipped_point_in_container.X()
-                                           : flipped_point_in_container.Y();
+  LayoutUnit block_direction_position;
+  LayoutUnit line_direction_position;
+  if (RuntimeEnabledFeatures::SidewaysWritingModesEnabled()) {
+    LogicalOffset logical_point =
+        LocationContainer()->CreateWritingModeConverter().ToLogical(
+            point + PhysicalLocation(), {});
+    block_direction_position = logical_point.block_offset;
+    line_direction_position = logical_point.inline_offset;
+  } else {
+    LayoutPoint flipped_point_in_container =
+        LocationContainer()->FlipForWritingMode(point + PhysicalLocation());
+    block_direction_position = IsHorizontalWritingMode()
+                                   ? flipped_point_in_container.Y()
+                                   : flipped_point_in_container.X();
+    line_direction_position = IsHorizontalWritingMode()
+                                  ? flipped_point_in_container.X()
+                                  : flipped_point_in_container.Y();
+  }
 
   if (block_direction_position < top)
     return PositionBeforeThis();  // coordinates are above

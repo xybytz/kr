@@ -14,14 +14,17 @@
 #include "base/memory/weak_ptr.h"
 #include "components/services/storage/shared_storage/shared_storage_manager.h"
 #include "content/browser/navigation_or_document_handle.h"
+#include "content/browser/shared_storage/shared_storage_runtime_manager.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/common/content_export.h"
 #include "mojo/public/cpp/bindings/message.h"
-#include "services/network/public/mojom/optional_bool.mojom.h"
 #include "services/network/public/mojom/url_loader_network_service_observer.mojom.h"
 #include "url/origin.h"
 
 namespace content {
+
+using AccessType =
+    SharedStorageRuntimeManager::SharedStorageObserverInterface::AccessType;
 
 // Receives notifications from `StoragePartitionImpl` when a parsed
 // "Shared-Storage-Write" header is received from the network service. The
@@ -32,9 +35,8 @@ namespace content {
 class CONTENT_EXPORT SharedStorageHeaderObserver {
  public:
   using OperationResult = storage::SharedStorageManager::OperationResult;
-  using OperationType = network::mojom::SharedStorageOperationType;
-  using OperationPtr = network::mojom::SharedStorageOperationPtr;
-  using ContextType = StoragePartitionImpl::URLLoaderNetworkContext::Type;
+  using MethodPtr = network::mojom::SharedStorageModifierMethodPtr;
+  using ContextType = StoragePartitionImpl::ContextType;
 
   // Enum for tracking how often the `PermissionsPolicy` double check runs along
   // with its results. Recorded to UMA; always add new values to the end and do
@@ -92,31 +94,22 @@ class CONTENT_EXPORT SharedStorageHeaderObserver {
   void HeaderReceived(const url::Origin& request_origin,
                       ContextType context_type,
                       NavigationOrDocumentHandle* navigation_or_document_handle,
-                      std::vector<OperationPtr> operations,
+                      std::vector<MethodPtr> methods,
                       base::OnceClosure callback,
                       mojo::ReportBadMessageCallback bad_message_callback,
                       bool can_defer);
 
  protected:
   // virtual for testing.
-  virtual void OnHeaderProcessed(const url::Origin& request_origin,
-                                 const std::vector<bool>& header_results) {}
-  virtual void OnOperationFinished(const url::Origin& request_origin,
-                                   OperationPtr operation,
-                                   OperationResult result) {}
+  virtual void OnHeaderProcessed(const url::Origin& request_origin) {}
+  virtual void OnMethodFinished(const url::Origin& request_origin,
+                                MethodPtr method,
+                                OperationResult result) {}
 
  private:
-  bool Invoke(const url::Origin& request_origin, OperationPtr operation);
-
-  bool Set(const url::Origin& request_origin,
-           std::string key,
-           std::string value,
-           network::mojom::OptionalBool ignore_if_present);
-  bool Append(const url::Origin& request_origin,
-              std::string key,
-              std::string value);
-  bool Delete(const url::Origin& request_origin, std::string key);
-  bool Clear(const url::Origin& request_origin);
+  void Invoke(const url::Origin& request_origin,
+              FrameTreeNodeId main_frame_id,
+              MethodPtr method);
 
   storage::SharedStorageManager* GetSharedStorageManager();
 
@@ -127,7 +120,13 @@ class CONTENT_EXPORT SharedStorageHeaderObserver {
 
   bool IsSharedStorageAllowedBySiteSettings(
       NavigationOrDocumentHandle* navigation_or_document_handle,
-      const url::Origin& request_origin);
+      const url::Origin& request_origin,
+      std::string* out_debug_message = nullptr);
+
+  void NotifySharedStorageAccessed(AccessType type,
+                                   FrameTreeNodeId main_frame_id,
+                                   const url::Origin& request_origin,
+                                   const SharedStorageEventParams& params);
 
   // `storage_partition_` owns `this`, so it will outlive `this`.
   raw_ptr<StoragePartitionImpl> storage_partition_;

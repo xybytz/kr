@@ -759,9 +759,10 @@ IPC_SYNC_MESSAGE_ROUTED4_2(PpapiHostMsg_PPBGraphics3D_WaitForGetOffsetInRange,
                            int32_t /* end */,
                            gpu::CommandBuffer::State /* state */,
                            bool /* success */)
-IPC_MESSAGE_ROUTED2(PpapiHostMsg_PPBGraphics3D_AsyncFlush,
+IPC_MESSAGE_ROUTED3(PpapiHostMsg_PPBGraphics3D_AsyncFlush,
                     ppapi::HostResource /* context */,
-                    int32_t /* put_offset */)
+                    int32_t /* put_offset */,
+                    uint64_t /* release_count */)
 IPC_SYNC_MESSAGE_ROUTED2_2(PpapiHostMsg_PPBGraphics3D_CreateTransferBuffer,
                            ppapi::HostResource /* context */,
                            uint32_t /* size */,
@@ -1679,8 +1680,7 @@ IPC_MESSAGE_CONTROL4(PpapiHostMsg_VideoDecoder_Initialize,
                      PP_VideoProfile /* profile */,
                      PP_HardwareAcceleration /* acceleration */,
                      uint32_t /* min_picture_count */)
-IPC_MESSAGE_CONTROL1(PpapiPluginMsg_VideoDecoder_InitializeReply,
-                     bool /* use_shared_images */)
+IPC_MESSAGE_CONTROL0(PpapiPluginMsg_VideoDecoder_InitializeReply)
 IPC_MESSAGE_CONTROL2(PpapiHostMsg_VideoDecoder_GetShm,
                      uint32_t /* shm_id */,
                      uint32_t /* shm_size */)
@@ -1693,29 +1693,13 @@ IPC_MESSAGE_CONTROL3(PpapiHostMsg_VideoDecoder_Decode,
                      int32_t /* decode_id */)
 IPC_MESSAGE_CONTROL1(PpapiPluginMsg_VideoDecoder_DecodeReply,
                      uint32_t /* shm_id */)
-IPC_MESSAGE_CONTROL3(PpapiPluginMsg_VideoDecoder_RequestTextures,
-                     uint32_t /* num_textures */,
-                     PP_Size /* size */,
-                     uint32_t /* texture_target */)
-IPC_MESSAGE_CONTROL3(PpapiHostMsg_VideoDecoder_AssignTextures,
-                     PP_Size /* size */,
-                     std::vector<uint32_t> /* texture_ids */,
-                     std::vector<gpu::Mailbox> /* mailboxes */)
-IPC_MESSAGE_CONTROL3(PpapiPluginMsg_VideoDecoder_PictureReady,
-                     int32_t /* decode_id */,
-                     uint32_t /* texture_id */,
-                     PP_Rect /* visible_rect */)
 IPC_MESSAGE_CONTROL4(PpapiPluginMsg_VideoDecoder_SharedImageReady,
                      int32_t /* decode_id */,
                      gpu::Mailbox /* mailbox */,
                      PP_Size /* size */,
                      PP_Rect /* visible_rect */)
-IPC_MESSAGE_CONTROL1(PpapiHostMsg_VideoDecoder_RecyclePicture,
-                     uint32_t /* texture_id */)
 IPC_MESSAGE_CONTROL1(PpapiHostMsg_VideoDecoder_RecycleSharedImage,
                      gpu::Mailbox /* mailbox */)
-IPC_MESSAGE_CONTROL1(PpapiPluginMsg_VideoDecoder_DismissPicture,
-                     uint32_t /* texture_id */)
 IPC_MESSAGE_CONTROL0(PpapiHostMsg_VideoDecoder_Flush)
 IPC_MESSAGE_CONTROL0(PpapiPluginMsg_VideoDecoder_FlushReply)
 IPC_MESSAGE_CONTROL0(PpapiHostMsg_VideoDecoder_Reset)

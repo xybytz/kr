@@ -23,22 +23,6 @@ namespace {
 
 constexpr size_t kBytesPerMegabyte = 1024 * 1024;
 
-// Returns the model info parsed from |model_info_path|.
-absl::optional<proto::ModelInfo> ParseModelInfoFromFile(
-    const base::FilePath& model_info_path) {
-  std::string binary_model_info;
-  if (!base::ReadFileToString(model_info_path, &binary_model_info))
-    return absl::nullopt;
-
-  proto::ModelInfo model_info;
-  if (!model_info.ParseFromString(binary_model_info))
-    return absl::nullopt;
-
-  DCHECK(model_info.has_version());
-  DCHECK(model_info.has_optimization_target());
-  return model_info;
-}
-
 // Returns all the model file paths for the model |model_info| in
 // |base_model_dir|.
 std::vector<base::FilePath> GetModelFilePaths(
@@ -51,10 +35,20 @@ std::vector<base::FilePath> GetModelFilePaths(
       base_model_dir.Append(GetBaseFileNameForModelInfo()));
   for (const auto& additional_file : model_info.additional_files()) {
     auto additional_filepath = StringToFilePath(additional_file.file_path());
-    if (!additional_filepath)
+    if (!additional_filepath) {
       continue;
-    DCHECK(base_model_dir.IsParent(*additional_filepath));
-    model_file_paths.emplace_back(*additional_filepath);
+    }
+    if (!additional_filepath->IsAbsolute()) {
+      model_file_paths.emplace_back(
+          base_model_dir.Append(*additional_filepath));
+    } else {
+      // In older versions (<=127), additional files had absolute path in model
+      // info in the store. For backward compatibility, allow the absolute path
+      // to be used. This can be changed to
+      // `CHECK(!additional_filepath->IsAbsolute())` after a few of
+      // milestones.
+      model_file_paths.emplace_back(*additional_filepath);
+    }
   }
   return model_file_paths;
 }
@@ -155,33 +149,28 @@ void RecordModelStorageMetrics(const base::FilePath& base_store_dir) {
 
 }  // namespace
 
-// static
-PredictionModelStore* PredictionModelStore::GetInstance() {
-  static base::NoDestructor<PredictionModelStore> model_store;
-  return model_store.get();
-}
-
 PredictionModelStore::PredictionModelStore()
     : background_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
-          {base::MayBlock(), base::TaskPriority::BEST_EFFORT})) {
-  DCHECK(optimization_guide::features::IsInstallWideModelStoreEnabled());
-}
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT})) {}
 
 PredictionModelStore::~PredictionModelStore() = default;
 
-void PredictionModelStore::Initialize(PrefService* local_state,
-                                      const base::FilePath& base_store_dir) {
+void PredictionModelStore::Initialize(const base::FilePath& base_store_dir) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(local_state);
   DCHECK(!base_store_dir.empty());
 
+  if (!background_task_runner_) {
+    // In unit tests, to avoid leaking a task runner between test runs, the task
+    // runner can be reset at the end of each test. In that case, we'll need to
+    // recreate it here.
+    background_task_runner_ = base::ThreadPool::CreateSequencedTaskRunner(
+        {base::MayBlock(), base::TaskPriority::BEST_EFFORT});
+  }
+
   // Should not be initialized already.
-  DCHECK(!local_state_);
   DCHECK(base_store_dir_.empty());
 
-  local_state_ = local_state;
   base_store_dir_ = base_store_dir;
-
   PurgeInactiveModels();
 
   // Clean up any model files that were slated for deletion in previous
@@ -189,21 +178,11 @@ void PredictionModelStore::Initialize(PrefService* local_state,
   CleanUpOldModelFiles();
 
   background_task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&RemoveInvalidModelDirs, base_store_dir_,
-                     ModelStoreMetadataEntry::GetValidModelDirs(local_state_)));
+      FROM_HERE, base::BindOnce(&RemoveInvalidModelDirs, base_store_dir_,
+                                ModelStoreMetadataEntry::GetValidModelDirs(
+                                    GetLocalState())));
   background_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&RecordModelStorageMetrics, base_store_dir_));
-}
-
-// static
-std::unique_ptr<PredictionModelStore>
-PredictionModelStore::CreatePredictionModelStoreForTesting(
-    PrefService* local_state,
-    const base::FilePath& base_store_dir) {
-  auto store = base::WrapUnique(new PredictionModelStore());
-  store->Initialize(local_state, base_store_dir);
-  return store;
 }
 
 bool PredictionModelStore::HasModel(
@@ -211,7 +190,7 @@ bool PredictionModelStore::HasModel(
     const proto::ModelCacheKey& model_cache_key) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto metadata = ModelStoreMetadataEntry::GetModelMetadataEntryIfExists(
-      local_state_, optimization_target, model_cache_key);
+      GetLocalState(), optimization_target, model_cache_key);
   if (!metadata) {
     return false;
   }
@@ -226,7 +205,7 @@ bool PredictionModelStore::HasModelWithVersion(
     int64_t version) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto metadata = ModelStoreMetadataEntry::GetModelMetadataEntryIfExists(
-      local_state_, optimization_target, model_cache_key);
+      GetLocalState(), optimization_target, model_cache_key);
   if (!metadata) {
     return false;
   }
@@ -251,7 +230,7 @@ void PredictionModelStore::LoadModel(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   auto metadata = ModelStoreMetadataEntry::GetModelMetadataEntryIfExists(
-      local_state_, optimization_target, model_cache_key);
+      GetLocalState(), optimization_target, model_cache_key);
   if (!metadata) {
     std::move(callback).Run(nullptr);
     return;
@@ -305,6 +284,16 @@ PredictionModelStore::LoadAndVerifyModelInBackgroundThread(
   model->mutable_model()->set_download_url(
       FilePathToString(base_model_dir.Append(GetBaseFileNameForModels())));
 
+  // Convert the additional files to absolute paths.
+  model->mutable_model_info()->clear_additional_files();
+  for (const auto& additional_file : model_info->additional_files()) {
+    auto additional_filepath = StringToFilePath(additional_file.file_path());
+    if (!additional_filepath->IsAbsolute()) {
+      additional_filepath = base_model_dir.Append(*additional_filepath);
+    }
+    model->mutable_model_info()->add_additional_files()->set_file_path(
+        FilePathToString(*additional_filepath));
+  }
   return model;
 }
 
@@ -331,10 +320,11 @@ void PredictionModelStore::UpdateMetadataForExistingModel(
   DCHECK(model_info.has_version());
   DCHECK_EQ(optimization_target, model_info.optimization_target());
 
-  if (!HasModel(optimization_target, model_cache_key))
+  if (!HasModel(optimization_target, model_cache_key)) {
     return;
+  }
 
-  ModelStoreMetadataEntryUpdater metadata(local_state_, optimization_target,
+  ModelStoreMetadataEntryUpdater metadata(GetLocalState(), optimization_target,
                                           model_cache_key);
   DCHECK(!metadata.GetModelBaseDir()->IsAbsolute());
   metadata.SetVersion(model_info.version());
@@ -357,7 +347,7 @@ void PredictionModelStore::UpdateModel(
   DCHECK_EQ(optimization_target, model_info.optimization_target());
   DCHECK(base_store_dir_.IsParent(base_model_dir));
 
-  ModelStoreMetadataEntryUpdater metadata(local_state_, optimization_target,
+  ModelStoreMetadataEntryUpdater metadata(GetLocalState(), optimization_target,
                                           model_cache_key);
   metadata.SetVersion(model_info.version());
   metadata.SetExpiryTime(
@@ -420,7 +410,7 @@ void PredictionModelStore::UpdateModelCacheKeyMapping(
     const proto::ModelCacheKey& server_model_cache_key) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   ModelStoreMetadataEntryUpdater::UpdateModelCacheKeyMapping(
-      local_state_, optimization_target, client_model_cache_key,
+      GetLocalState(), optimization_target, client_model_cache_key,
       server_model_cache_key);
 }
 
@@ -429,13 +419,13 @@ void PredictionModelStore::RemoveModel(
     const proto::ModelCacheKey& model_cache_key,
     PredictionModelStoreModelRemovalReason model_remove_reason) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!local_state_) {
+  if (!GetLocalState()) {
     return;
   }
 
   RecordPredictionModelStoreModelRemovalVersionHistogram(optimization_target,
                                                          model_remove_reason);
-  ModelStoreMetadataEntryUpdater metadata(local_state_, optimization_target,
+  ModelStoreMetadataEntryUpdater metadata(GetLocalState(), optimization_target,
                                           model_cache_key);
   auto base_model_dir = metadata.GetModelBaseDir();
   if (base_model_dir) {
@@ -458,16 +448,17 @@ void PredictionModelStore::ScheduleModelDirRemoval(
       base_model_dir.IsAbsolute()
           ? ConvertToRelativePath(base_store_dir_, base_model_dir)
           : base_model_dir;
-  ScopedDictPrefUpdate pref_update(local_state_,
+  ScopedDictPrefUpdate pref_update(GetLocalState(),
                                    prefs::localstate::kStoreFilePathsToDelete);
   pref_update->Set(FilePathToString(relative_model_dir), true);
 }
 
 void PredictionModelStore::PurgeInactiveModels() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(local_state_);
+  DCHECK(GetLocalState());
   for (const auto& expired_model_dir :
-       ModelStoreMetadataEntryUpdater::PurgeAllInactiveMetadata(local_state_)) {
+       ModelStoreMetadataEntryUpdater::PurgeAllInactiveMetadata(
+           GetLocalState())) {
     // Backward compatibility: Model dirs were absolute in the earlier versions,
     // and it was only in experiment. The latest versions use relative paths.
     DCHECK(!expired_model_dir.IsAbsolute() ||
@@ -485,9 +476,9 @@ void PredictionModelStore::PurgeInactiveModels() {
 
 void PredictionModelStore::CleanUpOldModelFiles() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(local_state_);
+  DCHECK(GetLocalState());
   for (const auto entry :
-       local_state_->GetDict(prefs::localstate::kStoreFilePathsToDelete)) {
+       GetLocalState()->GetDict(prefs::localstate::kStoreFilePathsToDelete)) {
     // Backward compatibility: Model dirs were absolute in the earlier versions.
     // The latest versions use relative paths.
     auto path_to_delete = StringToFilePath(entry.first);
@@ -508,13 +499,13 @@ void PredictionModelStore::CleanUpOldModelFiles() {
 void PredictionModelStore::OnFilePathDeleted(const std::string& path_to_delete,
                                              bool success) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(local_state_);
+  DCHECK(GetLocalState());
   if (!success) {
     // Try to delete again later.
     return;
   }
 
-  ScopedDictPrefUpdate pref_update(local_state_,
+  ScopedDictPrefUpdate pref_update(GetLocalState(),
                                    prefs::localstate::kStoreFilePathsToDelete);
   pref_update->Remove(path_to_delete);
 }
@@ -527,10 +518,8 @@ base::FilePath PredictionModelStore::GetBaseStoreDirForTesting() const {
 void PredictionModelStore::ResetForTesting() {
   DETACH_FROM_SEQUENCE(sequence_checker_);
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  local_state_ = nullptr;
   base_store_dir_ = base::FilePath();
-  background_task_runner_ = base::ThreadPool::CreateSequencedTaskRunner(
-      {base::MayBlock(), base::TaskPriority::BEST_EFFORT});
+  background_task_runner_.reset();
 }
 
 }  // namespace optimization_guide

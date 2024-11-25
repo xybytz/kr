@@ -28,6 +28,7 @@ struct AcceleratorData {
   ui::KeyboardCode keycode;
   int modifiers;
   AcceleratorAction action;
+  bool accelerator_locked = false;
 };
 
 // A mask of all the modifiers used for debug accelerators.
@@ -63,10 +64,9 @@ ASH_PUBLIC_EXPORT extern const AcceleratorData
 ASH_PUBLIC_EXPORT extern const size_t
     kEnableWithSameAppWindowCycleAcceleratorDataLength;
 
-// Accelerators that are enabled with the game dashboard feature.
 ASH_PUBLIC_EXPORT extern const AcceleratorData
-    kToggleGameDashboardAcceleratorData[];
-ASH_PUBLIC_EXPORT extern const size_t kToggleGameDashboardAcceleratorDataLength;
+    kTilingWindowResizeAcceleratorData[];
+ASH_PUBLIC_EXPORT extern const size_t kTilingWindowResizeAcceleratorDataLength;
 
 // The public-facing interface for accelerator handling, which is Ash's duty to
 // implement.
@@ -126,6 +126,9 @@ class ASH_PUBLIC_EXPORT AcceleratorController {
   // action.
   virtual bool DoesAcceleratorMatchAction(const ui::Accelerator& accelerator,
                                           const AcceleratorAction action) = 0;
+
+  virtual void ApplyAcceleratorForTesting(
+      const ui::Accelerator& accelerator) = 0;
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);

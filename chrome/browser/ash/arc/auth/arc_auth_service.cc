@@ -186,7 +186,6 @@ std::string GetAccountName(Profile* profile) {
       return std::string();
     case mojom::ChromeAccountType::UNKNOWN:
       NOTREACHED();
-      return std::string();
   }
 }
 
@@ -243,8 +242,7 @@ ArcAuthService::ArcAuthService(content::BrowserContext* browser_context,
   ArcSessionManager::Get()->AddObserver(this);
   identity_manager_->AddObserver(this);
 
-  if (ash::IsAccountManagerAvailable(profile_) &&
-      ash::AccountAppsAvailability::IsArcAccountRestrictionsEnabled()) {
+  if (ash::IsAccountManagerAvailable(profile_)) {
     account_apps_availability_ =
         ash::AccountAppsAvailabilityFactory::GetForProfile(profile_);
 
@@ -332,7 +330,6 @@ void ArcAuthService::OnAuthorizationResult(mojom::ArcSignInResultPtr result,
   // Re-auth shouldn't be triggered for non-Gaia device local accounts.
   if (!user_manager::UserManager::Get()->IsLoggedInAsUserWithGaiaAccount()) {
     NOTREACHED() << "Shouldn't re-auth for non-Gaia accounts";
-    return;
   }
 
   const ProvisioningStatus status = GetProvisioningStatus(provisioning_result);
@@ -517,6 +514,8 @@ void ArcAuthService::HandleAddAccountRequest() {
 void ArcAuthService::HandleRemoveAccountRequest(const std::string& email) {
   DCHECK(ash::IsAccountManagerAvailable(profile_));
 
+  // TODO(b/326488045) Update Settings path to kPeopleSectionPath when Settings
+  // revamp is launched.
   chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(
       profile_, chromeos::settings::mojom::kMyAccountsSubpagePath);
 }
@@ -531,33 +530,14 @@ void ArcAuthService::HandleUpdateCredentialsRequest(const std::string& email) {
 }
 
 void ArcAuthService::OnRefreshTokenUpdatedForAccount(
-    const CoreAccountInfo& account_info) {
-  // Should be consistent with OnAccountAvailableInArc.
-  // TODO(crbug/1260909): Remove IdentityManager::Observer implementation.
-  if (ash::AccountAppsAvailability::IsArcAccountRestrictionsEnabled()) {
-    return;
-  }
-
-  UpsertAccountToArc(account_info);
-}
+    const CoreAccountInfo& account_info) {}
 
 void ArcAuthService::OnExtendedAccountInfoRemoved(
-    const AccountInfo& account_info) {
-  // Should be consistent with OnAccountUnavailableInArc.
-  // TODO(crbug/1260909): Remove IdentityManager::Observer implementation.
-  if (ash::AccountAppsAvailability::IsArcAccountRestrictionsEnabled()) {
-    return;
-  }
-
-  DCHECK(!IsPrimaryGaiaAccount(account_info.gaia));
-
-  RemoveAccountFromArc(account_info.email);
-}
+    const AccountInfo& account_info) {}
 
 void ArcAuthService::OnAccountAvailableInArc(
     const account_manager::Account& account) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  DCHECK(ash::AccountAppsAvailability::IsArcAccountRestrictionsEnabled());
   DCHECK(ash::IsAccountManagerAvailable(profile_));
 
   CoreAccountInfo account_info =
@@ -578,9 +558,7 @@ void ArcAuthService::OnAccountAvailableInArc(
 void ArcAuthService::OnAccountUnavailableInArc(
     const account_manager::Account& account) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  DCHECK(ash::AccountAppsAvailability::IsArcAccountRestrictionsEnabled());
   DCHECK(ash::IsAccountManagerAvailable(profile_));
-
   DCHECK(!IsPrimaryGaiaAccount(account.key.id()));
 
   RemoveAccountFromArc(account.raw_email);
@@ -815,30 +793,15 @@ void ArcAuthService::TriggerAccountsPushToArc(bool filter_primary_account) {
   VLOG(1) << "Pushing accounts to ARC "
           << (filter_primary_account ? "without primary account"
                                      : "with primary account");
-  if (ash::AccountAppsAvailability::IsArcAccountRestrictionsEnabled()) {
-    VLOG(1) << "Using AccountAppsAvailability to get available accounts";
-    account_apps_availability_->GetAccountsAvailableInArc(
-        base::BindOnce(&ArcAuthService::CompleteAccountsPushToArc,
-                       weak_ptr_factory_.GetWeakPtr(), filter_primary_account));
-    return;
-  }
-
-  const std::vector<CoreAccountInfo> accounts =
-      identity_manager_->GetAccountsWithRefreshTokens();
-  for (const CoreAccountInfo& account : accounts) {
-    if (filter_primary_account && IsPrimaryGaiaAccount(account.gaia)) {
-      continue;
-    }
-
-    OnRefreshTokenUpdatedForAccount(account);
-  }
+  VLOG(1) << "Using AccountAppsAvailability to get available accounts";
+  account_apps_availability_->GetAccountsAvailableInArc(
+      base::BindOnce(&ArcAuthService::CompleteAccountsPushToArc,
+                     weak_ptr_factory_.GetWeakPtr(), filter_primary_account));
 }
 
 void ArcAuthService::CompleteAccountsPushToArc(
     bool filter_primary_account,
     const base::flat_set<account_manager::Account>& accounts) {
-  DCHECK(ash::AccountAppsAvailability::IsArcAccountRestrictionsEnabled());
-
   std::vector<mojom::ArcAccountInfoPtr> arc_accounts =
       std::vector<mojom::ArcAccountInfoPtr>();
   for (const auto& account : accounts) {

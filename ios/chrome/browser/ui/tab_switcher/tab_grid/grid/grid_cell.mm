@@ -11,6 +11,7 @@
 #import "base/check_op.h"
 #import "base/debug/dump_without_crashing.h"
 #import "base/notreached.h"
+#import "ios/chrome/browser/shared/ui/elements/extended_touch_target_button.h"
 #import "ios/chrome/browser/shared/ui/elements/top_aligned_image_view.h"
 #import "ios/chrome/browser/shared/ui/symbols/symbols.h"
 #import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
@@ -116,7 +117,7 @@ void PositionView(UIView* view, CGPoint point) {
     snapshotView.translatesAutoresizingMaskIntoConstraints = NO;
 
     UIButton* closeTapTargetButton =
-        [UIButton buttonWithType:UIButtonTypeCustom];
+        [ExtendedTouchTargetButton buttonWithType:UIButtonTypeCustom];
     closeTapTargetButton.translatesAutoresizingMaskIntoConstraints = NO;
     [closeTapTargetButton addTarget:self
                              action:@selector(closeButtonTapped:)
@@ -177,22 +178,38 @@ void PositionView(UIView* view, CGPoint point) {
                                    constant:-kGridCellPriceDropTrailingSpacing],
     ];
     [NSLayoutConstraint activateConstraints:constraints];
+
+    if (@available(iOS 17, *)) {
+      NSArray<UITrait>* traits = TraitCollectionSetForTraits(
+          @[ UITraitPreferredContentSizeCategory.class ]);
+      __weak __typeof(self) weakSelf = self;
+      UITraitChangeHandler handler = ^(id<UITraitEnvironment> traitEnvironment,
+                                       UITraitCollection* previousCollection) {
+        [weakSelf updateUIOnTraitChange:previousCollection];
+      };
+      [self registerForTraitChanges:traits withHandler:handler];
+    }
   }
   return self;
 }
 
 #pragma mark - UIView
 
+#if !defined(__IPHONE_17_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_17_0
 - (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
   [super traitCollectionDidChange:previousTraitCollection];
-  BOOL isPreviousAccessibilityCategory =
-      UIContentSizeCategoryIsAccessibilityCategory(
-          previousTraitCollection.preferredContentSizeCategory);
-  BOOL isCurrentAccessibilityCategory =
-      UIContentSizeCategoryIsAccessibilityCategory(
-          self.traitCollection.preferredContentSizeCategory);
-  if (isPreviousAccessibilityCategory ^ isCurrentAccessibilityCategory) {
-    [self updateTopBarSize];
+  if (@available(iOS 17, *)) {
+    return;
+  }
+  [self updateUIOnTraitChange:previousTraitCollection];
+}
+#endif
+
+- (void)didMoveToWindow {
+  if (self.theme == GridThemeLight) {
+    if (@available(iOS 17, *)) {
+      [self updateInterfaceStyleForWindow:self.window];
+    }
   }
 }
 
@@ -212,6 +229,7 @@ void PositionView(UIView* view, CGPoint point) {
   self.selected = NO;
   self.priceCardView.hidden = YES;
   self.opacity = 1.0;
+  self.hidden = NO;
   [self hideActivityIndicator];
 }
 
@@ -246,19 +264,21 @@ void PositionView(UIView* view, CGPoint point) {
   if (_theme == theme)
     return;
 
-  self.overrideUserInterfaceStyle = (theme == GridThemeDark)
-                                        ? UIUserInterfaceStyleDark
-                                        : UIUserInterfaceStyleUnspecified;
-
   // The light and dark themes have different colored borders based on the
   // theme, regardless of dark mode, so `overrideUserInterfaceStyle` is not
   // enough here.
   switch (theme) {
     case GridThemeLight:
+      if (@available(iOS 17, *)) {
+        [self updateInterfaceStyleForWindow:self.window];
+      } else {
+        self.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
+      }
       self.border.layer.borderColor =
           [UIColor colorNamed:kStaticBlue400Color].CGColor;
       break;
     case GridThemeDark:
+      self.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
       self.border.layer.borderColor = UIColor.whiteColor.CGColor;
       break;
   }
@@ -348,6 +368,7 @@ void PositionView(UIView* view, CGPoint point) {
 
 - (void)setAlpha:(CGFloat)alpha {
   // Make sure alpha is synchronized with opacity.
+  _opacity = alpha;
   super.alpha = _opacity;
 }
 
@@ -606,6 +627,44 @@ void PositionView(UIView* view, CGPoint point) {
              self.traitCollection.preferredContentSizeCategory)
              ? kGridCellHeaderAccessibilityHeight
              : kGridCellHeaderHeight;
+}
+
+// If window is not nil, register for updates to its interface style updates and
+// set the user interface style to be the same as the window.
+- (void)updateInterfaceStyleForWindow:(UIWindow*)window {
+  if (!window) {
+    return;
+  }
+  if (@available(iOS 17, *)) {
+    [self.window.windowScene
+        registerForTraitChanges:@[ UITraitUserInterfaceStyle.class ]
+                     withTarget:self
+                         action:@selector(interfaceStyleChangedForWindow:
+                                                         traitCollection:)];
+    self.overrideUserInterfaceStyle =
+        self.window.windowScene.traitCollection.userInterfaceStyle;
+  }
+}
+
+// Callback for the observation of the user interface style trait of the window
+// scene.
+- (void)interfaceStyleChangedForWindow:(UIView*)window
+                       traitCollection:(UITraitCollection*)traitCollection {
+  self.overrideUserInterfaceStyle =
+      self.window.windowScene.traitCollection.userInterfaceStyle;
+}
+
+// Updates the size of the 'top bar' UI when the view's UITraits change.
+- (void)updateUIOnTraitChange:(UITraitCollection*)previousTraitCollection {
+  BOOL isPreviousAccessibilityCategory =
+      UIContentSizeCategoryIsAccessibilityCategory(
+          previousTraitCollection.preferredContentSizeCategory);
+  BOOL isCurrentAccessibilityCategory =
+      UIContentSizeCategoryIsAccessibilityCategory(
+          self.traitCollection.preferredContentSizeCategory);
+  if (isPreviousAccessibilityCategory ^ isCurrentAccessibilityCategory) {
+    [self updateTopBarSize];
+  }
 }
 
 @end

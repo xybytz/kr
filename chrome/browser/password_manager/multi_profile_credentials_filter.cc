@@ -14,29 +14,30 @@
 
 MultiProfileCredentialsFilter::MultiProfileCredentialsFilter(
     password_manager::PasswordManagerClient* client,
-    SyncServiceFactoryFunction sync_service_factory_function,
     DiceWebSigninInterceptor* dice_web_signin_interceptor)
-    : password_manager::SyncCredentialsFilter(
-          client,
-          std::move(sync_service_factory_function)),
+    : password_manager::SyncCredentialsFilter(client),
       dice_web_signin_interceptor_(dice_web_signin_interceptor) {}
 
 bool MultiProfileCredentialsFilter::ShouldSave(
     const password_manager::PasswordForm& form) const {
-  if (!password_manager::SyncCredentialsFilter::ShouldSave(form))
+  if (!password_manager::SyncCredentialsFilter::ShouldSave(form)) {
     return false;
-  if (!dice_web_signin_interceptor_)
+  }
+  if (!dice_web_signin_interceptor_) {
     return true;  // This happens in incognito.
-  if (!password_manager::sync_util::IsGaiaCredentialPage(form.signon_realm))
+  }
+  if (!password_manager::sync_util::IsGaiaCredentialPage(form.signon_realm)) {
     return true;
+  }
 
   // Note: this function is only called for "Save" bubbles, but not for "Update"
   // bubbles.
 
   // Do not show password bubble if interception is initializing or already
   // shown on screen.
-  if (dice_web_signin_interceptor_->is_interception_in_progress())
+  if (dice_web_signin_interceptor_->is_interception_in_progress()) {
     return false;
+  }
 
   std::string email =
       gaia::SanitizeEmail(base::UTF16ToUTF8(form.username_value));

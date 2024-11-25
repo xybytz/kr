@@ -12,10 +12,11 @@ import './add_items_dialog.js';
 import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {recordSettingChange} from '../metrics_recorder.js';
+import {Setting} from '../mojom-webui/setting.mojom-webui.js';
 
-import {Item} from './add_items_dialog.js';
+import type {Item} from './add_items_dialog.js';
 import {getTemplate} from './add_spellcheck_languages_dialog.html.js';
-import {LanguageHelper, LanguagesModel} from './languages_types.js';
+import type {LanguageHelper, LanguagesModel} from './languages_types.js';
 
 class OsSettingsAddSpellcheckLanguagesDialogElement extends PolymerElement {
   static get is() {
@@ -100,7 +101,7 @@ class OsSettingsAddSpellcheckLanguagesDialogElement extends PolymerElement {
     e.detail.forEach(code => {
       this.languageHelper.toggleSpellCheck(code, true);
     });
-    recordSettingChange();
+    recordSettingChange(Setting.kAddSpellCheckLanguage);
   }
 }
 

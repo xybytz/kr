@@ -179,6 +179,15 @@ constexpr char kPdfExample[] =
     "%PDF- This is a string starting with a PDF's magic bytes and long enough "
     "to be seen as a PDF by LooksLikePdf.";
 
+constexpr char kPngExample[] =
+    "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x02\x00\x00\x00\x02\x08"
+    "\x02\x00\x00\x00\xfd\xd4\x9as\x00\x00\x00\x16IDAT\x08\xd7"
+    "c\xfc\xcf\xc0"
+    "\xc0\xc0\xc0\xc0\xc4\xc0\xc0\xc0\xc0\xc0\x00\x00\r\x1d\x01\x03+\xe9\xa6"
+    "\xc8\x00\x00\x00\x00IEND\xae"
+    "B`\x82";
+constexpr size_t kPngExampleSize = 79;
+
 std::optional<api::printing::SubmitJob::Params> ConstructSubmitJobParams(
     const std::string& printer_id,
     const std::string& title,
@@ -334,7 +343,8 @@ class PrintingAPIHandlerUnittest : public testing::Test {
     local_printer_.SetCaps(id, std::move(caps));
   }
 
-  std::string SubmitJob() {
+  std::string SubmitJob(std::string document_data = kPdfExample,
+                        const char* content_type = "application/pdf") {
     auto caps = crosapi::mojom::CapabilitiesResponse::New();
     caps->basic_info = crosapi::mojom::LocalDestinationInfo::New();
     caps->capabilities = ConstructPrinterCapabilities();
@@ -342,9 +352,9 @@ class PrintingAPIHandlerUnittest : public testing::Test {
 
     // Create Blob with given data.
     std::unique_ptr<content::BlobHandle> blob = CreateMemoryBackedBlob(
-        testing_profile_, kPdfExample, /*content_type=*/"");
+        testing_profile_, document_data, /*content_type=*/"");
     auto params = ConstructSubmitJobParams(kPrinterId, /*title=*/"", kCjt,
-                                           "application/pdf", blob->GetUUID());
+                                           content_type, blob->GetUUID());
     EXPECT_TRUE(params);
 
     SubmitJobFuture job_future;
@@ -357,12 +367,8 @@ class PrintingAPIHandlerUnittest : public testing::Test {
     EXPECT_TRUE(job_id);
     EXPECT_TRUE(submit_job_status);
     EXPECT_EQ(api::printing::SubmitJobStatus::kOk, submit_job_status);
-    // Only lacros needs to report the print job to ash chrome.
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-    EXPECT_EQ(1u, TakePrintJobs().size());
-#else
     EXPECT_EQ(0u, TakePrintJobs().size());
-#endif
+
     return *job_id;
   }
 
@@ -382,7 +388,7 @@ class PrintingAPIHandlerUnittest : public testing::Test {
     const char kPermissionName[] = "printing";
     extension_ = ExtensionBuilder(kExtensionName)
                      .SetID(kExtensionId)
-                     .AddPermission(kPermissionName)
+                     .AddAPIPermission(kPermissionName)
                      .Build();
     ExtensionRegistry::Get(testing_profile_)->AddEnabled(extension_);
 
@@ -458,8 +464,10 @@ TEST_P(PrintingAPIHandlerParam, EventIsDispatched) {
   int index = job_id.size() - 1;
   const Param& param = GetParam();
   if (param.status != crosapi::mojom::PrintJobStatus::kUnknown) {
-    printing_api_handler_->OnPrintJobUpdate(job_id.substr(0, index),
-                                            job_id[index] - '0', param.status);
+    auto update = crosapi::mojom::PrintJobUpdate::New();
+    update->status = param.status;
+    printing_api_handler_->OnPrintJobUpdate(
+        job_id.substr(0, index), job_id[index] - '0', std::move(update));
   }
 
   event_observer.CheckJobStatusEvent(kExtensionId, job_id,
@@ -778,6 +786,30 @@ TEST_F(PrintingAPIHandlerUnittest, SubmitJob_InvalidData) {
   EXPECT_FALSE(job_id);
 }
 
+TEST_F(PrintingAPIHandlerUnittest, SubmitJob_InvalidDataPNG) {
+  auto caps = crosapi::mojom::CapabilitiesResponse::New();
+  caps->basic_info = crosapi::mojom::LocalDestinationInfo::New();
+  caps->capabilities = ConstructPrinterCapabilities();
+  SetCaps(kPrinterId, std::move(caps));
+
+  auto params = ConstructSubmitJobParams(kPrinterId, /*title=*/"", kCjt,
+                                         "image/png", "invalid_uuid");
+  ASSERT_TRUE(params);
+
+  SubmitJobFuture job_future;
+  printing_api_handler_->SubmitJob(
+      /*native_window=*/nullptr, extension_, std::move(params),
+      job_future.GetCallback());
+
+  auto [submit_job_status, job_id, error] = job_future.Take();
+  // We can't fetch actual document data without Blob UUID, so we expect an
+  // error as a result of API call.
+  ASSERT_TRUE(error);
+  EXPECT_EQ("Invalid document", error);
+  EXPECT_FALSE(submit_job_status);
+  EXPECT_FALSE(job_id);
+}
+
 TEST_F(PrintingAPIHandlerUnittest, SubmitJob_PrintingFailed) {
   print_job_controller_->set_fail(true);
   auto caps = crosapi::mojom::CapabilitiesResponse::New();
@@ -808,6 +840,10 @@ TEST_F(PrintingAPIHandlerUnittest, SubmitJob) {
   SubmitJob();
 }
 
+TEST_F(PrintingAPIHandlerUnittest, SubmitJob_PNG) {
+  SubmitJob(std::string(kPngExample, kPngExampleSize), "image/png");
+}
+
 TEST_F(PrintingAPIHandlerUnittest, CancelJob_InvalidId) {
   std::optional<std::string> error =
       printing_api_handler_->CancelJob(kExtensionId, "job_id");
@@ -835,9 +871,10 @@ TEST_F(PrintingAPIHandlerUnittest, CancelJob_InvalidState) {
   // Explicitly complete started print job.
   ASSERT_TRUE(job_id.size() > 1);
   int index = job_id.size() - 1;
+  auto update = crosapi::mojom::PrintJobUpdate::New();
+  update->status = crosapi::mojom::PrintJobStatus::kDone;
   printing_api_handler_->OnPrintJobUpdate(
-      job_id.substr(0, index), job_id[index] - '0',
-      crosapi::mojom::PrintJobStatus::kDone);
+      job_id.substr(0, index), job_id[index] - '0', std::move(update));
 
   // Try to cancel already completed print job.
   std::optional<std::string> error =
@@ -867,9 +904,11 @@ TEST_F(PrintingAPIHandlerUnittest, CancelJob) {
   EXPECT_EQ("", event_observer.extension_id());
   EXPECT_TRUE(event_observer.event_args().is_none());
 
-  printing_api_handler_->OnPrintJobUpdate(
-      GetJobsCancelled()[0].printer_id, GetJobsCancelled()[0].job_id,
-      crosapi::mojom::PrintJobStatus::kCancelled);
+  auto update = crosapi::mojom::PrintJobUpdate::New();
+  update->status = crosapi::mojom::PrintJobStatus::kCancelled;
+  printing_api_handler_->OnPrintJobUpdate(GetJobsCancelled()[0].printer_id,
+                                          GetJobsCancelled()[0].job_id,
+                                          std::move(update));
 
   // Now the job is canceled.
   event_observer.CheckJobStatusEvent(kExtensionId, job_id,

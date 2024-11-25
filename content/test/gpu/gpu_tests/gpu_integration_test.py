@@ -14,7 +14,6 @@ import logging
 import os
 import pkgutil
 import re
-import sys
 import types
 from typing import Any, Dict, Generator, List, Optional, Set, Tuple, Type
 import unittest
@@ -22,6 +21,7 @@ import unittest
 import dataclasses  # Built-in, but pylint gives an ordering false positive.
 
 from telemetry.internal.browser import browser_options as bo
+from telemetry.internal.platform import system_info as si_module
 from telemetry.internal.results import artifact_compatibility_wrapper as acw
 from telemetry.testing import serially_executed_browser_test_case
 from telemetry.util import minidump_utils
@@ -29,10 +29,14 @@ from telemetry.util import screenshot
 from typ import json_results
 
 import gpu_path_util
+import validate_tag_consistency
 
 from gpu_tests import common_browser_args as cba
 from gpu_tests import common_typing as ct
+from gpu_tests import constants
 from gpu_tests import gpu_helper
+from gpu_tests import overlay_support
+from gpu_tests.util import host_information
 
 TEST_WAS_SLOW = 'test_was_slow'
 
@@ -41,25 +45,39 @@ _MAX_TEST_TRIES = 3
 
 ResultType = json_results.ResultType
 
+
 # Please expand the following lists when we expand to new bot configs.
-_SUPPORTED_WIN_VERSIONS = ['win7', 'win10']
-_SUPPORTED_WIN_VERSIONS_WITH_DIRECT_COMPOSITION = ['win10']
-_SUPPORTED_WIN_GPU_VENDORS = [0x8086, 0x10de, 0x1002, 0x4D4F4351]
-_SUPPORTED_WIN_AMD_GPUS = [0x6613, 0x699f, 0x7340]
-_SUPPORTED_WIN_AMD_GPUS_WITH_NV12_OVERLAYS = [0x7340]
-_SUPPORTED_WIN_INTEL_GPUS = [0x5912, 0x3e92, 0x9bc5]
-_SUPPORTED_WIN_INTEL_GPUS_WITH_YUY2_OVERLAYS = [0x5912, 0x3e92, 0x9bc5]
-_SUPPORTED_WIN_INTEL_GPUS_WITH_NV12_OVERLAYS = [0x5912, 0x3e92, 0x9bc5]
-# Hardware overlays are disabled in 26.20.100.8141 per crbug.com/1079393#c105
-_UNSUPPORTED_WIN_INTEL_GPU_DRIVERS_WITH_NV12_OVERLAYS = ['5912-26.20.100.8141']
+_SUPPORTED_WIN_VERSIONS = ['win7', 'win10', 'win11']
+_SUPPORTED_WIN_GPU_VENDORS = [
+    constants.GpuVendor.AMD,
+    constants.GpuVendor.INTEL,
+    constants.GpuVendor.NVIDIA,
+    constants.GpuVendor.QUALCOMM,
+]
 
 _ARGS_TO_CONSOLIDATE = frozenset([
     '--enable-features',
     '--disable-features',
+    '--enable-dawn-features',
+    '--disable-dawn-features',
 ])
 
 TestTuple = Tuple[str, ct.GeneratedTest]
 TestTupleGenerator = Generator[TestTuple, None, None]
+
+
+# Handled in a function to avoid polluting the module's environment with
+# temporary variable names.
+def _GenerateSpecificToGenericTagMapping() -> Dict[str, str]:
+  specific_to_generic = {}
+  for _, tag_set in validate_tag_consistency.TAG_SPECIALIZATIONS.items():
+    for general_tag, specific_tags in tag_set.items():
+      for tag in specific_tags:
+        specific_to_generic[tag] = general_tag
+  return specific_to_generic
+
+
+_specific_to_generic_tags = _GenerateSpecificToGenericTagMapping()
 
 
 @dataclasses.dataclass
@@ -80,7 +98,6 @@ class GpuIntegrationTest(
     serially_executed_browser_test_case.SeriallyExecutedBrowserTestCase):
 
   _disable_log_uploads = False
-  _extra_intel_device_id_with_overlays: Optional[str] = None
   _skip_post_test_cleanup_and_debug_info = False
   _skip_post_failure_browser_restart = False
   _enforce_browser_version = False
@@ -101,13 +118,19 @@ class GpuIntegrationTest(
   _last_launched_browser_info = _BrowserLaunchInfo()
 
   # Keeps track of flaky tests that we're retrying.
-  # TODO(crbug.com/1248602): Remove this in favor of a method that doesn't rely
+  # TODO(crbug.com/40197330): Remove this in favor of a method that doesn't rely
   # on assumptions about retries, etc. if possible.
   _flaky_test_tries = collections.Counter()
 
   # Keeps track of the first test that is run on a shard for a flakiness
   # workaround. See crbug.com/1079244.
   _first_run_test: Optional[str] = None
+
+  # Keeps track of whether this is the first browser start on a shard for a
+  # flakiness workaround. See crbug.com/323927831.
+  _is_first_browser_start = True
+
+  _is_asan = False
 
   tab: Optional[ct.Tab] = None
 
@@ -174,14 +197,17 @@ class GpuIntegrationTest(
     cls._skip_post_failure_browser_restart =\
         options.no_browser_restart_on_failure
     cls._disable_log_uploads = options.disable_log_uploads
-    cls._extra_intel_device_id_with_overlays = (
-        options.extra_intel_device_id_with_overlays)
     cls._enforce_browser_version = options.enforce_browser_version
 
   @classmethod
   def SetUpProcess(cls) -> None:
     super(GpuIntegrationTest, cls).SetUpProcess()
     cls._SetClassVariablesFromOptions(cls._finder_options)
+    # Handled here instead of in _SetClassVariablesFromOptions since we only
+    # ever want to do this once per process.
+    if cls._finder_options.extra_overlay_config_json:
+      overlay_support.ParseOverlayJsonFile(
+          cls._finder_options.extra_overlay_config_json)
 
   @classmethod
   def AddCommandlineArgs(cls, parser: ct.CmdArgParser) -> None:
@@ -189,37 +215,40 @@ class GpuIntegrationTest(
 
     Subclasses overriding this method must invoke the superclass's
     version!"""
-    parser.add_option(
-        '--disable-log-uploads',
-        dest='disable_log_uploads',
+    parser.add_argument('--disable-log-uploads',
+                        dest='disable_log_uploads',
+                        action='store_true',
+                        default=False,
+                        help='Disables uploads of logs to cloud storage')
+    parser.add_argument('--extra-overlay-config-json',
+                        help=('A path to a JSON file containing additional '
+                              'overlay configs to use. See '
+                              'overlay_support.ParseOverlayJsonFile() for more '
+                              'information on expected format.'))
+    parser.add_argument(
+        '--skip-post-test-cleanup-and-debug-info',
         action='store_true',
-        default=False,
-        help='Disables uploads of logs to cloud storage')
-    parser.add_option('--extra-intel-device-id-with-overlays',
-                      dest='extra_intel_device_id_with_overlays',
-                      help='The extra Intel device id with overlays')
-    parser.add_option('--skip-post-test-cleanup-and-debug-info',
-                      action='store_true',
-                      help=('Disables the automatic cleanup of minidumps after '
-                            'each test and prevents collection of debug '
-                            'information such as screenshots when a test '
-                            'fails. This can can speed up local testing at the '
-                            'cost of providing less actionable data when a '
-                            'test does fail.'))
-    parser.add_option('--no-browser-restart-on-failure',
-                      action='store_true',
-                      help=('Disables the automatic browser restarts after '
-                            'failing tests. This can speed up local testing at '
-                            'the cost of potentially leaving bad state around '
-                            'after a test fails.'))
-    parser.add_option('--enforce-browser-version',
-                      default=False,
-                      action='store_true',
-                      help=('Enforces that the started browser version is '
-                            'the same as what the current Chromium revision '
-                            'would build, i.e. that the browser being used '
-                            'is one that was built at the current Chromium '
-                            'revision.'))
+        help=('Disables the automatic cleanup of minidumps after '
+              'each test and prevents collection of debug '
+              'information such as screenshots when a test '
+              'fails. This can can speed up local testing at the '
+              'cost of providing less actionable data when a '
+              'test does fail.'))
+    parser.add_argument(
+        '--no-browser-restart-on-failure',
+        action='store_true',
+        help=('Disables the automatic browser restarts after '
+              'failing tests. This can speed up local testing at '
+              'the cost of potentially leaving bad state around '
+              'after a test fails.'))
+    parser.add_argument('--enforce-browser-version',
+                        default=False,
+                        action='store_true',
+                        help=('Enforces that the started browser version is '
+                              'the same as what the current Chromium revision '
+                              'would build, i.e. that the browser being used '
+                              'is one that was built at the current Chromium '
+                              'revision.'))
 
   @classmethod
   def GenerateBrowserArgs(cls, additional_args: List[str]) -> List[str]:
@@ -239,6 +268,10 @@ class GpuIntegrationTest(
     """
     default_args = [
         '--disable-metal-test-shaders',
+        # TODO(crbug.com/339479329): Remove this once we either determine that
+        # RenderDocument is not the culprit or it is and the root cause of
+        # flakiness is fixed.
+        '--disable-features=RenderDocument',
     ]
     if cls._SuiteSupportsParallelTests():
       # When running tests in parallel, windows can be treated as occluded if a
@@ -294,7 +327,7 @@ class GpuIntegrationTest(
     ]:
       # Reduce number of video buffers when running tests on Fuchsia to
       # workaround crbug.com/1203580
-      # TODO(https://crbug.com/1203580): Remove this once the bug is resolved.
+      # TODO(crbug.com/40763608): Remove this once the bug is resolved.
       browser_args.append('--double-buffer-compositing')
 
       # Increase GPU watchdog timeout to 60 seconds to avoid flake when
@@ -526,6 +559,7 @@ class GpuIntegrationTest(
   # pylint: disable=no-self-use
   def _ShouldForceRetryOnFailureFirstTest(self) -> bool:
     return False
+
   # pylint: enable=no-self-use
 
   def _DetermineFirstTestRetryWorkaround(self, test_name: str) -> bool:
@@ -541,17 +575,30 @@ class GpuIntegrationTest(
     Returns:
       A boolean indicating whether a retry on failure should be forced.
     """
-    if self._ShouldForceRetryOnFailureFirstTest():
-      if GpuIntegrationTest._first_run_test is None:
-        GpuIntegrationTest._first_run_test = test_name
-      if GpuIntegrationTest._first_run_test == test_name:
-        logging.warning('Forcing RetryOnFailure in test %s', test_name)
-        # Notify typ that it should retry this test if necessary.
-        # pylint: disable=attribute-defined-outside-init
-        self.retryOnFailure = True
-        # pylint: enable=attribute-defined-outside-init
-        return True
+    if (GpuIntegrationTest._first_run_test == test_name
+        and self._ShouldForceRetryOnFailureFirstTest()):
+      logging.warning('Forcing RetryOnFailure in test %s', test_name)
+      # Notify typ that it should retry this test if necessary.
+      # pylint: disable=attribute-defined-outside-init
+      self.retryOnFailure = True
+      # pylint: enable=attribute-defined-outside-init
+      return True
     return False
+
+  # pylint: disable=no-self-use
+  def _DetermineFirstBrowserStartWorkaround(self) -> bool:
+    """Potentially allows retries for the first browser start on a shard.
+
+    This is a temporary workaround for crbug.com/323927831 and should be
+    removed once the root cause is fixed.
+    """
+    # The browser is assumed to be dead at this point, so we can't rely on
+    # GetPlatformTags() to restrict this to the flaking Mac configs.
+    if not GpuIntegrationTest._is_first_browser_start:
+      return False
+    return host_information.IsMac()
+
+  # pylint: enable=no-self-use
 
   # pylint: disable=no-self-use
   def _DetermineRetryWorkaround(self, exception: Exception) -> bool:
@@ -579,6 +626,9 @@ class GpuIntegrationTest(
           should_retry_on_failure
           or self._DetermineFirstTestRetryWorkaround(test_name))
       return expected_results, should_retry_on_failure
+
+    if GpuIntegrationTest._first_run_test is None:
+      GpuIntegrationTest._first_run_test = test_name
 
     expected_crashes = {}
     try:
@@ -627,7 +677,7 @@ class GpuIntegrationTest(
       # Perform the same data collection as we do for an unexpected failure
       # but only if this was the last try for a flaky test so we don't
       # waste time symbolizing minidumps for expected flaky crashes.
-      # TODO(crbug.com/1248602): Replace this with a different method of
+      # TODO(crbug.com/40197330): Replace this with a different method of
       # tracking retries if possible.
       self._flaky_test_tries[test_name] += 1
       if self._flaky_test_tries[test_name] == _MAX_TEST_TRIES:
@@ -724,7 +774,7 @@ class GpuIntegrationTest(
     return gpu_helper.IsIntel(gpu.devices[0].vendor_id)
 
   def IsDualGPUMacLaptop(self) -> bool:
-    if sys.platform != 'darwin':
+    if not host_information.IsMac():
       return False
     system_info = self.browser.GetSystemInfo()
     if not system_info:
@@ -830,65 +880,6 @@ class GpuIntegrationTest(
     """
     raise NotImplementedError
 
-  def _GetOverlayBotConfig(self) -> Dict[str, Any]:
-    """Returns expected bot config for DirectComposition and overlay support.
-
-    This is only meaningful on Windows platform.
-
-    The rules to determine bot config are:
-      1) Only win10 or newer supports DirectComposition
-      2) Only Intel supports hardware overlays with DirectComposition
-      3) Currently the Win/Intel GPU bot supports YUY2 and NV12 overlays
-    """
-    if self.browser is None:
-      raise Exception("Browser doesn't exist")
-    system_info = self.browser.GetSystemInfo()
-    if system_info is None:
-      raise Exception("Browser doesn't support GetSystemInfo")
-    gpu = system_info.gpu.devices[0]
-    if gpu is None:
-      raise Exception("System Info doesn't have a gpu")
-    gpu_vendor_id = gpu.vendor_id
-    gpu_device_id = gpu.device_id
-    os_version = self.browser.platform.GetOSVersionName()
-    if os_version is None:
-      raise Exception('browser.platform.GetOSVersionName() returns None')
-    os_version = os_version.lower()
-
-    config = {
-        'direct_composition': False,
-        'supports_overlays': False,
-        'yuy2_overlay_support': 'NONE',
-        'nv12_overlay_support': 'NONE',
-    }
-    assert os_version in _SUPPORTED_WIN_VERSIONS
-    assert gpu_vendor_id in _SUPPORTED_WIN_GPU_VENDORS
-    if os_version in _SUPPORTED_WIN_VERSIONS_WITH_DIRECT_COMPOSITION:
-      config['direct_composition'] = True
-      config['supports_overlays'] = True
-      config['yuy2_overlay_support'] = 'SOFTWARE'
-      config['nv12_overlay_support'] = 'SOFTWARE'
-      if gpu_vendor_id == 0x1002:
-        assert gpu_device_id in _SUPPORTED_WIN_AMD_GPUS
-        if gpu_device_id in _SUPPORTED_WIN_AMD_GPUS_WITH_NV12_OVERLAYS:
-          config['nv12_overlay_support'] = 'SCALING'
-      elif gpu_vendor_id == 0x8086:
-        if self._extra_intel_device_id_with_overlays:
-          extra_device_id = int(self._extra_intel_device_id_with_overlays, 16)
-          _SUPPORTED_WIN_INTEL_GPUS.append(extra_device_id)
-          _SUPPORTED_WIN_INTEL_GPUS_WITH_YUY2_OVERLAYS.append(extra_device_id)
-          _SUPPORTED_WIN_INTEL_GPUS_WITH_NV12_OVERLAYS.append(extra_device_id)
-
-        assert gpu_device_id in _SUPPORTED_WIN_INTEL_GPUS
-        gpu_device_and_driver = ('%x-' + gpu.driver_version) % gpu_device_id
-        if gpu_device_id in _SUPPORTED_WIN_INTEL_GPUS_WITH_YUY2_OVERLAYS:
-          config['yuy2_overlay_support'] = 'SCALING'
-        if (gpu_device_id in _SUPPORTED_WIN_INTEL_GPUS_WITH_NV12_OVERLAYS
-            and gpu_device_and_driver not in
-            _UNSUPPORTED_WIN_INTEL_GPU_DRIVERS_WITH_NV12_OVERLAYS):
-          config['nv12_overlay_support'] = 'SCALING'
-    return config
-
   def _GetDx12VulkanBotConfig(self) -> Dict[str, bool]:
     """Returns expected bot config for DX12 and Vulkan support.
 
@@ -937,6 +928,7 @@ class GpuIntegrationTest(
     if system_info:
       gpu_tags = []
       gpu_info = system_info.gpu
+      cls._is_asan = gpu_info.aux_attributes.get('is_asan', False)
       # On the dual-GPU MacBook Pros, surface the tags of the secondary GPU if
       # it's the discrete GPU, so that test expectations can be written that
       # target the discrete GPU.
@@ -975,14 +967,52 @@ class GpuIntegrationTest(
       tags.extend([re.sub('[ _]', '-', tag) for tag in gpu_tags])
 
       # Add tags based on GPU feature status.
-      startup_args = getattr(browser, 'startup_args', None)
-      skia_renderer = gpu_helper.GetSkiaRenderer(gpu_info, startup_args)
+      skia_renderer = gpu_helper.GetSkiaRenderer(gpu_info)
       tags.append(skia_renderer)
+      tags.extend(cls._GetDriverVersionTags(browser, system_info))
     display_server = gpu_helper.GetDisplayServer(browser.browser_type)
     if display_server:
       tags.append(display_server)
     tags = gpu_helper.ReplaceTags(tags)
     return tags
+
+  @classmethod
+  def _GetDriverVersionTags(cls, browser: ct.Browser,
+                            system_info: si_module.SystemInfo) -> List[str]:
+    gpu_info = system_info.gpu
+    tags = []
+    if gpu_helper.EXPECTATIONS_DRIVER_TAGS and gpu_info:
+      driver_vendor = gpu_helper.GetGpuDriverVendor(gpu_info)
+      driver_version = gpu_helper.GetGpuDriverVersion(gpu_info)
+      if driver_vendor and driver_version:
+        driver_vendor = driver_vendor.lower()
+        driver_version = driver_version.lower()
+
+        # Extract the string of vendor from 'angle (vendor)'
+        matcher = re.compile(r'^angle \(([a-z]+)\)$')
+        match = matcher.match(driver_vendor)
+        if match:
+          driver_vendor = match.group(1)
+
+        # Extract the substring before first space/dash/underscore
+        matcher = re.compile(r'^([a-z\d]+)([\s\-_]+[a-z\d]+)+$')
+        match = matcher.match(driver_vendor)
+        if match:
+          driver_vendor = match.group(1)
+
+        for tag in gpu_helper.EXPECTATIONS_DRIVER_TAGS:
+          match = gpu_helper.MatchDriverTag(tag)
+          assert match
+          if (driver_vendor == match.group(1)
+              and gpu_helper.EvaluateVersionComparison(
+                  driver_version, match.group(2), match.group(3),
+                  browser.platform.GetOSName(), driver_vendor)):
+            tags.append(tag)
+    return tags
+
+  @classmethod
+  def GetTagConflictChecker(cls) -> ct.TagConflictChecker:
+    return _TagConflictChecker
 
   @classmethod
   def _EnsureTabIsAvailable(cls) -> None:
@@ -1010,7 +1040,17 @@ class GpuIntegrationTest(
     return cls._original_finder_options
 
   def setUp(self) -> None:
-    self._EnsureTabIsAvailable()
+    # TODO(crbug.com/323927831): Remove this try/except logic once the root
+    # cause of flakes on Macs is resolved.
+    try:
+      self._EnsureTabIsAvailable()
+    except Exception:  # pylint: disable=broad-except
+      if self._DetermineFirstBrowserStartWorkaround():
+        self._EnsureTabIsAvailable()
+      else:
+        raise
+    finally:
+      GpuIntegrationTest._is_first_browser_start = False
 
   @staticmethod
   def GetJSONResultsDelimiter() -> str:
@@ -1027,10 +1067,13 @@ class GpuIntegrationTest(
         # device name is clearer.
         'arm-mali-g52',  # android-sm-a135m
         'arm-mali-t860',  # chromeos-board-kevin
+        # android-moto-g-power-5g---2023
+        'imagination-powervr-b-series-bxm-8-256',
         'qualcomm-adreno-(tm)-418',  # android-nexus-5x
         'qualcomm-adreno-(tm)-540',  # android-pixel-2
         'qualcomm-adreno-(tm)-610',  # android-sm-a235m
         'qualcomm-adreno-(tm)-640',  # android-pixel-4
+        'qualcomm-adreno-(tm)-740',  # android-sm-s911u1
         'arm-mali-g78',  # android-pixel-6
         'nvidia-nvidia-tegra',  # android-shield-android-tv
         'vmware,',  # VMs
@@ -1041,14 +1084,7 @@ class GpuIntegrationTest(
         'chromium-os',  # ChromeOS
         'cros-chrome',  # ChromeOS
         'web-engine-shell',  # Fuchsia
-        'cast-streaming-shell',  # Syonymous with cast_streaming suite
-        # WebGL version is already handled by having expectations in separate
-        # files.
-        # TODO(crbug.com/1140283): Remove these tags once we're sure that
-        # all relevant data has aged out. Should be safe to do so at the end of
-        # August 2023.
-        'webgl-version-1',
-        'webgl-version-2',
+        'cast-streaming-shell',  # Synonymous with cast_streaming suite
         # GPU tests are always run in remote mode on the bots, and it shouldn't
         # make a difference to these tests anyways.
         'chromeos-local',
@@ -1062,6 +1098,17 @@ class GpuIntegrationTest(
         'unknown-gpu',
         'unknown-gpu-0x8c',
         'unknown-gpu-',
+        # Android versions prior to Android 14 use the letter corresponding to
+        # the code name, e.g. O for Oreo. 14 and later uses the numerical
+        # version. See crbug.com/333795261 for context on why this is
+        # necessary.
+        'android-8',  # Android O
+        'android-9',  # Android P
+        'android-10',  # Android Q
+        'android-11',  # Android R
+        'android-12',  # Android S
+        'android-13',  # Android T
+        'android-a',  # Android 14+ releases in 2024
     ]
 
   @classmethod
@@ -1072,6 +1119,15 @@ class GpuIntegrationTest(
     expectation file lives in a third party repo.
     """
     return gpu_path_util.CHROMIUM_SRC_DIR
+
+
+def _TagConflictChecker(tag1: str, tag2: str) -> bool:
+  # This conflict check takes into account both driver tag matching and
+  # cases of tags being subsets of others, e.g. win10 being a subset of win.
+  if gpu_helper.MatchDriverTag(tag1):
+    return not gpu_helper.IsDriverTagDuplicated(tag1, tag2)
+  return (tag1 != tag2 and tag1 != _specific_to_generic_tags.get(tag2, tag2)
+          and tag2 != _specific_to_generic_tags.get(tag1, tag1))
 
 
 def GenerateTestNameMapping() -> Dict[str, Type[GpuIntegrationTest]]:

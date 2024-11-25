@@ -5,23 +5,24 @@
 #ifndef CHROME_BROWSER_ASH_SYSTEM_WEB_APPS_APPS_PERSONALIZATION_APP_PERSONALIZATION_APP_SEA_PEN_PROVIDER_IMPL_H_
 #define CHROME_BROWSER_ASH_SYSTEM_WEB_APPS_APPS_PERSONALIZATION_APP_PERSONALIZATION_APP_SEA_PEN_PROVIDER_IMPL_H_
 
-#include <map>
 #include <memory>
 
 #include "ash/public/cpp/wallpaper/sea_pen_image.h"
+#include "ash/public/cpp/wallpaper/wallpaper_controller_observer.h"
+#include "ash/wallpaper/sea_pen_wallpaper_manager.h"
 #include "ash/webui/common/mojom/sea_pen.mojom-forward.h"
-#include "base/files/file.h"
-#include "base/memory/raw_ptr.h"
-#include "base/memory/weak_ptr.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/ash/system_web_apps/apps/personalization_app/personalization_app_sea_pen_provider_base.h"
-#include "components/manta/manta_status.h"
-#include "mojo/public/cpp/bindings/receiver.h"
-#include "ui/gfx/image/image_skia.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
 
 namespace ash::personalization_app {
 
+// Implementation of a SeaPenProvider for Personalization App WebUI.
+// Sends/receives images via WallpaperController to set as ChromeOS system
+// wallpaper.
 class PersonalizationAppSeaPenProviderImpl
-    : public PersonalizationAppSeaPenProviderBase {
+    : public PersonalizationAppSeaPenProviderBase,
+      public WallpaperControllerObserver {
  public:
   explicit PersonalizationAppSeaPenProviderImpl(
       content::WebUI* web_ui,
@@ -35,26 +36,57 @@ class PersonalizationAppSeaPenProviderImpl
 
   ~PersonalizationAppSeaPenProviderImpl() override;
 
+  // ::ash::personalization_app::PersonalizationAppSeaPenProviderBase:
+  void BindInterface(
+      mojo::PendingReceiver<ash::personalization_app::mojom::SeaPenProvider>
+          receiver) override;
+
+  // ::ash::personalization_app::mojom::SeaPenProvider:
   void DeleteRecentSeaPenImage(
-      const base::FilePath& path,
+      uint32_t id,
       DeleteRecentSeaPenImageCallback callback) override;
 
+  // WallpaperControllerObserver:
+  void OnWallpaperChanged() override;
+
+  void OnWallpaperPreviewEnded() override;
+
  private:
+  // ::ash::personalization_app::PersonalizationAppSeaPenProviderBase:
+  void SetSeaPenObserverInternal() override;
+
   void SelectRecentSeaPenImageInternal(
-      const base::FilePath& path,
+      uint32_t id,
+      bool preview_mode,
       SelectRecentSeaPenImageCallback callback) override;
 
-  void GetRecentSeaPenImagesInternal(
-      GetRecentSeaPenImagesCallback callback) override;
+  bool IsManagedSeaPenEnabledInternal() override;
+
+  bool IsManagedSeaPenFeedbackEnabledInternal() override;
+
+  void GetRecentSeaPenImageIdsInternal(
+      GetRecentSeaPenImageIdsCallback callback) override;
 
   void GetRecentSeaPenImageThumbnailInternal(
-      const base::FilePath& path,
-      DecodeImageCallback callback) override;
+      uint32_t id,
+      SeaPenWallpaperManager::GetImageAndMetadataCallback callback) override;
+
+  void ShouldShowSeaPenIntroductionDialogInternal(
+      ShouldShowSeaPenIntroductionDialogCallback callback) override;
+
+  void HandleSeaPenIntroductionDialogClosedInternal() override;
 
   void OnFetchWallpaperDoneInternal(
       const SeaPenImage& sea_pen_image,
-      const std::string& query_info,
+      const mojom::SeaPenQueryPtr& query,
+      bool preview_mode,
       base::OnceCallback<void(bool success)> callback) override;
+
+  base::ScopedObservation<WallpaperController, WallpaperControllerObserver>
+      wallpaper_controller_observer_{this};
+
+  base::WeakPtrFactory<PersonalizationAppSeaPenProviderImpl> weak_ptr_factory_{
+      this};
 };
 
 }  // namespace ash::personalization_app

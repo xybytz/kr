@@ -31,7 +31,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_KEYFRAME_EFFECT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_KEYFRAME_EFFECT_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/animation/animation_effect.h"
 #include "third_party/blink/renderer/core/animation/compositor_animations.h"
@@ -86,8 +87,8 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   void setTarget(Element*);
   const String& pseudoElement() const;
   void setPseudoElement(String, ExceptionState&);
-  String composite() const;
-  void setComposite(String);
+  V8CompositeOperation composite() const;
+  void setComposite(const V8CompositeOperation&);
   HeapVector<ScriptValue> getKeyframes(ScriptState*);
   void setKeyframes(ScriptState*,
                     const ScriptValue& keyframes,
@@ -116,7 +117,7 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
       PropertyHandleSet* unsupported_properties = nullptr) const;
   // Must only be called once.
   void StartAnimationOnCompositor(int group,
-                                  absl::optional<double> start_time,
+                                  std::optional<double> start_time,
                                   base::TimeDelta time_offset,
                                   double animation_playback_rate,
                                   CompositorAnimation* = nullptr,
@@ -147,8 +148,8 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   bool GetIgnoreCSSKeyframes() { return ignore_css_keyframes_; }
   void SetIgnoreCSSKeyframes() { ignore_css_keyframes_ = true; }
 
-  void SetLogicalPropertyResolutionContext(TextDirection text_direction,
-                                           WritingMode writing_mode);
+  void SetLogicalPropertyResolutionContext(
+      WritingDirectionMode writing_direction);
 
  private:
   EffectModel::CompositeOperation CompositeInternal() const;
@@ -164,9 +165,9 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   void CountAnimatedProperties() const;
   AnimationTimeDelta CalculateTimeToEffectChange(
       bool forwards,
-      absl::optional<AnimationTimeDelta> inherited_time,
+      std::optional<AnimationTimeDelta> inherited_time,
       AnimationTimeDelta time_to_next_iteration) const override;
-  absl::optional<AnimationTimeDelta> TimelineDuration() const override;
+  std::optional<AnimationTimeDelta> TimelineDuration() const override;
   bool HasIncompatibleStyle() const;
   bool AffectsImportantProperty() const;
   void RestartRunningAnimationOnCompositor();
@@ -183,7 +184,7 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
 
   bool ignore_css_keyframes_;
 
-  absl::optional<gfx::SizeF> effect_target_size_;
+  std::optional<gfx::SizeF> effect_target_size_;
 };
 
 template <>

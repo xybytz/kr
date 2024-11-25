@@ -84,9 +84,9 @@ ReadingListDownloadService::ReadingListDownloadService(
       distiller_factory_.get(), distiller_page_factory_.get(), prefs,
       chrome_profile_path, url_loader_factory,
       base::BindRepeating(&ReadingListDownloadService::OnDownloadEnd,
-                          base::Unretained(this)),
+                          weak_ptr_factory_.GetWeakPtr()),
       base::BindRepeating(&ReadingListDownloadService::OnDeleteEnd,
-                          base::Unretained(this)));
+                          weak_ptr_factory_.GetWeakPtr()));
   network_observation_.Observe(
       GetApplicationContext()->GetNetworkConnectionTracker());
 }
@@ -94,7 +94,7 @@ ReadingListDownloadService::ReadingListDownloadService(
 ReadingListDownloadService::~ReadingListDownloadService() = default;
 
 void ReadingListDownloadService::Initialize() {
-  model_observation_.Observe(reading_list_model_);
+  model_observation_.Observe(reading_list_model_.get());
 }
 
 base::FilePath ReadingListDownloadService::OfflineRoot() const {
@@ -175,7 +175,7 @@ void ReadingListDownloadService::SyncWithModel() {
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::BindOnce(&::CleanUpFiles, OfflineRoot(), processed_directories),
       base::BindOnce(&ReadingListDownloadService::DownloadUnprocessedEntries,
-                     base::Unretained(this), unprocessed_entries));
+                     weak_ptr_factory_.GetWeakPtr(), unprocessed_entries));
 }
 
 void ReadingListDownloadService::DownloadUnprocessedEntries(

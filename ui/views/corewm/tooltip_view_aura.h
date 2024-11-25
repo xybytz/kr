@@ -33,14 +33,17 @@ class VIEWS_EXPORT TooltipViewAura : public views::View {
   void SetFontList(const gfx::FontList& font_list);
   void SetMinLineHeight(int line_height);
   void SetMaxWidth(int width);
+  void SetMaxLines(size_t max_lines);
+  void SetElideBehavior(gfx::ElideBehavior elide_behavior);
 
   // views:View:
   void OnPaint(gfx::Canvas* canvas) override;
-  gfx::Size CalculatePreferredSize() const override;
+  gfx::Size CalculatePreferredSize(
+      const SizeBounds& /*available_size*/) const override;
   void OnThemeChanged() override;
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
  private:
+  void UpdateAccessibleName();
   void ResetDisplayRect();
 
   std::unique_ptr<gfx::RenderText> render_text_;

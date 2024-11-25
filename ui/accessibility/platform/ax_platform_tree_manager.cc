@@ -6,8 +6,15 @@
 
 namespace ui {
 
+AXPlatformTreeManager::AXPlatformTreeManager(std::unique_ptr<AXTree> tree)
+    : AXTreeManager(std::move(tree)) {}
+
+AXPlatformTreeManager::~AXPlatformTreeManager() {}
+
 bool AXPlatformTreeManager::IsPlatformTreeManager() const {
   return true;
 }
+
+void AXPlatformTreeManager::FireSentinelEventForTesting() {}
 
 }  // namespace ui

@@ -78,7 +78,6 @@ int ImageEncoder::MaxDimension(ImageEncodingMimeType mime_type) {
     default:
       NOTREACHED();
   }
-  return -1;
 }
 
 int ImageEncoder::ComputeJpegQuality(double quality) {

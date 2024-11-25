@@ -35,6 +35,7 @@
 #include "chrome/common/chrome_constants.h"
 #include "components/policy/core/common/policy_pref_names.h"
 #include "content/public/browser/browser_thread.h"
+#include "ui/base/mojom/window_show_state.mojom.h"
 #include "ui/base/theme_provider.h"
 #include "ui/base/win/hwnd_metrics.h"
 #include "ui/display/win/screen_win.h"
@@ -106,7 +107,9 @@ class VirtualDesktopHelper
 
 VirtualDesktopHelper::VirtualDesktopHelper(const std::string& initial_workspace)
     : base::RefCountedDeleteOnSequence<VirtualDesktopHelper>(
-          base::ThreadPool::CreateCOMSTATaskRunner({base::MayBlock()})),
+          base::ThreadPool::CreateCOMSTATaskRunner(
+              {base::MayBlock(),
+               base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})),
       initial_workspace_(initial_workspace) {}
 
 void VirtualDesktopHelper::Init(HWND hwnd) {
@@ -220,7 +223,7 @@ BrowserDesktopWindowTreeHostWin::BrowserDesktopWindowTreeHostWin(
   profile_observation_.Observe(
       &g_browser_process->profile_manager()->GetProfileAttributesStorage());
 
-  // TODO(crbug.com/1051306) Make turning off this policy turn off
+  // TODO(crbug.com/40118412) Make turning off this policy turn off
   // native window occlusion on this browser win.
   if (!g_browser_process->local_state()->GetBoolean(
           policy::policy_prefs::kNativeWindowOcclusionEnabled)) {
@@ -266,8 +269,9 @@ void BrowserDesktopWindowTreeHostWin::Init(
   virtual_desktop_helper_->Init(GetHWND());
 }
 
-void BrowserDesktopWindowTreeHostWin::Show(ui::WindowShowState show_state,
-                                           const gfx::Rect& restore_bounds) {
+void BrowserDesktopWindowTreeHostWin::Show(
+    ui::mojom::WindowShowState show_state,
+    const gfx::Rect& restore_bounds) {
   // This will make BrowserWindowState remember the initial workspace.
   // It has to be called after DesktopNativeWidgetAura is observing the host
   // and the session service is tracking the window.
@@ -449,7 +453,7 @@ void BrowserDesktopWindowTreeHostWin::PostHandleMSG(UINT message,
       WINDOWPOS* window_pos = reinterpret_cast<WINDOWPOS*>(l_param);
       views::NonClientView* non_client_view = GetWidget()->non_client_view();
       if (window_pos->flags & SWP_SHOWWINDOW && non_client_view) {
-        non_client_view->Layout();
+        non_client_view->DeprecatedLayoutImmediately();
         non_client_view->SchedulePaint();
       }
       break;

@@ -9,6 +9,7 @@
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/enterprise/connectors/analysis/content_analysis_delegate_base.h"
 #include "components/download/public/common/download_item.h"
+#include "components/enterprise/common/proto/connectors.pb.h"
 
 namespace enterprise_connectors {
 
@@ -24,9 +25,11 @@ class ContentAnalysisDownloadsDelegate
       const std::u16string& custom_message,
       GURL custom_learn_more_url,
       bool bypass_justification_required,
-      base::OnceCallback<void()> open_file_callback,
-      base::OnceCallback<void()> discard_file_callback,
-      download::DownloadItem* download_item);
+      base::OnceClosure open_file_callback,
+      base::OnceClosure discard_file_callback,
+      download::DownloadItem* download_item,
+      const ContentAnalysisResponse::Result::TriggeredRule::CustomRuleMessage&
+          custom_rule_message);
   ~ContentAnalysisDownloadsDelegate() override;
 
   // Called when the user opts to keep the download and open it. Should not be
@@ -42,6 +45,9 @@ class ContentAnalysisDownloadsDelegate
 
   std::optional<GURL> GetCustomLearnMoreUrl() const override;
 
+  std::optional<std::vector<std::pair<gfx::Range, GURL>>>
+  GetCustomRuleMessageRanges() const override;
+
   bool BypassRequiresJustification() const override;
   std::u16string GetBypassJustificationLabel() const override;
 
@@ -56,12 +62,19 @@ class ContentAnalysisDownloadsDelegate
   // (which may be undefined).
   void ResetCallbacks();
 
+  // Called when the user opts to open the downloaded file.
+  void Open();
+
+  // Custom message for rule.
+  ContentAnalysisResponse::Result::TriggeredRule::CustomRuleMessage
+      custom_rule_message_;
+
   std::u16string filename_;
   std::u16string custom_message_;
   GURL custom_learn_more_url_;
   bool bypass_justification_required_;
-  base::OnceCallback<void()> open_file_callback_;
-  base::OnceCallback<void()> discard_file_callback_;
+  base::OnceClosure open_file_callback_;
+  base::OnceClosure discard_file_callback_;
   raw_ptr<download::DownloadItem> download_item_;
 };
 

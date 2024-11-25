@@ -47,13 +47,11 @@ static const size_t kMaxVDMXTableSize = 1024 * 1024;  // 1 MB
 void FontMetrics::AscentDescentWithHacks(
     float& ascent,
     float& descent,
-    unsigned& visual_overflow_inflation_for_ascent,
-    unsigned& visual_overflow_inflation_for_descent,
     const FontPlatformData& platform_data,
     const SkFont& font,
     bool subpixel_ascent_descent,
-    absl::optional<float> ascent_override,
-    absl::optional<float> descent_override) {
+    std::optional<float> ascent_override,
+    std::optional<float> descent_override) {
   SkTypeface* face = font.getTypeface();
   DCHECK(face);
 
@@ -112,26 +110,19 @@ void FontMetrics::AscentDescentWithHacks(
     ascent = SkScalarRoundToScalar(-metrics.fAscent);
     descent = SkScalarRoundToScalar(metrics.fDescent);
 
-    if (ascent < -metrics.fAscent)
-      visual_overflow_inflation_for_ascent = 1;
-    if (descent < metrics.fDescent) {
-      visual_overflow_inflation_for_descent = 1;
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || \
     BUILDFLAG(IS_FUCHSIA)
-      // When subpixel positioning is enabled, if the descent is rounded down,
-      // the descent part of the glyph may be truncated when displayed in a
-      // 'overflow: hidden' container.  To avoid that, borrow 1 unit from the
-      // ascent when possible.
-      if (platform_data.GetFontRenderStyle().use_subpixel_positioning &&
-          ascent >= 1) {
-        ++descent;
-        --ascent;
-        // We should inflate overflow 1 more pixel for ascent instead.
-        visual_overflow_inflation_for_descent = 0;
-        ++(visual_overflow_inflation_for_ascent);
-      }
-#endif
+    // When subpixel positioning is enabled, if the descent is rounded down,
+    // the descent part of the glyph may be truncated when displayed in a
+    // 'overflow: hidden' container.  To avoid that, borrow 1 unit from the
+    // ascent when possible.
+    if (descent < metrics.fDescent &&
+        platform_data.GetFontRenderStyle().use_subpixel_positioning &&
+        ascent >= 1) {
+      ++descent;
+      --ascent;
     }
+#endif
   }
 
 #if BUILDFLAG(IS_MAC)
@@ -156,10 +147,6 @@ float FontMetrics::FloatAscentInternal(
   switch (baseline_type) {
     case kAlphabeticBaseline:
       NOTREACHED();
-      if (alphabetic_baseline_position_.has_value() && apply_baseline_table) {
-        return float_ascent_ - alphabetic_baseline_position_.value();
-      }
-      return float_ascent_;
     case kCentralBaseline:
       return FloatHeight() / 2;
 
@@ -188,7 +175,6 @@ float FontMetrics::FloatAscentInternal(
       return 0;
   }
   NOTREACHED();
-  return float_ascent_;
 }
 
 int FontMetrics::IntAscentInternal(
@@ -197,12 +183,6 @@ int FontMetrics::IntAscentInternal(
   switch (baseline_type) {
     case kAlphabeticBaseline:
       NOTREACHED();
-      if (alphabetic_baseline_position_.has_value() && apply_baseline_table) {
-        return static_cast<int>(
-            int_ascent_ -
-            static_cast<int>(lroundf(alphabetic_baseline_position_.value())));
-      }
-      return int_ascent_;
     case kCentralBaseline:
       return Height() - Height() / 2;
 
@@ -234,6 +214,5 @@ int FontMetrics::IntAscentInternal(
       return 0;
   }
   NOTREACHED();
-  return int_ascent_;
 }
 }

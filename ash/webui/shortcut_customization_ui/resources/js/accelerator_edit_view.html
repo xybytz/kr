@@ -45,6 +45,10 @@
     margin-block: 10px;
   }
 
+  .lock-icon-container {
+    margin: 10px;
+  }
+
   #editButtonsContainer[hidden] {
     display: none;
   }
@@ -109,17 +113,18 @@
         action="[[action]]" source="[[source]]">
     </accelerator-view>
   </div>
-  <template id="buttonContainer" is="dom-if" if="[[!acceleratorInfo.locked]]">
+  <template id="buttonContainer" is="dom-if"
+      if="[[!acceleratorInfo.acceleratorLocked]]">
     <div id="editButtonsContainer" hidden="[[showEditView(viewState)]]">
       <cr-icon-button id="editButton"
-          aria-label="[[i18n('editButtonAriaLabel')]]"
+          aria-label="[[getEditAriaLabel(acceleratorInfo)]]"
           class="clickable-button"
           iron-icon="shortcut-customization:edit"
           on-click="onEditButtonClicked">
       </cr-icon-button>
       <hr aria-hidden="true">
       <cr-icon-button id="deleteButton"
-          aria-label="[[i18n('deleteButtonAriaLabel')]]"
+          aria-label="[[getDeleteAriaLabel(acceleratorInfo)]]"
           class="clickable-button"
           iron-icon="shortcut-customization:delete"
           on-click="onDeleteButtonClicked">
@@ -133,9 +138,16 @@
       </cr-icon-button>
     </div>
   </template>
+  <template is="dom-if" if="[[acceleratorInfo.acceleratorLocked]]">
+    <div class="lock-icon-container" hidden="[[showEditView(viewState)]]">
+      <iron-icon icon="shortcut-customization:lock"></iron-icon>
+    </div>
+  </template>
 </div>
 
 <div id="acceleratorInfoText"
     hidden="[[!showStatusMessage(viewState, acceleratorInfo)]]">
-  [[statusMessage]]
+    <localized-link id="status" localized-string="[[statusMessage]]"
+        link-url="[[i18n('shortcutCustomizationLearnMoreUrl')]]">
+    </localized-link>
 </div>

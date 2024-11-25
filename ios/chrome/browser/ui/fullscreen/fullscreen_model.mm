@@ -7,6 +7,7 @@
 #import <algorithm>
 
 #import "base/check_op.h"
+#import "base/memory/raw_ptr.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_model_observer.h"
 #import "ios/chrome/common/ui/util/ui_util.h"
 #import "ios/web/common/features.h"
@@ -21,7 +22,7 @@ class ScopedIncrementer {
   ~ScopedIncrementer() { --(*counter_); }
 
  private:
-  size_t* counter_;
+  raw_ptr<size_t> counter_;
 };
 }
 
@@ -292,11 +293,24 @@ UIEdgeInsets FullscreenModel::GetWebViewSafeAreaInsets() const {
 }
 
 void FullscreenModel::SetForceFullscreenMode(bool force_fullscreen_mode) {
-  is_force_fullscreen_mode_ = force_fullscreen_mode;
+  if (force_fullscreen_mode) {
+    force_fullscreen_mode_counter_++;
+  } else {
+    force_fullscreen_mode_counter_--;
+  }
+  DCHECK_GE(force_fullscreen_mode_counter_, 0U);
 }
 
 bool FullscreenModel::IsForceFullscreenMode() const {
-  return is_force_fullscreen_mode_;
+  return force_fullscreen_mode_counter_ > 0;
+}
+
+void FullscreenModel::SetInsetsUpdateEnabled(bool enabled) {
+  insets_update_enabled_ = enabled;
+}
+
+bool FullscreenModel::IsInsetsUpdateEnabled() const {
+  return insets_update_enabled_;
 }
 
 FullscreenModel::ScrollAction FullscreenModel::ActionForScrollFromOffset(
@@ -371,9 +385,9 @@ void FullscreenModel::UpdateDisabledCounterForContentHeight() {
     // After reloads, pages whose viewports fit the screen are sometimes resized
     // to account for the safe area insets.  Adding these to the threshold helps
     // prevent fullscreen from beeing re-enabled in this case.
-    // TODO(crbug.com/924807): This logic can potentially disable fullscreen for
-    // short pages in which this bug does not occur.  It should be removed once
-    // the page can be reloaded without resizing.
+    // TODO(crbug.com/41437113): This logic can potentially disable fullscreen
+    // for short pages in which this bug does not occur.  It should be removed
+    // once the page can be reloaded without resizing.
     disabling_threshold += safe_area_insets_.top + safe_area_insets_.bottom;
   }
 

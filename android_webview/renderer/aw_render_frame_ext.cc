@@ -5,6 +5,7 @@
 #include "android_webview/renderer/aw_render_frame_ext.h"
 
 #include <memory>
+#include <string_view>
 #include <utility>
 
 #include "android_webview/common/aw_features.h"
@@ -37,13 +38,18 @@ namespace android_webview {
 namespace {
 
 using autofill::AutofillAgent;
+using ExtractAllDatalists = autofill::AutofillAgent::ExtractAllDatalists;
+using FocusRequiresScroll = autofill::AutofillAgent::FocusRequiresScroll;
+using QueryPasswordSuggestions =
+    autofill::AutofillAgent::QueryPasswordSuggestions;
+using SecureContextRequired = autofill::AutofillAgent::SecureContextRequired;
+using UserGestureRequired = autofill::AutofillAgent::UserGestureRequired;
 using UsesKeyboardAccessoryForSuggestions =
     autofill::AutofillAgent::UsesKeyboardAccessoryForSuggestions;
-using ExtractAllDatalists = autofill::AutofillAgent::ExtractAllDatalists;
 
-const char kAddressPrefix[] = "geo:0,0?q=";
-const char kEmailPrefix[] = "mailto:";
-const char kPhoneNumberPrefix[] = "tel:";
+constexpr char kAddressPrefix[] = "geo:0,0?q=";
+constexpr char kEmailPrefix[] = "mailto:";
+constexpr char kPhoneNumberPrefix[] = "tel:";
 
 GURL GetAbsoluteUrl(const blink::WebNode& node,
                     const std::u16string& url_fragment) {
@@ -79,10 +85,10 @@ GURL GetChildImageUrlFromElement(const blink::WebElement& element) {
   return GetAbsoluteSrcUrl(child_img);
 }
 
-bool RemovePrefixAndAssignIfMatches(const base::StringPiece& prefix,
+bool RemovePrefixAndAssignIfMatches(std::string_view prefix,
                                     const GURL& url,
                                     std::string* dest) {
-  const base::StringPiece spec(url.possibly_invalid_spec());
+  const std::string_view spec(url.possibly_invalid_spec());
 
   if (base::StartsWith(spec, prefix)) {
     url::RawCanonOutputW<1024> output;
@@ -155,7 +161,9 @@ AwRenderFrameExt::AwRenderFrameExt(content::RenderFrame* render_frame)
                                                         &registry_);
   new AutofillAgent(
       render_frame,
-      {UsesKeyboardAccessoryForSuggestions(false), ExtractAllDatalists(true)},
+      {ExtractAllDatalists(true), FocusRequiresScroll(false),
+       QueryPasswordSuggestions(true), SecureContextRequired(true),
+       UserGestureRequired(false), UsesKeyboardAccessoryForSuggestions(false)},
       std::move(password_autofill_agent), nullptr, &registry_);
   if (content_capture::features::IsContentCaptureEnabled())
     new content_capture::ContentCaptureSender(render_frame, &registry_);
@@ -186,10 +194,6 @@ bool AwRenderFrameExt::OnAssociatedInterfaceRequestForFrame(
 }
 
 void AwRenderFrameExt::DidCreateDocumentElement() {
-  if (!base::FeatureList::IsEnabled(
-          features::kWebViewHitTestInBlinkOnTouchStart)) {
-    return;
-  }
   render_frame()->GetWebFrame()->AddHitTestOnTouchStartCallback(
       base::BindRepeating(&AwRenderFrameExt::HandleHitTestResult,
                           base::Unretained(this)));
@@ -235,21 +239,6 @@ void AwRenderFrameExt::FocusedElementChanged(const blink::WebElement& element) {
   GetFrameHost()->UpdateHitTestData(std::move(data));
 }
 
-// Only main frame needs to *receive* the hit test request, because all we need
-// is to get the blink::webView object and invoke a the hitTestResultForTap API
-// from it.
-void AwRenderFrameExt::HitTest(const gfx::PointF& touch_center,
-                               const gfx::SizeF& touch_area) {
-  blink::WebView* webview = GetWebView();
-  if (!webview)
-    return;
-
-  const blink::WebHitTestResult result = webview->HitTestResultForTap(
-      gfx::Point(touch_center.x(), touch_center.y()),
-      gfx::Size(touch_area.width(), touch_area.height()));
-  HandleHitTestResult(result);
-}
-
 void AwRenderFrameExt::HandleHitTestResult(
     const blink::WebHitTestResult& result) {
   auto data = mojom::HitTestData::New();
@@ -279,7 +268,7 @@ void AwRenderFrameExt::SetInitialPageScale(double page_scale_factor) {
 }
 
 void AwRenderFrameExt::SetTextZoomFactor(float zoom_factor) {
-  // TODO(crbug.com/1085428): This will need to be set on every local root
+  // TODO(crbug.com/40132194): This will need to be set on every local root
   // when site isolation is used in android webview.
   DCHECK(render_frame()->IsMainFrame());
 

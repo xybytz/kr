@@ -27,7 +27,7 @@ class ASH_EXPORT RoundedScrollBar : public views::ScrollBar {
   METADATA_HEADER(RoundedScrollBar, views::ScrollBar)
 
  public:
-  explicit RoundedScrollBar(bool horizontal);
+  explicit RoundedScrollBar(Orientation orientation);
   RoundedScrollBar(const RoundedScrollBar&) = delete;
   RoundedScrollBar& operator=(const RoundedScrollBar&) = delete;
   ~RoundedScrollBar() override;
@@ -53,6 +53,12 @@ class ASH_EXPORT RoundedScrollBar : public views::ScrollBar {
   void OnMouseExited(const ui::MouseEvent& event) override;
   void ScrollToPosition(int position) override;
   void ObserveScrollEvent(const ui::ScrollEvent& event) override;
+
+  // Controls the visibility of the scroll thumb.
+  // By default, the thumb is hidden when there's no interaction with the scroll
+  // bar (`always_show_thumb_` is false by default). Set `always_show_thumb_` to
+  // `true` to keep the thumb visible at all times.
+  void SetAlwaysShowThumb(bool always_show_thumb);
 
   views::BaseScrollBarThumb* GetThumbForTest() const;
 
@@ -82,6 +88,9 @@ class ASH_EXPORT RoundedScrollBar : public views::ScrollBar {
 
   // Whether to temporarily show the scroll bar when the thumb bounds change.
   bool show_on_thumb_bounds_changed_ = false;
+
+  // Whether to always show the scroll thumb.
+  bool always_show_thumb_ = false;
 };
 
 }  // namespace ash

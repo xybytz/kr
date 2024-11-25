@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_color_params.h"
 
 #include "build/build_config.h"
@@ -28,7 +33,6 @@ SerializedPredefinedColorSpace SerializeColorSpace(
       return SerializedPredefinedColorSpace::kSRGBLinear;
   }
   NOTREACHED();
-  return SerializedPredefinedColorSpace::kSRGB;
 }
 
 PredefinedColorSpace DeserializeColorSpace(
@@ -49,7 +53,6 @@ PredefinedColorSpace DeserializeColorSpace(
       return PredefinedColorSpace::kSRGBLinear;
   }
   NOTREACHED();
-  return PredefinedColorSpace::kSRGB;
 }
 
 }  // namespace
@@ -93,7 +96,6 @@ ImageDataStorageFormat SerializedImageDataSettings::GetStorageFormat() const {
       return ImageDataStorageFormat::kFloat32;
   }
   NOTREACHED();
-  return ImageDataStorageFormat::kUint8;
 }
 
 ImageDataSettings* SerializedImageDataSettings::GetImageDataSettings() const {
@@ -287,7 +289,6 @@ ImageOrientationEnum SerializedImageBitmapSettings::GetImageOrientation()
       return ImageOrientationEnum::kOriginLeftBottom;
   }
   NOTREACHED();
-  return ImageOrientationEnum::kOriginTopLeft;
 }
 
 }  // namespace blink

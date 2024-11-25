@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#import "ios/chrome/browser/policy/model/cloud/user_policy_signin_service.h"
+
 #import <memory>
 #import <utility>
 
@@ -29,11 +31,10 @@
 #import "google_apis/gaia/google_service_auth_error.h"
 #import "ios/chrome/browser/policy/model/browser_policy_connector_ios.h"
 #import "ios/chrome/browser/policy/model/cloud/user_policy_constants.h"
-#import "ios/chrome/browser/policy/model/cloud/user_policy_signin_service.h"
 #import "ios/chrome/browser/policy/model/cloud/user_policy_signin_service_factory.h"
 #import "ios/chrome/browser/policy/model/cloud/user_policy_switch.h"
 #import "ios/chrome/browser/policy/model/device_management_service_configuration_ios.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/chrome/test/testing_application_context.h"
 #import "ios/web/public/test/web_task_environment.h"
@@ -126,14 +127,14 @@ class UserPolicySigninServiceTest : public PlatformTest {
         pref_service_,
         TestingApplicationContext::GetGlobal()->GetSharedURLLoaderFactory());
 
-    TestChromeBrowserState::Builder builder;
+    TestProfileIOS::Builder builder;
     builder.SetUserCloudPolicyManager(BuildCloudPolicyManager());
-    browser_state_ = builder.Build();
-    browser_state_->SetSharedURLLoaderFactory(
+    profile_ = std::move(builder).Build();
+    profile_->SetSharedURLLoaderFactory(
         base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
             &test_url_loader_factory_));
 
-    manager_ = browser_state_->GetUserCloudPolicyManager();
+    manager_ = profile_->GetUserCloudPolicyManager();
     DCHECK(manager_);
     manager_->Init(&schema_registry_);
     mock_store_ =
@@ -155,7 +156,7 @@ class UserPolicySigninServiceTest : public PlatformTest {
     UserPolicySigninServiceFactory::SetDeviceManagementServiceForTesting(
         nullptr);
 
-    browser_state_.reset();
+    profile_.reset();
     TestingApplicationContext::GetGlobal()
         ->GetBrowserPolicyConnector()
         ->Shutdown();
@@ -224,10 +225,10 @@ class UserPolicySigninServiceTest : public PlatformTest {
   // service that is hold by `user_policy_signin_service_`.
   void InitUserPolicySigninService() {
     user_policy_signin_service_ = std::make_unique<UserPolicySigninService>(
-        browser_state_->GetPrefs(), pref_service_, &device_management_service_,
-        browser_state_->GetUserCloudPolicyManager(),
+        profile_->GetPrefs(), pref_service_, &device_management_service_,
+        profile_->GetUserCloudPolicyManager(),
         identity_test_env_.identity_manager(),
-        browser_state_->GetSharedURLLoaderFactory());
+        profile_->GetSharedURLLoaderFactory());
   }
 
   // Does and complete the registration job that was queued and that is
@@ -275,14 +276,13 @@ class UserPolicySigninServiceTest : public PlatformTest {
 
  protected:
   web::WebTaskEnvironment task_environment_{
-      web::WebTaskEnvironment::Options::DEFAULT,
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
-  IOSChromeScopedTestingLocalState scoped_local_state_;
-  PrefService* pref_service_;
+  IOSChromeScopedTestingLocalState scoped_testing_local_state_;
+  raw_ptr<PrefService> pref_service_;
 
   std::unique_ptr<base::test::ScopedFeatureList> scoped_feature_list_;
 
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   raw_ptr<MockUserCloudPolicyStore> mock_store_ = nullptr;  // Not owned.
   SchemaRegistry schema_registry_;
   raw_ptr<UserCloudPolicyManager> manager_ = nullptr;  // Not owned.
@@ -418,7 +418,7 @@ TEST_F(UserPolicySigninServiceTest,
   // Run the delayed task to start the registration by fast forwarding the task
   // runner clock.
   task_environment_.FastForwardBy(
-      GetTryRegistrationDelayFromPrefs(browser_state_->GetPrefs()));
+      GetTryRegistrationDelayFromPrefs(profile_->GetPrefs()));
 
   // Do the pending registration that was queued in the initialization of the
   // service.
@@ -467,7 +467,7 @@ TEST_F(UserPolicySigninServiceTest,
   // Run the delayed task to start the registration by fast forwarding the task
   // runner clock.
   task_environment_.FastForwardBy(
-      GetTryRegistrationDelayFromPrefs(browser_state_->GetPrefs()));
+      GetTryRegistrationDelayFromPrefs(profile_->GetPrefs()));
 
   // Do the pending registration that was queued in the initialization of the
   // service.
@@ -516,7 +516,7 @@ TEST_F(UserPolicySigninServiceTest,
   // Run the delayed task to start the registration by fast forwarding the task
   // runner clock.
   task_environment_.FastForwardBy(
-      GetTryRegistrationDelayFromPrefs(browser_state_->GetPrefs()));
+      GetTryRegistrationDelayFromPrefs(profile_->GetPrefs()));
 
   // Do the pending registration that was queued in the initialization of the
   // service.
@@ -562,7 +562,7 @@ TEST_F(UserPolicySigninServiceTest, RegisterAndInitializeManager_AfterSignOut) {
 
   // Register.
   task_environment_.FastForwardBy(
-      GetTryRegistrationDelayFromPrefs(browser_state_->GetPrefs()));
+      GetTryRegistrationDelayFromPrefs(profile_->GetPrefs()));
   DoPendingRegistration(/*with_dm_token=*/true,
                         /*with_oauth_token_success=*/true);
   ASSERT_TRUE(manager_->core()->client()->is_registered());
@@ -607,7 +607,7 @@ TEST_F(UserPolicySigninServiceTest, CanHandleError_Register) {
 
   // Register with failure.
   task_environment_.FastForwardBy(
-      GetTryRegistrationDelayFromPrefs(browser_state_->GetPrefs()));
+      GetTryRegistrationDelayFromPrefs(profile_->GetPrefs()));
   DoPendingRegistration(/*with_dm_token=*/false,
                         /*with_oauth_token_success=*/true);
 
@@ -643,7 +643,7 @@ TEST_F(UserPolicySigninServiceTest, CanHandleError_OauthToken) {
 
   // Register with failure.
   task_environment_.FastForwardBy(
-      GetTryRegistrationDelayFromPrefs(browser_state_->GetPrefs()));
+      GetTryRegistrationDelayFromPrefs(profile_->GetPrefs()));
   DoPendingRegistration(/*with_dm_token=*/true,
                         /*with_oauth_token_success=*/false);
 
@@ -691,7 +691,7 @@ TEST_F(UserPolicySigninServiceTest, IgnorePendingRegistrationAfterShutdown) {
   // Fast forward to reach the delay that would normally trigger
   // RegisterCloudPolicyService().
   task_environment_.FastForwardBy(
-      GetTryRegistrationDelayFromPrefs(browser_state_->GetPrefs()));
+      GetTryRegistrationDelayFromPrefs(profile_->GetPrefs()));
 
   // Verify that no registration takes place because the task was cancelled.
   EXPECT_FALSE(IsRequestActive());

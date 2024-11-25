@@ -5,12 +5,12 @@
 #ifndef IOS_CHROME_BROWSER_SYNC_MODEL_SYNC_SERVICE_FACTORY_H_
 #define IOS_CHROME_BROWSER_SYNC_MODEL_SYNC_SERVICE_FACTORY_H_
 
-#include <memory>
+#import <memory>
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 
 namespace syncer {
 class SyncServiceImpl;
@@ -18,17 +18,14 @@ class SyncService;
 }  // namespace syncer
 
 // Singleton that owns all SyncServices and associates them with
-// ChromeBrowserState.
+// ProfileIOS.
 class SyncServiceFactory : public BrowserStateKeyedServiceFactory {
  public:
-  static syncer::SyncService* GetForBrowserState(
-      ChromeBrowserState* browser_state);
-
-  static syncer::SyncService* GetForBrowserStateIfExists(
-      ChromeBrowserState* browser_state);
+  static syncer::SyncService* GetForProfile(ProfileIOS* profile);
+  static syncer::SyncService* GetForProfileIfExists(ProfileIOS* profile);
 
   static syncer::SyncServiceImpl* GetAsSyncServiceImplForBrowserStateForTesting(
-      ChromeBrowserState* browser_state);
+      ProfileIOS* profile);
 
   static SyncServiceFactory* GetInstance();
 

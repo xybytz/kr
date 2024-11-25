@@ -7,7 +7,7 @@ module crosapi.mojom;
 import "mojo/public/mojom/base/values.mojom";
 
 // Pref paths.
-[Stable, Extensible]
+[Extensible]
 enum PrefPath {
   [Default] kUnknown = 0,
   // M89: metrics::prefs::kMetricsReportingEnabled (local state).
@@ -22,6 +22,8 @@ enum PrefPath {
   [MinVersion=1] kDeviceSystemWideTracingEnabled = 3,
   // M98: prefs::kDnsOverHttpsMode (local state)
   [MinVersion=2] kDnsOverHttpsMode = 4,
+  // Deprecated in m124: Use kDnsOverHttpsEffectiveTemplatesChromeOS to track
+  // the effective DoH URI template. TODO(b/40160600): Remove this entry.
   // M98: prefs::kDnsOverHttpsTemplates (local state)
   [MinVersion=2] kDnsOverHttpsTemplates = 5,
   // M98: prefs::kDockedMagnifierEnabled (extension).
@@ -96,10 +98,14 @@ enum PrefPath {
   [MinVersion=4] kApplicationLocale = 29,
   // M104: prefs::kSharedStorage (profile)
   [MinVersion=5] kSharedStorage = 30,
-  // M104: prefs::kProtectedContentDefault (extension)
-  [MinVersion=6] kProtectedContentDefault = 31,
+  // Deprecated in m123: No longer supported as ash-controlled pref. Do not use.
+  [MinVersion=6] kProtectedContentDefaultDeprecated = 31,
+  // Deprecated in m124: Use kDnsOverHttpsEffectiveTemplatesChromeOS to track
+  // the effective DoH URI template. TODO(b/40160600): Remove this entry.
   // M109: prefs::kDnsOverHttpsTemplatesWithIdentifiers (local state)
   [MinVersion=7] kDnsOverHttpsTemplatesWithIdentifiers = 32,
+  // Deprecated in m124: Use kDnsOverHttpsEffectiveTemplatesChromeOS to track
+  // the effective DoH URI template. TODO(b/40160600): Remove this entry.
   // M109: prefs::kDnsOverHttpsSalt (local state)
   [MinVersion=7] kDnsOverHttpsSalt = 33,
   // M110: ash::prefs::kUserGeolocationAccessLevel
@@ -115,14 +121,32 @@ enum PrefPath {
   // M116: prefs::kAccessCodeCastDeviceAdditionTime (profile)
   [MinVersion=11] kAccessCodeCastDeviceAdditionTime = 39,
   [MinVersion=12] kAccessToGetAllScreensMediaInSessionAllowedForUrls = 40,
-  // M117: pref::kAccessibilityPdfOcrAlwaysActive (local_state)
-  [MinVersion=13] kAccessibilityPdfOcrAlwaysActive = 41,
+  // Deprecated in m126: The feature is always active.
+  [MinVersion=13] kAccessibilityPdfOcrAlwaysActiveDeprecated = 41,
   // M117 proxy_config::prefs::kProxy (profile)
   [MinVersion=14] kProxy = 42,
   // M121: DefaultSearchManager::kDefaultSearchProviderDataPrefName
   [MinVersion=15] kDefaultSearchProviderDataPrefName = 43,
   // M121: prefs::kIsolatedWebAppsEnabled
   [MinVersion=16] kIsolatedWebAppsEnabled = 44,
+  // M124: prefs::kDnsOverHttpsEffectiveTemplatesChromeOS
+  [MinVersion=17] kDnsOverHttpsEffectiveTemplatesChromeOS = 45,
+  // M125: prefs::kAccessibilityReducedAnimationsEnabled
+  [MinVersion=18] kAccessibilityReducedAnimationsEnabled = 46,
+  // Deprecated in m128: Use kHmrEnabled to track
+  [MinVersion=19] kMahiEnabledDeprecated = 47,
+  // M126: prefs::kOverscrollHistoryNavigationEnabled
+  [MinVersion=20] kOverscrollHistoryNavigationEnabled = 48,
+  // M128: ash::prefs::kUserCameraAllowed
+  [MinVersion=21] kUserCameraAllowed = 49,
+  // M128: ash::prefs::kUserMicrophoneAllowed
+  [MinVersion=21] kUserMicrophoneAllowed = 50,
+  // M128: ash::prefs::kHmrEnabled
+  [MinVersion=22] kHmrEnabled = 51,
+  // M128: prefs::kHMRConsentStatus
+  [MinVersion=23] kHMRConsentStatus = 52,
+  // M128: prefs::kHMRConsentWindowDismissCount
+  [MinVersion=23] kHMRConsentWindowDismissCount = 53,
 };
 
 // Information about who or what is controlling a particular pref. This is used
@@ -131,7 +155,7 @@ enum PrefPath {
 // Note that with respect to LevelOfControl, we do not consider extensions in
 // ash as extensions. They are treated as a prefstore of higher precedence.
 // However, no extensions in ash are expected to set these prefs.
-[Stable, Extensible]
+[Extensible]
 enum PrefControlState {
   [Default] kDefaultUnknown = 0,
   // Controlled by an extension in lacros. Ash does not have enough information
@@ -151,7 +175,7 @@ enum PrefControlState {
 
 // Interface for pref observers. Implemented by lacros-chrome. Used by
 // ash-chrome to send pref updates.
-[Stable, Uuid="07d804d1-3d8d-4da1-b9b9-05f8a6bfe4c4"]
+[Uuid="07d804d1-3d8d-4da1-b9b9-05f8a6bfe4c4"]
 interface PrefObserver {
   // Called when an observed pref changes.
   OnPrefChanged@0(mojo_base.mojom.Value value);
@@ -160,7 +184,7 @@ interface PrefObserver {
 // Interface for prefs. Implemented by ash-chrome.
 // Next version: 5
 // Next method id: 5
-[Stable, Uuid="815df607-0596-46f7-9ed9-14683b4826a3"]
+[Uuid="815df607-0596-46f7-9ed9-14683b4826a3"]
 interface Prefs {
   // Gets the specified ash pref. Returns empty if ash-chrome does not have path
   // registered, or if the pref is not found.

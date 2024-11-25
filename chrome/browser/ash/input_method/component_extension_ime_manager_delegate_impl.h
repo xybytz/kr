@@ -7,6 +7,7 @@
 
 #include <optional>
 #include <set>
+#include <string_view>
 #include <vector>
 
 #include "base/functional/bind.h"
@@ -16,7 +17,9 @@
 #include "ui/base/ime/ash/component_extension_ime_manager.h"
 #include "ui/base/ime/ash/component_extension_ime_manager_delegate.h"
 
-class Profile;
+namespace content {
+class BrowserContext;
+}
 
 namespace ash {
 namespace input_method {
@@ -36,7 +39,7 @@ class ComponentExtensionIMEManagerDelegateImpl
 
   // ComponentExtensionIMEManagerDelegate overrides:
   std::vector<ComponentExtensionIME> ListIME() override;
-  void Load(Profile* profile,
+  void Load(content::BrowserContext* context,
             const std::string& extension_id,
             const std::string& manifest,
             const base::FilePath& file_path) override;
@@ -52,7 +55,7 @@ class ComponentExtensionIMEManagerDelegateImpl
 
   // Parses manifest string into dictionary value.
   static std::optional<base::Value::Dict> ParseManifest(
-      const base::StringPiece& manifest_string);
+      std::string_view manifest_string);
 
   // Reads extension information: description, option page. This function
   // returns true on success, otherwise returns false.

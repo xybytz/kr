@@ -2,11 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/run_loop.h"
-#include "chrome/browser/signin/signin_browser_test_base.h"
 #include "chrome/browser/ui/profiles/signin_intercept_first_run_experience_dialog.h"
 
 #include "base/containers/enum_set.h"
+#include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/metrics/user_action_tester.h"
@@ -15,7 +14,7 @@
 #include "chrome/browser/policy/cloud/user_policy_signin_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/signin/signin_features.h"
+#include "chrome/browser/signin/signin_browser_test_base.h"
 #include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
@@ -29,9 +28,8 @@
 #include "chrome/browser/ui/webui/signin/profile_customization_handler.h"
 #include "chrome/browser/ui/webui/signin/signin_url_utils.h"
 #include "chrome/browser/ui/webui/signin/turn_sync_on_helper.h"
+#include "chrome/test/user_education/interactive_feature_promo_test.h"
 #include "components/feature_engagement/public/feature_constants.h"
-#include "components/feature_engagement/public/tracker.h"
-#include "components/feature_engagement/test/test_tracker.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
@@ -41,8 +39,7 @@
 #include "components/signin/public/base/signin_metrics.h"
 #include "components/signin/public/base/signin_switches.h"
 #include "components/sync/test/test_sync_service.h"
-#include "components/user_education/common/feature_promo_controller.h"
-#include "components/user_education/test/feature_promo_test_util.h"
+#include "components/user_education/common/feature_promo/feature_promo_controller.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_navigation_observer.h"
@@ -92,10 +89,6 @@ class FakeUserPolicySigninService : public policy::UserPolicySigninService {
   }
 };
 
-std::unique_ptr<KeyedService> CreateTestTracker(content::BrowserContext*) {
-  return feature_engagement::CreateTestTracker();
-}
-
 std::unique_ptr<KeyedService> CreateTestSyncService(content::BrowserContext*) {
   return std::make_unique<syncer::TestSyncService>();
 }
@@ -110,25 +103,28 @@ std::unique_ptr<KeyedService> CreateTestUserPolicySigninService(
 }  // namespace
 
 // Browser tests for SigninInterceptFirstRunExperienceDialog.
-class SigninInterceptFirstRunExperienceDialogBrowserTest
-    : public SigninBrowserTestBase {
+using TestBase = InteractiveFeaturePromoTestT<SigninBrowserTestBase>;
+class SigninInterceptFirstRunExperienceDialogBrowserTest : public TestBase {
  public:
   using DialogEvent = SigninInterceptFirstRunExperienceDialog::DialogEvent;
   using DialogEventSet =
       base::EnumSet<DialogEvent, DialogEvent::kStart, DialogEvent::kMaxValue>;
 
   SigninInterceptFirstRunExperienceDialogBrowserTest()
-      : SigninBrowserTestBase(/*use_main_profile=*/true) {
-    feature_list_.InitAndEnableFeatures(
-        /*allow_and_enable_features=*/{feature_engagement::
-                                           kIPHProfileSwitchFeature},
-        /*disable_features=*/{switches::kUnoDesktop});
-  }
+      : TestBase(UseDefaultTrackerAllowingPromos(
+                     {feature_engagement::kIPHProfileSwitchFeature},
+                     TrackerInitializationMode::kDoNotWait),
+                 ClockMode::kUseTestClock,
+                 InitialSessionState::kOutsideGracePeriod,
+                 /*use_main_profile=*/true),
+        scoped_iph_delay_(
+            AvatarToolbarButton::SetScopedIPHMinDelayAfterCreationForTesting(
+                base::Seconds(0))) {}
 
   ~SigninInterceptFirstRunExperienceDialogBrowserTest() override = default;
 
   void SetUpInProcessBrowserTestFixture() override {
-    SigninBrowserTestBase::SetUpInProcessBrowserTestFixture();
+    TestBase::SetUpInProcessBrowserTestFixture();
 
     policy_provider_.SetDefaultReturns(
         /*is_initialization_complete_return=*/true,
@@ -139,10 +135,8 @@ class SigninInterceptFirstRunExperienceDialogBrowserTest
 
   void OnWillCreateBrowserContextServices(
       content::BrowserContext* context) override {
-    SigninBrowserTestBase::OnWillCreateBrowserContextServices(context);
+    TestBase::OnWillCreateBrowserContextServices(context);
 
-    feature_engagement::TrackerFactory::GetInstance()->SetTestingFactory(
-        context, base::BindRepeating(&CreateTestTracker));
     SyncServiceFactory::GetInstance()->SetTestingFactory(
         context, base::BindRepeating(&CreateTestSyncService));
     policy::UserPolicySigninServiceFactory::GetInstance()->SetTestingFactory(
@@ -150,21 +144,14 @@ class SigninInterceptFirstRunExperienceDialogBrowserTest
   }
 
   void SetUpOnMainThread() override {
-    SigninBrowserTestBase::SetUpOnMainThread();
+    TestBase::SetUpOnMainThread();
     identity_test_env()->SetAutomaticIssueOfAccessTokens(true);
-
-    // Needed for profile switch IPH testing.
-    AvatarToolbarButton::SetIPHMinDelayAfterCreationForTesting(
-        base::Seconds(0));
-    test_lock_ = user_education::FeaturePromoControllerCommon::
-        BlockActiveWindowCheckForTesting();
   }
 
   // Returns true if the profile switch IPH has been shown.
   bool ProfileSwitchPromoHasBeenShown() {
-    return user_education::test::WaitForStartupPromo(
-        feature_engagement::TrackerFactory::GetForBrowserContext(GetProfile()),
-        feature_engagement::kIPHProfileSwitchFeature);
+    return RunTestSequence(
+        WaitForPromo(feature_engagement::kIPHProfileSwitchFeature));
   }
 
   void UpdateChromePolicy(const policy::PolicyMap& policy) {
@@ -255,19 +242,19 @@ class SigninInterceptFirstRunExperienceDialogBrowserTest
  protected:
   const GURL kSyncConfirmationUrl = AppendSyncConfirmationQueryParams(
       GURL("chrome://sync-confirmation"),
-      SyncConfirmationStyle::kSigninInterceptModal);
+      SyncConfirmationStyle::kSigninInterceptModal,
+      /*is_sync_promo=*/true);
   const GURL kProfileCustomizationUrl = GURL("chrome://profile-customization");
   const GURL kSyncSettingsUrl = GURL("chrome://settings/syncSetup");
 
  private:
   testing::NiceMock<policy::MockConfigurationPolicyProvider> policy_provider_;
-  feature_engagement::test::ScopedIphFeatureList feature_list_;
-
+  // Needed for profile switch IPH testing.
+  base::AutoReset<base::TimeDelta> scoped_iph_delay_;
   base::HistogramTester histogram_tester_;
   base::UserActionTester user_action_tester_;
 
   CoreAccountId account_id_;
-  user_education::FeaturePromoControllerCommon::TestLock test_lock_;
 };
 
 // Shows and closes the fre dialog.
@@ -330,7 +317,7 @@ IN_PROC_BROWSER_TEST_F(SigninInterceptFirstRunExperienceDialogBrowserTest,
 // Goes through all steps of the fre dialog and skips profile customization.
 // The user enables sync.
 IN_PROC_BROWSER_TEST_F(SigninInterceptFirstRunExperienceDialogBrowserTest,
-                       AcceptSync_SkipCustomization) {
+                       AcceptSyncSkipCustomization) {
   SignIn(kConsumerEmail);
   content::TestNavigationObserver sync_confirmation_observer(
       kSyncConfirmationUrl);
@@ -372,14 +359,14 @@ IN_PROC_BROWSER_TEST_F(SigninInterceptFirstRunExperienceDialogBrowserTest,
                         DialogEvent::kShowProfileCustomization,
                         DialogEvent::kProfileCustomizationClickSkip});
   ExpectSigninHistogramsRecorded();
-  // TODO(https://crbug.com/1282157): test that the Skip button undoes the
+  // TODO(crbug.com/40209493): test that the Skip button undoes the
   // changes in the theme color and the profile name.
 }
 
 // The user enables sync and has a synced extension theme. Tests that the dialog
 // waits on the sync confirmation page until the extension theme is applied.
 IN_PROC_BROWSER_TEST_F(SigninInterceptFirstRunExperienceDialogBrowserTest,
-                       AcceptSync_ExtensionTheme) {
+                       AcceptSyncExtensionTheme) {
   SignIn(kConsumerEmail);
   content::TestNavigationObserver sync_confirmation_observer(
       kSyncConfirmationUrl);
@@ -432,7 +419,7 @@ IN_PROC_BROWSER_TEST_F(SigninInterceptFirstRunExperienceDialogBrowserTest,
 // Tests that the profile customzation is not shown when the user enables sync
 // for an account with a custom passphrase.
 IN_PROC_BROWSER_TEST_F(SigninInterceptFirstRunExperienceDialogBrowserTest,
-                       AcceptSync_SyncPassphrase) {
+                       AcceptSyncCustomPassphrase) {
   SignIn(kConsumerEmail);
   content::TestNavigationObserver sync_confirmation_observer(
       kSyncConfirmationUrl);
@@ -450,7 +437,7 @@ IN_PROC_BROWSER_TEST_F(SigninInterceptFirstRunExperienceDialogBrowserTest,
       kSyncConfirmationUrl);
 
   SimulateSyncConfirmationUIClosing(LoginUIService::SYNC_WITH_DEFAULT_SETTINGS);
-  sync_service()->SetPassphraseRequired(true);
+  sync_service()->SetPassphraseRequired();
   sync_service()->FireStateChanged();
   ExpectPrimaryAccountWithExactConsentLevel(signin::ConsentLevel::kSync);
   EXPECT_FALSE(controller()->ShowsModalDialog());
@@ -480,59 +467,8 @@ IN_PROC_BROWSER_TEST_F(SigninInterceptFirstRunExperienceDialogBrowserTest,
       kSyncConfirmationUrl);
 
   SimulateSyncConfirmationUIClosing(LoginUIService::ABORT_SYNC);
+
   ExpectPrimaryAccountWithExactConsentLevel(signin::ConsentLevel::kSignin);
-  EXPECT_TRUE(controller()->ShowsModalDialog());
-  profile_customization_observer.Wait();
-  EXPECT_EQ(
-      dialog()->GetModalDialogWebContentsForTesting()->GetLastCommittedURL(),
-      kProfileCustomizationUrl);
-
-  SimulateProfileCustomizationDoneButtonClicked();
-  EXPECT_FALSE(controller()->ShowsModalDialog());
-  EXPECT_TRUE(ProfileSwitchPromoHasBeenShown());
-  ExpectRecordedEvents({DialogEvent::kStart, DialogEvent::kShowSyncConfirmation,
-                        DialogEvent::kSyncConfirmationClickCancel,
-                        DialogEvent::kShowProfileCustomization,
-                        DialogEvent::kProfileCustomizationClickDone});
-  ExpectSigninHistogramsRecorded();
-}
-
-class SigninInterceptFirstRunExperienceDialogWithUnoEnabledBrowserTest
-    : public SigninInterceptFirstRunExperienceDialogBrowserTest {
- private:
-  base::test::ScopedFeatureList scoped_feature_list_{switches::kUnoDesktop};
-};
-
-// Goes through all steps of the fre dialog. The user declines sync and should
-// be signed out of Chrome as part of Uno.
-IN_PROC_BROWSER_TEST_F(
-    SigninInterceptFirstRunExperienceDialogWithUnoEnabledBrowserTest,
-    DeclineSync) {
-  SetAccountCookieAndToken(kConsumerEmail);
-  content::TestNavigationObserver sync_confirmation_observer(
-      kSyncConfirmationUrl);
-  content::TestNavigationObserver profile_customization_observer(
-      kProfileCustomizationUrl);
-  sync_confirmation_observer.StartWatchingNewWebContents();
-  profile_customization_observer.StartWatchingNewWebContents();
-
-  controller()->ShowModalInterceptFirstRunExperienceDialog(
-      account_id(), /* is_forced_intercept = */ false);
-  EXPECT_TRUE(controller()->ShowsModalDialog());
-  sync_confirmation_observer.Wait();
-  EXPECT_EQ(
-      dialog()->GetModalDialogWebContentsForTesting()->GetLastCommittedURL(),
-      kSyncConfirmationUrl);
-
-  SimulateSyncConfirmationUIClosing(LoginUIService::ABORT_SYNC);
-
-  // Chrome is signed out after declining Sync.
-  EXPECT_EQ(
-      identity_manager()->GetPrimaryAccountId(signin::ConsentLevel::kSignin),
-      CoreAccountId());
-  EXPECT_EQ(std::nullopt,
-            signin::GetPrimaryAccountConsentLevel(identity_manager()));
-
   EXPECT_TRUE(controller()->ShowsModalDialog());
   profile_customization_observer.Wait();
   EXPECT_EQ(
@@ -631,7 +567,7 @@ IN_PROC_BROWSER_TEST_F(SigninInterceptFirstRunExperienceDialogBrowserTest,
   // confirmation UI until the sync engine starts.
   SignIn(kEnterpriseEmail);
   // Delays the sync confirmation UI.
-  sync_service()->SetTransportState(
+  sync_service()->SetMaxTransportState(
       syncer::SyncService::TransportState::INITIALIZING);
 
   controller()->ShowModalInterceptFirstRunExperienceDialog(
@@ -647,7 +583,7 @@ IN_PROC_BROWSER_TEST_F(SigninInterceptFirstRunExperienceDialogBrowserTest,
 
   // `TurnSyncOnHelper` should be destroyed after the sync engine is up and
   // running.
-  sync_service()->SetTransportState(
+  sync_service()->SetMaxTransportState(
       syncer::SyncService::TransportState::ACTIVE);
   sync_service()->FireStateChanged();
   EXPECT_FALSE(
@@ -663,8 +599,7 @@ IN_PROC_BROWSER_TEST_F(SigninInterceptFirstRunExperienceDialogBrowserTest,
 IN_PROC_BROWSER_TEST_F(SigninInterceptFirstRunExperienceDialogBrowserTest,
                        SyncDisabled) {
   SignIn(kEnterpriseEmail);
-  sync_service()->SetDisableReasons(
-      {syncer::SyncService::DISABLE_REASON_ENTERPRISE_POLICY});
+  sync_service()->SetAllowedByEnterprisePolicy(false);
   ExpectPrimaryAccountWithExactConsentLevel(signin::ConsentLevel::kSignin);
   content::TestNavigationObserver profile_customization_observer(
       kProfileCustomizationUrl);
@@ -704,6 +639,7 @@ IN_PROC_BROWSER_TEST_F(SigninInterceptFirstRunExperienceDialogBrowserTest,
       account_id(), /* is_forced_intercept = */ true);
   EXPECT_TRUE(controller()->ShowsModalDialog());
   profile_customization_observer.Wait();
+
   ExpectPrimaryAccountWithExactConsentLevel(signin::ConsentLevel::kSignin);
   EXPECT_EQ(
       dialog()->GetModalDialogWebContentsForTesting()->GetLastCommittedURL(),

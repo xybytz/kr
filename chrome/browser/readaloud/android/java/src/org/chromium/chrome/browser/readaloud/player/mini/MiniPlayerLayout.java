@@ -15,9 +15,7 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
 import android.content.Context;
-import android.graphics.Rect;
 import android.util.AttributeSet;
-import android.view.TouchDelegate;
 import android.view.View;
 import android.view.animation.Interpolator;
 import android.widget.FrameLayout;
@@ -28,13 +26,12 @@ import android.widget.TextView;
 
 import androidx.annotation.ColorInt;
 
-import com.google.android.material.animation.ChildrenAlphaProperty;
-
 import org.chromium.chrome.browser.readaloud.player.Colors;
 import org.chromium.chrome.browser.readaloud.player.InteractionHandler;
 import org.chromium.chrome.browser.readaloud.player.R;
-import org.chromium.chrome.browser.readaloud.player.VisibilityState;
+import org.chromium.chrome.browser.readaloud.player.TouchDelegateUtil;
 import org.chromium.chrome.modules.readaloud.PlaybackListener;
+import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.interpolators.Interpolators;
 
 /** Convenience class for manipulating mini player UI layout. */
@@ -57,17 +54,15 @@ public class MiniPlayerLayout extends LinearLayout {
 
     private @PlaybackListener.State int mLastPlaybackState;
     private boolean mEnableAnimations;
-    private InteractionHandler mInteractionHandler;
     private ObjectAnimator mAnimator;
-    private @VisibilityState int mFinalVisibility;
     private MiniPlayerMediator mMediator;
     private float mFinalOpacity;
     private @ColorInt int mBackgroundColorArgb;
+    private int mYOffset;
 
     /** Constructor for inflating from XML. */
     public MiniPlayerLayout(Context context, AttributeSet attrs) {
         super(context, attrs);
-        mFinalVisibility = VisibilityState.GONE;
     }
 
     void destroy() {
@@ -99,6 +94,14 @@ public class MiniPlayerLayout extends LinearLayout {
             mMediator.onBackgroundColorUpdated(mBackgroundColorArgb);
         }
 
+        // TODO: Plug in WindowAndroid and use #isWindowOnTablet instead
+        if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(context)) {
+            int paddingPx =
+                    context.getResources()
+                            .getDimensionPixelSize(R.dimen.readaloud_mini_player_tablet_padding);
+            View container = findViewById(R.id.mini_player_container);
+            container.setPadding(paddingPx, 0, paddingPx, 0);
+        }
         mLastPlaybackState = PlaybackListener.State.UNKNOWN;
     }
 
@@ -117,16 +120,7 @@ public class MiniPlayerLayout extends LinearLayout {
         }
 
         // Make the close button touch target bigger.
-        View closeButton = findViewById(R.id.close_button);
-        Rect target = new Rect();
-        closeButton.getHitRect(target);
-        int halfWidth = target.width() / 2;
-        int halfHeight = target.height() / 2;
-        target.left -= halfWidth;
-        target.top -= halfHeight;
-        target.right += halfWidth;
-        target.bottom += halfHeight;
-        ((View) closeButton.getParent()).setTouchDelegate(new TouchDelegate(target, closeButton));
+        TouchDelegateUtil.setBiggerTouchTarget(findViewById(R.id.close_button));
     }
 
     void changeOpacity(float startValue, float endValue) {
@@ -137,16 +131,18 @@ public class MiniPlayerLayout extends LinearLayout {
             return;
         }
         mFinalOpacity = endValue;
+        setAlpha(startValue);
 
+        View nonErrorLayoutContainer = mErrorLayout.getVisibility() == View.GONE ? mContents : null;
         Runnable onFinished =
-                endValue == 1f ? mMediator::onFullOpacityReached : mMediator::onZeroOpacityReached;
+                endValue == 1f
+                        ? () -> mMediator.onFullOpacityReached(nonErrorLayoutContainer)
+                        : mMediator::onZeroOpacityReached;
 
         if (mEnableAnimations) {
             // TODO: handle case where existing animation is incomplete and needs to be reversed
             destroyAnimator();
-            mAnimator =
-                    ObjectAnimator.ofFloat(
-                            mBackdrop, ChildrenAlphaProperty.CHILDREN_ALPHA, endValue);
+            mAnimator = ObjectAnimator.ofFloat(this, View.ALPHA, endValue);
             mAnimator.setDuration(FADE_DURATION_MS);
             mAnimator.setInterpolator(FADE_INTERPOLATOR);
             mAnimator.addListener(
@@ -159,8 +155,7 @@ public class MiniPlayerLayout extends LinearLayout {
                     });
             mAnimator.start();
         } else {
-            mContents.setAlpha(endValue);
-            mProgressBar.setAlpha(endValue);
+            setAlpha(endValue);
             onFinished.run();
         }
     }
@@ -185,8 +180,22 @@ public class MiniPlayerLayout extends LinearLayout {
         mProgressBar.setProgress((int) (progress * mProgressBar.getMax()), true);
     }
 
+    /**
+     * Set the yOffset of the mini player layout. If yOffset < 0, the view need to shift up from the
+     * bottom. It is implemented by applying a bottom margin.
+     */
+    void setYOffset(int yOffset) {
+        if (mYOffset == yOffset) return;
+
+        assert yOffset <= 0;
+
+        mYOffset = -yOffset;
+        MarginLayoutParams mlp = (MarginLayoutParams) getLayoutParams();
+        mlp.bottomMargin = mYOffset;
+        setLayoutParams(mlp);
+    }
+
     void setInteractionHandler(InteractionHandler handler) {
-        mInteractionHandler = handler;
         setOnClickListener(R.id.close_button, handler::onCloseClick);
         setOnClickListener(R.id.mini_player_container, handler::onMiniPlayerExpandClick);
         setOnClickListener(R.id.play_button, handler::onPlayPauseClick);
@@ -223,7 +232,11 @@ public class MiniPlayerLayout extends LinearLayout {
 
             case STOPPED:
             case PAUSED:
-                if (mLastPlaybackState != PLAYING && mLastPlaybackState != PAUSED) {
+                // Buffering/unknown and error states have their own views, show back the normal
+                // layout if needed
+                if (mLastPlaybackState != PLAYING
+                        && mLastPlaybackState != PAUSED
+                        && mLastPlaybackState != ERROR) {
                     showOnly(mNormalLayout);
                     mProgressBar.setVisibility(View.VISIBLE);
                 }

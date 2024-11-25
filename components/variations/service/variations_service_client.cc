@@ -5,6 +5,7 @@
 #include "components/variations/service/variations_service_client.h"
 
 #include "base/command_line.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/notreached.h"
 #include "base/system/sys_info.h"
@@ -36,7 +37,7 @@ version_info::Channel VariationsServiceClient::GetChannelForVariations() {
 
   auto channel = GetChannel();
 #if BUILDFLAG(IS_ANDROID)
-  // TODO(crbug.com/1493502): Remove this if block after automotive beta ends.
+  // TODO(crbug.com/40936710): Remove this if block after automotive beta ends.
   if (channel == version_info::Channel::BETA &&
       base::android::BuildInfo::GetInstance()->is_automotive()) {
     return version_info::Channel::STABLE;
@@ -76,20 +77,16 @@ Study::FormFactor VariationsServiceClient::GetCurrentFormFactor() {
       return Study::FOLDABLE;
   }
   NOTREACHED();
-  return Study::DESKTOP;
 #endif  // BUILDFLAG(PLATFORM_CFM)
+}
+
+base::FilePath VariationsServiceClient::GetVariationsSeedFileDir() {
+  return base::FilePath();
 }
 
 std::unique_ptr<SeedResponse>
 VariationsServiceClient::TakeSeedFromNativeVariationsSeedStore() {
   return nullptr;
-}
-
-void VariationsServiceClient::RegisterLimitedEntropySyntheticTrial(
-    std::string_view group_name) {
-  // This trial should only be registered on platforms that support the limited
-  // entropy mode.
-  NOTREACHED();
 }
 
 }  // namespace variations

@@ -9,6 +9,7 @@
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
 #include "base/functional/callback_helpers.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/extension_apps_utils.h"
@@ -16,7 +17,11 @@
 #include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ash/app_list/extension_app_utils.h"
 #include "chrome/browser/ash/app_restore/full_restore_service.h"
+#include "chrome/browser/ash/app_restore/full_restore_service_factory.h"
 #include "chrome/browser/ash/borealis/borealis_window_manager.h"
+#include "chrome/browser/ash/bruschetta/bruschetta_service.h"
+#include "chrome/browser/ash/bruschetta/bruschetta_service_factory.h"
+#include "chrome/browser/ash/bruschetta/bruschetta_util.h"
 #include "chrome/browser/ash/crosapi/browser_manager.h"
 #include "chrome/browser/ash/crostini/crostini_manager.h"
 #include "chrome/browser/ash/crostini/crostini_util.h"
@@ -35,6 +40,7 @@
 #include "chrome/browser/ui/ash/shelf/browser_shortcut_shelf_item_controller.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller_util.h"
+#include "chrome/browser/ui/ash/shelf/shelf_context_menu.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/views/crostini/crostini_app_restart_dialog.h"
 #include "chrome/browser/ui/webui/ash/settings/app_management/app_management_uma.h"
@@ -81,7 +87,6 @@ extensions::LaunchType ConvertLaunchTypeCommandToExtensionLaunchType(
       [[fallthrough]];
     default:
       NOTREACHED();
-      return extensions::LAUNCH_TYPE_INVALID;
   }
 }
 
@@ -93,6 +98,14 @@ std::string GetAppId(const ash::ShelfID& shelf_id) {
     return arc_shelf_id.app_id();
 
   return shelf_id.app_id;
+}
+
+void MaybeCloseFullRestoreServiceNotification(Profile* profile) {
+  if (auto* full_restore_service =
+          ash::full_restore::FullRestoreServiceFactory::GetForProfile(
+              profile)) {
+    full_restore_service->MaybeCloseNotification();
+  }
 }
 
 }  // namespace
@@ -120,7 +133,8 @@ AppServiceShelfContextMenu::~AppServiceShelfContextMenu() = default;
 
 ui::ImageModel AppServiceShelfContextMenu::GetIconForCommandId(
     int command_id) const {
-  if (command_id == ash::LAUNCH_NEW) {
+  if (command_id == ash::LAUNCH_NEW ||
+      command_id == ash::SHUTDOWN_BRUSCHETTA_OS) {
     const gfx::VectorIcon& icon =
         GetCommandIdVectorIcon(command_id, launch_new_string_id_);
     return ui::ImageModel::FromVectorIcon(
@@ -134,9 +148,14 @@ std::u16string AppServiceShelfContextMenu::GetLabelForCommandId(
   if (command_id == ash::LAUNCH_NEW) {
     CHECK_GT(launch_new_string_id_, 0)
         << "Unexpected `launch_new_string_id_` value. App id = "
-        << item().id.app_id << "; app type = " << apps::EnumToString(app_type_)
+        << item().id.app_id << "; app type = " << app_type_
         << "; submenu items count = " << submenu_->GetItemCount();
     return l10n_util::GetStringUTF16(launch_new_string_id_);
+  } else if (command_id == ash::SHUTDOWN_BRUSCHETTA_OS) {
+    return l10n_util::GetStringFUTF16(
+        IDS_BRUSCHETTA_SHUT_DOWN_LINUX_MENU_ITEM,
+        base::UTF8ToUTF16(
+            bruschetta::GetBruschettaDisplayName(controller()->profile())));
   }
   return ShelfContextMenu::GetLabelForCommandId(command_id);
 }
@@ -159,8 +178,7 @@ void AppServiceShelfContextMenu::ExecuteCommand(int command_id,
   switch (command_id) {
     case ash::SHOW_APP_INFO:
       ShowAppInfo();
-      ash::full_restore::FullRestoreService::MaybeCloseNotification(
-          controller()->profile());
+      MaybeCloseFullRestoreServiceNotification(controller()->profile());
       break;
 
     case ash::APP_CONTEXT_MENU_NEW_WINDOW:
@@ -175,8 +193,7 @@ void AppServiceShelfContextMenu::ExecuteCommand(int command_id,
             /*incognito=*/false,
             /*should_trigger_session_restore=*/false);
       }
-      ash::full_restore::FullRestoreService::MaybeCloseNotification(
-          controller()->profile());
+      MaybeCloseFullRestoreServiceNotification(controller()->profile());
       break;
 
     case ash::APP_CONTEXT_MENU_NEW_INCOGNITO_WINDOW:
@@ -188,8 +205,7 @@ void AppServiceShelfContextMenu::ExecuteCommand(int command_id,
             /*incognito=*/true,
             /*should_trigger_session_restore=*/false);
       }
-      ash::full_restore::FullRestoreService::MaybeCloseNotification(
-          controller()->profile());
+      MaybeCloseFullRestoreServiceNotification(controller()->profile());
       break;
 
     case ash::SHUTDOWN_GUEST_OS:
@@ -206,6 +222,17 @@ void AppServiceShelfContextMenu::ExecuteCommand(int command_id,
       }
       break;
 
+    case ash::SHUTDOWN_BRUSCHETTA_OS:
+      if (item().id.app_id == guest_os::kTerminalSystemAppId) {
+        bruschetta::BruschettaServiceFactory::GetForProfile(
+            controller()->profile())
+            ->StopRunningVms();
+      } else {
+        LOG(ERROR) << "App " << item().id.app_id
+                   << " should not have a shutdown Bruschetta command.";
+      }
+      break;
+
     case ash::USE_LAUNCH_TYPE_TABBED_WINDOW:
       [[fallthrough]];
     case ash::USE_LAUNCH_TYPE_REGULAR:
@@ -218,7 +245,6 @@ void AppServiceShelfContextMenu::ExecuteCommand(int command_id,
     case ash::DEPRECATED_USE_LAUNCH_TYPE_FULLSCREEN:
     case ash::DEPRECATED_USE_LAUNCH_TYPE_PINNED:
       NOTREACHED();
-      break;
 
     case ash::CROSTINI_USE_LOW_DENSITY:
     case ash::CROSTINI_USE_HIGH_DENSITY: {
@@ -235,8 +261,7 @@ void AppServiceShelfContextMenu::ExecuteCommand(int command_id,
     case ash::SETTINGS:
       if (item().id.app_id == guest_os::kTerminalSystemAppId) {
         guest_os::LaunchTerminalSettings(controller()->profile(), display_id());
-        ash::full_restore::FullRestoreService::MaybeCloseNotification(
-            controller()->profile());
+        MaybeCloseFullRestoreServiceNotification(controller()->profile());
       }
       return;
 
@@ -317,6 +342,7 @@ bool AppServiceShelfContextMenu::IsCommandIdEnabled(int command_id) const {
 bool AppServiceShelfContextMenu::IsItemForCommandIdDynamic(
     int command_id) const {
   return command_id == ash::LAUNCH_NEW ||
+         command_id == ash::SHUTDOWN_BRUSCHETTA_OS ||
          ShelfContextMenu::IsItemForCommandIdDynamic(command_id);
 }
 
@@ -358,8 +384,7 @@ void AppServiceShelfContextMenu::OnGetMenuModel(GetMenuModelCallback callback,
   size_t shortcut_index = menu_items.items.size();
   for (size_t i = index; i < menu_items.items.size(); i++) {
     // For Chrome browser, add the close item before the app info item.
-    if ((item().id.app_id == app_constants::kChromeAppId ||
-         item().id.app_id == app_constants::kLacrosAppId) &&
+    if (item().id.app_id == app_constants::kChromeAppId &&
         menu_items.items[i]->command_id == ash::SHOW_APP_INFO) {
       BuildChromeAppMenu(menu_model.get());
     }
@@ -491,10 +516,9 @@ void AppServiceShelfContextMenu::BuildCrostiniAppMenu(
 
 void AppServiceShelfContextMenu::BuildChromeAppMenu(
     ui::SimpleMenuModel* menu_model) {
-  // Don't check list of active browsers for lacros app because the list of
-  // browsers only tracks in-process browsers (i.e. instances of ash-chrome).
+  // The list of browsers only tracks in-process browsers (i.e. instances of
+  // ash-chrome).
   const bool has_active_browsers =
-      item().id.app_id != app_constants::kLacrosAppId &&
       !BrowserShortcutShelfItemController::IsListOfActiveBrowserEmpty(
           controller()->shelf_model());
   if (has_active_browsers || item().type == ash::TYPE_DIALOG ||
@@ -512,11 +536,6 @@ void AppServiceShelfContextMenu::ShowAppInfo() {
     return;
   }
 
-  // TODO(crbug.com/1196697): If this comes from Lacros app, it shows the
-  // top "Apps" settings page. This is fallback, because Lacros app is not
-  // registered. This is short term workaround to keep the relative
-  // compatibility for Lacros Primary. We should figure out what should be shown
-  // by this.
   controller()->DoShowAppInfoFlow(item().id.app_id);
 }
 
@@ -573,7 +592,6 @@ void AppServiceShelfContextMenu::SetExtensionLaunchType(int command_id) {
     case ash::DEPRECATED_USE_LAUNCH_TYPE_FULLSCREEN:
     case ash::DEPRECATED_USE_LAUNCH_TYPE_PINNED:
       NOTREACHED();
-      break;
     default:
       return;
   }

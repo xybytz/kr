@@ -9,7 +9,9 @@
 #define NET_URL_REQUEST_URL_REQUEST_CONTEXT_H_
 
 #include <stdint.h>
+
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 
@@ -26,7 +28,6 @@
 #include "net/net_buildflags.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/url_request/url_request.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace net {
 class CertVerifier;
@@ -52,7 +53,6 @@ class TransportSecurityPersister;
 class TransportSecurityState;
 class URLRequest;
 class URLRequestJobFactory;
-class URLRequestThrottlerManager;
 class URLRequestContextBuilder;
 
 #if BUILDFLAG(ENABLE_REPORTING)
@@ -60,6 +60,11 @@ class NetworkErrorLoggingService;
 class PersistentReportingAndNelStore;
 class ReportingService;
 #endif  // BUILDFLAG(ENABLE_REPORTING)
+
+namespace device_bound_sessions {
+class SessionService;
+class SessionStore;
+}
 
 // Class that provides application-specific context for URLRequest
 // instances. May only be created by URLRequestContextBuilder.
@@ -82,7 +87,7 @@ class NET_EXPORT URLRequestContext final {
   // session.
   const HttpNetworkSessionContext* GetNetworkSessionContext() const;
 
-// TODO(crbug.com/1052397): Revisit once build flag switch of lacros-chrome is
+// TODO(crbug.com/40118868): Revisit once build flag switch of lacros-chrome is
 // complete.
 #if !BUILDFLAG(IS_WIN) && \
     !(BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
@@ -120,8 +125,8 @@ class NET_EXPORT URLRequestContext final {
       URLRequest::Delegate* delegate,
       NetworkTrafficAnnotationTag traffic_annotation,
       bool is_for_websockets = false,
-      const absl::optional<net::NetLogSource> net_log_source =
-          absl::nullopt) const;
+      const std::optional<net::NetLogSource> net_log_source =
+          std::nullopt) const;
 
   NetLog* net_log() const { return net_log_; }
 
@@ -172,16 +177,11 @@ class NET_EXPORT URLRequestContext final {
 
   const URLRequestJobFactory* job_factory() const { return job_factory_; }
 
-  // May return nullptr.
-  URLRequestThrottlerManager* throttler_manager() const {
-    return throttler_manager_.get();
-  }
-
   QuicContext* quic_context() const { return quic_context_.get(); }
 
   // Gets the URLRequest objects that hold a reference to this
   // URLRequestContext.
-  std::set<const URLRequest*>* url_requests() const {
+  std::set<raw_ptr<const URLRequest, SetExperimental>>* url_requests() const {
     return url_requests_.get();
   }
 
@@ -212,6 +212,23 @@ class NET_EXPORT URLRequestContext final {
   }
 #endif  // BUILDFLAG(ENABLE_REPORTING)
 
+  // May return nullptr if the feature is disabled.
+  device_bound_sessions::SessionStore* device_bound_session_store() const {
+#if BUILDFLAG(ENABLE_DEVICE_BOUND_SESSIONS)
+    return device_bound_session_store_.get();
+#else
+    return nullptr;
+#endif
+  }
+  // May return nullptr if the feature is disabled.
+  device_bound_sessions::SessionService* device_bound_session_service() const {
+#if BUILDFLAG(ENABLE_DEVICE_BOUND_SESSIONS)
+    return device_bound_session_service_.get();
+#else
+    return nullptr;
+#endif
+  }
+
   bool enable_brotli() const { return enable_brotli_; }
 
   bool enable_zstd() const { return enable_zstd_; }
@@ -236,11 +253,11 @@ class NET_EXPORT URLRequestContext final {
     job_factory_ = job_factory;
   }
 
-  const absl::optional<std::string>& cookie_deprecation_label() const {
+  const std::optional<std::string>& cookie_deprecation_label() const {
     return cookie_deprecation_label_;
   }
 
-  void set_cookie_deprecation_label(const absl::optional<std::string>& label) {
+  void set_cookie_deprecation_label(const std::optional<std::string>& label) {
     cookie_deprecation_label_ = label;
   }
 
@@ -272,8 +289,6 @@ class NET_EXPORT URLRequestContext final {
       std::unique_ptr<TransportSecurityState> state);
   void set_sct_auditing_delegate(std::unique_ptr<SCTAuditingDelegate> delegate);
   void set_job_factory(std::unique_ptr<const URLRequestJobFactory> job_factory);
-  void set_throttler_manager(
-      std::unique_ptr<URLRequestThrottlerManager> throttler_manager);
   void set_quic_context(std::unique_ptr<QuicContext> quic_context);
   void set_http_user_agent_settings(
       std::unique_ptr<const HttpUserAgentSettings> http_user_agent_settings);
@@ -308,6 +323,14 @@ class NET_EXPORT URLRequestContext final {
       std::unique_ptr<TransportSecurityPersister> transport_security_persister);
 
   raw_ptr<NetLog> net_log_ = nullptr;
+#if BUILDFLAG(ENABLE_DEVICE_BOUND_SESSIONS)
+  void set_device_bound_session_store(
+      std::unique_ptr<device_bound_sessions::SessionStore>
+          device_bound_session_store);
+  void set_device_bound_session_service(
+      std::unique_ptr<device_bound_sessions::SessionService>
+          device_bound_session_service);
+#endif  // BUILDFLAG(ENABLE_DEVICE_BOUND_SESSIONS)
 
   std::unique_ptr<HostResolver> host_resolver_;
   std::unique_ptr<CertVerifier> cert_verifier_;
@@ -332,8 +355,6 @@ class NET_EXPORT URLRequestContext final {
   std::unique_ptr<const URLRequestJobFactory> job_factory_storage_;
   raw_ptr<const URLRequestJobFactory> job_factory_ = nullptr;
 
-  std::unique_ptr<URLRequestThrottlerManager> throttler_manager_;
-
 #if BUILDFLAG(ENABLE_REPORTING)
   // Must precede |reporting_service_| and |network_error_logging_service_|
   std::unique_ptr<PersistentReportingAndNelStore>
@@ -354,7 +375,15 @@ class NET_EXPORT URLRequestContext final {
 
   std::unique_ptr<TransportSecurityPersister> transport_security_persister_;
 
-  std::unique_ptr<std::set<const URLRequest*>> url_requests_;
+  std::unique_ptr<std::set<raw_ptr<const URLRequest, SetExperimental>>>
+      url_requests_;
+
+#if BUILDFLAG(ENABLE_DEVICE_BOUND_SESSIONS)
+  std::unique_ptr<device_bound_sessions::SessionStore>
+      device_bound_session_store_;
+  std::unique_ptr<device_bound_sessions::SessionService>
+      device_bound_session_service_;
+#endif  // BUILDFLAG(ENABLE_DEVICE_BOUND_SESSIONS)
 
   // Enables Brotli Content-Encoding support.
   bool enable_brotli_ = false;
@@ -368,7 +397,7 @@ class NET_EXPORT URLRequestContext final {
   // provided to a request when true.
   bool require_network_anonymization_key_ = false;
 
-  absl::optional<std::string> cookie_deprecation_label_;
+  std::optional<std::string> cookie_deprecation_label_;
 
   handles::NetworkHandle bound_network_;
 

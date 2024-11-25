@@ -7,7 +7,8 @@ import 'chrome://settings/lazy_load.js';
 
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {FileSystemGrant, FileSystemSiteEntryElement, OriginFileSystemGrants, SiteSettingsPrefsBrowserProxyImpl} from 'chrome://settings/lazy_load.js';
+import type {FileSystemGrant, OriginFileSystemGrants} from 'chrome://settings/lazy_load.js';
+import {FileSystemSiteEntryElement, SiteSettingsPrefsBrowserProxyImpl} from 'chrome://settings/lazy_load.js';
 import {CrSettingsPrefs, Router, routes} from 'chrome://settings/settings.js';
 import {assertEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
@@ -38,7 +39,6 @@ suite('FileSystemSettings_EnablePersistentPermissions', function() {
     // Initialize the file-system-site-list.
     const filePath: string = 'a/b';
     const TEST_FILE_SYSTEM_FILE_WRITE_GRANT: FileSystemGrant = {
-      origin: kTestOrigin,
       filePath: filePath,
       displayName: filePath,
       isDirectory: false,

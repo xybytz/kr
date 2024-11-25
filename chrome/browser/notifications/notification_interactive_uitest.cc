@@ -38,7 +38,6 @@
 #include "components/permissions/permission_uma_util.h"
 #include "components/permissions/permission_util.h"
 #include "components/ukm/test_ukm_recorder.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
@@ -645,13 +644,7 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestShouldDisplayFullscreen) {
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetTestPageURL()));
 
   // Set the page fullscreen
-  browser()->exclusive_access_manager()->fullscreen_controller()->
-      ToggleBrowserFullscreenMode();
-
-  {
-    FullscreenStateWaiter fs_state(browser(), true);
-    fs_state.Wait();
-  }
+  ui_test_utils::ToggleFullscreenModeAndWait(browser());
 
   ASSERT_TRUE(ui_test_utils::ShowAndFocusNativeWindow(
       browser()->window()->GetNativeWindow()));
@@ -686,24 +679,13 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestShouldDisplayMultiFullscreen) {
   EXPECT_NE("-1", result);
 
   // Set the notification page fullscreen
-  browser()->exclusive_access_manager()->fullscreen_controller()->
-      ToggleBrowserFullscreenMode();
-  {
-    FullscreenStateWaiter fs_state(browser(), true);
-    fs_state.Wait();
-  }
+  ui_test_utils::ToggleFullscreenModeAndWait(browser());
 
   // Set the other browser fullscreen
-  other_browser->exclusive_access_manager()->fullscreen_controller()->
-      ToggleBrowserFullscreenMode();
-  {
-    FullscreenStateWaiter fs_state(other_browser, true);
-    fs_state.Wait();
-  }
+  ui_test_utils::ToggleFullscreenModeAndWait(other_browser);
 
-  ASSERT_TRUE(browser()->exclusive_access_manager()->context()->IsFullscreen());
-  ASSERT_TRUE(
-      other_browser->exclusive_access_manager()->context()->IsFullscreen());
+  ASSERT_TRUE(browser()->window()->IsFullscreen());
+  ASSERT_TRUE(other_browser->window()->IsFullscreen());
 
   ui_test_utils::BrowserActivationWaiter waiter(other_browser);
   waiter.WaitForActivation();
@@ -733,13 +715,7 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestShouldDisplayPopupNotification) {
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetTestPageURL()));
 
   // Set the page fullscreen
-  browser()->exclusive_access_manager()->fullscreen_controller()->
-      ToggleBrowserFullscreenMode();
-
-  {
-    FullscreenStateWaiter fs_state(browser(), true);
-    fs_state.Wait();
-  }
+  ui_test_utils::ToggleFullscreenModeAndWait(browser());
 
   ASSERT_TRUE(ui_test_utils::ShowAndFocusNativeWindow(
       browser()->window()->GetNativeWindow()));
@@ -754,10 +730,10 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestShouldDisplayPopupNotification) {
 }
 
 #if !BUILDFLAG(IS_ANDROID)
-// TODO(crbug.com/1132058): Test fails on Windows and macOS on the bots as there
-// is no real display to test with. Need to find a way to run these without a
-// display and figure out why Lacros is timing out. Tests pass locally with a
-// real display.
+// TODO(crbug.com/40721738): Test fails on Windows and macOS on the bots as
+// there is no real display to test with. Need to find a way to run these
+// without a display and figure out why Lacros is timing out. Tests pass locally
+// with a real display.
 #if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #define MAYBE_ShouldQueueDuringScreenPresent \
   DISABLED_ShouldQueueDuringScreenPresent
@@ -832,7 +808,7 @@ IN_PROC_BROWSER_TEST_F(NotificationsTestWithFakeMediaStream,
   notifications =
       message_center::MessageCenter::Get()->GetVisibleNotifications();
   ASSERT_EQ(3u, notifications.size());
-  for (const auto* notification : notifications) {
+  for (const message_center::Notification* notification : notifications) {
     EXPECT_EQ(u"My Title", notification->title());
     EXPECT_EQ(u"My Body", notification->message());
   }

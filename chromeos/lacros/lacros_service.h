@@ -28,6 +28,7 @@
 #include "chromeos/crosapi/mojom/automation.mojom.h"
 #include "chromeos/crosapi/mojom/crosapi.mojom.h"
 #include "chromeos/crosapi/mojom/device_attributes.mojom.h"
+#include "chromeos/crosapi/mojom/magic_boost.mojom.h"
 #include "chromeos/crosapi/mojom/multi_capture_service.mojom.h"
 #include "chromeos/crosapi/mojom/nonclosable_app_toast_service.mojom.h"
 #include "chromeos/crosapi/mojom/one_drive_notification_service.mojom.h"
@@ -35,7 +36,9 @@
 #include "chromeos/crosapi/mojom/video_capture.mojom.h"
 #include "chromeos/crosapi/mojom/volume_manager.mojom.h"
 #include "chromeos/lacros/lacros_service_never_blocking_state.h"
+#include "chromeos/services/chromebox_for_meetings/public/mojom/cfm_service_manager.mojom.h"
 #include "chromeos/services/machine_learning/public/mojom/machine_learning_service.mojom.h"
+#include "components/policy/core/common/policy_namespace.h"
 #include "mojo/public/cpp/bindings/generic_pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -203,6 +206,11 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
   void BindBrowserCdmFactory(mojo::GenericPendingReceiver receiver);
 
   // This may be called on any thread.
+  void BindCfmServiceContext(
+      mojo::PendingReceiver<chromeos::cfm::mojom::CfmServiceContext>
+          pending_receiver);
+
+  // This may be called on any thread.
   void BindGeolocationService(
       mojo::PendingReceiver<crosapi::mojom::GeolocationService>
           pending_receiver);
@@ -213,18 +221,26 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
           chromeos::machine_learning::mojom::MachineLearningService> receiver);
 
   // This may be called on any thread.
+  void BindMagicBoostController(
+      mojo::PendingReceiver<crosapi::mojom::MagicBoostController> receiver);
+
+  // Binds the mahi browser delegate to the mahi browser client.
+  void BindMahiBrowserDelegate(
+      mojo::PendingReceiver<crosapi::mojom::MahiBrowserDelegate> receiver);
+
+  // This may be called on any thread.
   void BindMediaControllerManager(
       mojo::PendingReceiver<media_session::mojom::MediaControllerManager>
           remote);
 
   // This may be called on any thread.
-  void BindMetricsReporting(
-      mojo::PendingReceiver<crosapi::mojom::MetricsReporting> receiver);
-
-  // This may be called on any thread.
   void BindRemoteAppsLacrosBridge(
       mojo::PendingReceiver<
           chromeos::remote_apps::mojom::RemoteAppsLacrosBridge> receiver);
+
+  // This may be called on any thread.
+  void BindPrintPreviewCrosDelegate(
+      mojo::PendingReceiver<crosapi::mojom::PrintPreviewCrosDelegate> receiver);
 
   // This may be called on any thread.
   void BindScreenManagerReceiver(
@@ -233,6 +249,9 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
   // This may be called on any thread.
   void BindSensorHalClient(
       mojo::PendingRemote<chromeos::sensors::mojom::SensorHalClient> remote);
+
+  // This may be called on any thread.
+  void BindMediaApp(mojo::PendingRemote<crosapi::mojom::MediaApp> remote);
 
   // OnLacrosStartup method of Crosapi can only be called if this method
   // returns true.
@@ -266,8 +285,11 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
   //    LacrosService::Get()->GetInterfaceVersion<crosapi::mojom::Arc>();
   template <typename T>
   int GetInterfaceVersion() const {
-    return GetInterfaceVersionImpl(T::Uuid_);
+    return GetInterfaceVersion(T::Uuid_);
   }
+
+  // Prefer using GetInterfaceVersion<T>().
+  int GetInterfaceVersion(base::Token interface_uuid) const;
 
   using Crosapi = crosapi::mojom::Crosapi;
 
@@ -392,9 +414,6 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
             void (Crosapi::*bind_func)(mojo::PendingReceiver<CrosapiInterface>),
             uint32_t MethodMinVersion>
   void ConstructRemote();
-
-  // Similar to GetInterfaceVersion(), but taking UUID
-  int GetInterfaceVersionImpl(base::Token interface_uuid) const;
 
   // Receiver and cache of system idle info updates.
   std::unique_ptr<SystemIdleCache> system_idle_cache_;

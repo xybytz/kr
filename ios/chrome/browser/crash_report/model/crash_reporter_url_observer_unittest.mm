@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#import <Foundation/Foundation.h>
-
 #import "ios/chrome/browser/crash_report/model/crash_reporter_url_observer.h"
+
+#import <Foundation/Foundation.h>
 
 #import "base/strings/sys_string_conversions.h"
 #import "base/test/task_environment.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/model/web_state_list/test/fake_web_state_list_delegate.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
@@ -90,27 +90,25 @@ NSString* NumberToKey(NSNumber* number, bool pending) {
 class CrashReporterURLObserverTest : public PlatformTest {
  public:
   CrashReporterURLObserverTest() {
-    TestChromeBrowserState::Builder test_cbs_builder;
-    test_chrome_browser_state_ = test_cbs_builder.Build();
+    TestProfileIOS::Builder test_profile_builder;
+    test_profile_ = std::move(test_profile_builder).Build();
     params_ = [[DictionaryParameterSetter alloc] init];
     observer_ = std::make_unique<CrashReporterURLObserver>(params_);
   }
 
   FakeWebState* CreateWebState(WebStateList* web_state_list) {
     auto test_web_state = std::make_unique<FakeWebState>();
-    test_web_state->SetBrowserState(test_chrome_browser_state_.get());
+    test_web_state->SetBrowserState(test_profile_.get());
     test_web_state->SetNavigationManager(
         std::make_unique<web::FakeNavigationManager>());
     FakeWebState* test_web_state_ptr = test_web_state.get();
-    web_state_list->InsertWebState(0, std::move(test_web_state),
-                                   WebStateList::INSERT_NO_FLAGS,
-                                   WebStateOpener());
+    web_state_list->InsertWebState(std::move(test_web_state));
     return test_web_state_ptr;
   }
 
   std::unique_ptr<FakeWebState> CreatePreloadWebState() {
     auto test_web_state = std::make_unique<FakeWebState>();
-    test_web_state->SetBrowserState(test_chrome_browser_state_.get());
+    test_web_state->SetBrowserState(test_profile_.get());
     test_web_state->SetNavigationManager(
         std::make_unique<web::FakeNavigationManager>());
     observer_->ObservePreloadWebState(test_web_state.get());
@@ -119,7 +117,7 @@ class CrashReporterURLObserverTest : public PlatformTest {
 
  protected:
   base::test::TaskEnvironment task_environment_;
-  std::unique_ptr<ChromeBrowserState> test_chrome_browser_state_;
+  std::unique_ptr<ProfileIOS> test_profile_;
   FakeWebStateListDelegate web_state_list_delegate_;
   DictionaryParameterSetter* params_;
   std::unique_ptr<CrashReporterURLObserver> observer_;
@@ -321,9 +319,9 @@ TEST_F(CrashReporterURLObserverTest, TestBasicBehaviors) {
   };
   EXPECT_NSEQ(expected, params_.params);
 
-  web_state_list_1.InsertWebState(0, std::move(tmp_web_state),
-                                  WebStateList::INSERT_ACTIVATE,
-                                  WebStateOpener());
+  web_state_list_1.InsertWebState(
+      std::move(tmp_web_state),
+      WebStateList::InsertionParams::Automatic().Activate());
   expected = @{
     @"url0" : @"http://example14.test/",
     @"url1" : @"http://example33.test/",
@@ -339,9 +337,9 @@ TEST_F(CrashReporterURLObserverTest, TestBasicBehaviors) {
   };
   EXPECT_NSEQ(expected, params_.params);
 
-  web_state_list_3.InsertWebState(0, std::move(tmp_web_state2),
-                                  WebStateList::INSERT_ACTIVATE,
-                                  WebStateOpener());
+  web_state_list_3.InsertWebState(
+      std::move(tmp_web_state2),
+      WebStateList::InsertionParams::Automatic().Activate());
   expected = @{
     @"url0" : @"http://example14.test/",
     @"url1" : @"http://example33.test/",

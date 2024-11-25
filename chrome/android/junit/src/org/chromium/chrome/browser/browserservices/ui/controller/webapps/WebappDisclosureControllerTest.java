@@ -17,7 +17,6 @@ import static org.chromium.chrome.browser.browserservices.ui.TrustedWebActivityM
 import static org.chromium.chrome.browser.browserservices.ui.TrustedWebActivityModel.DISCLOSURE_STATE_NOT_SHOWN;
 import static org.chromium.chrome.browser.browserservices.ui.TrustedWebActivityModel.DISCLOSURE_STATE_SHOWN;
 
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -48,7 +47,7 @@ import org.chromium.components.webapk.lib.common.WebApkConstants;
 /** Tests for WebappDisclosureController */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
-// TODO(crbug.com/1210371): Change to use paused looper. See crbug for details.
+// TODO(crbug.com/40182398): Change to use paused looper. See crbug for details.
 @LooperMode(LooperMode.Mode.LEGACY)
 public class WebappDisclosureControllerTest {
     private static final String UNBOUND_PACKAGE = "unbound";
@@ -72,21 +71,16 @@ public class WebappDisclosureControllerTest {
                 .addVerificationObserver(mVerificationObserverCaptor.capture());
     }
 
-    @After
-    public void tearDown() {
-        PostTask.resetPrenativeThreadPoolExecutorForTesting();
-    }
-
     private WebappDisclosureController buildControllerForWebApk(String webApkPackageName) {
         BrowserServicesIntentDataProvider intentDataProvider =
                 new WebApkIntentDataProviderBuilder(webApkPackageName, "https://pwa.rocks/")
                         .build();
         return new WebappDisclosureController(
-                intentDataProvider,
-                mock(WebappDeferredStartupWithStorageHandler.class),
                 mModel,
                 mock(ActivityLifecycleDispatcher.class),
-                mCurrentPageVerifier);
+                mCurrentPageVerifier,
+                intentDataProvider,
+                mock(WebappDeferredStartupWithStorageHandler.class));
     }
 
     private WebappDataStorage registerStorageForWebApk(String packageName) {

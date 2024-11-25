@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/ash/ownership/owner_key_loader.h"
 
 #include <string>
@@ -31,7 +36,7 @@ namespace ash {
 // Enable storing a newly created owner key in the private slot.
 BASE_FEATURE(kStoreOwnerKeyInPrivateSlot,
              "StoreOwnerKeyInPrivateSlot",
-             base::FEATURE_ENABLED_BY_DEFAULT);
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 // Enable migration of the owner key from the public to the private slot. This
 // experiment represents the second stage of `kStoreOwnerKeyInPrivateSlot` and
@@ -41,20 +46,6 @@ BASE_FEATURE(kMigrateOwnerKeyToPrivateSlot,
              base::FEATURE_DISABLED_BY_DEFAULT);
 
 bool IsStoreOwnerKeyInPrivateSlotEnabled() {
-  if (base::FeatureList::GetInstance()->IsFeatureOverridden(
-          kStoreOwnerKeyInPrivateSlot.name)) {
-    // Return the value if it was overridden by Finch, command line, etc.
-    return base::FeatureList::IsEnabled(kStoreOwnerKeyInPrivateSlot);
-  }
-
-  version_info::Channel channel = chrome::GetChannel();
-  if (channel == version_info::Channel::STABLE ||
-      channel == version_info::Channel::BETA) {
-    // TODO(b/264397430): Disable on beta and stable channels for now, remove
-    // the condition when the new code is more reliable.
-    return false;
-  }
-
   return base::FeatureList::IsEnabled(kStoreOwnerKeyInPrivateSlot);
 }
 
@@ -228,14 +219,14 @@ bool UserCanBecomeOwner(const user_manager::User* user) {
     return false;
   }
   switch (user->GetType()) {
-    case user_manager::USER_TYPE_REGULAR:
-    case user_manager::USER_TYPE_CHILD:
+    case user_manager::UserType::kRegular:
+    case user_manager::UserType::kChild:
       return true;
-    case user_manager::USER_TYPE_GUEST:
-    case user_manager::USER_TYPE_PUBLIC_ACCOUNT:
-    case user_manager::USER_TYPE_KIOSK_APP:
-    case user_manager::USER_TYPE_ARC_KIOSK_APP:
-    case user_manager::USER_TYPE_WEB_KIOSK_APP:
+    case user_manager::UserType::kGuest:
+    case user_manager::UserType::kPublicAccount:
+    case user_manager::UserType::kKioskApp:
+    case user_manager::UserType::kWebKioskApp:
+    case user_manager::UserType::kKioskIWA:
       return false;
   }
 }

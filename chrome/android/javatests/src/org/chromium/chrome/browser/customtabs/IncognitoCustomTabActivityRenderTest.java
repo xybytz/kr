@@ -20,6 +20,7 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.params.ParameterAnnotations;
 import org.chromium.base.test.params.ParameterSet;
 import org.chromium.base.test.params.ParameterizedRunner;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -38,6 +39,7 @@ import java.util.concurrent.TimeoutException;
 @RunWith(ParameterizedRunner.class)
 @ParameterAnnotations.UseRunnerDelegate(ChromeJUnit4RunnerDelegate.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
+@Batch(Batch.PER_CLASS)
 public class IncognitoCustomTabActivityRenderTest {
     @ParameterAnnotations.ClassParameter
     private static final List<ParameterSet> sClassParameter =
@@ -61,7 +63,7 @@ public class IncognitoCustomTabActivityRenderTest {
     @Rule
     public final RenderTestRule mRenderTestRule =
             RenderTestRule.Builder.withPublicCorpus()
-                    .setRevision(2)
+                    .setRevision(3)
                     .setBugComponent(RenderTestRule.Component.UI_BROWSER_MOBILE_CUSTOM_TABS)
                     .build();
 
@@ -69,7 +71,7 @@ public class IncognitoCustomTabActivityRenderTest {
     public void setUp() throws TimeoutException {
         mEmbeddedTestServerRule.setServerUsesHttps(mRunWithHttps);
         mEmbeddedTestServerRule.setServerPort(PORT_NO);
-        prepareCCTIntent();
+        prepareCctIntent();
 
         IncognitoDataTestUtils.fireAndWaitForCctWarmup();
     }
@@ -78,7 +80,7 @@ public class IncognitoCustomTabActivityRenderTest {
         mRunWithHttps = runWithHttps;
     }
 
-    private void prepareCCTIntent() {
+    private void prepareCctIntent() {
         String url = mEmbeddedTestServerRule.getServer().getURL(TEST_PAGE);
         mIntent =
                 CustomTabsIntentTestUtils.createMinimalIncognitoCustomTabIntent(
@@ -97,19 +99,23 @@ public class IncognitoCustomTabActivityRenderTest {
         startActivity(renderTestId, ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
     }
 
-    @Test
-    @MediumTest
-    @Feature("RenderTest")
-    public void testCCTToolbar() throws IOException {
-        startActivity("default_incognito_cct_toolbar_with_https_" + mRunWithHttps);
+    private String testIdSuffix() {
+        return "_https_" + mRunWithHttps;
     }
 
     @Test
     @MediumTest
     @Feature("RenderTest")
-    public void testCCTToolbarInLandscapeMode() throws IOException {
+    public void testCctToolbar() throws IOException {
+        startActivity("default_incognito_cct_toolbar_with_https" + testIdSuffix());
+    }
+
+    @Test
+    @MediumTest
+    @Feature("RenderTest")
+    public void testCctToolbarInLandscapeMode() throws IOException {
         startActivity(
-                "default_incognito_cct_toolbar_in_landscape_with_https_" + mRunWithHttps,
+                "default_incognito_cct_toolbar_in_landscape_with_https" + testIdSuffix(),
                 ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
     }
 }

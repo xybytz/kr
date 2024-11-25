@@ -8,6 +8,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.argThat;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.times;
@@ -23,7 +24,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -36,12 +36,7 @@ import org.robolectric.annotation.Implements;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.Features;
-import org.chromium.base.test.util.Features.DisableFeatures;
-import org.chromium.base.test.util.Features.EnableFeatures;
-import org.chromium.base.test.util.JniMocker;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
-import org.chromium.chrome.browser.omnibox.OmniboxFeatures;
+import org.chromium.base.test.util.UserActionTester;
 import org.chromium.chrome.browser.omnibox.R;
 import org.chromium.chrome.browser.omnibox.styles.OmniboxImageSupplier;
 import org.chromium.chrome.browser.omnibox.suggestions.SuggestionHost;
@@ -51,8 +46,10 @@ import org.chromium.chrome.browser.share.ShareDelegate;
 import org.chromium.chrome.browser.share.ShareDelegate.ShareOrigin;
 import org.chromium.chrome.browser.tab.SadTab;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.components.omnibox.AutocompleteInput;
 import org.chromium.components.omnibox.AutocompleteMatch;
 import org.chromium.components.omnibox.AutocompleteMatchBuilder;
+import org.chromium.components.omnibox.OmniboxFeatures;
 import org.chromium.components.omnibox.OmniboxSuggestionType;
 import org.chromium.components.omnibox.suggestions.OmniboxSuggestionUiType;
 import org.chromium.components.ukm.UkmRecorder;
@@ -63,6 +60,8 @@ import org.chromium.ui.base.ClipboardImpl;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.url.GURL;
 import org.chromium.url.JUnitTestGURLs;
+
+import java.util.Optional;
 
 /** Unit tests for the "edit url" omnibox suggestion. */
 @RunWith(BaseRobolectricTestRunner.class)
@@ -93,8 +92,6 @@ public final class EditUrlSuggestionProcessorUnitTest {
         }
     }
 
-    public @Rule TestRule mFeaturesProcessor = new Features.JUnitProcessor();
-    public @Rule JniMocker mJniMocker = new JniMocker();
     public @Rule MockitoRule mMockitoRule = MockitoJUnit.rule();
 
     private @Mock ShareDelegate mShareDelegate;
@@ -106,6 +103,7 @@ public final class EditUrlSuggestionProcessorUnitTest {
     private @Mock Supplier<Tab> mTabSupplier;
     private @Mock Supplier<ShareDelegate> mShareDelegateSupplier;
     private @Mock UkmRecorder.Natives mUkmRecorderJniMock;
+    private @Mock AutocompleteInput mInput;
 
     // The original (real) ClipboardManager to be restored after a test run.
     private Context mContext;
@@ -116,7 +114,7 @@ public final class EditUrlSuggestionProcessorUnitTest {
 
     @Before
     public void setUp() {
-        mJniMocker.mock(UkmRecorderJni.TEST_HOOKS, mUkmRecorderJniMock);
+        UkmRecorderJni.setInstanceForTesting(mUkmRecorderJniMock);
 
         mOldClipboardManager =
                 ((ClipboardImpl) Clipboard.getInstance())
@@ -135,7 +133,7 @@ public final class EditUrlSuggestionProcessorUnitTest {
                 new EditUrlSuggestionProcessor(
                         mContext,
                         mSuggestionHost,
-                        mImageSupplier,
+                        Optional.of(mImageSupplier),
                         mTabSupplier,
                         mShareDelegateSupplier);
         mModel = mProcessor.createModel();
@@ -171,6 +169,14 @@ public final class EditUrlSuggestionProcessorUnitTest {
 
     @Test
     public void doesProcessSuggestion_acceptMatchingUrlWhatYouTyped() {
+        assertTrue(mProcessor.doesProcessSuggestion(mMatch, 0));
+        verifyNoMoreInteractions(mSuggestionHost, mShareDelegate, mClipboardManager);
+    }
+
+    @Test
+    public void
+            doesProcessSuggestion_acceptMatchingUrlWhatYouTypedWhenRetainOmniboxOnFocusDisabled() {
+        OmniboxFeatures.setShouldRetainOmniboxOnFocusForTesting(Boolean.FALSE);
         assertTrue(mProcessor.doesProcessSuggestion(mMatch, 0));
         verifyNoMoreInteractions(mSuggestionHost, mShareDelegate, mClipboardManager);
     }
@@ -222,8 +228,15 @@ public final class EditUrlSuggestionProcessorUnitTest {
     }
 
     @Test
+    public void doesProcessSuggestion_rejectMatchWhenRetainOmniboxOnFocusEnabled() {
+        OmniboxFeatures.setShouldRetainOmniboxOnFocusForTesting(Boolean.TRUE);
+        assertFalse(mProcessor.doesProcessSuggestion(mMatch, 0));
+        verifyNoMoreInteractions(mSuggestionHost, mShareDelegate, mClipboardManager);
+    }
+
+    @Test
     public void populateModel_showInformationFromLoadedTab() {
-        mProcessor.populateModel(mMatch, mModel, 0);
+        mProcessor.populateModel(mInput, mMatch, mModel, 0);
 
         assertEquals(3, mModel.get(BaseSuggestionViewProperties.ACTION_BUTTONS).size());
         assertEquals(TAB_TITLE, mModel.get(SuggestionViewProperties.TEXT_LINE_1_TEXT).toString());
@@ -235,7 +248,7 @@ public final class EditUrlSuggestionProcessorUnitTest {
     @Test
     public void populateModel_substituteMatchInformationForLoadingTab() {
         doReturn(true).when(mTab).isLoading();
-        mProcessor.populateModel(mMatch, mModel, 0);
+        mProcessor.populateModel(mInput, mMatch, mModel, 0);
         assertEquals(MATCH_TITLE, mModel.get(SuggestionViewProperties.TEXT_LINE_1_TEXT).toString());
     }
 
@@ -248,24 +261,17 @@ public final class EditUrlSuggestionProcessorUnitTest {
                         .setUrl(SEARCH_URL_1)
                         .build();
         doReturn(true).when(mTab).isLoading();
-        mProcessor.populateModel(mMatch, mModel, 0);
+        mProcessor.populateModel(mInput, mMatch, mModel, 0);
         assertEquals(
                 mContext.getResources().getText(R.string.tab_loading_default_title),
                 mModel.get(SuggestionViewProperties.TEXT_LINE_1_TEXT).toString());
     }
 
     @Test
-    @DisableFeatures({ChromeFeatureList.SEARCH_READY_OMNIBOX_ALLOW_QUERY_EDIT})
-    public void editButton_click() {
-        mProcessor.populateModel(mMatch, mModel, 0);
-        mModel.get(BaseSuggestionViewProperties.ACTION_BUTTONS).get(ACTION_EDIT).callback.run();
-        verify(mSuggestionHost).onRefineSuggestion(mMatch);
-        verifyNoMoreInteractions(mSuggestionHost, mShareDelegate, mClipboardManager);
-    }
-
-    @Test
     public void shareButton_click() {
-        mProcessor.populateModel(mMatch, mModel, 0);
+        mProcessor.populateModel(mInput, mMatch, mModel, 0);
+
+        var monitor = new UserActionTester();
         mModel.get(BaseSuggestionViewProperties.ACTION_BUTTONS).get(ACTION_SHARE).callback.run();
         verify(mSuggestionHost).finishInteraction();
         verify(mShareDelegate, times(1))
@@ -273,45 +279,50 @@ public final class EditUrlSuggestionProcessorUnitTest {
         // Note: UkmRecorder requires WebContents to report metrics.
         // In the even WebContents is not available, we should not interact with UkmRecorder.
         verifyNoMoreInteractions(mUkmRecorderJniMock);
+
+        assertEquals(1, monitor.getActionCount("Omnibox.EditUrlSuggestion.Share"));
+        assertEquals(1, monitor.getActions().size());
+        monitor.tearDown();
     }
 
     @Test
     public void shareButton_click_reportsUkmEvent() {
         doReturn(mWebContents).when(mTab).getWebContents();
 
-        mProcessor.populateModel(mMatch, mModel, 0);
+        mProcessor.populateModel(mInput, mMatch, mModel, 0);
         mModel.get(BaseSuggestionViewProperties.ACTION_BUTTONS).get(ACTION_SHARE).callback.run();
         verify(mSuggestionHost).finishInteraction();
 
         verify(mShareDelegate).share(mTab, /* shareDirectly= */ false, ShareOrigin.EDIT_URL);
         verify(mUkmRecorderJniMock)
-                .recordEventWithBooleanMetric(
-                        any(), eq("Omnibox.EditUrlSuggestion.Share"), eq("HasOccurred"));
+                .recordEventWithMultipleMetrics(
+                        any(),
+                        eq("Omnibox.EditUrlSuggestion.Share"),
+                        argThat(
+                                metricsList ->
+                                        metricsList.length == 1
+                                                && metricsList[0].mName.equals("HasOccurred")
+                                                && metricsList[0].mValue == 1));
     }
 
     @Test
-    @DisableFeatures(ChromeFeatureList.OMNIBOX_NOOP_EDIT_URL_SUGGESTION_CLICKS)
     public void suggestionView_clickReloadsPage() {
-        assertFalse(OmniboxFeatures.noopEditUrlSuggestionClicks());
-        mProcessor.populateModel(mMatch, mModel, 0);
+        mProcessor.populateModel(mInput, mMatch, mModel, 0);
+
+        var monitor = new UserActionTester();
         mModel.get(BaseSuggestionViewProperties.ON_CLICK).run();
         verify(mSuggestionHost).onSuggestionClicked(mMatch, 0, mMatch.getUrl());
         verifyNoMoreInteractions(mSuggestionHost);
-    }
 
-    @Test
-    @EnableFeatures(ChromeFeatureList.OMNIBOX_NOOP_EDIT_URL_SUGGESTION_CLICKS)
-    public void suggestionView_clickReturnsToPage() {
-        assertTrue(OmniboxFeatures.noopEditUrlSuggestionClicks());
-        mProcessor.populateModel(mMatch, mModel, 0);
-        mModel.get(BaseSuggestionViewProperties.ON_CLICK).run();
-        verify(mSuggestionHost).finishInteraction();
-        verifyNoMoreInteractions(mSuggestionHost);
+        assertEquals(1, monitor.getActionCount("Omnibox.EditUrlSuggestion.Tap"));
+        assertEquals(1, monitor.getActions().size());
+        monitor.tearDown();
     }
 
     @Test
     public void copyButton_click() {
-        mProcessor.populateModel(mMatch, mModel, 0);
+        mProcessor.populateModel(mInput, mMatch, mModel, 0);
+        var monitor = new UserActionTester();
         mModel.get(BaseSuggestionViewProperties.ACTION_BUTTONS).get(ACTION_COPY).callback.run();
 
         ArgumentCaptor<ClipData> argument = ArgumentCaptor.forClass(ClipData.class);
@@ -326,6 +337,10 @@ public final class EditUrlSuggestionProcessorUnitTest {
                         new ClipData.Item(SEARCH_URL_1.getSpec()));
         assertEquals(clip.toString(), argument.getValue().toString());
         verifyNoMoreInteractions(mSuggestionHost, mShareDelegate, mClipboardManager);
+
+        assertEquals(1, monitor.getActionCount("Omnibox.EditUrlSuggestion.Copy"));
+        assertEquals(1, monitor.getActions().size());
+        monitor.tearDown();
     }
 
     @Test

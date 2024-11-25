@@ -4,10 +4,11 @@
 
 import {MostVisitedBrowserProxy} from 'chrome://resources/cr_components/most_visited/browser_proxy.js';
 import {MostVisitedElement} from 'chrome://resources/cr_components/most_visited/most_visited.js';
-import {MostVisitedPageCallbackRouter, MostVisitedPageHandlerRemote, MostVisitedPageRemote} from 'chrome://resources/cr_components/most_visited/most_visited.mojom-webui.js';
+import type {MostVisitedPageRemote} from 'chrome://resources/cr_components/most_visited/most_visited.mojom-webui.js';
+import {MostVisitedPageCallbackRouter, MostVisitedPageHandlerRemote} from 'chrome://resources/cr_components/most_visited/most_visited.mojom-webui.js';
 import {TextDirection} from 'chrome://resources/mojo/mojo/public/mojom/base/text_direction.mojom-webui.js';
 import {TestMock} from 'chrome://webui-test/test_mock.js';
-import {eventToPromise} from 'chrome://webui-test/test_util.js';
+import {microtasksFinished} from 'chrome://webui-test/test_util.js';
 
 import {assertFocus, keydown} from './most_visited_test_support.js';
 
@@ -32,14 +33,13 @@ suite('CrComponentsMostVisitedFocusTest', () => {
         isQueryTile: false,
       };
     });
-    const tilesRendered = eventToPromise('dom-change', mostVisited.$.tiles);
     callbackRouterRemote.setMostVisitedInfo({
       customLinksEnabled: true,
       tiles: tiles,
       visible: true,
     });
     await callbackRouterRemote.$.flushForTesting();
-    await tilesRendered;
+    await microtasksFinished;
   }
 
   setup(() => {

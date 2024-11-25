@@ -49,14 +49,14 @@ namespace blink {
 
 Location::Location(DOMWindow* dom_window) : dom_window_(dom_window) {}
 
-v8::MaybeLocal<v8::Value> Location::Wrap(ScriptState* script_state) {
+v8::Local<v8::Value> Location::Wrap(ScriptState* script_state) {
   // Note that this check is gated on whether or not |dom_window_| is remote,
   // not whether or not |dom_window_| is cross-origin. If |dom_window_| is
   // local, the |location| property must always return the same wrapper, even if
   // the cross-origin status changes by changing properties like
   // |document.domain|.
   if (IsA<RemoteDOMWindow>(dom_window_.Get())) {
-    DCHECK(!DOMDataStore::ContainsWrapper(this, script_state->GetIsolate()));
+    DCHECK(!DOMDataStore::ContainsWrapper(script_state->GetIsolate(), this));
 
     DOMWrapperWorld& world = script_state->World();
     v8::Isolate* isolate = script_state->GetIsolate();
@@ -213,7 +213,7 @@ void Location::setHash(v8::Isolate* isolate,
                        const String& hash,
                        ExceptionState& exception_state) {
   KURL url = GetDocument()->Url();
-  String old_fragment_identifier = url.FragmentIdentifier();
+  String old_fragment_identifier = url.FragmentIdentifier().ToString();
   String new_fragment_identifier = hash;
   if (hash[0] == '#')
     new_fragment_identifier = hash.Substring(1);
@@ -221,8 +221,10 @@ void Location::setHash(v8::Isolate* isolate,
   // Note that by parsing the URL and *then* comparing fragments, we are
   // comparing fragments post-canonicalization, and so this handles the
   // cases where fragment identifiers are ignored or invalid.
-  if (EqualIgnoringNullity(old_fragment_identifier, url.FragmentIdentifier()))
+  if (EqualIgnoringNullity(old_fragment_identifier,
+                           url.FragmentIdentifier().ToString())) {
     return;
+  }
   SetLocation(url.GetString(), IncumbentDOMWindow(isolate),
               EnteredDOMWindow(isolate), &exception_state);
 }
@@ -302,7 +304,7 @@ void Location::SetLocation(const String& url,
     argv.push_back(completed_url);
     // We use the CurrentDOMWindow here. `dom_window` might be remote here.
     activity_logger->LogEvent(CurrentDOMWindow(incumbent_window->GetIsolate()),
-                              "blinkSetAttribute", argv.size(), argv.data());
+                              "blinkSetAttribute", argv);
   }
 
   ResourceRequestHead resource_request(completed_url);
@@ -310,7 +312,7 @@ void Location::SetLocation(const String& url,
       LocalFrame::HasTransientUserActivation(incumbent_window->GetFrame()));
 
   FrameLoadRequest request(incumbent_window, resource_request);
-  request.SetClientRedirectReason(ClientNavigationReason::kFrameNavigation);
+  request.SetClientNavigationReason(ClientNavigationReason::kFrameNavigation);
   WebFrameLoadType frame_load_type = WebFrameLoadType::kStandard;
   if (set_location_policy == SetLocationPolicy::kReplaceThisFrame)
     frame_load_type = WebFrameLoadType::kReplaceCurrentItem;

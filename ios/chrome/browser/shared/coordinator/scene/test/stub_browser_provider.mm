@@ -6,11 +6,6 @@
 
 @implementation StubBrowserProvider
 
-@synthesize userInteractionEnabled = _userInteractionEnabled;
 @synthesize inactiveBrowser = _inactiveBrowser;
-
-- (void)setPrimary:(BOOL)primary {
-  // no-op
-}
 
 @end

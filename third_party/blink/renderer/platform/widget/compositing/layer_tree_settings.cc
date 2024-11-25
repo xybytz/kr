@@ -31,6 +31,7 @@
 #include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/native_theme/native_theme_features.h"
+#include "ui/native_theme/native_theme_utils.h"
 #include "ui/native_theme/overlay_scrollbar_constants_aura.h"
 
 namespace blink {
@@ -119,10 +120,6 @@ std::pair<int, int> GetTilingInterestAreaSizes() {
 }
 
 #if !BUILDFLAG(IS_ANDROID)
-BASE_FEATURE(kIncreaseTileMemorySizeProportionally,
-             "IncreaseTileMemorySizeProportionally",
-             base::FEATURE_ENABLED_BY_DEFAULT);
-
 // Adjusting tile memory size in case a lot more websites need more tile
 // memory than the current calculation.
 BASE_FEATURE(kAdjustTileGpuMemorySize,
@@ -188,54 +185,37 @@ cc::ManagedMemoryPolicy GetGpuMemoryPolicy(
     actual.bytes_limit_when_visible = 256 * 1024 * 1024;
   }
 #else
-  if (base::FeatureList::IsEnabled(kIncreaseTileMemorySizeProportionally)) {
-    // This calculation will increase the tile memory size. It should apply to
-    // the other plateforms if no regression on Mac.
-    //
-    // For large monitors with high resolution, increase the tile memory to
-    // avoid frequent out of memory problems. With Mac M1 on
-    // https://www.334-28th.com/, it seems 512 MB works fine on 1920x1080 * 2
-    // (scale) and 1152 MB on 2056x1329 * 2 (scale). Use this ratio for the
-    // formula to increase |bytes_limit_when_visible| proportionally.
-    // For mobile platforms with small display (roughly less than 3k x 1.6k),
-    // mb_limit will still be 512 MB.
-    constexpr size_t kLargeResolution = 2056 * 1329 * 2 * 2;
-    size_t display_size =
-        std::round(initial_screen_size.width() * initial_device_scale_factor *
-                   initial_screen_size.height() * initial_device_scale_factor);
+  // This calculation will increase the tile memory size. It should apply to
+  // the other plateforms if no regression on Mac.
+  //
+  // For large monitors with high resolution, increase the tile memory to
+  // avoid frequent out of memory problems. With Mac M1 on
+  // https://www.334-28th.com/, it seems 512 MB works fine on 1920x1080 * 2
+  // (scale) and 1152 MB on 2056x1329 * 2 (scale). Use this ratio for the
+  // formula to increase |bytes_limit_when_visible| proportionally.
+  // For mobile platforms with small display (roughly less than 3k x 1.6k),
+  // mb_limit will still be 512 MB.
+  constexpr size_t kLargeResolution = 2056 * 1329 * 2 * 2;
+  size_t display_size =
+      std::round(initial_screen_size.width() * initial_device_scale_factor *
+                 initial_screen_size.height() * initial_device_scale_factor);
 
-    size_t large_resolution_memory_mb = GetLargeResolutionMemoryMB();
-    size_t mb_limit_when_visible =
-        large_resolution_memory_mb * (display_size * 1.0 / kLargeResolution);
+  size_t large_resolution_memory_mb = GetLargeResolutionMemoryMB();
+  size_t mb_limit_when_visible =
+      large_resolution_memory_mb * (display_size * 1.0 / kLargeResolution);
 
-    // Cap the memory size to one fourth of the total system memory so it won't
-    // consume too much of the system memory. Still keep the minimum to the
-    // default of 512MB.
-    size_t default_memory_mb = GetDefaultMemoryMB();
-    size_t memory_cap_mb = base::SysInfo::AmountOfPhysicalMemoryMB() / 4;
-    if (mb_limit_when_visible > memory_cap_mb) {
-      mb_limit_when_visible = memory_cap_mb;
-    } else if (mb_limit_when_visible < default_memory_mb) {
-      mb_limit_when_visible = default_memory_mb;
-    }
-
-    actual.bytes_limit_when_visible = mb_limit_when_visible * 1024 * 1024;
-  } else {
-    // Ignore what the system said and give all clients the same maximum
-    // allocation on desktop platforms.
-    actual.bytes_limit_when_visible = 512 * 1024 * 1024;
-
-    // For large monitors (4k), double the tile memory to avoid frequent out of
-    // memory problems. 4k could mean a screen width of anywhere from 3840 to
-    // 4096 (see https://en.wikipedia.org/wiki/4K_resolution). We use 3500 as a
-    // proxy for "large enough".
-    static const int kLargeDisplayThreshold = 3500;
-    int display_width =
-        std::round(initial_screen_size.width() * initial_device_scale_factor);
-    if (display_width >= kLargeDisplayThreshold) {
-      actual.bytes_limit_when_visible *= 2;
-    }
+  // Cap the memory size to one fourth of the total system memory so it won't
+  // consume too much of the system memory. Still keep the minimum to the
+  // default of 512MB.
+  size_t default_memory_mb = GetDefaultMemoryMB();
+  size_t memory_cap_mb = base::SysInfo::AmountOfPhysicalMemoryMB() / 4;
+  if (mb_limit_when_visible > memory_cap_mb) {
+    mb_limit_when_visible = memory_cap_mb;
+  } else if (mb_limit_when_visible < default_memory_mb) {
+    mb_limit_when_visible = default_memory_mb;
   }
+
+  actual.bytes_limit_when_visible = mb_limit_when_visible * 1024 * 1024;
 #endif
   actual.priority_cutoff_when_visible =
       gpu::MemoryAllocation::CUTOFF_ALLOW_NICE_TO_HAVE;
@@ -256,20 +236,18 @@ cc::LayerTreeSettings GenerateLayerTreeSettings(
   settings.enable_synchronized_scrolling =
       base::FeatureList::IsEnabled(::features::kSynchronizedScrolling);
   Platform* platform = Platform::Current();
-  settings.percent_based_scrolling =
-      ::features::IsPercentBasedScrollingEnabled();
 
   settings.commit_to_active_tree = !is_threaded;
   settings.is_for_embedded_frame = is_for_embedded_frame;
   settings.is_for_scalable_page = is_for_scalable_page;
 
   settings.main_frame_before_activation_enabled =
-      cmd.HasSwitch(cc::switches::kEnableMainFrameBeforeActivation);
+      cmd.HasSwitch(::switches::kEnableMainFrameBeforeActivation);
 
   // Checkerimaging is not supported for synchronous single-threaded mode, which
   // is what the renderer uses if its not threaded.
   settings.enable_checker_imaging =
-      !cmd.HasSwitch(cc::switches::kDisableCheckerImaging) && is_threaded;
+      !cmd.HasSwitch(::switches::kDisableCheckerImaging) && is_threaded;
 
 #if BUILDFLAG(IS_ANDROID)
   // WebView should always raster in the default color space.
@@ -392,18 +370,18 @@ cc::LayerTreeSettings GenerateLayerTreeSettings(
   settings.use_painted_device_scale_factor = true;
 
   // Build LayerTreeSettings from command line args.
-  if (cmd.HasSwitch(cc::switches::kBrowserControlsShowThreshold)) {
+  if (cmd.HasSwitch(::switches::kBrowserControlsShowThreshold)) {
     std::string top_threshold_str =
-        cmd.GetSwitchValueASCII(cc::switches::kBrowserControlsShowThreshold);
+        cmd.GetSwitchValueASCII(::switches::kBrowserControlsShowThreshold);
     double show_threshold;
     if (base::StringToDouble(top_threshold_str, &show_threshold) &&
         show_threshold >= 0.f && show_threshold <= 1.f)
       settings.top_controls_show_threshold = show_threshold;
   }
 
-  if (cmd.HasSwitch(cc::switches::kBrowserControlsHideThreshold)) {
+  if (cmd.HasSwitch(::switches::kBrowserControlsHideThreshold)) {
     std::string top_threshold_str =
-        cmd.GetSwitchValueASCII(cc::switches::kBrowserControlsHideThreshold);
+        cmd.GetSwitchValueASCII(::switches::kBrowserControlsHideThreshold);
     double hide_threshold;
     if (base::StringToDouble(top_threshold_str, &hide_threshold) &&
         hide_threshold >= 0.f && hide_threshold <= 1.f)
@@ -429,41 +407,34 @@ cc::LayerTreeSettings GenerateLayerTreeSettings(
   settings.single_thread_proxy_scheduler = false;
 
   // These flags should be mirrored by UI versions in ui/compositor/.
-  if (cmd.HasSwitch(cc::switches::kShowCompositedLayerBorders))
+  if (cmd.HasSwitch(::switches::kShowCompositedLayerBorders)) {
     settings.initial_debug_state.show_debug_borders.set();
+  }
   settings.initial_debug_state.show_fps_counter =
-      cmd.HasSwitch(cc::switches::kShowFPSCounter);
+      cmd.HasSwitch(::switches::kShowFPSCounter);
   settings.initial_debug_state.show_layer_animation_bounds_rects =
-      cmd.HasSwitch(cc::switches::kShowLayerAnimationBounds);
+      cmd.HasSwitch(::switches::kShowLayerAnimationBounds);
   settings.initial_debug_state.show_paint_rects =
       cmd.HasSwitch(switches::kShowPaintRects);
   settings.initial_debug_state.show_layout_shift_regions =
       cmd.HasSwitch(switches::kShowLayoutShiftRegions);
   settings.initial_debug_state.show_property_changed_rects =
-      cmd.HasSwitch(cc::switches::kShowPropertyChangedRects);
+      cmd.HasSwitch(::switches::kShowPropertyChangedRects);
   settings.initial_debug_state.show_surface_damage_rects =
-      cmd.HasSwitch(cc::switches::kShowSurfaceDamageRects);
+      cmd.HasSwitch(::switches::kShowSurfaceDamageRects);
   settings.initial_debug_state.show_screen_space_rects =
-      cmd.HasSwitch(cc::switches::kShowScreenSpaceRects);
+      cmd.HasSwitch(::switches::kShowScreenSpaceRects);
   settings.initial_debug_state.highlight_non_lcd_text_layers =
-      cmd.HasSwitch(cc::switches::kHighlightNonLCDTextLayers);
-  settings.initial_debug_state.show_web_vital_metrics =
-      base::FeatureList::IsEnabled(
-          ::features::kHudDisplayForPerformanceMetrics) &&
-      !is_for_embedded_frame;
-  settings.initial_debug_state.show_smoothness_metrics =
-      base::FeatureList::IsEnabled(
-          ::features::kHudDisplayForPerformanceMetrics) &&
-      !is_for_embedded_frame;
+      cmd.HasSwitch(::switches::kHighlightNonLCDTextLayers);
 
   settings.initial_debug_state.SetRecordRenderingStats(
-      cmd.HasSwitch(cc::switches::kEnableGpuBenchmarking));
+      cmd.HasSwitch(::switches::kEnableGpuBenchmarking));
 
-  if (cmd.HasSwitch(cc::switches::kSlowDownRasterScaleFactor)) {
+  if (cmd.HasSwitch(::switches::kSlowDownRasterScaleFactor)) {
     const int kMinSlowDownScaleFactor = 0;
     const int kMaxSlowDownScaleFactor = INT_MAX;
     switch_value_as_int(
-        cmd, cc::switches::kSlowDownRasterScaleFactor, kMinSlowDownScaleFactor,
+        cmd, ::switches::kSlowDownRasterScaleFactor, kMinSlowDownScaleFactor,
         kMaxSlowDownScaleFactor,
         &settings.initial_debug_state.slow_down_raster_scale_factor);
   }
@@ -472,12 +443,12 @@ cc::LayerTreeSettings GenerateLayerTreeSettings(
 
   InitializeScrollbarFadeAndDelay(settings);
 
-  if (cmd.HasSwitch(cc::switches::kCCScrollAnimationDurationForTesting)) {
+  if (cmd.HasSwitch(::switches::kCCScrollAnimationDurationForTesting)) {
     const int kMinScrollAnimationDuration = 0;
     const int kMaxScrollAnimationDuration = INT_MAX;
     int duration;
     if (switch_value_as_int(cmd,
-                            cc::switches::kCCScrollAnimationDurationForTesting,
+                            ::switches::kCCScrollAnimationDurationForTesting,
                             kMinScrollAnimationDuration,
                             kMaxScrollAnimationDuration, &duration)) {
       settings.scroll_animation_duration_for_testing = base::Seconds(duration);
@@ -506,7 +477,7 @@ cc::LayerTreeSettings GenerateLayerTreeSettings(
 
     // Early damage check works in combination with synchronous compositor.
     settings.enable_early_damage_check =
-        cmd.HasSwitch(cc::switches::kCheckDamageEarly);
+        cmd.HasSwitch(::switches::kCheckDamageEarly);
   }
   if (using_low_memory_policy) {
     // On low-end we want to be very careful about killing other
@@ -612,13 +583,14 @@ cc::LayerTreeSettings GenerateLayerTreeSettings(
   settings.enable_image_animation_resync =
       !cmd.HasSwitch(switches::kDisableImageAnimationResync);
 
-  settings.send_compositor_frame_ack = false;
-
   settings.enable_backface_visibility_interop =
       RuntimeEnabledFeatures::BackfaceVisibilityInteropEnabled();
 
   settings.disable_frame_rate_limit =
       cmd.HasSwitch(::switches::kDisableFrameRateLimit);
+
+  settings.enable_hit_test_opaqueness =
+      RuntimeEnabledFeatures::HitTestOpaquenessEnabled();
 
   settings.enable_variable_refresh_rate =
       ::features::IsVariableRefreshRateAlwaysOn();

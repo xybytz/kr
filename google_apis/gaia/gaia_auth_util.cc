@@ -18,6 +18,7 @@
 #include "base/strings/string_util.h"
 #include "base/supports_user_data.h"
 #include "base/values.h"
+#include "google_apis/gaia/bound_oauth_token.pb.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "google_apis/gaia/oauth2_mint_token_consent_result.pb.h"
 #include "url/gurl.h"
@@ -53,12 +54,20 @@ std::string CanonicalizeEmailImpl(std::string_view email_address,
 
 }  // namespace
 
+ListedAccount::ListedAccount() = default;
 
-ListedAccount::ListedAccount() {}
+ListedAccount::ListedAccount(const ListedAccount&) = default;
+ListedAccount& ListedAccount::operator=(const ListedAccount&) = default;
 
-ListedAccount::ListedAccount(const ListedAccount& other) = default;
+ListedAccount::~ListedAccount() = default;
 
-ListedAccount::~ListedAccount() {}
+MultiloginAccountAuthCredentials::MultiloginAccountAuthCredentials(
+    std::string gaia_id,
+    std::string token,
+    std::string token_binding_assertion)
+    : gaia_id(std::move(gaia_id)),
+      token(std::move(token)),
+      token_binding_assertion(std::move(token_binding_assertion)) {}
 
 std::string CanonicalizeEmail(std::string_view email_address) {
   // CanonicalizeEmail() is called to process email strings that are eventually
@@ -99,7 +108,7 @@ std::string ExtractDomainName(std::string_view email_address) {
       separator_pos < email.length() - 1) {
     return email.substr(separator_pos + 1);
   } else {
-    NOTREACHED() << "Not a proper email address: " << email;
+    DUMP_WILL_BE_NOTREACHED() << "Not a proper email address: " << email;
   }
   return std::string();
 }
@@ -126,13 +135,9 @@ bool HasGaiaSchemeHostPort(const GURL& url) {
 }
 
 bool ParseListAccountsData(std::string_view data,
-                           std::vector<ListedAccount>* accounts,
-                           std::vector<ListedAccount>* signed_out_accounts) {
+                           std::vector<ListedAccount>* accounts) {
   if (accounts)
     accounts->clear();
-
-  if (signed_out_accounts)
-    signed_out_accounts->clear();
 
   // Parse returned data and make sure we have data.
   std::optional<base::Value> value = base::JSONReader::Read(data);
@@ -186,10 +191,9 @@ bool ParseListAccountsData(std::string_view data,
           listed_account.signed_out = signed_out != 0;
           listed_account.verified = verified != 0;
           listed_account.raw_email = email;
-          auto* accounts_ptr =
-              listed_account.signed_out ? signed_out_accounts : accounts;
-          if (accounts_ptr)
-            accounts_ptr->push_back(listed_account);
+          if (accounts) {
+            accounts->push_back(listed_account);
+          }
         }
       }
     }
@@ -221,6 +225,46 @@ bool ParseOAuth2MintTokenConsentResult(std::string_view consent_result,
   *approved = parsed_result.approved();
   *gaia_id = parsed_result.obfuscated_id();
   return true;
+}
+
+std::string CreateBoundOAuthToken(const std::string& gaia_id,
+                                  const std::string& refresh_token,
+                                  const std::string& binding_key_assertion) {
+  BoundOAuthToken bound_oauth_token;
+  bound_oauth_token.set_gaia_id(gaia_id);
+  bound_oauth_token.set_token(refresh_token);
+  bound_oauth_token.set_token_binding_assertion(binding_key_assertion);
+
+  std::string serialized = bound_oauth_token.SerializeAsString();
+  if (serialized.empty()) {
+    VLOG(1) << "Failed to serialize bound OAuth token to protobuf message";
+    return std::string();
+  }
+
+  std::string base64_encoded;
+  base::Base64UrlEncode(serialized, base::Base64UrlEncodePolicy::OMIT_PADDING,
+                        &base64_encoded);
+  return base64_encoded;
+}
+
+std::string CreateMultiOAuthHeader(
+    const std::vector<MultiloginAccountAuthCredentials>& accounts) {
+  gaia::MultiOAuthHeader header;
+  for (const MultiloginAccountAuthCredentials& account : accounts) {
+    gaia::MultiOAuthHeader::AccountRequest request;
+    request.set_gaia_id(account.gaia_id);
+    request.set_token(account.token);
+    if (!account.token_binding_assertion.empty()) {
+      request.set_token_binding_assertion(account.token_binding_assertion);
+    }
+    header.mutable_account_requests()->Add(std::move(request));
+  }
+
+  std::string base64_encoded_header;
+  base::Base64UrlEncode(header.SerializeAsString(),
+                        base::Base64UrlEncodePolicy::OMIT_PADDING,
+                        &base64_encoded_header);
+  return base64_encoded_header;
 }
 
 }  // namespace gaia

@@ -17,6 +17,7 @@
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/geometry/transform_util.h"
+#include "ui/views/focus/focus_manager.h"
 #include "ui/views/layout/table_layout.h"
 #include "ui/views/view_class_properties.h"
 
@@ -94,7 +95,7 @@ class TabSlider::SelectorView : public views::View {
   raw_ptr<TabSliderButton> button_ = nullptr;
 };
 
-BEGIN_METADATA(TabSlider, SelectorView, views::View)
+BEGIN_METADATA(TabSlider, SelectorView)
 END_METADATA
 
 //------------------------------------------------------------------------------
@@ -115,10 +116,7 @@ TabSlider::TabSlider(size_t max_tab_num, const InitParams& params)
 
   Init();
 
-  // Explicitly mark this view as ignored because
-  // `views::kViewIgnoredByLayoutKey` is not supported by `views::TableLayout`.
-  static_cast<views::TableLayout*>(GetLayoutManager())
-      ->SetChildViewIgnoredByLayout(selector_view_, /*ignored=*/true);
+  selector_view_->SetProperty(views::kViewIgnoredByLayoutKey, true);
 
   enabled_changed_subscription_ = AddEnabledChangedCallback(base::BindRepeating(
       &TabSlider::OnEnabledStateChanged, base::Unretained(this)));
@@ -140,17 +138,24 @@ void TabSlider::OnButtonSelected(TabSliderButton* button) {
   DCHECK(base::Contains(buttons_, button));
   DCHECK(button->selected());
 
-  // Deselect all the other buttons.
+  // Deselect all the other buttons and check if the tab slider has focus.
+  bool has_focus = false;
   for (ash::TabSliderButton* b : buttons_) {
     b->SetSelected(b == button);
+    has_focus |= b->HasFocus();
   }
 
   // Move the selector to the selected button.
   selector_view_->MoveToSelectedButton(button);
+
+  // Move the focus to the selected button.
+  if (has_focus) {
+    GetFocusManager()->SetFocusedView(button);
+  }
 }
 
-void TabSlider::Layout() {
-  views::View::Layout();
+void TabSlider::Layout(PassKey) {
+  LayoutSuperclass<views::View>(this);
 
   // Synchronize the selector bounds with selected button's bounds.
   auto it =
@@ -221,7 +226,7 @@ void TabSlider::OnEnabledStateChanged() {
   SchedulePaint();
 }
 
-BEGIN_METADATA(TabSlider, views::View)
+BEGIN_METADATA(TabSlider)
 END_METADATA
 
 }  // namespace ash

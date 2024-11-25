@@ -10,20 +10,15 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
+#include "base/types/expected.h"
 #include "chromeos/ash/components/network/network_connection_handler.h"
 #include "chromeos/ash/components/tether/connect_tethering_operation.h"
+#include "chromeos/ash/components/tether/host_connection.h"
 #include "chromeos/ash/components/tether/host_connection_metrics_logger.h"
 #include "chromeos/ash/components/tether/tether_connector.h"
+#include "chromeos/ash/components/tether/wifi_hotspot_connector.h"
 
 namespace ash {
-
-namespace device_sync {
-class DeviceSyncClient;
-}
-
-namespace secure_channel {
-class SecureChannelClient;
-}
 
 class NetworkStateHandler;
 
@@ -48,8 +43,7 @@ class TetherConnectorImpl : public TetherConnector,
                             public ConnectTetheringOperation::Observer {
  public:
   TetherConnectorImpl(
-      device_sync::DeviceSyncClient* device_sync_client,
-      secure_channel::SecureChannelClient* secure_channel_client,
+      raw_ptr<HostConnection::Factory> host_connection_factory,
       NetworkStateHandler* network_state_handler,
       WifiHotspotConnector* wifi_hotspot_connector,
       ActiveHost* active_host,
@@ -75,14 +69,11 @@ class TetherConnectorImpl : public TetherConnector,
   bool CancelConnectionAttempt(const std::string& tether_network_guid) override;
 
   // ConnectTetheringOperation::Observer:
-  void OnConnectTetheringRequestSent(
-      multidevice::RemoteDeviceRef remote_device) override;
+  void OnConnectTetheringRequestSent() override;
   void OnSuccessfulConnectTetheringResponse(
-      multidevice::RemoteDeviceRef remote_device,
       const std::string& ssid,
       const std::string& password) override;
   void OnConnectTetheringFailure(
-      multidevice::RemoteDeviceRef remote_device,
       ConnectTetheringOperation::HostResponseErrorCode error_code) override;
 
  private:
@@ -92,17 +83,15 @@ class TetherConnectorImpl : public TetherConnector,
   void SetConnectionSucceeded(const std::string& device_id,
                               const std::string& wifi_network_guid);
 
-  void OnTetherHostToConnectFetched(
+  void OnWifiConnection(
       const std::string& device_id,
-      std::optional<multidevice::RemoteDeviceRef> tether_host_to_connect);
-  void OnWifiConnection(const std::string& device_id,
-                        const std::string& wifi_network_guid);
+      base::expected<std::string,
+                     WifiHotspotConnector::WifiHotspotConnectionError> result);
   void RecordConnectTetheringOperationResult(
       const std::string& device_id,
       ConnectTetheringOperation::HostResponseErrorCode error_code);
 
-  raw_ptr<device_sync::DeviceSyncClient> device_sync_client_;
-  raw_ptr<secure_channel::SecureChannelClient> secure_channel_client_;
+  raw_ptr<HostConnection::Factory> host_connection_factory_;
   raw_ptr<NetworkConnectionHandler> network_connection_handler_;
   raw_ptr<NetworkStateHandler> network_state_handler_;
   raw_ptr<WifiHotspotConnector> wifi_hotspot_connector_;

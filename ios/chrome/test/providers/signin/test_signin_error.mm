@@ -46,7 +46,6 @@ SigninErrorCategory GetSigninErrorCategory(NSError* error) {
   }
 
   NOTREACHED();
-  return SigninErrorCategory::kUnknownError;
 }
 
 }  // namespace provider

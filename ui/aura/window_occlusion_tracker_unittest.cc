@@ -18,6 +18,7 @@
 #include "ui/aura/test/test_windows.h"
 #include "ui/aura/test/window_occlusion_tracker_test_api.h"
 #include "ui/aura/window_observer.h"
+#include "ui/aura/window_occlusion_change_builder.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_observer.h"
@@ -33,6 +34,21 @@ namespace aura {
 namespace {
 
 constexpr base::TimeDelta kTransitionDuration = base::Seconds(3);
+
+class FakeWindowOcclusionChangeBuilder : public WindowOcclusionChangeBuilder {
+ public:
+  FakeWindowOcclusionChangeBuilder() = default;
+  FakeWindowOcclusionChangeBuilder(const FakeWindowOcclusionChangeBuilder&) =
+      delete;
+  FakeWindowOcclusionChangeBuilder& operator=(
+      const FakeWindowOcclusionChangeBuilder&) = delete;
+  ~FakeWindowOcclusionChangeBuilder() override = default;
+
+  // WindowOcclusionChangeBuilder:
+  void Add(Window* window,
+           Window::OcclusionState occlusion_state,
+           SkRegion occluded_region) override {}
+};
 
 class MockWindowDelegate : public test::ColorTestWindowDelegate {
  public:
@@ -96,11 +112,13 @@ class WindowOcclusionTrackerTest : public test::AuraTestBase {
   }
 #endif
 
-  Window* CreateTrackedWindow(MockWindowDelegate* delegate,
-                              const gfx::Rect& bounds,
-                              Window* parent = nullptr,
-                              bool transparent = false,
-                              ui::LayerType layer_type = ui::LAYER_TEXTURED) {
+  Window* CreateTrackedWindow(
+      MockWindowDelegate* delegate,
+      const gfx::Rect& bounds,
+      Window* parent = nullptr,
+      bool transparent = false,
+      ui::LayerType layer_type = ui::LAYER_TEXTURED,
+      WindowOcclusionTracker* secondary_occlusion_tracker = nullptr) {
     Window* window = new Window(delegate);
     delegate->set_window(window);
     window->SetType(client::WINDOW_TYPE_NORMAL);
@@ -112,7 +130,11 @@ class WindowOcclusionTrackerTest : public test::AuraTestBase {
     window->Show();
     parent = parent ? parent : root_window();
     parent->AddChild(window);
-    window->TrackOcclusionState();
+    if (secondary_occlusion_tracker) {
+      secondary_occlusion_tracker->Track(window);
+    } else {
+      window->TrackOcclusionState();
+    }
     return window;
   }
 
@@ -136,6 +158,18 @@ class WindowOcclusionTrackerTest : public test::AuraTestBase {
 
   WindowOcclusionTracker& GetOcclusionTracker() {
     return *Env::GetInstance()->GetWindowOcclusionTracker();
+  }
+
+  std::unique_ptr<WindowOcclusionTracker> CreateSecondaryOcclusionTracker() {
+    auto occlusion_tracker = std::make_unique<WindowOcclusionTracker>();
+    // Any secondary trackers should not be mutating the `aura::Window`'s
+    // occlusion state. That is the sole responsibility of the primary tracker
+    // in `aura::Env`.
+    occlusion_tracker->set_occlusion_change_builder_factory(base::BindRepeating(
+        []() -> std::unique_ptr<WindowOcclusionChangeBuilder> {
+          return std::make_unique<FakeWindowOcclusionChangeBuilder>();
+        }));
+    return occlusion_tracker;
   }
 
  private:
@@ -1025,44 +1059,6 @@ TEST_F(WindowOcclusionTrackerTest, RemoveUntrackedWindow) {
   delete window_b;
 }
 
-// Verify that occlusion tracking with customized WindowHasContent callback.
-TEST_F(WindowOcclusionTrackerTest, CustomizedWindowHasContent) {
-  // Create window a. Expect it to be non-occluded.
-  MockWindowDelegate* delegate_a = new MockWindowDelegate();
-  delegate_a->set_expectation(Window::OcclusionState::VISIBLE, SkRegion());
-  CreateTrackedWindow(delegate_a, gfx::Rect(0, 0, 10, 10));
-  EXPECT_FALSE(delegate_a->is_expecting_call());
-
-  // Create window b with layer type LAYER_NOT_DRAWN. Occlusion state of a is
-  // not changed.
-  MockWindowDelegate* delegate_b = new MockWindowDelegate();
-  Window* window_b = new Window(delegate_b);
-  delegate_b->set_window(window_b);
-  window_b->Init(ui::LAYER_NOT_DRAWN);
-  window_b->SetBounds(gfx::Rect(0, 0, 10, 10));
-  root_window()->AddChild(window_b);
-  delegate_b->set_expectation(Window::OcclusionState::HIDDEN, SkRegion());
-  window_b->TrackOcclusionState();
-  EXPECT_FALSE(delegate_b->is_expecting_call());
-
-  // Use customized WindowHasContent callback to mark b as opaque.
-  Env* env = Env::GetInstance();
-  env->GetWindowOcclusionTracker()->set_window_has_content_callback(
-      base::BindLambdaForTesting([window_b](const Window* window) -> bool {
-        return window == window_b;
-      }));
-
-  // Show window b to trigger a occlusion compute and window a is occluded.
-  delegate_a->set_expectation(Window::OcclusionState::OCCLUDED, SkRegion());
-  delegate_b->set_expectation(Window::OcclusionState::VISIBLE, SkRegion());
-  window_b->Show();
-  EXPECT_FALSE(delegate_a->is_expecting_call());
-  EXPECT_FALSE(delegate_b->is_expecting_call());
-
-  env->GetWindowOcclusionTracker()->set_window_has_content_callback(
-      base::NullCallback());
-}
-
 // Verify that when a tracked window is removed and re-added to a root,
 // occlusion states are still tracked.
 TEST_F(WindowOcclusionTrackerTest, RemoveAndAddTrackedToRoot) {
@@ -1322,6 +1318,40 @@ TEST_F(WindowOcclusionTrackerTest, DestroyWindowWithPendingAnimation) {
 
   // Destroy the window. Expect no DCHECK failure.
   delete window;
+}
+
+// Verify that `WindowOcclusionTracker` can be destroyed safely with a pending
+// animation. This mostly applies to secondary `WindowOcclusionTracker`s,
+// not the long-lived one in `aura::Env`.
+TEST_F(WindowOcclusionTrackerTest,
+       DestroyOcclusionTrackerWithPendingAnimation) {
+  auto occlusion_tracker = CreateSecondaryOcclusionTracker();
+  ui::ScopedAnimationDurationScaleMode scoped_animation_duration_scale_mode(
+      ui::ScopedAnimationDurationScaleMode::NORMAL_DURATION);
+  ui::LayerAnimatorTestController test_controller(
+      ui::LayerAnimator::CreateImplicitAnimator());
+  ui::ScopedLayerAnimationSettings layer_animation_settings(
+      test_controller.animator());
+  layer_animation_settings.SetTransitionDuration(kTransitionDuration);
+
+  Window* window = CreateTrackedWindow(
+      new MockWindowDelegate, gfx::Rect(0, 0, 10, 10), /*parent=*/nullptr,
+      /*transparent=*/false, ui::LAYER_TEXTURED, occlusion_tracker.get());
+  window->layer()->SetAnimator(test_controller.animator());
+
+  // Start animating the bounds of window.
+  window->SetBounds(gfx::Rect(10, 10, 5, 5));
+  test_controller.Step(kTransitionDuration / 3);
+  ASSERT_TRUE(test_controller.animator()->IsAnimatingProperty(
+      ui::LayerAnimationElement::BOUNDS));
+  // There's no explicit test expectation here other not crashing on shutdown.
+  occlusion_tracker.reset();
+
+  // Start animating the bounds of window again. Ensures more animations can
+  // be started without crashes.
+  test_controller.animator()->AbortAllAnimations();
+  window->SetBounds(gfx::Rect(20, 20, 10, 10));
+  test_controller.Step(kTransitionDuration / 2);
 }
 
 // Verify that an animated window stops being considered as animated when its

@@ -10,7 +10,6 @@
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/tabs/alert_indicator_button.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/performance_manager/public/features.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/models/image_model.h"
@@ -24,13 +23,12 @@
 #include "ui/views/view_class_properties.h"
 
 namespace {
+// Spacing to separate the icon from its corresponding label.
 constexpr int kIconLabelSpacing = 8;
-constexpr int kFooterVerticalMargins = 8;
-constexpr int kFooterHorizontalMargins = 12;
-constexpr auto kFooterBorderThickness = gfx::Insets::TLBR(1, 0, 0, 0);
-constexpr auto kFooterMargins =
-    gfx::Insets::VH(kFooterVerticalMargins, kFooterHorizontalMargins);
-constexpr auto kFooterRefreshMargins = gfx::Insets::VH(12, 12);
+// Margins used to surround the entire footer contents.
+constexpr auto kFooterMargins = gfx::Insets::VH(12, 12);
+// Spacing used to separate two footer rows.
+constexpr int kFooterRowSpacing = 8;
 }  // namespace
 
 template <typename T>
@@ -61,10 +59,8 @@ FooterRow<T>::FooterRow(bool is_fade_out_view)
                                views::MinimumFlexSizeRule::kScaleToZero,
                                views::MaximumFlexSizeRule::kUnbounded, true));
 
-  if (features::IsChromeRefresh2023()) {
     footer_label_->SetEnabledColorId(kColorTabHoverCardSecondaryText);
     footer_label_->SetTextStyle(views::style::STYLE_BODY_4);
-  }
 
   // Vertically align the icon to the top line of the label
   const int offset = (footer_label_->GetLineHeight() -
@@ -82,22 +78,16 @@ void FooterRow<T>::SetContent(const ui::ImageModel& icon_image_model,
 }
 
 template <typename T>
-gfx::Size FooterRow<T>::CalculatePreferredSize() const {
+gfx::Size FooterRow<T>::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
   return footer_label_->GetText().empty()
              ? gfx::Size()
-             : views::View::CalculatePreferredSize();
+             : views::View::CalculatePreferredSize(available_size);
 }
 
 template <typename T>
 gfx::Size FooterRow<T>::GetMinimumSize() const {
   return gfx::Size();
-}
-
-template <typename T>
-int FooterRow<T>::GetHeightForWidth(int width) const {
-  return footer_label_->GetText().empty()
-             ? 0
-             : views::View::GetHeightForWidth(width);
 }
 
 template <typename T>
@@ -129,10 +119,25 @@ template class FooterRow<PerformanceRowData>;
 
 void FadeAlertFooterRow::SetData(const AlertFooterRowData& data) {
   std::optional<TabAlertState> alert_state = data.alert_state;
-  if (alert_state.has_value()) {
+  if (data.should_show_discard_status) {
+    std::u16string row_text;
+    if (data.memory_savings_in_bytes > 0) {
+      const std::u16string formatted_memory_usage =
+          ui::FormatBytes(data.memory_savings_in_bytes);
+      row_text = l10n_util::GetStringFUTF16(
+          IDS_HOVERCARD_INACTIVE_TAB_MEMORY_SAVINGS, formatted_memory_usage);
+    } else {
+      row_text = l10n_util::GetStringUTF16(IDS_HOVERCARD_INACTIVE_TAB);
+    }
+    SetContent(ui::ImageModel::FromVectorIcon(
+                   kPerformanceSpeedometerIcon,
+                   kColorHoverCardTabAlertAudioPlayingIcon,
+                   GetLayoutConstant(TAB_ALERT_INDICATOR_ICON_WIDTH)),
+               row_text);
+  } else if (alert_state.has_value()) {
     SetContent(AlertIndicatorButton::GetTabAlertIndicatorImageForHoverCard(
                    alert_state.value()),
-               chrome::GetTabAlertStateText(alert_state.value()));
+               GetTabAlertStateText(alert_state.value()));
   } else {
     SetContent(ui::ImageModel(), std::u16string());
   }
@@ -146,37 +151,22 @@ END_METADATA
 // -----------------------------------------------------------------------
 
 void FadePerformanceFooterRow::SetData(const PerformanceRowData& data) {
-  std::u16string row_text;
-  if (data.should_show_discard_status) {
-    if (data.memory_savings_in_bytes > 0) {
-      const std::u16string formatted_memory_usage =
-          ui::FormatBytes(data.memory_savings_in_bytes);
-      row_text = l10n_util::GetStringFUTF16(
-          IDS_HOVERCARD_INACTIVE_TAB_MEMORY_SAVINGS, formatted_memory_usage);
-    } else {
-      row_text = l10n_util::GetStringUTF16(IDS_HOVERCARD_INACTIVE_TAB);
-    }
-  } else if (data.memory_usage_in_bytes > 0) {
+  if (data.show_memory_usage) {
     const std::u16string formatted_memory_usage =
         ui::FormatBytes(data.memory_usage_in_bytes);
-    row_text = l10n_util::GetStringFUTF16(
-        data.memory_usage_in_bytes >
-                static_cast<uint64_t>(
-                    performance_manager::features::
-                        kMemoryUsageInHovercardsHighThresholdBytes.Get())
-            ? IDS_HOVERCARD_TAB_HIGH_MEMORY_USAGE
-            : IDS_HOVERCARD_TAB_MEMORY_USAGE,
+    const std::u16string row_text = l10n_util::GetStringFUTF16(
+        data.is_high_memory_usage ? IDS_HOVERCARD_TAB_HIGH_MEMORY_USAGE
+                                  : IDS_HOVERCARD_TAB_MEMORY_USAGE,
         formatted_memory_usage);
+
+    const ui::ImageModel icon_image_model = ui::ImageModel::FromVectorIcon(
+        kPerformanceSpeedometerIcon, kColorHoverCardTabAlertAudioPlayingIcon,
+        GetLayoutConstant(TAB_ALERT_INDICATOR_ICON_WIDTH));
+    SetContent(icon_image_model, row_text);
+  } else {
+    SetContent(ui::ImageModel(), std::u16string());
   }
 
-  const ui::ImageModel icon_image_model =
-      row_text.empty()
-          ? ui::ImageModel()
-          : ui::ImageModel::FromVectorIcon(
-                kMemorySaverIcon, kColorHoverCardTabAlertAudioPlayingIcon,
-                GetLayoutConstant(TAB_ALERT_INDICATOR_ICON_WIDTH));
-
-  SetContent(icon_image_model, row_text);
   data_ = data;
 }
 
@@ -190,16 +180,13 @@ DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(FooterView, kHoverCardFooterElementId);
 
 FooterView::FooterView() {
   SetProperty(views::kElementIdentifierKey, kHoverCardFooterElementId);
-  const gfx::Insets footer_margins =
-      features::IsChromeRefresh2023() ? kFooterRefreshMargins : kFooterMargins;
   flex_layout_ =
       views::View::SetLayoutManager(std::make_unique<views::FlexLayout>());
   flex_layout_->SetOrientation(views::LayoutOrientation::kVertical)
       .SetMainAxisAlignment(views::LayoutAlignment::kStart)
       .SetCollapseMargins(true)
-      .SetInteriorMargin(footer_margins)
-      .SetDefault(views::kMarginsKey,
-                  gfx::Insets::VH(kFooterVerticalMargins, 0));
+      .SetInteriorMargin(kFooterMargins)
+      .SetDefault(views::kMarginsKey, gfx::Insets::VH(kFooterRowSpacing, 0));
   alert_row_ = AddChildView(std::make_unique<AlertFadeView>(
       std::make_unique<FadeAlertFooterRow>(/* is_fade_out_view =*/false),
       std::make_unique<FadeAlertFooterRow>(/* is_fade_out_view =*/true)));
@@ -222,11 +209,6 @@ FooterView::FooterView() {
 
   SetBackground(
       views::CreateThemedSolidBackground(ui::kColorBubbleFooterBackground));
-
-  if (!features::IsChromeRefresh2023()) {
-    SetBorder(views::CreateThemedSolidSidedBorder(
-        kFooterBorderThickness, ui::kColorBubbleFooterBorder));
-  }
 }
 
 void FooterView::SetAlertData(const AlertFooterRowData& data) {
@@ -245,8 +227,8 @@ void FooterView::SetFade(double percent) {
 }
 
 void FooterView::UpdateVisibility() {
-  SetVisible(performance_row_->CalculatePreferredSize().height() > 0 ||
-             alert_row_->CalculatePreferredSize().height() > 0);
+  SetVisible(performance_row_->CalculatePreferredSize({}).height() > 0 ||
+             alert_row_->CalculatePreferredSize({}).height() > 0);
 }
 
 using FadeWrapper_View_PerformanceRowData =

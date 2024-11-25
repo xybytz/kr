@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "base/command_line.h"
@@ -22,7 +23,6 @@
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -39,9 +39,10 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/access_code_cast/common/access_code_cast_metrics.h"
-#include "components/media_router/browser/media_router_debugger.h"
 #include "components/media_router/browser/mirroring_to_flinging_switcher.h"
 #include "components/media_router/common/discovery/media_sink_internal.h"
+#include "components/media_router/common/mojom/debugger.mojom.h"
+#include "components/media_router/common/mojom/logger.mojom.h"
 #include "components/media_router/common/mojom/media_router.mojom.h"
 #include "components/media_router/common/providers/cast/channel/cast_device_capability.h"
 #include "components/media_router/common/providers/cast/channel/cast_message_util.h"
@@ -88,8 +89,6 @@ constexpr char kHistogramStartFailureAccessCodeManualEntry[] =
     "MediaRouter.CastStreaming.Start.Failure.AccessCodeManualEntry";
 constexpr char kHistogramStartFailureAccessCodeRememberedDevice[] =
     "MediaRouter.CastStreaming.Start.Failure.AccessCodeRememberedDevice";
-constexpr char kHistogramStartFailureNative[] =
-    "MediaRouter.CastStreaming.Start.Failure.Native";
 constexpr char kHistogramStartSuccess[] =
     "MediaRouter.CastStreaming.Start.Success";
 constexpr char kHistogramStartSuccessAccessCodeManualEntry[] =
@@ -152,7 +151,6 @@ std::optional<MirroringActivity::MirroringType> GetMirroringType(
 
   if (!source.url().is_valid()) {
     NOTREACHED() << "Invalid source: " << source;
-    return std::nullopt;
   }
 
   if (source.IsCastPresentationUrl()) {
@@ -163,23 +161,21 @@ std::optional<MirroringActivity::MirroringType> GetMirroringType(
       return MirroringActivity::MirroringType::kTab;
     } else {
       NOTREACHED() << "Non-mirroring Cast app: " << source;
-      return std::nullopt;
     }
   } else if (source.url().SchemeIsHTTPOrHTTPS()) {
     return MirroringActivity::MirroringType::kOffscreenTab;
   }
 
   NOTREACHED() << "Invalid source: " << source;
-  return std::nullopt;
 }
 
 // TODO(crbug.com/1363512): Remove support for sender side letterboxing.
-bool ShouldForceLetterboxing(base::StringPiece model_name) {
+bool ShouldForceLetterboxing(std::string_view model_name) {
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           "disable-cast-letterboxing")) {
     return false;
   }
-  return model_name.find("Nest Hub") != base::StringPiece::npos;
+  return model_name.find("Nest Hub") != std::string_view::npos;
 }
 
 std::optional<int> GetExceededPlayoutDelayPacketPercent(
@@ -255,7 +251,7 @@ void MaybeRecordMemoryHistogram(const char* fmt,
 }
 
 void RecordCastStreamingSenderUma(const base::Value::Dict& all_mirroring_stats,
-                                  base::StringPiece stats_dict_key,
+                                  std::string_view stats_dict_key,
                                   int64_t target_playout_delay) {
   const base::Value::Dict* mirroring_stats =
       all_mirroring_stats.FindDict(stats_dict_key);
@@ -355,11 +351,18 @@ MirroringActivity::MirroringActivity(
     const std::string& app_id,
     cast_channel::CastMessageHandler* message_handler,
     CastSessionTracker* session_tracker,
-    int frame_tree_node_id,
+    mojo::Remote<mojom::Logger>& logger,
+    mojo::Remote<mojom::Debugger>& debugger,
+    content::FrameTreeNodeId frame_tree_node_id,
     const CastSinkExtraData& cast_data,
     OnStopCallback callback,
     OnSourceChangedCallback source_changed_callback)
-    : CastActivity(route, app_id, message_handler, session_tracker),
+    : CastActivity(route,
+                   app_id,
+                   message_handler,
+                   session_tracker,
+                   logger,
+                   debugger),
       media_status_(mojom::MediaStatus::New()),
       mirroring_type_(GetMirroringType(route)),
       frame_tree_node_id_(frame_tree_node_id),
@@ -391,7 +394,7 @@ MirroringActivity::~MirroringActivity() {
             // Don't record pause count if the cast session cannot be paused.
             if (pause_count > 0 ||
                 media_router::IsAccessCodeCastFreezeUiEnabled(
-                    ProfileManager::GetLastUsedProfile())) {
+                    ProfileManager::GetLastUsedProfileIfLoaded())) {
               AccessCodeCastMetrics::RecordMirroringPauseCount(pause_count);
             }
           },
@@ -438,11 +441,8 @@ MirroringActivity::~MirroringActivity() {
   }
 }
 
-void MirroringActivity::CreateMojoBindings(mojom::MediaRouter* media_router) {
+void MirroringActivity::BindChannelToServiceReceiver() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(io_sequence_checker_);
-  media_router->GetLogger(logger_.BindNewPipeAndPassReceiver());
-  media_router->GetDebugger(debugger_.BindNewPipeAndPassReceiver());
-
   DCHECK(!channel_to_service_receiver_);
   channel_to_service_receiver_ =
       channel_to_service_.BindNewPipeAndPassReceiver();
@@ -495,7 +495,7 @@ void MirroringActivity::CreateMirroringServiceHost(
 
 void MirroringActivity::OnError(SessionError error) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(io_sequence_checker_);
-  logger_->LogError(
+  logger_.get()->LogError(
       media_router::mojom::LogCategory::kMirroring, kLoggerComponent,
       base::StringPrintf(
           "Mirroring will stop. MirroringService.SessionError: %d",
@@ -503,9 +503,6 @@ void MirroringActivity::OnError(SessionError error) {
       route_.media_sink_id(), route_.media_source().id(),
       route_.presentation_id());
   if (will_start_mirroring_timestamp_) {
-    // An error was encountered while attempting to start mirroring.
-    base::UmaHistogramEnumeration(kHistogramStartFailureNative, error);
-
     // Record the error for access code discovery types.
     CastDiscoveryType discovery_type = cast_data_.discovery_type;
     if (discovery_type == CastDiscoveryType::kAccessCodeManualEntry) {
@@ -561,16 +558,16 @@ void MirroringActivity::DidStop() {
 
 void MirroringActivity::LogInfoMessage(const std::string& message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(io_sequence_checker_);
-  logger_->LogInfo(media_router::mojom::LogCategory::kMirroring,
-                   kLoggerComponent, message, route_.media_sink_id(),
-                   route_.media_source().id(), route_.presentation_id());
+  logger_.get()->LogInfo(media_router::mojom::LogCategory::kMirroring,
+                         kLoggerComponent, message, route_.media_sink_id(),
+                         route_.media_source().id(), route_.presentation_id());
 }
 
 void MirroringActivity::LogErrorMessage(const std::string& message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(io_sequence_checker_);
-  logger_->LogError(media_router::mojom::LogCategory::kMirroring,
-                    kLoggerComponent, message, route_.media_sink_id(),
-                    route_.media_source().id(), route_.presentation_id());
+  logger_.get()->LogError(media_router::mojom::LogCategory::kMirroring,
+                          kLoggerComponent, message, route_.media_sink_id(),
+                          route_.media_source().id(), route_.presentation_id());
 }
 
 void MirroringActivity::OnSourceChanged() {
@@ -579,7 +576,8 @@ void MirroringActivity::OnSourceChanged() {
     return;
   }
 
-  std::optional<int> frame_tree_node_id = host_->GetTabSourceId();
+  std::optional<content::FrameTreeNodeId> frame_tree_node_id =
+      host_->GetTabSourceId();
   if (!source_changed_callback_ || !frame_tree_node_id ||
       frame_tree_node_id == frame_tree_node_id_) {
     return;
@@ -611,8 +609,6 @@ void MirroringActivity::OnRemotingStateChanged(bool is_remoting) {
 void MirroringActivity::OnMessage(mirroring::mojom::CastMessagePtr message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(io_sequence_checker_);
   DCHECK(message);
-  DVLOG(2) << "Relaying message to receiver: " << message->json_format_data;
-
   GetDataDecoder().ParseJson(
       message->json_format_data,
       base::BindOnce(&MirroringActivity::HandleParseJsonResult,
@@ -620,7 +616,7 @@ void MirroringActivity::OnMessage(mirroring::mojom::CastMessagePtr message) {
 }
 
 void MirroringActivity::OnAppMessage(
-    const cast::channel::CastMessage& message) {
+    const openscreen::cast::proto::CastMessage& message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(io_sequence_checker_);
   if (!route_.is_local()) {
     return;
@@ -654,17 +650,18 @@ void MirroringActivity::OnAppMessage(
     return;
   }
 
-  DVLOG(2) << "Relaying app message from receiver: " << message.DebugString();
   DCHECK(message.has_payload_utf8());
   DCHECK_EQ(message.protocol_version(),
-            cast::channel::CastMessage_ProtocolVersion_CASTV2_1_0);
+            openscreen::cast::proto::CastMessage_ProtocolVersion_CASTV2_1_0);
+  // TODO(crbug.com/375654306): Remove this message logging once general logging
+  // can be toggled through WebUI.
   if (message.namespace_() == mirroring::mojom::kWebRtcNamespace) {
-    logger_->LogInfo(media_router::mojom::LogCategory::kMirroring,
-                     kLoggerComponent,
-                     base::StrCat({"Relaying app message from receiver:",
-                                   message.payload_utf8()}),
-                     route().media_sink_id(), route().media_source().id(),
-                     route().presentation_id());
+    logger_.get()->LogInfo(media_router::mojom::LogCategory::kMirroring,
+                           kLoggerComponent,
+                           base::StrCat({"Relaying app message from receiver:",
+                                         message.payload_utf8()}),
+                           route().media_sink_id(), route().media_source().id(),
+                           route().presentation_id());
   }
 
   mirroring::mojom::CastMessagePtr ptr = mirroring::mojom::CastMessage::New();
@@ -679,12 +676,13 @@ void MirroringActivity::OnInternalMessage(
   if (!route_.is_local()) {
     return;
   }
-  DVLOG(2) << "Relaying internal message from receiver: " << message.message;
   mirroring::mojom::CastMessagePtr ptr = mirroring::mojom::CastMessage::New();
   ptr->message_namespace = message.message_namespace;
   CHECK(base::JSONWriter::Write(message.message, &ptr->json_format_data));
+  // TODO(crbug.com/375654306): Remove this message logging once general logging
+  // can be toggled through WebUI.
   if (message.message_namespace == mirroring::mojom::kWebRtcNamespace) {
-    logger_->LogInfo(
+    logger_.get()->LogInfo(
         media_router::mojom::LogCategory::kMirroring, kLoggerComponent,
         base::StrCat({"Relaying internal WebRTC message from receiver: ",
                       ptr->json_format_data}),
@@ -726,17 +724,17 @@ void MirroringActivity::HandleParseJsonResult(
   CastSession* session = GetSession();
   if (!session) {
     // TODO(crbug.com/1457011): If we're reaching here, determine why.
-    logger_->LogError(media_router::mojom::LogCategory::kMirroring,
-                      kLoggerComponent,
-                      base::StrCat({"Failed to retrieve the session."}),
-                      route().media_sink_id(), route().media_source().id(),
-                      route().presentation_id());
+    logger_.get()->LogError(
+        media_router::mojom::LogCategory::kMirroring, kLoggerComponent,
+        base::StrCat({"Failed to retrieve the session."}),
+        route().media_sink_id(), route().media_source().id(),
+        route().presentation_id());
     return;
   }
 
   if (!result.has_value() || !result.value().is_dict()) {
-    // TODO(crbug.com/905002): Record UMA metric for parse result.
-    logger_->LogError(
+    // TODO(crbug.com/41426190): Record UMA metric for parse result.
+    logger_.get()->LogError(
         media_router::mojom::LogCategory::kMirroring, kLoggerComponent,
         base::StrCat({"Failed to parse Cast client message:", result.error()}),
         route().media_sink_id(), route().media_source().id(),
@@ -747,7 +745,7 @@ void MirroringActivity::HandleParseJsonResult(
   const std::string message_namespace =
       GetMirroringNamespace(result.value().GetDict());
   if (message_namespace == mirroring::mojom::kWebRtcNamespace) {
-    logger_->LogInfo(
+    logger_.get()->LogInfo(
         media_router::mojom::LogCategory::kMirroring, kLoggerComponent,
         base::StrCat({"WebRTC message received: ",
                       GetScrubbedLogMessage(result.value().GetDict())}),
@@ -755,12 +753,13 @@ void MirroringActivity::HandleParseJsonResult(
         route().presentation_id());
   }
 
-  cast::channel::CastMessage cast_message = cast_channel::CreateCastMessage(
-      message_namespace, std::move(*result), message_handler_->source_id(),
-      session->destination_id());
+  openscreen::cast::proto::CastMessage cast_message =
+      cast_channel::CreateCastMessage(message_namespace, std::move(*result),
+                                      message_handler_->source_id(),
+                                      session->destination_id());
   if (message_handler_->SendCastMessage(cast_data_.cast_channel_id,
                                         cast_message) == Result::kFailed) {
-    logger_->LogError(
+    logger_.get()->LogError(
         media_router::mojom::LogCategory::kMirroring, kLoggerComponent,
         base::StringPrintf(
             "Failed to send Cast message to channel_id: %d, in namespace: %s",
@@ -779,7 +778,7 @@ void MirroringActivity::OnSessionSet(const CastSession& session) {
   // sequences, but must always be dereferenced and invalidated on the same
   // SequencedTaskRunner otherwise checking the pointer would be racey. See more
   // at base/memory/weak_ptr.h.
-  debugger_->ShouldFetchMirroringStats(
+  debugger_.get()->ShouldFetchMirroringStats(
       base::BindOnce(&MirroringActivity::StartSession, base::Unretained(this),
                      session.destination_id()));
 }
@@ -922,7 +921,7 @@ void MirroringActivity::FetchMirroringStats() {
 
 void MirroringActivity::OnMirroringStats(base::Value json_stats) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(io_sequence_checker_);
-  debugger_->OnMirroringStats(json_stats.Clone());
+  debugger_.get()->OnMirroringStats(json_stats.Clone());
   if (json_stats.is_dict()) {
     most_recent_mirroring_stats_ = std::move(json_stats.GetDict());
   }

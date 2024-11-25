@@ -95,7 +95,6 @@ bool GetCalibratedTransform(
   // only solution is to restart touch calibration and get new points from user.
   if (!product_matrix.GetInverse(&product_matrix_inverse)) {
     NOTREACHED() << "Touch Calibration failed. Determinant is zero.";
-    return false;
   }
 
   product_matrix_inverse.set_rc(3, 3, 0);

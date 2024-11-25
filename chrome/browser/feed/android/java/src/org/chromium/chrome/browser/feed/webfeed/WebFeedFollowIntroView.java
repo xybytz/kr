@@ -12,9 +12,8 @@ import android.view.View;
 import androidx.annotation.Nullable;
 
 import org.chromium.chrome.browser.feed.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuHandler;
-import org.chromium.chrome.browser.user_education.IPHCommandBuilder;
+import org.chromium.chrome.browser.user_education.IphCommandBuilder;
 import org.chromium.chrome.browser.user_education.UserEducationHelper;
 import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
 import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter;
@@ -32,7 +31,6 @@ import org.chromium.ui.widget.ViewRectProvider;
  */
 class WebFeedFollowIntroView {
     private static final int DEFAULT_SHOW_TIMEOUT_MILLIS = 8 * 1000;
-    private static final String PARAM_SHOW_TIMEOUT_MILLIS = "intro-show-timeout-millis";
 
     private final Activity mActivity;
     private final AppMenuHandler mAppMenuHandler;
@@ -63,11 +61,7 @@ class WebFeedFollowIntroView {
         mFeatureEngagementTracker = featureEngagementTracker;
         mIntroDismissedCallback = introDismissedCallback;
 
-        mShowTimeoutMillis =
-                ChromeFeatureList.getFieldTrialParamByFeatureAsInt(
-                        ChromeFeatureList.WEB_FEED,
-                        PARAM_SHOW_TIMEOUT_MILLIS,
-                        DEFAULT_SHOW_TIMEOUT_MILLIS);
+        mShowTimeoutMillis = DEFAULT_SHOW_TIMEOUT_MILLIS;
     }
 
     void showAccelerator(
@@ -75,7 +69,7 @@ class WebFeedFollowIntroView {
             Runnable introShownCallback,
             Runnable introNotShownCallback) {
         if (mFeatureEngagementTracker != null
-                && !mFeatureEngagementTracker.shouldTriggerHelpUI(
+                && !mFeatureEngagementTracker.shouldTriggerHelpUi(
                         FeatureConstants.IPH_WEB_FEED_FOLLOW_FEATURE)) {
             introNotShownCallback.run();
             return;
@@ -93,7 +87,7 @@ class WebFeedFollowIntroView {
                         onTouchListener,
                         /* inverseColor= */ false);
         mFollowBubble.addOnDismissListener(this::introDismissed);
-        // TODO(crbug/1152592): Figure out a way to dismiss on outside taps as well.
+        // TODO(crbug.com/40158714): Figure out a way to dismiss on outside taps as well.
         mFollowBubble.setAutoDismissTimeout(mShowTimeoutMillis);
         turnOnHighlightForFollowMenuItem();
 
@@ -101,7 +95,7 @@ class WebFeedFollowIntroView {
         introShownCallback.run();
     }
 
-    void showIPH(
+    void showIph(
             UserEducationHelper helper,
             Runnable introShownCallback,
             Runnable introNotShownCallback) {
@@ -109,8 +103,8 @@ class WebFeedFollowIntroView {
         int iphAccessibilityStringResource = R.string.accessibility_follow_accelerator_iph;
 
         // Make the request to show the IPH.
-        helper.requestShowIPH(
-                new IPHCommandBuilder(
+        helper.requestShowIph(
+                new IphCommandBuilder(
                                 mMenuButtonAnchorView.getContext().getResources(),
                                 FeatureConstants.IPH_WEB_FEED_FOLLOW_FEATURE,
                                 iphStringResource,
@@ -135,15 +129,15 @@ class WebFeedFollowIntroView {
         mIntroDismissedCallback.run();
     }
 
-    void showLoadingUI() {
+    void showLoadingUi() {
         if (mFollowBubble != null) {
-            mFollowBubble.showLoadingUI(R.string.web_feed_follow_loading_description);
+            mFollowBubble.showLoadingUi(R.string.web_feed_follow_loading_description);
         }
     }
 
-    void hideLoadingUI(LoadingView.Observer loadingViewObserver) {
+    void hideLoadingUi(LoadingView.Observer loadingViewObserver) {
         if (mFollowBubble != null) {
-            mFollowBubble.hideLoadingUI(loadingViewObserver);
+            mFollowBubble.hideLoadingUi(loadingViewObserver);
         }
     }
 

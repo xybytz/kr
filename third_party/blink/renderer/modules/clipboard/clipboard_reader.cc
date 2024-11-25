@@ -15,7 +15,6 @@
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap.h"
 #include "third_party/blink/renderer/modules/clipboard/clipboard.h"
 #include "third_party/blink/renderer/modules/clipboard/clipboard_promise.h"
-#include "third_party/blink/renderer/modules/clipboard/clipboard_writer.h"
 #include "third_party/blink/renderer/platform/heap/cross_thread_handle.h"
 #include "third_party/blink/renderer/platform/image-encoders/image_encoder.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -50,7 +49,7 @@ class ClipboardPngReader final : public ClipboardReader {
 
     Blob* blob = nullptr;
     if (data.size()) {
-      blob = Blob::Create(data.data(), data.size(), kMimeTypeImagePng);
+      blob = Blob::Create(data, kMimeTypeImagePng);
     }
     promise_->OnRead(blob);
   }
@@ -101,7 +100,7 @@ class ClipboardTextReader final : public ClipboardReader {
     StringUTF8Adaptor utf8_text(plain_text);
     Vector<uint8_t> utf8_bytes;
     utf8_bytes.ReserveInitialCapacity(utf8_text.size());
-    utf8_bytes.Append(utf8_text.data(), utf8_text.size());
+    utf8_bytes.AppendSpan(base::span(utf8_text));
 
     PostCrossThreadTask(
         *clipboard_task_runner, FROM_HERE,
@@ -116,8 +115,7 @@ class ClipboardTextReader final : public ClipboardReader {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     Blob* blob = nullptr;
     if (utf8_bytes.size()) {
-      blob = Blob::Create(utf8_bytes.data(), utf8_bytes.size(),
-                          kMimeTypeTextPlain);
+      blob = Blob::Create(utf8_bytes, kMimeTypeTextPlain);
     }
     promise_->OnRead(blob);
   }
@@ -159,11 +157,11 @@ class ClipboardHtmlReader final : public ClipboardReader {
       return;
     }
 
-    // Sanitize the HTML string if needed.
-    // `CreateSanitizedMarkupWithContext` must be called on the main thread
-    // because HTML DOM nodes can only be used on the main thread.
+    // Process the HTML string and strip out certain security sensitive tags if
+    // needed. `CreateStrictlyProcessedMarkupWithContext` must be called on the
+    // main thread because HTML DOM nodes can only be used on the main thread.
     String final_html =
-        sanitize_html_ ? CreateSanitizedMarkupWithContext(
+        sanitize_html_ ? CreateStrictlyProcessedMarkupWithContext(
                              *frame->GetDocument(), html_string, fragment_start,
                              fragment_end, url, kIncludeNode, kResolveAllURLs)
                        : html_string;
@@ -188,7 +186,7 @@ class ClipboardHtmlReader final : public ClipboardReader {
     StringUTF8Adaptor utf8_text(plain_text);
     Vector<uint8_t> utf8_bytes;
     utf8_bytes.ReserveInitialCapacity(utf8_text.size());
-    utf8_bytes.Append(utf8_text.data(), utf8_text.size());
+    utf8_bytes.AppendSpan(base::span(utf8_text));
 
     PostCrossThreadTask(
         *clipboard_task_runner, FROM_HERE,
@@ -201,8 +199,7 @@ class ClipboardHtmlReader final : public ClipboardReader {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     Blob* blob = nullptr;
     if (utf8_bytes.size()) {
-      blob =
-          Blob::Create(utf8_bytes.data(), utf8_bytes.size(), kMimeTypeTextHTML);
+      blob = Blob::Create(utf8_bytes, kMimeTypeTextHTML);
     }
     promise_->OnRead(blob);
   }
@@ -236,22 +233,23 @@ class ClipboardSvgReader final : public ClipboardReader {
       return;
     }
 
-    // Now sanitize the SVG string.
+    // Now process the SVG string and strip out certain security sensitive tags.
     KURL url;
     unsigned fragment_start = 0;
-    String sanitized_svg = CreateSanitizedMarkupWithContext(
+    String strictly_processed_svg = CreateStrictlyProcessedMarkupWithContext(
         *frame->GetDocument(), svg_string, fragment_start, svg_string.length(),
         url, kIncludeNode, kResolveAllURLs);
 
-    if (sanitized_svg.empty()) {
+    if (strictly_processed_svg.empty()) {
       NextRead(Vector<uint8_t>());
       return;
     }
     worker_pool::PostTask(
-        FROM_HERE, CrossThreadBindOnce(
-                       &ClipboardSvgReader::EncodeOnBackgroundThread,
-                       std::move(sanitized_svg), MakeCrossThreadHandle(this),
-                       std::move(clipboard_task_runner_)));
+        FROM_HERE,
+        CrossThreadBindOnce(&ClipboardSvgReader::EncodeOnBackgroundThread,
+                            std::move(strictly_processed_svg),
+                            MakeCrossThreadHandle(this),
+                            std::move(clipboard_task_runner_)));
   }
 
   static void EncodeOnBackgroundThread(
@@ -264,7 +262,7 @@ class ClipboardSvgReader final : public ClipboardReader {
     StringUTF8Adaptor utf8_text(plain_text);
     Vector<uint8_t> utf8_bytes;
     utf8_bytes.ReserveInitialCapacity(utf8_text.size());
-    utf8_bytes.Append(utf8_text.data(), utf8_text.size());
+    utf8_bytes.AppendSpan(base::span(utf8_text));
 
     PostCrossThreadTask(
         *clipboard_task_runner, FROM_HERE,
@@ -277,8 +275,7 @@ class ClipboardSvgReader final : public ClipboardReader {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     Blob* blob = nullptr;
     if (utf8_bytes.size()) {
-      blob =
-          Blob::Create(utf8_bytes.data(), utf8_bytes.size(), kMimeTypeImageSvg);
+      blob = Blob::Create(utf8_bytes, kMimeTypeImageSvg);
     }
     promise_->OnRead(blob);
   }
@@ -304,8 +301,7 @@ class ClipboardCustomFormatReader final : public ClipboardReader {
   }
 
   void OnCustomFormatRead(mojo_base::BigBuffer data) {
-    Blob* blob = Blob::Create(reinterpret_cast<const uint8_t*>(data.data()),
-                              data.size(), mime_type_);
+    Blob* blob = Blob::Create(data, mime_type_);
     promise_->OnRead(blob);
   }
 
@@ -324,7 +320,7 @@ ClipboardReader* ClipboardReader::Create(SystemClipboard* system_clipboard,
                                          const String& mime_type,
                                          ClipboardPromise* promise,
                                          bool sanitize_html) {
-  DCHECK(ClipboardWriter::IsValidType(mime_type));
+  CHECK(ClipboardItem::supports(mime_type));
   // If this is a web custom format then read the unsanitized version.
   if (!Clipboard::ParseWebCustomFormat(mime_type).empty()) {
     // We read the custom MIME type that has the "web " prefix.
@@ -347,14 +343,12 @@ ClipboardReader* ClipboardReader::Create(SystemClipboard* system_clipboard,
                                                      sanitize_html);
   }
 
-  if (mime_type == kMimeTypeImageSvg &&
-      RuntimeEnabledFeatures::ClipboardSvgEnabled()) {
+  if (mime_type == kMimeTypeImageSvg) {
     return MakeGarbageCollected<ClipboardSvgReader>(system_clipboard, promise);
   }
 
   NOTREACHED()
       << "IsValidType() and Create() have inconsistent implementations.";
-  return nullptr;
 }
 
 ClipboardReader::ClipboardReader(SystemClipboard* system_clipboard,

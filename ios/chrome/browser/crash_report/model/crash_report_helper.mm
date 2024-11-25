@@ -28,7 +28,7 @@
 #import "ios/web/public/thread/web_thread.h"
 #import "ios/web/public/web_state.h"
 #import "ios/web/public/web_state_observer_bridge.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 
 // WebStateList Observer that some tabs stats to be sent to the crash server.
 @interface CrashReporterTabStateObserver
@@ -183,6 +183,18 @@ const NSString* kDocumentMimeType = @"application/pdf";
     }
     case WebStateListChange::Type::kInsert:
       // Do nothing when a new WebState is inserted.
+      break;
+    case WebStateListChange::Type::kGroupCreate:
+      // Do nothing when a group is created.
+      break;
+    case WebStateListChange::Type::kGroupVisualDataUpdate:
+      // Do nothing when a tab group's visual data are updated.
+      break;
+    case WebStateListChange::Type::kGroupMove:
+      // Do nothing when a tab group is moved.
+      break;
+    case WebStateListChange::Type::kGroupDelete:
+      // Do nothing when a group is deleted.
       break;
   }
 }

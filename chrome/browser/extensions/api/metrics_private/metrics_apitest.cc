@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <stddef.h>
 
 #include <map>
@@ -129,7 +134,7 @@ void ValidateHistograms(const RecordedHistogram* recorded,
 
 }  // namespace
 
-using ContextType = ExtensionBrowserTest::ContextType;
+using ContextType = extensions::browser_test_util::ContextType;
 
 class ExtensionMetricsApiTest
     : public ExtensionApiTest,

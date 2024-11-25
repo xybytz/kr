@@ -11,7 +11,6 @@
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/net/system_network_context_manager.h"
-#include "chrome/browser/ui/commander/commander.h"
 #include "chrome/browser/ui/views/chrome_constrained_window_views_client.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_views_delegate.h"
@@ -24,6 +23,7 @@
 #include "components/ui_devtools/connector_delegate.h"
 #include "components/ui_devtools/switches.h"
 #include "components/ui_devtools/views/devtools_server_util.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/tracing_service.h"
 #include "sandbox/policy/switches.h"
 
@@ -170,8 +170,6 @@ void ChromeBrowserMainExtraPartsViews::PostBrowserStart() {
   relaunch_notification_controller_ =
       std::make_unique<RelaunchNotificationController>(
           UpgradeDetector::GetInstance());
-  if (commander::IsEnabled())
-    commander::Commander::Get()->Initialize();
 }
 
 void ChromeBrowserMainExtraPartsViews::PostMainMessageLoopRun() {
@@ -191,8 +189,7 @@ void ChromeBrowserMainExtraPartsViews::CreateUiDevTools() {
   bool result = base::PathService::Get(chrome::DIR_USER_DATA, &output_dir);
   DCHECK(result);
   devtools_server_ = ui_devtools::CreateUiDevToolsServerForViews(
-      g_browser_process->system_network_context_manager()->GetContext(),
-      std::move(connector), output_dir);
+      content::GetIOThreadTaskRunner(), std::move(connector), output_dir);
   devtools_process_observer_ = std::make_unique<DevtoolsProcessObserver>(
       devtools_server_->tracing_agent());
 }

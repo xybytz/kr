@@ -4,7 +4,6 @@
 
 #include "chrome/browser/ash/system_logs/app_service_log_source.h"
 
-#include "ash/constants/app_types.h"
 #include "base/memory/raw_ptr.h"
 #include "base/test/test_future.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_ash.h"
@@ -36,7 +35,7 @@ class AppServiceLogSourceTest : public ::testing::Test {
                                                /*is_main_profile=*/true);
     profile_ = profile;
     fake_user_manager->AddUserWithAffiliationAndTypeAndProfile(
-        account_id, false, user_manager::USER_TYPE_REGULAR, profile);
+        account_id, false, user_manager::UserType::kRegular, profile);
     fake_user_manager->LoginUser(account_id);
     fake_user_manager->SwitchActiveUser(account_id);
     user_manager_ = std::make_unique<user_manager::ScopedUserManager>(

@@ -32,7 +32,6 @@
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/focus_params.h"
-#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/editing/editing_behavior.h"
@@ -187,9 +186,9 @@ String TextControlElement::StrippedPlaceholder() const {
 }
 
 bool TextControlElement::PlaceholderShouldBeVisible() const {
-  return SupportsPlaceholder() && InnerEditorValue().empty() &&
+  return SuggestedValue().empty() && SupportsPlaceholder() &&
          FastHasAttribute(html_names::kPlaceholderAttr) &&
-         SuggestedValue().empty();
+         IsInnerEditorValueEmpty();
 }
 
 HTMLElement* TextControlElement::PlaceholderElement() const {
@@ -208,8 +207,14 @@ void TextControlElement::UpdatePlaceholderVisibility() {
   bool place_holder_was_visible = IsPlaceholderVisible();
   HTMLElement* placeholder = PlaceholderElement();
   if (!placeholder) {
-    UpdatePlaceholderText();
-    placeholder = PlaceholderElement();
+    if (RuntimeEnabledFeatures::CreateInputShadowTreeDuringLayoutEnabled() &&
+        !InnerEditorElement()) {
+      // The place holder visibility needs to be updated as it may be used by
+      // CSS selectors.
+      SetPlaceholderVisibility(PlaceholderShouldBeVisible());
+      return;
+    }
+    placeholder = UpdatePlaceholderText();
   }
   SetPlaceholderVisibility(PlaceholderShouldBeVisible());
 
@@ -233,6 +238,19 @@ void TextControlElement::UpdatePlaceholderVisibility() {
   if (place_holder_was_visible != IsPlaceholderVisible() &&
       SuggestedValue().empty()) {
     PseudoStateChanged(CSSSelector::kPseudoPlaceholderShown);
+  }
+}
+
+void TextControlElement::UpdatePlaceholderShadowPseudoId(
+    HTMLElement& placeholder) {
+  if (suggested_value_.empty()) {
+    // Reset the pseudo-id for placeholders to use the appropriated style
+    placeholder.SetShadowPseudoId(
+        shadow_element_names::kPseudoInputPlaceholder);
+  } else {
+    // Set the pseudo-id for suggested values to use the appropriated style.
+    placeholder.SetShadowPseudoId(
+        shadow_element_names::kPseudoInternalInputSuggested);
   }
 }
 
@@ -291,11 +309,6 @@ void TextControlElement::SetFocused(bool flag,
 }
 
 void TextControlElement::DispatchFormControlChangeEvent() {
-  if (UserHasEditedTheField()) {
-    // If the user has edited the field, then at this point we should also start
-    // matching :user-valid/:user-invalid.
-    SetUserHasEditedTheFieldAndBlurred();
-  }
   if (!value_before_first_user_edit_.IsNull() &&
       !EqualIgnoringNullity(value_before_first_user_edit_, Value())) {
     ClearValueBeforeFirstUserEdit();
@@ -477,6 +490,7 @@ bool TextControlElement::SetSelectionRange(
     TextFieldSelectionDirection direction) {
   if (OpenShadowRoot() || !IsTextControl())
     return false;
+  HTMLElement* inner_editor = EnsureInnerEditorElement();
   const unsigned editor_value_length = InnerEditorValue().length();
   end = std::min(end, editor_value_length);
   start = std::min(start, end);
@@ -488,12 +502,19 @@ bool TextControlElement::SetSelectionRange(
 
   // TODO(crbug.com/927646): The focused element should always be connected, but
   // we fail to ensure so in some cases. Fix it.
-  if (ShouldApplySelectionCache() || !isConnected())
+  if (ShouldApplySelectionCache() || !isConnected()) {
+    if (did_change) {
+      ScheduleSelectionchangeEventOnThisOrDocument();
+    }
     return did_change;
+  }
 
-  HTMLElement* inner_editor = EnsureInnerEditorElement();
-  if (!frame || !inner_editor)
+  if (!frame || !inner_editor) {
+    if (did_change) {
+      ScheduleSelectionchangeEventOnThisOrDocument();
+    }
     return did_change;
+  }
 
   Position start_position = PositionForIndex(inner_editor, start);
   Position end_position =
@@ -590,7 +611,7 @@ void TextControlElement::ComputeSelection(
         InnerEditorElement(), selection.ComputeStartPosition());
   }
   if (flags & kEnd) {
-    if (flags & kStart && (selection.Base() == selection.Extent())) {
+    if (flags & kStart && !selection.IsRange()) {
       computed_selection.end = computed_selection.start;
     } else {
       computed_selection.end = IndexForPosition(InnerEditorElement(),
@@ -598,10 +619,9 @@ void TextControlElement::ComputeSelection(
     }
   }
   if (flags & kDirection && frame->Selection().IsDirectional()) {
-    computed_selection.direction =
-        (selection.Base() == selection.ComputeStartPosition())
-            ? kSelectionHasForwardDirection
-            : kSelectionHasBackwardDirection;
+    computed_selection.direction = (selection.IsAnchorFirst())
+                                       ? kSelectionHasForwardDirection
+                                       : kSelectionHasBackwardDirection;
   }
 }
 
@@ -631,7 +651,6 @@ static const AtomicString& DirectionString(
   }
 
   NOTREACHED();
-  return none;
 }
 
 const AtomicString& TextControlElement::selectionDirection() const {
@@ -791,6 +810,16 @@ void TextControlElement::ScheduleSelectEvent() {
   Event* event = Event::CreateBubble(event_type_names::kSelect);
   event->SetTarget(this);
   GetDocument().EnqueueAnimationFrameEvent(event);
+}
+
+void TextControlElement::ScheduleSelectionchangeEventOnThisOrDocument() {
+  if (RuntimeEnabledFeatures::DispatchSelectionchangeEventPerElementEnabled()) {
+    if (!IsInShadowTree()) {
+      ScheduleSelectionchangeEvent();
+    } else {
+      GetDocument().ScheduleSelectionchangeEvent();
+    }
+  }
 }
 
 void TextControlElement::ParseAttribute(
@@ -1043,29 +1072,20 @@ void TextControlElement::SetSuggestedValue(const String& value) {
   // A null value indicates that the inner editor value should be shown, and a
   // non-null one indicates it should be hidden so that the suggested value can
   // be shown.
-  if (!value.IsNull() && !InnerEditorValue().empty()) {
-    InnerEditorElement()->SetVisibility(false);
-  } else if (value.IsNull() && InnerEditorElement()) {
-    InnerEditorElement()->SetVisibility(true);
+  if (auto* editor = InnerEditorElement()) {
+    if (!value.IsNull() && !InnerEditorValue().empty()) {
+      editor->SetVisibility(false);
+    } else if (value.IsNull()) {
+      editor->SetVisibility(true);
+    }
   }
 
-  UpdatePlaceholderText();
-
-  HTMLElement* placeholder = PlaceholderElement();
+  HTMLElement* placeholder = UpdatePlaceholderText();
   if (!placeholder)
     return;
 
   UpdatePlaceholderVisibility();
-
-  if (suggested_value_.empty()) {
-    // Reset the pseudo-id for placeholders to use the appropriated style
-    placeholder->SetShadowPseudoId(
-        shadow_element_names::kPseudoInputPlaceholder);
-  } else {
-    // Set the pseudo-id for suggested values to use the appropriated style.
-    placeholder->SetShadowPseudoId(
-        shadow_element_names::kPseudoInternalInputSuggested);
-  }
+  UpdatePlaceholderShadowPseudoId(*placeholder);
 }
 
 HTMLElement* TextControlElement::CreateInnerEditorElement() {
@@ -1077,6 +1097,19 @@ HTMLElement* TextControlElement::CreateInnerEditorElement() {
 
 const String& TextControlElement::SuggestedValue() const {
   return suggested_value_;
+}
+
+void TextControlElement::ScheduleSelectionchangeEvent() {
+  if (RuntimeEnabledFeatures::CoalesceSelectionchangeEventEnabled()) {
+    if (has_scheduled_selectionchange_event_)
+      return;
+    has_scheduled_selectionchange_event_ = true;
+    EnqueueEvent(*Event::CreateBubble(event_type_names::kSelectionchange),
+                 TaskType::kMiscPlatformAPI);
+  } else {
+    EnqueueEvent(*Event::CreateBubble(event_type_names::kSelectionchange),
+                 TaskType::kMiscPlatformAPI);
+  }
 }
 
 void TextControlElement::Trace(Visitor* visitor) const {

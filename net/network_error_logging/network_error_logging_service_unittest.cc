@@ -44,7 +44,7 @@ class NetworkErrorLoggingServiceTest : public ::testing::TestWithParam<bool> {
 
   NetworkErrorLoggingServiceTest() {
     feature_list_.InitAndEnableFeature(
-        features::kPartitionNelAndReportingByNetworkIsolationKey);
+        features::kPartitionConnectionsByNetworkIsolationKey);
 
     if (GetParam()) {
       store_ = std::make_unique<MockPersistentNelStore>();
@@ -213,16 +213,16 @@ class NetworkErrorLoggingServiceTest : public ::testing::TestWithParam<bool> {
 
   const GURL kReferrer_ = GURL("https://referrer.com/");
 
-  // |store_| needs to outlive |service_|.
+  // `store_` and `reporting_service_` need to outlive `service_`.
   std::unique_ptr<MockPersistentNelStore> store_;
-  std::unique_ptr<NetworkErrorLoggingService> service_;
   std::unique_ptr<TestReportingService> reporting_service_;
+  std::unique_ptr<NetworkErrorLoggingService> service_;
 };
 
 void ExpectDictDoubleValue(double expected_value,
                            const base::Value::Dict& value,
                            const std::string& key) {
-  absl::optional<double> double_value = value.FindDouble(key);
+  std::optional<double> double_value = value.FindDouble(key);
   ASSERT_TRUE(double_value) << key;
   EXPECT_DOUBLE_EQ(expected_value, *double_value) << key;
 }
@@ -418,7 +418,7 @@ TEST_P(NetworkErrorLoggingServiceTest,
 TEST_P(NetworkErrorLoggingServiceTest, NetworkAnonymizationKeyDisabled) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndDisableFeature(
-      features::kPartitionNelAndReportingByNetworkIsolationKey);
+      features::kPartitionConnectionsByNetworkIsolationKey);
 
   // Need to re-create the service, since it caches the feature value on
   // creation.
@@ -1280,7 +1280,7 @@ TEST_P(NetworkErrorLoggingServiceTest, InvalidHeaderData) {
   service()->OnHeader(kNak_, kOrigin_, kServerIP_, "0");
 }
 
-TEST_P(NetworkErrorLoggingServiceTest, NoReportingService_SignedExchange) {
+TEST_P(NetworkErrorLoggingServiceTest, NoReportingServiceSignedExchange) {
   service_ = NetworkErrorLoggingService::Create(store_.get());
 
   service()->OnHeader(kNak_, kOrigin_, kServerIP_, kHeader_);
@@ -1293,7 +1293,7 @@ TEST_P(NetworkErrorLoggingServiceTest, NoReportingService_SignedExchange) {
       kNak_, false, "sxg.failed", kUrl_, kInnerUrl_, kCertUrl_, kServerIP_));
 }
 
-TEST_P(NetworkErrorLoggingServiceTest, NoPolicyForOrigin_SignedExchange) {
+TEST_P(NetworkErrorLoggingServiceTest, NoPolicyForOriginSignedExchange) {
   service()->QueueSignedExchangeReport(MakeSignedExchangeReportDetails(
       kNak_, false, "sxg.failed", kUrl_, kInnerUrl_, kCertUrl_, kServerIP_));
 
@@ -1303,7 +1303,7 @@ TEST_P(NetworkErrorLoggingServiceTest, NoPolicyForOrigin_SignedExchange) {
   EXPECT_TRUE(reports().empty());
 }
 
-TEST_P(NetworkErrorLoggingServiceTest, SuccessFraction0_SignedExchange) {
+TEST_P(NetworkErrorLoggingServiceTest, SuccessFraction0SignedExchange) {
   service()->OnHeader(kNak_, kOrigin_, kServerIP_, kHeaderSuccessFraction0_);
 
   // Make the rest of the test run synchronously.
@@ -1320,7 +1320,7 @@ TEST_P(NetworkErrorLoggingServiceTest, SuccessFraction0_SignedExchange) {
   EXPECT_TRUE(reports().empty());
 }
 
-TEST_P(NetworkErrorLoggingServiceTest, SuccessReportQueued_SignedExchange) {
+TEST_P(NetworkErrorLoggingServiceTest, SuccessReportQueuedSignedExchange) {
   service()->OnHeader(kNak_, kOrigin_, kServerIP_, kHeaderSuccessFraction1_);
 
   // Make the rest of the test run synchronously.
@@ -1374,7 +1374,7 @@ TEST_P(NetworkErrorLoggingServiceTest, SuccessReportQueued_SignedExchange) {
       sxg_body->Find(NetworkErrorLoggingService::kCertUrlKey)->GetList()[0]);
 }
 
-TEST_P(NetworkErrorLoggingServiceTest, FailureReportQueued_SignedExchange) {
+TEST_P(NetworkErrorLoggingServiceTest, FailureReportQueuedSignedExchange) {
   service()->OnHeader(kNak_, kOrigin_, kServerIP_, kHeader_);
 
   // Make the rest of the test run synchronously.
@@ -1428,7 +1428,7 @@ TEST_P(NetworkErrorLoggingServiceTest, FailureReportQueued_SignedExchange) {
       sxg_body->Find(NetworkErrorLoggingService::kCertUrlKey)->GetList()[0]);
 }
 
-TEST_P(NetworkErrorLoggingServiceTest, MismatchingSubdomain_SignedExchange) {
+TEST_P(NetworkErrorLoggingServiceTest, MismatchingSubdomainSignedExchange) {
   service()->OnHeader(kNak_, kOrigin_, kServerIP_, kHeaderIncludeSubdomains_);
 
   // Make the rest of the test run synchronously.
@@ -1440,7 +1440,7 @@ TEST_P(NetworkErrorLoggingServiceTest, MismatchingSubdomain_SignedExchange) {
   EXPECT_TRUE(reports().empty());
 }
 
-TEST_P(NetworkErrorLoggingServiceTest, MismatchingIPAddress_SignedExchange) {
+TEST_P(NetworkErrorLoggingServiceTest, MismatchingIPAddressSignedExchange) {
   service()->OnHeader(kNak_, kOrigin_, kServerIP_, kHeader_);
 
   // Make the rest of the test run synchronously.
@@ -1456,7 +1456,7 @@ TEST_P(NetworkErrorLoggingServiceTest,
        SignedExchangeNetworkAnonymizationKeyDisabled) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndDisableFeature(
-      features::kPartitionNelAndReportingByNetworkIsolationKey);
+      features::kPartitionConnectionsByNetworkIsolationKey);
 
   // Need to re-create the service, since it caches the feature value on
   // creation.

@@ -19,18 +19,21 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.RequiresRestart;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.device.DeviceConditions;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
+import org.chromium.chrome.browser.tabmodel.TabClosureParams;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -38,7 +41,6 @@ import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.net.test.util.WebServer;
 import org.chromium.net.test.util.WebServer.HTTPRequest;
@@ -158,7 +160,7 @@ public class OfflinePageAutoFetchTest {
 
         AutoFetchNotifier.mTestHooks = new NotifierHooks();
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mProfile = activityTab().getProfile();
                     mOfflinePageBridge = OfflinePageBridge.getForProfile(mProfile);
@@ -200,6 +202,7 @@ public class OfflinePageAutoFetchTest {
     @Test
     @MediumTest
     @Feature({"OfflineAutoFetch"})
+    @RequiresRestart("crbug.com/344665757")
     public void testAutoFetchDoesNotTriggerOnDNSErrorWhenOnline() {
         forceConnectivityState(true);
         attemptLoadPage("http://does.not.resolve.com");
@@ -440,7 +443,7 @@ public class OfflinePageAutoFetchTest {
     // successfully.
     private void attemptLoadPage(String url) {
         Tab tab = activityTab();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     tab.loadUrl(
                             new LoadUrlParams(
@@ -452,7 +455,7 @@ public class OfflinePageAutoFetchTest {
     private Tab attemptLoadPageInNewTab(String url) throws Exception {
         ChromeActivity activity = mActivityTestRule.getActivity();
         Tab tab =
-                TestThreadUtils.runOnUiThreadBlocking(
+                ThreadUtils.runOnUiThreadBlocking(
                         () ->
                                 activity.getTabCreator(false)
                                         .launchUrl(url, TabLaunchType.FROM_LINK));
@@ -462,7 +465,7 @@ public class OfflinePageAutoFetchTest {
 
     private boolean isErrorPage(final Tab tab) {
         final AtomicReference<Boolean> result = new AtomicReference<Boolean>(false);
-        TestThreadUtils.runOnUiThreadBlocking(() -> result.set(tab.isShowingErrorPage()));
+        ThreadUtils.runOnUiThreadBlocking(() -> result.set(tab.isShowingErrorPage()));
         return result.get();
     }
 
@@ -471,14 +474,17 @@ public class OfflinePageAutoFetchTest {
                 mActivityTestRule.getActivity().getTabModelSelector().getCurrentModel();
 
         // Attempt to close the tab, which will delay closing until the undo timeout goes away.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
-                    TabModelUtils.closeTabById(model, tab.getId(), true);
+                    model.getTabRemover()
+                            .closeTabs(
+                                    TabClosureParams.closeTab(tab).allowUndo(true).build(),
+                                    /* allowDialog= */ false);
                 });
     }
 
     private void forceConnectivityState(boolean connected) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     NetworkChangeNotifier.forceConnectivityState(connected);
                     DeviceConditions.sForceConnectionTypeForTesting = !connected;
@@ -487,7 +493,7 @@ public class OfflinePageAutoFetchTest {
     }
 
     private void sendBroadcast(Intent intent) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     ContextUtils.getApplicationContext().sendBroadcast(intent);
                 });

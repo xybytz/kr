@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40284755): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "net/cert/ct_log_verifier.h"
 
 #include <stdint.h>
@@ -467,7 +472,7 @@ TEST_F(CTLogVerifierTest, ExcessDataInPublicKey) {
   EXPECT_FALSE(log);
 }
 
-TEST_F(CTLogVerifierTest, VerifiesConsistencyProofEdgeCases_EmptyProof) {
+TEST_F(CTLogVerifierTest, VerifiesConsistencyProofEdgeCasesEmptyProof) {
   std::vector<std::string> empty_proof;
   std::string old_root(GetEmptyTreeHash()), new_root(GetEmptyTreeHash());
 
@@ -491,7 +496,7 @@ TEST_F(CTLogVerifierTest, VerifiesConsistencyProofEdgeCases_EmptyProof) {
       VerifyConsistencyProof(*log_, 1, old_root, 2, new_root, empty_proof));
 }
 
-TEST_F(CTLogVerifierTest, VerifiesConsistencyProofEdgeCases_MismatchingRoots) {
+TEST_F(CTLogVerifierTest, VerifiesConsistencyProofEdgeCasesMismatchingRoots) {
   const std::string old_root(GetEmptyTreeHash());
   std::string new_root;
   std::vector<std::string> empty_proof;
@@ -563,7 +568,7 @@ INSTANTIATE_TEST_SUITE_P(KnownGoodProofs,
                          CTLogVerifierAuditProofTest,
                          ::testing::Range(size_t(0), std::size(kAuditProofs)));
 
-TEST_F(CTLogVerifierTest, VerifiesAuditProofEdgeCases_InvalidLeafIndex) {
+TEST_F(CTLogVerifierTest, VerifiesAuditProofEdgeCasesInvalidLeafIndex) {
   std::vector<std::string> proof;
   EXPECT_FALSE(
       VerifyAuditProof(*log_, 1, 0, proof, std::string(), std::string()));

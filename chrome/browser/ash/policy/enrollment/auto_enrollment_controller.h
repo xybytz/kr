@@ -22,6 +22,7 @@
 #include "chrome/browser/ash/policy/enrollment/psm/rlwe_dmserver_client_impl.h"
 #include "chrome/browser/ash/settings/device_settings_service.h"
 #include "chromeos/ash/components/dbus/cryptohome/UserDataAuth.pb.h"
+#include "chromeos/ash/components/dbus/device_management/device_management_interface.pb.h"
 #include "chromeos/ash/components/network/network_state_handler_observer.h"
 
 namespace ash {
@@ -61,7 +62,7 @@ class EnrollmentFwmpHelper {
 
   void OnGetFirmwareManagementParametersReceived(
       ResultCallback result_callback,
-      std::optional<user_data_auth::GetFirmwareManagementParametersReply>
+      std::optional<device_management::GetFirmwareManagementParametersReply>
           reply);
 
   raw_ptr<ash::InstallAttributesClient> install_attributes_client_;
@@ -107,6 +108,9 @@ class AutoEnrollmentController : public ash::NetworkStateHandlerObserver {
 
   // Retry checking.
   void Retry();
+
+  // Returns true if auto-enrollment check is running.
+  bool IsInProgress() const;
 
   // Registers a callback to invoke on state changes.
   base::CallbackListSubscription RegisterProgressCallback(
@@ -210,7 +214,7 @@ class AutoEnrollmentController : public ash::NetworkStateHandlerObserver {
   // the FWMP is used only for newer devices.
   // This also starts the VPD clearing process.
   void OnFirmwareManagementParametersRemoved(
-      std::optional<user_data_auth::RemoveFirmwareManagementParametersReply>
+      std::optional<device_management::RemoveFirmwareManagementParametersReply>
           reply);
 
   // Makes a D-Bus call to session_manager to set block_devmode=0 and
@@ -228,8 +232,6 @@ class AutoEnrollmentController : public ash::NetworkStateHandlerObserver {
 
   // Handles timeout of the safeguard timer and stops waiting for a result.
   void Timeout();
-
-  bool IsInProgress() const;
 
   // Used for checking ownership.
   raw_ptr<ash::DeviceSettingsService> device_settings_service_;

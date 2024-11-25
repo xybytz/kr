@@ -28,17 +28,14 @@
  *  --cr-checkbox-size
  *  --cr-checkbox-unchecked-box-color
  */
-import '//resources/polymer/v3_0/paper-styles/color.js';
 import '../cr_shared_vars.css.js';
 
-import {PaperRippleBehavior} from '//resources/polymer/v3_0/paper-behaviors/paper-ripple-behavior.js';
-import {mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PaperRippleMixin} from '//resources/polymer/v3_0/paper-behaviors/paper-ripple-mixin.js';
+import {PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {getTemplate} from './cr_checkbox.html.js';
 
-const CrCheckboxElementBase =
-    mixinBehaviors([PaperRippleBehavior], PolymerElement) as
-    {new (): PolymerElement & PaperRippleBehavior};
+const CrCheckboxElementBase = PaperRippleMixin(PolymerElement);
 
 export interface CrCheckboxElement {
   $: {
@@ -86,7 +83,7 @@ export class CrCheckboxElement extends CrCheckboxElementBase {
 
   checked: boolean;
   disabled: boolean;
-  ariaDescription: string;
+  override ariaDescription: string|null;
   ariaLabelOverride: string;
   override tabIndex: number;
 
@@ -198,14 +195,14 @@ export class CrCheckboxElement extends CrCheckboxElementBase {
     this.removeAttribute('tabindex');
   }
 
-  // Overridden from PaperRippleBehavior
+  // Overridden from PaperRippleMixin
   /* eslint-disable-next-line @typescript-eslint/naming-convention */
   override _createRipple() {
     this._rippleContainer = this.$.checkbox;
     const ripple = super._createRipple();
     ripple.id = 'ink';
     ripple.setAttribute('recenters', '');
-    ripple.classList.add('circle', 'toggle-ink');
+    ripple.classList.add('circle');
     return ripple;
   }
 }

@@ -9,11 +9,11 @@
 #import <UIKit/UIKit.h>
 #import <UserNotifications/UserNotifications.h>
 
-#import "ios/chrome/app/application_delegate/app_state.h"
-#import "ios/chrome/app/application_delegate/app_state_observer.h"
+@class AppState;
+class ProfileIOS;
 
 @interface PushNotificationDelegate
-    : NSObject <UNUserNotificationCenterDelegate, AppStateObserver>
+    : NSObject <UNUserNotificationCenterDelegate>
 
 - (instancetype)initWithAppState:(AppState*)appState NS_DESIGNATED_INITIALIZER;
 
@@ -28,7 +28,9 @@
 // When the device successfully registers with APNS and receives its APNS device
 // token this function aggregates all the necessary information and registers
 // the device to the Push Notification server.
-- (void)applicationDidRegisterWithAPNS:(NSData*)deviceToken;
+- (void)applicationDidRegisterWithAPNS:(NSData*)deviceToken
+                               profile:(ProfileIOS*)profile;
+
 @end
 
 #endif  // IOS_CHROME_BROWSER_PUSH_NOTIFICATION_MODEL_PUSH_NOTIFICATION_DELEGATE_H_

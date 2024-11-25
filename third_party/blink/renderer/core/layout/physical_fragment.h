@@ -2,19 +2,25 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_PHYSICAL_FRAGMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_PHYSICAL_FRAGMENT_H_
 
 #include <unicode/ubidi.h>
 
 #include <iterator>
+#include <optional>
 
 #include "base/containers/span.h"
 #include "base/dcheck_is_on.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
-#include "third_party/blink/renderer/core/layout/anchor_query.h"
+#include "third_party/blink/renderer/core/layout/anchor_evaluator_impl.h"
 #include "third_party/blink/renderer/core/layout/break_token.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_offset.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_rect.h"
@@ -24,7 +30,6 @@
 #include "third_party/blink/renderer/core/layout/layout_inline.h"
 #include "third_party/blink/renderer/core/layout/physical_fragment_link.h"
 #include "third_party/blink/renderer/core/layout/style_variant.h"
-#include "third_party/blink/renderer/core/scroll/scroll_start_targets.h"
 #include "third_party/blink/renderer/platform/graphics/touch_action.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 
@@ -33,7 +38,6 @@ namespace blink {
 class ComputedStyle;
 class FragmentBuilder;
 class FragmentData;
-class FragmentItem;
 class Node;
 class PaintLayer;
 enum class OutlineType;
@@ -65,9 +69,36 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
     kInlineBox,
     // A multi-column container creates column boxes as its children, which
     // content is flowed into. https://www.w3.org/TR/css-multicol-1/#column-box
+    // This is a fragmentainer.
     kColumnBox,
-    // A page box fragment. Used by printing.
-    kPageBox,
+    // The containing block of a page. Used by printing. This fragment includes
+    // a non-optional kPageBorderBox child, and up to 16 optional kPageMargin
+    // children (up to three for each of the four page edges, and one for each
+    // corner). This is the outermost part of what the spec refers to as "page
+    // box". It is sized with respect to the destination paper size (if any),
+    // not necessarily what @page size dictates. Responsible for painting any
+    // @page background, which should cover then entire page container.
+    // See https://drafts.csswg.org/css-page-3/#page-model
+    kPageContainer,
+    // The border box of a page. Used by printing. This is the innermost part of
+    // what the spec refers to as "page box". It is sized with respect to any
+    // given @page size when possible, and also honors scaling from print
+    // settings, and automatic shrink scaling to fit wide content (rather than
+    // overflowing). Responsible for painting any @page borders and outlines,
+    // and the document background (typically specified on BODY or the document
+    // root), which should cover the entire page border box. This fragment
+    // includes a non-optional kPageArea child.
+    // See https://drafts.csswg.org/css-page-3/#page-model
+    kPageBorderBox,
+    // Page margin fragment (e.g. author-specified header / footer). Used by
+    // printing.
+    kPageMargin,
+    // A page area fragment. Used by printing. This is a fragmentainer, into
+    // which document contents flow and get fragmented. It is sized with respect
+    // to any given @page size when possible, and also honors scaling from print
+    // settings, and automatic shrink scaling to fit wide content (rather than
+    // overflowing). Painting it may entail scaling it down to fit on paper.
+    kPageArea,
     kAtomicInline,
     kFloating,
     kOutOfFlowPositioned,
@@ -86,19 +117,19 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
    public:
     PropagatedData(
         const HeapVector<Member<LayoutBoxModelObject>>* sticky_descendants,
-        const HeapHashSet<Member<LayoutBox>>* snap_areas,
-        const ScrollStartTargetCandidates* scroll_start_targets)
+        const HeapVector<Member<Element>>* snap_areas,
+        const Member<const LayoutObject> scroll_start_target)
         : sticky_descendants(sticky_descendants),
           snap_areas(snap_areas),
-          scroll_start_targets(scroll_start_targets) {}
+          scroll_start_target(scroll_start_target) {}
     void Trace(Visitor* visitor) const {
       visitor->Trace(sticky_descendants);
       visitor->Trace(snap_areas);
-      visitor->Trace(scroll_start_targets);
+      visitor->Trace(scroll_start_target);
     }
     Member<const HeapVector<Member<LayoutBoxModelObject>>> sticky_descendants;
-    Member<const HeapHashSet<Member<LayoutBox>>> snap_areas;
-    Member<const ScrollStartTargetCandidates> scroll_start_targets;
+    Member<const HeapVector<Member<Element>>> snap_areas;
+    Member<const LayoutObject> scroll_start_target;
   };
 
   PhysicalFragment(FragmentBuilder* builder,
@@ -107,10 +138,6 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
                    unsigned sub_type);
 
   PhysicalFragment(const PhysicalFragment& other);
-
-  ~PhysicalFragment();
-
-  void Dispose();
 
   FragmentType Type() const { return static_cast<FragmentType>(type_); }
   bool IsContainer() const {
@@ -133,11 +160,8 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
   bool IsColumnBox() const {
     return IsBox() && GetBoxType() == BoxType::kColumnBox;
   }
-  bool IsPageBox() const {
-    return IsBox() && GetBoxType() == BoxType::kPageBox;
-  }
   static bool IsFragmentainerBoxType(BoxType type) {
-    return type == BoxType::kColumnBox || type == BoxType::kPageBox;
+    return type == BoxType::kColumnBox || type == BoxType::kPageArea;
   }
   bool IsFragmentainerBox() const {
     return IsBox() && IsFragmentainerBoxType(GetBoxType());
@@ -203,14 +227,18 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
 
   // Return true if this fragment corresponds directly to an entry in the CSS
   // box tree [1]. Note that anonymous blocks also exist in the CSS box
-  // tree. Returns false otherwise, i.e. if the fragment is generated by the
-  // layout engine to contain fragments from CSS boxes (a line or a generated
-  // fragmentainer [2], in other words). The main signification of this is
+  // tree. Additionally, page box and page margin box fragments [2] will return
+  // true.
+  //
+  // Returns false otherwise, i.e. if the fragment is generated by the layout
+  // engine to contain fragments from CSS boxes (a line or a generated
+  // fragmentainer [3], in other words). The main signification of this is
   // whether we can use the LayoutObject associated with this fragment for all
   // purposes.
   //
   // [1] https://www.w3.org/TR/css-display-3/#box-tree
-  // [2] https://www.w3.org/TR/css-break-3/#fragmentation-container
+  // [2] https://www.w3.org/TR/css-page-3/#page-model
+  // [3] https://www.w3.org/TR/css-break-3/#fragmentation-container
   bool IsCSSBox() const { return !IsLineBox() && !IsFragmentainerBox(); }
 
   bool IsBlockFlow() const;
@@ -220,16 +248,6 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
   bool IsFrameSet() const { return IsCSSBox() && layout_object_->IsFrameSet(); }
   bool IsListMarker() const {
     return IsCSSBox() && layout_object_->IsLayoutOutsideListMarker();
-  }
-  bool IsRubyBase() const { return layout_object_->IsRubyBase(); }
-  bool IsRubyColumn() const { return layout_object_->IsRubyColumn(); }
-
-  // Return true if this fragment is for LayoutRubyColumn, LayoutRubyText, or
-  // LayoutRubyBase. They are handled specially in scrollable overflow
-  // computation.
-  bool IsRubyBox() const {
-    return layout_object_->IsRubyColumn() || layout_object_->IsRubyText() ||
-           layout_object_->IsRubyBase();
   }
 
   bool IsSvg() const { return layout_object_->IsSVG(); }
@@ -262,13 +280,6 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
   // inside the fieldset except the rendered legend).
   bool IsFieldsetContainer() const { return is_fieldset_container_; }
 
-  // Return true if this is the layout root fragment for pagination
-  // (aka. printing).
-  bool IsPaginatedRoot() const {
-    return layout_object_->IsLayoutView() && IsCSSBox() &&
-           GetDocument().Printing();
-  }
-
   // Returns whether the fragment should be atomically painted.
   bool IsPaintedAtomically() const { return is_painted_atomically_; }
 
@@ -300,7 +311,7 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
     return static_cast<StyleVariant>(style_variant_);
   }
   bool UsesFirstLineStyle() const {
-    return GetStyleVariant() == StyleVariant::kFirstLine;
+    return blink::UsesFirstLineStyle(GetStyleVariant());
   }
 
   // Returns the style for this fragment.
@@ -481,17 +492,6 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
   // check if there were newer generations.
   const PhysicalFragment* PostLayout() const;
 
-  // Em height box. including contents, in the local coordinate.
-  PhysicalRect ComputeRubyEmHeightBox(
-      const PhysicalBoxFragment& container) const;
-
-  // ComputeRubyEmHeightBox(), with transforms applied wrt container if needed.
-  // This does not include any offsets from the parent (including relpos).
-  PhysicalRect ComputeRubyEmHeightBoxForPropagation(
-      const PhysicalBoxFragment& container) const;
-  void AdjustRubyEmHeightBoxForPropagation(const PhysicalBoxFragment& container,
-                                           PhysicalRect* overflow) const;
-
   // Helper functions to convert between |PhysicalRect| and |LogicalRect| of a
   // child.
   LogicalRect ConvertChildToLogical(const PhysicalRect& physical_rect) const;
@@ -518,10 +518,11 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
 
   // Dump the fragment tree, optionally mark |target| if it's found. If not
   // found, the subtree established by |target| will be dumped as well.
-  String DumpFragmentTree(DumpFlags,
-                          const PhysicalFragment* target = nullptr,
-                          absl::optional<PhysicalOffset> = absl::nullopt,
-                          unsigned indent = 2) const;
+  [[nodiscard]] String DumpFragmentTree(
+      DumpFlags,
+      const PhysicalFragment* target = nullptr,
+      std::optional<PhysicalOffset> = std::nullopt,
+      unsigned indent = 2) const;
 
   // Dump the fragment tree, starting at |root| (searching inside legacy
   // subtrees to find all fragments), optionally mark |target| if it's found. If
@@ -529,9 +530,10 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
   //
   // Note that if we're in the middle of layout somewhere inside the subtree,
   // behavior is undefined.
-  static String DumpFragmentTree(const LayoutObject& root,
-                                 DumpFlags,
-                                 const PhysicalFragment* target = nullptr);
+  [[nodiscard]] static String DumpFragmentTree(
+      const LayoutObject& root,
+      DumpFlags,
+      const PhysicalFragment* target = nullptr);
 
   void Trace(Visitor*) const;
   void TraceAfterDispatch(Visitor*) const;
@@ -557,6 +559,8 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
       using difference_type = ptrdiff_t;
       using pointer = value_type*;
       using reference = value_type&;
+
+      ConstIterator() = default;
 
       ConstIterator(const PhysicalFragmentLink* current, wtf_size_t size)
           : current_(current), end_(current + size) {
@@ -587,8 +591,9 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
       void SkipInvalidAndSetPostLayout() {
         for (; current_ != end_; ++current_) {
           const PhysicalFragment* fragment = current_->fragment.Get();
-          if (UNLIKELY(fragment->IsLayoutObjectDestroyedOrMoved()))
+          if (fragment->IsLayoutObjectDestroyedOrMoved()) [[unlikely]] {
             continue;
+          }
           if (const PhysicalFragment* post_layout = fragment->PostLayout()) {
             post_layout_.fragment = post_layout;
             post_layout_.offset = current_->offset;
@@ -597,8 +602,8 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
         }
       }
 
-      const PhysicalFragmentLink* current_;
-      const PhysicalFragmentLink* end_;
+      const PhysicalFragmentLink* current_ = nullptr;
+      const PhysicalFragmentLink* end_ = nullptr;
       PhysicalFragmentLink post_layout_;
     };
     using const_iterator = ConstIterator;
@@ -650,32 +655,39 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
     return IsScrollContainer() ? nullptr : StickyDescendants();
   }
 
-  const ScrollStartTargetCandidates* ScrollStartTargets() const {
-    return propagated_data_ ? propagated_data_->scroll_start_targets.Get()
-                            : nullptr;
+  const Member<const LayoutObject> ScrollStartTarget() const {
+    return propagated_data_ ? propagated_data_->scroll_start_target : nullptr;
   }
-  const ScrollStartTargetCandidates* PropagatedScrollStartTargets() const {
-    return IsScrollContainer() ? nullptr : ScrollStartTargets();
+  const Member<const LayoutObject> PropagatedScrollStartTarget() const {
+    return IsScrollContainer() ? nullptr : ScrollStartTarget();
   }
 
-  const HeapHashSet<Member<LayoutBox>>* SnapAreas() const {
+  const HeapVector<Member<Element>>* SnapAreas() const {
     return propagated_data_ ? propagated_data_->snap_areas.Get() : nullptr;
   }
-  const HeapHashSet<Member<LayoutBox>>* PropagatedSnapAreas() const {
+  const HeapVector<Member<Element>>* PropagatedSnapAreas() const {
     return IsScrollContainer() ? nullptr : SnapAreas();
   }
 
   bool HasPropagatedLayoutObjects() const {
-    return PropagatedStickyDescendants() || PropagatedScrollStartTargets() ||
+    return PropagatedStickyDescendants() || PropagatedScrollStartTarget() ||
            PropagatedSnapAreas();
   }
 
-  struct OofData : public GarbageCollected<OofData> {
+  class OofData : public GarbageCollected<OofData>,
+                  private PhysicalAnchorQuery {
    public:
     virtual ~OofData() = default;
-    virtual void Trace(Visitor* visitor) const;
-    HeapVector<PhysicalOofPositionedNode> oof_positioned_descendants;
-    PhysicalAnchorQuery anchor_query;
+    void Trace(Visitor* visitor) const override;
+    HeapVector<PhysicalOofPositionedNode>& OofPositionedDescendants() {
+      return oof_positioned_descendants_;
+    }
+    PhysicalAnchorQuery& AnchorQuery() {
+      return *static_cast<PhysicalAnchorQuery*>(this);
+    }
+
+   private:
+    HeapVector<PhysicalOofPositionedNode> oof_positioned_descendants_;
   };
 
   // Returns true if some child is OOF in the fragment tree. This happens if
@@ -693,13 +705,13 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
   }
 
   bool HasOutOfFlowPositionedDescendants() const {
-    return oof_data_ && !oof_data_->oof_positioned_descendants.empty();
+    return oof_data_ && !oof_data_->OofPositionedDescendants().empty();
   }
 
   base::span<PhysicalOofPositionedNode> OutOfFlowPositionedDescendants() const;
 
   bool HasAnchorQuery() const {
-    return oof_data_ && !oof_data_->anchor_query.IsEmpty();
+    return oof_data_ && !oof_data_->AnchorQuery().IsEmpty();
   }
   bool HasAnchorQueryToPropagate() const {
     return HasAnchorQuery() || Style().AnchorName() || IsImplicitAnchor();
@@ -707,7 +719,7 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
   const PhysicalAnchorQuery* AnchorQuery() const {
     if (!HasAnchorQuery())
       return nullptr;
-    return &oof_data_->anchor_query;
+    return &oof_data_->AnchorQuery();
   }
 
   const FragmentedOofData* GetFragmentedOofData() const;
@@ -721,19 +733,9 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
   bool NeedsOOFPositionedInfoPropagation() const;
 
  protected:
+  ~PhysicalFragment() = default;
+
   const ComputedStyle& SlowEffectiveStyle() const;
-
-  void AddRubyEmHeightBoxForInlineChild(const PhysicalBoxFragment& container,
-                                        const ComputedStyle& container_style,
-                                        const FragmentItem& line,
-                                        bool has_hanging,
-                                        const InlineCursor& cursor,
-                                        PhysicalRect* overflow) const;
-
-  static void AdjustRubyEmHeightBoxForHanging(
-      const PhysicalRect& rect,
-      const WritingMode container_writing_mode,
-      PhysicalRect* overflow);
 
   void AddOutlineRectsForNormalChildren(
       OutlineRectCollector& collector,
@@ -797,7 +799,7 @@ class CORE_EXPORT PhysicalFragment : public GarbageCollected<PhysicalFragment> {
   uint8_t has_last_baseline_ : 1;                               // NOLINT
   uint8_t use_last_baseline_for_inline_baseline_ : 1;           // NOLINT
   const uint8_t has_fragmented_out_of_flow_data_ : 1;           // NOLINT
-  const uint8_t has_out_of_flow_fragment_child_ : 1;            // NOLINT
+  uint8_t has_out_of_flow_fragment_child_ : 1;                  // NOLINT
   const uint8_t has_out_of_flow_in_fragmentainer_subtree_ : 1;  // NOLINT
 
   // The following are only used by PhysicalLineBoxFragment.

@@ -2,15 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ash/clipboard/clipboard_history_controller_impl.h"
-
 #include <memory>
 #include <string>
 #include <vector>
-#include "build/build_config.h"
 
 #include "ash/app_list/app_list_controller_impl.h"
 #include "ash/clipboard/clipboard_history.h"
+#include "ash/clipboard/clipboard_history_controller_impl.h"
 #include "ash/clipboard/clipboard_history_item.h"
 #include "ash/clipboard/clipboard_history_util.h"
 #include "ash/public/cpp/clipboard_image_model_factory.h"
@@ -31,6 +29,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_future.h"
 #include "base/unguessable_token.h"
+#include "build/build_config.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "chromeos/crosapi/mojom/clipboard_history.mojom.h"
 #include "chromeos/ui/clipboard_history/clipboard_history_util.h"
@@ -44,6 +43,7 @@
 #include "ui/base/clipboard/custom_data_helper.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/base/models/image_model.h"
+#include "ui/base/mojom/menu_source_type.mojom.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/keyboard_codes_posix.h"
 #include "ui/events/test/event_generator.h"
@@ -51,6 +51,7 @@
 #include "ui/gfx/skia_util.h"
 #include "ui/gfx/vector_icon_types.h"
 #include "ui/strings/grit/ui_strings.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/menu/menu_item_view.h"
 #include "ui/views/controls/menu/submenu_view.h"
@@ -331,13 +332,12 @@ TEST_F(ClipboardHistoryControllerTest, VerifyAvailabilityInUserModes) {
   constexpr struct {
     user_manager::UserType user_type;
     bool is_enabled;
-  } kTestCases[] = {{user_manager::USER_TYPE_REGULAR, true},
-                    {user_manager::USER_TYPE_GUEST, true},
-                    {user_manager::USER_TYPE_PUBLIC_ACCOUNT, false},
-                    {user_manager::USER_TYPE_KIOSK_APP, false},
-                    {user_manager::USER_TYPE_CHILD, true},
-                    {user_manager::USER_TYPE_ARC_KIOSK_APP, false},
-                    {user_manager::USER_TYPE_WEB_KIOSK_APP, false}};
+  } kTestCases[] = {{user_manager::UserType::kRegular, true},
+                    {user_manager::UserType::kGuest, true},
+                    {user_manager::UserType::kPublicAccount, false},
+                    {user_manager::UserType::kKioskApp, false},
+                    {user_manager::UserType::kChild, true},
+                    {user_manager::UserType::kWebKioskApp, false}};
 
   UserSession session;
   session.session_id = 1u;
@@ -490,10 +490,11 @@ TEST_F(ClipboardHistoryControllerTest, EncodeImage) {
 
 TEST_F(ClipboardHistoryControllerTest, EncodeMultipleImages) {
   // Write a bunch of bitmaps to the clipboard.
-  std::vector<const SkBitmap> test_bitmaps;
-  test_bitmaps.emplace_back(gfx::test::CreateBitmap(2, 1));
-  test_bitmaps.emplace_back(gfx::test::CreateBitmap(3, 2));
-  test_bitmaps.emplace_back(gfx::test::CreateBitmap(4, 3));
+  const std::vector<SkBitmap> test_bitmaps{
+      gfx::test::CreateBitmap(2, 1),
+      gfx::test::CreateBitmap(3, 2),
+      gfx::test::CreateBitmap(4, 3),
+  };
   for (const auto& test_bitmap : test_bitmaps) {
     WriteImageToClipboardAndConfirm(test_bitmap);
   }
@@ -513,9 +514,10 @@ TEST_F(ClipboardHistoryControllerTest, EncodeMultipleImages) {
 
 TEST_F(ClipboardHistoryControllerTest, WriteBitmapWhileEncodingImage) {
   // Write a bitmap to the clipboard.
-  std::vector<const SkBitmap> test_bitmaps;
-  test_bitmaps.emplace_back(gfx::test::CreateBitmap(3, 2));
-  test_bitmaps.emplace_back(gfx::test::CreateBitmap(4, 3));
+  const std::vector<SkBitmap> test_bitmaps{
+      gfx::test::CreateBitmap(3, 2),
+      gfx::test::CreateBitmap(4, 3),
+  };
   WriteImageToClipboardAndConfirm(test_bitmaps[0]);
 
   // Write another bitmap to the clipboard while encoding the first bitmap.
@@ -633,7 +635,7 @@ TEST_F(ClipboardHistoryControllerObserverTest,
   WriteTextToClipboardAndConfirm(u"A");
 }
 
-// TODO(crbug.com/1459385): Re-enable this test
+// TODO(crbug.com/40274291): Re-enable this test
 #if BUILDFLAG(IS_CHROMEOS)
 #define MAYBE_ChangeSessionStateWithNonEmptyHistory \
   DISABLED_ChangeSessionStateWithNonEmptyHistory
@@ -682,7 +684,7 @@ class ClipboardHistoryControllerWithTextfieldTest
     textfield_widget_->SetBounds(gfx::Rect(0, 0, 100, 100));
     textfield_ = textfield_widget_->SetContentsView(
         std::make_unique<views::Textfield>());
-    textfield_->SetAccessibleName(u"Textfield");
+    textfield_->GetViewAccessibility().SetName(u"Textfield");
     textfield_->SetFocusBehavior(views::View::FocusBehavior::ALWAYS);
 
     // Focus the textfield and confirm initial state.
@@ -815,7 +817,7 @@ TEST_P(ClipboardHistoryControllerShowSourceTest, ShowMenuReturnsSuccess) {
   // Try to show the menu without populating the clipboard. The menu should not
   // show.
   EXPECT_FALSE(GetClipboardHistoryController()->ShowMenu(
-      gfx::Rect(), ui::MenuSourceType::MENU_SOURCE_NONE, GetSource()));
+      gfx::Rect(), ui::mojom::MenuSourceType::kNone, GetSource()));
   EXPECT_FALSE(GetClipboardHistoryController()->IsMenuShowing());
   histogram_tester.ExpectTotalCount("Ash.ClipboardHistory.ContextMenu.ShowMenu",
                                     /*expected_count=*/0);
@@ -830,7 +832,7 @@ TEST_P(ClipboardHistoryControllerShowSourceTest, ShowMenuReturnsSuccess) {
   EXPECT_TRUE(session_controller->IsScreenLocked());
 
   EXPECT_FALSE(GetClipboardHistoryController()->ShowMenu(
-      gfx::Rect(), ui::MenuSourceType::MENU_SOURCE_NONE, GetSource()));
+      gfx::Rect(), ui::mojom::MenuSourceType::kNone, GetSource()));
   EXPECT_FALSE(GetClipboardHistoryController()->IsMenuShowing());
   histogram_tester.ExpectTotalCount("Ash.ClipboardHistory.ContextMenu.ShowMenu",
                                     /*expected_count=*/0);
@@ -841,7 +843,7 @@ TEST_P(ClipboardHistoryControllerShowSourceTest, ShowMenuReturnsSuccess) {
 
   // Show the menu.
   EXPECT_TRUE(GetClipboardHistoryController()->ShowMenu(
-      gfx::Rect(), ui::MenuSourceType::MENU_SOURCE_NONE, GetSource()));
+      gfx::Rect(), ui::mojom::MenuSourceType::kNone, GetSource()));
   EXPECT_TRUE(GetClipboardHistoryController()->IsMenuShowing());
   histogram_tester.ExpectUniqueSample(
       "Ash.ClipboardHistory.ContextMenu.ShowMenu", GetSource(),
@@ -850,7 +852,7 @@ TEST_P(ClipboardHistoryControllerShowSourceTest, ShowMenuReturnsSuccess) {
   // Try to show the menu again without closing the active menu. The menu should
   // still be showing, but this attempt should fail.
   EXPECT_FALSE(GetClipboardHistoryController()->ShowMenu(
-      gfx::Rect(), ui::MenuSourceType::MENU_SOURCE_NONE, GetSource()));
+      gfx::Rect(), ui::mojom::MenuSourceType::kNone, GetSource()));
   EXPECT_TRUE(GetClipboardHistoryController()->IsMenuShowing());
   histogram_tester.ExpectUniqueSample(
       "Ash.ClipboardHistory.ContextMenu.ShowMenu", GetSource(),
@@ -871,7 +873,7 @@ TEST_P(ClipboardHistoryControllerShowSourceTest, OnMenuClosingCallback) {
 
   // Show the menu with an `OnMenuClosingCallback`.
   GetClipboardHistoryController()->ShowMenu(
-      test_window_rect, ui::MenuSourceType::MENU_SOURCE_NONE, GetSource(),
+      test_window_rect, ui::mojom::MenuSourceType::kNone, GetSource(),
       on_menu_closing_future.GetRepeatingCallback());
   EXPECT_TRUE(GetClipboardHistoryController()->IsMenuShowing());
   EXPECT_FALSE(on_menu_closing_future.IsReady());
@@ -887,7 +889,7 @@ TEST_P(ClipboardHistoryControllerShowSourceTest, OnMenuClosingCallback) {
 
   // Show the menu again.
   GetClipboardHistoryController()->ShowMenu(
-      test_window_rect, ui::MenuSourceType::MENU_SOURCE_NONE, GetSource(),
+      test_window_rect, ui::mojom::MenuSourceType::kNone, GetSource(),
       on_menu_closing_future.GetCallback());
   EXPECT_TRUE(GetClipboardHistoryController()->IsMenuShowing());
   EXPECT_FALSE(on_menu_closing_future.IsReady());
@@ -997,7 +999,7 @@ class ClipboardHistoryRefreshDisplayFormatTest
         }
         break;
       case crosapi::mojom::ClipboardHistoryDisplayFormat::kUnknown:
-        NOTREACHED_NORETURN();
+        NOTREACHED();
     }
 
     return {};
@@ -1012,7 +1014,7 @@ class ClipboardHistoryRefreshDisplayFormatTest
           &pickle);
       ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
       scw.WritePickledData(pickle,
-                           ui::ClipboardFormatType::WebCustomDataType());
+                           ui::ClipboardFormatType::DataTransferCustomType());
     }
 
     WaitForOperationConfirmed();
@@ -1021,8 +1023,7 @@ class ClipboardHistoryRefreshDisplayFormatTest
   void WriteHtmlAndConfirm(const std::string& html) {
     {
       ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
-      scw.WriteHTML(base::UTF8ToUTF16(html), /*source_url=*/"",
-                    ui::ClipboardContentType::kUnsanitized);
+      scw.WriteHTML(base::UTF8ToUTF16(html), /*source_url=*/"");
     }
 
     WaitForOperationConfirmed();

@@ -29,12 +29,10 @@
 
 - (instancetype)initWithCoder:(NSCoder*)decoder {
   NOTREACHED();
-  return nil;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
   NOTREACHED();
-  return nil;
 }
 
 #pragma mark Accessors

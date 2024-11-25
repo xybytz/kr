@@ -8,6 +8,7 @@
 #include <signal.h>
 
 #include <optional>
+#include <string>
 
 #include "base/functional/bind.h"
 #include "base/lazy_instance.h"
@@ -228,6 +229,9 @@ void KioskBrowserSession::RegisterProfilePrefs(
   registry->RegisterBooleanPref(prefs::kNewWindowsInKioskAllowed, false);
   registry->RegisterBooleanPref(prefs::kKioskTroubleshootingToolsEnabled,
                                 false);
+  registry->RegisterListPref(prefs::kKioskBrowserPermissionsAllowedForOrigins,
+                             PrefRegistrySimple::NO_REGISTRATION_FLAGS);
+  registry->RegisterBooleanPref(prefs::kKioskWebAppOfflineEnabled, true);
 }
 
 void KioskBrowserSession::InitForChromeAppKiosk(const std::string& app_id) {
@@ -247,9 +251,10 @@ void KioskBrowserSession::InitForWebKiosk(
   metrics_service_->RecordKioskSessionWebStarted();
 }
 
-void KioskBrowserSession::SetAttemptUserExitForTesting(
-    base::OnceClosure closure) {
-  attempt_user_exit_ = std::move(closure);
+void KioskBrowserSession::InitForIwaKiosk(
+    const std::optional<std::string>& app_name) {
+  CreateBrowserWindowHandler(app_name);
+  metrics_service_->RecordKioskSessionIwaStarted();
 }
 
 void KioskBrowserSession::SetOnHandleBrowserCallbackForTesting(
@@ -314,7 +319,10 @@ void KioskBrowserSession::OnGuestAdded(
   }
 
 #if BUILDFLAG(ENABLE_PLUGINS)
-  plugin_handler_->Observe(guest_web_contents);
+  // Plugin handler is initialized only for Chrome app Kiosks.
+  if (plugin_handler_) {
+    plugin_handler_->Observe(guest_web_contents);
+  }
 #endif
 }
 

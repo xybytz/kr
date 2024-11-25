@@ -20,6 +20,7 @@ namespace autofill {
 enum class RegEx {
   kSingleWord,
   kParseSeparatedCjkName,
+  kParseSeparatedCjkAlternativeName,
   kParseCommonCjkTwoCharacterLastName,
   kParseKoreanTwoCharacterLastName,
   kParseCjkSingleCharacterLastName,
@@ -37,8 +38,7 @@ enum class RegEx {
   kParseStreetNameHouseNumberSuffixedFloor,
   kParseStreetNameHouseNumberSuffixedFloorAndApartmentRe,
   kParseHouseNumberStreetName,
-  kParsePrefixedName,
-  kLastRegEx = kParseLastNameIntoSecondLastName,
+  kLastRegEx = kParseHouseNumberStreetName,
 };
 
 // This singleton class builds and caches the regular expressions for value

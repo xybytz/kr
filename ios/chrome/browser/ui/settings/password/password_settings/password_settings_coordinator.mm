@@ -14,24 +14,30 @@
 #import "components/keyed_service/core/service_access_type.h"
 #import "components/password_manager/core/browser/ui/saved_passwords_presenter.h"
 #import "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/affiliations/model/ios_chrome_affiliation_service_factory.h"
 #import "ios/chrome/browser/passwords/model/ios_chrome_account_password_store_factory.h"
-#import "ios/chrome/browser/passwords/model/ios_chrome_affiliation_service_factory.h"
 #import "ios/chrome/browser/passwords/model/ios_chrome_profile_password_store_factory.h"
 #import "ios/chrome/browser/passwords/model/metrics/ios_password_manager_metrics.h"
 #import "ios/chrome/browser/passwords/model/metrics/ios_password_manager_visits_recorder.h"
+#import "ios/chrome/browser/shared/coordinator/alert/alert_coordinator.h"
 #import "ios/chrome/browser/shared/model/application_context/application_context.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
 #import "ios/chrome/browser/shared/public/commands/application_commands.h"
 #import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
 #import "ios/chrome/browser/shared/public/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/shared/public/commands/snackbar_commands.h"
 #import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
+#import "ios/chrome/browser/signin/model/authentication_service.h"
+#import "ios/chrome/browser/signin/model/authentication_service_factory.h"
 #import "ios/chrome/browser/signin/model/identity_manager_factory.h"
+#import "ios/chrome/browser/signin/model/system_identity.h"
+#import "ios/chrome/browser/signin/model/trusted_vault_client_backend.h"
+#import "ios/chrome/browser/signin/model/trusted_vault_client_backend_factory.h"
 #import "ios/chrome/browser/sync/model/sync_service_factory.h"
 #import "ios/chrome/browser/ui/settings/elements/enterprise_info_popover_view_controller.h"
-#import "ios/chrome/browser/ui/settings/password/password_manager_ui_features.h"
+#import "ios/chrome/browser/ui/settings/password/create_password_manager_title_view.h"
 #import "ios/chrome/browser/ui/settings/password/password_settings/password_bulk_move_handler.h"
 #import "ios/chrome/browser/ui/settings/password/password_settings/password_export_handler.h"
 #import "ios/chrome/browser/ui/settings/password/password_settings/password_settings_constants.h"
@@ -43,14 +49,14 @@
 #import "ios/chrome/browser/ui/settings/password/reauthentication/reauthentication_coordinator.h"
 #import "ios/chrome/browser/ui/settings/settings_navigation_controller.h"
 #import "ios/chrome/browser/ui/settings/utils/password_utils.h"
+#import "ios/chrome/browser/webauthn/model/ios_passkey_model_factory.h"
+#import "ios/chrome/common/ui/elements/branded_navigation_item_title_view.h"
 #import "ios/chrome/common/ui/reauthentication/reauthentication_module.h"
 #import "ios/chrome/grit/ios_branded_strings.h"
 #import "ios/chrome/grit/ios_strings.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "ui/base/l10n/l10n_util.h"
 #import "ui/base/l10n/l10n_util_mac.h"
-
-using password_manager::features::IsAuthOnEntryV2Enabled;
 
 namespace {
 
@@ -63,6 +69,11 @@ constexpr const char* kBulkMovePasswordsToAccountConfirmationDialogCancelled =
 // dialog's accept button is clicked.
 constexpr const char* kBulkMovePasswordsToAccountConfirmationDialogAccepted =
     "Mobile.PasswordsSettings.BulkSavePasswordsToAccountDialog.Accepted";
+
+// Represents the code of an error returned when the user dismisses the update
+// GPM Pin flow by clicking the "Cancel" button. This should not be treated as
+// an actual error.
+const NSInteger kErrorUserDismissedUpdateGPMPinFlow = -105;
 
 }  // namespace
 
@@ -156,33 +167,46 @@ constexpr const char* kBulkMovePasswordsToAccountConfirmationDialogAccepted =
 
   // For recording visits after successful authentication.
   IOSPasswordManagerVisitsRecorder* _visitsRecorder;
+
+  // Identity of the user. Can be nil if there is no primary account.
+  id<SystemIdentity> _identity;
+
+  // Coordinator for displaying errors in update GPM PIN flow.
+  AlertCoordinator* _updateGPMPinErrorCoordinator;
 }
 
 #pragma mark - ChromeCoordinator
 
 - (void)start {
-  ChromeBrowserState* browserState = self.browser->GetBrowserState();
+  ProfileIOS* profile = self.browser->GetProfile();
 
   _reauthModule = password_manager::BuildReauthenticationModule();
 
   _savedPasswordsPresenter =
       std::make_unique<password_manager::SavedPasswordsPresenter>(
-          IOSChromeAffiliationServiceFactory::GetForBrowserState(browserState),
-          IOSChromeProfilePasswordStoreFactory::GetForBrowserState(
-              browserState, ServiceAccessType::EXPLICIT_ACCESS),
-          IOSChromeAccountPasswordStoreFactory::GetForBrowserState(
-              browserState, ServiceAccessType::EXPLICIT_ACCESS));
+          IOSChromeAffiliationServiceFactory::GetForProfile(profile),
+          IOSChromeProfilePasswordStoreFactory::GetForProfile(
+              profile, ServiceAccessType::EXPLICIT_ACCESS),
+          IOSChromeAccountPasswordStoreFactory::GetForProfile(
+              profile, ServiceAccessType::EXPLICIT_ACCESS),
+          IOSPasskeyModelFactory::GetForProfile(profile));
 
+  _identity =
+      AuthenticationServiceFactory::GetForProfile(profile)->GetPrimaryIdentity(
+          signin::ConsentLevel::kSignin);
   _mediator = [[PasswordSettingsMediator alloc]
          initWithReauthenticationModule:_reauthModule
                 savedPasswordsPresenter:_savedPasswordsPresenter.get()
       bulkMovePasswordsToAccountHandler:self
                           exportHandler:self
-                            prefService:browserState->GetPrefs()
-                        identityManager:IdentityManagerFactory::
-                                            GetForBrowserState(browserState)
-                            syncService:SyncServiceFactory::GetForBrowserState(
-                                            browserState)];
+                            prefService:profile->GetPrefs()
+                        identityManager:IdentityManagerFactory::GetForProfile(
+                                            profile)
+                            syncService:SyncServiceFactory::GetForProfile(
+                                            profile)
+              trustedVaultClientBackend:TrustedVaultClientBackendFactory::
+                                            GetForProfile(profile)
+                               identity:_identity];
 
   _dispatcher = static_cast<id<ApplicationCommands>>(
       self.browser->GetCommandDispatcher());
@@ -326,13 +350,40 @@ constexpr const char* kBulkMovePasswordsToAccountConfirmationDialogAccepted =
       GURL(kOnDeviceEncryptionOptInURL),
       GetApplicationContext()->GetApplicationLocale());
   OpenNewTabCommand* command = [OpenNewTabCommand commandWithURLFromChrome:URL];
-  [_dispatcher closeSettingsUIAndOpenURL:command];
+  [_dispatcher closePresentedViewsAndOpenURL:command];
 }
 
 - (void)showOnDeviceEncryptionHelp {
   GURL URL = GURL(kOnDeviceEncryptionLearnMoreURL);
   OpenNewTabCommand* command = [OpenNewTabCommand commandWithURLFromChrome:URL];
-  [_dispatcher closeSettingsUIAndOpenURL:command];
+  [_dispatcher closePresentedViewsAndOpenURL:command];
+}
+
+- (void)showChangeGPMPinDialog {
+  if (![_reauthModule canAttemptReauth]) {
+    [self
+        showSetPasscodeDialogWithContent:
+            l10n_util::GetNSString(
+                IDS_IOS_PASSWORD_SETTINGS_CHANGE_PIN_SET_UP_PASSCODE_CONTENT)];
+    return;
+  }
+
+  __weak __typeof(self) weakSelf = self;
+  void (^onReauthFinished)(ReauthenticationResult) =
+      ^(ReauthenticationResult result) {
+        // Reauth can't be skipped for this flow.
+        CHECK(result != ReauthenticationResult::kSkipped);
+
+        if (result == ReauthenticationResult::kSuccess) {
+          [weakSelf updateGPMPinForAccount];
+        }
+      };
+
+  [_reauthModule
+      attemptReauthWithLocalizedReason:l10n_util::GetNSString(
+                                           IDS_IOS_PASSWORD_SETTINGS_CHANGE_PIN)
+                  canReusePreviousAuth:NO
+                               handler:onReauthFinished];
 }
 
 #pragma mark - PopoverLabelViewControllerDelegate
@@ -348,28 +399,7 @@ constexpr const char* kBulkMovePasswordsToAccountConfirmationDialogAccepted =
 
 - (void)showAuthenticationForMovePasswordsToAccountWithMessage:
     (NSString*)message {
-  // No need to auth if AuthOnEntryV2 is enabled, since user is presumed to have
-  // just recently authed.
-  if (IsAuthOnEntryV2Enabled()) {
-    [_mediator userDidStartBulkMoveLocalPasswordsToAccountFlow];
-    return;
-  }
-
-  if ([_reauthModule canAttemptReauth]) {
-    __weak __typeof(self) weakSelf = self;
-    void (^onReauthenticationFinished)(ReauthenticationResult) = ^(
-        ReauthenticationResult result) {
-      [weakSelf
-          onReauthenticationFinishedForMoveLocalPasswordsToAccountWithResult:
-              result];
-    };
-
-    [_reauthModule attemptReauthWithLocalizedReason:message
-                               canReusePreviousAuth:NO
-                                            handler:onReauthenticationFinished];
-  } else {
-    [self showSetPasscodeForMovePasswordsToAccountDialog];
-  }
+  [_mediator userDidStartBulkMoveLocalPasswordsToAccountFlow];
 }
 
 - (void)showConfirmationDialogWithAlertTitle:(NSString*)alertTitle
@@ -421,13 +451,6 @@ constexpr const char* kBulkMovePasswordsToAccountConfirmationDialogAccepted =
       presentViewController:movePasswordsConfirmation
                    animated:YES
                  completion:nil];
-}
-
-- (void)showSetPasscodeForMovePasswordsToAccountDialog {
-  [self
-      showSetPasscodeDialogWithContent:
-          l10n_util::GetNSString(
-              IDS_IOS_PASSWORD_SETTINGS_BULK_UPLOAD_PASSWORDS_SET_UP_SCREENLOCK_CONTENT)];
 }
 
 - (void)showMovedToAccountSnackbarWithPasswordCount:(int)count
@@ -589,7 +612,7 @@ constexpr const char* kBulkMovePasswordsToAccountConfirmationDialogAccepted =
 - (void)showPasscodeHelp {
   GURL URL = GURL(kPasscodeArticleURL);
   OpenNewTabCommand* command = [OpenNewTabCommand commandWithURLFromChrome:URL];
-  [_dispatcher closeSettingsUIAndOpenURL:command];
+  [_dispatcher closePresentedViewsAndOpenURL:command];
 }
 
 // Helper to show the "set passcode" dialog with customizable content.
@@ -647,11 +670,6 @@ constexpr const char* kBulkMovePasswordsToAccountConfirmationDialogAccepted =
 // Local authentication is required every time the current
 // scene is backgrounded and foregrounded until reauthCoordinator is stopped.
 - (void)startReauthCoordinatorWithAuthOnStart:(BOOL)authOnStart {
-  // No-op if Auth on Entry is not enabled for the password manager.
-  if (!IsAuthOnEntryV2Enabled()) {
-    return;
-  }
-
   if (_reauthCoordinator) {
     // The previous reauth coordinator should have been stopped and deallocated
     // by now. Create a crash report without crashing and gracefully handle the
@@ -696,9 +714,50 @@ constexpr const char* kBulkMovePasswordsToAccountConfirmationDialogAccepted =
 - (void)restartReauthCoordinator {
   // Restart reauth coordinator so it monitors scene state changes and requests
   // local authentication after the scene goes to the background.
-  if (IsAuthOnEntryV2Enabled()) {
-    [self startReauthCoordinatorWithAuthOnStart:NO];
-  }
+  [self startReauthCoordinatorWithAuthOnStart:NO];
+}
+
+// Starts `_updateGPMPinErrorCoordinator` from the currently visible view
+// controller (which should be the update GPM Pin VC). The cancel completion
+// should close both of them.
+- (void)startUpdateGPMPinErrorCoordinator {
+  NSString* title =
+      l10n_util::GetNSString(IDS_IOS_PASSWORD_SETTINGS_UPDATE_PIN_ERROR_TITLE);
+  NSString* message =
+      l10n_util::GetNSString(IDS_IOS_PASSWORD_SETTINGS_UPDATE_PIN_ERROR);
+  NSString* buttonTitle =
+      l10n_util::GetNSString(IDS_IOS_PASSWORD_SETTINGS_UPDATE_PIN_ERROR_BUTTON);
+
+  [_updateGPMPinErrorCoordinator stop];
+  _updateGPMPinErrorCoordinator = [[AlertCoordinator alloc]
+      initWithBaseViewController:_settingsNavigationController
+                                     .visibleViewController
+                         browser:self.browser
+                           title:title
+                         message:message];
+  __weak __typeof(self) weakSelf = self;
+  [_updateGPMPinErrorCoordinator
+      addItemWithTitle:buttonTitle
+                action:^() {
+                  [weakSelf dismissUpdateGPMPinViewController];
+                  [weakSelf stopUpdateGPMPinErrorCoordinator];
+                }
+                 style:UIAlertActionStyleCancel];
+  [_updateGPMPinErrorCoordinator start];
+}
+
+// Stops `_updateGPMPinErrorCoordinator`.
+- (void)stopUpdateGPMPinErrorCoordinator {
+  [_updateGPMPinErrorCoordinator stop];
+  _updateGPMPinErrorCoordinator = nil;
+}
+
+// Dismisses the view controller displayed by trusted vault client backend for
+// the update GPM Pin flow.
+- (void)dismissUpdateGPMPinViewController {
+  [_settingsNavigationController.topViewController
+      dismissViewControllerAnimated:YES
+                         completion:nil];
 }
 
 // Starts the export passwords flow after the user confirmed the corresponding
@@ -707,19 +766,34 @@ constexpr const char* kBulkMovePasswordsToAccountConfirmationDialogAccepted =
   [_mediator userDidStartExportFlow];
 }
 
-// Starts the flow for moving local passwords to account if local authentication
-// was successful.
-- (void)onReauthenticationFinishedForMoveLocalPasswordsToAccountWithResult:
-    (ReauthenticationResult)result {
-  // On auth success, move passwords. Otherwise, do nothing.
-  if (result == ReauthenticationResult::kSuccess) {
-    [_mediator userDidStartBulkMoveLocalPasswordsToAccountFlow];
-  }
-}
-
 // Cancels the password export flow.
 - (void)onExportFlowCancelled {
   [_mediator exportFlowCanceled];
+}
+
+// Handles update GPM Pin flow completion. If there is an `error` other than
+// user dismissing the flow by clicking "Cancel", presents the error alert.
+// Otherwise, dismisses the UI.
+- (void)updateGPMPinFinishedWithError:(NSError*)error {
+  if (error && error.code != kErrorUserDismissedUpdateGPMPinFlow) {
+    [self startUpdateGPMPinErrorCoordinator];
+  } else {
+    [self dismissUpdateGPMPinViewController];
+  }
+}
+
+// Starts the update GPM Pin flow. This should happen after succesful reauth.
+- (void)updateGPMPinForAccount {
+  __weak __typeof(self) weakSelf = self;
+  TrustedVaultClientBackendFactory::GetForProfile(self.browser->GetProfile())
+      ->UpdateGPMPinForAccount(
+          _identity, trusted_vault::SecurityDomainId::kPasskeys,
+          _settingsNavigationController,
+          password_manager::CreatePasswordManagerTitleView(
+              l10n_util::GetNSString(IDS_IOS_PASSWORD_MANAGER)),
+          base::BindOnce(^(NSError* error) {
+            [weakSelf updateGPMPinFinishedWithError:error];
+          }));
 }
 
 @end

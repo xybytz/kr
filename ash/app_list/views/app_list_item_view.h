@@ -13,15 +13,19 @@
 #include "ash/app_list/grid_index.h"
 #include "ash/app_list/model/app_icon_load_helper.h"
 #include "ash/app_list/model/app_list_item_observer.h"
+#include "ash/app_list/views/app_list_item_view_grid_delegate.h"
+#include "ash/app_list/views/apps_collection_section_view.h"
 #include "ash/ash_export.h"
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "base/memory/raw_ptr.h"
 #include "base/timer/timer.h"
 #include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/mojom/menu_source_type.mojom-forward.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/layer_tree_owner.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/image/image_skia.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/image_view.h"
@@ -32,7 +36,6 @@ class Rect;
 }  // namespace gfx
 
 namespace ui {
-class LocatedEvent;
 class SimpleMenuModel;
 }  // namespace ui
 
@@ -45,6 +48,7 @@ namespace ash {
 class AppsGridContextMenu;
 class AppListConfig;
 class AppListItem;
+class AppListItemViewGridDelegate;
 class AppListMenuModelAdapter;
 class AppListViewDelegate;
 class DotIndicator;
@@ -58,21 +62,24 @@ class RecentAppsViewTest;
 
 // An application icon and title. Commonly part of the AppsGridView, but may be
 // used in other contexts. Supports dragging and keyboard selection via the
-// GridDelegate interface.
+// AppListItemViewGridDelegate interface.
 class ASH_EXPORT AppListItemView : public views::Button,
                                    public views::ContextMenuController,
                                    public AppListItemObserver,
                                    public ui::ImplicitAnimationObserver {
- public:
-  METADATA_HEADER(AppListItemView);
+  METADATA_HEADER(AppListItemView, views::Button)
 
+ public:
   // The types of context where the app list item view is shown.
   enum class Context {
     // The item is shown in an AppsGridView.
     kAppsGridView,
 
     // The item is shown in the RecentAppsView.
-    kRecentAppsView
+    kRecentAppsView,
+
+    // The item is shown in AppsCollectionView.
+    kAppsCollection
   };
 
   // Describes the app list item view drag state.
@@ -93,53 +100,8 @@ class ASH_EXPORT AppListItemView : public views::Button,
     kStarted,
   };
 
-  // The parent apps grid (AppsGridView) or a stub. Not named "Delegate" to
-  // differentiate it from AppListViewDelegate.
-  class GridDelegate {
-   public:
-    virtual ~GridDelegate() = default;
-
-    // Whether the parent apps grid (if any) is a folder.
-    virtual bool IsInFolder() const = 0;
-
-    // Methods for keyboard selection.
-    virtual void SetSelectedView(AppListItemView* view) = 0;
-    virtual void ClearSelectedView() = 0;
-    virtual bool IsSelectedView(const AppListItemView* view) const = 0;
-
-    // Registers `view` as a dragged item with the apps grid. Called when the
-    // user presses the mouse, or starts touch interaction with the view (both
-    // of which may transition into a drag operation).
-    // `location` - The pointer location in the view's bounds.
-    // `root_location` - The pointer location in the root window coordinates.
-    // `drag_start_callback` - Callback that gets called when the mouse/touch
-    //     interaction transitions into a drag (i.e. when the "drag" item starts
-    //     moving.
-    //  `drag_end_callback` - Callback that gets called when drag interaction
-    //     ends.
-    //  Returns whether `view` has been registered as a dragged view. Callbacks
-    //  should be ignored if the method returns false. If the method returns
-    //  true, it's expected to eventually run `drag_end_callback`.
-    virtual bool InitiateDrag(AppListItemView* view,
-                              const gfx::Point& location,
-                              const gfx::Point& root_location,
-                              base::OnceClosure drag_start_callback,
-                              base::OnceClosure drag_end_callback) = 0;
-    virtual void StartDragAndDropHostDragAfterLongPress() = 0;
-    // Called from AppListItemView when it receives a drag event. Returns true
-    // if the drag is still happening.
-    virtual bool UpdateDragFromItem(bool is_touch,
-                                    const ui::LocatedEvent& event) = 0;
-    virtual void EndDrag(bool cancel) = 0;
-
-    // Provided as a callback for AppListItemView to notify of activation via
-    // press/click/return key.
-    virtual void OnAppListItemViewActivated(AppListItemView* pressed_item_view,
-                                            const ui::Event& event) = 0;
-  };
-
   AppListItemView(const AppListConfig* app_list_config,
-                  GridDelegate* grid_delegate,
+                  AppListItemViewGridDelegate* grid_delegate,
                   AppListItem* item,
                   AppListViewDelegate* view_delegate,
                   Context context);
@@ -169,14 +131,17 @@ class ASH_EXPORT AppListItemView : public views::Button,
   // is true.
   void UpdateIconView(bool update_item_icon);
 
-  // Sets the icon of this image.
-  void SetIcon(const gfx::ImageSkia& icon);
+  // Sets the icon and host badge icon of this image.
+  void SetIconAndMaybeHostBadgeIcon(const gfx::ImageSkia& icon,
+                                    const gfx::ImageSkia& host_badge_icon);
 
-  // Returns the main app icon size for the associated item.
+  // Returns the main app icon size for the associated item. This is the actual
+  // size of the main app icon that is painted in the grid.
   gfx::Size GetIconSize() const;
 
-  // Whether the icon use on this item is a placeholder icon for a promise app.
-  bool HasPromiseIconPlaceholder();
+  // Whether the icon used on this item is a placeholder icon for a promise app.
+  // This is obtained from the value in the item's metadata.
+  bool ItemHasPlaceholderIcon();
 
   void SetItemName(const std::u16string& display_name,
                    const std::u16string& full_name);
@@ -184,8 +149,6 @@ class ASH_EXPORT AppListItemView : public views::Button,
   void SetItemAccessibleName(const std::u16string& name);
 
   void SetHostBadgeIcon(const gfx::ImageSkia& host_badge_icon);
-
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   void CancelContextMenu();
 
@@ -284,7 +247,9 @@ class ASH_EXPORT AppListItemView : public views::Button,
   bool is_folder() const { return is_folder_; }
 
   bool IsNotificationIndicatorShownForTest() const;
-  GridDelegate* grid_delegate_for_test() { return grid_delegate_; }
+  AppListItemViewGridDelegate* grid_delegate_for_test() {
+    return grid_delegate_;
+  }
   const ui::ImageModel& icon_image_model() const { return icon_image_model_; }
   const gfx::ImageSkia icon_image_for_test() const {
     return icon_image_model_.GetImage().AsImageSkia();
@@ -341,11 +306,13 @@ class ASH_EXPORT AppListItemView : public views::Button,
   bool is_promise_app() const { return is_promise_app_; }
   std::optional<size_t> item_counter_count_for_test() const;
   ProgressIndicator* GetProgressIndicatorForTest() const;
-  views::ImageView* GetHostBadgeIconViewForTest() const;
+  bool has_host_badge_for_test() const { return has_host_badge_; }
 
  private:
   class FolderIconView;
 
+  friend class AppsCollectionSectionViewTest;
+  friend class AppListFolderViewTest;
   friend class AppListItemViewTest;
   friend class AppListMainViewTest;
   friend class test::AppsGridViewTest;
@@ -395,38 +362,42 @@ class ASH_EXPORT AppListItemView : public views::Button,
   // |AppListViewDelegate::GetContextMenuModel|.
   void OnContextMenuModelReceived(
       const gfx::Point& point,
-      ui::MenuSourceType source_type,
+      ui::mojom::MenuSourceType source_type,
       std::unique_ptr<ui::SimpleMenuModel> menu_model);
 
   // views::ContextMenuController overrides:
-  void ShowContextMenuForViewImpl(views::View* source,
-                                  const gfx::Point& point,
-                                  ui::MenuSourceType source_type) override;
+  void ShowContextMenuForViewImpl(
+      views::View* source,
+      const gfx::Point& point,
+      ui::mojom::MenuSourceType source_type) override;
 
   // views::Button overrides:
   bool ShouldEnterPushedState(const ui::Event& event) override;
 
   // views::View overrides:
-  void Layout() override;
-  gfx::Size CalculatePreferredSize() const override;
+  void Layout(PassKey) override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   void OnMouseReleased(const ui::MouseEvent& event) override;
   void OnMouseCaptureLost() override;
-  bool OnMouseDragged(const ui::MouseEvent& event) override;
   bool SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) override;
   void OnFocus() override;
   void OnBlur() override;
   int GetDragOperations(const gfx::Point& press_pt) override;
   void WriteDragData(const gfx::Point& press_pt, OSExchangeData* data) override;
   void OnDragDone() override;
+  void ScrollRectToVisible(const gfx::Rect& rect) override;
 
   // Called when the drag registered for this view starts moving.
-  // `drag_start_callback` passed to `GridDelegate::InitiateDrag()`.
+  // `drag_start_callback` passed to
+  // `AppListItemViewGridDelegate::InitiateDrag()`.
   void OnDragStarted();
 
   // Called when the drag registered for this view ends.
-  // `drag_end_callback` passed to `GridDelegate::InitiateDrag()`.
+  // `drag_end_callback` passed to
+  // `AppListItemViewGridDelegate::InitiateDrag()`.
   void OnDragEnded();
 
   // AppListItemObserver overrides:
@@ -439,6 +410,7 @@ class ASH_EXPORT AppListItemView : public views::Button,
   void ItemBeingDestroyed() override;
   void ItemProgressUpdated() override;
   void ItemAppStatusUpdated() override;
+  void ItemAppCollectionIdChanged() override;
 
   // ui::ImplicitAnimationObserver:
   void OnImplicitAnimationsCompleted() override;
@@ -452,6 +424,13 @@ class ASH_EXPORT AppListItemView : public views::Button,
   // Returns true during show animation from a promise icon state, if the actual
   // app icon has not been loaded yet.
   bool ShouldUseFallbackIconImageModel() const;
+
+  // Whether the image view has a placeholder icon in place. The placeholder
+  // icon is represented as a VectorIcon in the ImageModel. Depending on the
+  // case, the icon may use the `icon_image_model` or the
+  // `fallback_icon_image_model` (ie, when an animation in for the promise app
+  // is happening) for this calceulation.
+  bool ImageModelHasPlaceholderIcon() const;
 
   // Calculates the transform between the icon scaled by |icon_scale| and the
   // normal size icon.
@@ -483,9 +462,13 @@ class ASH_EXPORT AppListItemView : public views::Button,
   // active.
   void UpdateProgressRingBounds();
 
-  // Returns the preferred icon size for promise apps depending on the current
-  // app_state.
+  // Returns the preferred inner icon size for a promise app depending on the
+  // current app_state. Different from `GetIconSize()` since
+  // `GetPreferredIconSizeForProgressRing()` is used to adjust padding for the
+  // promise ring.
   gfx::Size GetPreferredIconSizeForProgressRing() const;
+
+  void UpdateAccessibleDescription();
 
   // The app list config used to layout this view. The initial values is set
   // during view construction, but can be changed by calling
@@ -502,7 +485,7 @@ class ASH_EXPORT AppListItemView : public views::Button,
 
   // Handles dragging and item selection. Might be a stub for items that are not
   // part of an apps grid.
-  const raw_ptr<GridDelegate, DanglingUntriaged> grid_delegate_;
+  const raw_ptr<AppListItemViewGridDelegate, DanglingUntriaged> grid_delegate_;
 
   // AppListControllerImpl by another name.
   const raw_ptr<AppListViewDelegate> view_delegate_;
@@ -518,9 +501,6 @@ class ASH_EXPORT AppListItemView : public views::Button,
 
   // The folder icon view used for refreshed folders.
   raw_ptr<FolderIconView> folder_icon_ = nullptr;
-
-  // The host badge icon view used for app shortcuts.
-  raw_ptr<views::ImageView> host_badge_icon_view_ = nullptr;
 
   raw_ptr<views::Label> title_ = nullptr;
 
@@ -572,6 +552,11 @@ class ASH_EXPORT AppListItemView : public views::Button,
 
   // The bitmap image for this app list item's host badge icon.
   gfx::ImageSkia host_badge_icon_image_;
+
+  // The bitmap image for this app list item's main icon. This is separate from
+  // icon_->GetImage(), since the latter might contain the badge image in its
+  // imageSkia for shortcuts.
+  gfx::ImageSkia icon_image_;
 
   // If set, the icon that will be used for the AppListItemView until the actual
   // app icon loads. Used when animating an installed app into a place of a

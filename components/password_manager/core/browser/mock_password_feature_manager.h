@@ -23,7 +23,6 @@ class MockPasswordFeatureManager : public PasswordFeatureManager {
               ShouldShowAccountStorageReSignin,
               (const GURL&),
               (override, const));
-  MOCK_METHOD(bool, ShouldShowAccountStorageBubbleUi, (), (override, const));
   MOCK_METHOD(PasswordForm::Store,
               GetDefaultPasswordStore,
               (),
@@ -41,6 +40,7 @@ class MockPasswordFeatureManager : public PasswordFeatureManager {
 
 #if !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_ANDROID)
   MOCK_METHOD(void, OptInToAccountStorage, (), (override));
+  MOCK_METHOD(void, OptOutOfAccountStorage, (), (override));
   MOCK_METHOD(void, OptOutOfAccountStorageAndClearSettings, (), (override));
   MOCK_METHOD(bool,
               ShouldOfferOptInAndMoveToAccountStoreAfterSavingLocally,
@@ -50,7 +50,12 @@ class MockPasswordFeatureManager : public PasswordFeatureManager {
               SetDefaultPasswordStore,
               (const PasswordForm::Store& store),
               (override));
+  MOCK_METHOD(bool, ShouldChangeDefaultPasswordStore, (), (override, const));
 #endif  // !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_ANDROID)
+
+#if BUILDFLAG(IS_ANDROID)
+  MOCK_METHOD(bool, ShouldUpdateGmsCore, (), (override));
+#endif  // BUILDFLAG(IS_ANDROID)
 };
 
 }  // namespace password_manager

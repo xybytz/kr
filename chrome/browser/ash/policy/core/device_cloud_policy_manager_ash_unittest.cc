@@ -21,11 +21,13 @@
 #include "base/run_loop.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/test/scoped_command_line.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/ownership/owner_settings_service_ash.h"
 #include "chrome/browser/ash/ownership/owner_settings_service_ash_factory.h"
 #include "chrome/browser/ash/policy/core/device_cloud_policy_client_factory_ash.h"
 #include "chrome/browser/ash/policy/core/device_cloud_policy_store_ash.h"
+#include "chrome/browser/ash/policy/enrollment/auto_enrollment_type_checker.h"
 #include "chrome/browser/ash/policy/enrollment/device_cloud_policy_initializer.h"
 #include "chrome/browser/ash/policy/enrollment/enrollment_config.h"
 #include "chrome/browser/ash/policy/enrollment/enrollment_handler.h"
@@ -36,6 +38,7 @@
 #include "chrome/browser/ash/settings/device_settings_test_helper.h"
 #include "chrome/browser/device_identity/device_oauth2_token_service.h"
 #include "chrome/browser/device_identity/device_oauth2_token_service_factory.h"
+#include "chrome/browser/policy/messaging_layer/public/report_client_test_util.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
@@ -44,9 +47,9 @@
 #include "chromeos/ash/components/attestation/stub_attestation_features.h"
 #include "chromeos/ash/components/cryptohome/system_salt_getter.h"
 #include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/device_management/fake_install_attributes_client.h"
 #include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
 #include "chromeos/ash/components/dbus/userdataauth/fake_cryptohome_misc_client.h"
-#include "chromeos/ash/components/dbus/userdataauth/fake_install_attributes_client.h"
 #include "chromeos/ash/components/install_attributes/install_attributes.h"
 #include "chromeos/ash/components/system/fake_statistics_provider.h"
 #include "chromeos/ash/components/system/statistics_provider.h"
@@ -60,6 +63,7 @@
 #include "components/policy/core/common/cloud/mock_signing_service.h"
 #include "components/policy/core/common/cloud/test/policy_builder.h"
 #include "components/policy/core/common/external_data_fetcher.h"
+#include "components/policy/core/common/policy_switches.h"
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/core/common/schema_registry.h"
 #include "components/policy/policy_constants.h"
@@ -180,8 +184,8 @@ class DeviceCloudPolicyManagerAshTest
  protected:
   DeviceCloudPolicyManagerAshTest()
       : state_keys_broker_(&session_manager_client_), store_(nullptr) {
-    fake_statistics_provider_.SetMachineStatistic(
-        ash::system::kSerialNumberKeyForTest, "test_sn");
+    fake_statistics_provider_.SetMachineStatistic(ash::system::kSerialNumberKey,
+                                                  "test_sn");
     fake_statistics_provider_.SetMachineStatistic(
         ash::system::kHardwareClassKey, "test_hw");
     session_manager_client_.AddObserver(this);
@@ -199,6 +203,9 @@ class DeviceCloudPolicyManagerAshTest
 
     device_management_service_.ScheduleInitialization(0);
     base::RunLoop().RunUntilIdle();
+
+    reporting_test_enviroment_ =
+        reporting::ReportingClient::TestEnvironment::CreateWithStorageModule();
 
     if (set_empty_system_salt_) {
       ash::FakeCryptohomeMiscClient::Get()->set_system_salt(
@@ -243,6 +250,13 @@ class DeviceCloudPolicyManagerAshTest
         "\"expires_in\":1234,"
         "\"refresh_token\":\"refreshToken4Test\"}";
 
+    // Set the verification key to be used for testing by the
+    // CloudPolicyValidator.
+    base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+    command_line->AppendSwitchASCII(
+        policy::switches::kPolicyVerificationKey,
+        policy::PolicyBuilder::GetEncodedPolicyVerificationKey());
+
     AllowUninterestingRemoteCommandFetches();
   }
 
@@ -252,7 +266,7 @@ class DeviceCloudPolicyManagerAshTest
     }
     ShutdownManager();
 
-    manager_->OnUserManagerWillBeDestroyed(user_manager_.get());
+    manager_->OnUserManagerWillBeDestroyed();
     user_manager_.reset();
 
     manager_.reset();
@@ -262,6 +276,8 @@ class DeviceCloudPolicyManagerAshTest
     ash::SystemSaltGetter::Shutdown();
     ash::InstallAttributesClient::Shutdown();
     TestingBrowserProcess::GetGlobal()->SetLocalState(nullptr);
+
+    reporting_test_enviroment_.reset();
 
     DeviceSettingsTestBase::TearDown();
   }
@@ -351,6 +367,9 @@ class DeviceCloudPolicyManagerAshTest
         *device_policy_->GetNewSigningKey());
   }
 
+  std::unique_ptr<reporting::ReportingClient::TestEnvironment>
+      reporting_test_enviroment_;
+
   std::unique_ptr<ash::InstallAttributes> install_attributes_;
 
   net::HttpStatusCode url_fetcher_response_code_;
@@ -430,6 +449,36 @@ TEST_F(DeviceCloudPolicyManagerAshTest, EnrolledDevice) {
             PolicyBuilder::kFakeServiceAccountIdentity);
 }
 
+TEST_F(DeviceCloudPolicyManagerAshTest, EnrolledDevicePolicyFetchSHA256) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(policy::kPolicyFetchWithSha256);
+  device_policy_->SetSignatureType(em::PolicyFetchRequest::SHA256_RSA);
+  device_policy_->Build();
+  session_manager_client_.set_device_policy(device_policy_->GetBlob());
+  LockDevice();
+  // Normally this happens at signin screen profile creation. But
+  // TestingProfile doesn't do that.
+  device_settings_service_->LoadImmediately();
+  FlushDeviceSettings();
+  EXPECT_EQ(CloudPolicyStore::STATUS_OK, store_->status());
+  EXPECT_TRUE(manager_->IsInitializationComplete(POLICY_DOMAIN_CHROME));
+  VerifyPolicyPopulated();
+
+  // Trigger a policy refresh - this triggers a policy update.
+  DeviceManagementService::JobForTesting policy_job;
+  DeviceManagementService::JobConfiguration::JobType job_type;
+  EXPECT_CALL(job_creation_handler_, OnJobCreation)
+      .WillOnce(DoAll(device_management_service_.CaptureJobType(&job_type),
+                      SaveArg<0>(&policy_job)));
+  AllowUninterestingRemoteCommandFetches();
+  ConnectManager();
+  Mock::VerifyAndClearExpectations(&device_management_service_);
+  ASSERT_TRUE(policy_job.IsActive());
+  ASSERT_EQ(DeviceManagementService::JobConfiguration::TYPE_POLICY_FETCH,
+            job_type);
+  VerifyPolicyPopulated();
+}
+
 TEST_F(DeviceCloudPolicyManagerAshTest, UnmanagedDevice) {
   device_policy_->policy_data().set_state(em::PolicyData::UNMANAGED);
   device_policy_->Build();
@@ -507,6 +556,11 @@ TEST_F(DeviceCloudPolicyManagerAshTest, ConsumerDevice) {
 }
 
 TEST_F(DeviceCloudPolicyManagerAshTest, EnrolledDeviceNoStateKeysGenerated) {
+  base::test::ScopedCommandLine scoped_command_line;
+  scoped_command_line.GetProcessCommandLine()->AppendSwitchASCII(
+      ash::switches::kEnterpriseEnableForcedReEnrollment,
+      AutoEnrollmentTypeChecker::kForcedReEnrollmentAlways);
+
   LockDevice();
   device_settings_service_->LoadImmediately();
   FlushDeviceSettings();
@@ -697,8 +751,6 @@ class DeviceCloudPolicyManagerAshEnrollmentTest
     ASSERT_TRUE(owner_settings_service);
 
     EnrollmentConfig enrollment_config;
-    enrollment_config.auth_mechanism =
-        EnrollmentConfig::AUTH_MECHANISM_BEST_AVAILABLE;
     enrollment_config.mode = with_cert ? EnrollmentConfig::MODE_ATTESTATION
                                        : EnrollmentConfig::MODE_MANUAL;
     DMAuth auth =
@@ -713,8 +765,7 @@ class DeviceCloudPolicyManagerAshEnrollmentTest
         store_, install_attributes_.get(), &state_keys_broker_,
         &mock_attestation_flow_, std::move(client),
         base::SingleThreadTaskRunner::GetCurrentDefault(), enrollment_config,
-        policy::LicenseType::kEnterprise, std::move(auth),
-        install_attributes_->GetDeviceId(),
+        std::move(auth), install_attributes_->GetDeviceId(),
         EnrollmentRequisitionManager::GetDeviceRequisition(),
         EnrollmentRequisitionManager::GetSubOrganization(),
 
@@ -931,15 +982,16 @@ TEST_P(DeviceCloudPolicyManagerAshEnrollmentTest, Success) {
 
 TEST_P(DeviceCloudPolicyManagerAshEnrollmentTest,
        EnabledKioskHeartbeatsViaERP) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(chromeos::features::kKioskHeartbeatsViaERP);
-
   RunTest();
   EXPECT_FALSE(manager_->GetHeartbeatSchedulerForTesting());
 }
 
 TEST_P(DeviceCloudPolicyManagerAshEnrollmentTest,
        DisabledKioskHeartbeatsViaERP) {
+    base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndDisableFeature(
+      chromeos::features::kKioskHeartbeatsViaERP);
+
   RunTest();
   EXPECT_EQ(manager_->GetHeartbeatSchedulerForTesting()->last_heartbeat(),
             base::Time());

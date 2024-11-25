@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -20,7 +21,6 @@
 #include "base/ranges/algorithm.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
@@ -85,7 +85,7 @@ MATCHER_P(EntryContentsEqual,
   return arg.ContentsEqual(entry);
 }
 
-IPAddress MakeIP(base::StringPiece literal) {
+IPAddress MakeIP(std::string_view literal) {
   IPAddress ret;
   CHECK(ret.AssignFromIPLiteral(literal));
   return ret;
@@ -1658,7 +1658,7 @@ TEST(HostCacheTest, SerializeForDebugging) {
   ASSERT_EQ(kNetworkAnonymizationKey.ToDebugString(), *nak_string);
 }
 
-TEST(HostCacheTest, SerializeAndDeserialize_Text) {
+TEST(HostCacheTest, SerializeAndDeserializeText) {
   base::TimeTicks now;
 
   base::TimeDelta ttl = base::Seconds(99);
@@ -1689,7 +1689,7 @@ TEST(HostCacheTest, SerializeAndDeserialize_Text) {
   EXPECT_THAT(result->second.text_records(), text_records);
 }
 
-TEST(HostCacheTest, SerializeAndDeserialize_Hostname) {
+TEST(HostCacheTest, SerializeAndDeserializeHostname) {
   base::TimeTicks now;
 
   base::TimeDelta ttl = base::Seconds(99);
@@ -2253,7 +2253,7 @@ TEST(HostCacheTest, MergeAliases) {
   EXPECT_EQ(result, expected);
 }
 
-TEST(HostCacheTest, MergeEntries_frontEmpty) {
+TEST(HostCacheTest, MergeEntriesFrontEmpty) {
   HostCache::Entry front(ERR_NAME_NOT_RESOLVED, HostCache::Entry::SOURCE_DNS);
 
   const IPAddress kAddressBack(0x20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2281,7 +2281,7 @@ TEST(HostCacheTest, MergeEntries_frontEmpty) {
               UnorderedElementsAre("alias1", "alias2", "alias3"));
 }
 
-TEST(HostCacheTest, MergeEntries_backEmpty) {
+TEST(HostCacheTest, MergeEntriesBackEmpty) {
   const IPAddress kAddressFront(1, 2, 3, 4);
   const IPEndPoint kEndpointFront(kAddressFront, 0);
   HostCache::Entry front(OK, {kEndpointFront}, {"alias1", "alias2", "alias3"},
@@ -2308,7 +2308,7 @@ TEST(HostCacheTest, MergeEntries_backEmpty) {
               UnorderedElementsAre("alias1", "alias2", "alias3"));
 }
 
-TEST(HostCacheTest, MergeEntries_bothEmpty) {
+TEST(HostCacheTest, MergeEntriesBothEmpty) {
   HostCache::Entry front(ERR_NAME_NOT_RESOLVED, HostCache::Entry::SOURCE_DNS);
   HostCache::Entry back(ERR_NAME_NOT_RESOLVED, HostCache::Entry::SOURCE_DNS);
 
@@ -2324,7 +2324,7 @@ TEST(HostCacheTest, MergeEntries_bothEmpty) {
   EXPECT_FALSE(result.has_ttl());
 }
 
-TEST(HostCacheTest, MergeEntries_frontWithAliasesNoAddressesBackWithBoth) {
+TEST(HostCacheTest, MergeEntriesFrontWithAliasesNoAddressesBackWithBoth) {
   HostCache::Entry front(ERR_NAME_NOT_RESOLVED, HostCache::Entry::SOURCE_DNS);
   std::set<std::string> aliases_front({"alias0", "alias1", "alias2"});
   front.set_aliases(aliases_front);
@@ -2349,7 +2349,7 @@ TEST(HostCacheTest, MergeEntries_frontWithAliasesNoAddressesBackWithBoth) {
               UnorderedElementsAre("alias0", "alias1", "alias2", "alias3"));
 }
 
-TEST(HostCacheTest, MergeEntries_backWithAliasesNoAddressesFrontWithBoth) {
+TEST(HostCacheTest, MergeEntriesBackWithAliasesNoAddressesFrontWithBoth) {
   HostCache::Entry back(ERR_NAME_NOT_RESOLVED, HostCache::Entry::SOURCE_DNS);
   std::set<std::string> aliases_back({"alias1", "alias2", "alias3"});
   back.set_aliases(aliases_back);
@@ -2374,7 +2374,7 @@ TEST(HostCacheTest, MergeEntries_backWithAliasesNoAddressesFrontWithBoth) {
               UnorderedElementsAre("alias0", "alias1", "alias2", "alias3"));
 }
 
-TEST(HostCacheTest, MergeEntries_frontWithAddressesNoAliasesBackWithBoth) {
+TEST(HostCacheTest, MergeEntriesFrontWithAddressesNoAliasesBackWithBoth) {
   const IPAddress kAddressFront(1, 2, 3, 4);
   const IPEndPoint kEndpointFront(kAddressFront, 0);
   HostCache::Entry front(OK, {kEndpointFront}, /*aliases=*/{},
@@ -2400,7 +2400,7 @@ TEST(HostCacheTest, MergeEntries_frontWithAddressesNoAliasesBackWithBoth) {
               UnorderedElementsAre("alias1", "alias2", "alias3"));
 }
 
-TEST(HostCacheTest, MergeEntries_backWithAddressesNoAliasesFrontWithBoth) {
+TEST(HostCacheTest, MergeEntriesBackWithAddressesNoAliasesFrontWithBoth) {
   const IPAddress kAddressFront(1, 2, 3, 4);
   const IPEndPoint kEndpointFront(kAddressFront, 0);
   HostCache::Entry front(OK, {kEndpointFront}, {"alias1", "alias2", "alias3"},
@@ -2426,7 +2426,7 @@ TEST(HostCacheTest, MergeEntries_backWithAddressesNoAliasesFrontWithBoth) {
               UnorderedElementsAre("alias1", "alias2", "alias3"));
 }
 
-TEST(HostCacheTest, MergeEntries_differentTtl) {
+TEST(HostCacheTest, MergeEntriesDifferentTtl) {
   HostCache::Entry front(ERR_NAME_NOT_RESOLVED, HostCache::Entry::SOURCE_DNS,
                          base::Days(12));
   HostCache::Entry back(ERR_NAME_NOT_RESOLVED, HostCache::Entry::SOURCE_DNS,
@@ -2438,7 +2438,7 @@ TEST(HostCacheTest, MergeEntries_differentTtl) {
   EXPECT_EQ(base::Seconds(42), result.ttl());
 }
 
-TEST(HostCacheTest, MergeEntries_FrontCannonnamePreserved) {
+TEST(HostCacheTest, MergeEntriesFrontCannonnamePreserved) {
   HostCache::Entry front(OK, /*ip_endpoints=*/{}, /*aliases=*/{"name1"},
                          HostCache::Entry::SOURCE_DNS);
 
@@ -2452,7 +2452,7 @@ TEST(HostCacheTest, MergeEntries_FrontCannonnamePreserved) {
 }
 
 // Test that the back canonname can be used if there is no front cannonname.
-TEST(HostCacheTest, MergeEntries_BackCannonnameUsable) {
+TEST(HostCacheTest, MergeEntriesBackCannonnameUsable) {
   HostCache::Entry front(OK, /*ip_endpoints=*/{}, /*aliases=*/{},
                          HostCache::Entry::SOURCE_DNS);
 
@@ -2660,6 +2660,151 @@ TEST(HostCacheTest, ConvertFromEmptyInternalResult) {
   HostCache::Entry converted({}, base::Time(), base::TimeTicks());
   HostCache::Entry expected(ERR_NAME_NOT_RESOLVED,
                             HostCache::Entry::SOURCE_UNKNOWN);
+
+  EXPECT_EQ(converted, expected);
+}
+
+TEST(HostCacheTest, ConvertFromInternalMergedResult) {
+  const std::multimap<HttpsRecordPriority, ConnectionEndpointMetadata>
+      kMetadatas{{1, ConnectionEndpointMetadata({"h2", "h3"},
+                                                /*ech_config_list=*/{},
+                                                "target.test")}};
+  const IPEndPoint kIpv4 =
+      IPEndPoint(IPAddress::FromIPLiteral("192.168.1.20").value(), 46);
+  const IPEndPoint kIpv6 =
+      IPEndPoint(IPAddress::FromIPLiteral("2001:db8:1::").value(), 46);
+  constexpr base::TimeDelta kMinTtl = base::Minutes(30);
+  constexpr base::TimeDelta kOtherTtl = base::Minutes(40);
+
+  std::set<std::unique_ptr<HostResolverInternalResult>> results;
+  results.insert(std::make_unique<HostResolverInternalDataResult>(
+      "endpoint.test", DnsQueryType::AAAA, base::TimeTicks() + kOtherTtl,
+      base::Time() + kOtherTtl, HostResolverInternalResult::Source::kDns,
+      std::vector<IPEndPoint>{kIpv6}, std::vector<std::string>{},
+      std::vector<HostPortPair>{}));
+  results.insert(std::make_unique<HostResolverInternalAliasResult>(
+      "domain1.test", DnsQueryType::AAAA, base::TimeTicks() + kOtherTtl,
+      base::Time() + kOtherTtl, HostResolverInternalResult::Source::kDns,
+      "endpoint.test"));
+  results.insert(std::make_unique<HostResolverInternalDataResult>(
+      "endpoint.test", DnsQueryType::A, base::TimeTicks() + kMinTtl,
+      base::Time() + kMinTtl, HostResolverInternalResult::Source::kDns,
+      std::vector<IPEndPoint>{kIpv4}, std::vector<std::string>{},
+      std::vector<HostPortPair>{}));
+  results.insert(std::make_unique<HostResolverInternalAliasResult>(
+      "domain1.test", DnsQueryType::A, base::TimeTicks() + kMinTtl,
+      base::Time() + kMinTtl, HostResolverInternalResult::Source::kDns,
+      "endpoint.test"));
+  results.insert(std::make_unique<HostResolverInternalMetadataResult>(
+      "endpoint.test", DnsQueryType::HTTPS, base::TimeTicks() + kOtherTtl,
+      base::Time() + kOtherTtl, HostResolverInternalResult::Source::kDns,
+      kMetadatas));
+  results.insert(std::make_unique<HostResolverInternalAliasResult>(
+      "domain1.test", DnsQueryType::HTTPS, base::TimeTicks() + kOtherTtl,
+      base::Time() + kOtherTtl, HostResolverInternalResult::Source::kDns,
+      "endpoint.test"));
+
+  HostCache::Entry converted(std::move(results), base::Time(),
+                             base::TimeTicks());
+
+  HostCache::Entry expected(OK, kMetadatas, HostCache::Entry::SOURCE_DNS,
+                            kMinTtl);
+  expected.set_ip_endpoints({kIpv6, kIpv4});
+  expected.set_canonical_names(std::set<std::string>{"endpoint.test"});
+  expected.set_aliases({"endpoint.test", "domain1.test"});
+  expected.set_https_record_compatibility(std::vector<bool>{true});
+
+  EXPECT_EQ(converted, expected);
+}
+
+TEST(HostCacheTest, ConvertFromInternalMergedResultWithPartialError) {
+  const std::multimap<HttpsRecordPriority, ConnectionEndpointMetadata>
+      kMetadatas{{1, ConnectionEndpointMetadata({"h2", "h3"},
+                                                /*ech_config_list=*/{},
+                                                "target.test")}};
+  const IPEndPoint kIpv6 =
+      IPEndPoint(IPAddress::FromIPLiteral("2001:db8:1::").value(), 46);
+  constexpr base::TimeDelta kMinTtl = base::Minutes(30);
+  constexpr base::TimeDelta kOtherTtl = base::Minutes(40);
+
+  // Positive AAAA and HTTPS results, but NODATA A result.
+  std::set<std::unique_ptr<HostResolverInternalResult>> results;
+  results.insert(std::make_unique<HostResolverInternalDataResult>(
+      "endpoint.test", DnsQueryType::AAAA, base::TimeTicks() + kOtherTtl,
+      base::Time() + kOtherTtl, HostResolverInternalResult::Source::kDns,
+      std::vector<IPEndPoint>{kIpv6}, std::vector<std::string>{},
+      std::vector<HostPortPair>{}));
+  results.insert(std::make_unique<HostResolverInternalAliasResult>(
+      "domain1.test", DnsQueryType::AAAA, base::TimeTicks() + kOtherTtl,
+      base::Time() + kOtherTtl, HostResolverInternalResult::Source::kDns,
+      "endpoint.test"));
+  results.insert(std::make_unique<HostResolverInternalErrorResult>(
+      "endpoint.test", DnsQueryType::A, base::TimeTicks() + kMinTtl,
+      base::Time() + kMinTtl, HostResolverInternalResult::Source::kDns,
+      ERR_NAME_NOT_RESOLVED));
+  results.insert(std::make_unique<HostResolverInternalAliasResult>(
+      "domain1.test", DnsQueryType::A, base::TimeTicks() + kMinTtl,
+      base::Time() + kMinTtl, HostResolverInternalResult::Source::kDns,
+      "endpoint.test"));
+  results.insert(std::make_unique<HostResolverInternalMetadataResult>(
+      "endpoint.test", DnsQueryType::HTTPS, base::TimeTicks() + kOtherTtl,
+      base::Time() + kOtherTtl, HostResolverInternalResult::Source::kDns,
+      kMetadatas));
+  results.insert(std::make_unique<HostResolverInternalAliasResult>(
+      "domain1.test", DnsQueryType::HTTPS, base::TimeTicks() + kOtherTtl,
+      base::Time() + kOtherTtl, HostResolverInternalResult::Source::kDns,
+      "endpoint.test"));
+
+  HostCache::Entry converted(std::move(results), base::Time(),
+                             base::TimeTicks());
+
+  // ERR_NAME_NOT_RESOLVED for A is ignored other than contributing minimum TTL.
+  HostCache::Entry expected(OK, kMetadatas, HostCache::Entry::SOURCE_DNS,
+                            kMinTtl);
+  expected.set_ip_endpoints({kIpv6});
+  expected.set_canonical_names(std::set<std::string>{"endpoint.test"});
+  expected.set_aliases({"endpoint.test", "domain1.test"});
+  expected.set_https_record_compatibility(std::vector<bool>{true});
+
+  EXPECT_EQ(converted, expected);
+}
+
+TEST(HostCacheTest, ConvertFromInternalMergedNodata) {
+  constexpr base::TimeDelta kMinTtl = base::Minutes(30);
+  constexpr base::TimeDelta kOtherTtl = base::Minutes(40);
+
+  // NODATA result for all query types.
+  std::set<std::unique_ptr<HostResolverInternalResult>> results;
+  results.insert(std::make_unique<HostResolverInternalErrorResult>(
+      "endpoint.test", DnsQueryType::AAAA, base::TimeTicks() + kOtherTtl,
+      base::Time() + kOtherTtl, HostResolverInternalResult::Source::kDns,
+      ERR_NAME_NOT_RESOLVED));
+  results.insert(std::make_unique<HostResolverInternalAliasResult>(
+      "domain1.test", DnsQueryType::AAAA, base::TimeTicks() + kOtherTtl,
+      base::Time() + kOtherTtl, HostResolverInternalResult::Source::kDns,
+      "endpoint.test"));
+  results.insert(std::make_unique<HostResolverInternalErrorResult>(
+      "endpoint.test", DnsQueryType::A, /*expiration=*/std::nullopt,
+      /*timed_expiration=*/std::nullopt,
+      HostResolverInternalResult::Source::kDns, ERR_NAME_NOT_RESOLVED));
+  results.insert(std::make_unique<HostResolverInternalAliasResult>(
+      "domain1.test", DnsQueryType::A, base::TimeTicks() + kOtherTtl,
+      base::Time() + kOtherTtl, HostResolverInternalResult::Source::kDns,
+      "endpoint.test"));
+  results.insert(std::make_unique<HostResolverInternalErrorResult>(
+      "endpoint.test", DnsQueryType::HTTPS, base::TimeTicks() + kMinTtl,
+      base::Time() + kMinTtl, HostResolverInternalResult::Source::kDns,
+      ERR_NAME_NOT_RESOLVED));
+  results.insert(std::make_unique<HostResolverInternalAliasResult>(
+      "domain1.test", DnsQueryType::HTTPS, base::TimeTicks() + kOtherTtl,
+      base::Time() + kOtherTtl, HostResolverInternalResult::Source::kDns,
+      "endpoint.test"));
+
+  HostCache::Entry converted(std::move(results), base::Time(),
+                             base::TimeTicks());
+
+  HostCache::Entry expected(ERR_NAME_NOT_RESOLVED, HostCache::Entry::SOURCE_DNS,
+                            kMinTtl);
 
   EXPECT_EQ(converted, expected);
 }

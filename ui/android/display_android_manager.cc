@@ -5,6 +5,7 @@
 #include "ui/android/display_android_manager.h"
 
 #include <jni.h>
+
 #include <initializer_list>
 #include <map>
 
@@ -13,13 +14,16 @@
 #include "base/trace_event/trace_event.h"
 #include "components/viz/common/features.h"
 #include "components/viz/common/viz_utils.h"
+#include "skia/ext/skcolorspace_trfn.h"
 #include "ui/android/screen_android.h"
 #include "ui/android/ui_android_features.h"
-#include "ui/android/ui_android_jni_headers/DisplayAndroidManager_jni.h"
 #include "ui/android/window_android.h"
 #include "ui/display/display.h"
 #include "ui/gfx/display_color_spaces.h"
 #include "ui/gfx/icc_profile.h"
+
+// Must come after all headers that specialize FromJniType() / ToJniType().
+#include "ui/android/ui_android_jni_headers/DisplayAndroidManager_jni.h"
 
 namespace ui {
 
@@ -76,6 +80,11 @@ Display DisplayAndroidManager::GetDisplayMatching(
     const gfx::Rect& match_rect) const {
   NOTIMPLEMENTED();
   return GetPrimaryDisplay();
+}
+
+std::optional<float> DisplayAndroidManager::GetPreferredScaleFactorForView(
+    gfx::NativeView view) const {
+  return GetDisplayNearestView(view).device_scale_factor();
 }
 
 void DisplayAndroidManager::DoUpdateDisplay(display::Display* display,
@@ -137,7 +146,7 @@ void DisplayAndroidManager::DoUpdateDisplay(display::Display* display,
       display_color_spaces.SetOutputColorSpaceAndBufferFormat(
           gfx::ContentColorUsage::kWideColorGamut, needs_alpha, cs_for_wcg,
           gfx::BufferFormat::RGBA_8888);
-      // TODO(https://crbug.com/1430768): Use 10-bit surfaces for opaque HDR.
+      // TODO(crbug.com/40263227): Use 10-bit surfaces for opaque HDR.
       display_color_spaces.SetOutputColorSpaceAndBufferFormat(
           gfx::ContentColorUsage::kHDR, needs_alpha, cs_for_hdr,
           gfx::BufferFormat::RGBA_8888);

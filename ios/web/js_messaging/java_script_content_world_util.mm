@@ -20,8 +20,7 @@ ContentWorld ContentWorldIdentifierForWKContentWorld(
     return ContentWorld::kIsolatedWorld;
   }
   NOTREACHED() << "Missing association of WKContentWorld instance to a "
-               << "web::ContentWorld value.";
-  return ContentWorld::kAllContentWorlds;
+                  "web::ContentWorld value.";
 }
 
 WKContentWorld* WKContentWorldForContentWorldIdentifier(
@@ -32,9 +31,8 @@ WKContentWorld* WKContentWorldForContentWorldIdentifier(
   if (content_world == ContentWorld::kIsolatedWorld) {
     return WKContentWorld.defaultClientWorld;
   }
-  NOTREACHED() << "Missing association of web::ContentWorld value to a"
-               << "WKContentWorld instance.";
-  return nil;
+  NOTREACHED() << "Missing association of web::ContentWorld value to a "
+                  "WKContentWorld instance.";
 }
 
 }  // namespace web

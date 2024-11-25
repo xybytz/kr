@@ -72,7 +72,8 @@ class RTCEncodedVideoUnderlyingSinkTest : public testing::Test {
 
   RTCEncodedVideoUnderlyingSink* CreateSink(ScriptState* script_state) {
     return MakeGarbageCollected<RTCEncodedVideoUnderlyingSink>(
-        script_state, transformer_.GetBroker());
+        script_state, transformer_.GetBroker(),
+        /*detach_frame_data_on_write=*/false);
   }
 
   RTCEncodedVideoStreamTransformer* GetTransformer() { return &transformer_; }
@@ -89,8 +90,7 @@ class RTCEncodedVideoUnderlyingSinkTest : public testing::Test {
         MakeGarbageCollected<RTCEncodedVideoFrame>(std::move(mock_frame));
     return ScriptValue(
         script_state->GetIsolate(),
-        ToV8Traits<RTCEncodedVideoFrame>::ToV8(script_state, frame)
-            .ToLocalChecked());
+        ToV8Traits<RTCEncodedVideoFrame>::ToV8(script_state, frame));
   }
 
  protected:

@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "base/values.h"
@@ -67,7 +68,6 @@ apps::AppType PolicyStringToAppType(const std::string& app_type) {
     return apps::AppType::kUnknown;
 
   NOTREACHED();
-  return apps::AppType::kUnknown;
 }
 
 std::string AppTypeToPolicyString(apps::AppType app_type) {
@@ -113,7 +113,6 @@ AppRestriction PolicyStringToAppRestriction(const std::string& restriction) {
     return AppRestriction::kTimeLimit;
 
   NOTREACHED();
-  return AppRestriction::kUnknown;
 }
 
 std::string AppRestrictionToPolicyString(const AppRestriction& restriction) {
@@ -124,7 +123,6 @@ std::string AppRestrictionToPolicyString(const AppRestriction& restriction) {
       return "TIME_LIMIT";
     default:
       NOTREACHED();
-      return "";
   }
 }
 

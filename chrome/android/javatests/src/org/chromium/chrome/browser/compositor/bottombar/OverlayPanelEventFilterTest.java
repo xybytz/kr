@@ -10,6 +10,7 @@ import android.view.MotionEvent;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 
+import androidx.test.annotation.UiThreadTest;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 
@@ -25,8 +26,8 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.BaseActivityTestRule;
-import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
@@ -35,7 +36,7 @@ import org.chromium.chrome.browser.compositor.layouts.eventfilter.OverlayPanelEv
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.ui.InsetObserver;
 import org.chromium.ui.base.ActivityWindowAndroid;
 import org.chromium.ui.base.IntentRequestTracker;
 import org.chromium.ui.base.WindowAndroid;
@@ -67,8 +68,9 @@ public class OverlayPanelEventFilterTest {
     @Mock private ViewGroup mCompositorViewHolder;
     @Mock private Profile mProfile;
     @Mock private Tab mTab;
-    @Mock private OverlayContentDelegate mOverlayContentDelegate;
-    @Mock private OverlayContentProgressObserver mOverlayContentProgressObserver;
+    @Mock private OverlayPanelContentDelegate mOverlayPanelContentDelegate;
+    @Mock private OverlayPanelContentProgressObserver mOverlayPanelContentProgressObserver;
+    @Mock private InsetObserver mInsetObserver;
 
     private float mTouchSlopDp;
     private float mDpToPx;
@@ -156,7 +158,8 @@ public class OverlayPanelEventFilterTest {
                     profile,
                     compositorViewHolder,
                     MOCK_TOOLBAR_HEIGHT,
-                    () -> tab);
+                    () -> tab,
+                    /* desktopWindowStateManager= */ null);
         }
 
         @Override
@@ -168,8 +171,8 @@ public class OverlayPanelEventFilterTest {
         private class MockOverlayPanelContent extends OverlayPanelContent {
             public MockOverlayPanelContent() {
                 super(
-                        mOverlayContentDelegate,
-                        mOverlayContentProgressObserver,
+                        mOverlayPanelContentDelegate,
+                        mOverlayPanelContentProgressObserver,
                         mActivity,
                         mProfile,
                         MOCK_TOOLBAR_HEIGHT,
@@ -177,9 +180,6 @@ public class OverlayPanelEventFilterTest {
                         mWindowAndroid,
                         () -> mTab);
             }
-
-            @Override
-            public void removeLastHistoryEntry(String url, long timeInMs) {}
         }
 
         @Override
@@ -269,14 +269,16 @@ public class OverlayPanelEventFilterTest {
         mDpToPx = context.getResources().getDisplayMetrics().density;
         mTouchSlopDp = ViewConfiguration.get(context).getScaledTouchSlop() / mDpToPx;
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mActivity = activityTestRule.getActivity();
                     mWindowAndroid =
                             new ActivityWindowAndroid(
                                     mActivity,
                                     /* listenToActivityState= */ true,
-                                    IntentRequestTracker.createFromActivity(mActivity));
+                                    IntentRequestTracker.createFromActivity(mActivity),
+                                    mInsetObserver,
+                                    /* trackOcclusion= */ true);
 
                     mPanel =
                             new MockOverlayPanel(
@@ -312,7 +314,7 @@ public class OverlayPanelEventFilterTest {
 
     @After
     public void tearDown() {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mWindowAndroid.destroy();
                 });

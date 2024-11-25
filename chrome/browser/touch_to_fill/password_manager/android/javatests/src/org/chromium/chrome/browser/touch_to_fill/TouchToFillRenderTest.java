@@ -29,12 +29,13 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 
 import org.chromium.base.Callback;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.params.ParameterAnnotations;
 import org.chromium.base.test.params.ParameterSet;
 import org.chromium.base.test.params.ParameterizedRunner;
@@ -55,10 +56,8 @@ import org.chromium.chrome.browser.touch_to_fill.data.WebauthnCredential;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetTestSupport;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.modelutil.MVCListAdapter;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.test.util.RenderTestRule.Component;
@@ -96,6 +95,8 @@ public class TouchToFillRenderTest {
     private static final WebauthnCredential SPOR =
             new WebauthnCredential("example.com", RANDOM_ID, RANDOM_ID, "spor");
 
+    @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
+
     @Mock private Callback<Integer> mDismissHandler;
     @Mock private Callback<Credential> mCredentialCallback;
 
@@ -113,8 +114,6 @@ public class TouchToFillRenderTest {
                     .setBugComponent(Component.UI_BROWSER_AUTOFILL)
                     .build();
 
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
-
     public TouchToFillRenderTest(boolean nightModeEnabled, boolean useRtlLayout) {
         setRtlForTesting(useRtlLayout);
         ChromeNightModeTestUtils.setUpNightModeForChromeActivity(nightModeEnabled);
@@ -124,7 +123,6 @@ public class TouchToFillRenderTest {
 
     @Before
     public void setUp() throws InterruptedException {
-        MockitoAnnotations.initMocks(this);
         mActivityTestRule.startMainActivityOnBlankPage();
         mActivityTestRule.waitForActivityCompletelyLoaded();
         mBottomSheetController =
@@ -133,7 +131,7 @@ public class TouchToFillRenderTest {
                         .getRootUiCoordinatorForTesting()
                         .getBottomSheetController();
         mResourceProvider = PasswordManagerResourceProviderFactory.create();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mModel = TouchToFillProperties.createDefaultModel(mDismissHandler);
                     mTouchToFillView =
@@ -151,7 +149,7 @@ public class TouchToFillRenderTest {
         } catch (Exception e) {
             // Activity was already closed (e.g. due to last test tearing down the suite).
         }
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     ChromeNightModeTestUtils.tearDownNightModeAfterChromeActivityDestroyed();
                 });
@@ -161,7 +159,7 @@ public class TouchToFillRenderTest {
     @MediumTest
     @Feature({"RenderTest"})
     public void testShowsOneCredentialModern() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     addHeader(
                             mActivityTestRule
@@ -183,7 +181,7 @@ public class TouchToFillRenderTest {
     @MediumTest
     @Feature({"RenderTest"})
     public void testShowsOneCredentialModernHalfState() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     addHeader(
                             mActivityTestRule
@@ -208,7 +206,7 @@ public class TouchToFillRenderTest {
     @MediumTest
     @Feature({"RenderTest"})
     public void testShowsTwoCredentialsModern() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     addHeader(
                             mActivityTestRule
@@ -231,7 +229,7 @@ public class TouchToFillRenderTest {
     @MediumTest
     @Feature({"RenderTest"})
     public void testShowsTwoCredentialsModernHalfState() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     addHeader(
                             mActivityTestRule
@@ -257,7 +255,7 @@ public class TouchToFillRenderTest {
     @MediumTest
     @Feature({"RenderTest"})
     public void testShowsThreeCredentialsModern() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     addHeader(
                             mActivityTestRule
@@ -283,7 +281,7 @@ public class TouchToFillRenderTest {
     @MediumTest
     @Feature({"RenderTest"})
     public void testShowsThreeCredentialsModernHalfState() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     addHeader(
                             mActivityTestRule
@@ -312,7 +310,7 @@ public class TouchToFillRenderTest {
     @MediumTest
     @Feature({"RenderTest"})
     public void testShowsThreeCredentialsWhenThereAreFiveModernHalfState() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     addHeader(
                             mActivityTestRule

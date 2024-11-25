@@ -110,7 +110,6 @@ LayoutObject* LayoutObjectChildList::RemoveChildNode(
     InvalidatePaintOnRemoval(*old_child);
 
     if (notify_layout_object) {
-      LayoutCounter::LayoutObjectSubtreeWillBeDetached(old_child);
       old_child->WillBeRemovedFromTree();
     }
 
@@ -143,9 +142,6 @@ LayoutObject* LayoutObjectChildList::RemoveChildNode(
   old_child->RegisterSubtreeChangeListenerOnDescendants(
       old_child->ConsumesSubtreeChangeNotification());
 
-  if (AXObjectCache* cache = owner->GetDocument().ExistingAXObjectCache())
-    cache->ChildrenChanged(owner);
-
   return old_child;
 }
 
@@ -169,7 +165,6 @@ void LayoutObjectChildList::InsertChildNode(LayoutObject* owner,
   // child->nextSibling()->parent() is not owner.
   if (before_child && before_child->Parent() != owner) {
     NOTREACHED();
-    return;
   }
 
   if (!owner->DocumentBeingDestroyed() &&
@@ -206,7 +201,6 @@ void LayoutObjectChildList::InsertChildNode(LayoutObject* owner,
 
     if (notify_layout_object) {
       new_child->InsertedIntoTree();
-      LayoutCounter::LayoutObjectSubtreeAttached(new_child);
     }
 
     if (owner->IsInLayoutNGInlineFormattingContext() ||

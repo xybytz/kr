@@ -7,12 +7,15 @@
 
 #include <stdint.h>
 
+#include <array>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 
 #include "base/containers/circular_deque.h"
+#include "base/containers/heap_array.h"
 #include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "media/base/audio_decoder_config.h"
@@ -22,7 +25,6 @@
 #include "media/base/stream_parser_buffer.h"
 #include "media/formats/webm/webm_parser.h"
 #include "media/formats/webm/webm_tracks_parser.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace media {
 
@@ -46,7 +48,11 @@ class MEDIA_EXPORT WebMClusterParser : public WebMParserClient {
   // significant bits of the first byte. The index in this array corresponds
   // to the duration of each frame of the packet in microseconds. See
   // https://tools.ietf.org/html/rfc6716#page-14
-  static const uint16_t kOpusFrameDurationsMu[];
+  static constexpr auto kOpusFrameDurationsMu = std::to_array<uint16_t>(
+      {10000, 20000, 40000, 60000, 10000, 20000, 40000, 60000,
+       10000, 20000, 40000, 60000, 10000, 20000, 10000, 20000,
+       2500,  5000,  10000, 20000, 2500,  5000,  10000, 20000,
+       2500,  5000,  10000, 20000, 2500,  5000,  10000, 20000});
 
   WebMClusterParser() = delete;
   WebMClusterParser(const WebMClusterParser&) = delete;
@@ -201,7 +207,7 @@ class MEDIA_EXPORT WebMClusterParser : public WebMParserClient {
 
   bool ParseBlock(bool is_simple_block,
                   const uint8_t* buf,
-                  int size,
+                  size_t size,
                   const uint8_t* additional,
                   int additional_size,
                   int duration,
@@ -212,9 +218,9 @@ class MEDIA_EXPORT WebMClusterParser : public WebMParserClient {
                int timecode,
                int duration,
                const uint8_t* data,
-               int size,
+               size_t size,
                const uint8_t* additional,
-               int additional_size,
+               size_t additional_size,
                int64_t discard_padding,
                bool is_keyframe);
 
@@ -258,18 +264,14 @@ class MEDIA_EXPORT WebMClusterParser : public WebMParserClient {
 
   // A |last_block_timecode_| value of -1 is not enough to indicate it is unset
   // now that negative block timecodes are allowed, so we explicitly use
-  // absl::optional to know if it is currently set.
-  absl::optional<int64_t> last_block_timecode_ = absl::nullopt;
+  // std::optional to know if it is currently set.
+  std::optional<int64_t> last_block_timecode_ = std::nullopt;
 
-  std::unique_ptr<uint8_t[]> block_data_;
-  int block_data_size_ = -1;
+  std::optional<base::HeapArray<uint8_t>> block_data_;
   int64_t block_duration_ = -1;
   int64_t block_add_id_ = -1;
 
-  std::unique_ptr<uint8_t[]> block_additional_data_;
-  // Must be 0 if |block_additional_data_| is null. Must be > 0 if
-  // |block_additional_data_| is NOT null.
-  int block_additional_data_size_ = 0;
+  std::optional<base::HeapArray<uint8_t>> block_additional_data_;
 
   int64_t discard_padding_ = -1;
   bool discard_padding_set_ = false;

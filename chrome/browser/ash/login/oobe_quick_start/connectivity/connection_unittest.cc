@@ -7,6 +7,7 @@
 #include <string>
 
 #include "base/base64.h"
+#include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
 #include "base/json/json_reader.h"
@@ -22,9 +23,10 @@
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/advertising_id.h"
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/fido_assertion_info.h"
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/handshake_helpers.h"
+#include "chrome/browser/ash/login/oobe_quick_start/connectivity/session_context.h"
 #include "chrome/browser/ash/login/oobe_quick_start/connectivity/target_device_connection_broker.h"
-#include "chrome/browser/nearby_sharing/fake_nearby_connection.h"
-#include "chrome/browser/nearby_sharing/public/cpp/nearby_connection.h"
+#include "chromeos/ash/components/nearby/common/connections_manager/fake_nearby_connection.h"
+#include "chromeos/ash/components/nearby/common/connections_manager/nearby_connection.h"
 #include "chromeos/ash/components/quick_start/fake_quick_start_decoder.h"
 #include "chromeos/ash/components/quick_start/quick_start_message.h"
 #include "chromeos/ash/components/quick_start/quick_start_metrics.h"
@@ -34,6 +36,7 @@
 #include "chromeos/ash/services/nearby/public/mojom/quick_start_decoder_types.mojom-forward.h"
 #include "chromeos/ash/services/nearby/public/mojom/quick_start_decoder_types.mojom-shared.h"
 #include "chromeos/ash/services/nearby/public/mojom/quick_start_decoder_types.mojom.h"
+#include "chromeos/constants/devicetype.h"
 #include "components/cbor/reader.h"
 #include "components/cbor/values.h"
 #include "content/public/test/browser_task_environment.h"
@@ -54,6 +57,11 @@ const char kDeviceTypeKey[] = "deviceType";
 const int kAccountRequirementSingle = 2;
 const int kFlowTypeTargetChallenge = 2;
 const int kDeviceTypeChrome = 7;
+const char kPostTransferActionKey[] = "PostTransferAction";
+const char kPostTransferActionURIKey[] = "uri";
+const char kPostTransferActionURIValue[] =
+    "intent:#Intent;action=com.google.android.gms.quickstart.LANDING_SCREEN;"
+    "package=com.google.android.gms;end";
 
 const char kChallengeBase64[] = "aQ==";
 
@@ -93,8 +101,50 @@ constexpr std::array<uint8_t, 12> kNonce = {0x60, 0x3e, 0x87, 0x69, 0xa3, 0x55,
 
 constexpr base::TimeDelta kResponseTimeout = base::Seconds(60);
 
-constexpr char kGaiaTransferResultName[] = "QuickStart.GaiaTransferResult";
+const char kDeviceNameKey[] = "deviceName";
+// Device name values
+const char kChromebook[] = "Chromebook";
+const char kChromebox[] = "Chromebox";
+const char kChromebase[] = "Chromebase";
 
+struct DeviceNameTestCase {
+  chromeos::DeviceType device_type;
+  std::string device_name;
+};
+
+const DeviceNameTestCase kDeviceNameTestCases[] = {
+    {chromeos::DeviceType::kChromebook, kChromebook},
+    {chromeos::DeviceType::kChromebox, kChromebox},
+    {chromeos::DeviceType::kChromebit, kChromebook},
+    {chromeos::DeviceType::kChromebase, kChromebase},
+    {chromeos::DeviceType::kUnknown, kChromebook},
+};
+
+// Sets the simulated device form factor allowing us to verify that the correct
+// Fast Pair model ID is used for each one.
+void SetDeviceType(chromeos::DeviceType device_type) {
+  switch (device_type) {
+    case chromeos::DeviceType::kChromebook:
+      base::CommandLine::ForCurrentProcess()->InitFromArgv(
+          {"", "--form-factor=CHROMEBOOK"});
+      break;
+    case chromeos::DeviceType::kChromebox:
+      base::CommandLine::ForCurrentProcess()->InitFromArgv(
+          {"", "--form-factor=CHROMEBOX"});
+      break;
+    case chromeos::DeviceType::kChromebit:
+      base::CommandLine::ForCurrentProcess()->InitFromArgv(
+          {"", "--form-factor=CHROMEBIT"});
+      break;
+    case chromeos::DeviceType::kChromebase:
+      base::CommandLine::ForCurrentProcess()->InitFromArgv(
+          {"", "--form-factor=CHROMEBASE"});
+      break;
+    case chromeos::DeviceType::kUnknown:
+      base::CommandLine::ForCurrentProcess()->InitFromArgv({"", ""});
+      break;
+  }
+}
 }  // namespace
 
 class ConnectionTest : public testing::Test {
@@ -105,17 +155,11 @@ class ConnectionTest : public testing::Test {
   ~ConnectionTest() override = default;
 
   void SetUp() override {
-    // Since this test doesn't run in a sandbox, disable the sandbox checks
-    // on QuickStartMessage. Without this, the Message class will fail.
-    QuickStartMessage::DisableSandboxCheckForTesting();
-
     fake_nearby_connection_ = std::make_unique<FakeNearbyConnection>();
     NearbyConnection* nearby_connection = fake_nearby_connection_.get();
     fake_quick_start_decoder_ = std::make_unique<FakeQuickStartDecoder>();
-    session_context_ = std::make_unique<SessionContext>(
-        kSessionId, advertising_id_, kSharedSecret, kSecondarySharedSecret);
     connection_ = std::make_unique<Connection>(
-        nearby_connection, *session_context_,
+        nearby_connection, &session_context_,
         mojo::SharedRemote<ash::quick_start::mojom::QuickStartDecoder>(
             fake_quick_start_decoder_->GetRemote()),
         /*on_connection_closed=*/base::DoNothing(),
@@ -130,12 +174,16 @@ class ConnectionTest : public testing::Test {
   }
 
   void MarkConnectionAuthenticated(
-      Connection::AuthenticationMethod auth_method =
-          Connection::AuthenticationMethod::kQR) {
+      QuickStartMetrics::AuthenticationMethod auth_method =
+          QuickStartMetrics::AuthenticationMethod::kQRCode) {
+    histogram_tester_.ExpectBucketCount("QuickStart.AuthenticationMethod",
+                                        auth_method, 0);
     ASSERT_FALSE(ran_connection_authenticated_callback_);
     connection_->MarkConnectionAuthenticated(auth_method);
     ASSERT_TRUE(ran_connection_authenticated_callback_);
     ASSERT_TRUE(authenticated_connection_);
+    histogram_tester_.ExpectBucketCount("QuickStart.AuthenticationMethod",
+                                        auth_method, 1);
   }
 
   void VerifyAssertionInfo(std::optional<FidoAssertionInfo> assertion_info) {
@@ -335,8 +383,11 @@ class ConnectionTest : public testing::Test {
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
   std::unique_ptr<FakeNearbyConnection> fake_nearby_connection_;
   std::unique_ptr<Connection> connection_;
-  std::unique_ptr<SessionContext> session_context_;
   AdvertisingId advertising_id_ = AdvertisingId(kAdvertisingId);
+  SessionContext session_context_ = SessionContext(kSessionId,
+                                                   advertising_id_,
+                                                   kSharedSecret,
+                                                   kSecondarySharedSecret);
   bool ran_assertion_response_callback_ = false;
   bool ran_connection_authenticated_callback_ = false;
   base::WeakPtr<TargetDeviceConnectionBroker::AuthenticatedConnection>
@@ -346,6 +397,16 @@ class ConnectionTest : public testing::Test {
   const Base64UrlString kChallenge_ =
       *Base64UrlTranscode(Base64String(kChallengeBase64));
   base::HistogramTester histogram_tester_;
+};
+
+class ConnectionBootstrapOptionsDeviceNameTest
+    : public ConnectionTest,
+      public testing::WithParamInterface<DeviceNameTestCase> {
+ public:
+  void SetUp() override {
+    SetDeviceType(GetParam().device_type);
+    ConnectionTest::SetUp();
+  }
 };
 
 TEST_F(ConnectionTest, RequestWifiCredentials) {
@@ -388,8 +449,8 @@ TEST_F(ConnectionTest, RequestWifiCredentials) {
       parsed_wifi_request_payload_json.value().GetDict();
 
   EXPECT_TRUE(wifi_request_payload.FindBool("request_wifi"));
-  EXPECT_EQ(wifi_request_payload.FindInt("SESSION_ID"),
-            static_cast<int>(kSessionId));
+  EXPECT_EQ(*wifi_request_payload.FindString("SESSION_ID"),
+            base::NumberToString(kSessionId));
 
   std::string shared_secret_str(kSecondarySharedSecret.begin(),
                                 kSecondarySharedSecret.end());
@@ -407,6 +468,19 @@ TEST_F(ConnectionTest, RequestWifiCredentials) {
       /*should_succeed=*/true,
       /*message_type=*/QuickStartMetrics::MessageType::kWifiCredentials,
       /*error_code=*/std::nullopt);
+}
+
+TEST_F(ConnectionTest, RequestWifiCredentialsEmptyResponse) {
+  MarkConnectionAuthenticated();
+  base::test::TestFuture<std::optional<mojom::WifiCredentials>> future;
+  authenticated_connection_->RequestWifiCredentials(future.GetCallback());
+  fake_nearby_connection_->InvokeEmptyReadCallback();
+  EXPECT_FALSE(future.Get().has_value());
+
+  // RunUntilIdle() is used to exercise the fix for the crash reported in
+  // b/339757376. There is no callback to hook into in this scenario.
+  base::RunLoop().RunUntilIdle();
+  ASSERT_FALSE(fake_quick_start_decoder_->has_decode_been_called());
 }
 
 TEST_F(ConnectionTest, RequestWifiCredentialsReturnsEmptyOnFailure) {
@@ -442,6 +516,9 @@ TEST_F(ConnectionTest, RequestAccountInfo) {
             kAccountRequirementSingle);
   EXPECT_EQ(*bootstrap_options.FindInt(kFlowTypeKey), kFlowTypeTargetChallenge);
   EXPECT_EQ(*bootstrap_options.FindInt(kDeviceTypeKey), kDeviceTypeChrome);
+  EXPECT_EQ(*bootstrap_options.FindDict(kPostTransferActionKey)
+                 ->FindString(kPostTransferActionURIKey),
+            kPostTransferActionURIValue);
 
   // Emulate a BootstrapConfigurations response.
   std::vector<uint8_t> instance_id = {0x01, 0x02, 0x03};
@@ -551,7 +628,6 @@ TEST_F(ConnectionTest, RequestAccountTransferAssertion) {
   EXPECT_EQ(expected_credential_id, assertion_info_->credential_id);
   EXPECT_EQ(auth_data, assertion_info_->authenticator_data);
   EXPECT_EQ(signature, assertion_info_->signature);
-  histogram_tester_.ExpectBucketCount(kGaiaTransferResultName, true, 1);
 }
 
 TEST_F(ConnectionTest, RequestAccountTransferAssertion_UnexpectedMessage) {
@@ -612,7 +688,8 @@ TEST_F(ConnectionTest, NotifySourceOfUpdate_Success) {
 
   EXPECT_EQ(parsed_payload.FindBool(kNotifySourceOfUpdateMessageKey), true);
 
-  EXPECT_EQ(parsed_payload.FindInt("SESSION_ID"), static_cast<int>(kSessionId));
+  EXPECT_EQ(*parsed_payload.FindString("SESSION_ID"),
+            base::NumberToString(kSessionId));
 
   std::string shared_secret_str(kSecondarySharedSecret.begin(),
                                 kSecondarySharedSecret.end());
@@ -721,7 +798,7 @@ TEST_F(ConnectionTest, TestClose) {
       future;
   std::unique_ptr<Connection> connection_under_test =
       std::make_unique<Connection>(
-          fake_nearby_connection_.get(), *session_context_,
+          fake_nearby_connection_.get(), &session_context_,
           mojo::SharedRemote<ash::quick_start::mojom::QuickStartDecoder>(
               fake_quick_start_decoder_->GetRemote()),
           /*on_connection_closed=*/future.GetCallback(),
@@ -731,11 +808,11 @@ TEST_F(ConnectionTest, TestClose) {
   ASSERT_EQ(connection_under_test->GetState(), Connection::State::kOpen);
 
   connection_under_test->Close(
-      TargetDeviceConnectionBroker::ConnectionClosedReason::kComplete);
+      TargetDeviceConnectionBroker::ConnectionClosedReason::kUserAborted);
 
   ASSERT_TRUE(future.IsReady());
   ASSERT_EQ(future.Get(),
-            TargetDeviceConnectionBroker::ConnectionClosedReason::kComplete);
+            TargetDeviceConnectionBroker::ConnectionClosedReason::kUserAborted);
   ASSERT_EQ(connection_under_test->GetState(), Connection::State::kClosed);
 }
 
@@ -744,7 +821,7 @@ TEST_F(ConnectionTest, TestDisconnectsWithoutCloseIssueUnknownError) {
       future;
   std::unique_ptr<Connection> connection_under_test =
       std::make_unique<Connection>(
-          fake_nearby_connection_.get(), *session_context_,
+          fake_nearby_connection_.get(), &session_context_,
           mojo::SharedRemote<ash::quick_start::mojom::QuickStartDecoder>(
               fake_quick_start_decoder_->GetRemote()),
           /*on_connection_closed=*/future.GetCallback(),
@@ -998,10 +1075,9 @@ TEST_F(ConnectionTest,
   EXPECT_FALSE(read_result.has_value());
 }
 
-TEST_F(ConnectionTest, CloseFromCompleteNotifiesPhoneWhenAuthenticated) {
+TEST_F(ConnectionTest, NotifyPhoneSetupComplete) {
   MarkConnectionAuthenticated();
-  connection_->Close(
-      TargetDeviceConnectionBroker::ConnectionClosedReason::kComplete);
+  authenticated_connection_->NotifyPhoneSetupComplete();
 
   std::vector<uint8_t> notify_source_data =
       fake_nearby_connection_->GetWrittenData();
@@ -1013,22 +1089,49 @@ TEST_F(ConnectionTest, CloseFromCompleteNotifiesPhoneWhenAuthenticated) {
 
   EXPECT_EQ(parsed_payload.FindInt(kBootstrapStateKey),
             kBootstrapStateComplete);
+  EXPECT_EQ(*parsed_payload.FindDict(kPostTransferActionKey)
+                 ->FindString(kPostTransferActionURIKey),
+            kPostTransferActionURIValue);
   TestMessageMetrics(
       /*should_succeed=*/true,
       /*message_type=*/QuickStartMetrics::MessageType::kBootstrapStateComplete,
       /*error_code=*/std::nullopt, /*response_expected=*/false);
 }
 
-TEST_F(ConnectionTest, CloseFromCompleteDoesNotNotifyPhoneWhenUnauthenticated) {
-  connection_->Close(
-      TargetDeviceConnectionBroker::ConnectionClosedReason::kComplete);
+TEST_F(ConnectionTest, NoResponseAfterClose) {
+  // Close the connection while waiting for a response and ensure the response
+  // callback is not invoked.
 
-  std::vector<uint8_t> notify_source_data =
+  base::test::TestFuture<std::optional<std::vector<uint8_t>>> future;
+  SendBytesAndReadResponse(std::vector<uint8_t>(kTestBytes),
+                           future.GetCallback(), kResponseTimeout);
+  EXPECT_EQ(connection_->GetState(), Connection::State::kOpen);
+  EXPECT_FALSE(future.IsReady());
+
+  connection_->Close(
+      TargetDeviceConnectionBroker::ConnectionClosedReason::kUserAborted);
+  EXPECT_EQ(connection_->GetState(), Connection::State::kClosed);
+  EXPECT_FALSE(future.IsReady());
+}
+
+TEST_P(ConnectionBootstrapOptionsDeviceNameTest, DeviceNames) {
+  MarkConnectionAuthenticated();
+  authenticated_connection_->RequestAccountInfo(base::DoNothing());
+
+  std::vector<uint8_t> bootstrap_options_data =
       fake_nearby_connection_->GetWrittenData();
   QuickStartMessage::ReadResult read_result =
       ash::quick_start::QuickStartMessage::ReadMessage(
-          notify_source_data, QuickStartMessageType::kBootstrapState);
-  EXPECT_FALSE(read_result.has_value());
+          bootstrap_options_data, QuickStartMessageType::kBootstrapOptions);
+  ASSERT_TRUE(read_result.has_value());
+  base::Value::Dict& bootstrap_options = *read_result.value()->GetPayload();
+
+  EXPECT_EQ(*bootstrap_options.FindString(kDeviceNameKey),
+            GetParam().device_name);
 }
+
+INSTANTIATE_TEST_SUITE_P(ConnectionBootstrapOptionsDeviceNameTest,
+                         ConnectionBootstrapOptionsDeviceNameTest,
+                         testing::ValuesIn(kDeviceNameTestCases));
 
 }  // namespace ash::quick_start

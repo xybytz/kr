@@ -64,9 +64,6 @@ const char* GcmResultToError(gcm::GCMClient::Result result) {
       NOTREACHED() << "Unexpected value of result cannot be converted: "
                    << result;
   }
-
-  // Never reached, but prevents missing return statement warning.
-  return "";
 }
 
 bool IsMessageKeyValid(const std::string& key) {

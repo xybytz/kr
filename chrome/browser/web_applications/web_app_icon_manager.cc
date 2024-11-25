@@ -10,6 +10,7 @@
 #include <functional>
 #include <initializer_list>
 #include <ostream>
+#include <string_view>
 #include <utility>
 
 #include "base/check.h"
@@ -31,7 +32,6 @@
 #include "base/ranges/algorithm.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
@@ -79,7 +79,7 @@ struct TypedResult {
   bool HasErrors() const { return !error_log.empty(); }
 };
 
-std::string CreateError(std::initializer_list<base::StringPiece> parts) {
+std::string CreateError(std::initializer_list<std::string_view> parts) {
   std::string error = base::StrCat(parts);
   LOG(ERROR) << error;
   return error;
@@ -112,7 +112,7 @@ struct IconId {
 };
 
 struct IconSrcAndSize {
-  GURL src = GURL();
+  GURL src;
   SquareSizePx size_px = 0;
 };
 
@@ -242,15 +242,14 @@ TypedResult<SkBitmap> ReadIconBlocking(scoped_refptr<FileUtilsWrapper> utils,
   TRACE_EVENT0("ui", "web_app_icon_manager::ReadIconBlocking");
   base::FilePath icon_file = GetIconFileName(web_apps_directory, icon_id);
   auto icon_data = base::MakeRefCounted<base::RefCountedString>();
-  if (!utils->ReadFileToString(icon_file, &icon_data->data())) {
+  if (!utils->ReadFileToString(icon_file, &icon_data->as_string())) {
     return {.error_log = {CreateError(
                 {"Could not read icon file: ", icon_file.AsUTF8Unsafe()})}};
   }
 
   TypedResult<SkBitmap> result;
-
-  if (!gfx::PNGCodec::Decode(icon_data->front(), icon_data->size(),
-                             &result.value)) {
+  result.value = gfx::PNGCodec::Decode(*icon_data);
+  if (result.value.isNull()) {
     return {.error_log = {CreateError({"Could not decode icon data for file: ",
                                        icon_file.AsUTF8Unsafe()})}};
   }
@@ -299,10 +298,8 @@ TypedResult<SkBitmap> ReadShortcutsMenuIconBlocking(
   }
 
   TypedResult<SkBitmap> result;
-
-  if (!gfx::PNGCodec::Decode(
-          reinterpret_cast<const unsigned char*>(icon_data.c_str()),
-          icon_data.size(), &result.value)) {
+  result.value = gfx::PNGCodec::Decode(base::as_byte_span(icon_data));
+  if (result.value.isNull()) {
     return {.error_log = {CreateError({"Could not decode icon data for file: ",
                                        icon_file.AsUTF8Unsafe()})}};
   }
@@ -330,9 +327,8 @@ TypedResult<SkBitmap> ReadHomeTabIconFromFileAndResizeBlocking(
   }
 
   TypedResult<SkBitmap> result;
-  if (!gfx::PNGCodec::Decode(
-          reinterpret_cast<const unsigned char*>(icon_data.c_str()),
-          icon_data.size(), &result.value)) {
+  result.value = gfx::PNGCodec::Decode(base::as_byte_span(icon_data));
+  if (result.value.isNull()) {
     return {.error_log = {CreateError({"Could not decode icon data for file: ",
                                        icon_file.AsUTF8Unsafe()})}};
   }
@@ -497,7 +493,7 @@ std::optional<IconSrcAndSize> FindBestImageResourceMatch(
 
   for (const IconPurpose& purpose : purposes) {
     for (const blink::Manifest::ImageResource& icon : icons) {
-      // TODO(crbug.com/1381377): Need to add check if icon has been
+      // TODO(crbug.com/40245169): Need to add check if icon has been
       // successfully downloaded.
       if (!base::Contains(icon.purpose, purpose)) {
         continue;
@@ -635,35 +631,46 @@ WebAppIconManager::IconFilesCheck CheckForEmptyOrMissingIconFilesBlocking(
   return result;
 }
 
-gfx::ImageSkia ConvertUiScaleFactorsBitmapsToImageSkia(
-    const std::map<SquareSizePx, SkBitmap>& icon_bitmaps,
-    SquareSizeDip size_in_dip) {
-  TRACE_EVENT0("ui",
-               "web_app_icon_manager::ConvertUiScaleFactorsBitmapsToImageSkia");
+gfx::ImageSkia ConvertFaviconBitmapsToImageSkia(
+    const std::map<SquareSizePx, SkBitmap>& icon_bitmaps) {
+  TRACE_EVENT0("ui", "web_app_icon_manager::ConvertFaviconBitmapsToImageSkia");
   gfx::ImageSkia image_skia;
-  auto it = icon_bitmaps.begin();
-  for (const auto scale_factor : ui::GetSupportedResourceScaleFactors()) {
-    float icon_scale = ui::GetScaleForResourceScaleFactor(scale_factor);
-    SquareSizePx icon_size_in_px =
-        gfx::ScaleToFlooredSize(gfx::Size(size_in_dip, size_in_dip), icon_scale)
-            .width();
 
-    while (it != icon_bitmaps.end() && it->first < icon_size_in_px)
-      ++it;
-
-    if (it == icon_bitmaps.end() || it->second.empty())
-      break;
-
-    SkBitmap bitmap = it->second;
-
-    // Resize |bitmap| to match |icon_scale|.
-    if (bitmap.width() != icon_size_in_px) {
-      bitmap = skia::ImageOperations::Resize(bitmap,
-                                             skia::ImageOperations::RESIZE_BEST,
-                                             icon_size_in_px, icon_size_in_px);
+  for (const auto& [size, bitmap] : icon_bitmaps) {
+    if (bitmap.empty() || size < gfx::kFaviconSize) {
+      continue;
     }
+    SkBitmap bitmap_to_resize = bitmap;
+    // Resize |bitmap_to_resize| to match |gfx::kFaviconSize|.
+    if (bitmap_to_resize.width() != gfx::kFaviconSize) {
+      bitmap_to_resize = skia::ImageOperations::Resize(
+          bitmap_to_resize, skia::ImageOperations::RESIZE_BEST,
+          gfx::kFaviconSize, gfx::kFaviconSize);
+    }
+    image_skia.AddRepresentation(gfx::ImageSkiaRep(bitmap_to_resize, 1.0f));
+    break;
+  }
 
-    image_skia.AddRepresentation(gfx::ImageSkiaRep(bitmap, icon_scale));
+  const int largest_favicon_scale = 4;
+  const int largest_favicon_size = gfx::kFaviconSize * largest_favicon_scale;
+  for (const auto& [size, bitmap] : icon_bitmaps) {
+    // Don't add the gfx::kFaviconSize sized icon again, and ensure we only
+    // add icons smaller or equal to the scale.
+    if (bitmap.empty() || size <= gfx::kFaviconSize) {
+      continue;
+    }
+    // If we have a large icon, we should resize it.
+    if (size > largest_favicon_size) {
+      SkBitmap bitmap_to_resize = bitmap;
+      bitmap_to_resize = skia::ImageOperations::Resize(
+          bitmap_to_resize, skia::ImageOperations::RESIZE_BEST,
+          largest_favicon_size, largest_favicon_size);
+      image_skia.AddRepresentation(
+          gfx::ImageSkiaRep(bitmap_to_resize, largest_favicon_scale));
+    } else {
+      image_skia.AddRepresentation(gfx::ImageSkiaRep(
+          bitmap, static_cast<float>(size) / gfx::kFaviconSize));
+    }
   }
 
   return image_skia;
@@ -918,15 +925,15 @@ class WriteIconsJob {
     base::FilePath icon_file =
         icons_dir.AppendASCII(base::StringPrintf("%i.png", bitmap.width()));
 
-    std::vector<unsigned char> image_data;
-    const bool discard_transparency = false;
-    if (!gfx::PNGCodec::EncodeBGRASkBitmap(bitmap, discard_transparency,
-                                           &image_data)) {
+    std::optional<std::vector<uint8_t>> image_data =
+        gfx::PNGCodec::EncodeBGRASkBitmap(bitmap,
+                                          /*discard_transparency=*/false);
+    if (!image_data) {
       return {.error_log = {CreateError({"Could not encode icon data for file ",
                                          icon_file.AsUTF8Unsafe()})}};
     }
 
-    if (!utils_->WriteFile(icon_file, base::as_byte_span(image_data))) {
+    if (!utils_->WriteFile(icon_file, image_data.value())) {
       return {.error_log = {CreateError(
                   {"Could not write icon file: ", icon_file.AsUTF8Unsafe()})}};
     }
@@ -946,10 +953,10 @@ class WriteIconsJob {
 uint64_t AccumulateIconsSizeForApp(std::vector<base::FilePath> icon_paths) {
   uint64_t total_size = 0;
 
-  for (base::FilePath icon_path : icon_paths) {
-    int64_t file_size;
-    if (base::GetFileSize(std::move(icon_path), &file_size)) {
-      total_size += file_size;
+  for (const base::FilePath& icon_path : icon_paths) {
+    std::optional<int64_t> file_size = base::GetFileSize(icon_path);
+    if (file_size.has_value()) {
+      total_size += file_size.value();
     }
   }
   return total_size;
@@ -1324,41 +1331,46 @@ void WebAppIconManager::ReadIconAndResize(const webapps::AppId& app_id,
                      GetWeakPtr(), std::move(callback)));
 }
 
-void WebAppIconManager::ReadUiScaleFactorsIcons(
-    const webapps::AppId& app_id,
-    IconPurpose purpose,
-    SquareSizeDip size_in_dip,
-    ReadImageSkiaCallback callback) {
-  TRACE_EVENT0("ui", "WebAppIconManager::ReadUiScaleFactorsIcons");
+void WebAppIconManager::ReadFavicons(const webapps::AppId& app_id,
+                                     IconPurpose purpose,
+                                     ReadImageSkiaCallback callback) {
+  TRACE_EVENT0("ui", "WebAppIconManager::ReadFavicons");
   SortedSizesPx ui_scale_factors_px_sizes;
-  for (const auto scale_factor : ui::GetSupportedResourceScaleFactors()) {
-    auto size_and_purpose = FindIconMatchBigger(
-        app_id, {purpose},
-        gfx::ScaleToFlooredSize(
-            gfx::Size(size_in_dip, size_in_dip),
-            ui::GetScaleForResourceScaleFactor(scale_factor))
-            .width());
-    if (size_and_purpose.has_value())
-      ui_scale_factors_px_sizes.insert(size_and_purpose->size_px);
-  }
-
-  if (ui_scale_factors_px_sizes.empty()) {
+  auto size_and_purpose =
+      FindIconMatchBigger(app_id, {purpose}, gfx::kFaviconSize);
+  if (!size_and_purpose.has_value()) {
     std::move(callback).Run(gfx::ImageSkia());
     return;
   }
+  ui_scale_factors_px_sizes.insert(size_and_purpose->size_px);
+
+  for (const auto scale : {2, 3, 4}) {
+    size_and_purpose =
+        FindIconMatchSmaller(app_id, {purpose}, gfx::kFaviconSize * scale);
+    if (size_and_purpose.has_value()) {
+      ui_scale_factors_px_sizes.insert(size_and_purpose->size_px);
+    }
+  }
+  // If we didn't find any icons between 32-64px, look for a larger icon we can
+  // downsize.
+  if (*ui_scale_factors_px_sizes.rbegin() < 32) {
+    size_and_purpose =
+        FindIconMatchBigger(app_id, {purpose}, gfx::kFaviconSize * 4);
+    if (size_and_purpose.has_value()) {
+      ui_scale_factors_px_sizes.insert(size_and_purpose->size_px);
+    }
+  }
 
   ReadIcons(app_id, purpose, ui_scale_factors_px_sizes,
-            base::BindOnce(&WebAppIconManager::OnReadUiScaleFactorsIcons,
-                           GetWeakPtr(), size_in_dip, std::move(callback)));
+            base::BindOnce(&WebAppIconManager::OnReadFavicons, GetWeakPtr(),
+                           std::move(callback)));
 }
 
-void WebAppIconManager::OnReadUiScaleFactorsIcons(
-    SquareSizeDip size_in_dip,
+void WebAppIconManager::OnReadFavicons(
     ReadImageSkiaCallback callback,
     std::map<SquareSizePx, SkBitmap> icon_bitmaps) {
-  TRACE_EVENT0("ui", "WebAppIconManager::OnReadUiScaleFactorsIcons");
-  std::move(callback).Run(
-      ConvertUiScaleFactorsBitmapsToImageSkia(icon_bitmaps, size_in_dip));
+  TRACE_EVENT0("ui", "WebAppIconManager::OnReadFavicons");
+  std::move(callback).Run(ConvertFaviconBitmapsToImageSkia(icon_bitmaps));
 }
 
 void WebAppIconManager::CheckForEmptyOrMissingIconFiles(
@@ -1433,8 +1445,8 @@ WebAppIconManager::FindIconMatchSmaller(
 
 void WebAppIconManager::ReadFavicon(const webapps::AppId& app_id) {
   TRACE_EVENT0("ui", "WebAppIconManager::ReadFavicon");
-  ReadUiScaleFactorsIcons(
-      app_id, IconPurpose::ANY, gfx::kFaviconSize,
+  ReadFavicons(
+      app_id, IconPurpose::ANY,
       base::BindOnce(&WebAppIconManager::OnReadFavicon, GetWeakPtr(), app_id));
 }
 
@@ -1450,10 +1462,9 @@ void WebAppIconManager::OnReadFavicon(const webapps::AppId& app_id,
 
 void WebAppIconManager::ReadMonochromeFavicon(const webapps::AppId& app_id) {
   TRACE_EVENT0("ui", "WebAppIconManager::ReadMonochromeFavicon");
-  ReadUiScaleFactorsIcons(
-      app_id, IconPurpose::MONOCHROME, gfx::kFaviconSize,
-      base::BindOnce(&WebAppIconManager::OnReadMonochromeFavicon, GetWeakPtr(),
-                     app_id));
+  ReadFavicons(app_id, IconPurpose::MONOCHROME,
+               base::BindOnce(&WebAppIconManager::OnReadMonochromeFavicon,
+                              GetWeakPtr(), app_id));
 }
 
 void WebAppIconManager::OnReadMonochromeFavicon(

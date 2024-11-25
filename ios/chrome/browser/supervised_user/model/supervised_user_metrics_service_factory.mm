@@ -8,15 +8,14 @@
 #import "components/keyed_service/ios/browser_state_dependency_manager.h"
 #import "components/supervised_user/core/browser/supervised_user_metrics_service.h"
 #import "ios/chrome/browser/shared/model/browser_state/browser_state_otr_helper.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/supervised_user/model/supervised_user_service_factory.h"
 
 // static
 supervised_user::SupervisedUserMetricsService*
-SupervisedUserMetricsServiceFactory::GetForBrowserState(
-    ChromeBrowserState* browser_state) {
+SupervisedUserMetricsServiceFactory::GetForProfile(ProfileIOS* profile) {
   return static_cast<supervised_user::SupervisedUserMetricsService*>(
-      GetInstance()->GetServiceForBrowserState(browser_state, /*create=*/true));
+      GetInstance()->GetServiceForBrowserState(profile, true));
 }
 
 // static
@@ -36,10 +35,12 @@ SupervisedUserMetricsServiceFactory::SupervisedUserMetricsServiceFactory()
 std::unique_ptr<KeyedService>
 SupervisedUserMetricsServiceFactory::BuildServiceInstanceFor(
     web::BrowserState* context) const {
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(context);
+  ProfileIOS* profile = ProfileIOS::FromBrowserState(context);
+  std::unique_ptr<supervised_user::SupervisedUserMetricsService ::
+                      SupervisedUserMetricsServiceExtensionDelegate>
+      extensions_metrics_delegate = nullptr;
   return std::make_unique<supervised_user::SupervisedUserMetricsService>(
-      browser_state->GetPrefs(),
-      SupervisedUserServiceFactory::GetForBrowserState(browser_state)
-          ->GetURLFilter());
+      profile->GetPrefs(),
+      SupervisedUserServiceFactory::GetForProfile(profile)->GetURLFilter(),
+      std::move(extensions_metrics_delegate));
 }

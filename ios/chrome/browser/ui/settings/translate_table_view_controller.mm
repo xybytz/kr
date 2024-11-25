@@ -5,12 +5,12 @@
 #import "ios/chrome/browser/ui/settings/translate_table_view_controller.h"
 
 #import <Foundation/Foundation.h>
+#import <MaterialComponents/MaterialSnackbar.h>
 
 #import <memory>
 
-#import <MaterialComponents/MaterialSnackbar.h>
-
 #import "base/apple/foundation_util.h"
+#import "base/memory/raw_ptr.h"
 #import "base/metrics/user_metrics.h"
 #import "base/metrics/user_metrics_action.h"
 #import "components/google/core/common/google_util.h"
@@ -29,6 +29,7 @@
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_switch_item.h"
 #import "ios/chrome/browser/shared/ui/table_view/table_view_model.h"
 #import "ios/chrome/browser/shared/ui/table_view/table_view_utils.h"
+#import "ios/chrome/browser/shared/ui/util/snackbar_util.h"
 #import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/translate/model/chrome_ios_translate_client.h"
 #import "ios/chrome/browser/ui/settings/cells/settings_cells_constants.h"
@@ -57,7 +58,7 @@ NSString* const kTranslateSettingsCategory = @"ChromeTranslateSettings";
 
 @interface TranslateTableViewController ()<BooleanObserver> {
   // Profile preferences.
-  PrefService* _prefs;  // weak
+  raw_ptr<PrefService> _prefs;  // weak
   PrefBackedBoolean* _translationEnabled;
   // The item related to the switch for the translation setting.
   TableViewSwitchItem* _translationItem;
@@ -209,8 +210,7 @@ NSString* const kTranslateSettingsCategory = @"ChromeTranslateSettings";
     TriggerHapticFeedbackForNotification(UINotificationFeedbackTypeSuccess);
     NSString* messageText =
         l10n_util::GetNSString(IDS_IOS_TRANSLATE_SETTING_RESET_NOTIFICATION);
-    MDCSnackbarMessage* message =
-        [MDCSnackbarMessage messageWithText:messageText];
+    MDCSnackbarMessage* message = CreateSnackbarMessage(messageText);
     message.category = kTranslateSettingsCategory;
     [self.snackbarCommandsHandler showSnackbarMessage:message bottomOffset:0];
   }

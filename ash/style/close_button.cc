@@ -127,7 +127,8 @@ void CloseButton::OnThemeChanged() {
   SchedulePaint();
 }
 
-gfx::Size CloseButton::CalculatePreferredSize() const {
+gfx::Size CloseButton::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
   const int size = GetCloseButtonSize(type_);
   return gfx::Size(size, size);
 }
@@ -139,12 +140,13 @@ bool CloseButton::DoesIntersectRect(const views::View* target,
   const int button_size = GetCloseButtonSize(type_);
   // Only increase the hittest area for touch events (which have a non-empty
   // bounding box), not for mouse event.
-  if (!views::UsePointBasedTargeting(rect))
+  if (!views::UsePointBasedTargeting(rect)) {
     button_bounds.Inset(gfx::Insets::VH(-button_size / 2, -button_size / 2));
+  }
   return button_bounds.Intersects(rect);
 }
 
-BEGIN_METADATA(CloseButton, views::ImageButton)
+BEGIN_METADATA(CloseButton)
 END_METADATA
 
 }  // namespace ash

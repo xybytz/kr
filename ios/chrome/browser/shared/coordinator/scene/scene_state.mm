@@ -12,6 +12,7 @@
 #import "base/strings/sys_string_conversions.h"
 #import "ios/chrome/app/application_delegate/app_state.h"
 #import "ios/chrome/app/chrome_overlay_window.h"
+#import "ios/chrome/app/profile/profile_state.h"
 #import "ios/chrome/browser/shared/coordinator/scene/scene_controller.h"
 #import "ios/chrome/browser/shared/coordinator/scene/scene_util.h"
 
@@ -57,6 +58,8 @@ ContentVisibility ContentVisibilityForIncognito(BOOL isIncognito) {
 
 @implementation SceneState {
   ContentVisibility _contentVisibility;
+  NSString* _sceneSessionID;
+  AppState* _appState;
 }
 
 - (instancetype)initWithAppState:(AppState*)appState {
@@ -67,6 +70,7 @@ ContentVisibility ContentVisibilityForIncognito(BOOL isIncognito) {
         observersWithProtocol:@protocol(SceneStateObserver)];
     _contentVisibility = ContentVisibility::kUnknown;
     _agents = [[NSMutableArray alloc] init];
+    _sceneSessionID = @"";
 
     // AppState might be nil in tests.
     if (appState) {
@@ -96,6 +100,23 @@ ContentVisibility ContentVisibilityForIncognito(BOOL isIncognito) {
   return self.agents;
 }
 
+- (void)setRootViewController:(UIViewController*)rootViewController
+            makeKeyAndVisible:(BOOL)makeKeyAndVisible {
+  [self.window setRootViewController:rootViewController];
+  if (makeKeyAndVisible) {
+    [self.window makeKeyAndVisible];
+  }
+}
+
+- (void)setRootViewControllerKeyAndVisible {
+  [self.window makeKeyAndVisible];
+}
+
+- (void)setWindowUserInterfaceStyle:
+    (UIUserInterfaceStyle)windowUserInterfaceStyle {
+  self.window.overrideUserInterfaceStyle = windowUserInterfaceStyle;
+}
+
 #pragma mark - Setters & Getters.
 
 - (UIWindow*)window {
@@ -108,8 +129,25 @@ ContentVisibility ContentVisibilityForIncognito(BOOL isIncognito) {
   return mainWindow;
 }
 
-- (NSString*)sceneSessionID {
-  return SessionIdentifierForScene(_scene);
+- (NSString*)windowAccessibilityIdentifier {
+  return self.window.accessibilityIdentifier;
+}
+
+- (UIViewController*)rootViewController {
+  return [self.window rootViewController];
+}
+
+- (UIView*)rootView {
+  return self.rootViewController.view;
+}
+
+- (void)setScene:(UIWindowScene*)scene {
+  _scene = scene;
+  if (_scene) {
+    _sceneSessionID = SessionIdentifierForScene(_scene);
+  } else {
+    _sceneSessionID = @"";
+  }
 }
 
 - (void)setActivationLevel:(SceneActivationLevel)newLevel {
@@ -220,10 +258,24 @@ ContentVisibility ContentVisibilityForIncognito(BOOL isIncognito) {
   }
 }
 
+- (void)setProfileState:(ProfileState*)profileState {
+  _profileState = profileState;
+  [self.observers sceneState:self profileStateConnected:_profileState];
+}
+
 #pragma mark - UIBlockerTarget
 
-- (id<UIBlockerManager>)uiBlockerManager {
-  return _appState;
+- (BOOL)isUIBlocked {
+  return _presentingModalOverlay;
+}
+
+- (id<UIBlockerManager>)uiBlockerManagerForExtent:(UIBlockerExtent)extent {
+  switch (extent) {
+    case UIBlockerExtent::kProfile:
+      return _profileState;
+    case UIBlockerExtent::kApplication:
+      return _appState;
+  }
 }
 
 - (void)bringBlockerToFront:(UIScene*)requestingScene {

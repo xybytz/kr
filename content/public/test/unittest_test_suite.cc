@@ -20,7 +20,6 @@
 #include "content/app/mojo/mojo_init.h"
 #include "content/browser/accessibility/browser_accessibility_state_impl.h"
 #include "content/browser/network_service_instance_impl.h"
-#include "content/browser/notification_service_impl.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/common/content_client.h"
@@ -39,10 +38,6 @@
 
 #if defined(USE_AURA)
 #include "ui/aura/env.h"
-#endif
-
-#if BUILDFLAG(IS_CHROMEOS)
-#include "ui/gfx/linux/gbm_util.h"  // nogncheck
 #endif
 
 namespace content {
@@ -66,13 +61,13 @@ class UnitTestTestSuite::UnitTestEventListener
     SetNetworkConnectionTrackerForTesting(
         network::TestNetworkConnectionTracker::GetInstance());
 
-    notification_service_ = std::make_unique<NotificationServiceImpl>();
-
     content_clients_ = create_clients_.Run();
     CHECK(content_clients_->content_client.get());
     SetContentClient(content_clients_->content_client.get());
     SetBrowserClientForTesting(content_clients_->content_browser_client.get());
     SetUtilityClientForTesting(content_clients_->content_utility_client.get());
+
+    browser_accessibility_state_ = BrowserAccessibilityStateImpl::Create();
 
     if (first_test_start_callback_)
       std::move(first_test_start_callback_).Run();
@@ -83,6 +78,8 @@ class UnitTestTestSuite::UnitTestEventListener
   }
 
   void OnTestEnd(const testing::TestInfo& test_info) override {
+    browser_accessibility_state_.reset();
+
     // Don't call SetUtilityClientForTesting or SetBrowserClientForTesting since
     // if a test overrode ContentClient it might already be deleted and setting
     // these pointers on it would result in a UAF.
@@ -91,7 +88,6 @@ class UnitTestTestSuite::UnitTestEventListener
 
     SetNetworkConnectionTrackerForTesting(nullptr);
     test_network_connection_tracker_.reset();
-    notification_service_.reset();
 
     // If the network::NetworkService object was instantiated during a unit test
     // it will be deleted because network_service_instance.cc has it in a
@@ -109,8 +105,8 @@ class UnitTestTestSuite::UnitTestEventListener
   base::OnceClosure first_test_start_callback_;
   std::unique_ptr<network::TestNetworkConnectionTracker>
       test_network_connection_tracker_;
-  std::unique_ptr<NotificationServiceImpl> notification_service_;
   std::unique_ptr<UnitTestTestSuite::ContentClients> content_clients_;
+  std::unique_ptr<BrowserAccessibilityStateImpl> browser_accessibility_state_;
 };
 
 UnitTestTestSuite::ContentClients::ContentClients() = default;
@@ -148,10 +144,6 @@ UnitTestTestSuite::UnitTestTestSuite(
 
   scoped_feature_list_.InitFromCommandLine(enabled, disabled);
 
-#if BUILDFLAG(IS_CHROMEOS)
-  ui::EnsureIntelMediaCompressionEnvVarIsSet();
-#endif
-
   mojo::core::InitFeatures();
   if (command_line->HasSwitch(switches::kTestChildProcess)) {
     // Note that in the main test process, TestBlinkWebUnitTestSupport
@@ -163,7 +155,6 @@ UnitTestTestSuite::UnitTestTestSuite(
 
   DCHECK(test_suite);
   test_host_resolver_ = std::make_unique<TestHostResolver>();
-  browser_accessibility_state_ = BrowserAccessibilityStateImpl::Create();
   g_test_suite = this;
 }
 

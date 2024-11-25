@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/platform/image-decoders/rw_buffer.h"
 
 #include <array>
@@ -39,11 +44,12 @@ void check_alphabet_buffer(const ROBuffer* reader) {
   check_abcs(storage.data(), size);
 }
 
-size_t write_into_buffer(size_t reps, void* buffer, size_t capacity) {
-  size_t len = std::min(capacity, reps * sizeof(gABC));
+size_t write_into_buffer(size_t reps, base::span<uint8_t> buffer) {
+  size_t len = std::min(buffer.size(), reps * sizeof(gABC));
   for (size_t i = 0; i < len; i += 26U) {
-    memcpy(static_cast<char*>(buffer) + i, gABC,
-           std::min<size_t>(26U, len - i));
+    const size_t copy_size = std::min<size_t>(26U, len - i);
+    buffer.subspan(i).copy_prefix_from(
+        base::byte_span_from_cstring(gABC).first(copy_size));
   }
   return len;
 }

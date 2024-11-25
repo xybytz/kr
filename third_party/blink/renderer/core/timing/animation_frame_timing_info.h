@@ -25,7 +25,8 @@ class ScriptTimingInfo : public GarbageCollected<ScriptTimingInfo> {
     kUserCallback,
     kEventHandler,
     kPromiseResolve,
-    kPromiseReject
+    kPromiseReject,
+    kUserEntryPoint,
   };
 
   // Not using blink::SourceLocation directly as using it relies on stack traces
@@ -34,7 +35,7 @@ class ScriptTimingInfo : public GarbageCollected<ScriptTimingInfo> {
   struct ScriptSourceLocation {
     WTF::String url;
     WTF::String function_name;
-    int start_position = 0;
+    int char_position = -1;
   };
 
   ScriptTimingInfo(ExecutionContext* context,
@@ -137,6 +138,8 @@ class AnimationFrameTimingInfo
   void SetDidPause() { did_pause_ = true; }
   bool DidPause() const { return did_pause_; }
 
+  uint64_t GetTraceId() const;
+
   virtual void Trace(Visitor*) const;
 
  private:
@@ -164,6 +167,9 @@ class AnimationFrameTimingInfo
 
   // Whether the LoAF included sync XHR or alerts (pause).
   bool did_pause_ = false;
+
+  // Unique ID used to tie together trace events for this animation frame.
+  mutable uint64_t trace_id_ = 0;
 };
 
 }  // namespace blink

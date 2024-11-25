@@ -8,9 +8,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/barrier_callback.h"
 #include "base/check.h"
 #include "base/functional/bind.h"
+#include "base/functional/concurrent_callbacks.h"
 #include "base/i18n/message_formatter.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/types/expected.h"
@@ -18,17 +18,23 @@
 #include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/notifications/notification_display_service_factory.h"
 #include "chrome/browser/notifications/notification_handler.h"
+#include "chrome/browser/permissions/permission_decision_auto_blocker_factory.h"
+#include "chrome/browser/policy/policy_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/web_applications/sub_apps_install_dialog_controller.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_command_scheduler.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_install_finalizer.h"
+#include "chrome/browser/web_applications/web_app_install_params.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
 #include "chrome/browser/web_applications/web_app_tab_helper.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/content_settings/core/common/content_settings_types.h"
+#include "components/permissions/permission_decision_auto_blocker.h"
 #include "components/webapps/browser/installable/installable_metrics.h"
 #include "components/webapps/browser/uninstall_result_code.h"
 #include "components/webapps/common/web_app_id.h"
@@ -40,7 +46,7 @@
 #include "url/gurl.h"
 #include "url/origin.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "ash/constants/notifier_catalogs.h"
 #endif
 
@@ -57,7 +63,7 @@ using blink::mojom::SubAppsServiceResultCode;
 
 namespace web_app {
 
-// TODO(crbug.com/1467861): Replace registrar_unsafe with Locks
+// TODO(crbug.com/40924576): Replace registrar_unsafe with Locks
 // TODO (crbug.com/1467862): Move from //c/b/ui/web_applications to
 // //c/b/web_applications
 
@@ -165,6 +171,26 @@ bool CanAccessSubAppsApi(content::RenderFrameHost& render_frame_host) {
          IsInstalledNonChildApp(render_frame_host);
 }
 
+bool ShouldSkipUserConfirmation(content::RenderFrameHost& frame) {
+#if BUILDFLAG(IS_CHROMEOS)
+  auto const* profile = Profile::FromBrowserContext(frame.GetBrowserContext());
+  if (!profile) {
+    return false;
+  }
+
+  auto const* prefs = profile->GetPrefs();
+  if (!prefs) {
+    return false;
+  }
+
+  return policy::IsOriginInAllowlist(
+      frame.GetLastCommittedURL(), prefs,
+      prefs::kSubAppsAPIsAllowedWithoutGestureAndAuthorizationForOrigins);
+#else   // BUILDFLAG(IS_CHROMEOS)
+  return false;
+#endif  // BUILDFLAG(IS_CHROMEOS)
+}
+
 }  // namespace
 
 SubAppsServiceImpl::SubAppsServiceImpl(
@@ -231,6 +257,15 @@ void SubAppsServiceImpl::Add(
     return;
   }
 
+  // Check if origin is embargoed because of too many dismissals.
+  if (PermissionDecisionAutoBlockerFactory::GetForProfile(
+          Profile::FromBrowserContext(render_frame_host().GetBrowserContext()))
+          ->IsEmbargoed(render_frame_host().GetLastCommittedOrigin().GetURL(),
+                        ContentSettingsType::SUB_APP_INSTALLATION_PROMPTS)) {
+    ReturnAllAddsAsFailed(sub_apps_to_add, std::move(result_callback));
+    return;
+  }
+
   ASSIGN_OR_RETURN(
       (std::vector<SubAppInstallParams> add_options),
       AddOptionsFromMojo(render_frame_host().GetLastCommittedOrigin(),
@@ -256,13 +291,11 @@ void SubAppsServiceImpl::CollectInstallData(
     int add_call_id,
     std::vector<SubAppInstallParams> requested_installs,
     webapps::ManifestId parent_manifest_id) {
-  const auto install_info_collector = base::BarrierCallback<
-      std::pair<webapps::ManifestId, std::unique_ptr<WebAppInstallInfo>>>(
-      requested_installs.size(),
-      base::BindOnce(&SubAppsServiceImpl::ProcessInstallData,
-                     weak_ptr_factory_.GetWeakPtr(), add_call_id));
-
   WebAppProvider* provider = GetWebAppProvider(render_frame_host());
+  base::ConcurrentCallbacks<
+      std::pair<webapps::ManifestId, std::unique_ptr<WebAppInstallInfo>>>
+      concurrent;
+
   // Schedule data collection for each requested install
   for (const auto& [manifest_id, url_to_load] : requested_installs) {
     // Check if app is the parent app itself
@@ -271,7 +304,6 @@ void SubAppsServiceImpl::CollectInstallData(
           .results.emplace_back(SubAppsServiceAddResult::New(
               ConvertUrlToPath(manifest_id),
               blink::mojom::SubAppsServiceResultCode::kFailure));
-      install_info_collector.Run(std::pair(GURL(), nullptr));
       continue;
     }
 
@@ -282,7 +314,6 @@ void SubAppsServiceImpl::CollectInstallData(
           .results.emplace_back(SubAppsServiceAddResult::New(
               ConvertUrlToPath(manifest_id),
               blink::mojom::SubAppsServiceResultCode::kSuccess));
-      install_info_collector.Run(std::pair(GURL(), nullptr));
       continue;
     }
 
@@ -294,8 +325,12 @@ void SubAppsServiceImpl::CollectInstallData(
               return std::pair(manifest_app_id, std::move(install_info));
             },
             manifest_id)
-            .Then(install_info_collector));
+            .Then(concurrent.CreateCallback()));
   }
+
+  std::move(concurrent)
+      .Done(base::BindOnce(&SubAppsServiceImpl::ProcessInstallData,
+                           weak_ptr_factory_.GetWeakPtr(), add_call_id));
 }
 
 void SubAppsServiceImpl::ProcessInstallData(
@@ -336,6 +371,11 @@ void SubAppsServiceImpl::FinishAddCallOrShowInstallDialog(int add_call_id) {
     return;
   }
 
+  if (ShouldSkipUserConfirmation(render_frame_host())) {
+    ProcessDialogResponse(add_call_id, true);
+    return;
+  }
+
   WebAppRegistrar& registrar =
       GetWebAppProvider(render_frame_host())->registrar_unsafe();
   const webapps::AppId* parent_app_id = GetAppId(render_frame_host());
@@ -356,16 +396,30 @@ void SubAppsServiceImpl::FinishAddCallOrShowInstallDialog(int add_call_id) {
 void SubAppsServiceImpl::ProcessDialogResponse(int add_call_id,
                                                bool dialog_accepted) {
   if (dialog_accepted) {
+    PermissionDecisionAutoBlockerFactory::GetForProfile(
+        Profile::FromBrowserContext(render_frame_host().GetBrowserContext()))
+        ->RemoveEmbargoAndResetCounts(
+            render_frame_host().GetLastCommittedOrigin().GetURL(),
+            ContentSettingsType::SUB_APP_INSTALLATION_PROMPTS);
+
     ScheduleSubAppInstalls(add_call_id);
     return;
   }
+
+  // Dialog was declined.
+  PermissionDecisionAutoBlockerFactory::GetForProfile(
+      Profile::FromBrowserContext(render_frame_host().GetBrowserContext()))
+      ->RecordDismissAndEmbargo(
+          render_frame_host().GetLastCommittedOrigin().GetURL(),
+          ContentSettingsType::SUB_APP_INSTALLATION_PROMPTS,
+          /*dismissed_prompt_was_quiet=*/false);
 
   AddCallInfo& add_call_info = add_call_info_.at(add_call_id);
 
   for (const std::unique_ptr<web_app::WebAppInstallInfo>& install_info :
        add_call_info.install_infos) {
     add_call_info.results.emplace_back(SubAppsServiceAddResult::New(
-        ConvertUrlToPath(install_info->manifest_id),
+        ConvertUrlToPath(install_info->manifest_id()),
         blink::mojom::SubAppsServiceResultCode::kFailure));
   }
 
@@ -375,17 +429,12 @@ void SubAppsServiceImpl::ProcessDialogResponse(int add_call_id,
 void SubAppsServiceImpl::ScheduleSubAppInstalls(int add_call_id) {
   AddCallInfo& add_call_info = add_call_info_.at(add_call_id);
 
-  const auto install_results_collector =
-      base::BarrierCallback<SubAppInstallResult>(
-          add_call_info.install_infos.size(),
-          base::BindOnce(&SubAppsServiceImpl::FinishAddCall,
-                         weak_ptr_factory_.GetWeakPtr(), add_call_id));
-
   // Schedule install for each install_info that was collected
   WebAppProvider* provider = GetWebAppProvider(render_frame_host());
+  base::ConcurrentCallbacks<SubAppInstallResult> concurrent;
   for (auto& install_info : add_call_info.install_infos) {
-    webapps::ManifestId manifest_id = install_info->manifest_id;
-    provider->scheduler().InstallFromInfo(
+    webapps::ManifestId manifest_id = install_info->manifest_id();
+    provider->scheduler().InstallFromInfoWithParams(
         std::move(install_info), /*overwrite_existing_manifest_fields=*/false,
         webapps::WebappInstallSource::SUB_APP,
         base::BindOnce(
@@ -394,8 +443,12 @@ void SubAppsServiceImpl::ScheduleSubAppInstalls(int add_call_id) {
               return SubAppInstallResult(manifest_id, app_id, result_code);
             },
             manifest_id)
-            .Then(install_results_collector));
+            .Then(concurrent.CreateCallback()),
+        WebAppInstallParams());
   }
+  std::move(concurrent)
+      .Done(base::BindOnce(&SubAppsServiceImpl::FinishAddCall,
+                           weak_ptr_factory_.GetWeakPtr(), add_call_id));
 }
 
 void SubAppsServiceImpl::FinishAddCall(
@@ -468,17 +521,16 @@ void SubAppsServiceImpl::Remove(
     return std::move(result_callback).Run(std::move(result));
   }
 
-  auto remove_barrier_callback =
-      base::BarrierCallback<SubAppsServiceRemoveResultPtr>(
-          manifest_id_paths.size(),
-          base::BindOnce(&SubAppsServiceImpl::NotifyUninstall,
-                         weak_ptr_factory_.GetWeakPtr(),
-                         std::move(result_callback)));
-
+  // Take weak pointer early as this may get deleted by RemoveSubApp().
+  base::WeakPtr<SubAppsServiceImpl> weak_ptr = weak_ptr_factory_.GetWeakPtr();
+  base::ConcurrentCallbacks<SubAppsServiceRemoveResultPtr> concurrent;
   for (const std::string& manifest_id_path : manifest_id_paths) {
-    RemoveSubApp(manifest_id_path, remove_barrier_callback,
+    RemoveSubApp(manifest_id_path, concurrent.CreateCallback(),
                  GetAppId(render_frame_host()));
   }
+  std::move(concurrent)
+      .Done(base::BindOnce(&SubAppsServiceImpl::NotifyUninstall, weak_ptr,
+                           std::move(result_callback)));
 }
 
 void SubAppsServiceImpl::RemoveSubApp(
@@ -514,19 +566,22 @@ void SubAppsServiceImpl::RemoveSubApp(
   // its parent_app is the one doing the current call.
   if (!app || !app->parent_app_id() ||
       *calling_app_id != *app->parent_app_id() ||
-      !provider->registrar_unsafe().IsInstalled(sub_app_id)) {
+      !provider->registrar_unsafe().IsInstallState(
+          sub_app_id, {proto::InstallState::SUGGESTED_FROM_ANOTHER_DEVICE,
+                       proto::InstallState::INSTALLED_WITHOUT_OS_INTEGRATION,
+                       proto::InstallState::INSTALLED_WITH_OS_INTEGRATION})) {
     return std::move(callback).Run(SubAppsServiceRemoveResult::New(
         manifest_id_path, SubAppsServiceResultCode::kFailure));
   }
 
-  provider->scheduler().RemoveInstallSource(
+  provider->scheduler().RemoveInstallManagementMaybeUninstall(
       sub_app_id, WebAppManagement::Type::kSubApp,
       webapps::WebappUninstallSource::kSubApp,
       base::BindOnce(
           [](std::string manifest_id_path,
              webapps::UninstallResultCode result_code) {
             SubAppsServiceResultCode result =
-                result_code == webapps::UninstallResultCode::kSuccess
+                webapps::UninstallSucceeded(result_code)
                     ? SubAppsServiceResultCode::kSuccess
                     : SubAppsServiceResultCode::kFailure;
             return SubAppsServiceRemoveResult::New(manifest_id_path, result);
@@ -567,7 +622,7 @@ void SubAppsServiceImpl::NotifyUninstall(
         kSubAppsUninstallNotificationId, title, message, ui::ImageModel(),
         /*display_source=*/std::u16string(),
         /*origin_url=*/start_url,
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
         message_center::NotifierId(
             message_center::NotifierType::SYSTEM_COMPONENT,
             kSubAppsUninstallNotifierId,

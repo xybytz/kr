@@ -129,7 +129,6 @@ jvalue CoerceJavaScriptIntegerToJavaValue(JNIEnv* env,
     case JavaType::TypeVoid:
       // Conversion to void must never happen.
       NOTREACHED();
-      break;
   }
   return result;
 }
@@ -193,7 +192,6 @@ jvalue CoerceJavaScriptDoubleToJavaValue(JNIEnv* env,
     case JavaType::TypeVoid:
       // Conversion to void must never happen.
       NOTREACHED();
-      break;
   }
   return result;
 }
@@ -253,7 +251,6 @@ jvalue CoerceJavaScriptBooleanToJavaValue(JNIEnv* env,
     case JavaType::TypeVoid:
       // Conversion to void must never happen.
       NOTREACHED();
-      break;
   }
   return result;
 }
@@ -313,7 +310,6 @@ jvalue CoerceJavaScriptStringToJavaValue(JNIEnv* env,
     case JavaType::TypeVoid:
       // Conversion to void must never happen.
       NOTREACHED();
-      break;
   }
   return result;
 }
@@ -349,7 +345,6 @@ jobject CreateJavaArray(JNIEnv* env, const JavaType& type, jsize length) {
       // Not handled.
       NOTREACHED();
   }
-  return nullptr;
 }
 
 // Sets the specified element of the supplied array to the value of the
@@ -466,7 +461,6 @@ jvalue CoerceJavaScriptNullOrUndefinedToJavaValue(
     case JavaType::TypeVoid:
       // Conversion to void must never happen.
       NOTREACHED();
-      break;
   }
   return result;
 }
@@ -684,7 +678,6 @@ jvalue CoerceJavaScriptObjectToJavaValue(JNIEnv* env,
     case JavaType::TypeVoid:
       // Conversion to void must never happen.
       NOTREACHED();
-      break;
   }
   return result;
 }
@@ -722,7 +715,6 @@ jvalue CoerceGinJavaBridgeValueToJavaValue(JNIEnv* env,
     default:
       NOTREACHED();
   }
-  return jvalue();
 }
 
 }  // namespace
@@ -773,7 +765,6 @@ jvalue CoerceJavaScriptValueToJavaValue(JNIEnv* env,
   }
 
   NOTREACHED();
-  return jvalue();
 }
 
 }  // namespace content

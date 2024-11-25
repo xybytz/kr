@@ -4,12 +4,15 @@
 
 package org.chromium.chrome.browser.incognito;
 
+import org.jni_zero.JniType;
 import org.jni_zero.NativeMethods;
 
 import org.chromium.base.ResettersForTesting;
-import org.chromium.chrome.browser.profiles.OTRProfileID;
+import org.chromium.chrome.browser.profiles.OtrProfileId;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.profiles.ProfileKey;
+import org.chromium.chrome.browser.profiles.ProfileKeyUtil;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 
 /** Utilities for working with incognito tabs spread across multiple activities. */
 public class IncognitoUtils {
@@ -18,35 +21,37 @@ public class IncognitoUtils {
     private IncognitoUtils() {}
 
     /**
-     * @return true if incognito mode is enabled.
+     * @param profile The {@link Profile} used to determine incognito status.
+     * @return Whether incognito mode is enabled.
      */
-    public static boolean isIncognitoModeEnabled() {
+    public static boolean isIncognitoModeEnabled(Profile profile) {
         if (sIsEnabledForTesting != null) {
             return sIsEnabledForTesting;
         }
-        return IncognitoUtilsJni.get().getIncognitoModeEnabled();
+        return IncognitoUtilsJni.get().getIncognitoModeEnabled(profile);
     }
 
     /**
-     * @return true if incognito mode is managed by policy.
+     * @param profile The {@link Profile} used to determine incognito status.
+     * @return Whether incognito mode is managed by policy.
      */
-    public static boolean isIncognitoModeManaged() {
-        return IncognitoUtilsJni.get().getIncognitoModeManaged();
+    public static boolean isIncognitoModeManaged(Profile profile) {
+        return IncognitoUtilsJni.get().getIncognitoModeManaged(profile);
     }
 
     /**
-     * Returns the {@link ProfileKey} from given {@link OTRProfileID}. If OTRProfileID is null, it
+     * Returns the {@link ProfileKey} from given {@link OtrProfileId}. If OtrProfileId is null, it
      * is the key of regular profile.
      *
-     * @param otrProfileID The {@link OTRProfileID} of the profile. Null for regular profile.
+     * @param otrProfileId The {@link OtrProfileId} of the profile. Null for regular profile.
      * @return The {@link ProfileKey} of the key.
      */
-    public static ProfileKey getProfileKeyFromOTRProfileID(OTRProfileID otrProfileID) {
+    public static ProfileKey getProfileKeyFromOtrProfileId(OtrProfileId otrProfileId) {
         // If off-the-record is not requested, the request might be before native initialization.
-        if (otrProfileID == null) return ProfileKey.getLastUsedRegularProfileKey();
+        if (otrProfileId == null) return ProfileKeyUtil.getLastUsedRegularProfileKey();
 
-        return Profile.getLastUsedRegularProfile()
-                .getOffTheRecordProfile(otrProfileID, /* createIfNeeded= */ true)
+        return ProfileManager.getLastUsedRegularProfile()
+                .getOffTheRecordProfile(otrProfileId, /* createIfNeeded= */ true)
                 .getProfileKey();
     }
 
@@ -56,9 +61,9 @@ public class IncognitoUtils {
     }
 
     @NativeMethods
-    interface Natives {
-        boolean getIncognitoModeEnabled();
+    public interface Natives {
+        boolean getIncognitoModeEnabled(@JniType("Profile*") Profile profile);
 
-        boolean getIncognitoModeManaged();
+        boolean getIncognitoModeManaged(@JniType("Profile*") Profile profile);
     }
 }

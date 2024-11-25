@@ -23,10 +23,10 @@ import org.robolectric.annotation.Config;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.JniMocker;
-import org.chromium.chrome.browser.profiles.OTRProfileID;
-import org.chromium.chrome.browser.profiles.OTRProfileIDJni;
+import org.chromium.chrome.browser.profiles.OtrProfileId;
+import org.chromium.chrome.browser.profiles.OtrProfileIdJni;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.components.offline_items_collection.ContentId;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
 
@@ -36,9 +36,8 @@ import java.util.UUID;
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class DownloadSharedPreferenceEntryTest {
-    @Rule public JniMocker mMocker = new JniMocker();
 
-    @Mock private OTRProfileID.Natives mOTRProfileIDNatives;
+    @Mock private OtrProfileId.Natives mOtrProfileIdNatives;
 
     @Mock private Profile mRegularProfile;
 
@@ -50,8 +49,8 @@ public class DownloadSharedPreferenceEntryTest {
 
     @Before
     public void setup() {
-        Profile.setLastUsedProfileForTesting(mRegularProfile);
-        mMocker.mock(OTRProfileIDJni.TEST_HOOKS, mOTRProfileIDNatives);
+        ProfileManager.setLastUsedProfileForTesting(mRegularProfile);
+        OtrProfileIdJni.setInstanceForTesting(mOtrProfileIdNatives);
         when(mRegularProfile.hasOffTheRecordProfile(any())).thenReturn(true);
     }
 
@@ -64,7 +63,7 @@ public class DownloadSharedPreferenceEntryTest {
                 DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(2, entry.notificationId);
         assertEquals(LegacyHelpers.buildLegacyContentId(false, uuid), entry.id);
-        assertNull(entry.otrProfileID);
+        assertNull(entry.otrProfileId);
         assertTrue(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -75,7 +74,7 @@ public class DownloadSharedPreferenceEntryTest {
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(3, entry.notificationId);
         assertEquals(LegacyHelpers.buildLegacyContentId(false, uuid2), entry.id);
-        assertNotNull(entry.otrProfileID);
+        assertNotNull(entry.otrProfileId);
         assertFalse(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -91,7 +90,7 @@ public class DownloadSharedPreferenceEntryTest {
                 DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(2, entry.notificationId);
         assertEquals(LegacyHelpers.buildLegacyContentId(false, uuid), entry.id);
-        assertNull(entry.otrProfileID);
+        assertNull(entry.otrProfileId);
         assertTrue(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -102,7 +101,7 @@ public class DownloadSharedPreferenceEntryTest {
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(3, entry.notificationId);
         assertEquals(LegacyHelpers.buildLegacyContentId(false, uuid2), entry.id);
-        assertNotNull(entry.otrProfileID);
+        assertNotNull(entry.otrProfileId);
         assertFalse(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -118,7 +117,7 @@ public class DownloadSharedPreferenceEntryTest {
                 DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(2, entry.notificationId);
         assertEquals(LegacyHelpers.buildLegacyContentId(false, uuid), entry.id);
-        assertNull(entry.otrProfileID);
+        assertNull(entry.otrProfileId);
         assertTrue(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -129,7 +128,7 @@ public class DownloadSharedPreferenceEntryTest {
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(3, entry.notificationId);
         assertEquals(LegacyHelpers.buildLegacyContentId(false, uuid2), entry.id);
-        assertNotNull(entry.otrProfileID);
+        assertNotNull(entry.otrProfileId);
         assertFalse(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -145,7 +144,7 @@ public class DownloadSharedPreferenceEntryTest {
                 DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(2, entry.notificationId);
         assertEquals(LegacyHelpers.buildLegacyContentId(true, uuid), entry.id);
-        assertNull(entry.otrProfileID);
+        assertNull(entry.otrProfileId);
         assertTrue(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -156,7 +155,7 @@ public class DownloadSharedPreferenceEntryTest {
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(3, entry.notificationId);
         assertEquals(LegacyHelpers.buildLegacyContentId(true, uuid2), entry.id);
-        assertNotNull(entry.otrProfileID);
+        assertNotNull(entry.otrProfileId);
         assertFalse(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -172,7 +171,7 @@ public class DownloadSharedPreferenceEntryTest {
                 DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(2, entry.notificationId);
         assertEquals(LegacyHelpers.buildLegacyContentId(false, uuid), entry.id);
-        assertNull(entry.otrProfileID);
+        assertNull(entry.otrProfileId);
         assertTrue(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -183,7 +182,7 @@ public class DownloadSharedPreferenceEntryTest {
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(3, entry.notificationId);
         assertEquals(LegacyHelpers.buildLegacyContentId(false, uuid2), entry.id);
-        assertNotNull(entry.otrProfileID);
+        assertNotNull(entry.otrProfileId);
         assertFalse(entry.canDownloadWhileMetered);
         assertFalse(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -200,7 +199,7 @@ public class DownloadSharedPreferenceEntryTest {
                 DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(2, entry.notificationId);
         assertEquals(LegacyHelpers.buildLegacyContentId(false, uuid), entry.id);
-        assertNull(entry.otrProfileID);
+        assertNull(entry.otrProfileId);
         assertTrue(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -216,7 +215,7 @@ public class DownloadSharedPreferenceEntryTest {
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(3, entry.notificationId);
         assertEquals(LegacyHelpers.buildLegacyContentId(false, uuid2), entry.id);
-        assertNotNull(entry.otrProfileID);
+        assertNotNull(entry.otrProfileId);
         assertFalse(entry.canDownloadWhileMetered);
         assertFalse(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -232,7 +231,7 @@ public class DownloadSharedPreferenceEntryTest {
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(3, entry.notificationId);
         assertEquals(LegacyHelpers.buildLegacyContentId(true, uuid3), entry.id);
-        assertNotNull(entry.otrProfileID);
+        assertNotNull(entry.otrProfileId);
         assertFalse(entry.canDownloadWhileMetered);
         assertFalse(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -243,7 +242,7 @@ public class DownloadSharedPreferenceEntryTest {
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(3, entry.notificationId);
         assertEquals(new ContentId("test_namespace", uuid4), entry.id);
-        assertNotNull(entry.otrProfileID);
+        assertNotNull(entry.otrProfileId);
         assertFalse(entry.canDownloadWhileMetered);
         assertFalse(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -259,7 +258,7 @@ public class DownloadSharedPreferenceEntryTest {
                 DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(2, entry.notificationId);
         assertEquals(new ContentId("test_namespace", id1), entry.id);
-        assertNull(entry.otrProfileID);
+        assertNull(entry.otrProfileId);
         assertTrue(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertTrue(entry.isTransient);
@@ -270,7 +269,7 @@ public class DownloadSharedPreferenceEntryTest {
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(3, entry.notificationId);
         assertEquals(new ContentId("test_namespace", id2), entry.id);
-        assertNotNull(entry.otrProfileID);
+        assertNotNull(entry.otrProfileId);
         assertFalse(entry.canDownloadWhileMetered);
         assertFalse(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -286,7 +285,7 @@ public class DownloadSharedPreferenceEntryTest {
                 DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(2, entry.notificationId);
         assertEquals(new ContentId("test_namespace", id1), entry.id);
-        assertNull(entry.otrProfileID);
+        assertNull(entry.otrProfileId);
         assertTrue(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertTrue(entry.isTransient);
@@ -297,12 +296,12 @@ public class DownloadSharedPreferenceEntryTest {
                 "7,3,test_namespace,"
                         + id2
                         + ","
-                        + OTRProfileID.getPrimaryOTRProfileID()
+                        + OtrProfileId.getPrimaryOtrProfileId()
                         + ",0,0,0,test,4.pdf";
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(3, entry.notificationId);
         assertEquals(new ContentId("test_namespace", id2), entry.id);
-        assertNotNull(entry.otrProfileID);
+        assertNotNull(entry.otrProfileId);
         assertFalse(entry.canDownloadWhileMetered);
         assertFalse(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -311,32 +310,32 @@ public class DownloadSharedPreferenceEntryTest {
 
     @Test
     @Feature({"Download"})
-    public void testParseFromStringVersion7ForNonprimaryOTRProfile() {
+    public void testParseFromStringVersion7ForNonprimaryOtrProfile() {
         String id1 = newUUID();
         String notificationString = "7,2,test_namespace," + id1 + ",,1,1,1,test,2.pdf";
         DownloadSharedPreferenceEntry entry =
                 DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(2, entry.notificationId);
         assertEquals(new ContentId("test_namespace", id1), entry.id);
-        assertNull(entry.otrProfileID);
+        assertNull(entry.otrProfileId);
         assertTrue(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertTrue(entry.isTransient);
         assertEquals("test,2.pdf", entry.fileName);
 
         String id2 = "notaguidhurray";
-        OTRProfileID otrProfileID = new OTRProfileID("test-1");
+        OtrProfileId otrProfileId = new OtrProfileId("test-1");
         notificationString =
                 "7,3,test_namespace,"
                         + id2
                         + ","
-                        + OTRProfileID.serialize(otrProfileID)
+                        + OtrProfileId.serialize(otrProfileId)
                         + ",0,0,0,test,4.pdf";
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(3, entry.notificationId);
         assertEquals(new ContentId("test_namespace", id2), entry.id);
-        assertNotNull(entry.otrProfileID);
-        assertTrue(OTRProfileID.areEqual(entry.otrProfileID, otrProfileID));
+        assertNotNull(entry.otrProfileId);
+        assertTrue(OtrProfileId.areEqual(entry.otrProfileId, otrProfileId));
         assertFalse(entry.canDownloadWhileMetered);
         assertFalse(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -348,15 +347,15 @@ public class DownloadSharedPreferenceEntryTest {
                 "7,3,test_namespace,"
                         + id3
                         + ","
-                        + OTRProfileID.serialize(otrProfileID)
+                        + OtrProfileId.serialize(otrProfileId)
                         + ",0,0,0,test,4.pdf";
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(3, entry.notificationId);
         assertEquals(new ContentId("test_namespace", id3), entry.id);
-        assertNotNull(entry.otrProfileID);
-        assertFalse(OTRProfileID.areEqual(entry.otrProfileID, otrProfileID));
+        assertNotNull(entry.otrProfileId);
+        assertFalse(OtrProfileId.areEqual(entry.otrProfileId, otrProfileId));
         assertTrue(
-                OTRProfileID.areEqual(entry.otrProfileID, OTRProfileID.getPrimaryOTRProfileID()));
+                OtrProfileId.areEqual(entry.otrProfileId, OtrProfileId.getPrimaryOtrProfileId()));
         assertFalse(entry.canDownloadWhileMetered);
         assertFalse(entry.isAutoResumable);
         assertFalse(entry.isTransient);
@@ -384,7 +383,7 @@ public class DownloadSharedPreferenceEntryTest {
                         + ","
                         + uuid2
                         + ","
-                        + OTRProfileID.getPrimaryOTRProfileID()
+                        + OtrProfileId.getPrimaryOtrProfileId()
                         + ",0,0,0,test,4.pdf";
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(notificationString, entry.getSharedPreferenceString());
@@ -629,7 +628,7 @@ public class DownloadSharedPreferenceEntryTest {
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(2, entry.notificationId);
         assertEquals(new ContentId("test_namespace", "xxx"), entry.id);
-        assertNull(entry.otrProfileID);
+        assertNull(entry.otrProfileId);
         assertTrue(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertTrue(entry.isTransient);
@@ -640,7 +639,7 @@ public class DownloadSharedPreferenceEntryTest {
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(2, entry.notificationId);
         assertEquals(new ContentId("test_namespace", "xxx"), entry.id);
-        assertNull(entry.otrProfileID);
+        assertNull(entry.otrProfileId);
         assertTrue(entry.canDownloadWhileMetered);
         assertTrue(entry.isAutoResumable);
         assertTrue(entry.isTransient);
@@ -677,7 +676,7 @@ public class DownloadSharedPreferenceEntryTest {
                         + ","
                         + uuid
                         + ","
-                        + OTRProfileID.getPrimaryOTRProfileID()
+                        + OtrProfileId.getPrimaryOtrProfileId()
                         + ",0,1,0,test.pdf";
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(v7NotificationString, entry.getSharedPreferenceString());
@@ -690,7 +689,7 @@ public class DownloadSharedPreferenceEntryTest {
                         + ","
                         + uuid
                         + ","
-                        + OTRProfileID.getPrimaryOTRProfileID()
+                        + OtrProfileId.getPrimaryOtrProfileId()
                         + ",0,1,0,test.pdf";
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(v7NotificationString, entry.getSharedPreferenceString());
@@ -703,7 +702,7 @@ public class DownloadSharedPreferenceEntryTest {
                         + ","
                         + uuid
                         + ","
-                        + OTRProfileID.getPrimaryOTRProfileID()
+                        + OtrProfileId.getPrimaryOtrProfileId()
                         + ",0,0,0,test.pdf";
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(v7NotificationString, entry.getSharedPreferenceString());
@@ -714,7 +713,7 @@ public class DownloadSharedPreferenceEntryTest {
                 "7,2,test_namespace,"
                         + uuid
                         + ","
-                        + OTRProfileID.getPrimaryOTRProfileID()
+                        + OtrProfileId.getPrimaryOtrProfileId()
                         + ",0,0,0,test.pdf";
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(v7NotificationString, entry.getSharedPreferenceString());
@@ -725,7 +724,7 @@ public class DownloadSharedPreferenceEntryTest {
                 "7,2,test_namespace,"
                         + uuid
                         + ","
-                        + OTRProfileID.getPrimaryOTRProfileID()
+                        + OtrProfileId.getPrimaryOtrProfileId()
                         + ",0,0,0,test.pdf";
         entry = DownloadSharedPreferenceEntry.parseFromString(notificationString);
         assertEquals(v7NotificationString, entry.getSharedPreferenceString());

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/public/platform/media/multi_buffer.h"
+#include "third_party/blink/renderer/platform/media/multi_buffer.h"
 
 #include <utility>
 
@@ -10,6 +10,8 @@
 #include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
+#include "base/not_fatal_until.h"
 #include "base/task/single_thread_task_runner.h"
 
 namespace blink {
@@ -186,7 +188,7 @@ MultiBuffer::~MultiBuffer() {
 }
 
 void MultiBuffer::AddReader(const BlockId& pos, Reader* reader) {
-  std::set<Reader*>* set_of_readers = &readers_[pos];
+  std::set<raw_ptr<Reader, SetExperimental>>* set_of_readers = &readers_[pos];
   bool already_waited_for = !set_of_readers->empty();
   set_of_readers->insert(reader);
 
@@ -205,7 +207,6 @@ void MultiBuffer::AddReader(const BlockId& pos, Reader* reader) {
     if (i.value()) {
       // Shouldn't happen, we already tested that Contains(pos) is true.
       NOTREACHED();
-      closest_block = pos;
     } else if (i == present_.begin()) {
       closest_block = -1;
     } else {
@@ -337,7 +338,7 @@ std::unique_ptr<MultiBuffer::DataProvider> MultiBuffer::RemoveProvider(
     DataProvider* provider) {
   BlockId pos = provider->Tell();
   auto iter = writer_index_.find(pos);
-  DCHECK(iter != writer_index_.end());
+  CHECK(iter != writer_index_.end(), base::NotFatalUntil::M130);
   DCHECK_EQ(iter->second.get(), provider);
   std::unique_ptr<DataProvider> ret = std::move(iter->second);
   writer_index_.erase(iter);

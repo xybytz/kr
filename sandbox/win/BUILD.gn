@@ -57,7 +57,6 @@ static_library("sandbox") {
     "src/filesystem_interception.h",
     "src/filesystem_policy.cc",
     "src/filesystem_policy.h",
-    "src/handle_closer.cc",
     "src/handle_closer.h",
     "src/handle_closer_agent.cc",
     "src/handle_closer_agent.h",
@@ -193,6 +192,7 @@ test("sbox_integration_tests") {
     "src/ipc_leak_test.cc",
     "src/ipc_ping_test.cc",
     "src/lpc_policy_test.cc",
+    "src/parallel_launch_test.cc",
     "src/policy_target_test.cc",
     "src/process_delegate_data_test.cc",
     "src/process_mitigations_deathtest.cc",
@@ -227,6 +227,10 @@ test("sbox_integration_tests") {
   ]
 
   libs = [ "ktmw32.lib" ]
+
+  # It is necessary for tests validating win32k lockdown to delayload
+  # user32.dll, gdi32.dll, and others that depend on them.
+  configs += [ "//build/config/win:delayloads" ]
 }
 
 group("maybe_set_appcontainer_acls") {

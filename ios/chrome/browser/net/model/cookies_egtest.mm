@@ -52,7 +52,7 @@ std::string IncognitoCookiePath() {
 }
 
 // Clear cookies to make sure that tests do not interfere each other.
-- (void)tearDown {
+- (void)tearDownHelper {
   [ChromeEarlGrey loadURL:self.testServer->GetURL("/echo")];
   NSString* const clearCookieScript =
       @"var cookies = document.cookie.split(';');"
@@ -63,7 +63,7 @@ std::string IncognitoCookiePath() {
        "  document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT';"
        "}";
   [ChromeEarlGrey evaluateJavaScriptForSideEffect:clearCookieScript];
-  [super tearDown];
+  [super tearDownHelper];
 }
 
 #pragma mark - Tests
@@ -105,7 +105,8 @@ std::string IncognitoCookiePath() {
 
   // Work around a TabGrid bug by opening and closing the grid before
   // proceeding.
-  // TODO(crbug.com/1350742): Fix the underlying bug and remove this workaround.
+  // TODO(crbug.com/40856675): Fix the underlying bug and remove this
+  // workaround.
   [ChromeEarlGrey showTabSwitcher];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::TabGridDoneButton()]
       performAction:grey_tap()];

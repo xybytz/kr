@@ -62,7 +62,6 @@ static String LocalizedUnavailablePluginReplacementText(
                         // details.
   }
   NOTREACHED();
-  return String();
 }
 
 void LayoutEmbeddedObject::SetPluginAvailability(
@@ -89,14 +88,6 @@ void LayoutEmbeddedObject::PaintReplaced(
     const PhysicalOffset& paint_offset) const {
   NOT_DESTROYED();
   EmbeddedObjectPainter(*this).PaintReplaced(paint_info, paint_offset);
-}
-
-void LayoutEmbeddedObject::UpdateLayout() {
-  NOT_DESTROYED();
-  DCHECK(NeedsLayout());
-  ClearScrollableOverflow();
-  ClearSelfNeedsScrollableOverflowRecalc();
-  ClearNeedsLayout();
 }
 
 void LayoutEmbeddedObject::UpdateAfterLayout() {

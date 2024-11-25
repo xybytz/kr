@@ -125,7 +125,7 @@ MaybeCreateScreenCaptureKitFullscreenModule(
     if ([kApplicationNameLibreOffice
             isEqualToString:original_window.owningApplication
                                 .applicationName]) {
-      // TODO(crbug.com/1348011): Implement support for LibreOffice.
+      // TODO(crbug.com/40233195): Implement support for LibreOffice.
       LogModeToUma(ScreenCaptureKitFullscreenModule::Mode::kLibreOffice);
       return nullptr;
     }
@@ -214,7 +214,7 @@ void ScreenCaptureKitFullscreenModule::OnFullscreenShareableContentCreated(
       if (window.windowID == fullscreen_window_id_) {
         if (!window.isOnScreen) {
           fullscreen_mode_active_ = false;
-          reset_stream_interface_.ResetStreamTo(editor_window);
+          reset_stream_interface_->ResetStreamTo(editor_window);
         }
         break;
       }
@@ -229,7 +229,7 @@ void ScreenCaptureKitFullscreenModule::OnFullscreenShareableContentCreated(
       // instead.
       fullscreen_mode_active_ = true;
       fullscreen_window_id_ = fullscreen_window.windowID;
-      reset_stream_interface_.ResetStreamTo(fullscreen_window);
+      reset_stream_interface_->ResetStreamTo(fullscreen_window);
     }
   }
 }
@@ -276,7 +276,7 @@ SCWindow* ScreenCaptureKitFullscreenModule::GetFullscreenWindow(
           }
           break;
         case Mode::kLibreOffice:
-        // TODO(crbug.com/1348011): Implement support for LibreOffice.
+        // TODO(crbug.com/40233195): Implement support for LibreOffice.
         case Mode::kUnsupported:
           NOTREACHED();
       }

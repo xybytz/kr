@@ -7,8 +7,8 @@
  * 'settings-page-content-page' contains settings related to features accessing
  * page content.
  */
-import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
-import '/shared/settings/controls/settings_toggle_button.js';
+import 'chrome://resources/cr_elements/cr_icon/cr_icon.js';
+import '../controls/settings_toggle_button.js';
 import '../settings_columned_section.css.js';
 import '../settings_shared.css.js';
 

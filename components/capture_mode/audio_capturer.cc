@@ -51,8 +51,8 @@ void AudioCapturer::OnCaptureStarted() {}
 
 void AudioCapturer::Capture(const media::AudioBus* audio_source,
                             base::TimeTicks audio_capture_time,
-                            double volume,
-                            bool key_pressed) {
+                            const media::AudioGlitchInfo& glitch_info,
+                            double volume) {
   // This is called on a worker thread created by the `audio_capturer_` (See
   // `media::AudioDeviceThread`. The given `audio_source` wraps audio data in a
   // shared memory with the audio service. Calling `audio_capturer_->Stop()`

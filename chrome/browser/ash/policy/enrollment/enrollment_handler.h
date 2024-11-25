@@ -80,7 +80,6 @@ class EnrollmentHandler : public CloudPolicyClient::Observer,
       std::unique_ptr<CloudPolicyClient> client,
       scoped_refptr<base::SequencedTaskRunner> background_task_runner,
       const EnrollmentConfig& enrollment_config,
-      LicenseType license_type,
       DMAuth dm_auth,
       const std::string& client_id,
       const std::string& requisition,
@@ -141,12 +140,13 @@ class EnrollmentHandler : public CloudPolicyClient::Observer,
     STEP_LOCK_DEVICE = 10,       // Writing installation-time attributes.
     STEP_STORE_TOKEN = 11,       // Encrypting and storing DM token.
     STEP_STORE_ROBOT_AUTH = 12,  // Encrypting & writing robot refresh token.
-    STEP_STORE_POLICY = 13,      // Storing policy and API refresh token.
-    STEP_FINISHED = 14,          // Enrollment process done, no further action.
+    STEP_STORE_VERSION = 13,     // Storing OS and browser version.
+    STEP_STORE_POLICY = 14,      // Storing policy and API refresh token.
+    STEP_FINISHED = 15,          // Enrollment process done, no further action.
   };
 
-  // Handles the response to a request for server-backed state keys.
-  void HandleStateKeysResult(const std::vector<std::string>& state_keys);
+  // Handles state keys, present or not.
+  void HandleStateKeys(std::optional<std::vector<std::string>> opt_state_keys);
 
   // Starts attestation based enrollment flow.
   void StartAttestationBasedEnrollmentFlow();
@@ -175,7 +175,7 @@ class EnrollmentHandler : public CloudPolicyClient::Observer,
 
   // Invoked after the firmware management partition in TPM is updated.
   void OnFirmwareManagementParametersDataSet(
-      std::optional<user_data_auth::SetFirmwareManagementParametersReply>
+      std::optional<device_management::SetFirmwareManagementParametersReply>
           reply);
 
   // Calls InstallAttributes::LockDevice() for enterprise enrollment and
@@ -188,6 +188,12 @@ class EnrollmentHandler : public CloudPolicyClient::Observer,
 
   // Initiates storing of robot auth token.
   void StartStoreRobotAuth();
+
+  // Store the version related information.
+  void StoreVersion();
+
+  // Store the device policy.
+  void StartStoreDevicePolicy();
 
   std::unique_ptr<DeviceCloudPolicyValidator> CreateValidator(
       std::unique_ptr<enterprise_management::PolicyFetchResponse> policy,

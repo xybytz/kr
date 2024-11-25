@@ -45,6 +45,7 @@ class PermissionPromptBubbleBaseView : public PermissionPromptBaseView {
   DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kMainViewId);
   DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kBlockButtonElementId);
   DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kAllowButtonElementId);
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kAllowOnceButtonElementId);
   PermissionPromptBubbleBaseView(
       Browser* browser,
       base::WeakPtr<permissions::PermissionPrompt::Delegate> delegate,
@@ -98,23 +99,12 @@ class PermissionPromptBubbleBaseView : public PermissionPromptBaseView {
   static bool IsOneTimePermission(
       permissions::PermissionPrompt::Delegate& delegate);
 
-  static std::u16string GetAllowAlwaysText(
-      const std::vector<raw_ptr<permissions::PermissionRequest,
-                                VectorExperimental>>& visible_requests);
-
   PermissionDialogButton GetPermissionDialogButton(int button_id) {
     return static_cast<PermissionDialogButton>(button_id);
   }
 
-  const raw_ptr<Browser> browser_;
-
  private:
   void SetPromptStyle(PermissionPromptStyle prompt_style);
-
-  // Record UMA Permissions.*.TimeToDecision.|action| metric. Can be
-  // Permissions.Prompt.TimeToDecision.* or Permissions.Chip.TimeToDecision.*,
-  // depending on which UI is used.
-  void RecordDecision(permissions::PermissionAction action);
 
   // Convenience methods to convert enum class values to an int used as ViewId
   // and vice-versa.

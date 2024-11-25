@@ -21,8 +21,10 @@
 #include "components/autofill/core/browser/data_model/iban.h"
 #include "components/autofill/core/browser/logging/log_manager.h"
 #include "components/autofill/core/browser/metrics/autofill_metrics.h"
+#include "components/autofill/core/browser/metrics/autofill_settings_metrics.h"
 #include "components/autofill/core/browser/metrics/payments/credit_card_save_metrics.h"
 #include "components/autofill/core/browser/payments/payments_util.h"
+#include "components/autofill/core/browser/payments_data_manager.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/browser/ui/suggestion.h"
 #include "components/autofill/core/common/autofill_features.h"
@@ -33,6 +35,8 @@
 #include "components/autofill/core/common/autofill_switches.h"
 #include "components/device_reauth/device_authenticator.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/public/base/signin_buildflags.h"
+#include "components/signin/public/base/signin_pref_names.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/sync/base/features.h"
 #include "components/sync/base/user_selectable_type.h"
@@ -65,7 +69,7 @@ void LogCardUploadEnabled(LogManager* log_manager) {
 }  // namespace
 
 // The list of countries for which the credit card upload save feature is fully
-// launched. Last updated M118.
+// launched. Last updated M129.
 const char* const kAutofillUpstreamLaunchedCountries[] = {
     "AD", "AE", "AF", "AG", "AI", "AL", "AO", "AR", "AS", "AT", "AU", "AW",
     "AZ", "BA", "BB", "BE", "BF", "BG", "BH", "BJ", "BM", "BN", "BR", "BS",
@@ -79,14 +83,14 @@ const char* const kAutofillUpstreamLaunchedCountries[] = {
     "MK", "ML", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MW", "MX",
     "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NR", "NZ",
     "OM", "PA", "PE", "PF", "PG", "PH", "PL", "PM", "PR", "PT", "PW", "PY",
-    "QA", "RE", "RO", "RU", "SB", "SC", "SE", "SG", "SI", "SJ", "SK", "SL",
-    "SM", "SN", "SR", "ST", "SV", "SZ", "TC", "TD", "TG", "TH", "TL", "TM",
-    "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "US", "UY", "VC", "VE",
-    "VG", "VI", "VN", "VU", "WS", "YT", "ZA", "ZM", "ZW"};
+    "QA", "RE", "RO", "SB", "SC", "SE", "SG", "SI", "SJ", "SK", "SL", "SM",
+    "SN", "SR", "ST", "SV", "SZ", "TC", "TD", "TG", "TH", "TL", "TM", "TO",
+    "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "US", "UY", "VC", "VE", "VG",
+    "VI", "VN", "VU", "WS", "YT", "ZA", "ZM", "ZW"};
 
 bool IsCreditCardUploadEnabled(
     const syncer::SyncService* sync_service,
-    const std::string& user_email,
+    const PrefService& pref_service,
     const std::string& user_country,
     AutofillMetrics::PaymentsSigninState signin_state_for_metrics,
     LogManager* log_manager) {
@@ -115,6 +119,36 @@ bool IsCreditCardUploadEnabled(
         signin_state_for_metrics);
     LogCardUploadDisabled(
         log_manager, "SYNC_SERVICE_MISSING_AUTOFILL_WALLET_ACTIVE_DATA_TYPE");
+    // Log the specific reason sync was not active. Note that this is
+    // best-effort, as Sync also takes ~10 seconds for the data types to become
+    // active after starting the browser.
+    autofill_metrics::SyncDisabledReason reason;
+    if (sync_service->GetDisableReasons().Has(
+            syncer::SyncService::DISABLE_REASON_NOT_SIGNED_IN)) {
+      reason = autofill_metrics::SyncDisabledReason::kNotSignedIn;
+    } else if (sync_service->GetDisableReasons().Has(
+                   syncer::SyncService::DISABLE_REASON_ENTERPRISE_POLICY)) {
+      reason = autofill_metrics::SyncDisabledReason::kSyncDisabledByPolicy;
+    } else if (sync_service->GetUserSettings()->GetSelectedTypes().Has(
+                   syncer::UserSelectableType::kPayments)) {
+      // A mismatch between the kPayments type being "selected" vs. "active".
+      // Should be rare due to checking if Sync was active above, but good to
+      // check to prove these values are generally interchangeable for our case.
+      reason = autofill_metrics::SyncDisabledReason::kSelectedButNotActive;
+    } else if (sync_service->GetUserSettings()->IsTypeManagedByPolicy(
+                   syncer::UserSelectableType::kPayments)) {
+      reason = autofill_metrics::SyncDisabledReason::kTypeDisabledByPolicy;
+    } else if (sync_service->GetUserSettings()->IsTypeManagedByCustodian(
+                   syncer::UserSelectableType::kPayments)) {
+      reason = autofill_metrics::SyncDisabledReason::kTypeDisabledByCustodian;
+    } else {
+      // By process of elimination, if the toggle is not disabled for any of the
+      // above reasons, it is reasonable to expect that it was due to an
+      // explicit choice by the user.
+      reason =
+          autofill_metrics::SyncDisabledReason::kTypeProbablyDisabledByUser;
+    }
+    LogAutofillPaymentsSyncDisabled(reason);
     return false;
   }
 
@@ -125,12 +159,19 @@ bool IsCreditCardUploadEnabled(
   // Before address sync is available in transport mode, server card save is
   // offered in transport mode regardless of the setting. (The sync API exposes
   // the kAutofill type as disabled in this case.)
-  // TODO(crbug.com/1462552): Simplify once IsSyncFeatureActive() is deleted
+  // TODO(crbug.com/40066949): Simplify once IsSyncFeatureActive() is deleted
   // from the codebase.
+  bool addresses_in_transport_mode = base::FeatureList::IsEnabled(
+      syncer::kSyncEnableContactInfoDataTypeInTransportMode);
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+  // Dice users don't have addresses in transport mode until they went through
+  // the explicit signin flow.
+  addresses_in_transport_mode =
+      addresses_in_transport_mode &&
+      pref_service.GetBoolean(::prefs::kExplicitBrowserSignin);
+#endif
   bool syncing_or_addresses_in_transport_mode =
-      sync_service->IsSyncFeatureActive() ||
-      base::FeatureList::IsEnabled(
-          syncer::kSyncEnableContactInfoDataTypeInTransportMode);
+      sync_service->IsSyncFeatureActive() || addresses_in_transport_mode;
   if (syncing_or_addresses_in_transport_mode &&
       !sync_service->GetUserSettings()->GetSelectedTypes().Has(
           syncer::UserSelectableType::kAutofill)) {
@@ -165,15 +206,6 @@ bool IsCreditCardUploadEnabled(
     return false;
   }
 
-  // Check that the user's account email address is known.
-  if (user_email.empty()) {
-    autofill_metrics::LogCardUploadEnabledMetric(
-        autofill_metrics::CardUploadEnabled::kEmailEmpty,
-        signin_state_for_metrics);
-    LogCardUploadDisabled(log_manager, "USER_EMAIL_EMPTY");
-    return false;
-  }
-
   if (base::FeatureList::IsEnabled(features::kAutofillUpstream)) {
     // Feature flag is enabled, so continue regardless of the country. This is
     // required for the ability to continue to launch to more countries as
@@ -204,27 +236,36 @@ bool IsCreditCardUploadEnabled(
   return true;
 }
 
-bool IsCreditCardMigrationEnabled(PersonalDataManager* personal_data_manager,
+bool IsCreditCardMigrationEnabled(PersonalDataManager& personal_data_manager,
                                   syncer::SyncService* sync_service,
+                                  const PrefService& pref_service,
                                   bool is_test_mode,
                                   LogManager* log_manager) {
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillDisableLocalCardMigration)) {
+    // Feature is being turned down.
+    return false;
+  }
+
+  PaymentsDataManager& payments_data_manager =
+      personal_data_manager.payments_data_manager();
   // If |is_test_mode| is set, assume we are in a browsertest and
   // credit card upload should be enabled by default to fix flaky
   // local card migration browsertests.
   if (!is_test_mode &&
       !IsCreditCardUploadEnabled(
-          sync_service,
-          personal_data_manager->GetAccountInfoForPaymentsServer().email,
-          personal_data_manager->GetCountryCodeForExperimentGroup(),
-          personal_data_manager->GetPaymentsSigninStateForMetrics(),
+          sync_service, pref_service,
+          payments_data_manager.GetCountryCodeForExperimentGroup(),
+          payments_data_manager.GetPaymentsSigninStateForMetrics(),
           log_manager)) {
     return false;
   }
 
-  if (!payments::HasGooglePaymentsAccount(personal_data_manager))
+  if (!payments::HasGooglePaymentsAccount(&payments_data_manager)) {
     return false;
+  }
 
-  return personal_data_manager->IsPaymentsDownloadActive();
+  return payments_data_manager.IsPaymentsDownloadActive();
 }
 
 bool IsInAutofillSuggestionsDisabledExperiment() {
@@ -254,14 +295,12 @@ bool IsDeviceAuthAvailable(
     device_reauth::DeviceAuthenticator* device_authenticator) {
 #if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
   CHECK(device_authenticator);
-  return device_authenticator->CanAuthenticateWithBiometricOrScreenLock() &&
-         base::FeatureList::IsEnabled(
-             features::kAutofillEnablePaymentsMandatoryReauth);
+  return device_authenticator->CanAuthenticateWithBiometricOrScreenLock();
 #else
   return false;
 #endif
 }
-bool IsTouchToFillCreditCardSupported() {
+bool IsTouchToFillPaymentMethodSupported() {
 #if BUILDFLAG(IS_ANDROID)
   // Touch To Fill is only supported on Android.
   return true;

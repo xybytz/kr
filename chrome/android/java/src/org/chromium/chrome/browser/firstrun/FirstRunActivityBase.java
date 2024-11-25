@@ -19,7 +19,6 @@ import org.chromium.base.BuildInfo;
 import org.chromium.base.IntentUtils;
 import org.chromium.base.Log;
 import org.chromium.base.ResettersForTesting;
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.supplier.OneshotSupplier;
@@ -32,7 +31,7 @@ import org.chromium.chrome.browser.init.AsyncInitializationActivity;
 import org.chromium.chrome.browser.metrics.SimpleStartupForegroundSessionDetector;
 import org.chromium.chrome.browser.metrics.UmaUtils;
 import org.chromium.chrome.browser.policy.PolicyServiceFactory;
-import org.chromium.chrome.browser.profiles.OTRProfileID;
+import org.chromium.chrome.browser.profiles.OtrProfileId;
 import org.chromium.chrome.browser.profiles.ProfileManagerUtils;
 import org.chromium.chrome.browser.profiles.ProfileProvider;
 import org.chromium.chrome.browser.ui.system.StatusBarColorController;
@@ -42,6 +41,8 @@ import org.chromium.components.signin.AccountManagerFacade;
 import org.chromium.components.signin.AccountManagerFacadeProvider;
 
 /** Base class for First Run Experience. */
+// TODO(crbug.com/349787455): Consider renaming it now that it is also the base for non-FRE
+// fullscreen sign-in flows.
 public abstract class FirstRunActivityBase extends AsyncInitializationActivity
         implements BackPressHandler {
     private static final String TAG = "FirstRunActivity";
@@ -61,6 +62,7 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity
             "Extra.FreChromeLaunchIntentExtras";
     static final String SHOW_SEARCH_ENGINE_PAGE = "ShowSearchEnginePage";
     static final String SHOW_SYNC_CONSENT_PAGE = "ShowSyncConsent";
+    static final String SHOW_HISTORY_SYNC_PAGE = "ShowHistorySync";
 
     public static final boolean DEFAULT_METRICS_AND_CRASH_REPORTING = true;
 
@@ -77,10 +79,9 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity
                     set(true);
                 }
             };
-    private PolicyLoadListener mPolicyLoadListener;
+    private final PolicyLoadListener mPolicyLoadListener;
 
     private final long mStartTime;
-    private long mNativeInitializedTime;
 
     private ChildAccountStatusSupplier mChildAccountStatusSupplier;
 
@@ -95,6 +96,10 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity
                                 mFirstRunAppRestrictionInfo, mPolicyServiceSupplier);
         mStartTime = SystemClock.elapsedRealtime();
         mPolicyLoadListener.onAvailable(this::onPolicyLoadListenerAvailable);
+    }
+
+    protected long getStartTime() {
+        return mStartTime;
     }
 
     @Override
@@ -115,7 +120,7 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity
         mChildAccountStatusSupplier =
                 new ChildAccountStatusSupplier(accountManagerFacade, mFirstRunAppRestrictionInfo);
 
-        // TODO(crbug.com/1498708): Find the underlying issue causing the status bar not to be set
+        // TODO(crbug.com/40939710): Find the underlying issue causing the status bar not to be set
         //  during FRE, this is just a temporary visual fix.
         if (BuildInfo.getInstance().isAutomotive) {
             StatusBarColorController.setStatusBarColor(getWindow(), Color.BLACK);
@@ -155,7 +160,7 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity
         return new ActivityProfileProvider(getLifecycleDispatcher()) {
             @Nullable
             @Override
-            protected OTRProfileID createOffTheRecordProfileID() {
+            protected OtrProfileId createOffTheRecordProfileId() {
                 throw new IllegalStateException("Attempting to access incognito in the FRE");
             }
         };
@@ -165,9 +170,6 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity
     public void finishNativeInitialization() {
         super.finishNativeInitialization();
         mNativeInitialized = true;
-        mNativeInitializedTime = SystemClock.elapsedRealtime();
-        RecordHistogram.recordTimesHistogram(
-                "MobileFre.NativeInitialized", mNativeInitializedTime - mStartTime);
         mPolicyServiceSupplier.set(PolicyServiceFactory.getGlobalPolicyService());
     }
 
@@ -203,14 +205,14 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity
     protected final boolean sendFirstRunCompletePendingIntent() {
         PendingIntent pendingIntent =
                 IntentUtils.safeGetParcelableExtra(getIntent(), EXTRA_FRE_COMPLETE_LAUNCH_INTENT);
-        boolean pendingIntentIsCCT =
+        boolean pendingIntentIsCct =
                 IntentUtils.safeGetBooleanExtra(
                         getIntent(), EXTRA_CHROME_LAUNCH_INTENT_IS_CCT, false);
         if (pendingIntent == null) return false;
 
         try {
             PendingIntent.OnFinished onFinished = null;
-            if (pendingIntentIsCCT) {
+            if (pendingIntentIsCct) {
                 // After the PendingIntent has been sent, send a first run callback to custom tabs
                 // if necessary.
                 onFinished =
@@ -246,11 +248,8 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity
         return mFirstRunAppRestrictionInfo;
     }
 
-    protected void onPolicyLoadListenerAvailable(boolean onDevicePolicyFound) {
-        if (!mNativeInitialized) return;
-
-        assert mNativeInitializedTime != 0;
-    }
+    /** Observer method for the policy load listener. Overridden by inheriting classes. */
+    protected void onPolicyLoadListenerAvailable(boolean onDevicePolicyFound) {}
 
     /**
      * @return PolicyLoadListener used to indicate if policy initialization is complete.
@@ -266,17 +265,18 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity
     }
 
     /**
-     * If the first run activity was triggered by a custom tab, notify app associated with
-     * custom tab whether first run was completed.
+     * If the first run activity was triggered by a custom tab, notify app associated with custom
+     * tab whether first run was completed.
+     *
      * @param freIntent First run activity intent.
-     * @param complete  Whether first run completed successfully.
+     * @param complete Whether first run completed successfully.
      */
     public static void notifyCustomTabCallbackFirstRunIfNecessary(
             Intent freIntent, boolean complete) {
-        boolean launchedByCCT =
+        boolean launchedByCct =
                 IntentUtils.safeGetBooleanExtra(
                         freIntent, EXTRA_CHROME_LAUNCH_INTENT_IS_CCT, false);
-        if (!launchedByCCT) return;
+        if (!launchedByCct) return;
 
         Bundle launchIntentExtras =
                 IntentUtils.safeGetBundleExtra(freIntent, EXTRA_CHROME_LAUNCH_INTENT_EXTRAS);

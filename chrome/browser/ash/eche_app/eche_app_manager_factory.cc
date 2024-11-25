@@ -237,9 +237,12 @@ EcheAppManagerFactory::EcheAppManagerFactory()
           "EcheAppManager",
           ProfileSelections::Builder()
               .WithRegular(ProfileSelection::kOriginalOnly)
-              // TODO(crbug.com/1418376): Check if this service is needed in
+              // TODO(crbug.com/40257657): Check if this service is needed in
               // Guest mode.
               .WithGuest(ProfileSelection::kOriginalOnly)
+              // TODO(crbug.com/41488885): Check if this service is needed for
+              // Ash Internals.
+              .WithAshInternals(ProfileSelection::kOriginalOnly)
               .Build()) {
   DependsOn(phonehub::PhoneHubManagerFactory::GetInstance());
   DependsOn(device_sync::DeviceSyncClientFactory::GetInstance());
@@ -338,10 +341,8 @@ std::unique_ptr<SystemInfo> EcheAppManagerFactory::GetSystemInfo(
       .SetGaiaId(gaia_id)
       .SetDeviceType(base::UTF16ToUTF8(device_type));
 
-  if (features::IsEcheMetricsRevampEnabled()) {
-    system_info.SetOsVersion(base::SysInfo::OperatingSystemVersion())
-        .SetChannel(chrome::GetChannelName(chrome::WithExtendedStable(true)));
-  }
+  system_info.SetOsVersion(base::SysInfo::OperatingSystemVersion())
+      .SetChannel(chrome::GetChannelName(chrome::WithExtendedStable(true)));
 
   return system_info.Build();
 }

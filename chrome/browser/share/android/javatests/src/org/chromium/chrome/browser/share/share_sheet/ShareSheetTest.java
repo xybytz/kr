@@ -21,7 +21,6 @@ import android.widget.TextView;
 import androidx.test.filters.SmallTest;
 import androidx.test.platform.app.InstrumentationRegistry;
 
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.ClassRule;
@@ -30,12 +29,14 @@ import org.junit.runner.RunWith;
 import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.PackageManagerWrapper;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.chrome.browser.share.ShareHistoryBridge;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
@@ -43,7 +44,6 @@ import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.MenuUtils;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetTestSupport;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.test.util.DeviceRestriction;
 
 import java.util.ArrayList;
@@ -65,7 +65,6 @@ public class ShareSheetTest {
             new ChromeTabbedActivityTestRule();
 
     private Profile mProfile;
-    private Context mContextToRestore;
     private List<ResolveInfo> mAvailableResolveInfos;
 
     // foo.bar.baz -> baz
@@ -145,21 +144,15 @@ public class ShareSheetTest {
     public void setUp() throws Exception {
         setUpLayoutConstants();
 
-        mContextToRestore = ContextUtils.getApplicationContext();
         ContextUtils.initApplicationContextForTests(
-                new PackageManagerReplacingContext(mContextToRestore, this));
+                new PackageManagerReplacingContext(ContextUtils.getApplicationContext(), this));
 
         MockitoAnnotations.initMocks(this);
         sActivityTestRule.startMainActivityOnBlankPage();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
-                    mProfile = Profile.getLastUsedRegularProfile();
+                    mProfile = ProfileManager.getLastUsedRegularProfile();
                 });
-    }
-
-    @After
-    public void tearDown() throws Exception {
-        ContextUtils.initApplicationContextForTests(mContextToRestore);
     }
 
     // Open the share sheet from the menu and wait for its open animation to
@@ -182,7 +175,7 @@ public class ShareSheetTest {
 
     // Replace the recent share history with the supplied map of usage counts.
     private void replaceRecentShareHistory(Map<String, Integer> recent) {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     ShareHistoryBridge.clear(mProfile);
                     for (Map.Entry<String, Integer> e : recent.entrySet()) {
@@ -197,13 +190,13 @@ public class ShareSheetTest {
         // Not implemented yet. This method will require a new JNI interface
         // via ShareHistoryBridge, since there's currently no way to add
         // historical data, because production code never needs to do this.
-        // TODO(https://crbug.com/1249571): Implement.
+        // TODO(crbug.com/40791331): Implement.
     }
 
     private void replaceStoredRanking(String type, List<String> apps) {
         // Not implemented yet. There's no JNI interface for replacing the stored
         // ranking, but there will be in the future.
-        // TODO(https://crbug.com/1249571): Implement.
+        // TODO(crbug.com/40791331): Implement.
     }
 
     private void replaceSystemApps(List<String> apps) {

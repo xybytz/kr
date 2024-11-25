@@ -48,9 +48,10 @@
 #include "chrome/browser/ash/file_system_provider/provided_file_system_info.h"
 #include "chrome/browser/ash/file_system_provider/provided_file_system_interface.h"
 #include "chrome/browser/ash/guest_os/guest_os_share_path.h"
+#include "chrome/browser/ash/guest_os/guest_os_share_path_factory.h"
 #include "chrome/browser/ash/guest_os/public/guest_os_service.h"
+#include "chrome/browser/ash/guest_os/public/guest_os_service_factory.h"
 #include "chrome/browser/ash/login/lock/screen_locker.h"
-#include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/plugin_vm/plugin_vm_util.h"
 #include "chrome/browser/ash/policy/dlp/dialogs/files_policy_dialog.h"
 #include "chrome/browser/extensions/api/file_system/chrome_file_system_delegate_ash.h"
@@ -58,6 +59,8 @@
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/ash/login/login_display_host.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/api/file_manager_private.h"
 #include "chrome/common/extensions/extension_constants.h"
@@ -101,7 +104,9 @@ using file_manager::io_task::IOTaskController;
 using file_manager::util::EntryDefinition;
 using file_manager::util::FileDefinition;
 using guest_os::GuestOsService;
+using guest_os::GuestOsServiceFactory;
 using guest_os::GuestOsSharePath;
+using guest_os::GuestOsSharePathFactory;
 
 namespace fmp = extensions::api::file_manager_private;
 
@@ -160,54 +165,52 @@ void DispatchEventToExtension(
 }
 
 // Convert the IO Task State enum to the Private API enum.
-fmp::IOTaskState GetIOTaskState(io_task::State state) {
+fmp::IoTaskState GetIoTaskState(io_task::State state) {
   switch (state) {
     case io_task::State::kQueued:
-      return fmp::IOTaskState::kQueued;
+      return fmp::IoTaskState::kQueued;
     case io_task::State::kScanning:
-      return fmp::IOTaskState::kScanning;
+      return fmp::IoTaskState::kScanning;
     case io_task::State::kInProgress:
-      return fmp::IOTaskState::kInProgress;
+      return fmp::IoTaskState::kInProgress;
     case io_task::State::kPaused:
-      return fmp::IOTaskState::kPaused;
+      return fmp::IoTaskState::kPaused;
     case io_task::State::kSuccess:
-      return fmp::IOTaskState::kSuccess;
+      return fmp::IoTaskState::kSuccess;
     case io_task::State::kError:
-      return fmp::IOTaskState::kError;
+      return fmp::IoTaskState::kError;
     case io_task::State::kNeedPassword:
-      return fmp::IOTaskState::kNeedPassword;
+      return fmp::IoTaskState::kNeedPassword;
     case io_task::State::kCancelled:
-      return fmp::IOTaskState::kCancelled;
+      return fmp::IoTaskState::kCancelled;
     default:
       NOTREACHED();
-      return fmp::IOTaskState::kError;
   }
 }
 
 // Convert the IO Task Type enum to the Private API enum.
-fmp::IOTaskType GetIOTaskType(io_task::OperationType type) {
+fmp::IoTaskType GetIoTaskType(io_task::OperationType type) {
   switch (type) {
     case io_task::OperationType::kCopy:
-      return fmp::IOTaskType::kCopy;
+      return fmp::IoTaskType::kCopy;
     case io_task::OperationType::kDelete:
-      return fmp::IOTaskType::kDelete;
+      return fmp::IoTaskType::kDelete;
     case io_task::OperationType::kEmptyTrash:
-      return fmp::IOTaskType::kEmptyTrash;
+      return fmp::IoTaskType::kEmptyTrash;
     case io_task::OperationType::kExtract:
-      return fmp::IOTaskType::kExtract;
+      return fmp::IoTaskType::kExtract;
     case io_task::OperationType::kMove:
-      return fmp::IOTaskType::kMove;
+      return fmp::IoTaskType::kMove;
     case io_task::OperationType::kRestore:
-      return fmp::IOTaskType::kRestore;
+      return fmp::IoTaskType::kRestore;
     case io_task::OperationType::kRestoreToDestination:
-      return fmp::IOTaskType::kRestoreToDestination;
+      return fmp::IoTaskType::kRestoreToDestination;
     case io_task::OperationType::kTrash:
-      return fmp::IOTaskType::kTrash;
+      return fmp::IoTaskType::kTrash;
     case io_task::OperationType::kZip:
-      return fmp::IOTaskType::kZip;
+      return fmp::IoTaskType::kZip;
     default:
       NOTREACHED();
-      return fmp::IOTaskType::kCopy;
   }
 }
 
@@ -225,7 +228,6 @@ fmp::PolicyErrorType GetPolicyErrorType(
       return fmp::PolicyErrorType::kDlpWarningTimeout;
     default:
       NOTREACHED();
-      return fmp::PolicyErrorType::kNone;
   }
 }
 
@@ -288,7 +290,7 @@ bool ShouldShowNotificationForVolume(
   // manager is opened only for the active user.
   if (ash::LoginDisplayHost::default_host() ||
       ash::ScreenLocker::default_screen_locker() ||
-      chrome::IsRunningInForcedAppMode() ||
+      IsRunningInForcedAppMode() ||
       profile != ProfileManager::GetActiveUserProfile()) {
     return false;
   }
@@ -492,7 +494,7 @@ void RecordFileSystemProviderMountMetrics(const Volume& volume) {
 
 // Returns a map from the given `files` to their parent directory.
 std::map<base::FilePath, std::vector<base::FilePath>>
-MapFilePathsToParentDirectory(const std::vector<base::FilePath> files) {
+MapFilePathsToParentDirectory(const std::vector<base::FilePath>& files) {
   std::map<base::FilePath, std::vector<base::FilePath>> dir_files_map;
   for (const auto& file : files) {
     dir_files_map[file.DirName()].push_back(file);
@@ -601,6 +603,7 @@ EventRouter::EventRouter(Profile* profile)
       profile_(profile),
       notification_manager_(
           std::make_unique<SystemNotificationManager>(profile)),
+      office_tasks_(std::make_unique<OfficeTasks>()),
       device_event_router_(
           std::make_unique<DeviceEventRouterImpl>(notification_manager_.get(),
                                                   profile)),
@@ -664,12 +667,13 @@ void EventRouter::Shutdown() {
   }
 
   // GuestOsService doesn't exist for all profiles.
-  if (GuestOsService* const service = GuestOsService::GetForProfile(profile_)) {
+  if (GuestOsService* const service =
+          GuestOsServiceFactory::GetForProfile(profile_)) {
     service->MountProviderRegistry()->RemoveObserver(this);
   }
 
   if (GuestOsSharePath* const path =
-          GuestOsSharePath::GetForProfile(profile_)) {
+          GuestOsSharePathFactory::GetForProfile(profile_)) {
     path->RemoveObserver(this);
   }
 
@@ -752,12 +756,13 @@ void EventRouter::ObserveEvents() {
   }
 
   if (GuestOsSharePath* const path =
-          GuestOsSharePath::GetForProfile(profile_)) {
+          GuestOsSharePathFactory::GetForProfile(profile_)) {
     path->AddObserver(this);
   }
 
   // GuestOsService doesn't exist for all profiles.
-  if (GuestOsService* const service = GuestOsService::GetForProfile(profile_)) {
+  if (GuestOsService* const service =
+          GuestOsServiceFactory::GetForProfile(profile_)) {
     service->MountProviderRegistry()->AddObserver(this);
   }
 
@@ -1223,10 +1228,10 @@ void EventRouter::OnIOTaskStatus(const io_task::ProgressStatus& status) {
   // progress UI is already displayed.
   if (chromeos::features::IsUploadOfficeToCloudEnabled()) {
     if (status.IsCompleted()) {
-      odfs_interactions_.erase(status.task_id);
+      office_tasks_->odfs_interactions.erase(status.task_id);
     } else {
-      auto it = odfs_interactions_.find(status.task_id);
-      if (it == odfs_interactions_.end()) {
+      auto it = office_tasks_->odfs_interactions.find(status.task_id);
+      if (it == office_tasks_->odfs_interactions.end()) {
         auto interaction = MaybeStartInteractionWithODFS(
             status.GetDestinationFolder(), profile_);
         if (!interaction) {
@@ -1238,7 +1243,8 @@ void EventRouter::OnIOTaskStatus(const io_task::ProgressStatus& status) {
           }
         }
         if (interaction) {
-          odfs_interactions_[status.task_id] = std::move(interaction);
+          office_tasks_->odfs_interactions[status.task_id] =
+              std::move(interaction);
         }
       }
     }
@@ -1272,8 +1278,8 @@ void EventRouter::OnIOTaskStatus(const io_task::ProgressStatus& status) {
   // If any Files app window exists we send the progress to all of them.
   fmp::ProgressStatus event_status;
   event_status.task_id = status.task_id;
-  event_status.type = GetIOTaskType(status.type);
-  event_status.state = GetIOTaskState(status.state);
+  event_status.type = GetIoTaskType(status.type);
+  event_status.state = GetIoTaskState(status.state);
   if (status.policy_error.has_value()) {
     event_status.policy_error.emplace();
     event_status.policy_error->type =
@@ -1341,7 +1347,7 @@ void EventRouter::OnIOTaskStatus(const io_task::ProgressStatus& status) {
 
   // CopyOrMoveIOTask can enter PAUSED state when it needs the user to resolve
   // a file name conflict, or because it needs user to review a policy warning.
-  if (GetIOTaskState(status.state) == fmp::IOTaskState::kPaused) {
+  if (GetIoTaskState(status.state) == fmp::IoTaskState::kPaused) {
     fmp::PauseParams pause_params;
     if (status.pause_params.conflict_params) {
       pause_params.conflict_params.emplace();
@@ -1376,7 +1382,7 @@ void EventRouter::OnIOTaskStatus(const io_task::ProgressStatus& status) {
 
   // The TrashIOTask is the only IOTask that uses the output Entry's, so don't
   // try to resolve the outputs for all other IOTasks.
-  if (GetIOTaskType(status.type) != fmp::IOTaskType::kTrash ||
+  if (GetIoTaskType(status.type) != fmp::IoTaskType::kTrash ||
       outputs.size() == 0) {
     BroadcastIOTask(std::move(event_status));
     return;
@@ -1567,6 +1573,21 @@ void EventRouter::OnConnectionChanged(
                      FILE_MANAGER_PRIVATE_ON_DEVICE_CONNECTION_STATUS_CHANGED,
                  fmp::OnDeviceConnectionStatusChanged::kEventName,
                  fmp::OnDeviceConnectionStatusChanged::Create(result));
+}
+
+void EventRouter::OnLocalUserFilesPolicyChanged() {
+  if (!base::FeatureList::IsEnabled(features::kSkyVault)) {
+    return;
+  }
+  OnFileManagerPrefsChanged();
+}
+
+bool EventRouter::AddCloudOpenTask(const storage::FileSystemURL& file_url) {
+  return office_tasks_->cloud_open_tasks.emplace(file_url.path()).second;
+}
+
+void EventRouter::RemoveCloudOpenTask(const storage::FileSystemURL& file_url) {
+  office_tasks_->cloud_open_tasks.erase(file_url.path());
 }
 
 }  // namespace file_manager

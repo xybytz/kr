@@ -12,6 +12,16 @@
 
 #pragma mark - AppStateAgent
 
++ (instancetype)agentFromApp:(AppState*)appState {
+  for (id agent in appState.connectedAgents) {
+    if ([agent isMemberOfClass:[self class]]) {
+      return agent;
+    }
+  }
+
+  return nil;
+}
+
 - (void)setAppState:(AppState*)appState {
   // This should only be called once!
   DCHECK(!_appState);
@@ -66,8 +76,8 @@
 }
 
 - (void)appState:(AppState*)appState
-    didTransitionFromInitStage:(InitStage)previousInitStage {
-  if (appState.initStage == InitStageFinal) {
+    didTransitionFromInitStage:(AppInitStage)previousInitStage {
+  if (appState.initStage == AppInitStage::kFinal) {
     [self notifyOfConvenienceEventsIfNecessary];
   }
 }
@@ -76,7 +86,7 @@
 
 - (void)sceneState:(SceneState*)sceneState
     transitionedToActivationLevel:(SceneActivationLevel)level {
-  if (self.appState.initStage < InitStageFinal) {
+  if (self.appState.initStage < AppInitStage::kFinal) {
     return;
   }
 

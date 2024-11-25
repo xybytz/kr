@@ -10,26 +10,18 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.util.BrowserUiUtils.HostSurface;
 import org.chromium.components.browser_ui.widget.displaystyle.UiConfig;
 import org.chromium.url.GURL;
 
 /** The interface of the host surface which owns the magic stack. */
 public interface ModuleDelegateHost {
-
-    /** Gets the type of the host surface. */
-    @HostSurface
-    int getHostSurfaceType();
-
     /** Gets the starting position of the context menu which is shown by long clicking a module. */
     @NonNull
     Point getContextMenuStartPoint();
 
     /** Gets the instance of {@link UiConfig} of the host surface. */
     @Nullable
-    default UiConfig getUiConfig() {
-        return null;
-    }
+    UiConfig getUiConfig();
 
     /**
      * Called when the user clicks a module to open a URL.
@@ -51,9 +43,6 @@ public interface ModuleDelegateHost {
     /** Opens the settings to customize home modules. */
     void customizeSettings();
 
-    /** Returns whether the home surface has scrollable MV tiles. */
-    boolean showScrollableMvt();
-
     /**
      * Returns the start margin of the magic stack in pixel. It is used to calculate the scrolling
      * offset of the recyclerview item.
@@ -67,4 +56,12 @@ public interface ModuleDelegateHost {
     default Tab getTrackingTab() {
         return null;
     }
+
+    /**
+     * Returns whether the host is Start surface or NTP home surface which are shown at startup. The
+     * concept of the home surface is effectively the UI approach originally taken by Start surface,
+     * that tries to show a local tab resumption module. This value returned here is allowed to
+     * change at runtime for NTP.
+     */
+    boolean isHomeSurface();
 }

@@ -10,20 +10,21 @@
 #include "chrome/browser/about_flags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/flag_descriptions.h"
-#include "chrome/browser/optimization_guide/optimization_guide_keyed_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sync/sync_service_factory.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tabs/organization/metrics.h"
 #include "chrome/browser/ui/tabs/organization/request_factory.h"
+#include "chrome/browser/ui/tabs/organization/tab_organization_request.h"
 #include "chrome/browser/ui/tabs/organization/tab_organization_session.h"
+#include "chrome/browser/ui/tabs/organization/tab_organization_utils.h"
 #include "chrome/browser/ui/tabs/organization/tab_sensitivity_cache.h"
 #include "chrome/browser/ui/tabs/organization/trigger_policies.h"
 #include "chrome/browser/ui/webui/tab_search/tab_search_prefs.h"
-#include "components/sync/service/sync_user_settings.h"
+#include "components/signin/public/identity_manager/identity_manager.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "base/system/sys_info.h"
-#include "chrome/browser/ash/crosapi/browser_data_migrator.h"
 #include "chrome/browser/ash/ownership/owner_settings_service_ash.h"
 #include "chrome/browser/ash/ownership/owner_settings_service_ash_factory.h"
 #include "chrome/browser/ash/settings/about_flags.h"
@@ -31,15 +32,7 @@
 
 TabOrganizationService::TabOrganizationService(
     content::BrowserContext* browser_context)
-    : SettingsEnabledObserver(optimization_guide::proto::ModelExecutionFeature::
-                                  MODEL_EXECUTION_FEATURE_TAB_ORGANIZATION),
-      profile_(Profile::FromBrowserContext(browser_context)),
-      optimization_guide_keyed_service_(
-          OptimizationGuideKeyedServiceFactory::GetForProfile(profile_)) {
-  if (optimization_guide_keyed_service_) {
-    optimization_guide_keyed_service_->AddModelExecutionSettingsEnabledObserver(
-        this);
-  }
+    : profile_(Profile::FromBrowserContext(browser_context)) {
   tab_sensitivity_cache_ = std::make_unique<TabSensitivityCache>(
       Profile::FromBrowserContext(browser_context));
   trigger_backoff_ =
@@ -47,8 +40,11 @@ TabOrganizationService::TabOrganizationService(
   trigger_observer_ = std::make_unique<TabOrganizationTriggerObserver>(
       base::BindRepeating(&TabOrganizationService::OnTriggerOccured,
                           base::Unretained(this)),
-      browser_context, MakeTrigger(trigger_backoff_.get()));
+      browser_context,
+      MakeTrigger(trigger_backoff_.get(),
+                  Profile::FromBrowserContext(browser_context)));
 }
+
 TabOrganizationService::~TabOrganizationService() = default;
 
 void TabOrganizationService::OnTriggerOccured(const Browser* browser) {
@@ -85,13 +81,14 @@ TabOrganizationSession* TabOrganizationService::GetSessionForBrowser(
 
 TabOrganizationSession* TabOrganizationService::CreateSessionForBrowser(
     const Browser* browser,
-    const content::WebContents* base_session_webcontents) {
+    const TabOrganizationEntryPoint entrypoint,
+    const tabs::TabInterface* base_session_tab) {
   CHECK(!base::Contains(browser_session_map_, browser));
-
+  CHECK(browser->tab_strip_model()->SupportsTabGroups());
   std::pair<BrowserSessionMap::iterator, bool> pair =
       browser_session_map_.emplace(
           browser, TabOrganizationSession::CreateSessionForBrowser(
-                       browser, base_session_webcontents));
+                       browser, entrypoint, base_session_tab));
   browser->tab_strip_model()->AddObserver(this);
 
   for (TabOrganizationObserver& observer : observers_) {
@@ -103,20 +100,22 @@ TabOrganizationSession* TabOrganizationService::CreateSessionForBrowser(
 
 TabOrganizationSession* TabOrganizationService::ResetSessionForBrowser(
     const Browser* browser,
-    const content::WebContents* base_session_webcontents) {
+    const TabOrganizationEntryPoint entrypoint,
+    const tabs::TabInterface* base_session_tab) {
   browser->tab_strip_model()->RemoveObserver(this);
   if (base::Contains(browser_session_map_, browser)) {
     RemoveBrowserFromSessionMap(browser);
   }
 
-  return CreateSessionForBrowser(browser, base_session_webcontents);
+  return CreateSessionForBrowser(browser, entrypoint, base_session_tab);
 }
 
 void TabOrganizationService::RestartSessionAndShowUI(
     const Browser* browser,
-    const content::WebContents* base_session_webcontents) {
-  ResetSessionForBrowser(browser, base_session_webcontents);
-  StartRequestIfNotFRE(browser);
+    const TabOrganizationEntryPoint entrypoint,
+    const tabs::TabInterface* base_session_tab) {
+  ResetSessionForBrowser(browser, entrypoint, base_session_tab);
+  StartRequestIfNotFRE(browser, entrypoint);
   OnUserInvokedFeature(browser);
 }
 
@@ -127,48 +126,43 @@ void TabOrganizationService::OnUserInvokedFeature(const Browser* browser) {
 }
 
 bool TabOrganizationService::CanStartRequest() const {
-  const syncer::SyncService* const sync_service =
-      SyncServiceFactory::GetForProfile(profile_);
-  if (!sync_service) {
-    return false;
-  }
+  CHECK(TabOrganizationUtils::GetInstance()->IsEnabled(profile_));
 
-  // Sync must be enabled.
-  if (!sync_service->IsSyncFeatureEnabled()) {
-    return false;
-  }
-
-  // Sync must not be paused.
-  if (!sync_service->IsSyncFeatureActive()) {
-    return false;
-  }
-
-  // History Sync must be enabled.
-  if (!sync_service->GetUserSettings()->GetSelectedTypes().Has(
-          syncer::UserSelectableType::kHistory)) {
-    return false;
-  }
-
+// The signin flow is not used on ChromeOS.
+#if !BUILDFLAG(IS_CHROMEOS)
+  const signin::IdentityManager* const identity_manager(
+      IdentityManagerFactory::GetInstance()->GetForProfile(profile_));
+  const auto primary_account_info =
+      identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin);
+  const auto extended_account_info =
+      identity_manager->FindExtendedAccountInfo(primary_account_info);
+  return !extended_account_info.IsEmpty();
+#else
   return true;
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 }
 
-void TabOrganizationService::StartRequestIfNotFRE(const Browser* browser) {
+void TabOrganizationService::StartRequestIfNotFRE(
+    const Browser* browser,
+    const TabOrganizationEntryPoint entrypoint) {
   const PrefService* pref_service = browser->profile()->GetPrefs();
   bool show_fre =
       pref_service->GetBoolean(tab_search_prefs::kTabOrganizationShowFRE);
   if (!show_fre) {
-    StartRequest(browser);
+    StartRequest(browser, entrypoint);
   }
 }
 
-void TabOrganizationService::StartRequest(const Browser* browser) {
+void TabOrganizationService::StartRequest(
+    const Browser* browser,
+    const TabOrganizationEntryPoint entrypoint) {
   if (!CanStartRequest()) {
     return;
   }
 
   TabOrganizationSession* session = GetSessionForBrowser(browser);
   if (!session || session->IsComplete()) {
-    session = ResetSessionForBrowser(browser);
+    session = ResetSessionForBrowser(browser, entrypoint);
   }
   if (session->request()->state() ==
       TabOrganizationRequest::State::NOT_STARTED) {
@@ -190,17 +184,51 @@ void TabOrganizationService::OnTabStripModelChanged(
     // for that browser.
     case TabStripModelChange::kInserted:
     case TabStripModelChange::kRemoved: {
-      const auto find_result = std::find_if(
-          browser_session_map_.begin(), browser_session_map_.end(),
-
-          [&tab_strip_model](
-              std::pair<const Browser* const,
-                        std::unique_ptr<TabOrganizationSession>>& element) {
-            return element.first->tab_strip_model() == tab_strip_model;
-          });
-      if (find_result != browser_session_map_.end()) {
-        RemoveBrowserFromSessionMap(find_result->first);
+      const Browser* browser = GetBrowserForTabStripModel(tab_strip_model);
+      if (browser) {
+        RemoveBrowserFromSessionMap(browser);
       }
+      return;
+    }
+  }
+}
+
+void TabOrganizationService::OnTabGroupChanged(const TabGroupChange& change) {
+  const Browser* browser = GetBrowserForTabStripModel(change.model);
+  if (!browser) {
+    return;
+  }
+  TabOrganizationSession* session = GetSessionForBrowser(browser);
+  CHECK(session);
+  // Ignore changes when the session has already been accepted, to avoid acting
+  // on changes made by the session itself.
+  if (session->request()->state() == TabOrganizationRequest::State::COMPLETED) {
+    return;
+  }
+
+  switch (change.type) {
+    case TabGroupChange::kMoved:
+    case TabGroupChange::kEditorOpened: {
+      return;
+    }
+    // When a tab group's name has changed, destroy the session for that
+    // browser. Ignore color changes, as they do not affect tab organization
+    // data.
+    case TabGroupChange::kVisualsChanged: {
+      const TabGroupChange::VisualsChange* visuals_change =
+          change.GetVisualsChange();
+      if (visuals_change->old_visuals->title() !=
+          visuals_change->new_visuals->title()) {
+        RemoveBrowserFromSessionMap(browser);
+      }
+      return;
+    }
+    // When a tab group is added or removed on the tabstrip, or its contents
+    // changes, destroy the session for that browser.
+    case TabGroupChange::kCreated:
+    case TabGroupChange::kContentsChanged:
+    case TabGroupChange::kClosed: {
+      RemoveBrowserFromSessionMap(browser);
       return;
     }
   }
@@ -241,47 +269,13 @@ void TabOrganizationService::AcceptTabOrganization(
 }
 
 void TabOrganizationService::OnActionUIAccepted(const Browser* browser) {
-  StartRequestIfNotFRE(browser);
+  StartRequestIfNotFRE(browser, TabOrganizationEntryPoint::kProactive);
   OnUserInvokedFeature(browser);
   trigger_backoff_->Decrement();
 }
 
 void TabOrganizationService::OnActionUIDismissed(const Browser* browser) {
   trigger_backoff_->Increment();
-}
-
-void TabOrganizationService::Shutdown() {
-  if (optimization_guide_keyed_service_) {
-    optimization_guide_keyed_service_
-        ->RemoveModelExecutionSettingsEnabledObserver(this);
-    optimization_guide_keyed_service_ = nullptr;
-  }
-}
-
-void TabOrganizationService::PrepareToEnableOnRestart() {
-  // Ash-chrome uses a different FlagsStorage if the user is the owner. On
-  // ChromeOS verifying if the owner is signed in is async operation.
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  // Bypass possible incognito profile same as chrome://flags does.
-  Profile* original_profile = profile_->GetOriginalProfile();
-  // Chrome OS builds sometimes run on non-Chrome OS environments.
-  if ((base::SysInfo::IsRunningOnChromeOS() ||
-       skip_chrome_os_device_check_for_testing_) &&
-      ash::OwnerSettingsServiceAshFactory::GetForBrowserContext(
-          original_profile)) {
-    ash::OwnerSettingsServiceAsh* service =
-        ash::OwnerSettingsServiceAshFactory::GetForBrowserContext(
-            original_profile);
-    service->IsOwnerAsync(base::BindOnce(
-        &TabOrganizationService::EnableTabOrganizationFeaturesForChromeAsh,
-        weak_factory_.GetWeakPtr()));
-    return;
-  }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-  std::unique_ptr<flags_ui::FlagsStorage> flags_storage =
-      std::make_unique<flags_ui::PrefServiceFlagsStorage>(
-          g_browser_process->local_state());
-  EnableTabOrganizationFeatures(flags_storage.get());
 }
 
 void TabOrganizationService::RemoveBrowserFromSessionMap(
@@ -291,41 +285,18 @@ void TabOrganizationService::RemoveBrowserFromSessionMap(
   browser_session_map_.erase(browser);
 }
 
-void TabOrganizationService::EnableTabOrganizationFeatures(
-    flags_ui::FlagsStorage* flags_storage) {
-  about_flags::SetFeatureEntryEnabled(
-      flags_storage,
-      std::string(flag_descriptions::kChromeRefresh2023Id) +
-          flags_ui::kMultiSeparatorChar +
-          /*enable_feature_index=*/"1",
-      true);
-  about_flags::SetFeatureEntryEnabled(
-      flags_storage,
-      std::string(flag_descriptions::kChromeWebuiRefresh2023Id) +
-          flags_ui::kMultiSeparatorChar +
-          /*enable_feature_index=*/"1",
-      true);
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  ash::about_flags::FeatureFlagsUpdate(
-      *flags_storage, profile_->GetOriginalProfile()->GetPrefs())
-      .UpdateSessionManager();
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-}
+const Browser* TabOrganizationService::GetBrowserForTabStripModel(
+    const TabStripModel* tab_strip_model) {
+  const auto find_result = std::find_if(
+      browser_session_map_.begin(), browser_session_map_.end(),
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-void TabOrganizationService::EnableTabOrganizationFeaturesForChromeAsh(
-    bool is_owner) {
-  Profile* original_profile = profile_->GetOriginalProfile();
-  std::unique_ptr<flags_ui::FlagsStorage> flags_storage;
-  if (is_owner) {
-    flags_storage = std::make_unique<ash::about_flags::OwnerFlagsStorage>(
-        original_profile->GetPrefs(),
-        ash::OwnerSettingsServiceAshFactory::GetForBrowserContext(
-            original_profile));
-  } else {
-    flags_storage = std::make_unique<flags_ui::PrefServiceFlagsStorage>(
-        original_profile->GetPrefs());
+      [&tab_strip_model](
+          std::pair<const Browser* const,
+                    std::unique_ptr<TabOrganizationSession>>& element) {
+        return element.first->tab_strip_model() == tab_strip_model;
+      });
+  if (find_result == browser_session_map_.end()) {
+    return nullptr;
   }
-  EnableTabOrganizationFeatures(flags_storage.get());
+  return find_result->first;
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)

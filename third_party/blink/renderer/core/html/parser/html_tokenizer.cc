@@ -25,6 +25,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/core/html/parser/html_tokenizer.h"
 
 #include "third_party/blink/renderer/core/html/parser/html_entity_parser.h"
@@ -137,7 +142,7 @@ static inline bool VectorEqualsString(const LCharLiteralBuffer<32>& vector,
   if (!string.length())
     return true;
 
-  return Equal(string.Impl(), vector.data(), vector.size());
+  return Equal(string.Impl(), vector);
 }
 
 #define HTML_BEGIN_STATE(stateName) BEGIN_STATE(HTMLTokenizer, stateName)
@@ -329,14 +334,15 @@ bool HTMLTokenizer::NextTokenImpl(SegmentedString& source) {
         if (!input_stream_preprocessor_.Advance(source, cc))
           return HaveBufferedCharacterToken();
       }
-      if (cc == '&')
+      if (cc == '&') {
         HTML_ADVANCE_PAST_NON_NEWLINE_TO(kCharacterReferenceInRCDATAState);
-      else if (cc == '<')
+      } else if (cc == '<') {
         HTML_ADVANCE_PAST_NON_NEWLINE_TO(kRCDATALessThanSignState);
-      else if (cc == kEndOfFileMarker)
+      } else if (cc == kEndOfFileMarker) {
         return EmitEndOfFile(source);
-      else
+      } else {
         NOTREACHED();
+      }
     }
     END_STATE()
 
@@ -1106,14 +1112,15 @@ bool HTMLTokenizer::NextTokenImpl(SegmentedString& source) {
       // we were in when we were switched into this state. Rather than
       // keeping track of this explictly, we observe that the previous
       // state can be determined by additional_allowed_character_.
-      if (additional_allowed_character_ == '"')
+      if (additional_allowed_character_ == '"') {
         HTML_SWITCH_TO(kAttributeValueDoubleQuotedState);
-      else if (additional_allowed_character_ == '\'')
+      } else if (additional_allowed_character_ == '\'') {
         HTML_SWITCH_TO(kAttributeValueSingleQuotedState);
-      else if (additional_allowed_character_ == '>')
+      } else if (additional_allowed_character_ == '>') {
         HTML_SWITCH_TO(kAttributeValueUnquotedState);
-      else
+      } else {
         NOTREACHED();
+      }
     }
     END_STATE()
 
@@ -1686,7 +1693,6 @@ bool HTMLTokenizer::NextTokenImpl(SegmentedString& source) {
   }
 
   NOTREACHED();
-  return false;
 }
 
 bool HTMLTokenizer::SkipWhitespaces(SegmentedString& source, UChar& cc) {
@@ -1813,7 +1819,6 @@ bool HTMLTokenizer::EmitData(SegmentedString& source, UChar cc) {
         break;
       default:
         NOTREACHED();
-        break;
     }
   }
 }
@@ -1845,7 +1850,6 @@ bool HTMLTokenizer::EmitPLAINTEXT(SegmentedString& source, UChar cc) {
         break;
       default:
         NOTREACHED();
-        break;
     }
   }
 }
@@ -1856,7 +1860,7 @@ String HTMLTokenizer::BufferedCharacters() const {
   characters.ReserveCapacity(NumberOfBufferedCharacters());
   characters.Append('<');
   characters.Append('/');
-  characters.Append(temporary_buffer_.data(), temporary_buffer_.size());
+  characters.Append(temporary_buffer_);
   return characters.ToString();
 }
 
@@ -1873,7 +1877,7 @@ void HTMLTokenizer::UpdateStateFor(html_names::HTMLTag tag) {
     SetState(*state);
 }
 
-absl::optional<HTMLTokenizer::State> HTMLTokenizer::SpeculativeStateForTag(
+std::optional<HTMLTokenizer::State> HTMLTokenizer::SpeculativeStateForTag(
     html_names::HTMLTag tag) const {
   switch (tag) {
     case html_names::HTMLTag::kTextarea:
@@ -1892,9 +1896,9 @@ absl::optional<HTMLTokenizer::State> HTMLTokenizer::SpeculativeStateForTag(
     case html_names::HTMLTag::kNoscript:
       if (options_.scripting_flag)
         return HTMLTokenizer::kRAWTEXTState;
-      return absl::nullopt;
+      return std::nullopt;
     default:
-      return absl::nullopt;
+      return std::nullopt;
   }
 }
 
@@ -1908,17 +1912,8 @@ inline void HTMLTokenizer::AddToPossibleEndTag(LChar cc) {
 }
 
 inline bool HTMLTokenizer::IsAppropriateEndTag() {
-  if (buffered_end_tag_name_.size() != appropriate_end_tag_name_.size())
-    return false;
-
-  wtf_size_t num_characters = buffered_end_tag_name_.size();
-
-  for (wtf_size_t i = 0; i < num_characters; i++) {
-    if (buffered_end_tag_name_[i] != appropriate_end_tag_name_[i])
-      return false;
-  }
-
-  return true;
+  return base::span(buffered_end_tag_name_) ==
+         base::span(appropriate_end_tag_name_);
 }
 
 inline void HTMLTokenizer::ParseError() {

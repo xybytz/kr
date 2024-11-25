@@ -20,6 +20,12 @@ bool IsEphemeralUser(const AccountId& account_id) {
     return true;
   }
 
+  if (account_id == user_manager::StubAccountId()) {
+    // Stub user is never ephemeral. Mirrors the logic in
+    // UserManagerImpl::IsEphemeralAccountId.
+    return false;
+  }
+
   const UserSession* user_session =
       Shell::Get()->session_controller()->GetUserSessionByAccountId(account_id);
   if (!user_session) {
@@ -29,7 +35,7 @@ bool IsEphemeralUser(const AccountId& account_id) {
 
   // Public account(e.g. demo mode) should always be ephemeral.
   return user_session->user_info.is_ephemeral ||
-         user_session->user_info.type == user_manager::USER_TYPE_PUBLIC_ACCOUNT;
+         user_session->user_info.type == user_manager::UserType::kPublicAccount;
 }
 
 }  // namespace ash

@@ -31,9 +31,9 @@ class DropToStopRecordingButtonAnimation;
 // transform into a 3 second countdown timer.
 class ASH_EXPORT CaptureLabelView : public views::View,
                                     public gfx::AnimationDelegate {
- public:
-  METADATA_HEADER(CaptureLabelView);
+  METADATA_HEADER(CaptureLabelView, views::View)
 
+ public:
   CaptureLabelView(CaptureModeSession* capture_mode_session,
                    views::Button::PressedCallback on_capture_button_pressed,
                    views::Button::PressedCallback on_drop_down_button_pressed);
@@ -75,8 +75,9 @@ class ASH_EXPORT CaptureLabelView : public views::View,
   // views::View:
   void AddedToWidget() override;
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
-  void Layout() override;
-  gfx::Size CalculatePreferredSize() const override;
+  void Layout(PassKey) override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
   void OnThemeChanged() override;
 
   // gfx::AnimationDelegate:

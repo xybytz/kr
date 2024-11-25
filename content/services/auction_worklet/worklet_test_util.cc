@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/strings/strcat.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/to_string.h"
 #include "base/synchronization/waitable_event.h"
@@ -19,6 +20,7 @@
 #include "net/http/http_status_code.h"
 #include "net/http/http_util.h"
 #include "services/network/public/cpp/url_loader_completion_status.h"
+#include "services/network/public/mojom/shared_storage.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "services/network/test/test_url_loader_factory.h"
 
@@ -27,6 +29,8 @@ namespace auction_worklet {
 const char kJavascriptMimeType[] = "application/javascript";
 const char kJsonMimeType[] = "application/json";
 const char kWasmMimeType[] = "application/wasm";
+const char kAdAuctionTrustedSignalsMimeType[] =
+    "message/ad-auction-trusted-signals-response";
 
 const char kAllowFledgeHeader[] = "Ad-Auction-Allowed: true";
 
@@ -71,11 +75,21 @@ void AddResponse(network::TestURLLoaderFactory* url_loader_factory,
                                   std::move(redirects));
 }
 
-void AddJavascriptResponse(network::TestURLLoaderFactory* url_loader_factory,
-                           const GURL& url,
-                           const std::string content) {
-  AddResponse(url_loader_factory, url, kJavascriptMimeType, std::nullopt,
-              content);
+void AddJavascriptResponse(
+    network::TestURLLoaderFactory* url_loader_factory,
+    const GURL& url,
+    const std::string& content,
+    base::optional_ref<const std::string> extra_headers) {
+  std::string headers;
+  if (!extra_headers.has_value()) {
+    headers = kAllowFledgeHeader;
+  } else {
+    headers = base::StrCat(
+        {kAllowFledgeHeader, "\r\n",
+         base::TrimWhitespaceASCII(*extra_headers, base::TRIM_ALL)});
+  }
+  AddResponse(url_loader_factory, url, kJavascriptMimeType,
+              /*charset=*/std::nullopt, content, headers);
 }
 
 void AddJsonResponse(network::TestURLLoaderFactory* url_loader_factory,
@@ -124,46 +138,47 @@ base::WaitableEvent* WedgeV8Thread(AuctionV8Helper* v8_helper) {
   return event_handle;
 }
 
+TestAuctionSharedStorageHost::Request::Request(
+    network::mojom::SharedStorageModifierMethodPtr method,
+    mojom::AuctionWorkletFunction source_auction_worklet_function)
+    : method(std::move(method)),
+      source_auction_worklet_function(source_auction_worklet_function) {}
+
+TestAuctionSharedStorageHost::Request::~Request() = default;
+
+TestAuctionSharedStorageHost::Request::Request(const Request& other)
+    : method(other.method->Clone()),
+      source_auction_worklet_function(other.source_auction_worklet_function) {}
+
+TestAuctionSharedStorageHost::Request&
+TestAuctionSharedStorageHost::Request::operator=(const Request& other) {
+  if (this != &other) {
+    method = other.method->Clone();
+    source_auction_worklet_function = other.source_auction_worklet_function;
+  }
+  return *this;
+}
+
+TestAuctionSharedStorageHost::Request::Request(Request&& other) = default;
+TestAuctionSharedStorageHost::Request&
+TestAuctionSharedStorageHost::Request::operator=(Request&& other) = default;
+
 bool TestAuctionSharedStorageHost::Request::operator==(
     const Request& rhs) const {
-  return type == rhs.type && key == rhs.key && value == rhs.value &&
-         ignore_if_present == rhs.ignore_if_present;
+  return method == rhs.method &&
+         source_auction_worklet_function == rhs.source_auction_worklet_function;
 }
 
 TestAuctionSharedStorageHost::TestAuctionSharedStorageHost() = default;
 
 TestAuctionSharedStorageHost::~TestAuctionSharedStorageHost() = default;
 
-void TestAuctionSharedStorageHost::Set(const std::u16string& key,
-                                       const std::u16string& value,
-                                       bool ignore_if_present) {
+void TestAuctionSharedStorageHost::SharedStorageUpdate(
+    network::mojom::SharedStorageModifierMethodPtr method,
+    auction_worklet::mojom::AuctionWorkletFunction
+        source_auction_worklet_function) {
   observed_requests_.emplace_back(
-      Request{.type = RequestType::kSet,
-              .key = key,
-              .value = value,
-              .ignore_if_present = ignore_if_present});
-}
-
-void TestAuctionSharedStorageHost::Append(const std::u16string& key,
-                                          const std::u16string& value) {
-  observed_requests_.emplace_back(Request{.type = RequestType::kAppend,
-                                          .key = key,
-                                          .value = value,
-                                          .ignore_if_present = false});
-}
-
-void TestAuctionSharedStorageHost::Delete(const std::u16string& key) {
-  observed_requests_.emplace_back(Request{.type = RequestType::kDelete,
-                                          .key = key,
-                                          .value = std::u16string(),
-                                          .ignore_if_present = false});
-}
-
-void TestAuctionSharedStorageHost::Clear() {
-  observed_requests_.emplace_back(Request{.type = RequestType::kClear,
-                                          .key = std::u16string(),
-                                          .value = std::u16string(),
-                                          .ignore_if_present = false});
+      Request(std::move(method), source_auction_worklet_function));
 }
 
 void TestAuctionSharedStorageHost::ClearObservedRequests() {

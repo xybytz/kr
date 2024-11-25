@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/extensions/api/terminal/terminal_private_api.h"
 
 #include <cstdlib>
@@ -10,7 +15,6 @@
 #include <utility>
 #include <vector>
 
-#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/webui/settings/public/constants/routes.mojom.h"
 #include "base/command_line.h"
@@ -27,13 +31,16 @@
 #include "base/strings/string_util.h"
 #include "base/system/sys_info.h"
 #include "base/values.h"
+#include "chrome/browser/ash/crostini/crostini_features.h"
 #include "chrome/browser/ash/crostini/crostini_pref_names.h"
 #include "chrome/browser/ash/crostini/crostini_util.h"
 #include "chrome/browser/ash/guest_os/guest_id.h"
 #include "chrome/browser/ash/guest_os/guest_os_pref_names.h"
 #include "chrome/browser/ash/guest_os/guest_os_session_tracker.h"
+#include "chrome/browser/ash/guest_os/guest_os_session_tracker_factory.h"
 #include "chrome/browser/ash/guest_os/guest_os_terminal.h"
 #include "chrome/browser/ash/guest_os/public/guest_os_service.h"
+#include "chrome/browser/ash/guest_os/public/guest_os_service_factory.h"
 #include "chrome/browser/ash/guest_os/public/guest_os_terminal_provider.h"
 #include "chrome/browser/ash/guest_os/public/guest_os_terminal_provider_registry.h"
 #include "chrome/browser/ash/guest_os/public/types.h"
@@ -356,15 +363,17 @@ TerminalPrivateOpenTerminalProcessFunction::OpenProcess(
             << ", cmdline=" << cmdline.GetCommandLineString();
 
     Profile* profile = Profile::FromBrowserContext(browser_context());
-    auto* service = guest_os::GuestOsService::GetForProfile(profile);
+    auto* service = guest_os::GuestOsServiceFactory::GetForProfile(profile);
     guest_os::GuestOsTerminalProvider* provider = nullptr;
     if (service) {
       provider = service->TerminalProviderRegistry()->Get(*guest_id_);
     }
-    auto* tracker = guest_os::GuestOsSessionTracker::GetForProfile(profile);
+    auto* tracker =
+        guest_os::GuestOsSessionTrackerFactory::GetForProfile(profile);
     bool verbose = !(tracker && tracker->GetInfo(*guest_id_).has_value());
     auto status_printer = std::make_unique<StartupStatusPrinter>(
-        base::BindRepeating(&NotifyProcessOutput, browser_context(), startup_id,
+        base::BindRepeating(&NotifyProcessOutput, browser_context(),
+                            std::move(startup_id),
                             api::terminal_private::ToString(
                                 api::terminal_private::OutputType::kStdout)),
         verbose);
@@ -730,10 +739,16 @@ TerminalPrivateOpenSettingsSubpageFunction::
 
 ExtensionFunction::ResponseAction
 TerminalPrivateOpenSettingsSubpageFunction::Run() {
+  Profile* profile = ProfileManager::GetActiveUserProfile();
   // Ignore params->subpage for now, and always open crostini.
-  chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(
-      ProfileManager::GetActiveUserProfile(),
-      chromeos::settings::mojom::kCrostiniSectionPath);
+  if (crostini::CrostiniFeatures::Get()->IsEnabled(profile)) {
+    chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(
+        profile, chromeos::settings::mojom::kCrostiniDetailsSubpagePath);
+  } else {
+    chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(
+        profile, chromeos::settings::mojom::kAboutChromeOsSectionPath,
+        chromeos::settings::mojom::Setting::kSetUpCrostini);
+  }
   return RespondNow(NoArguments());
 }
 
@@ -741,9 +756,6 @@ TerminalPrivateGetOSInfoFunction::~TerminalPrivateGetOSInfoFunction() = default;
 
 ExtensionFunction::ResponseAction TerminalPrivateGetOSInfoFunction::Run() {
   base::Value::Dict info;
-  info.Set("alternative_emulator",
-           base::FeatureList::IsEnabled(
-               ash::features::kTerminalAlternativeEmulator));
   info.Set("tast", extensions::ExtensionRegistry::Get(browser_context())
                        ->enabled_extensions()
                        .Contains(extension_misc::kGuestModeTestExtensionId));

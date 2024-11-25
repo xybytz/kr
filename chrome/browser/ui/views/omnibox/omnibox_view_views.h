@@ -11,12 +11,12 @@
 #include <set>
 #include <string>
 
+#include "base/callback_list.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "components/omnibox/browser/omnibox_popup_view.h"
 #include "components/omnibox/browser/omnibox_view.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -35,7 +35,7 @@
 #include "ui/views/controls/textfield/textfield_controller.h"
 #include "ui/views/view.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "ui/base/ime/ash/input_method_manager.h"
 #endif
 
@@ -58,7 +58,7 @@ class OSExchangeData;
 class OmniboxViewViews
     : public OmniboxView,
       public views::Textfield,
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
       public ash::input_method::InputMethodManager::CandidateWindowObserver,
 #endif
       public views::TextfieldController,
@@ -83,9 +83,7 @@ class OmniboxViewViews
 
   // Exposes the RenderText for tests.
 #if defined(UNIT_TEST)
-  gfx::RenderText* GetRenderText() {
-    return views::Textfield::GetRenderText();
-  }
+  gfx::RenderText* GetRenderText() { return views::Textfield::GetRenderText(); }
 #endif
 
   // For use when switching tabs, this saves the current state onto the tab so
@@ -241,6 +239,7 @@ class OmniboxViewViews
                              const AutocompleteMatch& match) override;
   void OnBeforePossibleChange() override;
   bool OnAfterPossibleChange(bool allow_keyword_ui_change) override;
+  void OnKeywordPlaceholderTextChange() override;
   gfx::NativeView GetNativeView() const override;
   void ShowVirtualKeyboardIfEnabled() override;
   void HideImeIfNeeded() override;
@@ -265,8 +264,10 @@ class OmniboxViewViews
   void ExecuteTextEditCommand(ui::TextEditCommand command) override;
   bool ShouldShowPlaceholderText() const override;
 
+  void UpdateAccessibleValue() override;
+
   // ash::input_method::InputMethodManager::CandidateWindowObserver:
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   void CandidateWindowOpened(
       ash::input_method::InputMethodManager* manager) override;
   void CandidateWindowClosed(
@@ -298,7 +299,9 @@ class OmniboxViewViews
   void OnCompositingDidCommit(ui::Compositor* compositor) override;
   void OnCompositingStarted(ui::Compositor* compositor,
                             base::TimeTicks start_time) override;
-  void OnCompositingEnded(ui::Compositor* compositor) override;
+  void OnDidPresentCompositorFrame(
+      uint32_t frame_token,
+      const gfx::PresentationFeedback& feedback) override;
   void OnCompositingShuttingDown(ui::Compositor* compositor) override;
 
   // TemplateURLServiceObserver:
@@ -317,12 +320,20 @@ class OmniboxViewViews
   // Helper method to construct part of the context menu.
   void MaybeAddSendTabToSelfItem(ui::SimpleMenuModel* menu_contents);
 
+  // Called when the popup view becomes visible.
+  void OnPopupOpened();
+
+  // Helper for updating placeholder color depending on whether its a keyword or
+  // DSE placeholder.
+  void UpdatePlaceholderTextColor();
+
   // When true, the location bar view is read only and also is has a slightly
   // different presentation (smaller font size). This is used for popups.
   bool popup_window_mode_;
 
   // Owns either an OmniboxPopupViewViews or an OmniboxPopupViewWebUI.
   std::unique_ptr<OmniboxPopupView> popup_view_;
+  base::CallbackListSubscription popup_view_opened_subscription_;
 
   // Selection persisted across temporary text changes, like popup suggestions.
   std::vector<gfx::Range> saved_temporary_selection_ = {{}};
@@ -338,7 +349,7 @@ class OmniboxViewViews
   // |location_bar_view_| can be NULL in tests.
   raw_ptr<LocationBarView> location_bar_view_;
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   // True if the IME candidate window is open. When this is true, we want to
   // avoid showing the popup. So far, the candidate window is detected only
   // on Chrome OS.

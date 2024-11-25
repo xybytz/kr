@@ -11,17 +11,19 @@ import androidx.test.filters.SmallTest;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.language.AppLocaleUtils;
 import org.chromium.chrome.browser.language.LanguageTestUtils;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.chrome.browser.translate.FakeTranslateBridgeJni;
 import org.chromium.chrome.browser.translate.TranslateBridge;
 import org.chromium.chrome.browser.translate.TranslateBridgeJni;
@@ -35,13 +37,15 @@ import java.util.stream.Collectors;
 @RunWith(BaseRobolectricTestRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class LanguagesManagerTest {
-    @Rule public JniMocker mJniMocker = new JniMocker();
 
     private FakeTranslateBridgeJni mFakeTranslateBridge;
+    @Mock private Profile mProfile;
 
     @Before
     public void setUp() throws Exception {
         MockitoAnnotations.initMocks(this);
+        Mockito.when(mProfile.getOriginalProfile()).thenReturn(mProfile);
+        ProfileManager.setLastUsedProfileForTesting(mProfile);
         LanguageTestUtils.initializeResourceBundleForTesting();
         // Setup fake translate and language preferences.
         List<LanguageItem> chromeLanguages = FakeTranslateBridgeJni.getSimpleLanguageItemList();
@@ -56,7 +60,7 @@ public class LanguagesManagerTest {
                         neverLanguages,
                         alwaysLanguages,
                         targetLanguage);
-        mJniMocker.mock(TranslateBridgeJni.TEST_HOOKS, mFakeTranslateBridge);
+        TranslateBridgeJni.setInstanceForTesting(mFakeTranslateBridge);
     }
 
     @After
@@ -69,7 +73,7 @@ public class LanguagesManagerTest {
     @SmallTest
     public void testGetPotentialAcceptLanguages() {
         List<LanguageItem> items =
-                LanguagesManager.getInstance()
+                LanguagesManager.getForProfile(mProfile)
                         .getPotentialLanguages(LanguagesManager.LanguageListType.ACCEPT_LANGUAGES);
 
         // The default accept languages list is "sw,en,en-US". Those languages should not be
@@ -85,12 +89,12 @@ public class LanguagesManagerTest {
         Assert.assertEquals(items.get(0).getCode(), "af");
 
         // Add "af" to front of Accept-Languages.
-        items = LanguagesManager.getInstance().getUserAcceptLanguageItems();
-        items.add(0, LanguagesManager.getInstance().getLanguageItem("af"));
+        items = LanguagesManager.getForProfile(mProfile).getUserAcceptLanguageItems();
+        items.add(0, LanguagesManager.getForProfile(mProfile).getLanguageItem("af"));
         setOrder(items);
 
         items =
-                LanguagesManager.getInstance()
+                LanguagesManager.getForProfile(mProfile)
                         .getPotentialLanguages(LanguagesManager.LanguageListType.ACCEPT_LANGUAGES);
         Assert.assertFalse(containsLanguage(items, "en"));
         Assert.assertFalse(containsLanguage(items, "en-US"));
@@ -107,7 +111,7 @@ public class LanguagesManagerTest {
         AppLocaleUtils.setAppLanguagePref("sw");
 
         List<LanguageItem> items =
-                LanguagesManager.getInstance()
+                LanguagesManager.getForProfile(mProfile)
                         .getPotentialLanguages(LanguagesManager.LanguageListType.UI_LANGUAGES);
         Assert.assertFalse(containsLanguage(items, "en"));
         Assert.assertTrue(containsLanguage(items, "en-US"));
@@ -129,7 +133,7 @@ public class LanguagesManagerTest {
         AppLocaleUtils.setAppLanguagePref(AppLocaleUtils.APP_LOCALE_USE_SYSTEM_LANGUAGE);
 
         items =
-                LanguagesManager.getInstance()
+                LanguagesManager.getForProfile(mProfile)
                         .getPotentialLanguages(LanguagesManager.LanguageListType.UI_LANGUAGES);
 
         // Check that system default is not on the list and that German is.
@@ -143,7 +147,8 @@ public class LanguagesManagerTest {
     @Test
     @SmallTest
     public void testGetAllPossibleUiLanguages() {
-        List<LanguageItem> items = LanguagesManager.getInstance().getAllPossibleUiLanguages();
+        List<LanguageItem> items =
+                LanguagesManager.getForProfile(mProfile).getAllPossibleUiLanguages();
         List<String> itemCodes = items.stream().map(i -> i.getCode()).collect(Collectors.toList());
         Assert.assertEquals(itemCodes, Arrays.asList("af", "en-GB", "en-US", "fil", "hi", "sw"));
     }
@@ -153,7 +158,7 @@ public class LanguagesManagerTest {
     @SmallTest
     public void testGetPotentialTargetLanguages() {
         List<LanguageItem> items =
-                LanguagesManager.getInstance()
+                LanguagesManager.getForProfile(mProfile)
                         .getPotentialLanguages(LanguagesManager.LanguageListType.TARGET_LANGUAGES);
         Assert.assertFalse(containsLanguage(items, "en-US"));
         Assert.assertFalse(containsLanguage(items, "en-GB"));
@@ -166,17 +171,17 @@ public class LanguagesManagerTest {
         Assert.assertEquals(items.get(0).getCode(), "sw");
 
         // Set the target language to "fil" (Filipino) which is "tl" as a Translate language.
-        TranslateBridge.setDefaultTargetLanguage("fil");
+        TranslateBridge.setDefaultTargetLanguage(mProfile, "fil");
         items =
-                LanguagesManager.getInstance()
+                LanguagesManager.getForProfile(mProfile)
                         .getPotentialLanguages(LanguagesManager.LanguageListType.TARGET_LANGUAGES);
         Assert.assertFalse(containsLanguage(items, "fil"));
         Assert.assertTrue(containsLanguage(items, "en"));
 
         // Set the target language to "sw" (Swahili).
-        TranslateBridge.setDefaultTargetLanguage("sw");
+        TranslateBridge.setDefaultTargetLanguage(mProfile, "sw");
         items =
-                LanguagesManager.getInstance()
+                LanguagesManager.getForProfile(mProfile)
                         .getPotentialLanguages(LanguagesManager.LanguageListType.TARGET_LANGUAGES);
         Assert.assertFalse(containsLanguage(items, "sw"));
         Assert.assertTrue(containsLanguage(items, "fil"));
@@ -187,7 +192,7 @@ public class LanguagesManagerTest {
     @SmallTest
     public void testGetPotentialAlwaysLanguages() {
         List<LanguageItem> items =
-                LanguagesManager.getInstance()
+                LanguagesManager.getForProfile(mProfile)
                         .getPotentialLanguages(LanguagesManager.LanguageListType.ALWAYS_LANGUAGES);
         int itemsCount = items.size();
 
@@ -200,11 +205,11 @@ public class LanguagesManagerTest {
         Assert.assertEquals(items.get(0).getCode(), "sw");
 
         // Add English and Filipino to always translate languages.
-        TranslateBridge.setLanguageAlwaysTranslateState("en", true);
-        TranslateBridge.setLanguageAlwaysTranslateState("fil", true);
+        TranslateBridge.setLanguageAlwaysTranslateState(mProfile, "en", true);
+        TranslateBridge.setLanguageAlwaysTranslateState(mProfile, "fil", true);
 
         items =
-                LanguagesManager.getInstance()
+                LanguagesManager.getForProfile(mProfile)
                         .getPotentialLanguages(LanguagesManager.LanguageListType.ALWAYS_LANGUAGES);
         Assert.assertFalse(containsLanguage(items, "fil"));
         Assert.assertFalse(containsLanguage(items, "en"));
@@ -216,7 +221,7 @@ public class LanguagesManagerTest {
     @SmallTest
     public void testGetPotentialNeverLanguages() {
         List<LanguageItem> items =
-                LanguagesManager.getInstance()
+                LanguagesManager.getForProfile(mProfile)
                         .getPotentialLanguages(LanguagesManager.LanguageListType.NEVER_LANGUAGES);
         int itemsCount = items.size();
 
@@ -230,11 +235,11 @@ public class LanguagesManagerTest {
         // Check that the second language is "sw" from the Accept-Languages.
         Assert.assertEquals(items.get(0).getCode(), "sw");
 
-        TranslateBridge.setLanguageBlockedState("fil", true);
-        TranslateBridge.setLanguageBlockedState("sw", true);
+        TranslateBridge.setLanguageBlockedState(mProfile, "fil", true);
+        TranslateBridge.setLanguageBlockedState(mProfile, "sw", true);
 
         items =
-                LanguagesManager.getInstance()
+                LanguagesManager.getForProfile(mProfile)
                         .getPotentialLanguages(LanguagesManager.LanguageListType.NEVER_LANGUAGES);
         Assert.assertFalse(containsLanguage(items, "fil"));
         Assert.assertFalse(containsLanguage(items, "sw"));
@@ -260,6 +265,6 @@ public class LanguagesManagerTest {
         for (LanguageItem item : languages) {
             codes[i++] = item.getCode();
         }
-        TranslateBridge.setLanguageOrder(codes);
+        TranslateBridge.setLanguageOrder(mProfile, codes);
     }
 }

@@ -4,6 +4,7 @@
 
 #include "content/public/test/content_browser_test.h"
 
+#include "base/check.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/files/file.h"
@@ -20,17 +21,20 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/content_browser_test_content_browser_client.h"
+#include "content/public/test/test_browser_context.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_browser_context.h"
+#include "content/shell/browser/shell_paths.h"
 #include "content/shell/common/shell_switches.h"
 #include "content/test/test_content_client.h"
 #include "ui/events/platform/platform_event_source.h"
 
 #if BUILDFLAG(IS_MAC)
 #include "base/apple/foundation_util.h"
+#include "content/shell/app/paths_mac.h"
 #endif
 
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// TODO(crbug.com/40118868): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
 #if BUILDFLAG(IS_CHROMEOS_LACROS) || BUILDFLAG(IS_LINUX)
 #include "ui/base/ime/init/input_method_initializer.h"
@@ -61,9 +65,16 @@ ContentBrowserTest::ContentBrowserTest() {
   content_shell_path = content_shell_path.Append(
       FILE_PATH_LITERAL("Content Shell.app/Contents/MacOS/Content Shell"));
   CHECK(base::CreateDirectory(content_shell_path.DirName()));
-  CHECK(base::File(content_shell_path,
-                   base::File::FLAG_OPEN_ALWAYS | base::File::FLAG_WRITE)
-            .IsValid());
+  if (base::File file(content_shell_path,
+                      base::File::FLAG_OPEN_ALWAYS | base::File::FLAG_WRITE);
+      !file.IsValid()) {
+    // Diagnostics for https://crbug.com/345765743.
+    const auto last_errno = errno;
+    CHECK(base::PathExists(content_shell_path))
+        << "Failed to create \"" << content_shell_path
+        << "\": " << base::File::ErrorToString(file.error_details())
+        << "; errno = " << last_errno;
+  }
   file_exe_override_.emplace(base::FILE_EXE, content_shell_path,
                              /*is_absolute=*/false, /*create=*/false);
 #endif
@@ -83,10 +94,6 @@ ContentBrowserTest::ContentBrowserTest() {
 
   embedded_test_server()->AddDefaultHandlers(GetTestDataFilePath());
   embedded_https_test_server().AddDefaultHandlers(GetTestDataFilePath());
-
-  // Fail as quickly as possible during tests, rather than attempting to reset
-  // accessibility and continue when unserialization fails.
-  RenderFrameHostImpl::max_accessibility_resets_ = 0;
 }
 
 ContentBrowserTest::~ContentBrowserTest() {
@@ -107,6 +114,13 @@ void ContentBrowserTest::SetUp() {
       "Helper.app/Contents/MacOS/Content Shell Helper");
   command_line->AppendSwitchPath(switches::kBrowserSubprocessPath,
                                  subprocess_path);
+
+  // Needs to happen before ContentMain().
+  OverrideFrameworkBundlePath();
+  OverrideOuterBundlePath();
+  OverrideChildProcessPath();
+  OverrideSourceRootPath();
+  OverrideBundleID();
 #endif
 
 #if defined(USE_AURA) && defined(TOOLKIT_VIEWS) && !BUILDFLAG(IS_CASTOS)
@@ -117,7 +131,7 @@ void ContentBrowserTest::SetUp() {
 #endif
 
   // LinuxInputMethodContextFactory has to be initialized.
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// TODO(crbug.com/40118868): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
 #if BUILDFLAG(IS_CHROMEOS_LACROS) || BUILDFLAG(IS_LINUX)
   ui::InitializeInputMethodForTesting();
@@ -142,7 +156,7 @@ void ContentBrowserTest::TearDown() {
   }
 
   // LinuxInputMethodContextFactory has to be shutdown.
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// TODO(crbug.com/40118868): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
 #if BUILDFLAG(IS_CHROMEOS_LACROS) || BUILDFLAG(IS_LINUX)
   ui::ShutdownInputMethodForTesting();
@@ -209,6 +223,18 @@ Shell* ContentBrowserTest::CreateOffTheRecordBrowser() {
   return Shell::CreateNewWindow(
       ShellContentBrowserClient::Get()->off_the_record_browser_context(),
       GURL(url::kAboutBlankURL), nullptr, gfx::Size());
+}
+
+std::unique_ptr<TestBrowserContext>
+ContentBrowserTest::CreateTestBrowserContext() {
+  base::FilePath user_data_path;
+  EXPECT_TRUE(base::PathService::Get(SHELL_DIR_USER_DATA, &user_data_path));
+  base::FilePath browser_context_dir_path;
+  EXPECT_TRUE(base::CreateTemporaryDirInDir(
+      /*base_dir=*/user_data_path,
+      /*prefix=*/FILE_PATH_LITERAL("test_browser_context_"),
+      /*new_dir=*/&browser_context_dir_path));
+  return std::make_unique<TestBrowserContext>(browser_context_dir_path);
 }
 
 base::FilePath ContentBrowserTest::GetTestDataFilePath() {

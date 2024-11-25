@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 
+#include "ash/constants/ash_features.h"
 #include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "ash/webui/settings/public/constants/routes.mojom.h"
@@ -18,12 +19,12 @@
 #include "chrome/browser/ash/login/reauth_stats.h"
 #include "chrome/browser/ash/login/signin/token_handle_fetcher.h"
 #include "chrome/browser/ash/login/signin/token_handle_util.h"
-#include "chrome/browser/ash/login/users/chrome_user_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/notification_display_service.h"
+#include "chrome/browser/notifications/notification_display_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
@@ -249,9 +250,9 @@ void SigninErrorNotifier::OnErrorChanged() {
     return;
 
   if (!error_controller_->HasError()) {
-    NotificationDisplayService::GetForProfile(profile_)->Close(
+    NotificationDisplayServiceFactory::GetForProfile(profile_)->Close(
         NotificationHandler::Type::TRANSIENT, device_account_notification_id_);
-    NotificationDisplayService::GetForProfile(profile_)->Close(
+    NotificationDisplayServiceFactory::GetForProfile(profile_)->Close(
         NotificationHandler::Type::TRANSIENT,
         secondary_account_notification_id_);
     return;
@@ -302,7 +303,7 @@ void SigninErrorNotifier::HandleDeviceAccountError(
           device_account_notification_id_, error_message);
 
   // Update or add the notification.
-  NotificationDisplayService::GetForProfile(profile_)->Display(
+  NotificationDisplayServiceFactory::GetForProfile(profile_)->Display(
       NotificationHandler::Type::TRANSIENT, *notification,
       /*metadata=*/nullptr);
 }
@@ -359,7 +360,7 @@ void SigninErrorNotifier::OnCheckDummyGaiaTokenForAllAccounts(
   notification.SetSystemPriority();
 
   // Update or add the notification.
-  NotificationDisplayService::GetForProfile(profile_)->Display(
+  NotificationDisplayServiceFactory::GetForProfile(profile_)->Display(
       NotificationHandler::Type::TRANSIENT, notification,
       /*metadata=*/nullptr);
 }
@@ -367,7 +368,9 @@ void SigninErrorNotifier::OnCheckDummyGaiaTokenForAllAccounts(
 void SigninErrorNotifier::HandleSecondaryAccountReauthNotificationClick(
     std::optional<int> button_index) {
   chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(
-      profile_, chromeos::settings::mojom::kMyAccountsSubpagePath);
+      profile_, ash::features::IsOsSettingsRevampWayfindingEnabled()
+                    ? chromeos::settings::mojom::kPeopleSectionPath
+                    : chromeos::settings::mojom::kMyAccountsSubpagePath);
 }
 
 }  // namespace ash

@@ -7,19 +7,21 @@
 #import "base/notreached.h"
 #import "base/strings/sys_string_conversions.h"
 #import "components/signin/public/base/signin_metrics.h"
-#import "components/sync/base/features.h"
+#import "components/signin/public/identity_manager/identity_manager.h"
 #import "ios/chrome/browser/shared/coordinator/alert/alert_coordinator.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/shared/ui/elements/activity_overlay_coordinator.h"
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service.h"
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service_factory.h"
-#import "ios/chrome/browser/sync/model/sync_service_factory.h"
+#import "ios/chrome/browser/signin/model/identity_manager_factory.h"
 #import "ios/chrome/browser/ui/authentication/authentication_flow.h"
 #import "ios/chrome/browser/ui/authentication/authentication_ui_util.h"
+#import "ios/chrome/browser/ui/authentication/identity_chooser/identity_chooser_coordinator.h"
+#import "ios/chrome/browser/ui/authentication/identity_chooser/identity_chooser_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/authentication/signin/instant_signin/instant_signin_mediator.h"
+#import "ios/chrome/browser/ui/authentication/signin/signin_constants.h"
 #import "ios/chrome/browser/ui/authentication/signin/signin_coordinator+protected.h"
-#import "ios/chrome/browser/ui/authentication/unified_consent/identity_chooser/identity_chooser_coordinator.h"
-#import "ios/chrome/browser/ui/authentication/unified_consent/identity_chooser/identity_chooser_coordinator_delegate.h"
 
 @interface InstantSigninCoordinator () <AuthenticationFlowDelegate,
                                         IdentityChooserCoordinatorDelegate,
@@ -63,7 +65,7 @@
 }
 
 - (void)dealloc {
-  // TODO(crbug.com/1464966): Switch back to DCHECK if the number of reports is
+  // TODO(crbug.com/40067451): Switch back to DCHECK if the number of reports is
   // low.
   DUMP_WILL_BE_CHECK(!_mediator) << base::SysNSStringToUTF8([self description]);
 }
@@ -73,19 +75,16 @@
 - (void)start {
   [super start];
   signin_metrics::LogSignInStarted(self.accessPoint);
-  ChromeBrowserState* chromeState = self.browser->GetBrowserState();
-  syncer::SyncService* syncService =
-      SyncServiceFactory::GetForBrowserState(chromeState);
+  ProfileIOS* profile = self.browser->GetProfile();
   _mediator =
-      [[InstantSigninMediator alloc] initWithSyncService:syncService
-                                             accessPoint:self.accessPoint];
+      [[InstantSigninMediator alloc] initWithAccessPoint:self.accessPoint];
   _mediator.delegate = self;
 
   if (_identity) {
     // If an identity was selected, sign-in can start now.
     // No need to record the event of sign-in started here because the success
     // rate should be high. We're only interested in computing CTRs.
-    // TODO(crbug.com/1480440): This is always the default identity today,
+    // TODO(crbug.com/40071752): This is always the default identity today,
     // but nothing prevents a call with a different identity in the future.
     // Check and log accordingly. Logging SIGNED_IN_WITH_NON_DEFAULT_ACCOUNT
     // now would mix the data with the recording further below.
@@ -95,9 +94,17 @@
     return;
   }
 
-  ChromeAccountManagerService* accountManagerService =
-      ChromeAccountManagerServiceFactory::GetForBrowserState(chromeState);
-  if (!accountManagerService->HasIdentities()) {
+  bool hasAccountOnDevice = false;
+  if (AreSeparateProfilesForManagedAccountsEnabled()) {
+    signin::IdentityManager* identityManager =
+        IdentityManagerFactory::GetForProfile(profile);
+    hasAccountOnDevice = !identityManager->GetAccountsOnDevice().empty();
+  } else {
+    ChromeAccountManagerService* accountManagerService =
+        ChromeAccountManagerServiceFactory::GetForProfile(profile);
+    hasAccountOnDevice = accountManagerService->HasIdentities();
+  }
+  if (!hasAccountOnDevice) {
     signin_metrics::RecordConsistencyPromoUserAction(
         signin_metrics::AccountConsistencyPromoAction::
             ADD_ACCOUNT_STARTED_WITH_NO_DEVICE_ACCOUNT,
@@ -110,7 +117,7 @@
   // Otherwise, the user needs to choose an identity.
   signin_metrics::RecordConsistencyPromoUserAction(
       signin_metrics::AccountConsistencyPromoAction::SHOWN, self.accessPoint);
-  // TODO(crbug.com/1480440): Stop hardcoding "non-default identity" here. The
+  // TODO(crbug.com/40071752): Stop hardcoding "non-default identity" here. The
   // user might still choose the default one, or a new one, those map to
   // different actions. Instead, plumb the correct value to didSigninWithResult.
   _actionToRecordOnSuccess = signin_metrics::AccountConsistencyPromoAction::
@@ -145,9 +152,8 @@
     CHECK(!_activityOverlayCoordinator);
     [_identityChooserCoordinator stop];
     _identityChooserCoordinator = nil;
-    [self
-        runCompletionCallbackWithSigninResult:SigninCoordinatorResultInterrupted
-                               completionInfo:nil];
+    [self runCompletionWithSigninResult:SigninCoordinatorResultInterrupted
+                     completionIdentity:nil];
     if (completion) {
       completion();
     }
@@ -161,9 +167,8 @@
     // Drop the activity overlay if it exists.
     [_activityOverlayCoordinator stop];
     _activityOverlayCoordinator = nil;
-    [self
-        runCompletionCallbackWithSigninResult:SigninCoordinatorResultInterrupted
-                               completionInfo:nil];
+    [self runCompletionWithSigninResult:SigninCoordinatorResultInterrupted
+                     completionIdentity:nil];
     if (completion) {
       completion();
     }
@@ -211,9 +216,8 @@
   _identityChooserCoordinator = nil;
   if (!identity) {
     // If no identity was selected, the coordinator can be closed.
-    [self runCompletionCallbackWithSigninResult:
-              SigninCoordinatorResultCanceledByUser
-                                 completionInfo:nil];
+    [self runCompletionWithSigninResult:SigninCoordinatorResultCanceledByUser
+                     completionIdentity:nil];
     return;
   }
   _identity = identity;
@@ -232,17 +236,17 @@
     case SigninCoordinatorResultSuccess: {
       signin_metrics::RecordConsistencyPromoUserAction(_actionToRecordOnSuccess,
                                                        self.accessPoint);
-      SigninCompletionInfo* info =
-          [SigninCompletionInfo signinCompletionInfoWithIdentity:_identity];
-      [self runCompletionCallbackWithSigninResult:SigninCoordinatorResultSuccess
-                                   completionInfo:info];
+      [self runCompletionWithSigninResult:SigninCoordinatorResultSuccess
+                       completionIdentity:_identity];
       break;
     }
     case SigninCoordinatorResultDisabled:
     case SigninCoordinatorResultInterrupted:
     case SigninCoordinatorResultCanceledByUser:
-      [self runCompletionCallbackWithSigninResult:result completionInfo:nil];
+      [self runCompletionWithSigninResult:result completionIdentity:nil];
       break;
+    case SigninCoordinatorUINotAvailable:
+      NOTREACHED();
   }
 }
 
@@ -250,23 +254,32 @@
 
 // Starts the sign-in flow.
 - (void)startSignInOnlyFlow {
+  // TODO(crbug.com/375605482): Handle the case where the chosen identity is
+  // assigned to a different profile.
   [self showActivityOverlay];
   signin_metrics::RecordSigninUserActionForAccessPoint(self.accessPoint);
   // If this was triggered by the user tapping the default button in the sign-in
   // promo, give the user a chance to see the full email, by showing a snackbar.
-  auto postSigninAction =
-      _promoAction == signin_metrics::PromoAction::PROMO_ACTION_WITH_DEFAULT ||
-              !base::FeatureList::IsEnabled(
-                  syncer::kReplaceSyncPromosWithSignInPromos)
-          ? PostSignInAction::kShowSnackbar
-          : PostSignInAction::kNone;
+  auto postSigninActions =
+      _promoAction == signin_metrics::PromoAction::PROMO_ACTION_WITH_DEFAULT
+          ? PostSignInActionSet({PostSignInAction::kShowSnackbar})
+          : PostSignInActionSet({PostSignInAction::kNone});
+  if (self.accessPoint ==
+      signin_metrics::AccessPoint::ACCESS_POINT_BOOKMARK_MANAGER) {
+    postSigninActions.Put(PostSignInAction::kEnableUserSelectableTypeBookmarks);
+  } else if (self.accessPoint ==
+             signin_metrics::AccessPoint::ACCESS_POINT_READING_LIST) {
+    postSigninActions.Put(
+        PostSignInAction::kEnableUserSelectableTypeReadingList);
+  }
   AuthenticationFlow* authenticationFlow =
       [[AuthenticationFlow alloc] initWithBrowser:self.browser
                                          identity:_identity
                                       accessPoint:self.accessPoint
-                                 postSignInAction:postSigninAction
+                                postSignInActions:postSigninActions
                          presentingViewController:self.baseViewController];
   authenticationFlow.delegate = self;
+  authenticationFlow.precedingHistorySync = YES;
   [_mediator startSignInOnlyFlowWithAuthenticationFlow:authenticationFlow];
 }
 
@@ -277,36 +290,40 @@
                                           browser:self.browser
                                       accessPoint:self.accessPoint];
   __weak __typeof(self) weakSelf = self;
-  _addAccountSigninCoordinator.signinCompletion =
-      ^(SigninCoordinatorResult result, SigninCompletionInfo* info) {
-        [weakSelf addAccountDoneWithResult:result info:info];
-      };
+  _addAccountSigninCoordinator.signinCompletion = ^(
+      SigninCoordinatorResult result, id<SystemIdentity> resultIdentity) {
+    [weakSelf addAccountDoneWithResult:result resultIdentity:resultIdentity];
+  };
   [_addAccountSigninCoordinator start];
 }
 
 // Starts the sign-in flow if the identity has been selected, otherwise, it
 // ends this coordinator.
 - (void)addAccountDoneWithResult:(SigninCoordinatorResult)result
-                            info:(SigninCompletionInfo*)info {
+                  resultIdentity:(id<SystemIdentity>)resultIdentity {
   CHECK(_addAccountSigninCoordinator)
       << base::SysNSStringToUTF8([self description]);
   _addAccountSigninCoordinator = nil;
   switch (result) {
     case SigninCoordinatorResultSuccess:
-      _identity = info.identity;
+      _identity = resultIdentity;
       [self startSignInOnlyFlow];
       break;
     case SigninCoordinatorResultDisabled:
     case SigninCoordinatorResultInterrupted:
     case SigninCoordinatorResultCanceledByUser:
-      [self runCompletionCallbackWithSigninResult:result completionInfo:nil];
+      [self runCompletionWithSigninResult:result completionIdentity:nil];
       break;
+    case SigninCoordinatorUINotAvailable:
+      // InstantSigninCoordinator presents its child coordinators directly and
+      // does not use `ShowSigninCommand`.
+      NOTREACHED();
   }
 }
 
 // Adds an activity overlay to block the UI.
 - (void)showActivityOverlay {
-  // TODO(crbug.com/1464966): Switch back to DCHECK if the number of reports is
+  // TODO(crbug.com/40067451): Switch back to DCHECK if the number of reports is
   // low.
   DUMP_WILL_BE_CHECK(!_activityOverlayCoordinator);
   _activityOverlayCoordinator = [[ActivityOverlayCoordinator alloc]

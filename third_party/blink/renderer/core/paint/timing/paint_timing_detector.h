@@ -32,9 +32,9 @@ class LayoutObject;
 class LocalFrameView;
 class PropertyTreeStateOrAlias;
 class MediaTiming;
-class StyleFetchedImage;
 class TextPaintTimingDetector;
 class TextRecord;
+class StyleImage;
 
 // PaintTimingDetector receives signals regarding text and image paints and
 // orchestrates the functionality of more specific paint detectors
@@ -61,7 +61,7 @@ class CORE_EXPORT PaintTimingDetector
   static bool NotifyBackgroundImagePaint(
       const Node&,
       const Image&,
-      const StyleFetchedImage&,
+      const StyleImage&,
       const PropertyTreeStateOrAlias& current_paint_chunk_properties,
       const gfx::Rect& image_border);
   // Returns true if the image is a candidate for largest paint, otherwise
@@ -88,7 +88,7 @@ class CORE_EXPORT PaintTimingDetector
       uint64_t image_size,
       ImageRecord* image_record,
       double image_bpp,
-      absl::optional<WebURLRequest::Priority> priority);
+      std::optional<WebURLRequest::Priority> priority);
   bool NotifyMetricsIfLargestTextPaintChanged(base::TimeTicks, uint64_t size);
 
   void DidChangePerformanceTiming();
@@ -113,6 +113,10 @@ class CORE_EXPORT PaintTimingDetector
   }
   void RestartRecordingLCP();
   void SoftNavigationDetected(LocalDOMWindow*);
+  bool IsSoftNavigationDetected() const {
+    return soft_navigation_was_detected_;
+  }
+  bool WasLCPRestarted() const { return lcp_was_restarted_; }
 
   void RestartRecordingLCPToUkm();
 
@@ -140,7 +144,9 @@ class CORE_EXPORT PaintTimingDetector
   // opacity layer.
   void ReportIgnoredContent();
 
-  absl::optional<PaintTimingVisualizer>& Visualizer() { return visualizer_; }
+  std::optional<PaintTimingVisualizer>& Visualizer() { return visualizer_; }
+  bool IsUnrelatedSoftNavigationPaint(const Node&);
+
   void Trace(Visitor* visitor) const;
 
  private:
@@ -172,7 +178,7 @@ class CORE_EXPORT PaintTimingDetector
 
   Member<PaintTimingCallbackManagerImpl> callback_manager_;
 
-  absl::optional<PaintTimingVisualizer> visualizer_;
+  std::optional<PaintTimingVisualizer> visualizer_;
 
   // The LCP details reported to metrics (UKM).
   LargestContentfulPaintDetails lcp_details_for_metrics_;
@@ -237,7 +243,7 @@ class ScopedPaintTimingDetectorBlockPaintHook {
     }
   }
 
-  absl::optional<base::AutoReset<ScopedPaintTimingDetectorBlockPaintHook*>>
+  std::optional<base::AutoReset<ScopedPaintTimingDetectorBlockPaintHook*>>
       reset_top_;
   struct Data {
     STACK_ALLOCATED();
@@ -252,7 +258,7 @@ class ScopedPaintTimingDetectorBlockPaintHook {
     TextPaintTimingDetector* detector_;
     gfx::Rect aggregated_visual_rect_;
   };
-  absl::optional<Data> data_;
+  std::optional<Data> data_;
   static ScopedPaintTimingDetectorBlockPaintHook* top_;
 };
 

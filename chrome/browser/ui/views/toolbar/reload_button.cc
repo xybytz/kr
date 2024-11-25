@@ -19,7 +19,7 @@
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
-#include "ui/base/models/simple_menu_model.h"
+#include "ui/base/mojom/menu_source_type.mojom-forward.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/base/theme_provider.h"
 #include "ui/base/ui_base_features.h"
@@ -27,6 +27,8 @@
 #include "ui/base/window_open_disposition_utils.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/menus/simple_menu_model.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/metrics.h"
 #include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
@@ -39,13 +41,9 @@ ReloadButton::ReloadButton(CommandUpdater* command_updater)
                     CreateMenuModel(),
                     nullptr),
       command_updater_(command_updater),
-      reload_icon_(features::IsChromeRefresh2023()
-                       ? vector_icons::kReloadChromeRefreshIcon
-                       : vector_icons::kReloadIcon),
+      reload_icon_(vector_icons::kReloadChromeRefreshIcon),
       reload_touch_icon_(kReloadTouchIcon),
-      stop_icon_(features::IsChromeRefresh2023()
-                     ? kNavigateStopChromeRefreshIcon
-                     : kNavigateStopIcon),
+      stop_icon_(kNavigateStopChromeRefreshIcon),
       stop_touch_icon_(kNavigateStopTouchIcon),
       double_click_timer_delay_(
           base::Milliseconds(views::GetDoubleClickInterval())),
@@ -53,7 +51,8 @@ ReloadButton::ReloadButton(CommandUpdater* command_updater)
   SetVisibleMode(Mode::kReload);
   SetTriggerableEventFlags(ui::EF_LEFT_MOUSE_BUTTON |
                            ui::EF_MIDDLE_MOUSE_BUTTON);
-  SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_RELOAD));
+  GetViewAccessibility().SetName(l10n_util::GetStringUTF16(IDS_ACCNAME_RELOAD));
+  UpdateAccessibleHasPopup();
   SetProperty(views::kElementIdentifierKey, kReloadButtonElementId);
   SetID(VIEW_ID_RELOAD_BUTTON);
 }
@@ -115,6 +114,7 @@ bool ReloadButton::GetMenuEnabled() const {
 
 void ReloadButton::SetMenuEnabled(bool enable) {
   menu_enabled_ = enable;
+  UpdateAccessibleHasPopup();
 }
 
 void ReloadButton::OnMouseExited(const ui::MouseEvent& event) {
@@ -130,18 +130,11 @@ std::u16string ReloadButton::GetTooltipText(const gfx::Point& p) const {
       visible_mode_ == Mode::kReload ? reload_tooltip : IDS_TOOLTIP_STOP);
 }
 
-void ReloadButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  if (menu_enabled_)
-    ToolbarButton::GetAccessibleNodeData(node_data);
-  else
-    Button::GetAccessibleNodeData(node_data);
-}
-
 bool ReloadButton::ShouldShowMenu() {
   return menu_enabled_ && (visible_mode_ == Mode::kReload);
 }
 
-void ReloadButton::ShowDropDownMenu(ui::MenuSourceType source_type) {
+void ReloadButton::ShowDropDownMenu(ui::mojom::MenuSourceType source_type) {
   ToolbarButton::ShowDropDownMenu(source_type);  // Blocks.
   ChangeMode(intended_mode_, true);
 }
@@ -255,6 +248,14 @@ void ReloadButton::OnDoubleClickTimer() {
 void ReloadButton::OnStopToReloadTimer() {
   DCHECK(!IsMenuShowing());
   ChangeMode(intended_mode_, true);
+}
+
+void ReloadButton::UpdateAccessibleHasPopup() {
+  if (menu_enabled_ && menu_model()) {
+    GetViewAccessibility().SetHasPopup(ax::mojom::HasPopup::kMenu);
+  } else {
+    GetViewAccessibility().SetHasPopup(ax::mojom::HasPopup::kNone);
+  }
 }
 
 BEGIN_METADATA(ReloadButton)

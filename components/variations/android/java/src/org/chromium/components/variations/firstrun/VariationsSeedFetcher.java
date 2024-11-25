@@ -53,28 +53,31 @@ public class VariationsSeedFetcher {
     private static final NetworkTrafficAnnotationTag TRAFFIC_ANNOTATION =
             NetworkTrafficAnnotationTag.createComplete(
                     "chrome_variations_android",
-                    "semantics {"
-                            + "  sender: 'Chrome Variations Service (Android)'"
-                            + "  description:"
-                            + "      'The variations service is responsible for determining the '"
-                            + "      'state of field trials in Chrome. These field trials '"
-                            + "      'typically configure either A/B experiments, or launched '"
-                            + "      'features – oftentimes, critical security features.'"
-                            + "  trigger: 'This request is made once, on Chrome\\'s first run, to '"
-                            + "           'determine the initial state Chrome should be in.'"
-                            + "  data: 'None.'"
-                            + "  destination: GOOGLE_OWNED_SERVICE"
-                            + "}"
-                            + "policy {"
-                            + "  cookies_allowed: NO"
-                            + "  setting: 'Cannot be disabled in Settings. Chrome Variations are '"
-                            + "           'an essential part of Chrome releases.'"
-                            + "  chrome_policy {"
-                            + "    ChromeVariations {"
-                            + "      ChromeVariations: 2"
-                            + "    }"
-                            + "  }"
-                            + "}");
+                    """
+                    semantics {
+                      sender: "Chrome Variations Service (Android)"
+                      description:
+                          "The variations service is responsible for determining the state of "
+                          "field trials in Chrome. These field trials typically configure either "
+                          "A/B experiments, or launched features – oftentimes, critical security "
+                          "features."
+                      trigger:
+                        "This request is made once, on Chrome's first run, to determine the "
+                        "initial state Chrome should be in."
+                      data: "None."
+                      destination: GOOGLE_OWNED_SERVICE
+                    }
+                    policy {
+                      cookies_allowed: NO
+                      setting:
+                        "Cannot be disabled in Settings. Chrome Variations are an essential part "
+                        "of Chrome releases."
+                      chrome_policy {
+                        ChromeVariations {
+                          ChromeVariations: 2
+                        }
+                      }
+                    }""");
 
     @IntDef({VariationsPlatform.ANDROID, VariationsPlatform.ANDROID_WEBVIEW})
     @Retention(RetentionPolicy.SOURCE)
@@ -208,7 +211,8 @@ public class VariationsSeedFetcher {
 
     @VisibleForTesting
     protected String getConnectionString(SeedFetchParameters params) {
-        // TODO(crbug/1302862): Consider reusing native VariationsService::GetVariationsServerURL().
+        // TODO(crbug.com/40825562): Consider reusing native
+        // VariationsService::GetVariationsServerURL().
         String urlString;
         if (CommandLine.getInstance().hasSwitch(VariationsSwitches.VARIATIONS_SERVER_URL)) {
             urlString =
@@ -387,6 +391,7 @@ public class VariationsSeedFetcher {
         // Applies the {@code deltaPatch} to {@code previousSeedData} and returns the uncompressed
         // seed.
         @VisibleForTesting
+        @SuppressWarnings("IgnoredPureGetter")
         public static byte[] resolveDeltaCompression(
                 byte[] deltaPatch, byte[] previousSeedData, boolean isGzipCompressed)
                 throws DeltaPatchException {
@@ -402,7 +407,6 @@ public class VariationsSeedFetcher {
                         VariationsCompressionUtils.applyDeltaPatch(previousSeedData, deltaPatch);
 
                 // Parse seed to make sure the decompression was successful.
-                VariationsSeed.parseFrom(patchedSeed);
 
                 return patchedSeed;
             } catch (IOException e) {
@@ -544,14 +548,10 @@ public class VariationsSeedFetcher {
     /**
      * Download the variations seed data with platform and restrictMode.
      *
-     * @param platform the platform parameter to let server only return experiments which can be run
-     *     on that platform.
-     * @param restrictMode the restrict mode parameter to pass to the server via a URL param.
-     * @param milestone the milestone parameter to pass to the server via a URL param.
-     * @param channel the channel parameter to pass to the server via a URL param.
-     * @param curSeedInfo optional currently saved seed info to set the `If-None-Match` header.
+     * @param currInfo optional currently saved seed info to set the `If-None-Match` header.
      * @return the object holds the request result and seed data with its related header fields.
      */
+    @SuppressWarnings("Finally")
     public SeedFetchInfo downloadContent(SeedFetchParameters params, SeedInfo currInfo) {
         SeedFetchInfo fetchInfo = new SeedFetchInfo();
         HttpURLConnection connection = null;
@@ -644,6 +644,7 @@ public class VariationsSeedFetcher {
                 connection.disconnect();
             }
             recordFetchResultOrCode(fetchInfo.seedFetchResult);
+            // TODO(374177044): Remove SuppressWarnings("Finally").
             return fetchInfo;
         }
     }

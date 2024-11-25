@@ -15,7 +15,6 @@ import org.jni_zero.JNINamespace;
 import org.jni_zero.NativeMethods;
 
 import org.chromium.android_webview.AwLocaleConfig;
-import org.chromium.android_webview.ProductConfig;
 import org.chromium.android_webview.common.CommandLineUtil;
 import org.chromium.android_webview.common.PlatformServiceBridge;
 import org.chromium.android_webview.common.SafeModeController;
@@ -27,7 +26,6 @@ import org.chromium.base.PathUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.UmaRecorderHolder;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
@@ -59,16 +57,13 @@ public class WebViewApkApplication extends Application {
     @Override
     protected void attachBaseContext(Context context) {
         super.attachBaseContext(context);
-        // Using concatenation rather than %s to allow values to be inlined by R8.
         Log.i(
                 TAG,
-                "Launched version="
-                        + VersionConstants.PRODUCT_VERSION
-                        + " minSdkVersion="
-                        + BuildConfig.MIN_SDK_VERSION
-                        + " isBundle="
-                        + ProductConfig.IS_BUNDLE
-                        + " processName=%s",
+                "version=%s (%s) minSdkVersion=%s isBundle=%s processName=%s",
+                VersionConstants.PRODUCT_VERSION,
+                BuildConfig.VERSION_CODE,
+                BuildConfig.MIN_SDK_VERSION,
+                BuildConfig.IS_BUNDLE,
                 ContextUtils.getProcessName());
 
         ContextUtils.initApplicationContext(this);
@@ -107,7 +102,7 @@ public class WebViewApkApplication extends Application {
             PureJavaExceptionHandler.installHandler(AwPureJavaExceptionReporter::new);
             CustomAssertionHandler.installPreNativeHandler(AwPureJavaExceptionReporter::new);
 
-            // TODO(crbug.com/1182693): Do set up a native UMA recorder once we support recording
+            // TODO(crbug.com/40751605): Do set up a native UMA recorder once we support recording
             // metrics from native nonembedded code.
             UmaRecorderHolder.setUpNativeUmaRecorder(false);
 
@@ -171,8 +166,6 @@ public class WebViewApkApplication extends Application {
                                         devToolsLauncherActivity,
                                         newIconState,
                                         PackageManager.DONT_KILL_APP);
-                        RecordHistogram.recordBooleanHistogram(
-                                "Android.WebView.DevUi.MonochromeIconStateToggled", shouldShowIcon);
                     } catch (IllegalArgumentException e) {
                         // If MonochromeLauncherActivity doesn't exist, Dynamically showing/hiding
                         // DevTools launcher icon is not enabled in this package; e.g when it is a

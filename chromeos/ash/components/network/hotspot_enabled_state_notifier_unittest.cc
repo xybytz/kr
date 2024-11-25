@@ -274,23 +274,48 @@ TEST_F(HotspotEnabledStateNotifierTest, DisabledBySystem) {
             hotspotStateObserver()->last_disable_reason());
 
   SetHotspotStateInShill(shill::kTetheringStateActive);
-
   status_dict.Set(shill::kTetheringStatusIdleReasonProperty,
-                  shill::kTetheringIdleReasonUserExit);
+                  shill::kTetheringIdleReasonUpstreamNoInternet);
   network_state_test_helper_.manager_test()->SetManagerProperty(
       shill::kTetheringStatusProperty, base::Value(status_dict.Clone()));
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(hotspot_config::mojom::DisableReason::kUserInitiated,
+  EXPECT_EQ(hotspot_config::mojom::DisableReason::kUpstreamNoInternet,
             hotspotStateObserver()->last_disable_reason());
 
   SetHotspotStateInShill(shill::kTetheringStateActive);
-
   status_dict.Set(shill::kTetheringStatusIdleReasonProperty,
-                  shill::kTetheringIdleReasonClientStop);
+                  shill::kTetheringIdleReasonDownstreamLinkDisconnect);
   network_state_test_helper_.manager_test()->SetManagerProperty(
       shill::kTetheringStatusProperty, base::Value(status_dict.Clone()));
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(hotspot_config::mojom::DisableReason::kUserInitiated,
+  EXPECT_EQ(hotspot_config::mojom::DisableReason::kDownstreamLinkDisconnect,
+            hotspotStateObserver()->last_disable_reason());
+
+  SetHotspotStateInShill(shill::kTetheringStateActive);
+  status_dict.Set(shill::kTetheringStatusIdleReasonProperty,
+                  shill::kTetheringIdleReasonDownstreamNetworkDisconnect);
+  network_state_test_helper_.manager_test()->SetManagerProperty(
+      shill::kTetheringStatusProperty, base::Value(status_dict.Clone()));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(hotspot_config::mojom::DisableReason::kDownstreamNetworkDisconnect,
+            hotspotStateObserver()->last_disable_reason());
+
+  SetHotspotStateInShill(shill::kTetheringStateActive);
+  status_dict.Set(shill::kTetheringStatusIdleReasonProperty,
+                  shill::kTetheringIdleReasonUpstreamNotAvailable);
+  network_state_test_helper_.manager_test()->SetManagerProperty(
+      shill::kTetheringStatusProperty, base::Value(status_dict.Clone()));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(hotspot_config::mojom::DisableReason::kUpstreamNotAvailable,
+            hotspotStateObserver()->last_disable_reason());
+
+  SetHotspotStateInShill(shill::kTetheringStateActive);
+  status_dict.Set(shill::kTetheringStatusIdleReasonProperty,
+                  shill::kTetheringIdleReasonStartTimeout);
+  network_state_test_helper_.manager_test()->SetManagerProperty(
+      shill::kTetheringStatusProperty, base::Value(status_dict.Clone()));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(hotspot_config::mojom::DisableReason::kStartTimeout,
             hotspotStateObserver()->last_disable_reason());
 }
 

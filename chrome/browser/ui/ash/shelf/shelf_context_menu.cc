@@ -17,14 +17,13 @@
 #include "chrome/browser/apps/app_service/promise_apps/promise_app_registry_cache.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ash/app_list/arc/arc_app_utils.h"
-#include "chrome/browser/ash/app_list/internal_app/internal_app_metadata.h"
 #include "chrome/browser/ash/app_restore/full_restore_service.h"
+#include "chrome/browser/ash/app_restore/full_restore_service_factory.h"
 #include "chrome/browser/ash/crostini/crostini_util.h"
 #include "chrome/browser/ash/guest_os/guest_os_shelf_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/shelf/app_service/app_service_promise_app_shelf_context_menu.h"
 #include "chrome/browser/ui/ash/shelf/app_service/app_service_shelf_context_menu.h"
-#include "chrome/browser/ui/ash/shelf/app_service/app_service_shortcut_shelf_context_menu.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller_util.h"
 #include "chrome/browser/ui/ash/shelf/extension_shelf_context_menu.h"
@@ -80,12 +79,6 @@ std::unique_ptr<ShelfContextMenu> ShelfContextMenu::Create(
           ->PromiseAppRegistryCache()
           ->GetPromiseAppForStringPackageId(item->id.app_id)) {
     return std::make_unique<AppServicePromiseAppShelfContextMenu>(
-        controller, item, display_id);
-  }
-
-  if (ShelfControllerHelper::IsAppServiceShortcut(controller->profile(),
-                                                  item->id.app_id)) {
-    return std::make_unique<AppServiceShortcutShelfContextMenu>(
         controller, item, display_id);
   }
 
@@ -240,12 +233,12 @@ const gfx::VectorIcon& ShelfContextMenu::GetCommandIdVectorIcon(
     case ash::DEPRECATED_USE_LAUNCH_TYPE_PINNED:
     case ash::DEPRECATED_USE_LAUNCH_TYPE_FULLSCREEN:
       NOTREACHED();
-      return gfx::kNoneIcon;
     case ash::NOTIFICATION_CONTAINER:
       NOTREACHED() << "NOTIFICATION_CONTAINER does not have an icon, and it is "
                       "added to the model by NotificationMenuController.";
-      return gfx::kNoneIcon;
     case ash::SHUTDOWN_GUEST_OS:
+      return kShutdownGuestOsIcon;
+    case ash::SHUTDOWN_BRUSCHETTA_OS:
       return kShutdownGuestOsIcon;
     case ash::CROSTINI_USE_HIGH_DENSITY:
       return views::kLinuxHighDensityIcon;
@@ -258,10 +251,8 @@ const gfx::VectorIcon& ShelfContextMenu::GetCommandIdVectorIcon(
     case ash::LAUNCH_APP_SHORTCUT_LAST:
     case ash::COMMAND_ID_COUNT:
       NOTREACHED();
-      return gfx::kNoneIcon;
     default:
       NOTREACHED();
-      return gfx::kNoneIcon;
   }
 }
 
@@ -282,17 +273,20 @@ void ShelfContextMenu::AddPinMenu(ui::SimpleMenuModel* menu_model) {
       return;
     default:
       NOTREACHED();
-      return;
   }
   AddContextMenuOption(menu_model, ash::TOGGLE_PIN, menu_pin_string_id);
 }
 
 bool ShelfContextMenu::ExecuteCommonCommand(int command_id, int event_flags) {
   switch (command_id) {
-    case ash::LAUNCH_NEW:
-      ash::full_restore::FullRestoreService::MaybeCloseNotification(
-          controller()->profile());
+    case ash::LAUNCH_NEW: {
+      if (auto* full_restore_service =
+              ash::full_restore::FullRestoreServiceFactory::GetForProfile(
+                  controller()->profile())) {
+        full_restore_service->MaybeCloseNotification();
+      }
       [[fallthrough]];
+    }
     case ash::MENU_CLOSE:
     case ash::TOGGLE_PIN:
     case ash::SWAP_WITH_NEXT:
@@ -331,7 +325,6 @@ void ShelfContextMenu::AddContextMenuOption(ui::SimpleMenuModel* menu_model,
   if (type == ash::NOTIFICATION_CONTAINER) {
     NOTREACHED()
         << "NOTIFICATION_CONTAINER is added by NotificationMenuController.";
-    return;
   }
   menu_model->AddItemWithStringId(type, string_id);
 }

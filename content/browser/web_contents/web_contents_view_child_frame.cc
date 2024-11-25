@@ -107,7 +107,6 @@ void WebContentsViewChildFrame::SetInitialFocus() {
 
 gfx::Rect WebContentsViewChildFrame::GetViewBounds() const {
   NOTREACHED();
-  return gfx::Rect();
 }
 
 void WebContentsViewChildFrame::CreateView(gfx::NativeView context) {
@@ -152,6 +151,14 @@ void WebContentsViewChildFrame::FullscreenStateChanged(bool is_fullscreen) {}
 void WebContentsViewChildFrame::UpdateWindowControlsOverlay(
     const gfx::Rect& bounding_rect) {}
 
+BackForwardTransitionAnimationManager*
+WebContentsViewChildFrame::GetBackForwardTransitionAnimationManager() {
+  return nullptr;
+}
+
+void WebContentsViewChildFrame::DestroyBackForwardTransitionAnimationManager() {
+}
+
 void WebContentsViewChildFrame::RestoreFocus() {
   NOTREACHED();
 }
@@ -169,11 +176,6 @@ void WebContentsViewChildFrame::FocusThroughTabTraversal(bool reverse) {
 }
 
 DropData* WebContentsViewChildFrame::GetDropData() const {
-  NOTREACHED();
-  return nullptr;
-}
-
-void WebContentsViewChildFrame::TransferDragSecurityInfo(WebContentsView*) {
   NOTREACHED();
 }
 

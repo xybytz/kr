@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "ash/webui/os_feedback_ui/os_feedback_ui.h"
 
 #include <memory>
@@ -41,8 +46,6 @@ void SetUpWebUIDataSource(content::WebUIDataSource* source,
   source->AddResourcePath("test_loader.js", IDR_WEBUI_JS_TEST_LOADER_JS);
   source->AddResourcePath("test_loader_util.js",
                           IDR_WEBUI_JS_TEST_LOADER_UTIL_JS);
-  source->AddBoolean("isJellyEnabledForOsFeedback",
-                     ash::features::IsJellyEnabledForOsFeedback());
 }
 
 void AddLocalizedStrings(content::WebUIDataSource* source) {
@@ -121,6 +124,7 @@ void AddLocalizedStrings(content::WebUIDataSource* source) {
       {"bluetoothLogsMessage", IDS_FEEDBACK_TOOL_BLUETOOTH_LOGS_MESSAGE},
       {"wifiDebugLogsInfo", IDS_FEEDBACK_TOOL_WIFI_DEBUG_LOGS_CHECKBOX},
       {"wifiDebugLogsMessage", IDS_FEEDBACK_TOOL_WIFI_DEBUG_LOGS_MESSAGE},
+      {"wifiDebugLogsTitle", IDS_FEEDBACK_TOOL_WIFI_DEBUG_LOGS_TITLE},
       {"linkCrossDeviceDogfoodFeedbackInfo",
        IDS_FEEDBACK_TOOL_LINK_CROSS_DEVICE_DOGFOOD_FEEDBACK_INFO},
       {"linkCrossDeviceDogfoodFeedbackMessage",
@@ -168,7 +172,7 @@ OSFeedbackUI::OSFeedbackUI(
   AddLocalizedStrings(source);
 
   // Register common permissions for chrome-untrusted:// pages.
-  // TODO(https://crbug.com/1113568): Remove this after common permissions are
+  // TODO(crbug.com/40710326): Remove this after common permissions are
   // granted by default.
   auto* webui_allowlist = WebUIAllowlist::GetOrCreate(browser_context);
   const url::Origin untrusted_origin =
@@ -199,7 +203,6 @@ void OSFeedbackUI::BindInterface(
 
 void OSFeedbackUI::BindInterface(
     mojo::PendingReceiver<color_change_listener::mojom::PageHandler> receiver) {
-  CHECK(ash::features::IsJellyEnabledForOsFeedback());
   color_provider_handler_ = std::make_unique<ui::ColorChangeHandler>(
       web_ui()->GetWebContents(), std::move(receiver));
 }

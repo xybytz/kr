@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser.contextmenu;
 
+import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.BitmapDrawable;
@@ -12,30 +13,35 @@ import android.view.ViewStub;
 
 import androidx.test.filters.LargeTest;
 
+import org.junit.After;
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.FeatureList;
-import org.chromium.base.FeatureList.TestValues;
+import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.BaseActivityTestRule;
 import org.chromium.base.test.params.ParameterAnnotations;
 import org.chromium.base.test.params.ParameterSet;
 import org.chromium.base.test.params.ParameterizedRunner;
 import org.chromium.base.test.util.Batch;
+import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.contextmenu.ContextMenuCoordinator.ListItemType;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.modelutil.LayoutViewBuilder;
 import org.chromium.ui.modelutil.MVCListAdapter.ListItem;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
 import org.chromium.ui.modelutil.ModelListAdapter;
 import org.chromium.ui.modelutil.PropertyModel;
-import org.chromium.ui.test.util.BlankUiTestActivityTestCase;
+import org.chromium.ui.test.util.BlankUiTestActivity;
 import org.chromium.ui.test.util.NightModeTestUtils;
 
 import java.io.IOException;
@@ -45,10 +51,16 @@ import java.util.List;
 @RunWith(ParameterizedRunner.class)
 @ParameterAnnotations.UseRunnerDelegate(ChromeJUnit4RunnerDelegate.class)
 @Batch(Batch.PER_CLASS)
-public class ContextMenuRenderTest extends BlankUiTestActivityTestCase {
+public class ContextMenuRenderTest {
     @ParameterAnnotations.ClassParameter
     private static List<ParameterSet> sClassParams =
             new NightModeTestUtils.NightModeParams().getParameters();
+
+    @ClassRule
+    public static BaseActivityTestRule<BlankUiTestActivity> sActivityTestRule =
+            new BaseActivityTestRule<>(BlankUiTestActivity.class);
+
+    private static Activity sActivity;
 
     @Rule
     public ChromeRenderTestRule mRenderTestRule =
@@ -62,29 +74,25 @@ public class ContextMenuRenderTest extends BlankUiTestActivityTestCase {
     private View mView;
     private View mFrame;
 
-    private FeatureList.TestValues mTestValues;
-
     public ContextMenuRenderTest(boolean nightModeEnabled) {
         NightModeTestUtils.setUpNightModeForBlankUiTestActivity(nightModeEnabled);
         mRenderTestRule.setNightModeEnabled(nightModeEnabled);
     }
 
-    @Override
-    public void setUpTest() throws Exception {
-        super.setUpTest();
+    @BeforeClass
+    public static void setupSuite() {
+        sActivity = sActivityTestRule.launchActivity(null);
+    }
 
-        mTestValues = new TestValues();
-        mTestValues.addFeatureFlagOverride(
-                ChromeFeatureList.CONTEXT_MENU_POPUP_FOR_ALL_SCREEN_SIZES, false);
-        FeatureList.setTestValues(mTestValues);
-
-        TestThreadUtils.runOnUiThreadBlocking(
+    @Before
+    public void setUp() throws Exception {
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mListItems = new ModelList();
                     mAdapter = new ModelListAdapter(mListItems);
 
-                    getActivity().setContentView(R.layout.context_menu_fullscreen_container);
-                    mView = getActivity().findViewById(android.R.id.content);
+                    sActivity.setContentView(R.layout.context_menu_fullscreen_container);
+                    mView = sActivity.findViewById(android.R.id.content);
                     ((ViewStub) mView.findViewById(R.id.context_menu_stub)).inflate();
                     mFrame = mView.findViewById(R.id.context_menu_frame);
                     ContextMenuListView listView = mView.findViewById(R.id.context_menu_list_view);
@@ -109,15 +117,14 @@ public class ContextMenuRenderTest extends BlankUiTestActivityTestCase {
                 });
     }
 
-    @Override
-    public void tearDownTest() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+    @After
+    public void tearDown() throws Exception {
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     NightModeTestUtils.tearDownNightModeForBlankUiTestActivity();
                     mListItems.clear();
                 });
         FeatureList.setTestValues(null);
-        super.tearDownTest();
     }
 
     @Test
@@ -130,9 +137,8 @@ public class ContextMenuRenderTest extends BlankUiTestActivityTestCase {
     @Test
     @LargeTest
     @Feature({"RenderTest"})
+    @CommandLineFlags.Add(ChromeSwitches.FORCE_CONTEXT_MENU_POPUP)
     public void testContextMenuViewWithLink_Popup() throws IOException {
-        mTestValues.addFeatureFlagOverride(
-                ChromeFeatureList.CONTEXT_MENU_POPUP_FOR_ALL_SCREEN_SIZES, true);
         doTestContextMenuViewWithLink("context_menu_with_link_popup");
     }
 
@@ -146,14 +152,13 @@ public class ContextMenuRenderTest extends BlankUiTestActivityTestCase {
     @Test
     @LargeTest
     @Feature({"RenderTest"})
+    @CommandLineFlags.Add(ChromeSwitches.FORCE_CONTEXT_MENU_POPUP)
     public void testContextMenuViewWithImageLink_Popup() throws IOException {
-        mTestValues.addFeatureFlagOverride(
-                ChromeFeatureList.CONTEXT_MENU_POPUP_FOR_ALL_SCREEN_SIZES, true);
         doTestContextMenuViewWithImageLink("context_menu_with_image_link_popup");
     }
 
     private void doTestContextMenuViewWithLink(String id) throws IOException {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mListItems.add(
                             new ListItem(
@@ -161,27 +166,27 @@ public class ContextMenuRenderTest extends BlankUiTestActivityTestCase {
                                     getHeaderModel("", "www.google.com", false)));
                     mListItems.add(new ListItem(ListItemType.DIVIDER, new PropertyModel()));
                     mListItems.add(
-                            (new ListItem(
+                            new ListItem(
                                     ListItemType.CONTEXT_MENU_ITEM,
-                                    getItemModel("Open in new tab"))));
+                                    getItemModel("Open in new tab")));
                     mListItems.add(
-                            (new ListItem(
+                            new ListItem(
                                     ListItemType.CONTEXT_MENU_ITEM,
-                                    getItemModel("Open in incognito tab"))));
+                                    getItemModel("Open in incognito tab")));
                     mListItems.add(
-                            (new ListItem(
+                            new ListItem(
                                     ListItemType.CONTEXT_MENU_ITEM,
-                                    getItemModel("Copy link address"))));
+                                    getItemModel("Copy link address")));
                     mListItems.add(
-                            (new ListItem(
+                            new ListItem(
                                     ListItemType.CONTEXT_MENU_ITEM_WITH_ICON_BUTTON,
-                                    getShareItemModel("Share link"))));
+                                    getShareItemModel("Share link")));
                 });
         mRenderTestRule.render(mFrame, id);
     }
 
     private void doTestContextMenuViewWithImageLink(String id) throws IOException {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mListItems.add(
                             new ListItem(
@@ -189,41 +194,41 @@ public class ContextMenuRenderTest extends BlankUiTestActivityTestCase {
                                     getHeaderModel("Capybara", "www.google.com", true)));
                     mListItems.add(new ListItem(ListItemType.DIVIDER, new PropertyModel()));
                     mListItems.add(
-                            (new ListItem(
+                            new ListItem(
                                     ListItemType.CONTEXT_MENU_ITEM,
-                                    getItemModel("Open in new tab"))));
+                                    getItemModel("Open in new tab")));
                     mListItems.add(
-                            (new ListItem(
+                            new ListItem(
                                     ListItemType.CONTEXT_MENU_ITEM,
-                                    getItemModel("Open in incognito tab"))));
+                                    getItemModel("Open in incognito tab")));
                     mListItems.add(
-                            (new ListItem(
+                            new ListItem(
                                     ListItemType.CONTEXT_MENU_ITEM,
-                                    getItemModel("Copy link address"))));
+                                    getItemModel("Copy link address")));
                     mListItems.add(
-                            (new ListItem(
+                            new ListItem(
                                     ListItemType.CONTEXT_MENU_ITEM_WITH_ICON_BUTTON,
-                                    getShareItemModel("Share link"))));
+                                    getShareItemModel("Share link")));
                     mListItems.add(new ListItem(ListItemType.DIVIDER, new PropertyModel()));
                     mListItems.add(
-                            (new ListItem(
+                            new ListItem(
                                     ListItemType.CONTEXT_MENU_ITEM,
-                                    getItemModel("Open image in new tab"))));
+                                    getItemModel("Open image in new tab")));
                     mListItems.add(
-                            (new ListItem(
+                            new ListItem(
                                     ListItemType.CONTEXT_MENU_ITEM,
-                                    getItemModel("Download image"))));
+                                    getItemModel("Download image")));
                     mListItems.add(
-                            (new ListItem(
+                            new ListItem(
                                     ListItemType.CONTEXT_MENU_ITEM_WITH_ICON_BUTTON,
-                                    getShareItemModel("Share image"))));
+                                    getShareItemModel("Share image")));
                 });
         mRenderTestRule.render(mFrame, id);
     }
 
     private PropertyModel getHeaderModel(
             String title, CharSequence url, boolean hasImageThumbnail) {
-        PropertyModel model = ContextMenuHeaderCoordinator.buildModel(getActivity(), title, url);
+        PropertyModel model = ContextMenuHeaderCoordinator.buildModel(sActivity, title, url);
         Bitmap image;
         if (hasImageThumbnail) {
             image =
@@ -253,12 +258,13 @@ public class ContextMenuRenderTest extends BlankUiTestActivityTestCase {
     private PropertyModel getShareItemModel(String title) {
         final BitmapDrawable drawable =
                 new BitmapDrawable(
-                        getActivity().getResources(),
+                        sActivity.getResources(),
                         BitmapFactory.decodeFile(
                                 UrlUtils.getIsolatedTestFilePath(
                                         "chrome/test/data/android/UiCapture/dots.png")));
         return new PropertyModel.Builder(ContextMenuItemWithIconButtonProperties.ALL_KEYS)
                 .with(ContextMenuItemWithIconButtonProperties.TEXT, title)
+                .with(ContextMenuItemWithIconButtonProperties.ENABLED, true)
                 .with(ContextMenuItemWithIconButtonProperties.BUTTON_IMAGE, drawable)
                 .build();
     }

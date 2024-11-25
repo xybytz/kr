@@ -22,8 +22,9 @@ class SearchResultActionsView;
 // Base class for views that observe and display a search result
 class ASH_EXPORT SearchResultBaseView : public views::Button,
                                         public SearchResultObserver {
+  METADATA_HEADER(SearchResultBaseView, views::Button)
+
  public:
-  METADATA_HEADER(SearchResultBaseView);
   SearchResultBaseView();
 
   SearchResultBaseView(const SearchResultBaseView&) = delete;
@@ -97,7 +98,7 @@ class ASH_EXPORT SearchResultBaseView : public views::Button,
   bool SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) override;
 
   // views::View:
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+  void SetVisible(bool visible) override;
 
   SearchResultActionsView* actions_view() { return actions_view_; }
 
@@ -110,10 +111,15 @@ class ASH_EXPORT SearchResultBaseView : public views::Button,
     actions_view_ = actions_view;
   }
 
+  // views::Button:
+  void OnEnabledChanged() override;
+
  private:
   // If non-default result action was selected, clears the actions_view_'s
   // selection state.
   void ClearSelectedResultAction();
+
+  void UpdateAccessibleDefaultAction();
 
   // Whether the result is currently selected.
   bool selected_ = false;

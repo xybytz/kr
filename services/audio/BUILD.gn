@@ -69,8 +69,6 @@ source_set("audio") {
     "sync_reader.h",
     "system_info.cc",
     "system_info.h",
-    "user_input_monitor.cc",
-    "user_input_monitor.h",
   ]
 
   deps = [
@@ -187,7 +185,6 @@ source_set("tests") {
     "test/mock_group_member.h",
     "test/mock_log.cc",
     "test/mock_log.h",
-    "user_input_monitor_unittest.cc",
   ]
 
   deps = [
@@ -201,14 +198,6 @@ source_set("tests") {
     "//testing/gmock",
     "//testing/gtest",
   ]
-
-  if (is_chromeos_ash || is_castos || is_cast_android) {
-    sources += [
-      "public/cpp/sounds/audio_stream_handler_unittest.cc",
-      "public/cpp/sounds/sounds_manager_unittest.cc",
-    ]
-    data = [ "//media/test/data/" ]
-  }
 
   if (chrome_wide_echo_cancellation_supported) {
     sources += [

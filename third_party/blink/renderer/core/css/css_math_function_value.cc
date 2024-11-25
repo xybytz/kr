@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/css/css_math_function_value.h"
 
 #include "third_party/blink/renderer/core/css/css_math_expression_node.h"
+#include "third_party/blink/renderer/core/css/css_primitive_value.h"
 #include "third_party/blink/renderer/core/css/css_value_clamping_utils.h"
 #include "third_party/blink/renderer/platform/geometry/calculation_expression_node.h"
 #include "third_party/blink/renderer/platform/geometry/length.h"
@@ -78,6 +79,24 @@ double CSSMathFunctionValue::ComputeDegrees() const {
   return ClampToPermittedRange(*expression_->ComputeValueInCanonicalUnit());
 }
 
+double CSSMathFunctionValue::ComputeDegrees(
+    const CSSLengthResolver& length_resolver) const {
+  DCHECK_EQ(kCalcAngle, expression_->Category());
+  return ClampToPermittedRange(expression_->ComputeNumber(length_resolver));
+}
+
+double CSSMathFunctionValue::ComputeSeconds(
+    const CSSLengthResolver& length_resolver) const {
+  DCHECK_EQ(kCalcTime, expression_->Category());
+  return ClampToPermittedRange(expression_->ComputeNumber(length_resolver));
+}
+
+double CSSMathFunctionValue::ComputeDotsPerPixel(
+    const CSSLengthResolver& length_resolver) const {
+  DCHECK_EQ(kCalcResolution, expression_->Category());
+  return ClampToPermittedRange(expression_->ComputeNumber(length_resolver));
+}
+
 double CSSMathFunctionValue::ComputeLengthPx(
     const CSSLengthResolver& length_resolver) const {
   // |CSSToLengthConversionData| only resolves relative length units, but not
@@ -99,12 +118,40 @@ int CSSMathFunctionValue::ComputeInteger(
 
 double CSSMathFunctionValue::ComputeNumber(
     const CSSLengthResolver& length_resolver) const {
-  // |CSSToLengthConversionData| only resolves relative length units, but not
-  // percentages.
-  DCHECK_EQ(kCalcNumber, expression_->Category());
-  DCHECK(!expression_->HasPercentage());
+  if (expression_->Category() == kCalcNumber) {
+    // |CSSToLengthConversionData| only resolves relative length units, but not
+    // percentages.
+    DCHECK(!expression_->HasPercentage());
+  } else {
+    DCHECK_EQ(expression_->Category(), kCalcPercent);
+  }
   double value =
       ClampToPermittedRange(expression_->ComputeNumber(length_resolver));
+  if (expression_->Category() == kCalcPercent) {
+    value /= 100.0;
+  }
+  return std::isnan(value) ? 0.0 : value;
+}
+
+double CSSMathFunctionValue::ComputePercentage(
+    const CSSLengthResolver& length_resolver) const {
+  // |CSSToLengthConversionData| only resolves relative length units, but not
+  // percentages.
+  DCHECK_EQ(kCalcPercent, expression_->Category());
+  double value =
+      ClampToPermittedRange(expression_->ComputeNumber(length_resolver));
+  return std::isnan(value) ? 0.0 : value;
+}
+
+double CSSMathFunctionValue::ComputeValueInCanonicalUnit(
+    const CSSLengthResolver& length_resolver) const {
+  // Don't use it for mix of length and percentage or similar,
+  // as it would compute 10px + 10% to 20.
+  DCHECK(IsResolvableBeforeLayout());
+  std::optional<double> optional_value =
+      expression_->ComputeValueInCanonicalUnit(length_resolver);
+  DCHECK(optional_value.has_value());
+  double value = ClampToPermittedRange(optional_value.value());
   return std::isnan(value) ? 0.0 : value;
 }
 
@@ -164,11 +211,44 @@ double CSSMathFunctionValue::ClampToPermittedRange(double value) const {
   }
 }
 
-bool CSSMathFunctionValue::IsZero() const {
+CSSPrimitiveValue::BoolStatus CSSMathFunctionValue::IsZero() const {
+  if (!IsResolvableBeforeLayout()) {
+    return BoolStatus::kUnresolvable;
+  }
   if (expression_->ResolvedUnitType() == UnitType::kUnknown) {
-    return false;
+    return BoolStatus::kUnresolvable;
   }
   return expression_->IsZero();
+}
+
+CSSPrimitiveValue::BoolStatus CSSMathFunctionValue::IsOne() const {
+  if (!IsResolvableBeforeLayout()) {
+    return BoolStatus::kUnresolvable;
+  }
+  if (expression_->ResolvedUnitType() == UnitType::kUnknown) {
+    return BoolStatus::kUnresolvable;
+  }
+  return expression_->IsOne();
+}
+
+CSSPrimitiveValue::BoolStatus CSSMathFunctionValue::IsHundred() const {
+  if (!IsResolvableBeforeLayout()) {
+    return BoolStatus::kUnresolvable;
+  }
+  if (expression_->ResolvedUnitType() == UnitType::kUnknown) {
+    return BoolStatus::kUnresolvable;
+  }
+  return expression_->IsHundred();
+}
+
+CSSPrimitiveValue::BoolStatus CSSMathFunctionValue::IsNegative() const {
+  if (!IsResolvableBeforeLayout()) {
+    return BoolStatus::kUnresolvable;
+  }
+  if (expression_->ResolvedUnitType() == UnitType::kUnknown) {
+    return BoolStatus::kUnresolvable;
+  }
+  return expression_->IsNegative();
 }
 
 bool CSSMathFunctionValue::IsPx() const {
@@ -200,6 +280,19 @@ const CSSValue& CSSMathFunctionValue::PopulateWithTreeScope(
   return *MakeGarbageCollected<CSSMathFunctionValue>(
       &expression_->PopulateWithTreeScope(tree_scope),
       value_range_in_target_context_);
+}
+
+const CSSMathFunctionValue* CSSMathFunctionValue::TransformAnchors(
+    LogicalAxis logical_axis,
+    const TryTacticTransform& transform,
+    const WritingDirectionMode& writing_direction) const {
+  const CSSMathExpressionNode* transformed =
+      expression_->TransformAnchors(logical_axis, transform, writing_direction);
+  if (transformed != expression_) {
+    return MakeGarbageCollected<CSSMathFunctionValue>(
+        transformed, value_range_in_target_context_);
+  }
+  return this;
 }
 
 }  // namespace blink

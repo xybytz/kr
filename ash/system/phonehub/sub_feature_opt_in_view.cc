@@ -11,11 +11,12 @@
 #include "ash/style/typography.h"
 #include "ash/system/phonehub/phone_hub_view_ids.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/chromeos/devicetype_utils.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout_view.h"
@@ -142,13 +143,14 @@ void SubFeatureOptInView::SetStringIds() {
 
 void SubFeatureOptInView::UpdateLabels() {
   text_label_->SetText(l10n_util::GetStringUTF16(description_string_id_));
-  set_up_button_->SetAccessibleName(
+  set_up_button_->GetViewAccessibility().SetName(
       l10n_util::GetStringUTF16(set_up_button_accessible_name_string_id_));
-  dismiss_button_->SetAccessibleName(
+  dismiss_button_->GetViewAccessibility().SetName(
       l10n_util::GetStringUTF16(dismiss_button_accessible_name_string_id_));
 }
 
 void SubFeatureOptInView::InitLayout() {
+  // TODO(b/322067753): Replace usage of |AshColorProvider| with |cros_tokens|.
   const SkColor border_color = AshColorProvider::Get()->GetContentLayerColor(
       AshColorProvider::ContentLayerType::kSeparatorColor);
   SetBorder(views::CreateRoundedRectBorder(
@@ -182,10 +184,8 @@ void SubFeatureOptInView::InitLayout() {
   text_label_->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
   text_label_->SetText(l10n_util::GetStringUTF16(description_string_id_));
 
-  if (chromeos::features::IsJellyrollEnabled()) {
-    TypographyProvider::Get()->StyleLabel(ash::TypographyToken::kCrosHeadline1,
-                                          *text_label_);
-  }
+  TypographyProvider::Get()->StyleLabel(ash::TypographyToken::kCrosHeadline1,
+                                        *text_label_);
   text_label_->SetLineHeight(kTextLabelLineHeightDip);
 
   // Set up layout row for the buttons.
@@ -203,24 +203,27 @@ void SubFeatureOptInView::InitLayout() {
           IDS_ASH_PHONE_HUB_SUB_FEATURE_OPT_IN_DISMISS_BUTTON),
       PillButton::Type::kFloatingWithoutIcon, /*icon=*/nullptr));
   dismiss_button_->SetID(kSubFeatureOptInDismissButton);
-  dismiss_button_->SetAccessibleName(
+  dismiss_button_->GetViewAccessibility().SetName(
       l10n_util::GetStringUTF16(dismiss_button_accessible_name_string_id_));
   set_up_button_ = button_container->AddChildView(std::make_unique<PillButton>(
       base::BindRepeating(&SubFeatureOptInView::SetUpButtonPressed,
                           base::Unretained(this)),
       l10n_util::GetStringUTF16(
           IDS_ASH_PHONE_HUB_NOTIFICATION_OPT_IN_SET_UP_BUTTON),
-      PillButton::Type::kDefaultWithoutIcon, /*icon=*/nullptr));
+      PillButton::Type::kPrimaryWithoutIcon, /*icon=*/nullptr));
   set_up_button_->SetID(kSubFeatureOptInConfirmButton);
-  set_up_button_->SetAccessibleName(
+  set_up_button_->GetViewAccessibility().SetName(
       l10n_util::GetStringUTF16(set_up_button_accessible_name_string_id_));
 
   // By default, the description will be set to the tooltip text, but the title
   // is already announced in the accessible name.
-  set_up_button_->SetAccessibleDescription(
+  set_up_button_->GetViewAccessibility().SetDescription(
       u"", ax::mojom::DescriptionFrom::kAttributeExplicitlyEmpty);
-  dismiss_button_->SetAccessibleDescription(
+  dismiss_button_->GetViewAccessibility().SetDescription(
       u"", ax::mojom::DescriptionFrom::kAttributeExplicitlyEmpty);
 }
+
+BEGIN_METADATA(SubFeatureOptInView)
+END_METADATA
 
 }  // namespace ash

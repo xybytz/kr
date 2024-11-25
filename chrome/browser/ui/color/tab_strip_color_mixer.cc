@@ -164,12 +164,14 @@ void AddTabStripColorMixer(ui::ColorProvider* provider,
   mixer[kColorTabDividerFrameActive] = {kColorToolbar};
   mixer[kColorTabDividerFrameInactive] = {kColorToolbar};
 
-  // This is not used for text and this contrast ratio most closely matches the
-  // approved ChromeRefresh2023 colors
-  mixer[kColorTabDiscardRingFrameActive] = ui::PickGoogleColor(
-      gfx::kGoogleGrey500, kColorTabBackgroundInactiveFrameActive, 2.0);
-  mixer[kColorTabDiscardRingFrameInactive] = ui::PickGoogleColor(
-      gfx::kGoogleGrey500, kColorTabBackgroundInactiveFrameInactive, 2.0);
+#if !BUILDFLAG(IS_ANDROID)
+  mixer[kColorTabDiscardRingFrameActive] = ui::BlendForMinContrastWithSelf(
+      kColorTabBackgroundInactiveFrameActive,
+      color_utils::kMinimumVisibleContrastRatio);
+  mixer[kColorTabDiscardRingFrameInactive] = ui::BlendForMinContrastWithSelf(
+      kColorTabBackgroundInactiveFrameInactive,
+      color_utils::kMinimumVisibleContrastRatio);
+#endif
 
   mixer[kColorNewTabButtonForegroundFrameActive] = {
       kColorTabForegroundActiveFrameActive};
@@ -205,7 +207,7 @@ void AddTabStripColorMixer(ui::ColorProvider* provider,
   mixer[kColorTabStripControlButtonInkDropRipple] = ui::SetAlpha(
       kColorNewTabButtonInkDropFrameActive, std::ceil(0.14f * 255.0f));
   /* WebUI Tab Strip colors. */
-  // TODO(https://crbug.com/1060398): Update the tab strip color to respond
+  // TODO(crbug.com/40678998): Update the tab strip color to respond
   // appopriately to activation changes.
   mixer[kColorWebUiTabStripBackground] = {ui::kColorFrameActive};
   mixer[kColorWebUiTabStripFocusOutline] = {ui::kColorFocusableBorderFocused};

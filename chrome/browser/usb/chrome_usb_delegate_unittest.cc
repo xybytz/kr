@@ -5,6 +5,7 @@
 #include "chrome/browser/usb/chrome_usb_delegate.h"
 
 #include <optional>
+#include <string_view>
 
 #include "base/barrier_closure.h"
 #include "base/test/gmock_callback_support.h"
@@ -50,11 +51,11 @@ using ::base::test::TestFuture;
 using ::testing::_;
 using ::testing::NiceMock;
 
-constexpr base::StringPiece kDefaultTestUrl{"https://www.google.com/"};
-constexpr base::StringPiece kCrossOriginTestUrl{"https://www.chromium.org"};
+constexpr std::string_view kDefaultTestUrl{"https://www.google.com/"};
+constexpr std::string_view kCrossOriginTestUrl{"https://www.chromium.org"};
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-constexpr base::StringPiece kExtensionId{"ckcendljdlmgnhghiaomidhiiclmapok"};
+constexpr std::string_view kExtensionId{"ckcendljdlmgnhghiaomidhiiclmapok"};
 constexpr char kAllowlistedImprivataExtensionId[] =
     "dhodapiemamlmhlhblgcibabhdkohlen";
 constexpr char kAllowlistedSmartCardExtensionId[] =
@@ -177,7 +178,7 @@ class ChromeUsbTestHelper {
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   // Creates a fake extension with the specified `extension_id` so that it can
   // exercise behaviors that are only enabled for privileged extensions.
-  std::optional<GURL> CreateExtensionWithId(base::StringPiece extension_id) {
+  std::optional<GURL> CreateExtensionWithId(std::string_view extension_id) {
     auto manifest = base::Value::Dict()
                         .Set("name", "Fake extension")
                         .Set("description", "For testing.")
@@ -213,7 +214,7 @@ class ChromeUsbTestHelper {
 
   void SetUpWebPageOriginUrl() { origin_url_ = GURL(kDefaultTestUrl); }
 
-  void SetUpExtensionOriginUrl(base::StringPiece extension_id) {
+  void SetUpExtensionOriginUrl(std::string_view extension_id) {
     auto extension_url = CreateExtensionWithId(extension_id);
     ASSERT_TRUE(extension_url);
     origin_url_ = *extension_url;
@@ -452,7 +453,8 @@ class ChromeUsbTestHelper {
     mojo::Remote<device::mojom::UsbDevice> device;
     service->GetDevice(device_info->guid, device.BindNewPipeAndPassReceiver());
     if (web_contents) {
-      EXPECT_FALSE(web_contents->IsConnectedToUsbDevice());
+      EXPECT_FALSE(web_contents->IsCapabilityActive(
+          content::WebContents::CapabilityType::kUSB));
     }
 
     // Open the device. Now the WebContents should indicate we are connected to
@@ -466,7 +468,8 @@ class ChromeUsbTestHelper {
     device->Open(open_future.GetCallback());
     EXPECT_TRUE(open_future.Get()->is_success());
     if (web_contents) {
-      EXPECT_TRUE(web_contents->IsConnectedToUsbDevice());
+      EXPECT_TRUE(web_contents->IsCapabilityActive(
+          content::WebContents::CapabilityType::kUSB));
     }
 
     // Close the device and check that the WebContents no longer indicates we
@@ -479,7 +482,8 @@ class ChromeUsbTestHelper {
     device->Close(loop.QuitClosure());
     loop.Run();
     if (web_contents) {
-      EXPECT_FALSE(web_contents->IsConnectedToUsbDevice());
+      EXPECT_FALSE(web_contents->IsCapabilityActive(
+          content::WebContents::CapabilityType::kUSB));
     }
   }
 
@@ -506,7 +510,8 @@ class ChromeUsbTestHelper {
     mojo::Remote<device::mojom::UsbDevice> device;
     service->GetDevice(device_info->guid, device.BindNewPipeAndPassReceiver());
     if (web_contents) {
-      EXPECT_FALSE(web_contents->IsConnectedToUsbDevice());
+      EXPECT_FALSE(web_contents->IsCapabilityActive(
+          content::WebContents::CapabilityType::kUSB));
     }
 
     // Open the device. Now the WebContents should indicate we are connected to
@@ -520,7 +525,8 @@ class ChromeUsbTestHelper {
     device->Open(open_future.GetCallback());
     EXPECT_TRUE(open_future.Get()->is_success());
     if (web_contents) {
-      EXPECT_TRUE(web_contents->IsConnectedToUsbDevice());
+      EXPECT_TRUE(web_contents->IsCapabilityActive(
+          content::WebContents::CapabilityType::kUSB));
     }
 
     // Remove the device and check that the WebContents no longer indicates we
@@ -538,7 +544,8 @@ class ChromeUsbTestHelper {
       base::RunLoop().RunUntilIdle();
     }
     if (web_contents) {
-      EXPECT_FALSE(web_contents->IsConnectedToUsbDevice());
+      EXPECT_FALSE(web_contents->IsCapabilityActive(
+          content::WebContents::CapabilityType::kUSB));
     }
   }
 
@@ -567,14 +574,16 @@ class ChromeUsbTestHelper {
     mojo::Remote<device::mojom::UsbDevice> device;
     service->GetDevice(device_info->guid, device.BindNewPipeAndPassReceiver());
     if (web_contents) {
-      EXPECT_FALSE(web_contents->IsConnectedToUsbDevice());
+      EXPECT_FALSE(web_contents->IsCapabilityActive(
+          content::WebContents::CapabilityType::kUSB));
     }
 
     TestFuture<device::mojom::UsbOpenDeviceResultPtr> open_future;
     device->Open(open_future.GetCallback());
     EXPECT_TRUE(open_future.Get()->is_success());
     if (web_contents) {
-      EXPECT_TRUE(web_contents->IsConnectedToUsbDevice());
+      EXPECT_TRUE(web_contents->IsCapabilityActive(
+          content::WebContents::CapabilityType::kUSB));
     }
 
     TestFuture<bool> set_configuration_future;
@@ -621,14 +630,16 @@ class ChromeUsbTestHelper {
       service->GetDevice(ccid_device_info->guid,
                          device.BindNewPipeAndPassReceiver());
       if (web_contents) {
-        EXPECT_FALSE(web_contents->IsConnectedToUsbDevice());
+        EXPECT_FALSE(web_contents->IsCapabilityActive(
+            content::WebContents::CapabilityType::kUSB));
       }
 
       TestFuture<device::mojom::UsbOpenDeviceResultPtr> open_future;
       device->Open(open_future.GetCallback());
       EXPECT_TRUE(open_future.Get()->is_success());
       if (web_contents) {
-        EXPECT_TRUE(web_contents->IsConnectedToUsbDevice());
+        EXPECT_TRUE(web_contents->IsCapabilityActive(
+            content::WebContents::CapabilityType::kUSB));
       }
 
       TestFuture<bool> set_configuration_future;
@@ -726,7 +737,8 @@ class ChromeUsbDelegateRenderFrameTestBase
     mojo::Remote<device::mojom::UsbDevice> device;
     service->GetDevice(device_info->guid, device.BindNewPipeAndPassReceiver());
     if (web_contents) {
-      EXPECT_FALSE(web_contents->IsConnectedToUsbDevice());
+      EXPECT_FALSE(web_contents->IsCapabilityActive(
+          content::WebContents::CapabilityType::kUSB));
     }
 
     // Open the device. Now the WebContents should indicate we are connected to
@@ -737,7 +749,8 @@ class ChromeUsbDelegateRenderFrameTestBase
     device->Open(open_future.GetCallback());
     EXPECT_TRUE(open_future.Get()->is_success());
     if (web_contents) {
-      EXPECT_TRUE(web_contents->IsConnectedToUsbDevice());
+      EXPECT_TRUE(web_contents->IsCapabilityActive(
+          content::WebContents::CapabilityType::kUSB));
     }
 
     // Perform a cross-origin navigation. The WebContents should indicate we are
@@ -746,7 +759,8 @@ class ChromeUsbDelegateRenderFrameTestBase
     NavigateAndCommit(GURL(kCrossOriginTestUrl));
     base::RunLoop().RunUntilIdle();
     if (web_contents) {
-      EXPECT_FALSE(web_contents->IsConnectedToUsbDevice());
+      EXPECT_FALSE(web_contents->IsCapabilityActive(
+          content::WebContents::CapabilityType::kUSB));
     }
   }
 };
@@ -1036,5 +1050,5 @@ TEST(ChromeUsbDelegateBrowserContextTest, BrowserContextIsNull) {
                                  get_devices_future.GetCallback());
   EXPECT_TRUE(get_devices_future.Get().empty());
 
-  // TODO(crbug.com/1303193): Test GetDevice with null browser_context.
+  // TODO(crbug.com/40217296): Test GetDevice with null browser_context.
 }

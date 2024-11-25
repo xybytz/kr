@@ -140,6 +140,17 @@ void FakeAccessibilityService::DispatchAccessibilityLocationChange(
     std::move(automation_events_closure_).Run();
 }
 
+void FakeAccessibilityService::DispatchAccessibilityScrollChange(
+    const ui::AXTreeID& tree_id,
+    int node_id,
+    int scroll_x,
+    int scroll_y) {
+  scroll_changes_.emplace_back(tree_id);
+  if (automation_events_closure_) {
+    std::move(automation_events_closure_).Run();
+  }
+}
+
 void FakeAccessibilityService::DispatchGetTextLocationResult(
     const ui::AXActionData& data,
     const std::optional<gfx::Rect>& rect) {}
@@ -274,6 +285,13 @@ void FakeAccessibilityService::
   for (auto& ui_client : ui_remotes_) {
     ui_client->SendSyntheticKeyEventForShortcutOrNavigation(
         mojo::Clone(key_event));
+  }
+}
+
+void FakeAccessibilityService::RequestSendSyntheticMouseEvent(
+    ax::mojom::SyntheticMouseEventPtr mouse_event) {
+  for (auto& ui_client : ui_remotes_) {
+    ui_client->SendSyntheticMouseEvent(mojo::Clone(mouse_event));
   }
 }
 

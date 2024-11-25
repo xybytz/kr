@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <optional>
+
 #include "base/time/time.h"
 #include "chrome/browser/ui/hats/hats_service.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/content_settings/core/common/content_settings.h"
 #include "components/permissions/constants.h"
 #include "components/permissions/features.h"
 #include "components/permissions/permission_hats_trigger_helper.h"
@@ -41,6 +44,8 @@ class PermissionHatsTriggerUnitTest : public testing::Test {
     std::string ignored_prompts_maximum_age = "10m";
     std::string survey_display_time = "OnPromptResolved";
     std::string one_time_prompts_decided_bucket = "";
+    std::string pepc_prompt_position_filter = "";
+    std::string initial_permission_status_filter = "";
   };
 
   void SetupFeatureParams(FeatureParams params) {
@@ -58,7 +63,10 @@ class PermissionHatsTriggerUnitTest : public testing::Test {
            {"ignored_prompts_maximum_age", params.ignored_prompts_maximum_age},
            {"survey_display_time", params.survey_display_time},
            {"one_time_prompts_decided_bucket",
-            params.one_time_prompts_decided_bucket}}}},
+            params.one_time_prompts_decided_bucket},
+           {"pepc_prompt_position_filter", params.pepc_prompt_position_filter},
+           {"initial_permission_status_filter",
+            params.initial_permission_status_filter}}}},
         {});
   }
 
@@ -87,7 +95,7 @@ TEST_F(PermissionHatsTriggerUnitTest, SingleValuedFiltersTriggerCorrectly) {
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -97,14 +105,13 @@ TEST_F(PermissionHatsTriggerUnitTest, SingleValuedFiltersTriggerCorrectly) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // // Wrong action, should not trigger
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::DENIED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -114,14 +121,13 @@ TEST_F(PermissionHatsTriggerUnitTest, SingleValuedFiltersTriggerCorrectly) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // // Wrong request type, should not trigger
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kCameraStream,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -131,14 +137,13 @@ TEST_F(PermissionHatsTriggerUnitTest, SingleValuedFiltersTriggerCorrectly) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Wrong prompt disposition, should not trigger
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::MESSAGE_UI,
@@ -148,14 +153,13 @@ TEST_F(PermissionHatsTriggerUnitTest, SingleValuedFiltersTriggerCorrectly) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Wrong prompt disposition reason, should not trigger
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -165,14 +169,13 @@ TEST_F(PermissionHatsTriggerUnitTest, SingleValuedFiltersTriggerCorrectly) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // No gesture, should not trigger
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -182,14 +185,13 @@ TEST_F(PermissionHatsTriggerUnitTest, SingleValuedFiltersTriggerCorrectly) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Wrong channel, should not trigger
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -199,8 +201,7 @@ TEST_F(PermissionHatsTriggerUnitTest, SingleValuedFiltersTriggerCorrectly) {
                   "stable", permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 }
 
 TEST_F(PermissionHatsTriggerUnitTest, EmptyFiltersShouldAlwaysTrigger) {
@@ -222,7 +223,7 @@ TEST_F(PermissionHatsTriggerUnitTest, EmptyFiltersShouldAlwaysTrigger) {
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -232,14 +233,13 @@ TEST_F(PermissionHatsTriggerUnitTest, EmptyFiltersShouldAlwaysTrigger) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Matching call, should trigger
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::GRANTED_ONCE,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -249,14 +249,13 @@ TEST_F(PermissionHatsTriggerUnitTest, EmptyFiltersShouldAlwaysTrigger) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Matching call, should trigger
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::DENIED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -266,14 +265,13 @@ TEST_F(PermissionHatsTriggerUnitTest, EmptyFiltersShouldAlwaysTrigger) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Matching call, should trigger
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::DISMISSED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -283,14 +281,13 @@ TEST_F(PermissionHatsTriggerUnitTest, EmptyFiltersShouldAlwaysTrigger) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Matching call, should trigger
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::IGNORED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -300,8 +297,7 @@ TEST_F(PermissionHatsTriggerUnitTest, EmptyFiltersShouldAlwaysTrigger) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 }
 
 TEST_F(PermissionHatsTriggerUnitTest, CSVFiltersTriggerForAllConfiguredValues) {
@@ -321,7 +317,7 @@ TEST_F(PermissionHatsTriggerUnitTest, CSVFiltersTriggerForAllConfiguredValues) {
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -331,14 +327,13 @@ TEST_F(PermissionHatsTriggerUnitTest, CSVFiltersTriggerForAllConfiguredValues) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_4_5,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Matching call, should trigger
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::DISMISSED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -348,14 +343,13 @@ TEST_F(PermissionHatsTriggerUnitTest, CSVFiltersTriggerForAllConfiguredValues) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Wrong action, should not trigger
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::DENIED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -365,14 +359,13 @@ TEST_F(PermissionHatsTriggerUnitTest, CSVFiltersTriggerForAllConfiguredValues) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Wrong action, should not trigger
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::GRANTED_ONCE,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -382,14 +375,13 @@ TEST_F(PermissionHatsTriggerUnitTest, CSVFiltersTriggerForAllConfiguredValues) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Wrong action, should not trigger
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::IGNORED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -399,14 +391,13 @@ TEST_F(PermissionHatsTriggerUnitTest, CSVFiltersTriggerForAllConfiguredValues) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Wrong one time prompt count bucket, should not trigger
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::DISMISSED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -416,8 +407,7 @@ TEST_F(PermissionHatsTriggerUnitTest, CSVFiltersTriggerForAllConfiguredValues) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_6_10,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 }
 
 TEST_F(PermissionHatsTriggerUnitTest, FilterConfigurationHandlesEdgeCases) {
@@ -437,7 +427,7 @@ TEST_F(PermissionHatsTriggerUnitTest, FilterConfigurationHandlesEdgeCases) {
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -447,14 +437,13 @@ TEST_F(PermissionHatsTriggerUnitTest, FilterConfigurationHandlesEdgeCases) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Matching call, should trigger
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kGeolocation,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -464,8 +453,7 @@ TEST_F(PermissionHatsTriggerUnitTest, FilterConfigurationHandlesEdgeCases) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 }
 
 TEST_F(PermissionHatsTriggerUnitTest, ProductSpecificFieldsAreReported) {
@@ -480,7 +468,7 @@ TEST_F(PermissionHatsTriggerUnitTest, ProductSpecificFieldsAreReported) {
 
   auto survey_data = permissions::PermissionHatsTriggerHelper::
       SurveyProductSpecificData::PopulateFrom(
-          permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+          permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
               permissions::RequestType::kNotifications,
               permissions::PermissionAction::GRANTED,
               permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -489,7 +477,7 @@ TEST_F(PermissionHatsTriggerUnitTest, ProductSpecificFieldsAreReported) {
               permissions::kOnPromptResolved, base::Minutes(1),
               permissions::PermissionHatsTriggerHelper::
                   OneTimePermissionPromptsDecidedBucket::BUCKET_6_10,
-              trigger_gurl));
+              trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT));
 
   EXPECT_EQ(survey_data.survey_bits_data.at(
                 permissions::kPermissionsPromptSurveyHadGestureKey),
@@ -535,7 +523,7 @@ TEST_F(PermissionHatsTriggerUnitTest, VerifyIgnoreSafeguardFunctionality) {
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::IGNORED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -545,15 +533,14 @@ TEST_F(PermissionHatsTriggerUnitTest, VerifyIgnoreSafeguardFunctionality) {
                   permissions::kOnPromptResolved, base::Minutes(5),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // The safeguard is active, and the display time is higher than the configured
   // value. Thus, this should not trigger.
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::IGNORED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -563,8 +550,7 @@ TEST_F(PermissionHatsTriggerUnitTest, VerifyIgnoreSafeguardFunctionality) {
                   permissions::kOnPromptResolved, base::Minutes(15),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 }
 
 TEST_F(PermissionHatsTriggerUnitTest, VerifyUnconfiguredFiltersSafeguard) {
@@ -583,7 +569,7 @@ TEST_F(PermissionHatsTriggerUnitTest, VerifyUnconfiguredFiltersSafeguard) {
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::IGNORED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -593,13 +579,7 @@ TEST_F(PermissionHatsTriggerUnitTest, VerifyUnconfiguredFiltersSafeguard) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              permissions::PermissionHatsTriggerHelper::
-                  GetPermissionPromptTriggerNameAndProbabilityForRequestType(
-                      kHatsSurveyTriggerPermissionsPrompt,
-                      permissions::PermissionUmaUtil::GetRequestTypeString(
-                          permissions::RequestType::kNotifications))
-                      ->first));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 }
 
 TEST_F(PermissionHatsTriggerUnitTest, VerifyMisconfiguredFiltersSafeguard) {
@@ -616,7 +596,7 @@ TEST_F(PermissionHatsTriggerUnitTest, VerifyMisconfiguredFiltersSafeguard) {
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kNotifications,
                   permissions::PermissionAction::IGNORED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -626,8 +606,7 @@ TEST_F(PermissionHatsTriggerUnitTest, VerifyMisconfiguredFiltersSafeguard) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 }
 
 TEST_F(PermissionHatsTriggerUnitTest, MultipleTriggersShouldWorkCorrectly) {
@@ -642,7 +621,7 @@ TEST_F(PermissionHatsTriggerUnitTest, MultipleTriggersShouldWorkCorrectly) {
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kGeolocation,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -652,14 +631,13 @@ TEST_F(PermissionHatsTriggerUnitTest, MultipleTriggersShouldWorkCorrectly) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_4_5,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Matching call, should trigger
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kMicStream,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -669,15 +647,14 @@ TEST_F(PermissionHatsTriggerUnitTest, MultipleTriggersShouldWorkCorrectly) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_4_5,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Matching call, but 0.0 probability configured for camera, should not
   // trigger
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kCameraStream,
                   permissions::PermissionAction::DISMISSED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -687,14 +664,13 @@ TEST_F(PermissionHatsTriggerUnitTest, MultipleTriggersShouldWorkCorrectly) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   // Request type doesn't match, should not trigger
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kCameraPanTiltZoom,
                   permissions::PermissionAction::DISMISSED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -704,8 +680,7 @@ TEST_F(PermissionHatsTriggerUnitTest, MultipleTriggersShouldWorkCorrectly) {
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 }
 
 TEST_F(PermissionHatsTriggerUnitTest,
@@ -726,7 +701,7 @@ TEST_F(PermissionHatsTriggerUnitTest,
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kGeolocation,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -736,13 +711,12 @@ TEST_F(PermissionHatsTriggerUnitTest,
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_4_5,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kMicStream,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -752,13 +726,12 @@ TEST_F(PermissionHatsTriggerUnitTest,
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_4_5,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kCameraStream,
                   permissions::PermissionAction::DISMISSED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -768,8 +741,7 @@ TEST_F(PermissionHatsTriggerUnitTest,
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 }
 
 TEST_F(PermissionHatsTriggerUnitTest,
@@ -785,7 +757,7 @@ TEST_F(PermissionHatsTriggerUnitTest,
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kGeolocation,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -795,13 +767,12 @@ TEST_F(PermissionHatsTriggerUnitTest,
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_4_5,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kMicStream,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -811,13 +782,12 @@ TEST_F(PermissionHatsTriggerUnitTest,
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_4_5,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kCameraStream,
                   permissions::PermissionAction::DISMISSED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -827,8 +797,7 @@ TEST_F(PermissionHatsTriggerUnitTest,
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 }
 
 TEST_F(PermissionHatsTriggerUnitTest,
@@ -843,7 +812,7 @@ TEST_F(PermissionHatsTriggerUnitTest,
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kGeolocation,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -853,13 +822,12 @@ TEST_F(PermissionHatsTriggerUnitTest,
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_4_5,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kMicStream,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -869,13 +837,12 @@ TEST_F(PermissionHatsTriggerUnitTest,
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_4_5,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kCameraStream,
                   permissions::PermissionAction::DISMISSED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -885,8 +852,7 @@ TEST_F(PermissionHatsTriggerUnitTest,
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 }
 
 TEST_F(PermissionHatsTriggerUnitTest,
@@ -902,7 +868,7 @@ TEST_F(PermissionHatsTriggerUnitTest,
   EXPECT_FALSE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kMicStream,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -912,8 +878,7 @@ TEST_F(PermissionHatsTriggerUnitTest,
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_4_5,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
 }
 
 TEST_F(PermissionHatsTriggerUnitTest,
@@ -929,7 +894,7 @@ TEST_F(PermissionHatsTriggerUnitTest,
   EXPECT_TRUE(
       permissions::PermissionHatsTriggerHelper::
           ArePromptTriggerCriteriaSatisfied(
-              permissions::PermissionHatsTriggerHelper::PromptParametersForHaTS(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
                   permissions::RequestType::kMicStream,
                   permissions::PermissionAction::GRANTED,
                   permissions::PermissionPromptDisposition::ANCHORED_BUBBLE,
@@ -939,6 +904,423 @@ TEST_F(PermissionHatsTriggerUnitTest,
                   permissions::kOnPromptResolved, base::Minutes(1),
                   permissions::PermissionHatsTriggerHelper::
                       OneTimePermissionPromptsDecidedBucket::BUCKET_4_5,
-                  trigger_gurl),
-              kHatsSurveyTriggerPermissionsPrompt));
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
+}
+
+TEST_F(PermissionHatsTriggerUnitTest, PepcPromptDispositionRequestTypeFilter) {
+  FeatureParams params;
+  params.action_filter = "";
+  params.request_type_filter = "VideoCapture";
+  params.prompt_disposition_filter = "ElementAnchoredBubble";
+  params.prompt_disposition_reason_filter = "";
+  params.had_gesture_filter = "";
+  params.release_channel_filter = "";
+  params.one_time_prompts_decided_bucket = "";
+  SetupFeatureParams(params);
+
+  // Matching call, should trigger
+  EXPECT_TRUE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kCameraStream,
+                  permissions::PermissionAction::GRANTED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::UNKNOWN, "stable",
+                  permissions::kOnPromptResolved, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
+
+  // Wrong request type.
+  EXPECT_FALSE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kMicStream,
+                  permissions::PermissionAction::GRANTED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::UNKNOWN, "stable",
+                  permissions::kOnPromptResolved, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
+}
+
+TEST_F(PermissionHatsTriggerUnitTest, PepcPromptDispositionMultipleRequests) {
+  FeatureParams params;
+  params.action_filter = "Denied";
+  params.request_type_filter = "AudioCapture,VideoCapture";
+  params.prompt_disposition_filter = "ElementAnchoredBubble";
+  params.prompt_disposition_reason_filter = "";
+  params.had_gesture_filter = "true";
+  params.survey_display_time = "OnPromptResolved";
+  params.release_channel_filter = "stable";
+  params.one_time_prompts_decided_bucket = "";
+  params.ignored_prompts_maximum_age = "";
+  SetupFeatureParams(params);
+
+  // Matching calls, should trigger
+  EXPECT_TRUE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kCameraStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptResolved, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
+
+  EXPECT_TRUE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kMicStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptResolved, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
+
+  EXPECT_FALSE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kGeolocation,  // Wrong request type
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptResolved, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
+
+  EXPECT_FALSE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kMicStream,
+                  permissions::PermissionAction::GRANTED,  // Wrong action
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptResolved, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
+
+  EXPECT_FALSE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kCameraStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      LOCATION_BAR_LEFT_CHIP_AUTO_BUBBLE,  // Wrong disposition
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptResolved, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
+
+  EXPECT_FALSE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kMicStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE,
+                  "beta",  // Wrong channel
+                  permissions::kOnPromptResolved, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
+
+  EXPECT_FALSE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kCameraStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptAppearing,  // Wrong display time
+                  std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
+
+  EXPECT_FALSE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kMicStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::UNKNOWN,
+                  "stable",  // Wrong gesture.
+                  permissions::kOnPromptAppearing, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl, std::nullopt, CONTENT_SETTING_DEFAULT)));
+}
+
+TEST_F(PermissionHatsTriggerUnitTest, PepcPromptPositionFilter) {
+  FeatureParams params;
+  params.request_type_filter = "AudioCapture,VideoCapture";
+  params.survey_display_time = "OnPromptResolved";
+  params.release_channel_filter = "stable";
+  params.pepc_prompt_position_filter = "near_element";
+  SetupFeatureParams(params);
+
+  EXPECT_TRUE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kMicStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptResolved, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl,
+                  permissions::feature_params::PermissionElementPromptPosition::
+                      kNearElement,
+                  CONTENT_SETTING_DEFAULT)));
+
+  EXPECT_FALSE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kMicStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptResolved, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl,
+                  permissions::feature_params::PermissionElementPromptPosition::
+                      kLegacyPrompt,  // Wrong position
+                  CONTENT_SETTING_DEFAULT)));
+
+  EXPECT_FALSE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kMicStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptResolved, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl,
+                  permissions::feature_params::PermissionElementPromptPosition::
+                      kWindowMiddle,  // Wrong position
+                  CONTENT_SETTING_DEFAULT)));
+
+  EXPECT_FALSE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kMicStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      LOCATION_BAR_LEFT_CHIP,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptResolved, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl,
+                  std::nullopt,  // Wrong position (no position)
+                  CONTENT_SETTING_DEFAULT)));
+}
+
+TEST_F(PermissionHatsTriggerUnitTest, PepcPromptInitialStatusFilter) {
+  FeatureParams params;
+  params.request_type_filter = "VideoCapture";
+  params.survey_display_time = "OnPromptAppearing";
+  params.release_channel_filter = "stable";
+  params.initial_permission_status_filter = "allow";
+  SetupFeatureParams(params);
+
+  EXPECT_TRUE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kCameraStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptAppearing, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl,
+                  permissions::feature_params::PermissionElementPromptPosition::
+                      kNearElement,
+                  CONTENT_SETTING_ALLOW)));
+
+  EXPECT_FALSE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kCameraStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptAppearing, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl,
+                  permissions::feature_params::PermissionElementPromptPosition::
+                      kLegacyPrompt,
+                  CONTENT_SETTING_ASK)));  // Wrong initial status
+
+  EXPECT_FALSE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kCameraStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      ELEMENT_ANCHORED_BUBBLE,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptAppearing, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl,
+                  permissions::feature_params::PermissionElementPromptPosition::
+                      kWindowMiddle,
+                  CONTENT_SETTING_BLOCK)));  // Wrong initial status
+
+  EXPECT_FALSE(
+      permissions::PermissionHatsTriggerHelper::
+          ArePromptTriggerCriteriaSatisfied(
+              permissions::PermissionHatsTriggerHelper::PromptParametersForHats(
+                  permissions::RequestType::kCameraStream,
+                  permissions::PermissionAction::DENIED,
+                  permissions::PermissionPromptDisposition::
+                      LOCATION_BAR_LEFT_CHIP,
+                  permissions::PermissionPromptDispositionReason::
+                      DEFAULT_FALLBACK,
+                  permissions::PermissionRequestGestureType::GESTURE, "stable",
+                  permissions::kOnPromptAppearing, std::nullopt,
+                  permissions::PermissionHatsTriggerHelper::
+                      OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                  trigger_gurl, std::nullopt,
+                  CONTENT_SETTING_DEFAULT)));  // Wrong initial status
+}
+
+TEST_F(PermissionHatsTriggerUnitTest,
+       PepcPromptPositionAndInitialStatusFilter) {
+  using permissions::feature_params::PermissionElementPromptPosition;
+  FeatureParams params;
+  params.request_type_filter = "AudioCapture,VideoCapture";
+  params.survey_display_time = "OnPromptResolved";
+  params.release_channel_filter = "stable";
+  params.pepc_prompt_position_filter = "window_middle,legacy_prompt";
+  params.initial_permission_status_filter = "block,ask";
+  SetupFeatureParams(params);
+
+  struct {
+    permissions::feature_params::PermissionElementPromptPosition position;
+    ContentSetting initial_status;
+    bool expect_satisfied;
+  } kTests[] = {
+      {PermissionElementPromptPosition::kWindowMiddle, CONTENT_SETTING_ASK,
+       true},
+      {PermissionElementPromptPosition::kLegacyPrompt, CONTENT_SETTING_ASK,
+       true},
+      {PermissionElementPromptPosition::kNearElement, CONTENT_SETTING_ASK,
+       false},
+
+      {PermissionElementPromptPosition::kWindowMiddle, CONTENT_SETTING_BLOCK,
+       true},
+      {PermissionElementPromptPosition::kLegacyPrompt, CONTENT_SETTING_BLOCK,
+       true},
+      {PermissionElementPromptPosition::kNearElement, CONTENT_SETTING_BLOCK,
+       false},
+
+      {PermissionElementPromptPosition::kWindowMiddle, CONTENT_SETTING_ALLOW,
+       false},
+      {PermissionElementPromptPosition::kLegacyPrompt, CONTENT_SETTING_ALLOW,
+       false},
+      {PermissionElementPromptPosition::kNearElement, CONTENT_SETTING_ALLOW,
+       false},
+  };
+
+  for (const auto& test : kTests) {
+    EXPECT_EQ(
+        test.expect_satisfied,
+        permissions::PermissionHatsTriggerHelper::
+            ArePromptTriggerCriteriaSatisfied(
+                permissions::PermissionHatsTriggerHelper::
+                    PromptParametersForHats(
+                        permissions::RequestType::kCameraStream,
+                        permissions::PermissionAction::GRANTED,
+                        permissions::PermissionPromptDisposition::
+                            ELEMENT_ANCHORED_BUBBLE,
+                        permissions::PermissionPromptDispositionReason::
+                            DEFAULT_FALLBACK,
+                        permissions::PermissionRequestGestureType::GESTURE,
+                        "stable", permissions::kOnPromptResolved, std::nullopt,
+                        permissions::PermissionHatsTriggerHelper::
+                            OneTimePermissionPromptsDecidedBucket::BUCKET_0_1,
+                        trigger_gurl, test.position, test.initial_status)));
+  }
 }

@@ -8,8 +8,13 @@ import android.content.Context;
 import android.view.View;
 
 import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.chrome.browser.autofill.AutofillUiUtils;
+import org.chromium.chrome.browser.autofill.PersonalDataManagerFactory;
+import org.chromium.chrome.browser.autofill.vcn.AutofillVcnEnrollBottomSheetProperties.IssuerIcon;
 import org.chromium.chrome.browser.layouts.LayoutStateProvider;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.components.autofill.ImageSize;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
@@ -30,6 +35,7 @@ import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
 
     private final AutofillVcnEnrollBottomSheetView mView;
     private final AutofillVcnEnrollBottomSheetMediator mMediator;
+    private final PropertyModel mModel;
 
     /**
      * Constructs a coordinator controller for the virtual card enrollment bottom sheet.
@@ -42,38 +48,55 @@ import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
      */
     AutofillVcnEnrollBottomSheetCoordinator(
             Context context,
+            Profile profile,
             PropertyModel.Builder modelBuilder,
             LayoutStateProvider layoutStateProvider,
             ObservableSupplier<TabModelSelector> tabModelSelectorSupplier,
             Delegate delegate) {
+        mModel =
+                modelBuilder
+                        .with(
+                                AutofillVcnEnrollBottomSheetProperties.ISSUER_ICON_FETCH_CALLBACK,
+                                (IssuerIcon issuerIcon) ->
+                                        issuerIcon == null
+                                                ? null
+                                                : AutofillUiUtils.getCardIcon(
+                                                        context,
+                                                        PersonalDataManagerFactory.getForProfile(
+                                                                profile),
+                                                        issuerIcon.mIconUrl,
+                                                        issuerIcon.mIconResource,
+                                                        /* imageSize= */ ImageSize.LARGE,
+                                                        /* showCustomIcon= */ true))
+                        .build();
         mView = new AutofillVcnEnrollBottomSheetView(context);
-        mView.mAcceptButton.setOnClickListener(
-                (View button) -> {
-                    delegate.onAccept();
-                    hide();
-                });
-        mView.mCancelButton.setOnClickListener(
-                (View button) -> {
-                    delegate.onCancel();
-                    hide();
-                });
-
         PropertyModelChangeProcessor.create(
-                modelBuilder.build(), mView, AutofillVcnEnrollBottomSheetViewBinder::bind);
+                mModel, mView, AutofillVcnEnrollBottomSheetViewBinder::bind);
 
         mMediator =
                 new AutofillVcnEnrollBottomSheetMediator(
                         new AutofillVcnEnrollBottomSheetContent(
                                 mView.mContentView, mView.mScrollView, delegate::onDismiss),
                         new AutofillVcnEnrollBottomSheetLifecycle(
-                                layoutStateProvider, tabModelSelectorSupplier));
+                                layoutStateProvider, tabModelSelectorSupplier),
+                        mModel);
+
+        mView.mAcceptButton.setOnClickListener(
+                (View button) -> {
+                    delegate.onAccept();
+                    mMediator.onAccept();
+                });
+        mView.mCancelButton.setOnClickListener(
+                (View button) -> {
+                    delegate.onCancel();
+                    mMediator.onCancel();
+                });
     }
 
     /**
      * Requests to show the bottom sheet.
      *
      * @param window The window where the bottom sheet should be shown.
-     *
      * @return True if shown.
      */
     boolean requestShowContent(WindowAndroid window) {
@@ -87,5 +110,9 @@ import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
 
     AutofillVcnEnrollBottomSheetView getAutofillVcnEnrollBottomSheetViewForTesting() {
         return mView;
+    }
+
+    PropertyModel getPropertyModelForTesting() {
+        return mModel;
     }
 }

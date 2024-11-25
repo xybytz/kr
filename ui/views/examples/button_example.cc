@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_header_macros.h"
@@ -16,12 +17,14 @@
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/scoped_canvas.h"
 #include "ui/gfx/skia_paint_util.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/button/md_text_button.h"
+#include "ui/views/controls/button/md_text_button_with_down_arrow.h"
 #include "ui/views/examples/examples_color_id.h"
 #include "ui/views/examples/examples_window.h"
 #include "ui/views/examples/grit/views_examples_resources.h"
@@ -237,6 +240,10 @@ void ButtonExample::CreateExampleView(View* container) {
       base::BindRepeating(&ButtonExample::ImageButtonPressed,
                           base::Unretained(this)),
       views::kLaunchIcon, u"Icon button"));
+  view->AddChildView(std::make_unique<views::MdTextButtonWithDownArrow>(
+      base::BindRepeating(&ButtonExample::ImageButtonPressed,
+                          base::Unretained(this)),
+      u"TextButton with down arrow"));
 
   image_button_->SetImageModel(ImageButton::STATE_NORMAL,
                                ui::ImageModel::FromResourceId(IDR_CLOSE));
@@ -250,7 +257,7 @@ void ButtonExample::CreateExampleView(View* container) {
 
 void ButtonExample::LabelButtonPressed(LabelButton* label_button,
                                        const ui::Event& event) {
-  PrintStatus("Label Button Pressed! count: %d", ++count_);
+  PrintStatus(base::StringPrintf("Label Button Pressed! count: %d", ++count_));
   if (event.IsControlDown()) {
     if (event.IsShiftDown()) {
       label_button->SetText(
@@ -271,7 +278,7 @@ void ButtonExample::LabelButtonPressed(LabelButton* label_button,
   } else if (event.IsShiftDown()) {
     if (event.IsAltDown()) {
       // Toggle focusability.
-      label_button->IsAccessibilityFocusable()
+      label_button->GetViewAccessibility().IsAccessibilityFocusable()
           ? label_button->SetFocusBehavior(View::FocusBehavior::NEVER)
           : label_button->SetFocusBehavior(
                 PlatformStyle::kDefaultFocusBehavior);
@@ -284,7 +291,7 @@ void ButtonExample::LabelButtonPressed(LabelButton* label_button,
 }
 
 void ButtonExample::ImageButtonPressed() {
-  PrintStatus("Image Button Pressed! count: %d", ++count_);
+  PrintStatus(base::StringPrintf("Image Button Pressed! count: %d", ++count_));
 }
 
 }  // namespace views::examples

@@ -114,12 +114,6 @@ gfx::RectF LayoutSVGInline::VisualRectInLocalSVGCoordinates() const {
   return SVGLayoutSupport::ComputeVisualRectForText(*this, ObjectBoundingBox());
 }
 
-PhysicalRect LayoutSVGInline::VisualRectInDocument(
-    VisualRectFlags flags) const {
-  NOT_DESTROYED();
-  return SVGLayoutSupport::VisualRectInAncestorSpace(*this, *View(), flags);
-}
-
 void LayoutSVGInline::MapLocalToAncestor(const LayoutBoxModelObject* ancestor,
                                          TransformState& transform_state,
                                          MapCoordinatesFlags flags) const {
@@ -127,8 +121,10 @@ void LayoutSVGInline::MapLocalToAncestor(const LayoutBoxModelObject* ancestor,
   SVGLayoutSupport::MapLocalToAncestor(this, ancestor, transform_state, flags);
 }
 
-void LayoutSVGInline::AbsoluteQuads(Vector<gfx::QuadF>& quads,
-                                    MapCoordinatesFlags mode) const {
+void LayoutSVGInline::QuadsInAncestorInternal(
+    Vector<gfx::QuadF>& quads,
+    const LayoutBoxModelObject* ancestor,
+    MapCoordinatesFlags mode) const {
   NOT_DESTROYED();
   if (IsInLayoutNGInlineFormattingContext()) {
     InlineCursor cursor;
@@ -136,10 +132,10 @@ void LayoutSVGInline::AbsoluteQuads(Vector<gfx::QuadF>& quads,
          cursor.MoveToNextForSameLayoutObject()) {
       const FragmentItem& item = *cursor.CurrentItem();
       if (item.IsSvgText()) {
-        quads.push_back(LocalToAbsoluteQuad(
+        quads.push_back(LocalToAncestorQuad(
             gfx::QuadF(SVGLayoutSupport::ExtendTextBBoxWithStroke(
                 *this, cursor.Current().ObjectBoundingBox(cursor))),
-            mode));
+            ancestor, mode));
       }
     }
   }
@@ -182,10 +178,9 @@ void LayoutSVGInline::StyleDidChange(StyleDifference diff,
   if (diff.NeedsFullLayout()) {
     // The boundaries affect mask clip and clip path mask/clip.
     const ComputedStyle& style = StyleRef();
-    if (style.HasMaskForSVG() || style.HasClipPath()) {
+    if (style.HasMask() || style.HasClipPath()) {
       SetNeedsPaintPropertyUpdate();
     }
-    SetNeedsBoundariesUpdate();
   }
 
   SVGResources::UpdateEffects(*this, diff, old_style);

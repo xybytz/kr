@@ -14,7 +14,7 @@
 #include "ash/assistant/util/deep_link_util.h"
 #include "ash/public/cpp/ash_web_view_factory.h"
 #include "ash/public/cpp/assistant/controller/assistant_controller.h"
-#include "chromeos/constants/chromeos_features.h"
+#include "ash/public/cpp/style/dark_light_mode_controller.h"
 #include "chromeos/ui/frame/frame_utils.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/window_open_disposition.h"
@@ -52,14 +52,12 @@ class AssistantWebContainerClientView : public views::ClientView {
   ~AssistantWebContainerClientView() override = default;
 
   // views::ClientView:
-  void UpdateWindowRoundedCorners() override {
+  void UpdateWindowRoundedCorners(int corner_radius) override {
     // `NonClientFrameViewAsh` rounds the top corners of the window. The
     // client-view is responsible for rounding the bottom corners.
 
     DCHECK(GetWidget());
 
-    const int corner_radius =
-        chromeos::GetFrameCornerRadius(GetWidget()->GetNativeWindow());
     const gfx::RoundedCornersF radii(0, 0, corner_radius, corner_radius);
 
     auto* container =
@@ -83,7 +81,8 @@ AssistantWebContainerView::AssistantWebContainerView(
 
 AssistantWebContainerView::~AssistantWebContainerView() = default;
 
-gfx::Size AssistantWebContainerView::CalculatePreferredSize() const {
+gfx::Size AssistantWebContainerView::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
   const int non_client_frame_view_height =
       views::GetCaptionButtonLayoutSize(
           views::CaptionButtonLayoutSize::kNonBrowserCaption)
@@ -108,13 +107,18 @@ void AssistantWebContainerView::ChildPreferredSizeChanged(views::View* child) {
   // Because AssistantWebContainerView has a fixed size, it does not re-layout
   // its children when their preferred size changes. To address this, we need to
   // explicitly request a layout pass.
-  Layout();
+  DeprecatedLayoutImmediately();
   SchedulePaint();
 }
 
 views::ClientView* AssistantWebContainerView::CreateClientView(
     views::Widget* widget) {
   return new AssistantWebContainerClientView(widget, this);
+}
+
+void AssistantWebContainerView::OnThemeChanged() {
+  views::View::OnThemeChanged();
+  UpdateBackground();
 }
 
 void AssistantWebContainerView::DidStopLoading() {
@@ -136,8 +140,9 @@ void AssistantWebContainerView::DidSuppressNavigation(
     const GURL& url,
     WindowOpenDisposition disposition,
     bool from_user_gesture) {
-  if (!from_user_gesture)
+  if (!from_user_gesture) {
     return;
+  }
 
   // Deep links are always handled by the AssistantViewDelegate. If the
   // |disposition| indicates a desire to open a new foreground tab, we also
@@ -199,23 +204,17 @@ void AssistantWebContainerView::SetCanGoBackForTesting(bool can_go_back) {
 }
 
 void AssistantWebContainerView::InitLayout() {
-  views::Widget::InitParams params;
-  params.type = views::Widget::InitParams::TYPE_WINDOW;
+  views::Widget::InitParams params(
+      views::Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET,
+      views::Widget::InitParams::TYPE_WINDOW);
   params.delegate = this;
   params.name = GetClassName();
-
-  // Specify the radius of drop shadow of the window.
-  params.corner_radius = chromeos::features::RoundedWindowsRadius();
 
   views::Widget* widget = new views::Widget;
   widget->Init(std::move(params));
 
   SetLayoutManager(std::make_unique<views::FillLayout>());
   UpdateBackground();
-}
-
-void AssistantWebContainerView::OnWidgetInitialized() {
-  GetWidget()->non_client_view()->frame_view()->UpdateWindowRoundedCorners();
 }
 
 void AssistantWebContainerView::RemoveContents() {
@@ -232,12 +231,15 @@ void AssistantWebContainerView::RemoveContents() {
 }
 
 void AssistantWebContainerView::UpdateBackground() {
-  // Paint a background to be displayed while the web content is still loading.
-  SetBackground(
-      views::CreateRoundedRectBackground(SK_ColorWHITE, background_radii_));
+  // Paint a theme aware background to be displayed while the web content is
+  // still loading.
+  const SkColor color = DarkLightModeController::Get()->IsDarkModeEnabled()
+                            ? SkColorSetARGB(255, 27, 27, 27)
+                            : SK_ColorWHITE;
+  SetBackground(views::CreateRoundedRectBackground(color, background_radii_));
 }
 
-BEGIN_METADATA(AssistantWebContainerView, views::WidgetDelegateView)
+BEGIN_METADATA(AssistantWebContainerView)
 END_METADATA
 
 }  // namespace ash

@@ -73,9 +73,13 @@ enum class DefaultAppName {
   kGoogleMeet = 55,
   kGoogleMaps = 56,
   kGoogleMessages = 57,
+  kGemini = 58,
+  kMall = 59,
+  kSanitizeApp = 60,
+  kGraduationApp = 61,
   // Add any new values above this one, and update kMaxValue to the highest
   // enumerator value.
-  kMaxValue = kGoogleMessages,
+  kMaxValue = kGraduationApp,
 };
 
 // The built-in app's histogram name. This is used for logging so do not change
@@ -90,6 +94,10 @@ enum class BuiltInAppName {
   kReleaseNotes = 6,
   kMaxValue = kReleaseNotes,
 };
+
+// Converts an app ID to the corresponding `DefaultAppName`, or nullopt if
+// it doesn't match a known ID.
+std::optional<apps::DefaultAppName> AppIdToName(const std::string& app_id);
 
 void RecordAppLaunch(const std::string& app_id,
                      apps::LaunchSource launch_source);

@@ -105,7 +105,6 @@ std::optional<Decision> GetDecisionBasedOnSiteReputation(
   }
 
   NOTREACHED();
-  return std::nullopt;
 }
 
 // Roll the dice to decide whether to use the normal UI even when the preload

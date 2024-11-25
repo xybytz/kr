@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_ENTERPRISE_CONNECTORS_ANALYSIS_CONTENT_ANALYSIS_DIALOG_H_
 #define CHROME_BROWSER_ENTERPRISE_CONNECTORS_ANALYSIS_CONTENT_ANALYSIS_DIALOG_H_
 
+#include <cstddef>
 #include <memory>
 
 #include "base/memory/raw_ptr.h"
@@ -15,8 +16,10 @@
 #include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_utils.h"
 #include "components/download/public/common/download_item.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "ui/base/mojom/ui_base_types.mojom-shared.h"
 #include "ui/views/animation/bounds_animator.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/controls/styled_label.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
 #include "ui/views/window/dialog_delegate.h"
 
@@ -112,7 +115,7 @@ class ContentAnalysisDialog : public views::DialogDelegate,
   views::View* GetContentsView() override;
   views::Widget* GetWidget() override;
   const views::Widget* GetWidget() const override;
-  ui::ModalType GetModalType() const override;
+  ui::mojom::ModalType GetModalType() const override;
 
   // content::WebContentsObserver:
   void WebContentsDestroyed() override;
@@ -143,6 +146,10 @@ class ContentAnalysisDialog : public views::DialogDelegate,
     return delegate_->GetCustomLearnMoreUrl().has_value();
   }
 
+  bool has_custom_message_ranges() const {
+    return delegate_->GetCustomRuleMessageRanges().has_value();
+  }
+
   bool bypass_requires_justification() const {
     return delegate_->BypassRequiresJustification();
   }
@@ -167,7 +174,7 @@ class ContentAnalysisDialog : public views::DialogDelegate,
   // Accessors used to validate the views in tests.
   views::ImageView* GetTopImageForTesting() const;
   views::Throbber* GetSideIconSpinnerForTesting() const;
-  views::Label* GetMessageForTesting() const;
+  views::StyledLabel* GetMessageForTesting() const;
   views::Link* GetLearnMoreLinkForTesting() const;
   views::Label* GetBypassJustificationLabelForTesting() const;
   views::Textarea* GetBypassJustificationTextareaForTesting() const;
@@ -270,6 +277,10 @@ class ContentAnalysisDialog : public views::DialogDelegate,
   // Helper that indicates if the dialog corresponds to a print scan.
   bool is_print_scan() const;
 
+  // Helper methods to get the admin message shown in dialog.
+  void AddLinksToDialogMessage();
+  void UpdateDialogMessage(std::u16string new_message);
+
   void AcceptButtonCallback();
   void CancelButtonCallback();
   void LearnMoreLinkClickedCallback(const ui::Event& event);
@@ -293,15 +304,12 @@ class ContentAnalysisDialog : public views::DialogDelegate,
 
   std::unique_ptr<ContentAnalysisDelegateBase> delegate_;
 
-  raw_ptr<content::WebContents, DanglingUntriaged> web_contents_;
-
   // Views above the buttons. `contents_view_` owns every other view.
   raw_ptr<views::BoxLayoutView> contents_view_ = nullptr;
   raw_ptr<DeepScanningTopImageView> image_ = nullptr;
   raw_ptr<DeepScanningSideIconImageView> side_icon_image_ = nullptr;
-  raw_ptr<DeepScanningSideIconSpinnerView, DanglingUntriaged>
-      side_icon_spinner_ = nullptr;
-  raw_ptr<views::Label> message_ = nullptr;
+  raw_ptr<DeepScanningSideIconSpinnerView> side_icon_spinner_ = nullptr;
+  raw_ptr<views::StyledLabel> message_ = nullptr;
 
   // The following views are also owned by `contents_view_`, but remain nullptr
   // if they aren't required to be initialized.

@@ -21,10 +21,6 @@ namespace enterprise_connectors {
 class ContentAnalysisResponse;
 }  // namespace enterprise_connectors
 
-namespace signin {
-class IdentityManager;
-}  // namespace signin
-
 namespace safe_browsing {
 
 // Access points used to record UMA metrics and specify which code location is
@@ -91,6 +87,7 @@ void MaybeReportDeepScanningVerdict(
     const std::string& download_digest_sha256,
     const std::string& mime_type,
     const std::string& trigger,
+    const std::string& content_transfer_method,
     DeepScanAccessPoint access_point,
     const int64_t content_size,
     BinaryUploadService::Result result,
@@ -111,6 +108,7 @@ void ReportAnalysisConnectorWarningBypass(
     const std::string& download_digest_sha256,
     const std::string& mime_type,
     const std::string& trigger,
+    const std::string& content_transfer_method,
     DeepScanAccessPoint access_point,
     const int64_t content_size,
     const enterprise_connectors::ContentAnalysisResponse& response,
@@ -135,7 +133,8 @@ void RecordDeepScanMetrics(bool is_cloud,
 // Helper function to make ContentAnalysisResponses for tests.
 enterprise_connectors::ContentAnalysisResponse
 SimpleContentAnalysisResponseForTesting(std::optional<bool> dlp_success,
-                                        std::optional<bool> malware_success);
+                                        std::optional<bool> malware_success,
+                                        bool has_custom_rule_message);
 
 // Helper function to convert a EventResult to a string that.  The format of
 // string returned is processed by the sever.
@@ -146,12 +145,6 @@ std::string EventResultToString(EventResult result);
 std::string BinaryUploadServiceResultToString(
     const BinaryUploadService::Result& result,
     bool success);
-
-// Returns the email address of the unconsented account signed in to the profile
-// or an empty string if no account is signed in.  If either |profile| or
-// |identity_manager| is null then the empty string is returned.
-std::string GetProfileEmail(Profile* profile);
-std::string GetProfileEmail(signin::IdentityManager* identity_manager);
 
 // Helper enum and function to manipulate crash keys relevant to scanning.
 // If a key would be set to 0, it is unset.
@@ -167,6 +160,10 @@ enum class ScanningCrashKey {
 };
 void IncrementCrashKey(ScanningCrashKey key, int delta = 1);
 void DecrementCrashKey(ScanningCrashKey key, int delta = 1);
+
+// Returns true for consumer scans and not on enterprise scans.
+bool IsConsumerScanRequest(
+    const safe_browsing::BinaryUploadService::Request& request);
 
 }  // namespace safe_browsing
 

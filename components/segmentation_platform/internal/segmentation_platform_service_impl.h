@@ -122,10 +122,17 @@ class SegmentationPlatformServiceImpl : public SegmentationPlatformService {
                            TrainingRequestId request_id,
                            const TrainingLabels& param,
                            SuccessCallback callback) override;
+  void CollectTrainingData(SegmentId segment_id,
+                           TrainingRequestId request_id,
+                           ukm::SourceId ukm_source_id,
+                           const TrainingLabels& param,
+                           SuccessCallback callback) override;
   void EnableMetrics(bool signal_collection_allowed) override;
   ServiceProxy* GetServiceProxy() override;
   DatabaseClient* GetDatabaseClient() override;
   bool IsPlatformInitialized() override;
+
+  bool IsMetricsEnabledForTesting() const { return is_metrics_enabled_; }
 
  private:
   friend class SegmentationPlatformServiceImplTest;
@@ -135,7 +142,7 @@ class SegmentationPlatformServiceImpl : public SegmentationPlatformService {
 
   // Must only be invoked with a valid SegmentInfo.
   void OnSegmentationModelUpdated(proto::SegmentInfo segment_info,
-                                  absl::optional<int64_t> old_model_version);
+                                  std::optional<int64_t> old_model_version);
 
   // Callback sent to child classes to notify when model results need to be
   // refreshed. For example, when history is cleared.
@@ -166,10 +173,12 @@ class SegmentationPlatformServiceImpl : public SegmentationPlatformService {
 
   std::unique_ptr<StorageService> storage_service_;
   // Storage initialization status.
-  absl::optional<bool> storage_init_status_;
+  std::optional<bool> storage_init_status_;
 
   // Signal processing.
   SignalHandler signal_handler_;
+
+  bool is_metrics_enabled_{false};
 
   ExecutionService execution_service_;
 

@@ -6,6 +6,8 @@
 
 #include <math.h>
 
+#include <array>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -26,7 +28,6 @@
 #include "components/omnibox/browser/in_memory_url_index_types.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/url_prefix.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 #include "url/third_party/mozilla/url_parse.h"
 
@@ -45,7 +46,7 @@ const int kMaxRawTermScore = 30;
 // lookups of scores without requiring math. This is initialized by
 // InitDaysAgoToRecencyScoreArray called by
 // ScoredHistoryMatch::Init().
-float days_ago_to_recency_score[kDaysToPrecomputeRecencyScoresFor];
+std::array<float, kDaysToPrecomputeRecencyScoresFor> days_ago_to_recency_score;
 
 // Pre-computed information to speed up calculating topicality scores.
 // |raw_term_score_to_topicality_score| is a simple array mapping how raw terms
@@ -54,7 +55,7 @@ float days_ago_to_recency_score[kDaysToPrecomputeRecencyScoresFor];
 // assign it.  This allows easy lookups of scores without requiring math. This
 // is initialized by InitRawTermScoreToTopicalityScoreArray() called from
 // ScoredHistoryMatch::Init().
-float raw_term_score_to_topicality_score[kMaxRawTermScore];
+std::array<float, kMaxRawTermScore> raw_term_score_to_topicality_score;
 
 // Precalculates raw_term_score_to_topicality_score, used in
 // GetTopicalityScore().
@@ -164,7 +165,7 @@ ScoredHistoryMatch::ScoredHistoryMatch(
 
   if (OmniboxFieldTrial::IsPopulatingUrlScoringSignalsEnabled()) {
     // Populate the scoring signals available in the URL Row.
-    scoring_signals = absl::make_optional<ScoringSignals>();
+    scoring_signals = std::make_optional<ScoringSignals>();
     scoring_signals->set_typed_count(row.typed_count());
     scoring_signals->set_visit_count(row.visit_count());
     base::TimeDelta elapsed_time = now - row.last_visit();
@@ -496,9 +497,11 @@ ScoredHistoryMatch::ComputeUrlMatchingSignals(
   size_t last_part_of_host_pos =
       url.possibly_invalid_spec().rfind('.', path_pos);
 
-  // Get end position for 'www'. Not set if 'www' not exists in host.
-  absl::optional<size_t> www_end_pos;
-  if (base::ToLowerASCII(url.spec().substr(host_pos, 3)).compare("www") == 0) {
+  // Get end position for 'www'. Not set if 'www' does not exist in the host
+  // component.
+  std::optional<size_t> www_end_pos;
+  if (host_pos + 3 <= url.spec().length() &&
+      base::ToLowerASCII(url.spec().substr(host_pos, 3)).compare("www") == 0) {
     www_end_pos = host_pos + 2;
   }
 
@@ -514,9 +517,9 @@ ScoredHistoryMatch::ComputeUrlMatchingSignals(
     www_end_pos = end_pos;
   }
 
-  absl::optional<bool> host_match_at_word_boundary = absl::nullopt;
-  absl::optional<bool> has_non_scheme_www_match = absl::nullopt;
-  absl::optional<size_t> first_url_match_position = absl::nullopt;
+  std::optional<bool> host_match_at_word_boundary = std::nullopt;
+  std::optional<bool> has_non_scheme_www_match = std::nullopt;
+  std::optional<size_t> first_url_match_position = std::nullopt;
   size_t total_url_match_length = 0;
   size_t total_host_match_length = 0;
   size_t total_path_match_length = 0;

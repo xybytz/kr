@@ -16,6 +16,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/preloading/prefetch/no_state_prefetch/chrome_no_state_prefetch_contents_delegate.h"
 #include "chrome/browser/preloading/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -56,10 +57,9 @@ class NeverRunsExternalProtocolHandlerDelegate
  public:
   scoped_refptr<shell_integration::DefaultSchemeClientWorker> CreateShellWorker(
       const GURL& url) override {
-    NOTREACHED();
     // This will crash, but it shouldn't get this far with BlockState::BLOCK
     // anyway.
-    return nullptr;
+    NOTREACHED();
   }
 
   ExternalProtocolHandler::BlockState GetBlockState(const std::string& scheme,
@@ -91,6 +91,8 @@ class NeverRunsExternalProtocolHandlerDelegate
 };
 
 }  // namespace
+
+constexpr char kSecondaryDomain[] = "www.foo.com";
 
 TestNoStatePrefetchContents::TestNoStatePrefetchContents(
     NoStatePrefetchManager* no_state_prefetch_manager,
@@ -459,8 +461,7 @@ void PrerenderInProcessBrowserTest::CreatedBrowserMainParts(
   InProcessBrowserTest::CreatedBrowserMainParts(browser_main_parts);
   safe_browsing_factory_->SetTestDatabaseManager(
       new safe_browsing::FakeSafeBrowsingDatabaseManager(
-          content::GetUIThreadTaskRunner({}),
-          content::GetIOThreadTaskRunner({})));
+          content::GetUIThreadTaskRunner({})));
   safe_browsing::SafeBrowsingService::RegisterFactory(
       safe_browsing_factory_.get());
 }
@@ -508,6 +509,7 @@ void PrerenderInProcessBrowserTest::UseHttpsSrcServer() {
   https_src_server_->RegisterRequestMonitor(base::BindRepeating(
       &PrerenderInProcessBrowserTest::MonitorResourceRequest,
       base::Unretained(this)));
+  https_src_server_->SetCertHostnames({kSecondaryDomain});
   net::test_server::RegisterDefaultHandlers(https_src_server_.get());
   CHECK(https_src_server_->Start());
 }

@@ -8,12 +8,13 @@
 #import <string>
 #import <vector>
 
+#import "base/memory/raw_ptr.h"
 #import "ios/chrome/browser/shared/model/browser/browser_observer.h"
 #import "ios/chrome/browser/shared/model/browser/browser_user_data.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer.h"
 #import "ios/chrome/browser/snapshots/model/snapshot_id.h"
 
-@class SnapshotStorage;
+@class SnapshotStorageWrapper;
 
 // Associates a SnapshotStorage to a Browser.
 class SnapshotBrowserAgent : public BrowserObserver,
@@ -37,7 +38,7 @@ class SnapshotBrowserAgent : public BrowserObserver,
   // Permanently removes all snapshots.
   void RemoveAllSnapshots();
 
-  SnapshotStorage* snapshot_storage() { return snapshot_storage_; }
+  SnapshotStorageWrapper* snapshot_storage() { return snapshot_storage_; }
 
  private:
   friend class BrowserUserData<SnapshotBrowserAgent>;
@@ -69,9 +70,9 @@ class SnapshotBrowserAgent : public BrowserObserver,
   // Returns the snapshot IDs of all the WebStates in the Browser.
   std::vector<SnapshotID> GetSnapshotIDs();
 
-  __strong SnapshotStorage* snapshot_storage_;
+  __strong SnapshotStorageWrapper* snapshot_storage_;
 
-  Browser* browser_ = nullptr;
+  raw_ptr<Browser> browser_ = nullptr;
 };
 
 #endif  // IOS_CHROME_BROWSER_SNAPSHOTS_MODEL_SNAPSHOT_BROWSER_AGENT_H_

@@ -26,6 +26,7 @@
 
 #if BUILDFLAG(IS_WIN)
 #include <windows.h>
+
 #include "base/process/process_handle.h"
 #endif
 
@@ -61,7 +62,7 @@ gfx::GpuFenceHandle::ScopedPlatformFence PlatformDuplicate(
   if (!result) {
     const DWORD last_error = ::GetLastError();
     base::debug::Alias(&last_error);
-    CHECK(false);
+    NOTREACHED();
   }
   return base::win::ScopedHandle(duplicated_handle);
 #else
@@ -92,7 +93,17 @@ void GpuFenceHandle::Reset() {
 GpuFenceHandle::~GpuFenceHandle() = default;
 
 bool GpuFenceHandle::is_null() const {
-  return !smart_fence_.get();
+  if (!smart_fence_.get()) {
+    return true;
+  }
+
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
+  return !smart_fence_.get()->scoped_fence_.is_valid();
+#elif BUILDFLAG(IS_WIN)
+  return !smart_fence_.get()->scoped_fence_.IsValid();
+#else
+  return true;
+#endif
 }
 
 GpuFenceHandle::RefCountedScopedFence::RefCountedScopedFence(

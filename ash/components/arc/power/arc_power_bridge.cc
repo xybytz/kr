@@ -16,6 +16,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "chromeos/ash/components/dbus/patchpanel/patchpanel_client.h"
+#include "chromeos/ash/components/dbus/vm_concierge/concierge_service.pb.h"
 #include "chromeos/dbus/power/power_policy_controller.h"
 #include "chromeos/dbus/power_manager/backlight.pb.h"
 #include "content/public/browser/device_service.h"
@@ -302,6 +303,12 @@ void ArcPowerBridge::ScreenBrightnessChanged(
 
 void ArcPowerBridge::PowerChanged(
     const power_manager::PowerSupplyProperties& proto) {
+  // ARCVM doesn't use this message, since it gets the corresponding
+  // information from crosvm's goldfish battery device.
+  if (arc::IsArcVmEnabled()) {
+    return;
+  }
+
   mojom::PowerInstance* power_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->power(), PowerSupplyInfoChanged);
   if (!power_instance)
@@ -364,6 +371,10 @@ void ArcPowerBridge::NotifyAndroidIdleState(ArcBridgeService* bridge,
   // power state changes, notify Android interactive state change as well.
   ash::PatchPanelClient::Get()->NotifyAndroidInteractiveState(
       state == IdleState::ACTIVE);
+
+  for (auto& observer : observer_list_) {
+    observer.OnAndroidIdleStateChange(state);
+  }
 }
 
 void ArcPowerBridge::OnAcquireDisplayWakeLock(mojom::DisplayWakeLockType type) {

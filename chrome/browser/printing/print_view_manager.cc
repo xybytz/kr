@@ -11,6 +11,7 @@
 
 #include "base/check.h"
 #include "base/containers/contains.h"
+#include "base/feature_list.h"
 #include "base/functional/bind.h"
 #include "base/no_destructor.h"
 #include "base/observer_list.h"
@@ -19,6 +20,7 @@
 #include "chrome/browser/bad_message.h"
 #include "chrome/browser/printing/print_preview_dialog_controller.h"
 #include "chrome/browser/ui/webui/print_preview/print_preview_ui.h"
+#include "components/enterprise/buildflags/buildflags.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/render_frame_host.h"
@@ -29,14 +31,14 @@
 #include "printing/buildflags/buildflags.h"
 
 #if BUILDFLAG(ENABLE_OOP_PRINTING)
-#include "chrome/browser/printing/prefs_util.h"
+#include "chrome/browser/printing/oop_features.h"
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS)
 #include "chrome/browser/chromeos/policy/dlp/dlp_content_manager.h"
 #endif
 
-#if BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+#if BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS)
 #include "chrome/browser/enterprise/data_protection/print_utils.h"
 #endif
 
@@ -332,6 +334,13 @@ void PrintViewManager::SetupScriptedPrintPreview(
     return;
   }
 
+  if (base::FeatureList::IsEnabled(kCheckPrintRfhIsActive) &&
+      !rfh->IsActive()) {
+    // Only active RFHs should show UI elements.
+    std::move(callback).Run();
+    return;
+  }
+
   auto& map = GetScriptedPrintPreviewClosureMap();
   if (base::Contains(map, rph)) {
     // Renderer already handling window.print(). Abort this attempt to prevent
@@ -371,7 +380,7 @@ void PrintViewManager::ShowScriptedPrintPreview(bool source_is_modifiable) {
   DCHECK(print_preview_rfh_);
   if (GetCurrentTargetFrame() != print_preview_rfh_)
     return;
-#if BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+#if BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS)
   set_analyzing_content(/*analyzing=*/true);
 #endif
   RejectPrintPreviewRequestIfRestricted(
@@ -385,7 +394,7 @@ void PrintViewManager::OnScriptedPrintPreviewCallback(
     bool source_is_modifiable,
     content::GlobalRenderFrameHostId rfh_id,
     bool should_proceed) {
-#if BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+#if BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS)
   set_analyzing_content(/*analyzing=*/false);
 #endif
   if (!should_proceed) {
@@ -418,7 +427,7 @@ void PrintViewManager::OnScriptedPrintPreviewCallback(
 
 void PrintViewManager::RequestPrintPreview(
     mojom::RequestPrintPreviewParamsPtr params) {
-#if BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+#if BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS)
   set_analyzing_content(/*analyzing=*/true);
 #endif
   RejectPrintPreviewRequestIfRestricted(
@@ -432,7 +441,7 @@ void PrintViewManager::OnRequestPrintPreviewCallback(
     mojom::RequestPrintPreviewParamsPtr params,
     content::GlobalRenderFrameHostId rfh_id,
     bool should_proceed) {
-#if BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+#if BUILDFLAG(ENTERPRISE_CONTENT_ANALYSIS)
   set_analyzing_content(/*analyzing=*/false);
 #endif
   if (!should_proceed) {

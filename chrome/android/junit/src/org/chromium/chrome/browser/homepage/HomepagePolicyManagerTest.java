@@ -9,9 +9,7 @@ import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -26,7 +24,6 @@ import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.ChromeSharedPreferences;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.preferences.PrefChangeRegistrar;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.prefs.PrefService;
 import org.chromium.url.GURL;
 import org.chromium.url.JUnitTestGURLs;
@@ -37,8 +34,6 @@ import org.chromium.url.JUnitTestGURLs;
 public class HomepagePolicyManagerTest {
     public static final String TEST_URL = JUnitTestGURLs.EXAMPLE_URL.getSpec();
     public static final String CHROME_NTP = JUnitTestGURLs.NTP_URL.getSpec();
-
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
 
     private HomepagePolicyManager mHomepagePolicyManager;
 

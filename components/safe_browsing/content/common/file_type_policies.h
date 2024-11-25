@@ -10,6 +10,7 @@
 
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/synchronization/lock.h"
 #include "components/safe_browsing/content/common/proto/download_file_types.pb.h"
 
@@ -34,6 +35,7 @@ class FileTypePolicies {
  public:
   FileTypePolicies(const FileTypePolicies&) = delete;
   FileTypePolicies& operator=(const FileTypePolicies&) = delete;
+
   virtual ~FileTypePolicies();
 
   static FileTypePolicies* GetInstance();  // Singleton
@@ -149,7 +151,8 @@ class FileTypePolicies {
 
   // This references entries in config_.
   // Protected by lock_.
-  std::map<std::string, const DownloadFileType*> file_type_by_ext_;
+  std::map<std::string, raw_ptr<const DownloadFileType, CtnExperimental>>
+      file_type_by_ext_;
 
   // Type used if we can't load from disk.
   // Written only in the constructor.
@@ -164,6 +167,8 @@ class FileTypePolicies {
                            NoInspectionTypeReturnsDefault);
   FRIEND_TEST_ALL_PREFIXES(FileTypePoliciesTest,
                            ChecksInspectionTypeNotDefault);
+  FRIEND_TEST_ALL_PREFIXES(FileTypePoliciesTest,
+                           NotDangerousOverrideShouldOnlyOverrideDangerType);
 
   friend struct FileTypePoliciesSingletonTrait;
   friend class FileTypePoliciesTestOverlay;

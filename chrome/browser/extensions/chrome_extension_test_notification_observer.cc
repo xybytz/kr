@@ -16,6 +16,7 @@
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/extension_id.h"
 
 namespace extensions {
 
@@ -27,14 +28,6 @@ bool HasPageActionVisibilityReachedTarget(
   return extension_action_test_util::GetVisiblePageActionCount(
              browser->tab_strip_model()->GetActiveWebContents()) ==
          target_visible_page_action_count;
-}
-
-bool HaveAllExtensionRenderFrameHostsFinishedLoading(ProcessManager* manager) {
-  for (content::RenderFrameHost* host : manager->GetAllFrames()) {
-    if (content::WebContents::FromRenderFrameHost(host)->IsLoading())
-      return false;
-  }
-  return true;
 }
 
 }  // namespace
@@ -68,31 +61,18 @@ ChromeExtensionTestNotificationObserver::GetBrowserContext() {
 bool ChromeExtensionTestNotificationObserver::
     WaitForPageActionVisibilityChangeTo(int count) {
   DCHECK(browser_);
-  base::ScopedObservation<ExtensionActionAPI, ExtensionActionAPI::Observer>
+  base::ScopedObservation<ExtensionActionDispatcher,
+                          ExtensionActionDispatcher::Observer>
       observer(this);
-  observer.Observe(ExtensionActionAPI::Get(GetBrowserContext()));
+  observer.Observe(ExtensionActionDispatcher::Get(GetBrowserContext()));
   WaitForCondition(base::BindRepeating(&HasPageActionVisibilityReachedTarget,
                                        browser_, count),
                    nullptr);
   return true;
 }
 
-bool ChromeExtensionTestNotificationObserver::WaitForExtensionViewsToLoad() {
-  // Some views might not be created yet. This call may become insufficient if
-  // e.g. implementation of ExtensionHostQueue changes.
-  base::RunLoop().RunUntilIdle();
-
-  ProcessManager* manager = ProcessManager::Get(GetBrowserContext());
-  NotificationSet notification_set(manager);
-  WaitForCondition(
-      base::BindRepeating(&HaveAllExtensionRenderFrameHostsFinishedLoading,
-                          manager),
-      &notification_set);
-  return true;
-}
-
 bool ChromeExtensionTestNotificationObserver::WaitForExtensionIdle(
-    const std::string& extension_id) {
+    const ExtensionId& extension_id) {
   ProcessManager* manager = ProcessManager::Get(GetBrowserContext());
   NotificationSet notification_set(manager);
   WaitForCondition(base::BindRepeating(&util::IsExtensionIdle, extension_id,
@@ -102,11 +82,11 @@ bool ChromeExtensionTestNotificationObserver::WaitForExtensionIdle(
 }
 
 bool ChromeExtensionTestNotificationObserver::WaitForExtensionNotIdle(
-    const std::string& extension_id) {
+    const ExtensionId& extension_id) {
   ProcessManager* manager = ProcessManager::Get(GetBrowserContext());
   NotificationSet notification_set(manager);
   WaitForCondition(base::BindRepeating(
-                       [](const std::string& extension_id,
+                       [](const ExtensionId& extension_id,
                           content::BrowserContext* context) -> bool {
                          return !util::IsExtensionIdle(extension_id, context);
                        },

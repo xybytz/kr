@@ -27,24 +27,26 @@
 #include "components/variations/cros_evaluate_seed/cros_safe_seed_manager.h"
 #include "components/variations/cros_evaluate_seed/cros_variations_field_trial_creator.h"
 #include "components/variations/cros_evaluate_seed/early_boot_enabled_state_provider.h"
+#include "components/variations/cros_evaluate_seed/early_boot_feature_visitor.h"
 #include "components/variations/cros_evaluate_seed/early_boot_safe_seed.h"
+#include "components/variations/entropy_provider.h"
 #include "components/variations/platform_field_trials.h"
 #include "components/variations/proto/study.pb.h"
 #include "components/variations/service/variations_service.h"
+#include "components/variations/synthetic_trial_registry.h"
 #include "components/variations/variations_ids_provider.h"
 #include "components/variations/variations_safe_seed_store_local_state.h"
 #include "components/variations/variations_seed_store.h"
 #include "components/variations/variations_switches.h"
 #include "components/version_info/version_info.h"
+#include "third_party/protobuf/src/google/protobuf/repeated_field.h"
 
 namespace variations::cros_early_boot::evaluate_seed {
 
 namespace {
-// Test-only feature. TODO(b/297870545): remove.
-constexpr char kTestFeatureName[] = "CrOSEarlyBootTestFeature";
-BASE_FEATURE(kTestFeature, kTestFeatureName, base::FEATURE_DISABLED_BY_DEFAULT);
 
 constexpr char kDefaultLocalStatePath[] = "/home/chronos/Local State";
+constexpr char kDefaultUserDataDir[] = "/home/chronos/";
 
 bool DetermineTrialState(std::unique_ptr<PrefService> local_state,
                          SafeSeed&& safe_seed,
@@ -62,9 +64,6 @@ bool DetermineTrialState(std::unique_ptr<PrefService> local_state,
 
   CrosVariationsServiceClient client;
 
-  std::unique_ptr<CrOSVariationsFieldTrialCreator> field_trial_creator =
-      std::move(get_creator).Run(local_state.get(), &client, safe_seed_details);
-
   EarlyBootEnabledStateProvider enabled_state_provider;
 
   std::unique_ptr<metrics::MetricsStateManager> metrics_state_manager =
@@ -76,12 +75,23 @@ bool DetermineTrialState(std::unique_ptr<PrefService> local_state,
           metrics::StartupVisibility::kForeground);
   metrics_state_manager->InstantiateFieldTrialList();
 
+  // TODO(crbug.com/380435316): Verify it is okay to not enable limited entropy
+  // mode here.
+  std::unique_ptr<const variations::EntropyProviders> entropy_providers =
+      metrics_state_manager->CreateEntropyProviders(
+          /*enable_limited_entropy_mode=*/false);
+  std::unique_ptr<CrOSVariationsFieldTrialCreator> field_trial_creator =
+      std::move(get_creator)
+          .Run(local_state.get(), &client, safe_seed_details,
+               entropy_providers.get());
+
   auto feature_list = std::make_unique<base::FeatureList>();
 
   variations::VariationsIdsProvider::Create(
       variations::VariationsIdsProvider::Mode::kDontSendSignedInVariations);
 
   variations::PlatformFieldTrials platform_field_trials;
+  variations::SyntheticTrialRegistry synthetic_trial_registry;
 
   // Despite documentation, SetUpFieldTrials returns false if it didn't use the
   // seed (e.g. if it used fieldtrial_testing_config), *not* just on failures.
@@ -93,8 +103,8 @@ bool DetermineTrialState(std::unique_ptr<PrefService> local_state,
       /*extra_overrides=*/
       std::vector<base::FeatureList::FeatureOverrideInfo>(),
       std::move(feature_list), metrics_state_manager.get(),
-      &platform_field_trials, &safe_seed_manager,
-      /*add_entropy_source_to_variations_ids=*/false);
+      &synthetic_trial_registry, &platform_field_trials, &safe_seed_manager,
+      /*add_entropy_source_to_variations_ids=*/false, *entropy_providers);
 
   if (used_seed) {
     if (seed_type == SeedType::kRegularSeed) {
@@ -122,38 +132,19 @@ bool DetermineTrialState(std::unique_ptr<PrefService> local_state,
   }
 
   // TODO(b/297870545): serialize correctly.
-  // ideally, we want:
-  // * Early-boot features that have trials associated (and have them correctly
-  //   associated)
-  // * Early-boot features that do not have trials associated (e.g. those
-  //   manually specified by --enable-features)
+  // ideally, we want to add:
   // * (Early-boot?) trials that do not have features associated (e.g. for
   //   uniformity trials)
   // We also do not want to mark the trial as active yet, but given that
   // evaluate_seed will not report anything to UMA that isn't urgent.
+  EarlyBootFeatureVisitor feature_visitor;
+  base::FeatureList::VisitFeaturesAndParams(feature_visitor,
+                                            EarlyBootFeatureVisitor::kPrefix);
+  google::protobuf::RepeatedPtrField<featured::FeatureOverride> overrides =
+      feature_visitor.release_overrides();
+  computed_state->mutable_overrides()->Assign(overrides.begin(),
+                                              overrides.end());
 
-  // The below code is placeholder and solely in place for tests to be able
-  // to verify that we're doing something.
-  // b/297870545 will address us replacing the below code with something more
-  // permanent, which will not request specific state for individual
-  // base::Feature objects, so the caching logic won't be necessary.
-  featured::FeatureOverride* feature = computed_state->add_overrides();
-  feature->set_name(kTestFeatureName);
-  feature->set_enabled(base::FeatureList::IsEnabled(kTestFeature));
-  base::FieldTrial* field_trial =
-      base::FeatureList::GetFieldTrial(kTestFeature);
-  if (field_trial) {
-    feature->set_trial_name(field_trial->trial_name());
-    feature->set_group_name(field_trial->GetGroupNameWithoutActivation());
-  }
-  std::map<std::string, std::string> params;
-  if (base::GetFieldTrialParamsByFeature(kTestFeature, &params)) {
-    for (const auto& [k, v] : params) {
-      featured::Param* param = feature->add_params();
-      param->set_key(k);
-      param->set_value(v);
-    }
-  }
   return true;
 }
 }  // namespace
@@ -225,6 +216,15 @@ bool CrosVariationsServiceClient::OverridesRestrictParameter(
   return false;
 }
 
+base::FilePath CrosVariationsServiceClient::GetVariationsSeedFileDir() {
+  return base::FilePath(kDefaultUserDataDir);
+}
+
+bool CrosVariationsServiceClient::IsEnterprise() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      kEnterpriseEnrolledSwitch);
+}
+
 // Get the active channel, if applicable.
 version_info::Channel CrosVariationsServiceClient::GetChannel() {
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
@@ -235,11 +235,6 @@ version_info::Channel CrosVariationsServiceClient::GetChannel() {
   }
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
   return version_info::Channel::UNKNOWN;
-}
-
-bool CrosVariationsServiceClient::IsEnterprise() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      kEnterpriseEnrolledSwitch);
 }
 
 std::optional<SafeSeed> GetSafeSeedData(FILE* stream) {
@@ -264,16 +259,21 @@ std::optional<SafeSeed> GetSafeSeedData(FILE* stream) {
 std::unique_ptr<CrOSVariationsFieldTrialCreator> GetFieldTrialCreator(
     PrefService* local_state,
     CrosVariationsServiceClient* client,
-    const std::optional<featured::SeedDetails>& safe_seed_details) {
+    const std::optional<featured::SeedDetails>& safe_seed_details,
+    const variations::EntropyProviders* entropy_providers) {
   std::unique_ptr<VariationsSafeSeedStore> safe_seed;
   if (safe_seed_details.has_value()) {
     safe_seed = std::make_unique<EarlyBootSafeSeed>(safe_seed_details.value());
   } else {
-    safe_seed =
-        std::make_unique<VariationsSafeSeedStoreLocalState>(local_state);
+    safe_seed = std::make_unique<VariationsSafeSeedStoreLocalState>(
+        local_state, client->GetVariationsSeedFileDir(),
+        client->GetChannelForVariations(), entropy_providers);
   }
-  auto seed_store =
-      std::make_unique<VariationsSeedStore>(local_state, std::move(safe_seed));
+  auto seed_store = std::make_unique<VariationsSeedStore>(
+      local_state, /*initial_seed=*/nullptr,
+      /*signature_verification_enabled=*/true, std::move(safe_seed),
+      client->GetChannelForVariations(), client->GetVariationsSeedFileDir(),
+      entropy_providers);
 
   return std::make_unique<CrOSVariationsFieldTrialCreator>(
       client, std::move(seed_store));
@@ -326,8 +326,7 @@ int EvaluateSeedMain(FILE* in_stream,
     return EXIT_FAILURE;
   }
 
-  if (!out.WriteAtCurrentPosAndCheck(
-          base::as_bytes(base::make_span(out_str.data(), out_str.size())))) {
+  if (!out.WriteAtCurrentPosAndCheck(base::as_byte_span(out_str))) {
     LOG(ERROR) << "Failed to write to output";
     return EXIT_FAILURE;
   }

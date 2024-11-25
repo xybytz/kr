@@ -9,12 +9,13 @@
 #error "This header is only for Objective C++ compilation units"
 #endif
 
+#include <optional>
 #include <vector>
 
+#include "base/functional/callback.h"
 #include "base/memory/ref_counted.h"
 #include "device/fido/discoverable_credential_metadata.h"
 #include "device/fido/mac/icloud_keychain_sys.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 @class NSWindow;
 
@@ -38,6 +39,10 @@ class API_AVAILABLE(macos(13.3)) FakeSystemInterface : public SystemInterface {
   // cancel_count returns the number of times that `Cancel` has been called.
   unsigned cancel_count() const { return cancel_count_; }
 
+  // Configure a callback that will be called during each create request.
+  void SetMakeCredentialCallback(
+      base::RepeatingCallback<void(const CtapMakeCredentialRequest&)> callback);
+
   // SetMakeCredentialResult sets the values that will be returned from the next
   // call to `MakeCredential`. If not set, `MakeCredential` will return an
   // error.
@@ -47,6 +52,10 @@ class API_AVAILABLE(macos(13.3)) FakeSystemInterface : public SystemInterface {
   // SetMakeCredentialError sets the code of the `NSError` that will be returned
   // from the next `MakeCredential` call.
   void SetMakeCredentialError(int code);
+
+  // Configure a callback that will be called during each get request.
+  void SetGetAssertionCallback(
+      base::RepeatingCallback<void(const CtapGetAssertionRequest&)> callback);
 
   // SetGetAssertionResult sets the values that will be returned from the next
   // call to `GetAssertion`. If not set, `GetAssertion` will return an error.
@@ -94,18 +103,21 @@ class API_AVAILABLE(macos(13.3)) FakeSystemInterface : public SystemInterface {
   ~FakeSystemInterface() override;
 
   AuthState auth_state_ = kAuthAuthorized;
-  absl::optional<AuthState> next_auth_state_;
+  std::optional<AuthState> next_auth_state_;
 
-  absl::optional<int> make_credential_error_code_;
-  absl::optional<std::vector<uint8_t>>
-      make_credential_attestation_object_bytes_;
-  absl::optional<std::vector<uint8_t>> make_credential_credential_id_;
+  base::RepeatingCallback<void(const CtapMakeCredentialRequest&)>
+      create_callback_;
+  base::RepeatingCallback<void(const CtapGetAssertionRequest&)> get_callback_;
 
-  absl::optional<std::pair<int, std::string>> get_assertion_error_;
-  absl::optional<std::vector<uint8_t>> get_assertion_authenticator_data_;
-  absl::optional<std::vector<uint8_t>> get_assertion_signature_;
-  absl::optional<std::vector<uint8_t>> get_assertion_user_id_;
-  absl::optional<std::vector<uint8_t>> get_assertion_credential_id_;
+  std::optional<int> make_credential_error_code_;
+  std::optional<std::vector<uint8_t>> make_credential_attestation_object_bytes_;
+  std::optional<std::vector<uint8_t>> make_credential_credential_id_;
+
+  std::optional<std::pair<int, std::string>> get_assertion_error_;
+  std::optional<std::vector<uint8_t>> get_assertion_authenticator_data_;
+  std::optional<std::vector<uint8_t>> get_assertion_signature_;
+  std::optional<std::vector<uint8_t>> get_assertion_user_id_;
+  std::optional<std::vector<uint8_t>> get_assertion_credential_id_;
 
   unsigned cancel_count_ = 0;
 

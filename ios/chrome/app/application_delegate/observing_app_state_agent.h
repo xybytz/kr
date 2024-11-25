@@ -14,6 +14,9 @@
 // class that provides universally useful functionality for app agents.
 @interface ObservingAppAgent : NSObject <AppStateAgent, AppStateObserver>
 
+// Returns the agent of this class iff one is already added to `appState`.
++ (instancetype)agentFromApp:(AppState*)appState;
+
 // App state this agent serves and observes.
 @property(nonatomic, weak) AppState* appState;
 
@@ -38,7 +41,8 @@
 - (void)appState:(AppState*)appState
     sceneConnected:(SceneState*)sceneState NS_REQUIRES_SUPER;
 - (void)appState:(AppState*)appState
-    didTransitionFromInitStage:(InitStage)previousInitStage NS_REQUIRES_SUPER;
+    didTransitionFromInitStage:(AppInitStage)previousInitStage
+    NS_REQUIRES_SUPER;
 - (void)sceneState:(SceneState*)sceneState
     transitionedToActivationLevel:(SceneActivationLevel)level NS_REQUIRES_SUPER;
 

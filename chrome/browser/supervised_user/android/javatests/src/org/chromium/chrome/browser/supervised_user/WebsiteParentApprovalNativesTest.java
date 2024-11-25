@@ -22,6 +22,7 @@ import org.mockito.junit.MockitoRule;
 import org.mockito.quality.Strictness;
 
 import org.chromium.base.Callback;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DoNotBatch;
@@ -35,7 +36,6 @@ import org.chromium.chrome.test.util.browser.signin.SigninTestRule;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetTestSupport;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.url.GURL;
@@ -87,7 +87,7 @@ public class WebsiteParentApprovalNativesTest {
         mTestServer = mTabbedActivityTestRule.getEmbeddedTestServerRule().getServer();
         mBlockedUrl = mTestServer.getURL(TEST_PAGE);
         mTabbedActivityTestRule.startMainActivityOnBlankPage();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     ChromeTabbedActivity activity = mTabbedActivityTestRule.getActivity();
                     mBottomSheetController =
@@ -96,7 +96,7 @@ public class WebsiteParentApprovalNativesTest {
                 });
 
         mSigninTestRule.addChildTestAccountThenWaitForSignin();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     SupervisedUserSettingsTestBridge.setFilteringBehavior(
                             mTabbedActivityTestRule.getProfile(/* incognito= */ false),
@@ -139,7 +139,7 @@ public class WebsiteParentApprovalNativesTest {
         verify(mParentAuthDelegateMock, timeout(CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL).times(1))
                 .requestLocalAuth(any(WindowAndroid.class), any(GURL.class), any(Callback.class));
 
-        histograms.assertExpected();
+        histograms.pollInstrumentationThreadUntilSatisfied();
     }
 
     @Test
@@ -161,7 +161,7 @@ public class WebsiteParentApprovalNativesTest {
         verify(mParentAuthDelegateMock, timeout(CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL).times(1))
                 .requestLocalAuth(any(WindowAndroid.class), any(GURL.class), any(Callback.class));
 
-        histograms.assertExpected();
+        histograms.pollInstrumentationThreadUntilSatisfied();
     }
 
     @Test
@@ -179,7 +179,7 @@ public class WebsiteParentApprovalNativesTest {
         verify(mParentAuthDelegateMock, timeout(CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL).times(1))
                 .requestLocalAuth(any(WindowAndroid.class), any(GURL.class), any(Callback.class));
 
-        histograms.assertExpected();
+        histograms.pollInstrumentationThreadUntilSatisfied();
     }
 
     @Test
@@ -204,6 +204,6 @@ public class WebsiteParentApprovalNativesTest {
         verify(mParentAuthDelegateMock, timeout(CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL).times(1))
                 .requestLocalAuth(any(WindowAndroid.class), any(GURL.class), any(Callback.class));
 
-        histograms.assertExpected();
+        histograms.pollInstrumentationThreadUntilSatisfied();
     }
 }

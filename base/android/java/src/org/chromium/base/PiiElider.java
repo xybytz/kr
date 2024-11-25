@@ -100,10 +100,13 @@ public class PiiElider {
     private static final String[] SYSTEM_NAMESPACE =
             new String[] {
                 "android.",
+                "c2.", // MediaCodec names.
                 "com.android.",
                 "dalvik.",
                 "java.",
                 "javax.",
+                "omx.", // MediaCodec names.
+                "OMX.",
                 "org.apache.",
                 "org.json.",
                 "org.w3c.dom.",
@@ -141,6 +144,7 @@ public class PiiElider {
             int end = matcher.end();
             String url = buffer.substring(start, end);
             if (!likelyToBeAppNamespace(url)
+                    && !likelyToBeChromeApkName(url)
                     && !likelyToBeSystemNamespace(url)
                     && !likelyToBeClassOrMethodName(url)) {
                 buffer.replace(start, end, URL_ELISION);
@@ -160,6 +164,15 @@ public class PiiElider {
         int indexOfLastPeriod = url.lastIndexOf(".");
         if (indexOfLastPeriod == -1) return false;
         return isClassName(url.substring(0, indexOfLastPeriod));
+    }
+
+    private static boolean likelyToBeChromeApkName(String url) {
+        // Our Java stacktraces always contain a line that looks like:
+        // at Z94.e(chromium-TrichromeChromeGoogle6432.aab-canary-651000033:14)
+        if (url.startsWith("chromium-") && (url.endsWith(".apk") || url.endsWith(".aab"))) {
+            return true;
+        }
+        return false;
     }
 
     private static boolean isClassName(String url) {

@@ -7,14 +7,14 @@
  */
 
 import 'chrome://resources/ash/common/personalization/common.css.js';
-import 'chrome://resources/cr_elements/cr_auto_img/cr_auto_img.js';
-import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
+import 'chrome://resources/ash/common/cr_elements/cr_auto_img/cr_auto_img.js';
+import 'chrome://resources/ash/common/cr_elements/cr_shared_vars.css.js';
 
 import {assertNotReached} from 'chrome://resources/js/assert.js';
 
 import {AmbientTheme} from '../../personalization_app.mojom-webui.js';
 import {WithPersonalizationStore} from '../personalization_store.js';
-import {getCheckmarkIcon, isSelectionEvent} from '../utils.js';
+import {isSelectionEvent} from '../utils.js';
 
 import {setAmbientTheme} from './ambient_controller.js';
 import {getAmbientProvider} from './ambient_interface_provider.js';
@@ -39,12 +39,6 @@ export class AmbientThemeItemElement extends WithPersonalizationStore {
       imgSrc_: {
         type: String,
         computed: 'computeImgSrc_(ambientTheme)',
-      },
-      checkmarkIcon_: {
-        type: String,
-        value() {
-          return getCheckmarkIcon();
-        },
       },
     };
   }

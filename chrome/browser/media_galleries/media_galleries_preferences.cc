@@ -2,12 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/media_galleries/media_galleries_preferences.h"
 
 #include <stddef.h>
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "base/base_paths_posix.h"
@@ -145,7 +151,6 @@ const char* TypeToStringValue(MediaGalleryPrefInfo::Type type) {
       break;
     default:
       NOTREACHED();
-      break;
   }
   return result;
 }
@@ -190,7 +195,6 @@ const char* DefaultGalleryTypeToStringValue(
       break;
     default:
       NOTREACHED();
-      break;
   }
   return result;
 }
@@ -199,7 +203,7 @@ const char* DefaultGalleryTypeToStringValue(
 // to `out` as a std::u16string. Returns false if no such string is found in
 // `dict`.
 bool FindU16StringInDict(const base::Value::Dict& dict,
-                         base::StringPiece key,
+                         std::string_view key,
                          std::u16string& out) {
   const std::string* string = dict.FindString(key);
   if (!string)
@@ -339,7 +343,6 @@ bool GetMediaGalleryPermissionFromDictionary(
     return true;
   }
   NOTREACHED();
-  return false;
 }
 
 // For a device with |device_name| and a relative path |sub_folder|, construct
@@ -1016,7 +1019,6 @@ bool MediaGalleriesPreferences::NonAutoGalleryHasPermission(
   for (const auto iter : extensions) {
     if (!crx_file::id_util::IdIsValid(iter.first)) {
       NOTREACHED();
-      continue;
     }
     std::vector<MediaGalleryPermission> permissions =
         GetGalleryPermissionsFromPrefs(iter.first);
@@ -1224,7 +1226,6 @@ void MediaGalleriesPreferences::RemoveGalleryPermissionsFromPrefs(
   for (const auto iter : extensions) {
     if (!crx_file::id_util::IdIsValid(iter.first)) {
       NOTREACHED();
-      continue;
     }
     UnsetGalleryPermissionInPrefs(iter.first, gallery_id);
   }

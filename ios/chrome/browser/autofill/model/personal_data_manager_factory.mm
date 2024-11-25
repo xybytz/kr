@@ -22,7 +22,7 @@
 #import "ios/chrome/browser/history/model/history_service_factory.h"
 #import "ios/chrome/browser/shared/model/application_context/application_context.h"
 #import "ios/chrome/browser/shared/model/browser_state/browser_state_otr_helper.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/signin/model/identity_manager_factory.h"
 #import "ios/chrome/browser/sync/model/sync_service_factory.h"
 #import "ios/chrome/browser/webdata_services/model/web_data_service_factory.h"
@@ -44,10 +44,10 @@ const std::string GetCountryCodeFromVariations() {
 }  // namespace
 
 // static
-PersonalDataManager* PersonalDataManagerFactory::GetForBrowserState(
-    ChromeBrowserState* browser_state) {
+PersonalDataManager* PersonalDataManagerFactory::GetForProfile(
+    ProfileIOS* profile) {
   return static_cast<PersonalDataManager*>(
-      GetInstance()->GetServiceForBrowserState(browser_state, true));
+      GetInstance()->GetServiceForBrowserState(profile, true));
 }
 
 // static
@@ -71,37 +71,34 @@ PersonalDataManagerFactory::~PersonalDataManagerFactory() = default;
 std::unique_ptr<KeyedService>
 PersonalDataManagerFactory::BuildServiceInstanceFor(
     web::BrowserState* context) const {
-  ChromeBrowserState* chrome_browser_state =
-      ChromeBrowserState::FromBrowserState(context);
-  std::unique_ptr<PersonalDataManager> service(
-      new PersonalDataManager(GetApplicationContext()->GetApplicationLocale(),
-                              GetCountryCodeFromVariations()));
-  auto local_storage =
-      ios::WebDataServiceFactory::GetAutofillWebDataForBrowserState(
-          chrome_browser_state, ServiceAccessType::EXPLICIT_ACCESS);
-  auto account_storage =
+  ProfileIOS* profile = ProfileIOS::FromBrowserState(context);
+  scoped_refptr<autofill::AutofillWebDataService> local_storage =
+      ios::WebDataServiceFactory::GetAutofillWebDataForProfile(
+          profile, ServiceAccessType::EXPLICIT_ACCESS);
+  scoped_refptr<autofill::AutofillWebDataService> account_storage =
       ios::WebDataServiceFactory::GetAutofillWebDataForAccount(
-          chrome_browser_state, ServiceAccessType::EXPLICIT_ACCESS);
-  auto* history_service = ios::HistoryServiceFactory::GetForBrowserState(
-      chrome_browser_state, ServiceAccessType::EXPLICIT_ACCESS);
-  auto* strike_database =
-      StrikeDatabaseFactory::GetForBrowserState(chrome_browser_state);
-  auto* sync_service =
-      SyncServiceFactory::GetForBrowserState(chrome_browser_state);
-  auto* autofill_image_fetcher =
+          profile, ServiceAccessType::EXPLICIT_ACCESS);
+  history::HistoryService* history_service =
+      ios::HistoryServiceFactory::GetForProfile(
+          profile, ServiceAccessType::EXPLICIT_ACCESS);
+  StrikeDatabase* strike_database =
+      StrikeDatabaseFactory::GetForProfile(profile);
+  syncer::SyncService* sync_service =
+      SyncServiceFactory::GetForProfile(profile);
+  AutofillImageFetcherBase* autofill_image_fetcher =
       base::FeatureList::IsEnabled(
           autofill::features::kAutofillEnableCardArtImage)
-          ? AutofillImageFetcherFactory::GetForBrowserState(
-                chrome_browser_state)
+          ? AutofillImageFetcherFactory::GetForProfile(profile)
           : nullptr;
 
-  service->Init(
-      local_storage, account_storage, chrome_browser_state->GetPrefs(),
+  return std::make_unique<PersonalDataManager>(
+      local_storage, account_storage, profile->GetPrefs(),
       GetApplicationContext()->GetLocalState(),
-      IdentityManagerFactory::GetForBrowserState(chrome_browser_state),
-      history_service, sync_service, strike_database, autofill_image_fetcher);
-
-  return service;
+      IdentityManagerFactory::GetForProfile(profile), history_service,
+      sync_service, strike_database, autofill_image_fetcher,
+      /*shared_storage_handler=*/nullptr,
+      GetApplicationContext()->GetApplicationLocale(),
+      GetCountryCodeFromVariations());
 }
 
 }  // namespace autofill

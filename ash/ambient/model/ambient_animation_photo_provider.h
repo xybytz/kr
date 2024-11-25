@@ -7,6 +7,7 @@
 
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "ash/ambient/model/ambient_backend_model.h"
@@ -62,7 +63,7 @@ class ASH_EXPORT AmbientAnimationPhotoProvider
   ~AmbientAnimationPhotoProvider() override;
 
   scoped_refptr<ImageAsset> LoadImageAsset(
-      base::StringPiece resource_id,
+      std::string_view resource_id,
       const base::FilePath& resource_path,
       const std::optional<gfx::Size>& size) override;
 
@@ -101,6 +102,10 @@ class ASH_EXPORT AmbientAnimationPhotoProvider
 
   void NotifyObserverOfNewTopics();
   void RecordDynamicAssetMetrics();
+
+  // Whether the tree shadow asset should be set. See the comment in
+  // `AmbientAnimationView::OnViewBoundsChanged()`.
+  bool enable_tree_shadow_ = false;
 
   // Unowned pointers. Must outlive the |AmbientAnimationPhotoProvider|.
   const raw_ptr<const AmbientAnimationStaticResources> static_resources_;

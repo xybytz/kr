@@ -6,27 +6,30 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIARECORDER_MEDIA_RECORDER_HANDLER_H_
 
 #include <memory>
+#include <optional>
+#include <string_view>
 
 #include "base/feature_list.h"
-#include "base/strings/string_piece.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
+#include "media/base/decoder_buffer.h"
 #include "media/base/video_encoder.h"
 #include "media/muxers/muxer_timestamp_adapter.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream.h"
 #include "third_party/blink/public/web/modules/mediastream/encoded_video_frame.h"
 #include "third_party/blink/renderer/modules/mediarecorder/audio_track_recorder.h"
 #include "third_party/blink/renderer/modules/mediarecorder/video_track_recorder.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
+#include "third_party/blink/renderer/platform/heap/weak_cell.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
-#if BUILDFLAG(USE_PROPRIETARY_CODECS)
-#include "media/formats/mp4/h264_annex_b_to_avc_bitstream_converter.h"
+#if BUILDFLAG(USE_PROPRIETARY_CODECS) || \
+    BUILDFLAG(ENABLE_HEVC_PARSER_AND_HW_DECODER)
+#include "media/formats/mp4/h26x_annex_b_to_bitstream_converter.h"
 #endif
 
 namespace media {
@@ -45,6 +48,14 @@ struct WebMediaCapabilitiesInfo;
 struct WebMediaConfiguration;
 
 MODULES_EXPORT BASE_DECLARE_FEATURE(kMediaRecorderEnableMp4Muxer);
+
+// Helper function to convert media recorder codec id to media video codec.
+MODULES_EXPORT media::VideoCodec MediaVideoCodecFromCodecId(
+    VideoTrackRecorder::CodecId id);
+
+// Helper function to parse a codec string to codec/profile/level.
+MODULES_EXPORT VideoTrackRecorder::CodecProfile VideoStringToCodecProfile(
+    const String& codecs);
 
 // MediaRecorderHandler orchestrates the creation, lifetime management and
 // mapping between:
@@ -111,25 +122,22 @@ class MODULES_EXPORT MediaRecorderHandler final
   // VideoTrackRecorder::CallbackInterface overrides.
   void OnEncodedVideo(
       const media::Muxer::VideoParameters& params,
-      std::string encoded_data,
-      std::string encoded_alpha,
-      absl::optional<media::VideoEncoder::CodecDescription> codec_description,
-      base::TimeTicks timestamp,
-      bool is_key_frame) override;
+      scoped_refptr<media::DecoderBuffer> encoded_data,
+      std::optional<media::VideoEncoder::CodecDescription> codec_description,
+      base::TimeTicks timestamp) override;
   void OnPassthroughVideo(const media::Muxer::VideoParameters& params,
-                          std::string encoded_data,
-                          std::string encoded_alpha,
-                          base::TimeTicks timestamp,
-                          bool is_key_frame) override;
+                          scoped_refptr<media::DecoderBuffer> encoded_data,
+                          base::TimeTicks timestamp) override;
   std::unique_ptr<media::VideoEncoderMetricsProvider>
   CreateVideoEncoderMetricsProvider() override;
-  void OnVideoEncodingError() override;
+  void OnVideoEncodingError(const media::EncoderStatus& error_status) override;
   // AudioTrackRecorder::CallbackInterface overrides.
   void OnEncodedAudio(
       const media::AudioParameters& params,
-      std::string encoded_data,
-      absl::optional<media::AudioEncoder::CodecDescription> codec_description,
+      scoped_refptr<media::DecoderBuffer> encoded_data,
+      std::optional<media::AudioEncoder::CodecDescription> codec_description,
       base::TimeTicks timestamp) override;
+  void OnAudioEncodingError(media::EncoderStatus error_status) override;
   // [Audio/Video]TrackRecorder::CallbackInterface overrides.
   void OnSourceReadyStateChanged() override;
 
@@ -137,12 +145,10 @@ class MODULES_EXPORT MediaRecorderHandler final
 
   void HandleEncodedVideo(
       const media::Muxer::VideoParameters& params,
-      std::string encoded_data,
-      std::string encoded_alpha,
-      absl::optional<media::VideoEncoder::CodecDescription> codec_description,
-      base::TimeTicks timestamp,
-      bool is_key_frame);
-  void WriteData(base::StringPiece data);
+      scoped_refptr<media::DecoderBuffer> encoded_data,
+      std::optional<media::VideoEncoder::CodecDescription> codec_description,
+      base::TimeTicks timestamp);
+  void WriteData(base::span<const uint8_t> data);
 
   // Updates recorded tracks live and enabled.
   void UpdateTracksLiveAndEnabled();
@@ -189,9 +195,8 @@ class MODULES_EXPORT MediaRecorderHandler final
   base::TimeTicks slice_origin_timestamp_;
 
   // The last seen video codec of the last received encoded video frame.
-  absl::optional<media::VideoCodec> last_seen_codec_;
+  std::optional<media::VideoCodec> last_seen_codec_;
 
-  bool invalidated_ = false;
   bool recording_ = false;
 
   String type_;
@@ -210,9 +215,20 @@ class MODULES_EXPORT MediaRecorderHandler final
   // Worker class doing the actual muxing work.
   std::unique_ptr<media::MuxerTimestampAdapter> muxer_adapter_;
 
-#if BUILDFLAG(USE_PROPRIETARY_CODECS)
-  std::unique_ptr<media::H264AnnexBToAvcBitstreamConverter> h264_converter_;
+#if BUILDFLAG(USE_PROPRIETARY_CODECS) || \
+    BUILDFLAG(ENABLE_HEVC_PARSER_AND_HW_DECODER)
+  // Converter to get the codec description from Annex-B bitstream keyframes.
+  std::unique_ptr<media::H26xAnnexBToBitstreamConverter> h26x_converter_;
 #endif
+
+  // For invalidation of in-flight callbacks back to ourselves. Need to track
+  // each callback interface specifically as there seem to be no automatic
+  // coercion.
+  WeakCellFactory<AudioTrackRecorder::CallbackInterface> weak_audio_factory_{
+      this};
+  WeakCellFactory<VideoTrackRecorder::CallbackInterface> weak_video_factory_{
+      this};
+  WeakCellFactory<MediaRecorderHandler> weak_factory_{this};
 };
 
 }  // namespace blink

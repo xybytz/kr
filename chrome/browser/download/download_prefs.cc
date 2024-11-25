@@ -50,13 +50,10 @@
 #include "chrome/browser/ash/drive/drive_integration_service.h"
 #include "chrome/browser/ash/drive/file_system_util.h"
 #include "chrome/browser/ash/file_manager/path_util.h"
+#include "chrome/browser/ui/webui/ash/cloud_upload/cloud_upload_util.h"
 #include "chromeos/ash/components/dbus/cros_disks/cros_disks_client.h"
 #elif BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "chrome/common/chrome_paths_lacros.h"
-#endif
-
-#if BUILDFLAG(IS_WIN)
-#include "chrome/browser/ui/pdf/adobe_reader_info_win.h"
 #endif
 
 #if BUILDFLAG(IS_ANDROID)
@@ -80,7 +77,7 @@ bool DownloadPathIsDangerous(const base::FilePath& download_path) {
   }
 #endif
 
-#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)
+#if BUILDFLAG(IS_ANDROID)
   // Neither Fuchsia nor Android have a desktop dir.
   return false;
 #else
@@ -210,16 +207,15 @@ DownloadPrefs::DownloadPrefs(Profile* profile) : profile_(profile) {
   prompt_for_download_android_.Init(prefs::kPromptForDownloadAndroid, prefs);
   RecordDownloadPromptStatus(
       static_cast<DownloadPromptStatus>(*prompt_for_download_android_));
-  if (base::FeatureList::IsEnabled(chrome::android::kOpenDownloadDialog)) {
-    auto_open_pdf_enabled_.Init(prefs::kAutoOpenPdfEnabled, prefs);
-  }
+  auto_open_pdf_enabled_.Init(prefs::kAutoOpenPdfEnabled, prefs);
 #endif
   download_path_.Init(prefs::kDownloadDefaultDirectory, prefs);
   save_file_path_.Init(prefs::kSaveFileDefaultDirectory, prefs);
   save_file_type_.Init(prefs::kSaveFileType, prefs);
   safebrowsing_for_trusted_sources_enabled_.Init(
       prefs::kSafeBrowsingForTrustedSourcesEnabled, prefs);
-  download_restriction_.Init(prefs::kDownloadRestrictions, prefs);
+  download_restriction_.Init(policy::policy_prefs::kDownloadRestrictions,
+                             prefs);
 
   pref_change_registrar_.Add(
       prefs::kDownloadExtensionsToOpenByPolicy,
@@ -288,7 +284,7 @@ void DownloadPrefs::RegisterProfilePrefs(
   registry->RegisterBooleanPref(prefs::kDownloadDirUpgraded, false);
   registry->RegisterIntegerPref(prefs::kSaveFileType,
                                 content::SAVE_PAGE_TYPE_AS_COMPLETE_HTML);
-  registry->RegisterIntegerPref(prefs::kDownloadRestrictions, 0);
+  registry->RegisterIntegerPref(policy::policy_prefs::kDownloadRestrictions, 0);
   // The following two prefs are ignored on ChromeOS Lacros if SysUI integration
   // is enabled.
   // TODO(chlily): Clean them up once SysUI integration is enabled by default.
@@ -318,9 +314,9 @@ void DownloadPrefs::RegisterProfilePrefs(
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 
   registry->RegisterBooleanPref(prefs::kShowMissingSdCardErrorAndroid, true);
-  if (base::FeatureList::IsEnabled(chrome::android::kOpenDownloadDialog)) {
-    registry->RegisterBooleanPref(prefs::kAutoOpenPdfEnabled, false);
-  }
+  registry->RegisterBooleanPref(prefs::kAutoOpenPdfEnabled, false);
+  registry->RegisterListPref(prefs::kDownloadAppVerificationPromptTimestamps,
+                             {});
 #endif
 }
 
@@ -482,12 +478,6 @@ void DownloadPrefs::SetShouldOpenPdfInSystemReader(bool should_open) {
 }
 
 bool DownloadPrefs::ShouldOpenPdfInSystemReader() const {
-#if BUILDFLAG(IS_WIN)
-  if (IsAdobeReaderDefaultPDFViewer() &&
-      !DownloadTargetDeterminer::IsAdobeReaderUpToDate()) {
-      return false;
-  }
-#endif
 #if BUILDFLAG(IS_CHROMEOS)
   // On ChromeOS, there is always an "app" to handle PDF files. E.g., a "View"
   // app which configures a file handler to open in a browser tab. However,
@@ -517,9 +507,6 @@ void DownloadPrefs::SkipSanitizeDownloadTargetPathForTesting() {
 
 #if BUILDFLAG(IS_ANDROID)
 bool DownloadPrefs::IsAutoOpenPdfEnabled() {
-  if (!base::FeatureList::IsEnabled(chrome::android::kOpenDownloadDialog)) {
-    return false;
-  }
   return *auto_open_pdf_enabled_;
 }
 #endif
@@ -557,12 +544,18 @@ base::FilePath DownloadPrefs::SanitizeDownloadTargetPath(
     return path;
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
-  // TODO(https://crbug.com/1148848): Sort out path sanitization for Lacros.
+  // TODO(crbug.com/40731523): Sort out path sanitization for Lacros.
   // This will require refactoring the ash-only code below so it can be shared.
   base::FilePath migrated_drive_path;
   if (download_dir_util::ExpandDrivePolicyVariable(profile_, path,
                                                    &migrated_drive_path)) {
     return SanitizeDownloadTargetPath(migrated_drive_path);
+  }
+
+  base::FilePath onedrive_path;
+  if (download_dir_util::ExpandOneDrivePolicyVariable(profile_, path,
+                                                      &onedrive_path)) {
+    return SanitizeDownloadTargetPath(onedrive_path);
   }
 
   const base::FilePath default_downloads_path =
@@ -588,6 +581,14 @@ base::FilePath DownloadPrefs::SanitizeDownloadTargetPath(
   bool drivefs_mounted = chrome::GetDriveFsMountPointPath(&drivefs);
   if (drivefs_mounted && drivefs.IsParent(path))
     return path;
+
+  // Allow paths under OneDrive mount point if the feature flag is enabled.
+  base::FilePath odfs_path;
+  bool odfs_mounted = chrome::GetOneDriveMountPointPath(&odfs_path);
+  if (base::FeatureList::IsEnabled(features::kSkyVault) && odfs_mounted &&
+      ((odfs_path == path) || odfs_path.IsParent(path))) {
+    return path;
+  }
 
   // Allow paths for removable media devices.
   base::FilePath removable_media_path;
@@ -630,6 +631,12 @@ base::FilePath DownloadPrefs::SanitizeDownloadTargetPath(
     return SanitizeDownloadTargetPath(migrated_drive_path);
   }
 
+  base::FilePath onedrive_path;
+  if (download_dir_util::ExpandOneDrivePolicyVariable(profile_, path,
+                                                      &onedrive_path)) {
+    return SanitizeDownloadTargetPath(onedrive_path);
+  }
+
   // If |path| isn't absolute, fall back to the default directory.
   base::FilePath profile_myfiles_path =
       file_manager::util::GetMyFilesFolderForProfile(profile_);
@@ -646,6 +653,14 @@ base::FilePath DownloadPrefs::SanitizeDownloadTargetPath(
       drive::DriveIntegrationServiceFactory::FindForProfile(profile_);
   if (integration_service && integration_service->is_enabled() &&
       integration_service->GetMountPointPath().IsParent(path)) {
+    return path;
+  }
+
+  // Allow paths under /tmp if the feature flag is enabled.
+  base::FilePath temp_path;
+  if (base::FeatureList::IsEnabled(features::kSkyVault) &&
+      base::GetTempDir(&temp_path) &&
+      ((temp_path == path) || temp_path.IsParent(path))) {
     return path;
   }
 

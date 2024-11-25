@@ -47,10 +47,12 @@ SafeAreaInsetsHostImpl::~SafeAreaInsetsHostImpl() = default;
 
 void SafeAreaInsetsHostImpl::DidAcquireFullscreen(RenderFrameHost* rfh) {
   fullscreen_rfh_ = static_cast<RenderFrameHostImpl*>(rfh)->GetWeakPtr();
+  ClearSafeAreaInsetsForActiveFrame();
   MaybeActiveRenderFrameHostChanged();
 }
 
 void SafeAreaInsetsHostImpl::DidExitFullscreen() {
+  ClearSafeAreaInsetsForActiveFrame();
   fullscreen_rfh_.reset();
   MaybeActiveRenderFrameHostChanged();
 }
@@ -65,6 +67,13 @@ void SafeAreaInsetsHostImpl::DidFinishNavigation(
     RenderFrameHost* rfh = navigation_handle->GetRenderFrameHost();
     DCHECK(rfh);
     current_rfh_ = static_cast<RenderFrameHostImpl*>(rfh)->GetWeakPtr();
+
+    blink::mojom::DisplayMode mode = web_contents_impl_->GetDisplayMode();
+    if (mode == blink::mojom::DisplayMode::kFullscreen &&
+        active_rfh_.get() != current_rfh_.get()) {
+      ClearSafeAreaInsetsForActiveFrame();
+    }
+
     MaybeActiveRenderFrameHostChanged();
   }
 }
@@ -72,9 +81,13 @@ void SafeAreaInsetsHostImpl::DidFinishNavigation(
 void SafeAreaInsetsHostImpl::SetDisplayCutoutSafeArea(gfx::Insets insets) {
   RenderFrameHostImpl* rfh = ActiveRenderFrameHost();
   if (rfh) {
-    insets_ = insets;
-    SendSafeAreaToFrame(rfh, insets);
+    // Skip sending the safe area to frame if the values match the latest sent
+    // values.
+    if (insets != insets_) {
+      MaybeSendSafeAreaToFrame(rfh, insets);
+    }
   }
+  insets_ = insets;
 }
 
 void SafeAreaInsetsHostImpl::ViewportFitChangedForFrame(
@@ -91,6 +104,10 @@ void SafeAreaInsetsHostImpl::ViewportFitChangedForFrame(
 }
 
 void SafeAreaInsetsHostImpl::MaybeActiveRenderFrameHostChanged() {
+  base::WeakPtr<RenderFrameHostImpl> new_active_rfh =
+      fullscreen_rfh_ ? fullscreen_rfh_ : current_rfh_;
+  active_rfh_ = new_active_rfh;
+
   blink::mojom::ViewportFit new_value =
       GetValueOrDefault(ActiveRenderFrameHost());
   if (new_value != active_value_) {
@@ -98,19 +115,44 @@ void SafeAreaInsetsHostImpl::MaybeActiveRenderFrameHostChanged() {
     web_contents_impl_->NotifyViewportFitChanged(new_value);
   }
   // Update Blink so its document displays with the current insets.
-  SetDisplayCutoutSafeArea(insets_);
+  if (new_active_rfh) {
+    MaybeSendSafeAreaToFrame(new_active_rfh.get(), insets_);
+  }
+}
+
+void SafeAreaInsetsHostImpl::ClearSafeAreaInsetsForActiveFrame() {
+  if (active_rfh_.get()) {
+    MaybeSendSafeAreaToFrame(active_rfh_.get(), gfx::Insets());
+  }
+}
+
+// TODO (crbug.com/376573458): Improve logic further to track per frame, such
+// that the optimization isn't lost when one non-zero inset is sent.
+void SafeAreaInsetsHostImpl::MaybeSendSafeAreaToFrame(RenderFrameHost* rfh,
+                                                      gfx::Insets insets) {
+  bool are_zero_insets = (insets == kZeroInsets);
+  if (are_zero_insets && !has_sent_non_zero_insets_) {
+    return;
+  }
+  if (!are_zero_insets) {
+    has_sent_non_zero_insets_ = true;
+  }
+  SendSafeAreaToFrame(rfh, insets);
 }
 
 RenderFrameHostImpl* SafeAreaInsetsHostImpl::ActiveRenderFrameHost() {
-  return (fullscreen_rfh_ ? fullscreen_rfh_ : current_rfh_).get();
+  return active_rfh_.get();
 }
 
 blink::mojom::ViewportFit SafeAreaInsetsHostImpl::GetValueOrDefault(
     RenderFrameHost* rfh) const {
-  DCHECK(rfh);
-  SafeAreaUserData* data = SafeAreaUserData::GetForCurrentDocument(rfh);
-  if (data) {
-    return data->viewport_fit();
+  // The active RenderFrameHost can be null in some cases, such as if fullscreen
+  // mode is exited before the navigation finishes.
+  if (rfh) {
+    SafeAreaUserData* data = SafeAreaUserData::GetForCurrentDocument(rfh);
+    if (data) {
+      return data->viewport_fit();
+    }
   }
   return blink::mojom::ViewportFit::kAuto;
 }

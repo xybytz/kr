@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40284755): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "net/http/http_chunked_decoder.h"
 
 #include <memory>
@@ -9,6 +14,7 @@
 #include <vector>
 
 #include "base/format_macros.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "net/base/net_errors.h"
 #include "net/test/gtest_util.h"
@@ -36,7 +42,7 @@ void RunTest(const char* const inputs[],
 
   for (size_t i = 0; i < num_inputs; ++i) {
     std::string input = inputs[i];
-    int n = decoder.FilterBuf(&input[0], static_cast<int>(input.size()));
+    int n = decoder.FilterBuf(base::as_writable_byte_span(input));
     EXPECT_GE(n, 0);
     if (n > 0)
       result.append(input.data(), n);
@@ -56,7 +62,7 @@ void RunTestUntilFailure(const char* const inputs[],
 
   for (size_t i = 0; i < num_inputs; ++i) {
     std::string input = inputs[i];
-    int n = decoder.FilterBuf(&input[0], static_cast<int>(input.size()));
+    int n = decoder.FilterBuf(base::as_writable_byte_span(input));
     if (n < 0) {
       EXPECT_THAT(n, IsError(ERR_INVALID_CHUNKED_ENCODING));
       EXPECT_EQ(fail_index, i);
@@ -121,7 +127,7 @@ TEST(HttpChunkedDecoderTest, Incremental2) {
   RunTest(inputs, std::size(inputs), "hello", true, 0);
 }
 
-TEST(HttpChunkedDecoderTest, LF_InsteadOf_CRLF) {
+TEST(HttpChunkedDecoderTest, LFInsteadOfCRLF) {
   // Compatibility: [RFC 7230 - Invalid]
   // {Firefox3} - Valid
   // {IE7, Safari3.1, Opera9.51} - Invalid
@@ -162,7 +168,7 @@ TEST(HttpChunkedDecoderTest, TrailersUnfinished) {
   RunTest(inputs, std::size(inputs), "hello", false, 0);
 }
 
-TEST(HttpChunkedDecoderTest, InvalidChunkSize_TooBig) {
+TEST(HttpChunkedDecoderTest, InvalidChunkSizeTooBig) {
   const char* const inputs[] = {
     // This chunked body is not terminated.
     // However we will fail decoding because the chunk-size
@@ -173,7 +179,7 @@ TEST(HttpChunkedDecoderTest, InvalidChunkSize_TooBig) {
   RunTestUntilFailure(inputs, std::size(inputs), 0);
 }
 
-TEST(HttpChunkedDecoderTest, InvalidChunkSize_0X) {
+TEST(HttpChunkedDecoderTest, InvalidChunkSize0X) {
   const char* const inputs[] = {
     // Compatibility [RFC 7230 - Invalid]:
     // {Safari3.1, IE7} - Invalid
@@ -184,7 +190,7 @@ TEST(HttpChunkedDecoderTest, InvalidChunkSize_0X) {
   RunTestUntilFailure(inputs, std::size(inputs), 0);
 }
 
-TEST(HttpChunkedDecoderTest, ChunkSize_TrailingSpace) {
+TEST(HttpChunkedDecoderTest, ChunkSizeTrailingSpace) {
   const char* const inputs[] = {
     // Compatibility [RFC 7230 - Invalid]:
     // {IE7, Safari3.1, Firefox3, Opera 9.51} - Valid
@@ -196,7 +202,7 @@ TEST(HttpChunkedDecoderTest, ChunkSize_TrailingSpace) {
   RunTest(inputs, std::size(inputs), "hello", true, 0);
 }
 
-TEST(HttpChunkedDecoderTest, InvalidChunkSize_TrailingTab) {
+TEST(HttpChunkedDecoderTest, InvalidChunkSizeTrailingTab) {
   const char* const inputs[] = {
     // Compatibility [RFC 7230 - Invalid]:
     // {IE7, Safari3.1, Firefox3, Opera 9.51} - Valid
@@ -206,7 +212,7 @@ TEST(HttpChunkedDecoderTest, InvalidChunkSize_TrailingTab) {
   RunTestUntilFailure(inputs, std::size(inputs), 0);
 }
 
-TEST(HttpChunkedDecoderTest, InvalidChunkSize_TrailingFormFeed) {
+TEST(HttpChunkedDecoderTest, InvalidChunkSizeTrailingFormFeed) {
   const char* const inputs[] = {
     // Compatibility [RFC 7230- Invalid]:
     // {Safari3.1} - Invalid
@@ -217,7 +223,7 @@ TEST(HttpChunkedDecoderTest, InvalidChunkSize_TrailingFormFeed) {
   RunTestUntilFailure(inputs, std::size(inputs), 0);
 }
 
-TEST(HttpChunkedDecoderTest, InvalidChunkSize_TrailingVerticalTab) {
+TEST(HttpChunkedDecoderTest, InvalidChunkSizeTrailingVerticalTab) {
   const char* const inputs[] = {
     // Compatibility [RFC 7230 - Invalid]:
     // {Safari 3.1} - Invalid
@@ -228,7 +234,7 @@ TEST(HttpChunkedDecoderTest, InvalidChunkSize_TrailingVerticalTab) {
   RunTestUntilFailure(inputs, std::size(inputs), 0);
 }
 
-TEST(HttpChunkedDecoderTest, InvalidChunkSize_TrailingNonHexDigit) {
+TEST(HttpChunkedDecoderTest, InvalidChunkSizeTrailingNonHexDigit) {
   const char* const inputs[] = {
     // Compatibility [RFC 7230 - Invalid]:
     // {Safari 3.1} - Invalid
@@ -239,7 +245,7 @@ TEST(HttpChunkedDecoderTest, InvalidChunkSize_TrailingNonHexDigit) {
   RunTestUntilFailure(inputs, std::size(inputs), 0);
 }
 
-TEST(HttpChunkedDecoderTest, InvalidChunkSize_LeadingSpace) {
+TEST(HttpChunkedDecoderTest, InvalidChunkSizeLeadingSpace) {
   const char* const inputs[] = {
     // Compatibility [RFC 7230 - Invalid]:
     // {IE7} - Invalid
@@ -258,7 +264,7 @@ TEST(HttpChunkedDecoderTest, InvalidLeadingSeparator) {
   RunTestUntilFailure(inputs, std::size(inputs), 0);
 }
 
-TEST(HttpChunkedDecoderTest, InvalidChunkSize_NoSeparator) {
+TEST(HttpChunkedDecoderTest, InvalidChunkSizeNoSeparator) {
   const char* const inputs[] = {
     "5\r\nhello",
     "1\r\n \r\n",
@@ -267,7 +273,7 @@ TEST(HttpChunkedDecoderTest, InvalidChunkSize_NoSeparator) {
   RunTestUntilFailure(inputs, std::size(inputs), 1);
 }
 
-TEST(HttpChunkedDecoderTest, InvalidChunkSize_Negative) {
+TEST(HttpChunkedDecoderTest, InvalidChunkSizeNegative) {
   const char* const inputs[] = {
     "8\r\n12345678\r\n-5\r\nhello\r\n",
     "0\r\n\r\n"
@@ -275,7 +281,7 @@ TEST(HttpChunkedDecoderTest, InvalidChunkSize_Negative) {
   RunTestUntilFailure(inputs, std::size(inputs), 0);
 }
 
-TEST(HttpChunkedDecoderTest, InvalidChunkSize_Plus) {
+TEST(HttpChunkedDecoderTest, InvalidChunkSizePlus) {
   const char* const inputs[] = {
     // Compatibility [RFC 7230 - Invalid]:
     // {IE7, Safari 3.1} - Invalid
@@ -298,7 +304,7 @@ TEST(HttpChunkedDecoderTest, InvalidConsecutiveCRLFs) {
 TEST(HttpChunkedDecoderTest, ReallyBigChunks) {
   // Number of bytes sent through the chunked decoder per loop iteration. To
   // minimize runtime, should be the square root of the chunk lengths, below.
-  const int64_t kWrittenBytesPerIteration = 0x10000;
+  const size_t kWrittenBytesPerIteration = 0x10000;
 
   // Length of chunks to test. Must be multiples of kWrittenBytesPerIteration.
   int64_t kChunkLengths[] = {
@@ -316,7 +322,7 @@ TEST(HttpChunkedDecoderTest, ReallyBigChunks) {
     std::string chunk_header =
         base::StringPrintf("%" PRIx64 "\r\n", chunk_length);
     std::vector<char> data(chunk_header.begin(), chunk_header.end());
-    EXPECT_EQ(OK, decoder.FilterBuf(data.data(), data.size()));
+    EXPECT_EQ(OK, decoder.FilterBuf(base::as_writable_byte_span(data)));
     EXPECT_FALSE(decoder.reached_eof());
 
     // Set |data| to be kWrittenBytesPerIteration long, and have a repeating
@@ -333,13 +339,15 @@ TEST(HttpChunkedDecoderTest, ReallyBigChunks) {
     for (int64_t total_written = 0; total_written < chunk_length;
          total_written += kWrittenBytesPerIteration) {
       EXPECT_EQ(kWrittenBytesPerIteration,
-                decoder.FilterBuf(data.data(), kWrittenBytesPerIteration));
+                base::checked_cast<size_t>(
+                    decoder.FilterBuf(base::as_writable_byte_span(data).first(
+                        kWrittenBytesPerIteration))));
       EXPECT_FALSE(decoder.reached_eof());
     }
 
     // Chunk terminator and the final chunk.
     char final_chunk[] = "\r\n0\r\n\r\n";
-    EXPECT_EQ(OK, decoder.FilterBuf(final_chunk, std::size(final_chunk)));
+    EXPECT_EQ(OK, decoder.FilterBuf(base::as_writable_byte_span(final_chunk)));
     EXPECT_TRUE(decoder.reached_eof());
 
     // Since |data| never included any chunk headers, it should not have been

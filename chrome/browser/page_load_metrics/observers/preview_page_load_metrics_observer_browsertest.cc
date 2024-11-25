@@ -5,11 +5,15 @@
 #include "chrome/browser/page_load_metrics/observers/preview_page_load_metrics_observer.h"
 
 #include "base/test/metrics/histogram_tester.h"
+#include "build/build_config.h"
+#include "chrome/browser/preloading/preview/preview_manager.h"
 #include "chrome/browser/preloading/preview/preview_test_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/test/base/chrome_test_utils.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/page_load_metrics/browser/page_load_metrics_test_waiter.h"
 #include "content/public/browser/back_forward_cache.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
@@ -30,12 +34,21 @@ class PreviewPageLoadMetricsObserverBrowserTest : public InProcessBrowserTest {
   void SetUpOnMainThread() override {
     InProcessBrowserTest::SetUpOnMainThread();
 
+    https_server_ = std::make_unique<net::EmbeddedTestServer>(
+        net::EmbeddedTestServer::TYPE_HTTPS);
+
     host_resolver()->AddRule("*", "127.0.0.1");
 
-    embedded_test_server()->ServeFilesFromSourceDirectory("chrome/test/data");
-    ASSERT_TRUE(embedded_test_server()->Start());
+    https_server_->SetSSLConfig(
+        net::test_server::EmbeddedTestServer::CERT_TEST_NAMES);
+    https_server_->ServeFilesFromSourceDirectory(GetChromeTestDataDir());
+    ASSERT_TRUE(https_server_->Start());
 
     histogram_tester_.emplace();
+  }
+
+  void ActivateTab(int index) {
+    browser()->tab_strip_model()->ActivateTabAt(index);
   }
 
   void NavigateToOriginPath(const std::string& path) {
@@ -62,7 +75,7 @@ class PreviewPageLoadMetricsObserverBrowserTest : public InProcessBrowserTest {
   }
 
   GURL GetTestURL(const std::string& path) {
-    return embedded_test_server()->GetURL("example.com", path);
+    return https_server_->GetURL("a.test", path);
   }
 
   void DisableBackForwardCache() {
@@ -73,10 +86,13 @@ class PreviewPageLoadMetricsObserverBrowserTest : public InProcessBrowserTest {
   base::HistogramTester& histogram_tester() { return *histogram_tester_; }
   test::PreviewTestHelper& helper() { return helper_; }
 
- private:
   content::WebContents* GetWebContents() {
-    return browser()->tab_strip_model()->GetActiveWebContents();
+    // We keep holding the initiator WebContents under testing in the first tab.
+    return browser()->tab_strip_model()->GetWebContentsAt(0);
   }
+
+ private:
+  std::unique_ptr<net::EmbeddedTestServer> https_server_;
 
   std::optional<base::HistogramTester> histogram_tester_;
   test::PreviewTestHelper helper_;
@@ -283,5 +299,159 @@ IN_PROC_BROWSER_TEST_F(PreviewPageLoadMetricsObserverBrowserTest,
       "PageLoad.Experimental.PreviewFinalStatus",
       PreviewPageLoadMetricsObserver::PreviewFinalStatus::kPromoted, 1);
 }
+
+#if !BUILDFLAG(IS_ANDROID)
+IN_PROC_BROWSER_TEST_F(PreviewPageLoadMetricsObserverBrowserTest,
+                       LinkPreviewUsageNotUsed) {
+  DisableBackForwardCache();
+
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples("PageLoad.Clients.LinkPreview.Usage"),
+      testing::ElementsAre());
+
+  auto complete_waiter =
+      std::make_unique<page_load_metrics::PageLoadMetricsTestWaiter>(
+          GetWebContents());
+  complete_waiter->AddOnCompleteCalledExpectation();
+
+  // Navigates to an initial page that is associated with `complete_waiter`.
+  NavigateToOriginPath("/title1.html");
+
+  // Navigates to another page to wipe out metrics observers for the initial
+  // page.
+  NavigateToOriginPath("/title2.html");
+
+  // Ensures the observer is completed, and verify histograms.
+  complete_waiter->Wait();
+
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples("PageLoad.Clients.LinkPreview.Usage"),
+      testing::ElementsAre(base::Bucket(PreviewManager::Usage::kNotUsed, 1)));
+}
+
+IN_PROC_BROWSER_TEST_F(PreviewPageLoadMetricsObserverBrowserTest,
+                       LinkPreviewUsageUsedButNotPromoted) {
+  DisableBackForwardCache();
+
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples("PageLoad.Clients.LinkPreview.Usage"),
+      testing::ElementsAre());
+
+  auto complete_waiter =
+      std::make_unique<page_load_metrics::PageLoadMetricsTestWaiter>(
+          GetWebContents());
+  complete_waiter->AddOnCompleteCalledExpectation();
+
+  // Navigates to an initial page that is associated with `complete_waiter`.
+  NavigateToOriginPath("/title1.html");
+
+  // Open a preview page that changes the initiator status to
+  // kUsedButNotPromoted.
+  helper().InitiatePreview(GetTestURL("/title2.html?preview"));
+  helper().WaitUntilLoadFinished();
+
+  // Navigates to another page to wipe out metrics observers for the initial
+  // page.
+  NavigateToOriginPath("/title2.html");
+
+  // Ensures the observer is completed, and verify histograms.
+  complete_waiter->Wait();
+
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples("PageLoad.Clients.LinkPreview.Usage"),
+      testing::ElementsAre(
+          base::Bucket(PreviewManager::Usage::kUsedButNotPromoted, 1)));
+}
+
+IN_PROC_BROWSER_TEST_F(PreviewPageLoadMetricsObserverBrowserTest,
+                       LinkPreviewUsageResetOnPrimaryNavigation) {
+  DisableBackForwardCache();
+
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples("PageLoad.Clients.LinkPreview.Usage"),
+      testing::ElementsAre());
+
+  auto complete_waiter1 =
+      std::make_unique<page_load_metrics::PageLoadMetricsTestWaiter>(
+          GetWebContents());
+  complete_waiter1->AddOnCompleteCalledExpectation();
+
+  // Navigates to an initial page that is associated with `complete_waiter1`.
+  NavigateToOriginPath("/title1.html");
+
+  // Open a preview page that changes the initiator status to
+  // kUsedButNotPromoted.
+  helper().InitiatePreview(GetTestURL("/title2.html?preview"));
+  helper().WaitUntilLoadFinished();
+
+  // Navigates to another page that is associated with `complete_waiter2` in
+  // order to wipe out metrics observers for the initial page.
+  auto complete_waiter2 =
+      std::make_unique<page_load_metrics::PageLoadMetricsTestWaiter>(
+          GetWebContents());
+  complete_waiter2->AddOnCompleteCalledExpectation();
+  NavigateToOriginPath("/title2.html");
+
+  // Ensures the observer is completed, and verify histograms.
+  complete_waiter1->Wait();
+
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples("PageLoad.Clients.LinkPreview.Usage"),
+      testing::ElementsAre(
+          base::Bucket(PreviewManager::Usage::kUsedButNotPromoted, 1)));
+
+  // Navigates to yet another page to wipte out metrics observers for the second
+  // page.
+  NavigateToOriginPath("/title3.html");
+
+  // Ensures the observer is completed, and verify histograms.
+  complete_waiter2->Wait();
+
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples("PageLoad.Clients.LinkPreview.Usage"),
+      testing::ElementsAre(
+          base::Bucket(PreviewManager::Usage::kNotUsed, 1),
+          base::Bucket(PreviewManager::Usage::kUsedButNotPromoted, 1)));
+}
+
+IN_PROC_BROWSER_TEST_F(PreviewPageLoadMetricsObserverBrowserTest,
+                       LinkPreviewUsageUsedAndPromoted) {
+  DisableBackForwardCache();
+
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples("PageLoad.Clients.LinkPreview.Usage"),
+      testing::ElementsAre());
+
+  auto complete_waiter =
+      std::make_unique<page_load_metrics::PageLoadMetricsTestWaiter>(
+          GetWebContents());
+  complete_waiter->AddOnCompleteCalledExpectation();
+
+  // Navigates to an initial page that is associated with `complete_waiter1`.
+  NavigateToOriginPath("/title1.html");
+
+  // Opens a preview page that changes the initiator status to
+  // kUsedButNotPromoted.
+  helper().InitiatePreview(GetTestURL("/title2.html?preview"));
+  helper().WaitUntilLoadFinished();
+
+  // Promotes the preview page that changes the initiator status to
+  // kUsedAndPromoted.
+  test::PreviewTestHelper::Waiter promote_waiter =
+      helper().CreateActivationWaiter();
+  helper().PromoteToNewTab();
+  promote_waiter.Wait();
+
+  // Flush initiator page metrics.
+  ActivateTab(0);
+  NavigateToOriginPath("/title3.html");
+  complete_waiter->Wait();
+
+  EXPECT_THAT(
+      histogram_tester().GetAllSamples("PageLoad.Clients.LinkPreview.Usage"),
+      testing::ElementsAre(
+          base::Bucket(PreviewManager::Usage::kUsedAndPromoted, 1)));
+}
+#endif
 
 }  // namespace

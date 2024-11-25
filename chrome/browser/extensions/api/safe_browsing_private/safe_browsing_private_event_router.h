@@ -18,10 +18,15 @@
 #include "chrome/browser/enterprise/connectors/reporting/realtime_reporting_client.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_utils.h"
 #include "components/download/public/common/download_danger_type.h"
+#include "components/enterprise/buildflags/buildflags.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
 #include "components/safe_browsing/core/common/proto/realtimeapi.pb.h"
+
+#if BUILDFLAG(ENTERPRISE_DATA_CONTROLS)
+#include "components/enterprise/data_controls/core/browser/verdict.h"
+#endif  // BUILDFLAG(ENTERPRISE_DATA_CONTROLS)
 
 namespace content {
 class BrowserContext;
@@ -65,9 +70,6 @@ class SafeBrowsingPrivateEventRouter : public KeyedService {
   static const char kKeyContentSize[];
   static const char kKeyTrigger[];
   static const char kKeyEventResult[];
-  static const char kKeyMalwareFamily[];
-  static const char kKeyMalwareCategory[];
-  static const char kKeyEvidenceLockerFilePath[];
   static const char kKeyScanId[];
   static const char kKeyIsFederated[];
   static const char kKeyFederatedOrigin[];
@@ -79,21 +81,8 @@ class SafeBrowsingPrivateEventRouter : public KeyedService {
   static const char kKeyUrlCategory[];
   static const char kKeyAction[];
   static const char kKeyTabUrl[];
-
-  // All new event names should be added to the array
-  // `enterprise_connectors::ReportingServiceSettings::kAllReportingEvents` in
-  // chrome/browser/enterprise/connectors/reporting/reporting_service_settings.h
-  static constexpr char kKeyUrlFilteringInterstitialEvent[] =
-      "urlFilteringInterstitialEvent";
-  static constexpr char kKeyPasswordReuseEvent[] = "passwordReuseEvent";
-  static constexpr char kKeyPasswordChangedEvent[] = "passwordChangedEvent";
-  static constexpr char kKeyDangerousDownloadEvent[] = "dangerousDownloadEvent";
-  static constexpr char kKeyInterstitialEvent[] = "interstitialEvent";
-  static constexpr char kKeySensitiveDataEvent[] = "sensitiveDataEvent";
-  static constexpr char kKeyUnscannedFileEvent[] = "unscannedFileEvent";
-  static constexpr char kKeyLoginEvent[] = "loginEvent";
-  static constexpr char kKeyPasswordBreachEvent[] = "passwordBreachEvent";
-
+  static constexpr char kKeyContentTransferMethod[] = "contentTransferMethod";
+  static constexpr char kKeyHasWatermarking[] = "hasWatermarking";
   static const char kKeyUnscannedReason[];
 
   // String constants for the "trigger" event field.  This corresponds to
@@ -103,6 +92,7 @@ class SafeBrowsingPrivateEventRouter : public KeyedService {
   static const char kTriggerWebContentUpload[];
   static const char kTriggerPagePrint[];
   static const char kTriggerFileTransfer[];
+  static const char kTriggerClipboardCopy[];
 
   explicit SafeBrowsingPrivateEventRouter(content::BrowserContext* context);
 
@@ -158,6 +148,7 @@ class SafeBrowsingPrivateEventRouter : public KeyedService {
       const std::string& mime_type,
       const std::string& trigger,
       const std::string& scan_id,
+      const std::string& content_transfer_method,
       safe_browsing::DeepScanAccessPoint access_point,
       const enterprise_connectors::ContentAnalysisResponse::Result& result,
       const int64_t content_size,
@@ -174,6 +165,7 @@ class SafeBrowsingPrivateEventRouter : public KeyedService {
       const std::string& mime_type,
       const std::string& trigger,
       const std::string& scan_id,
+      const std::string& content_transfer_method,
       safe_browsing::DeepScanAccessPoint access_point,
       const enterprise_connectors::ContentAnalysisResponse::Result& result,
       const int64_t content_size,
@@ -190,6 +182,7 @@ class SafeBrowsingPrivateEventRouter : public KeyedService {
                             const std::string& trigger,
                             safe_browsing::DeepScanAccessPoint access_point,
                             const std::string& reason,
+                            const std::string& content_transfer_method,
                             const int64_t content_size,
                             safe_browsing::EventResult event_result);
 
@@ -243,7 +236,7 @@ class SafeBrowsingPrivateEventRouter : public KeyedService {
 
   void OnLoginEvent(const GURL& url,
                     bool is_federated,
-                    const url::Origin& federated_origin,
+                    const url::SchemeHostPort& federated_origin,
                     const std::u16string& username);
 
   void OnPasswordBreach(
@@ -256,6 +249,23 @@ class SafeBrowsingPrivateEventRouter : public KeyedService {
       const GURL& url,
       const std::string& threat_type,
       const safe_browsing::RTLookupResponse& response);
+
+#if BUILDFLAG(ENTERPRISE_DATA_CONTROLS)
+  // Helper function to report sensitive data event that were caused by
+  // triggering a Data Controls rule. This is similar to
+  // `OnSensitiveDataEvent()` with a signature more suited to Data Controls as
+  // opposed to scanning related events.
+  void OnDataControlsSensitiveDataEvent(
+      const GURL& url,
+      const GURL& tab_url,
+      const std::string& source,
+      const std::string& destination,
+      const std::string& mime_type,
+      const std::string& trigger,
+      const data_controls::Verdict::TriggeredRules& triggered_rules,
+      safe_browsing::EventResult event_result,
+      int64_t content_size);
+#endif  // BUILDFLAG(ENTERPRISE_DATA_CONTROLS)
 
  private:
   // Returns filename with full path if full path is required;
@@ -280,10 +290,8 @@ class SafeBrowsingPrivateEventRouter : public KeyedService {
       const std::string& trigger,
       const int64_t content_size,
       safe_browsing::EventResult event_result,
-      const std::string& malware_family,
-      const std::string& malware_category,
-      const std::string& evidence_locker_filepath,
-      const std::string& scan_id);
+      const std::string& scan_id,
+      const std::string& content_transfer_method);
 
   // Notifies listeners that the analysis connector detected a violation.
   void OnSensitiveDataEvent(
@@ -296,6 +304,7 @@ class SafeBrowsingPrivateEventRouter : public KeyedService {
       const std::string& mime_type,
       const std::string& trigger,
       const std::string& scan_id,
+      const std::string& content_transfer_method,
       const enterprise_connectors::ContentAnalysisResponse::Result& result,
       const int64_t content_size,
       safe_browsing::EventResult event_result);

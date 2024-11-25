@@ -12,10 +12,10 @@
 #include <unistd.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
-#include <optional>
 #include "base/command_line.h"
 #include "base/files/dir_reader_posix.h"
 #include "base/files/file_util.h"
@@ -333,7 +333,7 @@ bool SynchronizedMinidumpManager::WriteFiles(
     lockfile += "\n";  // Add line seperatators
   }
 
-  if (WriteFile(lockfile_path_, lockfile.c_str(), lockfile.size()) < 0) {
+  if (!WriteFile(lockfile_path_, lockfile)) {
     return false;
   }
 
@@ -457,9 +457,10 @@ bool SynchronizedMinidumpManager::CanUploadDump() {
 
 bool SynchronizedMinidumpManager::HasDumps() {
   // Check if lockfile has entries.
-  int64_t size = 0;
-  if (base::GetFileSize(lockfile_path_, &size) && size > 0)
+  std::optional<int64_t> size = base::GetFileSize(lockfile_path_);
+  if (size.has_value() && size.value() > 0) {
     return true;
+  }
 
   // Check if any files are in minidump directory
   base::DirReaderPosix reader(dump_path_.value().c_str());

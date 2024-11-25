@@ -78,7 +78,6 @@ int PowerSourceToDisplayId(
       return IDS_POWER_SOURCE_PORT_BACK_RIGHT;
   }
   NOTREACHED();
-  return 0;
 }
 
 }  // namespace
@@ -606,7 +605,6 @@ PowerHandler::IdleBehaviorInfo PowerHandler::GetAllowedIdleBehaviors(
     NOTREACHED() << "Idle behavior is set to a enterprise-only value, but "
                  << "the setting is not enterprise managed. Defaulting to "
                  << "DISPLAY_OFF_SLEEP behavior.";
-    current_idle_behavior = IdleBehavior::DISPLAY_OFF_SLEEP;
   }
 
   return IdleBehaviorInfo(possible_behaviors, current_idle_behavior,

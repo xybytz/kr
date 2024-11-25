@@ -217,6 +217,14 @@ enum class PolicyDeviceIdValidity {
   kMaxValue = kInvalid,  // Must be the last.
 };
 
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class PolicyPromotionBannerAction {
+  kBannerDismissed = 0,
+  kBannerRedirected = 1,
+  kMaxValue = kBannerRedirected,  // Must be the last.
+};
+
 // Names for the UMA counters. They are shared from here since the events
 // from the same enum above can be triggered in different files, and must use
 // the same UMA histogram name.
@@ -416,12 +424,6 @@ inline constexpr char kUMAStateDeterminationDeviceIdentifierStatus[] =
     "Enterprise.StateDetermination.DeviceIdentifierStatus";
 inline constexpr char kUMAStateDeterminationEnabled[] =
     "Enterprise.StateDetermination.Enabled";
-inline constexpr char kUMAStateDeterminationEmbargoDatePassed[] =
-    "Enterprise.StateDetermination.EmbargoDatePassed";
-inline constexpr char kUMAStateDeterminationKillSwitchFetchNetworkErrorCode[] =
-    "Enterprise.StateDetermination.KillSwitchFetch.NetworkErrorCode";
-inline constexpr char kUMAStateDeterminationKillSwitchFetchNumTries[] =
-    "Enterprise.StateDetermination.KillSwitchFetch.NumTries";
 inline constexpr char kUMAStateDeterminationOnFlex[] =
     "Enterprise.StateDetermination.OnFlex";
 inline constexpr char kUMAStateDeterminationOwnershipStatus[] =
@@ -438,8 +440,8 @@ inline constexpr char kUMAStateDeterminationPsmRlweQueryRequestDmStatusCode[] =
 inline constexpr char
     kUMAStateDeterminationPsmRlweQueryRequestNetworkErrorCode[] =
     "Enterprise.StateDetermination.PsmRlweQueryRequest.NetworkErrorCode";
-inline constexpr char kUMAStateDeterminationStateKeysRetrieved[] =
-    "Enterprise.StateDetermination.StateKeysRetrieved";
+inline constexpr char kUMAStateDeterminationStateKeysRetrievalErrorType[] =
+    "Enterprise.StateDetermination.StateKeys.RetrievalErrorType";
 inline constexpr char kUMAStateDeterminationStateRequestDmStatusCode[] =
     "Enterprise.StateDetermination.StateRequest.DmStatusCode";
 inline constexpr char kUMAStateDeterminationStateRequestNetworkErrorCode[] =
@@ -448,15 +450,22 @@ inline constexpr char kUMAStateDeterminationStateReturned[] =
     "Enterprise.StateDetermination.StateReturned";
 inline constexpr char kUMAStateDeterminationStepDuration[] =
     "Enterprise.StateDetermination.StepDuration";
-inline constexpr char kUMAStateDeterminationSystemClockSynchronized[] =
-    "Enterprise.StateDetermination.SystemClockSynchronized";
 inline constexpr char kUMAStateDeterminationTotalDurationByState[] =
     "Enterprise.StateDetermination.TotalDurationByState";
 inline constexpr char kUMAStateDeterminationTotalDuration[] =
     "Enterprise.StateDetermination.TotalDuration";
+inline constexpr char kUMAStateDeterminationStatus[] =
+    "Enterprise.StateDetermination.Status";
+inline constexpr char kUMAStateDeterminationIsInitialByState[] =
+    "Enterprise.StateDetermination.IsInitialByState";
+
+inline constexpr char kUMAPrefixEnrollmentTokenBasedOOBEConfig[] =
+    "Enterprise.TokenBasedEnrollmentOobeConfig";
 
 // Suffixes added to kUMAStateDeterminationTotalDurationByState.
 inline constexpr char kUMASuffixConnectionError[] = ".ConnectionError";
+inline constexpr char kUMASuffixStateKeysRetrievalError[] =
+    ".StateKeysRetrievalError";
 inline constexpr char kUMASuffixDisabled[] = ".Disabled";
 inline constexpr char kUMASuffixEnrollment[] = ".Enrollment";
 inline constexpr char kUMASuffixNoEnrollment[] = ".NoEnrollment";
@@ -466,10 +475,14 @@ inline constexpr char kUMASuffixServerError[] = ".ServerError";
 inline constexpr char kUMASuffixOPRFRequest[] = ".OPRFRequest";
 inline constexpr char kUMASuffixOwnershipCheck[] = ".OwnershipCheck";
 inline constexpr char kUMASuffixQueryRequest[] = ".QueryRequest";
-inline constexpr char kUMASuffixStateKeyRetrieval[] = ".StateKeyRetrieval";
+inline constexpr char kUMASuffixStateKeysRetrieval[] = ".StateKeysRetrieval";
 inline constexpr char kUMASuffixStateRequest[] = ".StateRequest";
-inline constexpr char kUMASuffixSystemClockSync[] = ".SystemClockSync";
 
+// Histograms for the promotion banner on chrome://policy
+inline constexpr char kUMAPolicyBannerDisplayed[] =
+    "Enterprise.PolicyPromotionBannerDisplayed";
+inline constexpr char kUMAPolicyBannerAction[] =
+    "Enterprise.PolicyPromotionBannerAction";
 }  // namespace policy
 
 #endif  // COMPONENTS_POLICY_CORE_COMMON_CLOUD_ENTERPRISE_METRICS_H_

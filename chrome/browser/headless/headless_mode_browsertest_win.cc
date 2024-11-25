@@ -8,8 +8,8 @@
 #include "chrome/browser/headless/headless_mode_browsertest_utils.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/test/base/ui_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/aura/window_tree_host_platform.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/native_widget_types.h"
@@ -35,8 +35,7 @@ bool IsPlatformWindowVisible(views::Widget* widget) {
   gfx::NativeWindow native_window = widget->GetNativeWindow();
   CHECK(native_window);
 
-  aura::WindowTreeHostPlatform* host =
-      static_cast<aura::WindowTreeHostPlatform*>(native_window->GetHost());
+  aura::WindowTreeHost* host = native_window->GetHost();
   CHECK(host);
 
   gfx::AcceleratedWidget accelerated_widget = host->GetAcceleratedWidget();
@@ -93,13 +92,13 @@ IN_PROC_BROWSER_TEST_F(HeadlessModeBrowserTest,
   EXPECT_FALSE(::IsWindowVisible(desktop_window_hwnd));
 
   // Verify fullscreen state.
-  test::ToggleFullscreenModeSync(browser());
+  ui_test_utils::ToggleFullscreenModeAndWait(browser());
   ASSERT_TRUE(browser()->window()->IsFullscreen());
   EXPECT_TRUE(browser()->window()->IsVisible());
   EXPECT_FALSE(::IsWindowVisible(desktop_window_hwnd));
 
   // Verify back to normal state.
-  test::ToggleFullscreenModeSync(browser());
+  ui_test_utils::ToggleFullscreenModeAndWait(browser());
   ASSERT_FALSE(browser()->window()->IsFullscreen());
   EXPECT_TRUE(browser()->window()->IsVisible());
   EXPECT_FALSE(::IsWindowVisible(desktop_window_hwnd));

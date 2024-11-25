@@ -41,10 +41,8 @@ ShelfLayoutManager* GetShelfLayoutManager() {
 class DragHandleContextualNudgeTest : public ShelfLayoutManagerTestBase {
  public:
   DragHandleContextualNudgeTest() {
-    scoped_feature_list_.InitWithFeatures(
-        {ash::features::kContextualNudges,
-         ash::features::kHideShelfControlsInTabletMode},
-        {});
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kHideShelfControlsInTabletMode);
   }
   ~DragHandleContextualNudgeTest() override = default;
 
@@ -598,7 +596,7 @@ TEST_F(DragHandleContextualNudgeTest,
               EXPECT_FALSE(
                   drag_handle->has_hide_drag_handle_timer_for_testing());
             }
-            const bool scroll_end = type == ui::ET_GESTURE_SCROLL_END;
+            const bool scroll_end = type == ui::EventType::kGestureScrollEnd;
             EXPECT_EQ(!scroll_end,
                       drag_handle->gesture_nudge_target_visibility());
           },
@@ -642,7 +640,7 @@ TEST_F(DragHandleContextualNudgeTest,
                   drag_handle->has_show_drag_handle_timer_for_testing());
 
               // Attempt to schedule the nudge should fail.
-              if (type != ui::ET_GESTURE_SCROLL_END) {
+              if (type != ui::EventType::kGestureScrollEnd) {
                 drag_handle->ScheduleShowDragHandleNudge();
                 EXPECT_FALSE(
                     drag_handle->has_show_drag_handle_timer_for_testing());
@@ -710,7 +708,7 @@ TEST_F(DragHandleContextualNudgeTest, FlingFromShelfToHomeHidesTheNudge) {
       base::BindRepeating(
           [](DragHandle* drag_handle, ui::EventType type,
              const gfx::Vector2dF& offset) {
-            const bool scroll_end = type == ui::ET_GESTURE_SCROLL_END;
+            const bool scroll_end = type == ui::EventType::kGestureScrollEnd;
             EXPECT_EQ(!scroll_end,
                       drag_handle->gesture_nudge_target_visibility());
           },
@@ -754,7 +752,7 @@ TEST_F(DragHandleContextualNudgeTest, DragFromShelfToHomeHidesTheNudge) {
               DragWindowFromShelfControllerTestApi().WaitUntilOverviewIsShown(
                   window_drag_controller);
             }
-            const bool scroll_end = type == ui::ET_GESTURE_SCROLL_END;
+            const bool scroll_end = type == ui::EventType::kGestureScrollEnd;
             EXPECT_EQ(!scroll_end,
                       drag_handle->gesture_nudge_target_visibility());
           },

@@ -5,6 +5,7 @@
 #ifndef CHROMEOS_ASH_COMPONENTS_LOGIN_AUTH_AUTH_EVENTS_RECORDER_H_
 #define CHROMEOS_ASH_COMPONENTS_LOGIN_AUTH_AUTH_EVENTS_RECORDER_H_
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -13,6 +14,7 @@
 #include "base/time/time.h"
 #include "chromeos/ash/components/cryptohome/auth_factor.h"
 #include "chromeos/ash/components/login/auth/public/auth_failure.h"
+#include "chromeos/ash/components/login/auth/public/session_auth_factors.h"
 #include "chromeos/ash/components/login/auth/public/user_context.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/session_manager/core/session_manager_observer.h"
@@ -133,6 +135,7 @@ class COMPONENT_EXPORT(CHROMEOS_ASH_COMPONENTS_LOGIN_AUTH) AuthEventsRecorder
 
   // Report the result of the recovery and time taken to UMA.
   void OnRecoveryDone(CryptohomeRecoveryResult result,
+                      const SessionAuthFactors& auth_factors,
                       const base::TimeDelta& time);
 
   // Report that the user submitted an auth method.
@@ -157,9 +160,25 @@ class COMPONENT_EXPORT(CHROMEOS_ASH_COMPONENTS_LOGIN_AUTH) AuthEventsRecorder
   // mounting).
   void OnUserVaultPrepared(UserVaultType user_vault_type, bool success);
 
+  // Report that the user started to add a user flow.
+  void OnAddUser();
+
   int knowledge_factor_auth_failure_count() {
     return knowledge_factor_auth_failure_count_;
   }
+
+  // During user login we do following checks:
+  //  * check if there are any EarlyPrefs and load them
+  //  * update auth factors:
+  //    * run migrations for auth factors
+  //    * enforce policies provided via EarlyPrefs
+  void StartPostLoginFactorAdjustments();
+  void OnEarlyPrefsRead();
+  void OnEarlyPrefsParsed();
+  void OnFactorUpdateStarted();
+  void OnMigrationsCompleted();
+  void OnPoliciesApplied();
+  void FinishPostLoginFactorAdjustments();
 
   // Return a string containing all `events_`.
   std::string GetAuthEventsLog();
@@ -209,6 +228,10 @@ class COMPONENT_EXPORT(CHROMEOS_ASH_COMPONENTS_LOGIN_AUTH) AuthEventsRecorder
   int knowledge_factor_auth_failure_count_ = 0;
   std::optional<int> user_count_;
   std::optional<bool> show_users_on_signin_;
+
+  std::optional<base::TimeTicks> factor_adjustment_start_;
+  std::optional<base::TimeTicks> last_adjustment_event_;
+
   std::optional<UserLoginType> user_login_type_;
   std::optional<AuthenticationSurface> auth_surface_;
 };

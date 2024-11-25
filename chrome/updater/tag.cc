@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -23,76 +24,90 @@
 #include "base/no_destructor.h"
 #include "base/strings/escape.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/types/cxx23_to_underlying.h"
+#include "base/uuid.h"
 #include "chrome/updater/certificate_tag.h"
 
-namespace updater {
-namespace tagging {
+namespace updater::tagging {
 namespace {
 
 // The name of the bundle being installed. If not specified, the first app's
 // appname is used.
-constexpr base::StringPiece kTagArgBundleName = "bundlename";
+constexpr std::string_view kTagArgBundleName = "bundlename";
 
 // The language of the product the user is installing.
-constexpr base::StringPiece kTagArgLanguage = "lang";
+constexpr std::string_view kTagArgLanguage = "lang";
 
 // Flag denoting that the user is flighting a new test feature.
-constexpr base::StringPiece kTagArgFlighting = "flighting";
+constexpr std::string_view kTagArgFlighting = "flighting";
 
 // Flag denoting that the user has agreed to provide usage stats, crashreports
 // etc.
-constexpr base::StringPiece kTagArgUsageStats = "usagestats";
+constexpr std::string_view kTagArgUsageStats = "usagestats";
 
 // A unique value for this installation session. It can be used to follow the
 // progress from the website to installation completion.
-constexpr base::StringPiece kTagArgInstallationId = "iid";
+constexpr std::string_view kTagArgInstallationId = "iid";
 
-// The Brand Code used for branding.
-// If a brand value already exists on the system, it should be ignored.
-// This value is used to set the initial brand for the updater and the client
-// app.
-constexpr base::StringPiece kTagArgBrandCode = "brand";
+// The brand code used for branding. This value sets the initial brand for the
+// updater and the client app. If a brand value already exists on the system,
+// the new brand value is ignored.
+constexpr std::string_view kTagArgBrandCode = "brand";
 
 // The Client ID used for branding.
 // If a client value already exists on the system, it should be ignored.
 // This value is used to set the initial client for the updater and the client
 // app.
-constexpr base::StringPiece kTagArgClientId = "client";
+constexpr std::string_view kTagArgClientId = "client";
 
 // A set of experiment labels used to track installs that are included in
 // experiments. Use "experiments" for per-app arguments; use "omahaexperiments"
 // for updater-specific labels.
-constexpr base::StringPiece kAppArgExperimentLabels = "experiments";
-constexpr base::StringPiece kTagArgOmahaExperimentLabels = "omahaexperiments";
+constexpr std::string_view kAppArgExperimentLabels = "experiments";
+constexpr std::string_view kTagArgOmahaExperimentLabels = "omahaexperiments";
 
 // A referral ID used for tracking referrals.
-constexpr base::StringPiece kTagArgReferralId = "referral";
+constexpr std::string_view kTagArgReferralId = "referral";
 
 // Tells the updater what ap value to set in the registry.
-constexpr base::StringPiece kAppArgAdditionalParameters = "ap";
+constexpr std::string_view kAppArgAdditionalParameters = "ap";
 
 // Indicates which browser to restart on successful install.
-constexpr base::StringPiece kTagArgBrowserType = "browser";
+constexpr std::string_view kTagArgBrowserType = "browser";
+
+// Runtime Mode: "runtime" argument in the tag tells the updater to install
+// itself and stay on the system without any associated application for at least
+// `kMaxServerStartsBeforeFirstReg` wakes. This feature is used to expose the
+// COM API to a process that will install applications via that API.
+// Example:
+//   "runtime=true&needsadmin=true"
+constexpr std::string_view kTagArgRuntimeMode = "runtime";
+
+// Enrollment token: "etoken" argument in the tag tells the per-machine updater
+// to register the machine to the device management server. The value must be a
+// GUID.
+// Example:
+//   "etoken=5d086552-4514-4dfb-8a3e-337024ec35ac"
+constexpr std::string_view kTagArgErollmentToken = "etoken";
 
 // The list of arguments that are needed for a meta-installer, to
 // indicate which application is being installed. These are stamped
 // inside the meta-installer binary.
-constexpr base::StringPiece kTagArgAppId = "appguid";
-constexpr base::StringPiece kAppArgAppName = "appname";
-constexpr base::StringPiece kAppArgNeedsAdmin = "needsadmin";
-constexpr base::StringPiece kAppArgInstallDataIndex = "installdataindex";
-constexpr base::StringPiece kAppArgUntrustedData = "untrusteddata";
+constexpr std::string_view kTagArgAppId = "appguid";
+constexpr std::string_view kAppArgAppName = "appname";
+constexpr std::string_view kTagArgNeedsAdmin = "needsadmin";
+constexpr std::string_view kAppArgInstallDataIndex = "installdataindex";
+constexpr std::string_view kAppArgUntrustedData = "untrusteddata";
 
 // This switch allows extra data to be communicated to the application
 // installer. The extra data needs to be URL-encoded. The data will be decoded
 // and written to the file, that is then passed in the command line to the
 // application installer in the form "/installerdata=blah.dat". One per
 // application.
-constexpr base::StringPiece kAppArgInstallerData = "installerdata";
+constexpr std::string_view kAppArgInstallerData = "installerdata";
 
 // Character that is disallowed from appearing in the tag.
 constexpr char kDisallowedCharInTag = '/';
@@ -101,24 +116,24 @@ constexpr char kDisallowedCharInTag = '/';
 constexpr uint8_t kTagMagicUtf8[] = {'G', 'a', 'c', 't', '2', '.',
                                      '0', 'O', 'm', 'a', 'h', 'a'};
 
-std::optional<AppArgs::NeedsAdmin> ParseNeedsAdminEnum(base::StringPiece str) {
+std::optional<NeedsAdmin> ParseNeedsAdminEnum(std::string_view str) {
   if (base::EqualsCaseInsensitiveASCII("false", str)) {
-    return AppArgs::NeedsAdmin::kNo;
+    return NeedsAdmin::kNo;
   }
 
   if (base::EqualsCaseInsensitiveASCII("true", str)) {
-    return AppArgs::NeedsAdmin::kYes;
+    return NeedsAdmin::kYes;
   }
 
   if (base::EqualsCaseInsensitiveASCII("prefers", str)) {
-    return AppArgs::NeedsAdmin::kPrefers;
+    return NeedsAdmin::kPrefers;
   }
 
   return std::nullopt;
 }
 
 // Returns std::nullopt if parsing failed.
-std::optional<bool> ParseBool(base::StringPiece str) {
+std::optional<bool> ParseBool(std::string_view str) {
   if (base::EqualsCaseInsensitiveASCII("false", str)) {
     return false;
   }
@@ -142,47 +157,47 @@ struct CaseInsensitiveASCIICompare {
 
 namespace global_attributes {
 
-ErrorCode ParseBundleName(base::StringPiece value, TagArgs* args) {
+ErrorCode ParseBundleName(std::string_view value, TagArgs& args) {
   value = base::TrimWhitespaceASCII(value, base::TrimPositions::TRIM_ALL);
   if (value.empty()) {
     return ErrorCode::kGlobal_BundleNameCannotBeWhitespace;
   }
 
-  args->bundle_name = std::string(value);
+  args.bundle_name = value;
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseInstallationId(base::StringPiece value, TagArgs* args) {
-  args->installation_id = std::string(value);
+ErrorCode ParseInstallationId(std::string_view value, TagArgs& args) {
+  args.installation_id = value;
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseBrandCode(base::StringPiece value, TagArgs* args) {
-  args->brand_code = std::string(value);
+ErrorCode ParseBrandCode(std::string_view value, TagArgs& args) {
+  args.brand_code = value;
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseClientId(base::StringPiece value, TagArgs* args) {
-  args->client_id = std::string(value);
+ErrorCode ParseClientId(std::string_view value, TagArgs& args) {
+  args.client_id = value;
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseOmahaExperimentLabels(base::StringPiece value, TagArgs* args) {
+ErrorCode ParseOmahaExperimentLabels(std::string_view value, TagArgs& args) {
   value = base::TrimWhitespaceASCII(value, base::TrimPositions::TRIM_ALL);
   if (value.empty()) {
     return ErrorCode::kGlobal_ExperimentLabelsCannotBeWhitespace;
   }
 
-  args->experiment_labels = std::string(value);
+  args.experiment_labels = value;
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseReferralId(base::StringPiece value, TagArgs* args) {
-  args->referral_id = std::string(value);
+ErrorCode ParseReferralId(std::string_view value, TagArgs& args) {
+  args.referral_id = value;
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseBrowserType(base::StringPiece value, TagArgs* args) {
+ErrorCode ParseBrowserType(std::string_view value, TagArgs& args) {
   int browser_type = 0;
   if (!base::StringToInt(value, &browser_type)) {
     return ErrorCode::kGlobal_BrowserTypeIsInvalid;
@@ -192,43 +207,43 @@ ErrorCode ParseBrowserType(base::StringPiece value, TagArgs* args) {
     return ErrorCode::kGlobal_BrowserTypeIsInvalid;
   }
 
-  args->browser_type =
-      (browser_type < static_cast<int>(TagArgs::BrowserType::kMax))
+  args.browser_type =
+      browser_type < base::to_underlying(TagArgs::BrowserType::kMax)
           ? TagArgs::BrowserType(browser_type)
           : TagArgs::BrowserType::kUnknown;
 
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseLanguage(base::StringPiece value, TagArgs* args) {
+ErrorCode ParseLanguage(std::string_view value, TagArgs& args) {
   // Even if we don't support the language, we want to pass it to the
   // installer. Omaha will pick its language later. See http://b/1336966.
-  args->language = std::string(value);
+  args.language = value;
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseFlighting(base::StringPiece value, TagArgs* args) {
+ErrorCode ParseFlighting(std::string_view value, TagArgs& args) {
   const std::optional<bool> flighting = ParseBool(value);
   if (!flighting.has_value()) {
     return ErrorCode::kGlobal_FlightingValueIsNotABoolean;
   }
 
-  args->flighting = flighting.value();
+  args.flighting = flighting.value();
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseUsageStats(base::StringPiece value, TagArgs* args) {
+ErrorCode ParseUsageStats(std::string_view value, TagArgs& args) {
   int tristate = 0;
   if (!base::StringToInt(value, &tristate)) {
     return ErrorCode::kGlobal_UsageStatsValueIsInvalid;
   }
 
   if (tristate == 0) {
-    args->usage_stats_enable = false;
+    args.usage_stats_enable = false;
   } else if (tristate == 1) {
-    args->usage_stats_enable = true;
+    args.usage_stats_enable = true;
   } else if (tristate == 2) {
-    args->usage_stats_enable = std::nullopt;
+    args.usage_stats_enable = std::nullopt;
   } else {
     return ErrorCode::kGlobal_UsageStatsValueIsInvalid;
   }
@@ -236,38 +251,57 @@ ErrorCode ParseUsageStats(base::StringPiece value, TagArgs* args) {
 }
 
 // Parses an app ID and adds it to the list of apps in |args|, if valid.
-ErrorCode ParseAppId(base::StringPiece value, TagArgs* args) {
+ErrorCode ParseAppId(std::string_view value, TagArgs& args) {
   if (!base::IsStringASCII(value)) {
     return ErrorCode::kApp_AppIdIsNotValid;
   }
 
-  args->apps.push_back(AppArgs(value));
+  args.apps.push_back(AppArgs(value));
+  return ErrorCode::kSuccess;
+}
+
+ErrorCode ParseRuntimeMode(std::string_view value, TagArgs& args) {
+  for (const std::string_view expected_value : {"true", "persist", "false"}) {
+    if (base::EqualsCaseInsensitiveASCII(expected_value, value)) {
+      args.runtime_mode = RuntimeModeArgs();
+      return ErrorCode::kSuccess;
+    }
+  }
+
+  return ErrorCode::kGlobal_RuntimeModeValueIsInvalid;
+}
+
+ErrorCode ParseEnrollmentToken(std::string_view value, TagArgs& args) {
+  if (!base::Uuid::ParseCaseInsensitive(value).is_valid()) {
+    return ErrorCode::kGlobal_EnrollmentTokenValueIsInvalid;
+  }
+  args.enrollment_token = value;
   return ErrorCode::kSuccess;
 }
 
 // |value| must not be empty.
-// |args| must not be null.
-using ParseGlobalAttributeFunPtr = ErrorCode (*)(base::StringPiece value,
-                                                 TagArgs* args);
+using ParseGlobalAttributeFunPtr = ErrorCode (*)(std::string_view value,
+                                                 TagArgs& args);
 
-using GlobalParseTable = std::map<base::StringPiece,
+using GlobalParseTable = std::map<std::string_view,
                                   ParseGlobalAttributeFunPtr,
                                   CaseInsensitiveASCIICompare>;
 
 const GlobalParseTable& GetTable() {
-  static const base::NoDestructor<GlobalParseTable> instance{{
-      {kTagArgBundleName, &ParseBundleName},
-      {kTagArgInstallationId, &ParseInstallationId},
-      {kTagArgBrandCode, &ParseBrandCode},
-      {kTagArgClientId, &ParseClientId},
-      {kTagArgOmahaExperimentLabels, &ParseOmahaExperimentLabels},
-      {kTagArgReferralId, &ParseReferralId},
-      {kTagArgBrowserType, &ParseBrowserType},
-      {kTagArgLanguage, &ParseLanguage},
-      {kTagArgFlighting, &ParseFlighting},
-      {kTagArgUsageStats, &ParseUsageStats},
-      {kTagArgAppId, &ParseAppId},
-  }};
+  static const base::NoDestructor<GlobalParseTable> instance{
+      {{kTagArgBundleName, &ParseBundleName},
+       {kTagArgInstallationId, &ParseInstallationId},
+       {kTagArgBrandCode, &ParseBrandCode},
+       {kTagArgClientId, &ParseClientId},
+       {kTagArgOmahaExperimentLabels, &ParseOmahaExperimentLabels},
+       {kTagArgReferralId, &ParseReferralId},
+       {kTagArgBrowserType, &ParseBrowserType},
+       {kTagArgLanguage, &ParseLanguage},
+       {kTagArgFlighting, &ParseFlighting},
+       {kTagArgUsageStats, &ParseUsageStats},
+       {kTagArgAppId, &ParseAppId},
+       {kTagArgRuntimeMode, &ParseRuntimeMode},
+       {kTagArgErollmentToken, &ParseEnrollmentToken}}};
   return *instance;
 }
 
@@ -275,66 +309,64 @@ const GlobalParseTable& GetTable() {
 
 namespace app_attributes {
 
-ErrorCode ParseAdditionalParameters(base::StringPiece value, AppArgs* args) {
-  args->ap = std::string(value);
+ErrorCode ParseAdditionalParameters(std::string_view value, AppArgs& args) {
+  args.ap = value;
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseExperimentLabels(base::StringPiece value, AppArgs* args) {
+ErrorCode ParseExperimentLabels(std::string_view value, AppArgs& args) {
   value = base::TrimWhitespaceASCII(value, base::TrimPositions::TRIM_ALL);
   if (value.empty()) {
     return ErrorCode::kApp_ExperimentLabelsCannotBeWhitespace;
   }
 
-  args->experiment_labels = std::string(value);
+  args.experiment_labels = value;
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseAppName(base::StringPiece value, AppArgs* args) {
+ErrorCode ParseAppName(std::string_view value, AppArgs& args) {
   value = base::TrimWhitespaceASCII(value, base::TrimPositions::TRIM_ALL);
   if (value.empty()) {
     return ErrorCode::kApp_AppNameCannotBeWhitespace;
   }
 
-  args->app_name = std::string(value);
+  args.app_name = value;
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseNeedsAdmin(base::StringPiece value, AppArgs* args) {
+ErrorCode ParseNeedsAdmin(std::string_view value, AppArgs& args) {
   const auto needs_admin = ParseNeedsAdminEnum(value);
   if (!needs_admin.has_value()) {
     return ErrorCode::kApp_NeedsAdminValueIsInvalid;
   }
 
-  args->needs_admin = needs_admin.value();
+  args.needs_admin = needs_admin.value();
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseInstallDataIndex(base::StringPiece value, AppArgs* args) {
-  args->install_data_index = std::string(value);
+ErrorCode ParseInstallDataIndex(std::string_view value, AppArgs& args) {
+  args.install_data_index = value;
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseUntrustedData(base::StringPiece value, AppArgs* args) {
-  args->untrusted_data = std::string(value);
+ErrorCode ParseUntrustedData(std::string_view value, AppArgs& args) {
+  args.untrusted_data = value;
   return ErrorCode::kSuccess;
 }
 
 // |value| must not be empty.
-// |args| must not be null.
-using ParseAppAttributeFunPtr = ErrorCode (*)(base::StringPiece value,
-                                              AppArgs* args);
+using ParseAppAttributeFunPtr = ErrorCode (*)(std::string_view value,
+                                              AppArgs& args);
 
-using AppParseTable = std::map<base::StringPiece,
-                               ParseAppAttributeFunPtr,
-                               CaseInsensitiveASCIICompare>;
+using AppParseTable = std::
+    map<std::string_view, ParseAppAttributeFunPtr, CaseInsensitiveASCIICompare>;
 
 const AppParseTable& GetTable() {
   static const base::NoDestructor<AppParseTable> instance{{
       {kAppArgAdditionalParameters, &ParseAdditionalParameters},
       {kAppArgExperimentLabels, &ParseExperimentLabels},
       {kAppArgAppName, &ParseAppName},
-      {kAppArgNeedsAdmin, &ParseNeedsAdmin},
+      {kTagArgNeedsAdmin, &ParseNeedsAdmin},
       {kAppArgInstallDataIndex, &ParseInstallDataIndex},
       {kAppArgUntrustedData, &ParseUntrustedData},
   }};
@@ -343,56 +375,83 @@ const AppParseTable& GetTable() {
 
 }  // namespace app_attributes
 
+namespace runtime_mode_attributes {
+
+ErrorCode ParseNeedsAdmin(std::string_view value, RuntimeModeArgs& args) {
+  const auto needs_admin = ParseNeedsAdminEnum(value);
+  if (!needs_admin.has_value()) {
+    return ErrorCode::kRuntimeMode_NeedsAdminValueIsInvalid;
+  }
+
+  args.needs_admin = needs_admin.value();
+  return ErrorCode::kSuccess;
+}
+
+// |value| must not be empty.
+using ParseRuntimeModeAttributeFunPtr = ErrorCode (*)(std::string_view value,
+                                                      RuntimeModeArgs& args);
+
+using RuntimeModeParseTable = std::map<std::string_view,
+                                       ParseRuntimeModeAttributeFunPtr,
+                                       CaseInsensitiveASCIICompare>;
+
+const RuntimeModeParseTable& GetTable() {
+  static const base::NoDestructor<RuntimeModeParseTable> instance{{
+      {kTagArgNeedsAdmin, &ParseNeedsAdmin},
+  }};
+  return *instance;
+}
+
+}  // namespace runtime_mode_attributes
+
 namespace installer_data_attributes {
 
-// Search for the given appid specified by |value| in |args->apps| and write its
+// Search for the given appid specified by |value| in |args.apps| and write its
 // index to |current_app_index|.
-ErrorCode FindAppIdInTagArgs(base::StringPiece value,
-                             TagArgs* args,
-                             std::optional<size_t>* current_app_index) {
+ErrorCode FindAppIdInTagArgs(std::string_view value,
+                             TagArgs& args,
+                             std::optional<size_t>& current_app_index) {
   if (!base::IsStringASCII(value)) {
     return ErrorCode::kApp_AppIdIsNotValid;
   }
 
   // Find the app in the existing list.
-  for (size_t i = 0; i < args->apps.size(); i++) {
-    if (base::EqualsCaseInsensitiveASCII(args->apps[i].app_id, value)) {
-      *current_app_index = i;
+  for (size_t i = 0; i < args.apps.size(); i++) {
+    if (base::EqualsCaseInsensitiveASCII(args.apps[i].app_id, value)) {
+      current_app_index = i;
     }
   }
 
-  if (!current_app_index->has_value()) {
+  if (!current_app_index.has_value()) {
     return ErrorCode::kAppInstallerData_AppIdNotFound;
   }
 
   return ErrorCode::kSuccess;
 }
 
-ErrorCode ParseInstallerData(base::StringPiece value,
-                             TagArgs* args,
-                             std::optional<size_t>* current_app_index) {
-  if (!current_app_index->has_value()) {
+ErrorCode ParseInstallerData(std::string_view value,
+                             TagArgs& args,
+                             std::optional<size_t>& current_app_index) {
+  if (!current_app_index.has_value()) {
     return ErrorCode::
         kAppInstallerData_InstallerDataCannotBeSpecifiedBeforeAppId;
   }
 
-  args->apps[current_app_index->value()].encoded_installer_data =
-      std::string(value);
+  args.apps[current_app_index.value()].encoded_installer_data = value;
 
   return ErrorCode::kSuccess;
 }
 
 // |value| must not be empty.
-// |args| must not be null.
 // |current_app_index| is an in/out parameter. It stores the index of the
 // current app and nullopt if no app has been set yet. Writing to it will set
 // the index for future calls to these functions.
 using ParseInstallerDataAttributeFunPtr =
-    ErrorCode (*)(base::StringPiece value,
-                  TagArgs* args,
-                  std::optional<size_t>* current_app_index);
+    ErrorCode (*)(std::string_view value,
+                  TagArgs& args,
+                  std::optional<size_t>& current_app_index);
 
-using InstallerDataParseTable = std::map<base::StringPiece,
+using InstallerDataParseTable = std::map<std::string_view,
                                          ParseInstallerDataAttributeFunPtr,
                                          CaseInsensitiveASCIICompare>;
 
@@ -417,23 +476,23 @@ using Attribute = std::pair<std::string, std::string>;
 // if |unescape_value| is true.
 //
 // Ownership follows the same rules as |base::SplitStringPiece|.
-std::vector<Attribute> Split(base::StringPiece query_string,
+std::vector<Attribute> Split(std::string_view query_string,
                              bool unescape_value = true) {
   std::vector<Attribute> attributes;
   for (const auto& attribute_string :
        base::SplitStringPiece(query_string, "&", base::TRIM_WHITESPACE,
                               base::SPLIT_WANT_NONEMPTY)) {
     size_t separate_pos = attribute_string.find_first_of("=");
-    if (separate_pos == base::StringPiece::npos) {
+    if (separate_pos == std::string_view::npos) {
       // Add a name-only attribute.
-      base::StringPiece name = base::TrimWhitespaceASCII(
+      std::string_view name = base::TrimWhitespaceASCII(
           attribute_string, base::TrimPositions::TRIM_ALL);
       attributes.emplace_back(std::string{name}, "");
     } else {
-      base::StringPiece name =
+      std::string_view name =
           base::TrimWhitespaceASCII(attribute_string.substr(0, separate_pos),
                                     base::TrimPositions::TRIM_ALL);
-      base::StringPiece value =
+      std::string_view value =
           base::TrimWhitespaceASCII(attribute_string.substr(separate_pos + 1),
                                     base::TrimPositions::TRIM_ALL);
       attributes.emplace_back(
@@ -453,18 +512,17 @@ std::vector<Attribute> Split(base::StringPiece query_string,
 }  // namespace query_string
 
 // Parses global and app-specific attributes from |tag|.
-ErrorCode ParseTag(base::StringPiece tag, TagArgs* args) {
+ErrorCode ParseTag(std::string_view tag, TagArgs& args) {
   const auto& global_func_lookup_table = global_attributes::GetTable();
   const auto& app_func_lookup_table = app_attributes::GetTable();
+  const auto& runtime_mode_func_lookup_table =
+      runtime_mode_attributes::GetTable();
 
   const std::vector<std::pair<std::string, std::string>> attributes =
       query_string::Split(tag);
-  for (const auto& attribute : attributes) {
+  for (const auto& [name, value] : attributes) {
     // Attribute names are only ASCII, so no i18n case folding needed.
-    const base::StringPiece name = attribute.first;
-    const base::StringPiece value = attribute.second;
-
-    if (global_func_lookup_table.find(name) != global_func_lookup_table.end()) {
+    if (global_func_lookup_table.contains(name)) {
       if (value.empty()) {
         return ErrorCode::kAttributeMustHaveValue;
       }
@@ -473,9 +531,19 @@ ErrorCode ParseTag(base::StringPiece tag, TagArgs* args) {
       if (result != ErrorCode::kSuccess) {
         return result;
       }
-    } else if (app_func_lookup_table.find(name) !=
-               app_func_lookup_table.end()) {
-      if (args->apps.empty()) {
+    } else if ((runtime_mode_func_lookup_table.contains(name)) &&
+               args.runtime_mode) {
+      if (value.empty()) {
+        return ErrorCode::kAttributeMustHaveValue;
+      }
+
+      const ErrorCode result =
+          runtime_mode_func_lookup_table.at(name)(value, *args.runtime_mode);
+      if (result != ErrorCode::kSuccess) {
+        return result;
+      }
+    } else if (app_func_lookup_table.contains(name)) {
+      if (args.apps.empty()) {
         return ErrorCode::kApp_AppIdNotSpecified;
       }
 
@@ -483,7 +551,7 @@ ErrorCode ParseTag(base::StringPiece tag, TagArgs* args) {
         return ErrorCode::kAttributeMustHaveValue;
       }
 
-      AppArgs* current_app = &args->apps.back();
+      AppArgs& current_app = args.apps.back();
       const ErrorCode result =
           app_func_lookup_table.at(name)(value, current_app);
       if (result != ErrorCode::kSuccess) {
@@ -495,39 +563,37 @@ ErrorCode ParseTag(base::StringPiece tag, TagArgs* args) {
   }
 
   // The bundle name inherits the first app's name, if not set.
-  if (args->bundle_name.empty() && !args->apps.empty()) {
-    args->bundle_name = args->apps[0].app_name;
+  if (args.bundle_name.empty() && !args.apps.empty()) {
+    args.bundle_name = args.apps[0].app_name;
   }
-  args->tag_string = tag;
-  args->attributes = attributes;
+  args.tag_string = tag;
+  args.attributes = attributes;
 
   return ErrorCode::kSuccess;
 }
 
 // Parses app-specific installer data from |app_installer_data_args|.
-ErrorCode ParseAppInstallerDataArgs(base::StringPiece app_installer_data_args,
-                                    TagArgs* args) {
+ErrorCode ParseAppInstallerDataArgs(std::string_view app_installer_data_args,
+                                    TagArgs& args) {
   // The currently tracked app index to apply installer data to.
   std::optional<size_t> current_app_index;
 
   // Installer data is assumed to be URL-encoded, so we don't unescape it.
   bool unescape_value = false;
 
-  for (const auto& attribute :
+  for (const auto& [name, value] :
        query_string::Split(app_installer_data_args, unescape_value)) {
-    const base::StringPiece name = attribute.first;
-    const base::StringPiece value = attribute.second;
     if (value.empty()) {
       return ErrorCode::kAttributeMustHaveValue;
     }
 
     const auto& func_lookup_table = installer_data_attributes::GetTable();
-    if (func_lookup_table.find(name) == func_lookup_table.end()) {
+    if (!func_lookup_table.contains(name)) {
       return ErrorCode::kUnrecognizedName;
     }
 
     const ErrorCode result =
-        func_lookup_table.at(name)(value, args, &current_app_index);
+        func_lookup_table.at(name)(value, args, current_app_index);
     if (result != ErrorCode::kSuccess) {
       return result;
     }
@@ -537,7 +603,7 @@ ErrorCode ParseAppInstallerDataArgs(base::StringPiece app_installer_data_args,
 }
 
 // Checks that |args| does not contain |kDisallowedCharInTag|.
-bool IsValidArgs(base::StringPiece args) {
+bool IsValidArgs(std::string_view args) {
   return !base::Contains(args, kDisallowedCharInTag);
 }
 
@@ -569,13 +635,9 @@ std::vector<uint8_t> ReadFileTail(const base::FilePath& filename) {
       (file_length > bytes_to_read) ? file_length - bytes_to_read : 0;
 
   std::vector<uint8_t> buffer(bytes_to_read);
-  const int num_bytes_read =
-      file.Read(offset, reinterpret_cast<char*>(&buffer[0]), bytes_to_read);
-  if (num_bytes_read != bytes_to_read) {
-    return {};
-  }
-
-  return buffer;
+  return file.ReadAndCheck(offset, base::make_span(buffer))
+             ? buffer
+             : std::vector<uint8_t>();
 }
 
 std::string ParseTagBuffer(const std::vector<uint8_t>& tag_buffer) {
@@ -589,18 +651,16 @@ std::string ParseTagBuffer(const std::vector<uint8_t>& tag_buffer) {
 }
 
 std::vector<uint8_t> ReadEntireFile(const base::FilePath& file) {
-  int64_t file_size = 0;
-  if (!base::GetFileSize(file, &file_size)) {
-    LOG(ERROR) << __func__ << ": Could not get file size: " << file << ": "
-               << logging::GetLastSystemErrorCode();
+  std::optional<int64_t> file_size = base::GetFileSize(file);
+  if (!file_size.has_value()) {
+    PLOG(ERROR) << __func__ << ": Could not get file size: " << file;
     return {};
   }
 
-  std::vector<uint8_t> contents(file_size);
+  std::vector<uint8_t> contents(file_size.value());
   if (base::ReadFile(file, reinterpret_cast<char*>(&contents.front()),
                      contents.size()) == -1) {
-    LOG(ERROR) << __func__ << ": Could not read file: " << file << ": "
-               << logging::GetLastSystemErrorCode();
+    PLOG(ERROR) << __func__ << ": Could not read file: " << file;
     return {};
   }
   return contents;
@@ -641,8 +701,7 @@ bool CheckRange(std::vector<uint8_t>::const_iterator it,
 }
 }  // namespace internal
 
-AppArgs::AppArgs(base::StringPiece app_id)
-    : app_id(base::ToLowerASCII(app_id)) {
+AppArgs::AppArgs(std::string_view app_id) : app_id(base::ToLowerASCII(app_id)) {
   CHECK(!app_id.empty());
 }
 
@@ -659,9 +718,9 @@ TagArgs& TagArgs::operator=(const TagArgs&) = default;
 TagArgs::TagArgs(TagArgs&&) = default;
 TagArgs& TagArgs::operator=(TagArgs&&) = default;
 
-ErrorCode Parse(base::StringPiece tag,
-                std::optional<base::StringPiece> app_installer_data_args,
-                TagArgs* args) {
+ErrorCode Parse(std::string_view tag,
+                std::optional<std::string_view> app_installer_data_args,
+                TagArgs& args) {
   if (!IsValidArgs(tag)) {
     return ErrorCode::kTagIsInvalid;
   }
@@ -717,18 +776,23 @@ std::ostream& operator<<(std::ostream& os, const ErrorCode& error_code) {
       return os << "ErrorCode::kGlobal_FlightingValueIsNotABoolean";
     case ErrorCode::kGlobal_UsageStatsValueIsInvalid:
       return os << "ErrorCode::kGlobal_UsageStatsValueIsInvalid";
+    case ErrorCode::kGlobal_RuntimeModeValueIsInvalid:
+      return os << "ErrorCode::kGlobal_RuntimeModeValueIsInvalid";
+    case ErrorCode::kGlobal_EnrollmentTokenValueIsInvalid:
+      return os << "ErrorCode::kGlobal_EnrollmentTokenValueIsInvalid";
+    case ErrorCode::kRuntimeMode_NeedsAdminValueIsInvalid:
+      return os << "ErrorCode::kRuntimeMode_NeedsAdminValueIsInvalid";
   }
 }
 
-std::ostream& operator<<(std::ostream& os,
-                         const AppArgs::NeedsAdmin& needs_admin) {
+std::ostream& operator<<(std::ostream& os, const NeedsAdmin& needs_admin) {
   switch (needs_admin) {
-    case AppArgs::NeedsAdmin::kNo:
-      return os << "AppArgs::NeedsAdmin::kNo";
-    case AppArgs::NeedsAdmin::kYes:
-      return os << "AppArgs::NeedsAdmin::kYes";
-    case AppArgs::NeedsAdmin::kPrefers:
-      return os << "AppArgs::NeedsAdmin::kPrefers";
+    case NeedsAdmin::kNo:
+      return os << "NeedsAdmin::kNo";
+    case NeedsAdmin::kYes:
+      return os << "NeedsAdmin::kYes";
+    case NeedsAdmin::kPrefers:
+      return os << "NeedsAdmin::kPrefers";
   }
 }
 
@@ -849,7 +913,7 @@ std::optional<tagging::TagArgs> BinaryReadTag(const base::FilePath& file) {
     return {};
   }
   tagging::TagArgs tag_args;
-  const tagging::ErrorCode error = tagging::Parse(tag_string, {}, &tag_args);
+  const tagging::ErrorCode error = tagging::Parse(tag_string, {}, tag_args);
   if (error != tagging::ErrorCode::kSuccess) {
     LOG(ERROR) << __func__ << ": Invalid tag string: " << tag_string << ": "
                << error;
@@ -873,7 +937,7 @@ bool BinaryWriteTag(const base::FilePath& in_file,
   // Validate the tag string, if any.
   if (!tag_string.empty()) {
     tagging::TagArgs tag_args;
-    const tagging::ErrorCode error = tagging::Parse(tag_string, {}, &tag_args);
+    const tagging::ErrorCode error = tagging::Parse(tag_string, {}, tag_args);
     if (error != tagging::ErrorCode::kSuccess) {
       LOG(ERROR) << __func__ << ": Invalid tag string: " << tag_string << ": "
                  << error;
@@ -904,12 +968,10 @@ bool BinaryWriteTag(const base::FilePath& in_file,
     out_file = in_file;
   }
   if (!base::WriteFile(out_file, *new_contents)) {
-    LOG(ERROR) << __func__ << "Error while writing updated file: " << out_file
-               << ": " << logging::GetLastSystemErrorCode();
+    PLOG(ERROR) << __func__ << "Error while writing updated file: " << out_file;
     return false;
   }
   return true;
 }
 
-}  // namespace tagging
-}  // namespace updater
+}  // namespace updater::tagging

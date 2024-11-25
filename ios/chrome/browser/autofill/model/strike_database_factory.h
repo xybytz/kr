@@ -5,22 +5,22 @@
 #ifndef IOS_CHROME_BROWSER_AUTOFILL_MODEL_STRIKE_DATABASE_FACTORY_H_
 #define IOS_CHROME_BROWSER_AUTOFILL_MODEL_STRIKE_DATABASE_FACTORY_H_
 
-#include <memory>
+#import <memory>
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 
 namespace autofill {
 
 class StrikeDatabase;
 
 // Singleton that owns all StrikeDatabases and associates them with
-// ChromeBrowserState.
+// ProfileIOS.
 class StrikeDatabaseFactory : public BrowserStateKeyedServiceFactory {
  public:
-  static StrikeDatabase* GetForBrowserState(ChromeBrowserState* browser_state);
+  static StrikeDatabase* GetForProfile(ProfileIOS* profile);
   static StrikeDatabaseFactory* GetInstance();
 
   StrikeDatabaseFactory(const StrikeDatabaseFactory&) = delete;

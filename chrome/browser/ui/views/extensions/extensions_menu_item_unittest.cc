@@ -8,7 +8,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/user_action_tester.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/toolbar/test_toolbar_action_view_controller.h"
 #include "chrome/browser/ui/views/extensions/extensions_menu_button.h"
 #include "chrome/browser/ui/views/extensions/extensions_toolbar_unittest.h"
@@ -49,9 +48,10 @@ void ExtensionMenuItemViewTest::SetUp() {
   ExtensionsToolbarUnitTest::SetUp();
 
   widget_ = std::make_unique<views::Widget>();
-  views::Widget::InitParams init_params(views::Widget::InitParams::TYPE_POPUP);
-  init_params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_MAC)
+  views::Widget::InitParams init_params(
+      views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET,
+      views::Widget::InitParams::TYPE_POPUP);
+#if !BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_MAC)
   // This was copied from BookmarkBarViewTest:
   // On Chrome OS, this always creates a NativeWidgetAura, but it should
   // create a DesktopNativeWidgetAura for Mash. We can get by without manually

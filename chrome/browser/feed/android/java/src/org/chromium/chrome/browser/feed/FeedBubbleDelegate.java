@@ -21,7 +21,7 @@ public interface FeedBubbleDelegate {
      * Determines whether the position of the feed header in the NTP container is suitable for
      * showing the IPH.
      */
-    boolean isFeedHeaderPositionInContainerSuitableForIPH(float headerMaxPosFraction);
+    boolean isFeedHeaderPositionInContainerSuitableForIph(float headerMaxPosFraction);
 
     /** Returns the current time in milliseconds. */
     long getCurrentTimeMs();
@@ -31,16 +31,4 @@ public interface FeedBubbleDelegate {
 
     /** Returns true if the user can scroll up the page. */
     boolean canScrollUp();
-
-    /** Returns the number of header items. */
-    int getHeaderCount();
-
-    /** Returns the number of items, including both headers and feed items. */
-    int getItemCount();
-
-    /** Returns the position of the first visible position. */
-    int getFirstVisiblePosition();
-
-    /** Returns the position of the last visible position. */
-    int getLastVisiblePosition();
 }

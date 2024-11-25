@@ -157,7 +157,7 @@ public class MerchantTrustBottomSheetMediator {
                     }
 
                     @Override
-                    public void loadingStateChanged(boolean shouldShowLoadingUI) {
+                    public void loadingStateChanged(boolean shouldShowLoadingUi) {
                         boolean isLoading = mWebContents != null && mWebContents.isLoading();
                         if (isLoading) {
                             if (mToolbarModel == null) return;
@@ -214,10 +214,10 @@ public class MerchantTrustBottomSheetMediator {
             return;
         }
         mWebContents = WebContentsFactory.createWebContents(mProfileSupplier.get(), false, false);
-        mWebContentView = ContentView.createContentView(mContext, null, mWebContents);
+        mWebContentView = ContentView.createContentView(mContext, mWebContents);
         final ViewAndroidDelegate delegate =
                 ViewAndroidDelegate.createBasicDelegate(mWebContentView);
-        mWebContents.initialize(
+        mWebContents.setDelegates(
                 VersionInfo.getProductVersion(),
                 delegate,
                 mWebContentView,
@@ -256,7 +256,7 @@ public class MerchantTrustBottomSheetMediator {
                 return R.drawable.omnibox_not_secure_warning;
             case ConnectionSecurityLevel.SECURE_WITH_POLICY_INSTALLED_CERT:
             case ConnectionSecurityLevel.SECURE:
-                return R.drawable.omnibox_https_valid;
+                return R.drawable.omnibox_https_valid_lock;
             default:
                 assert false;
         }
@@ -276,12 +276,12 @@ public class MerchantTrustBottomSheetMediator {
     }
 
     /**
-     * Generates a favicon for a given URL. If no favicon could be found or generated from
-     * the URL, a default favicon will be shown.
+     * Generates a favicon for a given URL. If no favicon could be found or generated from the URL,
+     * a default favicon will be shown.
      */
     private void loadFavicon(GURL url) {
         Profile profile = mProfileSupplier.get();
-        // TODO(crbug.com/1266143): {@link FaviconHelper#getLocalFaviconImageForURL} may return
+        // TODO(crbug.com/40204015): {@link FaviconHelper#getLocalFaviconImageForURL} may return
         // wrong non-null bitmap for the first navigation within bottom sheet, so we use Google icon
         // directly for valid urls.
         if (isValidUrl(url) || (profile == null)) {

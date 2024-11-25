@@ -6,7 +6,7 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_context.h"
-#include "third_party/blink/renderer/core/css/parser/css_parser_token_range.h"
+#include "third_party/blink/renderer/core/css/parser/css_parser_token_stream.h"
 #include "third_party/blink/renderer/core/css/parser/css_tokenizer.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
@@ -34,29 +34,27 @@ class ContainerQueryParserTest : public PageTestBase {
     STACK_ALLOCATED();
 
    public:
-    bool IsAllowed(const String& feature) const override {
+    bool IsAllowed(const AtomicString& feature) const override {
       return feature == "width";
     }
-    bool IsAllowedWithoutValue(const String& feature,
+    bool IsAllowedWithoutValue(const AtomicString& feature,
                                const ExecutionContext*) const override {
       return true;
     }
-    bool IsCaseSensitive(const String& feature) const override { return false; }
+    bool IsCaseSensitive(const AtomicString& feature) const override {
+      return false;
+    }
     bool SupportsRange() const override { return true; }
   };
 
   // E.g. https://drafts.csswg.org/css-contain-3/#typedef-style-query
   String ParseFeatureQuery(String feature_query) {
     const auto* context = MakeGarbageCollected<CSSParserContext>(GetDocument());
-    auto [tokens, raw_offsets] =
-        CSSTokenizer(feature_query).TokenizeToEOFWithOffsets();
-    CSSParserTokenRange range(tokens);
-    CSSParserTokenOffsets offsets(tokens, std::move(raw_offsets),
-                                  feature_query);
+    CSSParserTokenStream stream(feature_query);
     const MediaQueryExpNode* node =
-        ContainerQueryParser(*context).ConsumeFeatureQuery(range, offsets,
+        ContainerQueryParser(*context).ConsumeFeatureQuery(stream,
                                                            TestFeatureSet());
-    if (!node || !range.AtEnd()) {
+    if (!node || !stream.AtEnd()) {
       return g_null_atom;
     }
     return node->Serialize();
@@ -85,6 +83,11 @@ TEST_F(ContainerQueryParserTest, ParseQuery) {
   for (const char* test : tests) {
     EXPECT_EQ(String(test), ParseQuery(test));
   }
+
+  // Escaped (unnecessarily but validly) characters in the identifier.
+  EXPECT_EQ("(width)", ParseQuery("(\\77 idth)"));
+  // Repro case for b/341640868
+  EXPECT_EQ("(min-width: 100px)", ParseQuery("(min\\2d width: 100px)"));
 
   // Invalid:
   EXPECT_EQ("<unknown>", ParseQuery("(min-width)"));

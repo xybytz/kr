@@ -108,7 +108,8 @@ class BottomSheetManager extends EmptyBottomSheetObserver implements DestroyObse
 
         mSheetController.addObserver(this);
 
-        // TODO(1092686): We should wait to instantiate all of these observers until the bottom
+        // TODO(crbug.com/40134698): We should wait to instantiate all of these observers until the
+        // bottom
         //                sheet is actually used.
         mTabObserver =
                 new EmptyTabObserver() {
@@ -144,7 +145,8 @@ class BottomSheetManager extends EmptyBottomSheetObserver implements DestroyObse
                             int topControlsMinHeightOffset,
                             int bottomOffset,
                             int bottomControlsMinHeightOffset,
-                            boolean needsAnimate) {
+                            boolean needsAnimate,
+                            boolean isVisibilityForced) {
                         controller.setBrowserControlsHiddenRatio(
                                 mBrowserControlsVisibilityManager.getBrowserControlHiddenRatio());
                     }
@@ -246,7 +248,6 @@ class BottomSheetManager extends EmptyBottomSheetObserver implements DestroyObse
                     .releasePersistentShowingToken(mPersistentControlsToken);
         }
 
-        BottomSheetContent content = mSheetController.getCurrentSheetContent();
         // If the content has a custom scrim, it wasn't obscuring tabs.
         if (mContentHasCustomScrimLifecycle) {
             mContentHasCustomScrimLifecycle = false;

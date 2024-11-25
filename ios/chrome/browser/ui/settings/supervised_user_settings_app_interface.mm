@@ -6,21 +6,23 @@
 
 #import "base/memory/ptr_util.h"
 #import "base/memory/singleton.h"
+#import "base/version_info/channel.h"
 #import "components/prefs/pref_service.h"
 #import "components/signin/public/identity_manager/identity_manager.h"
+#import "components/supervised_user/core/browser/kids_chrome_management_url_checker_client.h"
 #import "components/supervised_user/core/browser/permission_request_creator.h"
 #import "components/supervised_user/core/browser/permission_request_creator_mock.h"
-#import "components/supervised_user/core/browser/proto/kidschromemanagement_messages.pb.h"
+#import "components/supervised_user/core/browser/proto/kidsmanagement_messages.pb.h"
 #import "components/supervised_user/core/browser/supervised_user_service.h"
 #import "components/supervised_user/core/browser/supervised_user_settings_service.h"
+#import "components/supervised_user/core/browser/supervised_user_utils.h"
 #import "components/supervised_user/core/common/pref_names.h"
 #import "components/supervised_user/core/common/supervised_user_constants.h"
-#import "components/supervised_user/core/common/supervised_user_utils.h"
 #import "ios/chrome/app/main_controller.h"
 #import "ios/chrome/browser/shared/model/browser/browser.h"
 #import "ios/chrome/browser/shared/model/browser/browser_provider.h"
 #import "ios/chrome/browser/shared/model/browser/browser_provider_interface.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/signin/model/identity_manager_factory.h"
 #import "ios/chrome/browser/supervised_user/model/supervised_user_error_container.h"
 #import "ios/chrome/browser/supervised_user/model/supervised_user_service_factory.h"
@@ -30,7 +32,7 @@
 #import "ios/components/security_interstitials/ios_blocking_page_tab_helper.h"
 #import "ios/components/security_interstitials/ios_security_interstitial_page.h"
 #import "ios/web/public/web_state.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #import "services/network/test/test_url_loader_factory.h"
 
@@ -72,8 +74,8 @@ class TestUrlLoaderFactoryHelper {
 
 void setUrlFilteringForUrl(const GURL& url, bool isAllowed) {
   supervised_user::SupervisedUserSettingsService* settings_service =
-      SupervisedUserSettingsServiceFactory::GetForBrowserState(
-          chrome_test_util::GetOriginalBrowserState());
+      SupervisedUserSettingsServiceFactory::GetForProfile(
+          chrome_test_util::GetOriginalProfile());
 
   const base::Value::Dict& local_settings =
       settings_service->LocalSettingsForTest();
@@ -109,8 +111,8 @@ bool isShowingInterstitialForState(web::WebState* web_state) {
 + (void)setSupervisedUserURLFilterBehavior:
     (supervised_user::FilteringBehavior)behavior {
   supervised_user::SupervisedUserSettingsService* settings_service =
-      SupervisedUserSettingsServiceFactory::GetForBrowserState(
-          chrome_test_util::GetOriginalBrowserState());
+      SupervisedUserSettingsServiceFactory::GetForProfile(
+          chrome_test_util::GetOriginalProfile());
   settings_service->SetLocalSetting(
       supervised_user::kContentPackDefaultFilteringBehavior,
       base::Value(static_cast<int>(behavior)));
@@ -122,24 +124,24 @@ bool isShowingInterstitialForState(web::WebState* web_state) {
 
 + (void)resetSupervisedUserURLFilterBehavior {
   supervised_user::SupervisedUserSettingsService* settings_service =
-      SupervisedUserSettingsServiceFactory::GetForBrowserState(
-          chrome_test_util::GetOriginalBrowserState());
+      SupervisedUserSettingsServiceFactory::GetForProfile(
+          chrome_test_util::GetOriginalProfile());
   settings_service->RemoveLocalSetting(
       supervised_user::kContentPackDefaultFilteringBehavior);
 }
 
 + (void)resetManualUrlFiltering {
   supervised_user::SupervisedUserSettingsService* settings_service =
-      SupervisedUserSettingsServiceFactory::GetForBrowserState(
-          chrome_test_util::GetOriginalBrowserState());
+      SupervisedUserSettingsServiceFactory::GetForProfile(
+          chrome_test_util::GetOriginalProfile());
   settings_service->RemoveLocalSetting(
       supervised_user::kContentPackManualBehaviorHosts);
 }
 
 + (void)setFakePermissionCreator {
   supervised_user::SupervisedUserSettingsService* settings_service =
-      SupervisedUserSettingsServiceFactory::GetForBrowserState(
-          chrome_test_util::GetOriginalBrowserState());
+      SupervisedUserSettingsServiceFactory::GetForProfile(
+          chrome_test_util::GetOriginalProfile());
   CHECK(settings_service);
   std::unique_ptr<supervised_user::PermissionRequestCreator> creator =
       std::make_unique<supervised_user::PermissionRequestCreatorMock>(
@@ -150,8 +152,8 @@ bool isShowingInterstitialForState(web::WebState* web_state) {
   mocked_creator->SetEnabled();
 
   supervised_user::SupervisedUserService* service =
-      SupervisedUserServiceFactory::GetForBrowserState(
-          chrome_test_util::GetOriginalBrowserState());
+      SupervisedUserServiceFactory::GetForProfile(
+          chrome_test_util::GetOriginalProfile());
   CHECK(service);
   service->remote_web_approvals_manager().ClearApprovalRequestsCreators();
   service->remote_web_approvals_manager().AddApprovalRequestCreator(
@@ -160,8 +162,8 @@ bool isShowingInterstitialForState(web::WebState* web_state) {
 
 + (void)approveWebsiteDomain:(NSURL*)url {
   supervised_user::SupervisedUserSettingsService* settings_service =
-      SupervisedUserSettingsServiceFactory::GetForBrowserState(
-          chrome_test_util::GetOriginalBrowserState());
+      SupervisedUserSettingsServiceFactory::GetForProfile(
+          chrome_test_util::GetOriginalProfile());
   settings_service->RecordLocalWebsiteApproval(net::GURLWithNSURL(url).host());
 }
 
@@ -183,23 +185,12 @@ bool isShowingInterstitialForState(web::WebState* web_state) {
   setUrlFilteringForUrl(net::GURLWithNSURL(host), false);
 }
 
-+ (void)resetFirstTimeBanner {
-  ChromeBrowserState* browser_state = ChromeBrowserState::FromBrowserState(
-      chrome_test_util::GetOriginalBrowserState());
-  PrefService* user_prefs = browser_state->GetPrefs();
-  CHECK(user_prefs);
-  user_prefs->SetInteger(
-      prefs::kFirstTimeInterstitialBannerState,
-      static_cast<int>(
-          supervised_user::FirstTimeInterstitialBannerState::kNeedToShow));
-}
-
 + (void)setDefaultClassifyURLNavigationIsAllowed:(BOOL)is_allowed {
   // Fake the ClassifyUrl responses.
-  kids_chrome_management::ClassifyUrlResponse response;
+  kidsmanagement::ClassifyUrlResponse response;
   auto url_classification =
-      is_allowed ? kids_chrome_management::ClassifyUrlResponse::ALLOWED
-                 : kids_chrome_management::ClassifyUrlResponse::RESTRICTED;
+      is_allowed ? kidsmanagement::ClassifyUrlResponse::ALLOWED
+                 : kidsmanagement::ClassifyUrlResponse::RESTRICTED;
   response.set_display_classification(url_classification);
   std::string classify_url_service_url =
       "https://kidsmanagement-pa.googleapis.com/kidsmanagement/v1/people/"
@@ -217,16 +208,21 @@ bool isShowingInterstitialForState(web::WebState* web_state) {
 
   // Set up the KidsChromeManagementClient that provides fake safe search
   // responses.
-  ChromeBrowserState* browser_state = ChromeBrowserState::FromBrowserState(
-      chrome_test_util::GetOriginalBrowserState());
+  ProfileIOS* profile =
+      ProfileIOS::FromBrowserState(chrome_test_util::GetOriginalProfile());
   signin::IdentityManager* identity_manager =
-      IdentityManagerFactory::GetForBrowserState(browser_state);
+      IdentityManagerFactory::GetForProfile(profile);
   CHECK(identity_manager);
 
   supervised_user::SupervisedUserService* supervised_user_service =
-      SupervisedUserServiceFactory::GetForBrowserState(browser_state);
-  supervised_user_service->GetURLFilter()->InitAsyncURLChecker(
-      identity_manager, shared_url_loader_factory);
+      SupervisedUserServiceFactory::GetForProfile(profile);
+
+  std::unique_ptr<safe_search_api::URLCheckerClient> url_checker_client =
+      std::make_unique<supervised_user::KidsChromeManagementURLCheckerClient>(
+          identity_manager, shared_url_loader_factory, /*country=*/"",
+          version_info::Channel::UNKNOWN);
+  supervised_user_service->GetURLFilter()->SetURLCheckerClient(
+      std::move(url_checker_client));
 }
 
 + (void)setUpTestUrlLoaderFactoryHelper {

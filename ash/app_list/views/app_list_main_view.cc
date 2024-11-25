@@ -17,7 +17,6 @@
 #include "ash/app_list/model/app_list_item.h"
 #include "ash/app_list/views/app_list_folder_view.h"
 #include "ash/app_list/views/app_list_item_view.h"
-#include "ash/app_list/views/app_list_search_view.h"
 #include "ash/app_list/views/app_list_view.h"
 #include "ash/app_list/views/apps_container_view.h"
 #include "ash/app_list/views/apps_grid_view.h"
@@ -57,6 +56,7 @@ AppListMainView::AppListMainView(AppListViewDelegate* delegate,
   // grid fits in the display.
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
+  SetUseDefaultFillLayout(true);
 }
 
 AppListMainView::~AppListMainView() = default;
@@ -94,22 +94,10 @@ void AppListMainView::ShowAppListWhenReady() {
     GetWidget()->Show();
 }
 
-void AppListMainView::SetDragAndDropHostOfCurrentAppList(
-    ApplicationDragAndDropHost* drag_and_drop_host) {
-  contents_view_->SetDragAndDropHostOfCurrentAppList(drag_and_drop_host);
-}
-
 PaginationModel* AppListMainView::GetAppsPaginationModel() {
   return contents_view_->apps_container_view()
       ->apps_grid_view()
       ->pagination_model();
-}
-
-void AppListMainView::Layout() {
-  gfx::Rect rect = GetContentsBounds();
-  if (!rect.IsEmpty()) {
-    contents_view_->SetBoundsRect(rect);
-  }
 }
 
 void AppListMainView::QueryChanged(const std::u16string& trimmed_query,
@@ -171,13 +159,6 @@ bool AppListMainView::CanSelectSearchResults() {
   return !!contents_view_->search_result_page_view()->CanSelectSearchResults();
 }
 
-bool AppListMainView::HandleFocusMoveAboveSearchResults(
-    const ui::KeyEvent& key_event) {
-  return contents_view_->search_result_page_view()
-      ->search_view()
-      ->OverrideKeyNavigationAboveSearchResults(key_event);
-}
-
 void AppListMainView::AssistantButtonPressed() {
   delegate_->StartAssistant(
       assistant::AssistantEntryPoint::kLauncherSearchBoxIcon);
@@ -185,7 +166,7 @@ void AppListMainView::AssistantButtonPressed() {
 
 void AppListMainView::CloseButtonPressed() {
   // Deactivate the search box.
-  search_box_view_->SetSearchBoxActive(false, ui::ET_UNKNOWN);
+  search_box_view_->SetSearchBoxActive(false, ui::EventType::kUnknown);
   search_box_view_->ClearSearch();
 }
 

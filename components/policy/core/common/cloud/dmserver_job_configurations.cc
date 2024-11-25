@@ -26,11 +26,12 @@ const char* JobTypeToRequestType(
   switch (type) {
     case DeviceManagementService::JobConfiguration::TYPE_INVALID:
       NOTREACHED() << "Not a DMServer request type" << type;
-      return "Invalid";
     case DeviceManagementService::JobConfiguration::TYPE_AUTO_ENROLLMENT:
       return dm_protocol::kValueRequestAutoEnrollment;
     case DeviceManagementService::JobConfiguration::TYPE_REGISTRATION:
       return dm_protocol::kValueRequestRegister;
+    case DeviceManagementService::JobConfiguration::TYPE_OIDC_REGISTRATION:
+      return dm_protocol::kValueRequestRegisterProfile;
     case DeviceManagementService::JobConfiguration::TYPE_POLICY_FETCH:
       return dm_protocol::kValueRequestPolicy;
     case DeviceManagementService::JobConfiguration::TYPE_API_AUTH_CODE_FETCH:
@@ -59,13 +60,16 @@ const char* JobTypeToRequestType(
         TYPE_CERT_BASED_REGISTRATION:
       return dm_protocol::kValueRequestCertBasedRegister;
     case DeviceManagementService::JobConfiguration::
+        TYPE_TOKEN_BASED_DEVICE_REGISTRATION:
+      return dm_protocol::kValueRequestTokenBasedRegister;
+    case DeviceManagementService::JobConfiguration::
         TYPE_ACTIVE_DIRECTORY_ENROLL_PLAY_USER:
       return dm_protocol::kValueRequestActiveDirectoryEnrollPlayUser;
     case DeviceManagementService::JobConfiguration::
         TYPE_ACTIVE_DIRECTORY_PLAY_ACTIVITY:
       return dm_protocol::kValueRequestActiveDirectoryPlayActivity;
-    case DeviceManagementService::JobConfiguration::TYPE_TOKEN_ENROLLMENT:
-      return dm_protocol::kValueRequestTokenEnrollment;
+    case DeviceManagementService::JobConfiguration::TYPE_BROWSER_REGISTRATION:
+      return dm_protocol::kValueRequestRegisterBrowser;
     case DeviceManagementService::JobConfiguration::TYPE_CHROME_DESKTOP_REPORT:
       return dm_protocol::kValueRequestChromeDesktopReport;
     case DeviceManagementService::JobConfiguration::
@@ -79,7 +83,6 @@ const char* JobTypeToRequestType(
     case DeviceManagementService::JobConfiguration::
         TYPE_UPLOAD_REAL_TIME_REPORT:
       NOTREACHED() << "Not a DMServer request type " << type;
-      break;
     case DeviceManagementService::JobConfiguration::TYPE_CHROME_OS_USER_REPORT:
       return dm_protocol::kValueRequestChromeOsUserReport;
     case DeviceManagementService::JobConfiguration::
@@ -96,14 +99,18 @@ const char* JobTypeToRequestType(
     case DeviceManagementService::JobConfiguration::
         TYPE_UPLOAD_ENCRYPTED_REPORT:
       NOTREACHED() << "Not a DMServer request type " << type;
-      break;
     case DeviceManagementService::JobConfiguration::TYPE_UPLOAD_EUICC_INFO:
       return dm_protocol::kValueRequestUploadEuiccInfo;
     case DeviceManagementService::JobConfiguration::TYPE_CHROME_PROFILE_REPORT:
       return dm_protocol::kValueRequestChromeProfileReport;
+    case DeviceManagementService::JobConfiguration::
+        TYPE_UPLOAD_FM_REGISTRATION_TOKEN:
+      return dm_protocol::kValueRequestFmRegistrationTokenUpload;
+    case DeviceManagementService::JobConfiguration::
+        TYPE_POLICY_AGENT_REGISTRATION:
+      return dm_protocol::kValueRequestRegisterPolicyAgent;
   }
   NOTREACHED() << "Invalid job type " << type;
-  return "";
 }
 
 }  // namespace
@@ -149,7 +156,7 @@ DMServerJobConfiguration::CreateParams::WithParams(
     const std::string& client_id,
     bool critical,
     DMAuth auth_data,
-    absl::optional<std::string> oauth_token,
+    std::optional<std::string> oauth_token,
     scoped_refptr<network::SharedURLLoaderFactory> factory,
     Callback callback) {
   DMServerJobConfiguration::CreateParams params;
@@ -198,7 +205,7 @@ DMServerJobConfiguration::DMServerJobConfiguration(
     const std::string& client_id,
     bool critical,
     DMAuth auth_data,
-    absl::optional<std::string>&& oauth_token,
+    std::optional<std::string>&& oauth_token,
     scoped_refptr<network::SharedURLLoaderFactory> factory,
     Callback callback)
     : DMServerJobConfiguration(CreateParams::WithParams(service,
@@ -215,7 +222,7 @@ DMServerJobConfiguration::DMServerJobConfiguration(
     CloudPolicyClient* client,
     bool critical,
     DMAuth auth_data,
-    absl::optional<std::string>&& oauth_token,
+    std::optional<std::string>&& oauth_token,
     Callback callback)
     : DMServerJobConfiguration(
           CreateParams::WithParams(client->service(),
@@ -227,15 +234,16 @@ DMServerJobConfiguration::DMServerJobConfiguration(
                                    client->GetURLLoaderFactory(),
                                    std::move(callback))) {}
 
-DMServerJobConfiguration::~DMServerJobConfiguration() {}
+DMServerJobConfiguration::~DMServerJobConfiguration() = default;
 
 DeviceManagementStatus
 DMServerJobConfiguration::MapNetErrorAndResponseToDMStatus(
     int net_error,
     int response_code,
     const std::string& response_body) {
-  if (net_error != net::OK)
+  if (net_error != net::OK) {
     return DM_STATUS_REQUEST_FAILED;
+  }
 
   switch (response_code) {
     case DeviceManagementService::kSuccess:
@@ -296,8 +304,9 @@ DMServerJobConfiguration::MapNetErrorAndResponseToDMStatus(
     default:
       // Handle all unknown 5xx HTTP error codes as temporary and any other
       // unknown error as one that needs more time to recover.
-      if (response_code >= 500 && response_code <= 599)
+      if (response_code >= 500 && response_code <= 599) {
         return DM_STATUS_TEMPORARY_UNAVAILABLE;
+      }
 
       return DM_STATUS_HTTP_STATUS_ERROR;
   }
@@ -337,8 +346,8 @@ void DMServerJobConfiguration::OnURLLoadComplete(
   }
 
   if (callback_) {
-    std::move(callback_).Run(
-        DMServerJobResult{job, net_error, code, std::move(response)});
+    std::move(callback_).Run(DMServerJobResult{
+        job, net_error, code, response_code, std::move(response)});
   }
 }
 

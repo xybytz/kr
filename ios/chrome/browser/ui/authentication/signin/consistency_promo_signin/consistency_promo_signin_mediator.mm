@@ -11,11 +11,12 @@
 #import "components/signin/public/identity_manager/accounts_in_cookie_jar_info.h"
 #import "components/signin/public/identity_manager/objc/identity_manager_observer_bridge.h"
 #import "ios/chrome/browser/shared/model/prefs/pref_names.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/signin/model/authentication_service.h"
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service.h"
 #import "ios/chrome/browser/signin/model/system_identity.h"
 #import "ios/chrome/browser/ui/authentication/authentication_flow.h"
-#import "ios/chrome/browser/ui/authentication/signin/signin_completion_info.h"
+#import "ios/chrome/browser/ui/authentication/signin/signin_utils.h"
 
 namespace {
 
@@ -71,11 +72,14 @@ constexpr base::TimeDelta kSigninTimeout = base::Seconds(10);
     _userPrefService = userPrefService;
     _accessPoint = accessPoint;
     _addedGaiaIDs = [[NSMutableSet alloc] init];
-    _identityManagerObserverBridge.reset(
-        new signin::IdentityManagerObserverBridge(self.identityManager, self));
+    _identityManagerObserverBridge =
+        std::make_unique<signin::IdentityManagerObserverBridge>(
+            self.identityManager, self);
 
     _initializedWithDefaultAccount =
-        self.accountManagerService->HasIdentities();
+        signin::GetDefaultIdentityOnDevice(self.identityManager,
+                                           self.accountManagerService) != nil;
+
     if (_initializedWithDefaultAccount) {
       RecordConsistencyPromoUserAction(
           signin_metrics::AccountConsistencyPromoAction::SHOWN, _accessPoint);
@@ -106,8 +110,8 @@ constexpr base::TimeDelta kSigninTimeout = base::Seconds(10);
     case SigninCoordinatorResultSuccess: {
       DCHECK(self.signingIdentity);
       id<SystemIdentity> signingIdentity = self.signingIdentity;
-      id<SystemIdentity> defaultIdentity =
-          self.accountManagerService->GetDefaultIdentity();
+      id<SystemIdentity> defaultIdentity = signin::GetDefaultIdentityOnDevice(
+          _identityManager, _accountManagerService);
       DCHECK(defaultIdentity);
       if (!_initializedWithDefaultAccount) {
         // Added identity, from having no existing account.
@@ -149,6 +153,8 @@ constexpr base::TimeDelta kSigninTimeout = base::Seconds(10);
           _accessPoint);
       break;
     }
+    case SigninCoordinatorUINotAvailable:
+      NOTREACHED();
   }
   _cookieTimeoutClosure.Cancel();
   self.accountManagerService = nullptr;
@@ -171,18 +177,19 @@ constexpr base::TimeDelta kSigninTimeout = base::Seconds(10);
     self.userPrefService->SetInteger(prefs::kSigninWebSignDismissalCount, 0);
   }
   __weak __typeof(self) weakSelf = self;
-  [_authenticationFlow startSignInWithCompletion:^(BOOL success) {
-    [weakSelf authenticationFlowCompletedWithSuccess:success];
-  }];
+  [_authenticationFlow
+      startSignInWithCompletion:^(SigninCoordinatorResult result) {
+        [weakSelf authenticationFlowCompletedWithResult:result];
+      }];
   [self.delegate consistencyPromoSigninMediatorSigninStarted:self];
 }
 
 #pragma mark - Private
 
-- (void)authenticationFlowCompletedWithSuccess:(BOOL)success {
+- (void)authenticationFlowCompletedWithResult:(SigninCoordinatorResult)result {
   DCHECK(_authenticationFlow);
   _authenticationFlow = nil;
-  if (!success) {
+  if (result != SigninCoordinatorResultSuccess) {
     RecordConsistencyPromoUserAction(
         signin_metrics::AccountConsistencyPromoAction::
             IOS_AUTH_FLOW_CANCELLED_OR_FAILED,
@@ -243,7 +250,7 @@ constexpr base::TimeDelta kSigninTimeout = base::Seconds(10);
     case signin::PrimaryAccountChangeEvent::Type::kSet: {
       // Since sign-in UI blocks all other Chrome screens until it is dismissed
       // an account change event must come from the consistency sheet.
-      // TODO(crbug.com/1081764): Update if sign-in UI becomes non-blocking.
+      // TODO(crbug.com/40691525): Update if sign-in UI becomes non-blocking.
       DCHECK(self.signingIdentity);
       id<SystemIdentity> signedInIdentity =
           self.authenticationService->GetPrimaryIdentity(
@@ -274,7 +281,7 @@ constexpr base::TimeDelta kSigninTimeout = base::Seconds(10);
   }
   id<SystemIdentity> signingIdentity = self.signingIdentity;
   if (!signingIdentity) {
-    // TODO(crbug.com/1204528): This case should not happen, but
+    // TODO(crbug.com/40764093): This case should not happen, but
     // `onAccountsInCookieUpdated:error:` can be called twice when there is an
     // error. Once this bug is fixed, this `if` should be replaced with
     // `DCHECK(!self.alertCoordinator)`.
@@ -285,7 +292,8 @@ constexpr base::TimeDelta kSigninTimeout = base::Seconds(10);
   if (error.state() == GoogleServiceAuthError::State::NONE &&
       self.authenticationService->GetPrimaryIdentity(
           signin::ConsentLevel::kSignin) &&
-      accountsInCookieJarInfo.signed_in_accounts.size() > 0) {
+      accountsInCookieJarInfo.GetPotentiallyInvalidSignedInAccounts().size() >
+          0) {
     // Reset dismissal count.
     if (self.accessPoint ==
         signin_metrics::AccessPoint::ACCESS_POINT_WEB_SIGNIN) {

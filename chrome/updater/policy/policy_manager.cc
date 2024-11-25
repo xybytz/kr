@@ -5,10 +5,11 @@
 #include "chrome/updater/policy/policy_manager.h"
 
 #include <optional>
-#include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "base/containers/flat_set.h"
 #include "base/logging.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
@@ -19,6 +20,9 @@
 namespace updater {
 
 namespace {
+
+constexpr char kCloudPolicyOverridesPlatformPolicy[] =
+    "CloudPolicyOverridesPlatformPolicy";
 
 // Preferences Category.
 constexpr char kAutoUpdateCheckPeriodOverrideMinutes[] =
@@ -61,7 +65,7 @@ constexpr char kRollbackToTargetVersion[] = "RollbackToTargetVersion";
 PolicyManager::PolicyManager(base::Value::Dict policies)
     : policies_(std::move(policies)) {
   constexpr size_t kInstallAppPrefixLength =
-      base::StringPiece(kInstallAppPrefix).length();
+      std::string_view(kInstallAppPrefix).length();
   base::ranges::for_each(policies_, [&](const auto& policy) {
     const std::string policy_name = policy.first;
     VLOG_IF(1, policy_name != base::ToLowerASCII(policy_name))
@@ -87,6 +91,12 @@ PolicyManager::PolicyManager(base::Value::Dict policies)
 }
 
 PolicyManager::~PolicyManager() = default;
+
+std::optional<bool> PolicyManager::CloudPolicyOverridesPlatformPolicy() const {
+  std::optional<int> policy =
+      GetIntegerPolicy(kCloudPolicyOverridesPlatformPolicy);
+  return policy ? std::optional<bool>(policy.value()) : std::nullopt;
+}
 
 bool PolicyManager::HasActiveDevicePolicies() const {
   return !policies_.empty();
@@ -193,13 +203,13 @@ std::optional<std::vector<std::string>> PolicyManager::GetForceInstallApps()
 
 std::optional<std::vector<std::string>> PolicyManager::GetAppsWithPolicy()
     const {
-  const std::set<std::string> kPrefixedPolicyNames = {
+  const base::flat_set<std::string> prefixed_policy_names = {
       // prefixed by kUpdateAppPrefix:
       base::ToLowerASCII(kUpdatesSuppressedStartHour),
       base::ToLowerASCII(kUpdatesSuppressedStartMin),
       base::ToLowerASCII(kUpdatesSuppressedDurationMin),
   };
-  const char* kAppPolicyPrefixes[] = {
+  static constexpr const char* kAppPolicyPrefixes[] = {
       kInstallAppsDefault,     kInstallAppPrefix,    kUpdateAppsDefault,
       kUpdateAppPrefix,        kTargetVersionPrefix, kTargetChannel,
       kRollbackToTargetVersion};
@@ -208,9 +218,9 @@ std::optional<std::vector<std::string>> PolicyManager::GetAppsWithPolicy()
     const std::string policy_name = policy.first;
     base::ranges::for_each(kAppPolicyPrefixes, [&](const auto& prefix) {
       if (base::StartsWith(policy_name, base::ToLowerASCII(prefix)) &&
-          kPrefixedPolicyNames.count(policy_name) == 0) {
+          !prefixed_policy_names.contains(policy_name)) {
         apps_with_policy.push_back(
-            policy_name.substr(base::StringPiece(prefix).length()));
+            policy_name.substr(std::string_view(prefix).length()));
       }
     });
   });

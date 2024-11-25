@@ -5,22 +5,22 @@
 #ifndef IOS_CHROME_BROWSER_SUPERVISED_USER_MODEL_SUPERVISED_USER_SETTINGS_SERVICE_FACTORY_H_
 #define IOS_CHROME_BROWSER_SUPERVISED_USER_MODEL_SUPERVISED_USER_SETTINGS_SERVICE_FACTORY_H_
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+
+class ProfileIOS;
 
 namespace supervised_user {
 class SupervisedUserSettingsService;
 }  // namespace supervised_user
 
-class ChromeBrowserState;
-
 // Singleton that owns SupervisedUserSettingsService object and associates
-// them with ChromeBrowserState.
+// them with ProfileIOS.
 class SupervisedUserSettingsServiceFactory
     : public BrowserStateKeyedServiceFactory {
  public:
-  static supervised_user::SupervisedUserSettingsService* GetForBrowserState(
-      ChromeBrowserState* browser_state);
+  static supervised_user::SupervisedUserSettingsService* GetForProfile(
+      ProfileIOS* profile);
   static SupervisedUserSettingsServiceFactory* GetInstance();
 
   SupervisedUserSettingsServiceFactory(
@@ -35,6 +35,7 @@ class SupervisedUserSettingsServiceFactory
   ~SupervisedUserSettingsServiceFactory() override = default;
 
   // BrowserStateKeyedServiceFactory implementation.
+  bool ServiceIsRequiredForContextInitialization() const override;
   std::unique_ptr<KeyedService> BuildServiceInstanceFor(
       web::BrowserState* context) const override;
   web::BrowserState* GetBrowserStateToUse(

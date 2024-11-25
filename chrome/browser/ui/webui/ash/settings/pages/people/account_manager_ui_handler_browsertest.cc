@@ -22,8 +22,6 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chromeos/ash/components/account_manager/account_manager_factory.h"
-#include "chromeos/ash/components/standalone_browser/feature_refs.h"
-#include "chromeos/ash/components/standalone_browser/standalone_browser_features.h"
 #include "components/account_manager_core/account_manager_facade.h"
 #include "components/account_manager_core/chromeos/account_manager.h"
 #include "components/account_manager_core/chromeos/account_manager_facade_factory.h"
@@ -74,7 +72,7 @@ DeviceAccountInfo GetGaiaDeviceAccountInfo() {
           "primary@example.com" /*email*/,
           "primary" /*fullName*/,
           "" /*organization*/,
-          user_manager::USER_TYPE_REGULAR /*user_type*/,
+          user_manager::UserType::kRegular /*user_type*/,
           account_manager::AccountType::kGaia /*account_type*/,
           "device-account-token" /*token*/};
 }
@@ -84,7 +82,7 @@ DeviceAccountInfo GetChildDeviceAccountInfo() {
           "child@example.com" /*email*/,
           "child" /*fullName*/,
           "Family Link" /*organization*/,
-          user_manager::USER_TYPE_CHILD /*user_type*/,
+          user_manager::UserType::kChild /*user_type*/,
           account_manager::AccountType::kGaia /*account_type*/,
           "device-account-token" /*token*/};
 }
@@ -148,10 +146,12 @@ class AccountManagerUIHandlerTest
 
     auto* account_manager_facade =
         ::GetAccountManagerFacade(profile_->GetPath().value());
+    account_apps_availability_ =
+        AccountAppsAvailabilityFactory::GetForProfile(profile());
 
     handler_ = std::make_unique<TestingAccountManagerUIHandler>(
-        account_manager_, account_manager_facade, identity_manager_, nullptr,
-        &web_ui_);
+        account_manager_, account_manager_facade, identity_manager_,
+        account_apps_availability_, &web_ui_);
     handler_->SetProfileForTesting(profile_.get());
     handler_->RegisterMessages();
     handler_->AllowJavascriptForTesting();
@@ -159,6 +159,7 @@ class AccountManagerUIHandlerTest
   }
 
   void TearDownOnMainThread() override {
+    account_apps_availability_ = nullptr;
     handler_.reset();
     GetFakeUserManager()->RemoveUserFromList(primary_account_id_);
     profile_.reset();
@@ -172,16 +173,14 @@ class AccountManagerUIHandlerTest
     TestingProfile::Builder profile_builder;
     profile_builder.SetPath(temp_dir_.GetPath().AppendASCII("TestProfile"));
     profile_builder.SetProfileName(GetDeviceAccountInfo().email);
-    if (GetDeviceAccountInfo().user_type ==
-        user_manager::UserType::USER_TYPE_CHILD) {
+    if (GetDeviceAccountInfo().user_type == user_manager::UserType::kChild) {
       profile_builder.SetIsSupervisedProfile();
     }
     profile_ = profile_builder.Build();
 
     auto user_manager = std::make_unique<FakeChromeUserManager>();
     const user_manager::User* user;
-    if (GetDeviceAccountInfo().user_type ==
-        user_manager::UserType::USER_TYPE_CHILD) {
+    if (GetDeviceAccountInfo().user_type == user_manager::UserType::kChild) {
       user = user_manager->AddChildUser(AccountId::FromUserEmailGaiaId(
           GetDeviceAccountInfo().email, GetDeviceAccountInfo().id));
     } else {
@@ -253,6 +252,7 @@ class AccountManagerUIHandlerTest
   content::TestWebUI web_ui_;
   AccountId primary_account_id_;
   std::unique_ptr<TestingAccountManagerUIHandler> handler_;
+  raw_ptr<AccountAppsAvailability> account_apps_availability_;
 };
 
 IN_PROC_BROWSER_TEST_P(AccountManagerUIHandlerTest,
@@ -266,6 +266,9 @@ IN_PROC_BROWSER_TEST_P(AccountManagerUIHandlerTest,
   base::Value::List args;
   args.Append(kHandleFunctionName);
   web_ui()->HandleReceivedMessage(kGetAccountsMessage, args);
+
+  // Wait for the async calls to finish.
+  base::RunLoop().RunUntilIdle();
 
   const content::TestWebUI::CallData& call_data = *web_ui()->call_data().back();
   EXPECT_EQ("cr.webUIResponse", call_data.function_name());
@@ -287,8 +290,7 @@ IN_PROC_BROWSER_TEST_P(AccountManagerUIHandlerTest,
             ValueOrEmpty(device_account.FindString("email")));
   EXPECT_EQ(GetDeviceAccountInfo().id,
             ValueOrEmpty(device_account.FindString("id")));
-  if (GetDeviceAccountInfo().user_type ==
-      user_manager::UserType::USER_TYPE_CHILD) {
+  if (GetDeviceAccountInfo().user_type == user_manager::UserType::kChild) {
     std::string organization = GetDeviceAccountInfo().organization;
     base::ReplaceSubstringsAfterOffset(&organization, 0, " ", "&nbsp;");
     EXPECT_EQ(organization,
@@ -315,6 +317,9 @@ IN_PROC_BROWSER_TEST_P(AccountManagerUIHandlerTest,
   args.Append(kHandleFunctionName);
   web_ui()->HandleReceivedMessage(kGetAccountsMessage, args);
 
+  // Wait for the async calls to finish.
+  base::RunLoop().RunUntilIdle();
+
   const content::TestWebUI::CallData& call_data = *web_ui()->call_data().back();
   EXPECT_EQ("cr.webUIResponse", call_data.function_name());
   EXPECT_EQ(kHandleFunctionName, call_data.arg1()->GetString());
@@ -335,8 +340,7 @@ IN_PROC_BROWSER_TEST_P(AccountManagerUIHandlerTest,
             ValueOrEmpty(device_account.FindString("email")));
   EXPECT_EQ(GetDeviceAccountInfo().id,
             ValueOrEmpty(device_account.FindString("id")));
-  if (GetDeviceAccountInfo().user_type ==
-      user_manager::UserType::USER_TYPE_CHILD) {
+  if (GetDeviceAccountInfo().user_type == user_manager::UserType::kChild) {
     std::string organization = GetDeviceAccountInfo().organization;
     base::ReplaceSubstringsAfterOffset(&organization, 0, " ", "&nbsp;");
     EXPECT_EQ(organization,
@@ -359,8 +363,7 @@ IN_PROC_BROWSER_TEST_P(AccountManagerUIHandlerTest,
                         {ValueOrEmpty(account.FindString("id")),
                          account_manager::AccountType::kGaia})
             .value();
-    if (GetDeviceAccountInfo().user_type ==
-        user_manager::UserType::USER_TYPE_CHILD) {
+    if (GetDeviceAccountInfo().user_type == user_manager::UserType::kChild) {
       EXPECT_FALSE(account.FindBool("unmigrated").value());
     } else {
       EXPECT_EQ(HasDummyGaiaToken(expected_account.key),
@@ -389,18 +392,10 @@ INSTANTIATE_TEST_SUITE_P(AccountManagerUIHandlerTestSuite,
                          ::testing::Values(GetGaiaDeviceAccountInfo(),
                                            GetChildDeviceAccountInfo()));
 
-class AccountManagerUIHandlerTestWithArcAccountRestrictions
+class AccountManagerUIHandlerTestWithManagedArcAccountRestriction
     : public AccountManagerUIHandlerTest {
  public:
-  AccountManagerUIHandlerTestWithArcAccountRestrictions() {
-    std::vector<base::test::FeatureRef> lacros =
-        ash::standalone_browser::GetFeatureRefs();
-    if (GetDeviceAccountInfo().user_type == user_manager::USER_TYPE_CHILD) {
-      lacros.push_back(
-          ash::standalone_browser::features::kLacrosForSupervisedUsers);
-    }
-    feature_list_.InitWithFeatures(lacros, {});
-  }
+  AccountManagerUIHandlerTestWithManagedArcAccountRestriction() = default;
 
   void SetUpOnMainThread() override {
     SetUpEnvironment();
@@ -418,12 +413,10 @@ class AccountManagerUIHandlerTestWithArcAccountRestrictions
     handler_->RegisterMessages();
     handler_->AllowJavascriptForTesting();
     base::RunLoop().RunUntilIdle();
-
-    ASSERT_TRUE(
-        ash::AccountAppsAvailability::IsArcAccountRestrictionsEnabled());
   }
 
   void TearDownOnMainThread() override {
+    account_apps_availability_ = nullptr;
     handler_.reset();
     AccountManagerUIHandlerTest::TearDownOnMainThread();
   }
@@ -462,14 +455,13 @@ class AccountManagerUIHandlerTestWithArcAccountRestrictions
   }
 
  private:
-  base::test::ScopedFeatureList feature_list_;
-  raw_ptr<AccountAppsAvailability, DanglingUntriaged>
-      account_apps_availability_;
+  raw_ptr<AccountAppsAvailability> account_apps_availability_;
   std::unique_ptr<TestingAccountManagerUIHandler> handler_;
 };
 
-IN_PROC_BROWSER_TEST_P(AccountManagerUIHandlerTestWithArcAccountRestrictions,
-                       CheckIsAvailableInArcValue) {
+IN_PROC_BROWSER_TEST_P(
+    AccountManagerUIHandlerTestWithManagedArcAccountRestriction,
+    CheckIsAvailableInArcValue) {
   UpsertAccount(kSecondaryAccount1Email);
   UpsertAccount(kSecondaryAccount2Email);
   const std::vector<::account_manager::Account> account_manager_accounts =
@@ -532,78 +524,9 @@ IN_PROC_BROWSER_TEST_P(AccountManagerUIHandlerTestWithArcAccountRestrictions,
   EXPECT_FALSE(is_available_2.value());
 }
 
-IN_PROC_BROWSER_TEST_P(AccountManagerUIHandlerTestWithArcAccountRestrictions,
-                       HandleChangeArcAvailabilityChangesArcAvailability) {
-  UpsertAccount(kSecondaryAccount1Email);
-  UpsertAccount(kSecondaryAccount2Email);
-  const std::vector<::account_manager::Account> account_manager_accounts =
-      GetAccountsFromAccountManager();
-  ASSERT_EQ(3UL, account_manager_accounts.size());
-
-  // Wait for accounts to propagate to IdentityManager.
-  base::RunLoop().RunUntilIdle();
-
-  std::optional<::account_manager::Account> account_1 =
-      FindAccountByEmail(account_manager_accounts, kSecondaryAccount1Email);
-  ASSERT_TRUE(account_1.has_value());
-  std::optional<::account_manager::Account> account_2 =
-      FindAccountByEmail(account_manager_accounts, kSecondaryAccount2Email);
-  ASSERT_TRUE(account_2.has_value());
-
-  account_apps_availability()->SetIsAccountAvailableInArc(account_1.value(),
-                                                          true);
-  account_apps_availability()->SetIsAccountAvailableInArc(account_2.value(),
-                                                          false);
-
-  {
-    // Make sure that accounts have correct initial values.
-    const base::flat_set<::account_manager::Account> arc_accounts =
-        GetAccountsAvailableInArc();
-    EXPECT_THAT(arc_accounts,
-                Contains(AccountEmailEqual(kSecondaryAccount1Email)));
-    EXPECT_THAT(arc_accounts,
-                Not(Contains(AccountEmailEqual(kSecondaryAccount2Email))));
-  }
-
-  // Call "getAccounts".
-  base::Value::List args;
-  args.Append(kHandleFunctionName);
-  web_ui()->HandleReceivedMessage(kGetAccountsMessage, args);
-
-  // Wait for the async calls to finish.
-  base::RunLoop().RunUntilIdle();
-
-  // Get results from JS callback.
-  const content::TestWebUI::CallData& call_data = *web_ui()->call_data().back();
-  const base::Value::List& accounts_dict = call_data.arg3()->GetList();
-  std::optional<const base::Value> secondary_1_dict =
-      FindAccountDictByEmail(accounts_dict, kSecondaryAccount1Email);
-  ASSERT_TRUE(secondary_1_dict.has_value());
-
-  // Call "changeArcAvailability".
-  base::Value::List args_1;
-  args_1.Append(secondary_1_dict.value().Clone());  // account
-  args_1.Append(false);                             // is_available
-  web_ui()->HandleReceivedMessage("changeArcAvailability", args_1);
-
-  // Wait for the async calls to finish.
-  base::RunLoop().RunUntilIdle();
-
-  {
-    // Make sure that account with kSecondaryAccount1Email is not available in
-    // ARC now.
-    const base::flat_set<::account_manager::Account> arc_accounts =
-        GetAccountsAvailableInArc();
-    EXPECT_THAT(arc_accounts,
-                Not(Contains(AccountEmailEqual(kSecondaryAccount1Email))));
-    EXPECT_THAT(arc_accounts,
-                Not(Contains(AccountEmailEqual(kSecondaryAccount2Email))));
-  }
-}
-
 INSTANTIATE_TEST_SUITE_P(
-    AccountManagerUIHandlerTestWithArcAccountRestrictionsSuite,
-    AccountManagerUIHandlerTestWithArcAccountRestrictions,
+    AccountManagerUIHandlerTestWithManagedArcAccountRestrictionSuite,
+    AccountManagerUIHandlerTestWithManagedArcAccountRestriction,
     ::testing::Values(GetGaiaDeviceAccountInfo(), GetChildDeviceAccountInfo()));
 
 }  // namespace ash::settings

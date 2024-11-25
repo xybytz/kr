@@ -11,12 +11,10 @@ import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.back_press.BackPressManager;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsVisibilityManager;
-import org.chromium.chrome.browser.contextualsearch.ContextualSearchManager;
 import org.chromium.chrome.browser.fullscreen.FullscreenManager;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.DestroyObserver;
 import org.chromium.chrome.browser.lifecycle.NativeInitObserver;
-import org.chromium.chrome.browser.modaldialog.ChromeTabModalPresenter.TabModalBrowserControlsVisibilityDelegate;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabObscuringHandler;
@@ -77,17 +75,16 @@ public class TabModalLifetimeHandler
             mAppVisibilityDelegateSupplier;
     private final Supplier<TabObscuringHandler> mTabObscuringHandlerSupplier;
     private final Supplier<ToolbarManager> mToolbarManagerSupplier;
-    private final Supplier<ContextualSearchManager> mContextualSearchManagerSupplier;
     private final Supplier<TabModelSelector> mTabModelSelectorSupplier;
     private final Supplier<BrowserControlsVisibilityManager>
             mBrowserControlsVisibilityManagerSupplier;
     private final Supplier<FullscreenManager> mFullscreenManagerSupplier;
-    private final TabModalBrowserControlsVisibilityDelegate mVisibilityDelegate;
     private final ObservableSupplierImpl<Boolean> mHandleBackPressChangedSupplier =
             new ObservableSupplierImpl<>();
     private final BackPressManager mBackPressManager;
     private ChromeTabModalPresenter mPresenter;
     private TabModelSelectorTabModelObserver mTabModelObserver;
+    private final Runnable mHideContextualSearch;
     private Tab mActiveTab;
     private int mTabModalSuspendedToken;
 
@@ -96,16 +93,16 @@ public class TabModalLifetimeHandler
      * @param activityLifecycleDispatcher The {@link ActivityLifecycleDispatcher} for the activity.
      * @param manager The {@link ModalDialogManager} that this handler handles.
      * @param appVisibilityDelegateSupplier Supplies the delegate that handles the application
-     *                                      browser controls visibility.
+     *     browser controls visibility.
      * @param tabObscuringHandlerSupplier Supplies the {@link TabObscuringHandler} object.
      * @param toolbarManagerSupplier Supplies the {@link ToolbarManager} object.
-     * @param contextualSearchManagerSupplier Supplies the {@link ContextualSearchManager} object.
+     * @param hideContextualSearch Runnable hiding the contextual search panel.
      * @param tabModelSelectorSupplier Supplies the {@link TabModelSelector} object.
-     * @param browserControlsVisibilityManagerSupplier Supplies the
-     *                                                 {@link BrowserControlsVisibilityManager}.
+     * @param browserControlsVisibilityManagerSupplier Supplies the {@link
+     *     BrowserControlsVisibilityManager}.
      * @param fullscreenManagerSupplier Supplies the {@link FullscreenManager} object.
      * @param backPressManager The {@link BackPressManager} which can register {@link
-     *                         BackPressHandler}.
+     *     BackPressHandler}.
      */
     public TabModalLifetimeHandler(
             Activity activity,
@@ -114,7 +111,7 @@ public class TabModalLifetimeHandler
             Supplier<ComposedBrowserControlsVisibilityDelegate> appVisibilityDelegateSupplier,
             Supplier<TabObscuringHandler> tabObscuringHandlerSupplier,
             Supplier<ToolbarManager> toolbarManagerSupplier,
-            Supplier<ContextualSearchManager> contextualSearchManagerSupplier,
+            Runnable hideContextualSearch,
             Supplier<TabModelSelector> tabModelSelectorSupplier,
             Supplier<BrowserControlsVisibilityManager> browserControlsVisibilityManagerSupplier,
             Supplier<FullscreenManager> fullscreenManagerSupplier,
@@ -129,18 +126,16 @@ public class TabModalLifetimeHandler
         mToolbarManagerSupplier = toolbarManagerSupplier;
         mFullscreenManagerSupplier = fullscreenManagerSupplier;
         mBrowserControlsVisibilityManagerSupplier = browserControlsVisibilityManagerSupplier;
-        mVisibilityDelegate = new TabModalBrowserControlsVisibilityDelegate();
-        mContextualSearchManagerSupplier = contextualSearchManagerSupplier;
+        mHideContextualSearch = hideContextualSearch;
         mTabModelSelectorSupplier = tabModelSelectorSupplier;
         mBackPressManager = backPressManager;
-        if (BackPressManager.isEnabled()) {
-            mManager.addObserver(this);
-            backPressManager.addHandler(this, Type.TAB_MODAL_HANDLER);
-        }
+        mManager.addObserver(this);
+        backPressManager.addHandler(this, Type.TAB_MODAL_HANDLER);
     }
 
     /**
      * Notified when the focus of the omnibox has changed.
+     *
      * @param hasFocus Whether the omnibox currently has focus.
      */
     public void onOmniboxFocusChanged(boolean hasFocus) {
@@ -152,7 +147,7 @@ public class TabModalLifetimeHandler
     /** Handle a back press event. */
     public boolean onBackPressed() {
         if (!shouldInterceptBackPress()) return false;
-        mPresenter.dismissCurrentDialog(DialogDismissalCause.NAVIGATE_BACK_OR_TOUCH_OUTSIDE);
+        mPresenter.dismissCurrentDialog(DialogDismissalCause.NAVIGATE_BACK);
         return true;
     }
 
@@ -160,7 +155,7 @@ public class TabModalLifetimeHandler
     public @BackPressResult int handleBackPress() {
         int result = shouldInterceptBackPress() ? BackPressResult.SUCCESS : BackPressResult.FAILURE;
         if (result == BackPressResult.SUCCESS) {
-            mPresenter.dismissCurrentDialog(DialogDismissalCause.NAVIGATE_BACK_OR_TOUCH_OUTSIDE);
+            mPresenter.dismissCurrentDialog(DialogDismissalCause.NAVIGATE_BACK);
         }
         return result;
     }
@@ -191,7 +186,7 @@ public class TabModalLifetimeHandler
                         mActivity,
                         mTabObscuringHandlerSupplier,
                         mToolbarManagerSupplier,
-                        mContextualSearchManagerSupplier,
+                        mHideContextualSearch,
                         mFullscreenManagerSupplier.get(),
                         mBrowserControlsVisibilityManagerSupplier.get(),
                         tabModelSelector);

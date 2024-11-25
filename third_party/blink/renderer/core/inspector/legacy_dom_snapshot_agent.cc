@@ -267,9 +267,9 @@ int LegacyDOMSnapshotAgent::VisitNode(Node* node,
     if (auto* option_element = DynamicTo<HTMLOptionElement>(*element))
       value->setOptionSelected(option_element->Selected());
 
-    if (element->GetPseudoId()) {
-      value->setPseudoType(
-          InspectorDOMAgent::ProtocolPseudoElementType(element->GetPseudoId()));
+    if (element->IsPseudoElement()) {
+      value->setPseudoType(InspectorDOMAgent::ProtocolPseudoElementType(
+          element->GetPseudoIdForStyling()));
     }
     value->setPseudoElementIndexes(
         VisitPseudoElements(element, index, include_event_listeners,
@@ -337,14 +337,17 @@ LegacyDOMSnapshotAgent::VisitPseudoElements(
     bool include_event_listeners,
     bool include_user_agent_shadow_tree) {
   if (!parent->GetPseudoElement(kPseudoIdFirstLetter) &&
+      !parent->GetPseudoElement(kPseudoIdCheckMark) &&
       !parent->GetPseudoElement(kPseudoIdBefore) &&
-      !parent->GetPseudoElement(kPseudoIdAfter)) {
+      !parent->GetPseudoElement(kPseudoIdAfter) &&
+      !parent->GetPseudoElement(kPseudoIdSelectArrow)) {
     return nullptr;
   }
 
   auto pseudo_elements = std::make_unique<protocol::Array<int>>();
   for (PseudoId pseudo_id :
-       {kPseudoIdFirstLetter, kPseudoIdBefore, kPseudoIdAfter}) {
+       {kPseudoIdFirstLetter, kPseudoIdCheckMark, kPseudoIdBefore,
+        kPseudoIdAfter, kPseudoIdSelectArrow}) {
     if (Node* pseudo_node = parent->GetPseudoElement(pseudo_id)) {
       pseudo_elements->emplace_back(VisitNode(pseudo_node,
                                               include_event_listeners,
@@ -376,7 +379,7 @@ int LegacyDOMSnapshotAgent::VisitLayoutTreeNode(LayoutObject* layout_object,
   if (!layout_object)
     return -1;
 
-  if (node->GetPseudoId()) {
+  if (node->IsPseudoElement()) {
     // For pseudo elements, visit the children of the layout object.
     for (LayoutObject* child = layout_object->SlowFirstChild(); child;
          child = child->NextSibling()) {
@@ -463,7 +466,8 @@ int LegacyDOMSnapshotAgent::GetStyleIndexForNode(Node* node) {
     if (const CSSValue* css_value =
             CSSProperty::Get(pair.second)
                 .CSSValueFromComputedStyle(*computed_style,
-                                           node->GetLayoutObject(), true)) {
+                                           node->GetLayoutObject(), true,
+                                           CSSValuePhase::kResolvedValue)) {
       value = css_value->CssText();
     }
     if (!value.empty())

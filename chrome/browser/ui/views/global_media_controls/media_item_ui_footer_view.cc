@@ -29,8 +29,9 @@ constexpr int kDeviceIconSize = 12;
 
 // Label button with custom hover effect.
 class DeviceEntryButton : public views::LabelButton {
+  METADATA_HEADER(DeviceEntryButton, views::LabelButton)
+
  public:
-  METADATA_HEADER(DeviceEntryButton);
   explicit DeviceEntryButton(PressedCallback callback,
                              const gfx::VectorIcon* icon = nullptr,
                              const std::u16string& text = std::u16string());
@@ -88,7 +89,7 @@ void DeviceEntryButton::UpdateImage() {
                                                kDeviceIconSize));
 }
 
-BEGIN_METADATA(DeviceEntryButton, views::LabelButton)
+BEGIN_METADATA(DeviceEntryButton)
 END_METADATA
 
 }  // anonymous namespace
@@ -117,7 +118,8 @@ MediaItemUIFooterView::MediaItemUIFooterView(
 MediaItemUIFooterView::~MediaItemUIFooterView() = default;
 
 void MediaItemUIFooterView::OnMediaItemUIDeviceSelectorUpdated(
-    const std::map<int, DeviceEntryUI*>& device_entries_map) {
+    const std::map<int, raw_ptr<DeviceEntryUI, CtnExperimental>>&
+        device_entries_map) {
   RemoveAllChildViews();
 
   for (const auto& entry : device_entries_map) {
@@ -128,7 +130,7 @@ void MediaItemUIFooterView::OnMediaItemUIDeviceSelectorUpdated(
         AddChildView(std::make_unique<DeviceEntryButton>(
             base::BindRepeating(&MediaItemUIFooterView::OnDeviceSelected,
                                 base::Unretained(this), tag),
-            device_entry->icon(),
+            &device_entry->icon(),
             base::UTF8ToUTF16(device_entry->device_name())));
     device_entry_button->set_tag(tag);
     device_entry_button->SetProperty(
@@ -154,16 +156,16 @@ void MediaItemUIFooterView::OnMediaItemUIDeviceSelectorUpdated(
   UpdateButtonsColor();
 }
 
-void MediaItemUIFooterView::Layout() {
+void MediaItemUIFooterView::Layout(PassKey) {
   if (!overflow_button_) {
-    views::View::Layout();
+    LayoutSuperclass<views::View>(this);
     return;
   }
 
   overflow_button_->SetVisible(false);
   if (GetPreferredSize().width() > GetContentsBounds().width())
     overflow_button_->SetVisible(true);
-  views::View::Layout();
+  LayoutSuperclass<views::View>(this);
 }
 
 void MediaItemUIFooterView::OnColorsChanged(SkColor foreground,

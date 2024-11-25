@@ -22,9 +22,9 @@ class ASH_EXPORT CalendarEventListView
     : public CalendarModel::Observer,
       public CalendarViewController::Observer,
       public views::View {
- public:
-  METADATA_HEADER(CalendarEventListView);
+  METADATA_HEADER(CalendarEventListView, views::View)
 
+ public:
   explicit CalendarEventListView(
       CalendarViewController* calendar_view_controller);
   CalendarEventListView(const CalendarEventListView& other) = delete;
@@ -34,6 +34,7 @@ class ASH_EXPORT CalendarEventListView
   void RequestCloseButtonFocus();
 
  private:
+  friend class CalendarViewEventListViewFetchTest;
   friend class CalendarViewEventListViewTest;
   friend class CalendarViewTest;
 
@@ -42,11 +43,10 @@ class ASH_EXPORT CalendarEventListView
 
   // CalendarModel::Observer:
   void OnEventsFetched(const CalendarModel::FetchingStatus status,
-                       const base::Time start_time,
-                       const google_apis::calendar::EventList* events) override;
+                       const base::Time start_time) override;
 
   // views::View
-  void Layout() override;
+  void Layout(PassKey) override;
 
   // Updates the event list entries.
   void UpdateListItems();

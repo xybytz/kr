@@ -8,9 +8,9 @@
  */
 
 import 'chrome://resources/ash/common/personalization/common.css.js';
-import 'chrome://resources/cr_components/localized_link/localized_link.js';
-import 'chrome://resources/cr_elements/cr_shared_style.css.js';
-import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
+import 'chrome://resources/ash/common/cr_elements/localized_link/localized_link.js';
+import 'chrome://resources/ash/common/cr_elements/cr_shared_style.css.js';
+import 'chrome://resources/ash/common/cr_elements/cr_shared_vars.css.js';
 import './album_list_element.js';
 import './art_album_dialog_element.js';
 
@@ -18,6 +18,7 @@ import {isNonEmptyArray} from 'chrome://resources/ash/common/sea_pen/sea_pen_uti
 import {assert} from 'chrome://resources/js/assert.js';
 
 import {AmbientModeAlbum, TopicSource} from '../../personalization_app.mojom-webui.js';
+import {logAmbientModeLinkToGooglePhotosClick} from '../personalization_metrics_logger.js';
 import {PersonalizationRouterElement} from '../personalization_router_element.js';
 import {WithPersonalizationStore} from '../personalization_store.js';
 import {getNumberOfGridItemsPerRow} from '../utils.js';
@@ -142,6 +143,11 @@ export class AlbumsSubpageElement extends WithPersonalizationStore {
     if (ambientModeEnabled !== null && !ambientModeEnabled) {
       PersonalizationRouterElement.reloadAtAmbient();
     }
+  }
+
+  private onGooglePhotosLinkClicked_(event: Event) {
+    event.stopPropagation();
+    logAmbientModeLinkToGooglePhotosClick();
   }
 }
 

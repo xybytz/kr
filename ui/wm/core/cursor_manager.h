@@ -69,6 +69,7 @@ class COMPONENT_EXPORT(UI_WM) CursorManager
   bool ShouldHideCursorOnKeyEvent(const ui::KeyEvent& event) const override;
   bool ShouldHideCursorOnTouchEvent(const ui::TouchEvent& event) const override;
   gfx::Size GetSystemCursorSize() const override;
+  void UpdateSystemCursorVisibilityForTest(bool visible) override;
 
  private:
   // Overridden from NativeCursorManagerDelegate:
@@ -77,6 +78,7 @@ class COMPONENT_EXPORT(UI_WM) CursorManager
   void CommitCursorSize(ui::CursorSize cursor_size) override;
   void CommitMouseEventsEnabled(bool enabled) override;
   void CommitSystemCursorSize(const gfx::Size& cursor_size) override;
+  void CommitSystemCursorVisibility(bool visible) override;
 
   void SetCursorImpl(gfx::NativeCursor cursor, bool forced);
 
@@ -95,7 +97,8 @@ class COMPONENT_EXPORT(UI_WM) CursorManager
   // The cursor state to restore when the cursor is unlocked.
   std::unique_ptr<internal::CursorState> state_on_unlock_;
 
-  base::ObserverList<aura::client::CursorClientObserver>::Unchecked observers_;
+  base::ObserverList<aura::client::CursorClientObserver>::
+      UncheckedAndDanglingUntriaged observers_;
 
   // This flag holds the cursor visibility state for the duration of the
   // process. Defaults to true. This flag helps ensure that when a

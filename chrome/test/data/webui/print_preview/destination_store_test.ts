@@ -2,23 +2,28 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Destination, DestinationErrorType, DestinationOrigin, DestinationStore, DestinationStoreEventType, GooglePromotedDestinationId, LocalDestinationInfo, makeRecentDestination, NativeInitialSettings, NativeLayerImpl, PrinterType} from 'chrome://print/print_preview.js';
-// <if expr="is_chromeos">
-import {PrinterStatusReason, PrinterStatusSeverity} from 'chrome://print/print_preview.js';
-// </if>
+import type {DestinationStore, LocalDestinationInfo, NativeInitialSettings} from 'chrome://print/print_preview.js';
+import {Destination, DestinationErrorType, DestinationOrigin, DestinationStoreEventType, GooglePromotedDestinationId, makeRecentDestination, NativeLayerImpl,
+        // <if expr="is_chromeos">
+        PrinterStatusReason, PrinterStatusSeverity,
+        // </if>
+        PrinterType} from 'chrome://print/print_preview.js';
 // <if expr="not is_chromeos">
-import {RecentDestination} from 'chrome://print/print_preview.js';
+import type {RecentDestination} from 'chrome://print/print_preview.js';
 // </if>
 
 // <if expr="is_chromeos">
 import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
 // </if>
+// <if expr="not is_chromeos">
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+// </if>
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
 
 // <if expr="is_chromeos">
-import {NativeLayerCrosStub, setNativeLayerCrosInstance} from './native_layer_cros_stub.js';
+import type {NativeLayerCrosStub} from './native_layer_cros_stub.js';
+import {setNativeLayerCrosInstance} from './native_layer_cros_stub.js';
 // </if>
 import {NativeLayerStub} from './native_layer_stub.js';
 import {createDestinationStore, getCddTemplate, getDefaultInitialSettings, getDestinations, getSaveAsPdfDestination, setupTestListenerElement} from './print_preview_test_utils.js';
@@ -460,7 +465,6 @@ suite('DestinationStoreTest', function() {
     };
     nativeLayerCros.setLocalPrinters([printer1, printer2]);
 
-    loadTimeData.overrideValues({isLocalPrinterObservingEnabled: true});
     return setInitialSettings(/*expectPrinterFailure=*/ false).then(() => {
       assertEquals(1, nativeLayerCros.getCallCount('observeLocalPrinters'));
       assertTrue(!!destinationStore.destinations().find(
@@ -483,7 +487,6 @@ suite('DestinationStoreTest', function() {
     };
     nativeLayerCros.setLocalPrinters([printer1, printer2]);
 
-    loadTimeData.overrideValues({isLocalPrinterObservingEnabled: true});
     // Set to empty string so `systemDefaultDestinationId` destination store
     // param is empty which triggers no destination search.
     initialSettings.printerName = '';
@@ -508,7 +511,6 @@ suite('DestinationStoreTest', function() {
       deviceName: 'localPrinter2',
     };
 
-    loadTimeData.overrideValues({isLocalPrinterObservingEnabled: true});
     return setInitialSettings(/*expectPrinterFailure=*/ false).then(() => {
       // Confirm the printers are not in the destination store before the event
       // fires.
@@ -543,7 +545,6 @@ suite('DestinationStoreTest', function() {
       }],
     };
 
-    loadTimeData.overrideValues({isLocalPrinterObservingEnabled: true});
     return setInitialSettings(/*expectPrinterFailure=*/ false)
         .then(() => {
           // Fire the event and expect the destination to not have a printer
@@ -582,7 +583,6 @@ suite('DestinationStoreTest', function() {
       printerStatus: {},
     };
 
-    loadTimeData.overrideValues({isLocalPrinterObservingEnabled: true});
     return setInitialSettings(/*expectPrinterFailure=*/ false)
         .then(() => {
           // Add an unreachable status then trigger the event to set the

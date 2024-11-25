@@ -1,6 +1,7 @@
 <?xml version="1.0" ?>
 <!DOCTYPE translationbundle>
 <translationbundle lang="iw">
+<translation id="102916930470544692">מפתח גישה</translation>
 <translation id="1220509181886849806">להשתמש בסיסמה השמורה?</translation>
 <translation id="1435940442311036198">שימוש במפתח גישה במכשיר אחר</translation>
 <translation id="1717486229951421299">רשימת פרטי הכניסה למילוי במגע פתוחה בחצי מגובה המסך.</translation>
@@ -12,7 +13,6 @@
 <translation id="4553044860350038560">עוד מפתחות גישה</translation>
 <translation id="4598345735110653698">ניהול מפתחות הגישה</translation>
 <translation id="4722735765955348426">הסיסמה של <ph name="USERNAME" /></translation>
-<translation id="4907224763885298217">שימוש בנעילת המסך</translation>
 <translation id="5012523644916800014">ניהול הסיסמאות ומפתחות הגישה</translation>
 <translation id="5441504010984421144">רשימת פרטי הכניסה למילוי במגע פתוחה בגובה המלא של המסך.</translation>
 <translation id="5591247451101092906">להשתמש בסיסמה או במפתח הגישה שנשמרו?</translation>

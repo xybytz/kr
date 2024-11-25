@@ -2,13 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/component_updater/pki_metadata_component_installer.h"
 
 #include "base/base64.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/strings/string_piece.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/browser_features.h"
 #include "chrome/browser/net/key_pinning.pb.h"
@@ -90,8 +94,7 @@ class PKIMetadataComponentInstallerTest : public testing::Test {
   void SetUp() override {
     scoped_feature_list_.InitWithFeatures(
         /*enabled_features=*/{features::
-                                  kCertificateTransparencyAskBeforeEnabling,
-                              features::kKeyPinningComponentUpdater},
+                                  kCertificateTransparencyAskBeforeEnabling},
         /*disabled_features=*/{});
     ct_config_.set_disable_ct_enforcement(false);
     ct_config_.mutable_log_list()->set_compatibility_version(
@@ -441,7 +444,7 @@ TEST_F(PKIMetadataComponentInstallerTest, InstallComponentUpdatesCTConfig) {
   network::SCTAuditingCache* cache = network_service->sct_auditing_cache();
   EXPECT_TRUE(cache->IsPopularSCT(*base::Base64Decode(kPopularSCT1)));
   EXPECT_TRUE(cache->IsPopularSCT(*base::Base64Decode(kPopularSCT2)));
-  EXPECT_FALSE(cache->IsPopularSCT(std::vector<const uint8_t>{1, 2, 3, 4}));
+  EXPECT_FALSE(cache->IsPopularSCT(std::vector<uint8_t>{1, 2, 3, 4}));
 
   EXPECT_TRUE(network_service->is_ct_enforcement_enabled_for_testing());
 
@@ -564,8 +567,7 @@ class PKIMetadataComponentInstallerDisabledTest
     scoped_feature_list_.InitWithFeatures(
         /*enabled_features=*/{},
         /*disabled_features=*/{
-            features::kCertificateTransparencyAskBeforeEnabling,
-            features::kKeyPinningComponentUpdater});
+            features::kCertificateTransparencyAskBeforeEnabling});
   }
 };
 

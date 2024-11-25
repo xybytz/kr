@@ -25,7 +25,7 @@
 #import "ios/chrome/browser/ui/settings/password/password_details/add_password_details_consumer.h"
 #import "ios/chrome/browser/ui/settings/password/password_details/add_password_mediator_delegate.h"
 #import "ios/chrome/browser/ui/settings/password/password_details/add_password_view_controller_delegate.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 
 using base::SysNSStringToUTF8;
 using base::SysNSStringToUTF16;
@@ -92,7 +92,7 @@ bool CheckForDuplicates(
     _prefService = prefService;
     _syncService = syncService;
     _sequencedTaskRunner = base::ThreadPool::CreateSequencedTaskRunner(
-        {base::MayBlock(), base::TaskPriority::BEST_EFFORT});
+        {base::MayBlock(), base::TaskPriority::USER_BLOCKING});
     _validationTaskTracker = std::make_unique<base::CancelableTaskTracker>();
   }
   return self;
@@ -103,7 +103,8 @@ bool CheckForDuplicates(
     return;
   _consumer = consumer;
   std::optional<std::string> account =
-      password_manager::sync_util::GetAccountForSaving(_syncService);
+      password_manager::sync_util::GetAccountForSaving(_prefService,
+                                                       _syncService);
   if (account) {
     CHECK(!account->empty());
     [_consumer setAccountSavingPasswords:base::SysUTF8ToNSString(*account)];

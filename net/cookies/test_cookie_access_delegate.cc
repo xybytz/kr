@@ -4,6 +4,7 @@
 
 #include "net/cookies/test_cookie_access_delegate.h"
 
+#include <optional>
 #include <set>
 #include <utility>
 #include <vector>
@@ -15,7 +16,6 @@
 #include "base/ranges/algorithm.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/types/optional_util.h"
 #include "net/base/schemeful_site.h"
 #include "net/cookies/cookie_constants.h"
 #include "net/cookies/cookie_util.h"
@@ -59,7 +59,7 @@ bool TestCookieAccessDelegate::ShouldTreatUrlAsTrustworthy(
   return false;
 }
 
-absl::optional<
+std::optional<
     std::pair<FirstPartySetMetadata, FirstPartySetsCacheFilter::MatchInfo>>
 TestCookieAccessDelegate::ComputeFirstPartySetMetadataMaybeAsync(
     const SchemefulSite& site,
@@ -67,11 +67,9 @@ TestCookieAccessDelegate::ComputeFirstPartySetMetadataMaybeAsync(
     base::OnceCallback<void(FirstPartySetMetadata,
                             FirstPartySetsCacheFilter::MatchInfo)> callback)
     const {
-  absl::optional<FirstPartySetEntry> top_frame_owner =
-      top_frame_site ? FindFirstPartySetEntry(*top_frame_site) : absl::nullopt;
   FirstPartySetMetadata metadata(
-      base::OptionalToPtr(FindFirstPartySetEntry(site)),
-      base::OptionalToPtr(top_frame_owner));
+      FindFirstPartySetEntry(site),
+      top_frame_site ? FindFirstPartySetEntry(*top_frame_site) : std::nullopt);
   FirstPartySetsCacheFilter::MatchInfo match_info(
       first_party_sets_cache_filter_.GetMatchInfo(site));
 
@@ -79,28 +77,28 @@ TestCookieAccessDelegate::ComputeFirstPartySetMetadataMaybeAsync(
     base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(std::move(callback), std::move(metadata), match_info));
-    return absl::nullopt;
+    return std::nullopt;
   }
-  return std::make_pair(std::move(metadata), match_info);
+  return std::pair(std::move(metadata), match_info);
 }
 
-absl::optional<FirstPartySetEntry>
+std::optional<FirstPartySetEntry>
 TestCookieAccessDelegate::FindFirstPartySetEntry(
     const SchemefulSite& site) const {
   auto entry = first_party_sets_.find(site);
 
-  return entry != first_party_sets_.end() ? absl::make_optional(entry->second)
-                                          : absl::nullopt;
+  return entry != first_party_sets_.end() ? std::make_optional(entry->second)
+                                          : std::nullopt;
 }
 
-absl::optional<base::flat_map<SchemefulSite, FirstPartySetEntry>>
+std::optional<base::flat_map<SchemefulSite, FirstPartySetEntry>>
 TestCookieAccessDelegate::FindFirstPartySetEntries(
     const base::flat_set<SchemefulSite>& sites,
     base::OnceCallback<void(base::flat_map<SchemefulSite, FirstPartySetEntry>)>
         callback) const {
   std::vector<std::pair<SchemefulSite, FirstPartySetEntry>> mapping;
   for (const SchemefulSite& site : sites) {
-    absl::optional<FirstPartySetEntry> entry = FindFirstPartySetEntry(site);
+    std::optional<FirstPartySetEntry> entry = FindFirstPartySetEntry(site);
     if (entry)
       mapping.emplace_back(site, *entry);
   }
@@ -110,13 +108,13 @@ TestCookieAccessDelegate::FindFirstPartySetEntries(
 }
 
 template <class T>
-absl::optional<T> TestCookieAccessDelegate::RunMaybeAsync(
+std::optional<T> TestCookieAccessDelegate::RunMaybeAsync(
     T result,
     base::OnceCallback<void(T)> callback) const {
   if (invoke_callbacks_asynchronously_) {
     base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), std::move(result)));
-    return absl::nullopt;
+    return std::nullopt;
   }
   return result;
 }

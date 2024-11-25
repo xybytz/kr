@@ -26,7 +26,9 @@ namespace blink {
 using HighlightRegistryMap =
     HeapLinkedHashSet<Member<HighlightRegistryMapEntry>>;
 using HighlightRegistryMapIterable = Maplike<HighlightRegistry>;
+class HighlightsFromPointOptions;
 class LocalFrame;
+class Text;
 
 class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
                                       public Supplement<LocalDOMWindow>,
@@ -42,6 +44,8 @@ class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
 
   void Trace(blink::Visitor*) const override;
 
+  static HighlightRegistry* GetHighlightRegistry(const Node* node);
+
   void SetForTesting(AtomicString, Highlight*);
   void RemoveForTesting(AtomicString, Highlight*);
   HighlightRegistry* setForBinding(ScriptState*,
@@ -53,6 +57,7 @@ class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
   wtf_size_t size() const { return highlights_.size(); }
 
   const HighlightRegistryMap& GetHighlights() const { return highlights_; }
+  const HashSet<AtomicString>& GetActiveHighlights(const Text& node) const;
   void ValidateHighlightMarkers();
   void ScheduleRepaint();
 
@@ -84,9 +89,17 @@ class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
     HeapVector<Member<HighlightRegistryMapEntry>> highlights_snapshot_;
   };
 
+  HeapVector<Member<Highlight>> highlightsFromPoint(
+      float x,
+      float y,
+      const HighlightsFromPointOptions* options);
+
  private:
   HighlightRegistryMap highlights_;
   Member<LocalFrame> frame_;
+  // Only valid after ValidateHighlightMarkers(), used to optimize painting.
+  HeapHashMap<WeakMember<const Text>, HashSet<AtomicString>>
+      active_highlights_in_node_;
   uint64_t dom_tree_version_for_validate_highlight_markers_ = 0;
   uint64_t style_version_for_validate_highlight_markers_ = 0;
   bool force_markers_validation_ = true;

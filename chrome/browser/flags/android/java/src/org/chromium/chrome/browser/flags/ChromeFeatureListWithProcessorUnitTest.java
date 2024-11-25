@@ -10,18 +10,15 @@ import static org.junit.Assert.assertTrue;
 
 import com.google.common.collect.Sets;
 
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.FeatureList;
-import org.chromium.base.cached_flags.CachedFlag;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
+import org.chromium.base.test.util.Features.DisableFeatures;
+import org.chromium.base.test.util.Features.EnableFeatures;
+import org.chromium.components.cached_flags.CachedFlag;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -29,14 +26,11 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
-/**
- * Tests the behavior of {@link ChromeFeatureList} in Robolectric unit tests when the rule
- * Features.JUnitProcessor is present.
- */
+/** Tests the behavior of {@link ChromeFeatureList}. */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class ChromeFeatureListWithProcessorUnitTest {
-    @Rule public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
+    private static final double EPSILON = 1e-7f;
 
     /** In unit tests, all flags checked must have their value specified. */
     @Test(expected = IllegalArgumentException.class)
@@ -82,6 +76,34 @@ public class ChromeFeatureListWithProcessorUnitTest {
     @DisableFeatures(ChromeFeatureList.TEST_DEFAULT_ENABLED)
     public void testSetTestFeaturesDisabled_returnsDisabled() {
         assertFalse(ChromeFeatureList.isEnabled(ChromeFeatureList.TEST_DEFAULT_ENABLED));
+    }
+
+    /**
+     * In unit tests, flags may have their param values specified by the EnableFeatures annotation.
+     */
+    @Test
+    @EnableFeatures(
+            ChromeFeatureList.TEST_DEFAULT_DISABLED
+                    + ":stringParam/stringValue/intParam/2/doubleParam/3.5/booleanParam/true")
+    public void testAnnotationEnabledWithParams_returnsParams() {
+        assertTrue(ChromeFeatureList.isEnabled(ChromeFeatureList.TEST_DEFAULT_DISABLED));
+        assertEquals(
+                "stringValue",
+                ChromeFeatureList.getFieldTrialParamByFeature(
+                        ChromeFeatureList.TEST_DEFAULT_DISABLED, "stringParam"));
+        assertEquals(
+                2,
+                ChromeFeatureList.getFieldTrialParamByFeatureAsInt(
+                        ChromeFeatureList.TEST_DEFAULT_DISABLED, "intParam", -1));
+        assertEquals(
+                3.5,
+                ChromeFeatureList.getFieldTrialParamByFeatureAsDouble(
+                        ChromeFeatureList.TEST_DEFAULT_DISABLED, "doubleParam", -1.0),
+                EPSILON);
+        assertEquals(
+                true,
+                ChromeFeatureList.getFieldTrialParamByFeatureAsBoolean(
+                        ChromeFeatureList.TEST_DEFAULT_DISABLED, "booleanParam", false));
     }
 
     @Test

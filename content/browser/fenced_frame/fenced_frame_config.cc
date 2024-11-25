@@ -10,7 +10,6 @@
 #include "base/strings/string_util.h"
 #include "base/uuid.h"
 #include "content/browser/fenced_frame/fenced_frame_reporter.h"
-#include "services/network/public/cpp/attribution_reporting_runtime_features.h"
 #include "third_party/blink/public/common/frame/fenced_frame_permissions_policies.h"
 #include "third_party/blink/public/common/interest_group/ad_auction_constants.h"
 #include "third_party/blink/public/common/permissions_policy/permissions_policy.h"
@@ -207,7 +206,8 @@ FencedFrameProperties::FencedFrameProperties(const GURL& mapped_url)
       partition_nonce_(std::in_place,
                        base::UnguessableToken::Create(),
                        VisibilityToEmbedder::kOpaque,
-                       VisibilityToContent::kOpaque) {}
+                       VisibilityToContent::kOpaque),
+      allows_information_inflow_(true) {}
 
 FencedFrameProperties::FencedFrameProperties(const FencedFrameConfig& config)
     : mapped_url_(config.mapped_url_),
@@ -226,6 +226,7 @@ FencedFrameProperties::FencedFrameProperties(const FencedFrameConfig& config)
                        VisibilityToEmbedder::kOpaque,
                        VisibilityToContent::kOpaque),
       mode_(config.mode_),
+      allows_information_inflow_(config.allows_information_inflow_),
       is_ad_component_(config.is_ad_component_),
       effective_enabled_permissions_(config.effective_enabled_permissions_),
       parent_permissions_info_(config.parent_permissions_info_) {
@@ -297,12 +298,12 @@ FencedFrameProperties::RedactFor(FencedFrameEntity entity) const {
     }
   }
 
-  if ((fenced_frame_reporter_ || is_ad_component_) &&
-      entity != FencedFrameEntity::kCrossOriginContent) {
+  if (fenced_frame_reporter_ || is_ad_component_) {
     // An ad component should use its parent's fenced frame reporter. Even
     // though it does not have a reporter in its `FencedFrameProperties`, this
     // flag is still marked as true. Content that is cross-origin to the
-    // config's mapped url will not get access to its parent's reporter.
+    // config's mapped url gets access to its parent's reporter only if both the
+    // parent and the content opt in to cross-origin event reporting.
     redacted_properties.has_fenced_frame_reporting_ = true;
   }
 
@@ -320,6 +321,11 @@ FencedFrameProperties::RedactFor(FencedFrameEntity entity) const {
         can_disable_untrusted_network_;
   }
 
+  redacted_properties.is_cross_origin_content_ =
+      entity == FencedFrameEntity::kCrossOriginContent;
+  redacted_properties.allow_cross_origin_event_reporting_ =
+      allow_cross_origin_event_reporting_;
+
   return redacted_properties;
 }
 
@@ -328,41 +334,12 @@ void FencedFrameProperties::UpdateMappedURL(GURL url) {
   mapped_url_->value_ = url;
 }
 
-void FencedFrameProperties::UpdateAutomaticBeaconData(
-    blink::mojom::AutomaticBeaconType event_type,
-    const std::string& event_data,
-    const std::vector<blink::FencedFrame::ReportingDestination>& destinations,
-    bool once,
-    bool cross_origin_exposed) {
-  // For an ad component, the event data from its automatic beacon is ignored.
-  automatic_beacon_info_[event_type] =
-      AutomaticBeaconInfo(is_ad_component_ ? std::string{} : event_data,
-                          destinations, once, cross_origin_exposed);
-}
-
-void FencedFrameProperties::MaybeResetAutomaticBeaconData(
-    blink::mojom::AutomaticBeaconType event_type) {
-  auto it = automatic_beacon_info_.find(event_type);
-  if (it != automatic_beacon_info_.end() && it->second.once == true) {
-    automatic_beacon_info_.erase(it);
-  }
-}
-
-const std::optional<AutomaticBeaconInfo>
-FencedFrameProperties::GetAutomaticBeaconInfo(
-    blink::mojom::AutomaticBeaconType event_type) const {
-  auto it = automatic_beacon_info_.find(event_type);
-  if (it == automatic_beacon_info_.end()) {
-    return std::nullopt;
-  }
-  return it->second;
-}
-
 std::vector<std::pair<GURL, FencedFrameConfig>>
 FencedFrameProperties::GenerateURNConfigVectorForConfigs(
     const std::vector<FencedFrameConfig>& nested_configs) {
   std::vector<std::pair<GURL, FencedFrameConfig>> nested_urn_config_pairs;
-  DCHECK_LE(nested_configs.size(), blink::kMaxAdAuctionAdComponents);
+  const size_t kMaxAdAuctionAdComponents = blink::MaxAdAuctionAdComponents();
+  DCHECK_LE(nested_configs.size(), kMaxAdAuctionAdComponents);
   for (const FencedFrameConfig& config : nested_configs) {
     // Give each config its own urn:uuid. This ensures that if the same config
     // is loaded into multiple fenced frames, they will not share the same
@@ -373,10 +350,10 @@ FencedFrameProperties::GenerateURNConfigVectorForConfigs(
     nested_urn_config_pairs.emplace_back(urn_uuid, config_with_urn);
   }
 
-  // Pad `component_ads_` to contain exactly kMaxAdAuctionAdComponents ads, to
+  // Pad `component_ads_` to contain exactly MaxAdAuctionAdComponents() ads, to
   // avoid leaking any data to the fenced frame the component ads array is
   // exposed to.
-  while (nested_urn_config_pairs.size() < blink::kMaxAdAuctionAdComponents) {
+  while (nested_urn_config_pairs.size() < kMaxAdAuctionAdComponents) {
     GURL urn_uuid = GenerateUrnUuid();
     nested_urn_config_pairs.emplace_back(
         urn_uuid, FencedFrameConfig(urn_uuid, GURL(url::kAboutBlankURL)));

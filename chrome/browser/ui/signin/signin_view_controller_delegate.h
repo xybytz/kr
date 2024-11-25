@@ -14,8 +14,8 @@
 #include "components/signin/public/base/signin_buildflags.h"
 
 class Browser;
-struct AccountInfo;
 struct CoreAccountId;
+enum class SyncConfirmationStyle;
 
 namespace content {
 class WebContents;
@@ -31,7 +31,7 @@ enum class ReauthAccessPoint;
 // as well as managing the navigation inside them.
 // Subclasses are responsible for deleting themselves when the window they're
 // managing closes.
-// TODO(https://crbug.com/1282157): rename to SigninModalDialogDelegate.
+// TODO(crbug.com/40209493): rename to SigninModalDialogDelegate.
 class SigninViewControllerDelegate {
  public:
   class Observer : public base::CheckedObserver {
@@ -50,7 +50,8 @@ class SigninViewControllerDelegate {
   // itself when the window it's managing is closed.
   static SigninViewControllerDelegate* CreateSyncConfirmationDelegate(
       Browser* browser,
-      bool is_signin_intercept = false);
+      SyncConfirmationStyle style,
+      bool is_sync_promo);
 
   // Returns a platform-specific SigninViewControllerDelegate instance that
   // displays the modal sign in error dialog. The returned object should delete
@@ -74,10 +75,13 @@ class SigninViewControllerDelegate {
   // display the local profile creation version of the page.
   // If |show_profile_switch_iph| is true, shows a profile switch IPH after the
   // user completes the profile customization.
+  // If |show_supervised_user_iph| is true, shows to supervised users the
+  // Supervised User Profile IPH at the end of the profile customization.
   static SigninViewControllerDelegate* CreateProfileCustomizationDelegate(
       Browser* browser,
       bool is_local_profile_creation,
-      bool show_profile_switch_iph = false);
+      bool show_profile_switch_iph = false,
+      bool show_supervised_user_iph = false);
 #endif  // BUILDFLAG(ENABLE_DICE_SUPPORT) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
@@ -87,10 +91,8 @@ class SigninViewControllerDelegate {
   // should delete itself when the window it's managing is closed.
   static SigninViewControllerDelegate* CreateManagedUserNoticeDelegate(
       Browser* browser,
-      const AccountInfo& account_info,
-      bool force_new_profile,
-      bool show_link_data_option,
-      signin::SigninChoiceCallback callback);
+      std::unique_ptr<signin::EnterpriseProfileCreationDialogParams>
+          create_param);
 #endif
 
   void AddObserver(Observer* observer);

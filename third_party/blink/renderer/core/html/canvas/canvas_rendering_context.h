@@ -77,7 +77,6 @@ class Element;
 class ExceptionState;
 class ExecutionContext;
 class ImageBitmap;
-class NoAllocDirectCallHost;
 class ScriptState;
 class StaticBitmapImage;
 class
@@ -129,7 +128,18 @@ class CORE_EXPORT CanvasRenderingContext
     return canvas_rendering_type_ == CanvasRenderingAPI::kWebgpu;
   }
 
-  virtual NoAllocDirectCallHost* AsNoAllocDirectCallHost();
+  // ---------------------------------------------------------------------- //
+  // ctx.placeElement() API. Used exclusively with CanvasRenderingContext2D.
+
+  // Elements placed with ctx.placeElement() hold CanvasDeferredPaintRecords,
+  // which are painted into with this function during
+  // HTMLCanvasElement::PaintInternal.
+  virtual void PaintPlacedElements() {}
+  // Returns true if any element has been drawn to the canvas.
+  virtual bool HasPlacedElements() const { return false; }
+  // Element needs to be redrawn
+  virtual void MarkPlacedElementDirty(Element* element) {}
+  // ---------------------------------------------------------------------- //
 
   // ActiveScriptWrappable
   // As this class inherits from ActiveScriptWrappable, as long as
@@ -139,7 +149,7 @@ class CORE_EXPORT CanvasRenderingContext
   bool HasPendingActivity() const override { return false; }
   ExecutionContext* GetExecutionContext() const {
     const CanvasRenderingContextHost* host = Host();
-    if (UNLIKELY(host == nullptr)) {
+    if (host == nullptr) [[unlikely]] {
       return nullptr;
     }
     return host->GetTopExecutionContext();
@@ -155,25 +165,24 @@ class CORE_EXPORT CanvasRenderingContext
 
   CanvasRenderingContextHost* Host() const { return host_.Get(); }
 
-  CanvasResourceProvider* ResourceProvider() {
-    CanvasRenderingContextHost* host = Host();
-    if (UNLIKELY(host == nullptr)) {
-      return nullptr;
+  const CanvasResourceProvider* ResourceProvider() const {
+    if (const CanvasRenderingContextHost* host = Host()) [[likely]] {
+      return host->ResourceProvider();
     }
-    return host->ResourceProvider();
+    return nullptr;
+  }
+  CanvasResourceProvider* ResourceProvider() {
+    if (const CanvasRenderingContextHost* host = Host()) [[likely]] {
+      return host->ResourceProvider();
+    }
+    return nullptr;
   }
 
   virtual SkColorInfo CanvasRenderingContextSkColorInfo() const;
 
   virtual scoped_refptr<StaticBitmapImage> GetImage(FlushReason) = 0;
   virtual bool IsComposited() const = 0;
-  virtual bool IsOriginTopLeft() const {
-    // Canvas contexts have the origin of coordinates on the top left corner.
-    // Accelerated resources (e.g. GPU textures) have their origin of
-    // coordinates in the bottom left corner.
-    return Host()->GetRasterMode() == RasterMode::kCPU;
-  }
-  virtual bool ShouldAntialias() const { return false; }
+
   // Called when the entire tab is backgrounded or unbackgrounded.
   // The page's visibility status can be queried at any time via
   // Host()->IsPageVisible().
@@ -187,12 +196,10 @@ class CORE_EXPORT CanvasRenderingContext
   virtual V8UnionCanvasRenderingContext2DOrGPUCanvasContextOrImageBitmapRenderingContextOrWebGL2RenderingContextOrWebGLRenderingContext*
   AsV8RenderingContext() {
     NOTREACHED();
-    return nullptr;
   }
   virtual V8UnionGPUCanvasContextOrImageBitmapRenderingContextOrOffscreenCanvasRenderingContext2DOrWebGL2RenderingContextOrWebGLRenderingContext*
   AsV8OffscreenRenderingContext() {
     NOTREACHED();
-    return nullptr;
   }
   virtual bool IsPaintable() const = 0;
   void DidDraw(CanvasPerformanceMonitor::DrawType draw_type) {
@@ -205,11 +212,6 @@ class CORE_EXPORT CanvasRenderingContext
 
   // Return true if the content is updated.
   virtual bool PaintRenderingResultsToCanvas(SourceDrawingBuffer) {
-    return false;
-  }
-
-  virtual bool CopyRenderingResultsFromDrawingBuffer(CanvasResourceProvider*,
-                                                     SourceDrawingBuffer) {
     return false;
   }
 
@@ -258,12 +260,13 @@ class CORE_EXPORT CanvasRenderingContext
   virtual void RestoreCanvasMatrixClipStack(cc::PaintCanvas*) const {}
   virtual void Reset() {}
   virtual void ClearRect(double x, double y, double width, double height) {}
-  virtual void DidSetSurfaceSize() {}
+  virtual void RestoreProviderAndContextIfPossible() {}
   virtual void SetShouldAntialias(bool) {}
   virtual void StyleDidChange(const ComputedStyle* old_style,
                               const ComputedStyle& new_style) {}
   virtual String GetIdFromControl(const Element* element) { return String(); }
   virtual void ResetUsageTracking() {}
+  virtual int LayerCount() const { return 0; }
 
   virtual void setFontForTesting(const String&) { NOTREACHED(); }
 
@@ -272,21 +275,14 @@ class CORE_EXPORT CanvasRenderingContext
   virtual void MarkLayerComposited() { NOTREACHED(); }
   virtual sk_sp<SkData> PaintRenderingResultsToDataArray(SourceDrawingBuffer) {
     NOTREACHED();
-    return nullptr;
   }
-  virtual gfx::Size DrawingBufferSize() const {
-    NOTREACHED();
-    return gfx::Size(0, 0);
-  }
+  virtual gfx::Size DrawingBufferSize() const { NOTREACHED(); }
 
   // WebGL & WebGPU-specific interface
   virtual void SetHdrMetadata(const gfx::HDRMetadata& hdr_metadata) {}
   virtual void SetFilterQuality(cc::PaintFlags::FilterQuality) { NOTREACHED(); }
   virtual void Reshape(int width, int height) {}
-  virtual int ExternallyAllocatedBufferCountPerPixel() {
-    NOTREACHED();
-    return 0;
-  }
+  virtual int ExternallyAllocatedBufferCountPerPixel() { NOTREACHED(); }
 
   // OffscreenCanvas-specific methods.
   virtual bool PushFrame() { return false; }

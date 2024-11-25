@@ -73,29 +73,24 @@ class PairSyncIterationSource : public SyncIteratorBase::IterationSourceBase {
     switch (kind) {
       case SyncIteratorBase::Kind::kKey: {
         v8::Local<v8::Value> v8_key =
-            ToV8Traits<IDLKeyType>::ToV8(script_state, key.content)
-                .ToLocalChecked();
+            ToV8Traits<IDLKeyType>::ToV8(script_state, key.content);
         return ESCreateIterResultObject(script_state, false, v8_key);
       }
       case SyncIteratorBase::Kind::kValue: {
         v8::Local<v8::Value> v8_value =
-            ToV8Traits<IDLValueType>::ToV8(script_state, value.content)
-                .ToLocalChecked();
+            ToV8Traits<IDLValueType>::ToV8(script_state, value.content);
         return ESCreateIterResultObject(script_state, false, v8_value);
       }
       case SyncIteratorBase::Kind::kKeyValue: {
         v8::Local<v8::Value> v8_key =
-            ToV8Traits<IDLKeyType>::ToV8(script_state, key.content)
-                .ToLocalChecked();
+            ToV8Traits<IDLKeyType>::ToV8(script_state, key.content);
         v8::Local<v8::Value> v8_value =
-            ToV8Traits<IDLValueType>::ToV8(script_state, value.content)
-                .ToLocalChecked();
+            ToV8Traits<IDLValueType>::ToV8(script_state, value.content);
         return ESCreateIterResultObject(script_state, false, v8_key, v8_value);
       }
     }
 
     NOTREACHED();
-    return {};
   }
 
   void ForEach(ScriptState* script_state,
@@ -103,7 +98,7 @@ class PairSyncIterationSource : public SyncIteratorBase::IterationSourceBase {
                V8ForEachIteratorCallback* callback,
                const ScriptValue& this_arg,
                ExceptionState& exception_state) {
-    v8::TryCatch try_catch(script_state->GetIsolate());
+    TryRethrowScope rethrow_scope(script_state->GetIsolate(), exception_state);
 
     v8::Local<v8::Value> v8_callback_this_value = this_arg.V8Value();
     IDLTypeDefaultConstructible<KeyType> key;
@@ -116,10 +111,8 @@ class PairSyncIterationSource : public SyncIteratorBase::IterationSourceBase {
                          exception_state))
         return;
 
-      v8_key = ToV8Traits<IDLKeyType>::ToV8(script_state, key.content)
-                   .ToLocalChecked();
-      v8_value = ToV8Traits<IDLValueType>::ToV8(script_state, value.content)
-                     .ToLocalChecked();
+      v8_key = ToV8Traits<IDLKeyType>::ToV8(script_state, key.content);
+      v8_value = ToV8Traits<IDLValueType>::ToV8(script_state, value.content);
 
       if (callback
               ->Invoke(v8_callback_this_value,
@@ -127,7 +120,6 @@ class PairSyncIterationSource : public SyncIteratorBase::IterationSourceBase {
                        ScriptValue(script_state->GetIsolate(), v8_key),
                        this_value)
               .IsNothing()) {
-        exception_state.RethrowV8Exception(try_catch.Exception());
         return;
       }
     }
@@ -155,8 +147,7 @@ class ValueSyncIterationSource : public SyncIteratorBase::IterationSourceBase {
     }
 
     v8::Local<v8::Value> v8_value =
-        ToV8Traits<IDLValueType>::ToV8(script_state, value.content)
-            .ToLocalChecked();
+        ToV8Traits<IDLValueType>::ToV8(script_state, value.content);
 
     switch (kind) {
       case SyncIteratorBase::Kind::kKey:
@@ -168,7 +159,6 @@ class ValueSyncIterationSource : public SyncIteratorBase::IterationSourceBase {
     }
 
     NOTREACHED();
-    return {};
   }
 
   void ForEach(ScriptState* script_state,
@@ -176,7 +166,7 @@ class ValueSyncIterationSource : public SyncIteratorBase::IterationSourceBase {
                V8ForEachIteratorCallback* callback,
                const ScriptValue& this_arg,
                ExceptionState& exception_state) {
-    v8::TryCatch try_catch(script_state->GetIsolate());
+    TryRethrowScope rethrow_scope(script_state->GetIsolate(), exception_state);
 
     v8::Local<v8::Value> v8_callback_this_value = this_arg.V8Value();
     IDLTypeDefaultConstructible<ValueType> value;
@@ -186,15 +176,13 @@ class ValueSyncIterationSource : public SyncIteratorBase::IterationSourceBase {
       if (!FetchNextItem(script_state, value.content, exception_state))
         return;
 
-      v8_value = ToV8Traits<IDLValueType>::ToV8(script_state, value.content)
-                     .ToLocalChecked();
+      v8_value = ToV8Traits<IDLValueType>::ToV8(script_state, value.content);
       ScriptValue script_value(script_state->GetIsolate(), v8_value);
 
       if (callback
               ->Invoke(v8_callback_this_value, script_value, script_value,
                        this_value)
               .IsNothing()) {
-        exception_state.RethrowV8Exception(try_catch.Exception());
         return;
       }
     }

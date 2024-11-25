@@ -37,14 +37,15 @@ import java.util.Collection;
  * dialog/CCT or an alert dialog on top of it. FLAG_DIM_BEHIND is not being used because it causes
  * the web contents of a payment handler CCT to also dim on some versions of Android (e.g., Nougat).
  *
- * Note: Do not use this class outside of the payments.ui package!
- * TODO(crbug.com/806868): Revert the visibility to package default again when it is no longer used
- * by Autofill Assistant.
+ * <p>Note: Do not use this class outside of the payments.ui package!
+ * TODO(crbug.com/40560343): Revert the visibility to package default again when it is no longer
+ * used by Autofill Assistant.
+ * Revert the visibility to package default again when it is no longer used by Autofill Assistant.
  */
 /* package */ class DimmingDialog {
     /**
      * Length of the animation to either show the UI or expand it to full height. Note that click of
-     * 'Pay' button in PaymentRequestUI is not accepted until the animation is done, so this
+     * 'Pay' button in PaymentRequestUi is not accepted until the animation is done, so this
      * duration also serves the function of preventing the user from accidentally double-clicking on
      * the screen when triggering payment and thus authorizing unwanted transaction.
      */

@@ -5,26 +5,20 @@
 #include "chrome/browser/dips/dips_utils.h"
 
 #include <algorithm>
+#include <string_view>
 
-#include "base/strings/string_piece.h"
+#include "base/feature_list.h"
 #include "base/time/time.h"
-#include "chrome/browser/profiles/profile_selections.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/cookie_access_details.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "services/network/public/cpp/features.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 base::FilePath GetDIPSFilePath(content::BrowserContext* context) {
   return context->GetPath().Append(kDIPSFilename);
-}
-
-ProfileSelections GetHumanProfileSelections() {
-  return ProfileSelections::Builder()
-      .WithRegular(ProfileSelection::kOwnInstance)
-      .WithGuest(ProfileSelection::kOffTheRecordOnly)
-      .WithSystem(ProfileSelection::kNone)
-      .WithAshInternals(ProfileSelection::kNone)
-      .Build();
 }
 
 bool UpdateTimestampRange(TimestampRange& range, base::Time time) {
@@ -66,22 +60,6 @@ std::ostream& operator<<(std::ostream& os, TimestampRange range) {
 }
 
 // SiteDataAccessType:
-
-base::StringPiece SiteDataAccessTypeToString(SiteDataAccessType type) {
-  switch (type) {
-    case SiteDataAccessType::kUnknown:
-      return "Unknown";
-    case SiteDataAccessType::kNone:
-      return "None";
-    case SiteDataAccessType::kRead:
-      return "Read";
-    case SiteDataAccessType::kWrite:
-      return "Write";
-    case SiteDataAccessType::kReadWrite:
-      return "ReadWrite";
-  }
-}
-
 std::ostream& operator<<(std::ostream& os, SiteDataAccessType access_type) {
   return os << SiteDataAccessTypeToString(access_type);
 }
@@ -92,7 +70,7 @@ DIPSCookieMode GetDIPSCookieMode(bool is_otr) {
                 : DIPSCookieMode::kBlock3PC;
 }
 
-base::StringPiece GetHistogramSuffix(DIPSCookieMode mode) {
+std::string_view GetHistogramSuffix(DIPSCookieMode mode) {
   // Any changes here need to be reflected in DIPSCookieMode in
   // tools/metrics/histograms/metadata/others/histograms.xml
   switch (mode) {
@@ -102,16 +80,7 @@ base::StringPiece GetHistogramSuffix(DIPSCookieMode mode) {
       return ".OffTheRecord_Block3PC";
   }
   DCHECK(false) << "Invalid DIPSCookieMode";
-  return base::StringPiece();
-}
-
-const char* DIPSCookieModeToString(DIPSCookieMode mode) {
-  switch (mode) {
-    case DIPSCookieMode::kBlock3PC:
-      return "Block3PC";
-    case DIPSCookieMode::kOffTheRecord_Block3PC:
-      return "OffTheRecord_Block3PC";
-  }
+  return std::string_view();
 }
 
 std::ostream& operator<<(std::ostream& os, DIPSCookieMode mode) {
@@ -119,7 +88,7 @@ std::ostream& operator<<(std::ostream& os, DIPSCookieMode mode) {
 }
 
 // DIPSRedirectType:
-base::StringPiece GetHistogramPiece(DIPSRedirectType type) {
+std::string_view GetHistogramPiece(DIPSRedirectType type) {
   // Any changes here need to be reflected in
   // tools/metrics/histograms/metadata/privacy/histograms.xml
   switch (type) {
@@ -129,16 +98,7 @@ base::StringPiece GetHistogramPiece(DIPSRedirectType type) {
       return "Server";
   }
   DCHECK(false) << "Invalid DIPSRedirectType";
-  return base::StringPiece();
-}
-
-const char* DIPSRedirectTypeToString(DIPSRedirectType type) {
-  switch (type) {
-    case DIPSRedirectType::kClient:
-      return "Client";
-    case DIPSRedirectType::kServer:
-      return "Server";
-  }
+  return std::string_view();
 }
 
 std::ostream& operator<<(std::ostream& os, DIPSRedirectType type) {
@@ -153,6 +113,12 @@ std::string GetSiteForDIPS(const GURL& url) {
   const auto domain = net::registry_controlled_domains::GetDomainAndRegistry(
       url, net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
   return domain.empty() ? url.host() : domain;
+}
+
+std::string GetSiteForDIPS(const url::Origin& origin) {
+  const auto domain = net::registry_controlled_domains::GetDomainAndRegistry(
+      origin, net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
+  return domain.empty() ? origin.host() : domain;
 }
 
 bool HasSameSiteIframe(content::WebContents* web_contents, const GURL& url) {
@@ -181,4 +147,36 @@ bool HasSameSiteIframe(content::WebContents* web_contents, const GURL& url) {
       });
 
   return found;
+}
+
+const base::TimeDelta kDIPSTimestampUpdateInterval = base::Minutes(1);
+
+bool UpdateTimestamp(std::optional<base::Time>& last_time, base::Time now) {
+  if (!last_time.has_value() ||
+      (now - last_time.value()) >= kDIPSTimestampUpdateInterval) {
+    last_time = now;
+    return true;
+  }
+
+  return false;
+}
+
+OptionalBool IsAdTaggedCookieForHeuristics(
+    const content::CookieAccessDetails& details) {
+  if (!base::FeatureList::IsEnabled(
+          network::features::kSkipTpcdMitigationsForAds) ||
+      !network::features::kSkipTpcdMitigationsForAdsHeuristics.Get()) {
+    return OptionalBool::kUnknown;
+  }
+  return ToOptionalBool(details.cookie_setting_overrides.Has(
+      net::CookieSettingOverride::kSkipTPCDHeuristicsGrant));
+}
+
+bool HasCHIPS(const net::CookieAccessResultList& cookie_access_result_list) {
+  for (const auto& cookie_with_access_result : cookie_access_result_list) {
+    if (cookie_with_access_result.cookie.IsPartitioned()) {
+      return true;
+    }
+  }
+  return false;
 }

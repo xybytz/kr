@@ -23,9 +23,7 @@ import android.graphics.drawable.Drawable;
 
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -37,13 +35,11 @@ import org.robolectric.annotation.Config;
 import org.chromium.base.FeatureList;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.ui.favicon.FaviconHelper;
 import org.chromium.chrome.browser.ui.favicon.FaviconHelper.FaviconImageCallback;
 import org.chromium.chrome.tab_ui.R;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.embedder_support.delegate.WebContentsDelegateAndroid;
 import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.embedder_support.util.UrlUtilitiesJni;
@@ -66,9 +62,6 @@ import org.chromium.url.GURL;
 @Config(manifest = Config.NONE)
 @SuppressWarnings("DoNotMock") // Mocking GURL
 public class MerchantTrustBottomSheetMediatorTest {
-    @Rule public TestRule mProcessor = new Features.JUnitProcessor();
-
-    @Rule public JniMocker mocker = new JniMocker();
 
     @Mock private WebContents mMockWebContents;
 
@@ -149,8 +142,8 @@ public class MerchantTrustBottomSheetMediatorTest {
                         anyInt(),
                         any(FaviconImageCallback.class));
 
-        mocker.mock(UrlUtilitiesJni.TEST_HOOKS, mUrlUtilitiesJniMock);
-        mocker.mock(SecurityStateModelJni.TEST_HOOKS, mSecurityStateMocks);
+        UrlUtilitiesJni.setInstanceForTesting(mUrlUtilitiesJniMock);
+        SecurityStateModelJni.setInstanceForTesting(mSecurityStateMocks);
 
         mMediator =
                 new MerchantTrustBottomSheetMediator(
@@ -204,7 +197,7 @@ public class MerchantTrustBottomSheetMediatorTest {
         mWebContentsDelegateCaptor.getValue().visibleSSLStateChanged();
         assertEquals(mMockDestinationGurl, mToolbarModel.get(BottomSheetToolbarProperties.URL));
         assertEquals(
-                R.drawable.omnibox_https_valid,
+                R.drawable.omnibox_https_valid_lock,
                 mToolbarModel.get(BottomSheetToolbarProperties.SECURITY_ICON));
     }
 

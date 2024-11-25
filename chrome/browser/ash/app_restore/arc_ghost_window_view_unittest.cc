@@ -13,7 +13,6 @@
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/ash/arc/window_predictor/window_predictor_utils.h"
-#include "chrome/browser/ash/login/users/chrome_user_manager.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/signin/identity_test_environment_profile_adaptor.h"
 #include "chrome/test/base/testing_browser_process.h"
@@ -74,8 +73,6 @@ class ArcGhostWindowViewTest : public testing::Test {
         /*avatar_id=*/0,
         IdentityTestEnvironmentProfileAdaptor::
             GetIdentityTestEnvironmentFactories());
-
-    feature_list_.InitAndEnableFeature(arc::kGhostWindowNewStyle);
   }
 
   void InstallApp(const std::string& app_id) {

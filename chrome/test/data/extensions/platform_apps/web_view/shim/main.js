@@ -124,6 +124,24 @@ function executeScriptP(webview, details) {
   });
 }
 
+// Promisify webview.getZoom.
+function getZoomP(webview) {
+  return new Promise((resolve) => {
+    webview.getZoom((zoomFactor) => {
+      resolve(zoomFactor);
+    });
+  });
+}
+
+// Promisify webview.setZoom.
+function setZoomP(webview, zoomFactor) {
+  return new Promise((resolve) => {
+    webview.setZoom(zoomFactor, () => {
+      resolve();
+    });
+  });
+}
+
 // Executes `fn` in the context of the `webview` with the given `args`. `fn`
 // must be written in a way that it can be serialized as a string. So anything
 // it references from this context must be passed explicitly via `args`.
@@ -1413,18 +1431,17 @@ function testExecuteScriptFail() {
 }
 
 function testExecuteScript() {
+  var url = 'data:text/html,trigger navigation';
   var webview = document.createElement('webview');
   webview.setAttribute('partition', arguments.callee.name);
   webview.addEventListener('loadstop', function() {
-    webview.executeScript(
-      {code:'document.body.style.backgroundColor = "red";'},
-      function(results) {
-        embedder.test.assertEq(1, results.length);
-        embedder.test.assertEq('red', results[0]);
-        embedder.test.succeed();
-      });
+    webview.executeScript({code: 'window.location.href;'}, function(results) {
+      embedder.test.assertEq(1, results.length);
+      embedder.test.assertEq(url, results[0]);
+      embedder.test.succeed();
+    });
   });
-  webview.setAttribute('src', 'data:text/html,trigger navigation');
+  webview.setAttribute('src', url);
   document.body.appendChild(webview);
 }
 
@@ -2661,78 +2678,64 @@ function testScreenshotCapture() {
   document.body.appendChild(webview);
 }
 
+function getWebviewInnerWidth(webview) {
+  // Double rAF to help avoid flakiness if an update that affects layout hasn't
+  // happened yet.
+  let getInnerWidthAfterLifecycleUpdate = () => {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          resolve(window.innerWidth);
+        });
+      });
+    });
+  };
+  return evalInWebView(webview, getInnerWidthAfterLifecycleUpdate, []);
+}
+
 function testZoomAPI() {
   var webview = new WebView();
   webview.src = 'about:blank';
-  webview.addEventListener('loadstop', function(e) {
+  webview.addEventListener('loadstop', async function(e) {
     // getZoom() should work initially.
-    webview.getZoom(function(zoomFactor) {
-      embedder.test.assertEq(zoomFactor, 1);
-    });
+    embedder.test.assertEq(await getZoomP(webview), 1);
 
     // Two consecutive calls to getZoom() should return the same result.
-    var zoomFactor1;
-    webview.getZoom(function(zoomFactor) {
-      zoomFactor1 = zoomFactor;
-    });
-    webview.getZoom(function(zoomFactor) {
-      embedder.test.assertEq(zoomFactor1, zoomFactor);
-    });
+    let results = await Promise.all([getZoomP(webview), getZoomP(webview)]);
+    embedder.test.assertEq(results[0], results[1]);
 
     // Test setZoom()'s callback.
-    var callbackTest = false;
-    webview.setZoom(0.95, function() {
-      callbackTest = true;
-    });
+    await setZoomP(webview, 0.95);
 
     // getZoom() should return the same zoom factor as is set in setZoom().
     webview.setZoom(1.53);
-    webview.getZoom(function(zoomFactor) {
-      embedder.test.assertEq(zoomFactor, 1.53);
-    });
+    embedder.test.assertEq(await getZoomP(webview), 1.53);
     webview.setZoom(0.835847);
-    webview.getZoom(function(zoomFactor) {
-      embedder.test.assertEq(zoomFactor, 0.835847);
-    });
+    embedder.test.assertEq(await getZoomP(webview), 0.835847);
     webview.setZoom(0.3795);
-    webview.getZoom(function(zoomFactor) {
-      embedder.test.assertEq(zoomFactor, 0.3795);
-    });
+    embedder.test.assertEq(await getZoomP(webview), 0.3795);
 
     // setZoom() should really zoom the page (thus changing window.innerWidth).
-    webview.setZoom(0.45, function() {
-      webview.executeScript({code: 'window.innerWidth'},
-        function(result) {
-          var width1 = result[0];
-          webview.setZoom(1.836);
-          webview.executeScript({code: 'window.innerWidth'},
-            function(result) {
-              var width2 = result[0];
-              embedder.test.assertTrue(width2 < width1);
-              webview.setZoom(0.73);
-              webview.executeScript({code: 'window.innerWidth'},
-                function(result) {
-                  var width3 = result[0];
-                  embedder.test.assertTrue(width3 < width1);
-                  embedder.test.assertTrue(width2 < width3);
+    await setZoomP(webview, 0.45);
+    let width1 = await getWebviewInnerWidth(webview);
 
-                  // Test the onzoomchange event.
-                  webview.addEventListener('zoomchange', function(e) {
-                    embedder.test.assertEq(event.oldZoomFactor, 0.73);
-                    embedder.test.assertEq(event.newZoomFactor, 0.25325);
+    await setZoomP(webview, 1.836);
+    let width2 = await getWebviewInnerWidth(webview);
+    embedder.test.assertTrue(width2 < width1);
 
-                    embedder.test.assertTrue(callbackTest);
+    await setZoomP(webview, 0.73);
+    let width3 = await getWebviewInnerWidth(webview);
+    embedder.test.assertTrue(width3 < width1);
+    embedder.test.assertTrue(width2 < width3);
 
-                    embedder.test.succeed();
-                  });
-                  webview.setZoom(0.25325);
-                }
-              );
-            }
-          );
-        }
-      );
+    // Test the onzoomchange event.
+    webview.addEventListener('zoomchange', (event) => {
+      embedder.test.assertEq(event.oldZoomFactor, 0.73);
+      embedder.test.assertEq(event.newZoomFactor, 0.25325);
+
+      embedder.test.succeed();
     });
+    webview.setZoom(0.25325);
   });
   document.body.appendChild(webview);
 };
@@ -3040,19 +3043,25 @@ function testPerOriginZoomMode() {
     document.body.appendChild(webview2);
   });
   webview2.addEventListener('loadstop', function(e) {
-    webview1.getZoomMode(function(zoomMode) {
+    webview1.getZoomMode(async function(zoomMode) {
       // Check that |webview1| is in 'per-origin' mode and zoom it. Check that
       // both webviews zoomed.
       embedder.test.assertEq(zoomMode, 'per-origin');
-      webview1.setZoom(3.14, function() {
-        webview1.getZoom(function(zoom) {
-          embedder.test.assertEq(zoom, 3.14);
-          webview2.getZoom(function(zoom) {
-            embedder.test.assertEq(zoom, 3.14);
-            embedder.test.succeed();
-          });
-        });
-      });
+
+      let width1Before = await getWebviewInnerWidth(webview1);
+      let width2Before = await getWebviewInnerWidth(webview2);
+
+      await setZoomP(webview1, 3.14);
+      embedder.test.assertEq(await getZoomP(webview1), 3.14);
+      embedder.test.assertEq(await getZoomP(webview2), 3.14);
+
+      let width1After = await getWebviewInnerWidth(webview1);
+      let width2After = await getWebviewInnerWidth(webview2);
+
+      embedder.test.assertTrue(width1After < width1Before);
+      embedder.test.assertTrue(width2After < width2Before);
+
+      embedder.test.succeed();
     });
   });
 
@@ -3068,46 +3077,33 @@ function testPerViewZoomMode() {
   webview1.addEventListener('loadstop', function(e) {
     document.body.appendChild(webview2);
   });
-  webview2.addEventListener('loadstop', function(e) {
+  webview2.addEventListener('loadstop', async function(e) {
     // Set |webview2| to 'per-view' mode and zoom it. Make sure that the
     // zoom did not affect |webview1|.
     // We need to verify that the page actually is zooming by comparing
     // |window.innerWidth| before and after the zoom to prevent regressions like
     // https://crbug.com/860511.
-    webview1.executeScript({code: 'window.innerWidth'}, function(result) {
-      var webview1_original_width = result[0];
-      webview2.executeScript({code: 'window.innerWidth'}, function(result) {
-        var webview2_original_width = result[0];
-        webview2.setZoomMode('per-view', function() {
-          webview2.getZoomMode(function(zoomMode) {
-            embedder.test.assertEq(zoomMode, 'per-view');
-            webview2.setZoom(0.45, function() {
-              webview1.getZoom(function(zoom) {
-                embedder.test.assertFalse(zoom == 0.45);
-                webview1.executeScript(
-                    {code: 'window.innerWidth'}, function(result) {
-                      var webview1_new_width = result[0];
-                      // Verify that inner width has not been changed for
-                      // for this WebView.
-                      embedder.test.assertEq(
-                          webview1_new_width, webview1_original_width);
-                      webview2.getZoom(function(zoom) {
-                        embedder.test.assertEq(zoom, 0.45);
-                        webview2.executeScript(
-                            {code: 'window.innerWidth'}, function(result) {
-                              var webview2_new_width = result[0];
-                              // Verify that inner width has been updated for
-                              // the second WebView.
-                              embedder.test.assertTrue(
-                                  webview2_original_width < webview2_new_width);
-                              embedder.test.succeed();
-                            });
-                      });
-                    });
-              });
-            });
-          });
-        });
+    let webview1_original_width = await getWebviewInnerWidth(webview1);
+    let webview2_original_width = await getWebviewInnerWidth(webview2);
+
+    webview2.setZoomMode('per-view', function() {
+      webview2.getZoomMode(async function(zoomMode) {
+        embedder.test.assertEq(zoomMode, 'per-view');
+
+        await setZoomP(webview2, 0.45);
+        embedder.test.assertFalse((await getZoomP(webview1)) == 0.45);
+        embedder.test.assertEq(await getZoomP(webview2), 0.45);
+
+        let webview1_new_width = await getWebviewInnerWidth(webview1);
+        // Verify that inner width has not been changed for
+        // for this WebView.
+        embedder.test.assertEq(webview1_new_width, webview1_original_width);
+
+        let webview2_new_width = await getWebviewInnerWidth(webview2);
+        // Verify that inner width has been updated for
+        // the second WebView.
+        embedder.test.assertTrue(webview2_original_width < webview2_new_width);
+        embedder.test.succeed();
       });
     });
   });
@@ -3152,10 +3148,18 @@ function testDisabledZoomMode() {
 function testZoomBeforeNavigation() {
   var webview = new WebView();
 
-  webview.addEventListener('loadstop', function(e) {
+  webview.addEventListener('loadstop', async function(e) {
     // Check that the zoom state persisted.
-    webview.getZoom(function(zoomFactor) {
-      embedder.test.assertEq(zoomFactor, 3.14);
+    embedder.test.assertEq(await getZoomP(webview), 3.14);
+
+    // Disable zoom so that the webview reverts to the default zoom level. We
+    // then verify that there was a difference in layout when the zoom was
+    // applied.
+    let width1 = await getWebviewInnerWidth(webview);
+    webview.setZoomMode('disabled', async function() {
+      let width2 = await getWebviewInnerWidth(webview);
+      embedder.test.assertTrue(width2 > width1);
+
       embedder.test.succeed();
     });
   });
@@ -3521,7 +3525,7 @@ function testWebRequestBlockedNavigation() {
     webview.addEventListener('loadstop', () => {
       // Note: simply checking `src` doesn't work here, since it's set to the
       // URL of the last attempted navigation (which was blocked).
-      // TODO(https://crbug.com/1126515): Clarify/figure out how the src
+      // TODO(crbug.com/40718552): Clarify/figure out how the src
       // attribute should behave.
       webview.contentWindow.postMessage('moo', '*');
     });
@@ -3807,6 +3811,141 @@ function testCannotRequestFonts() {
   document.body.appendChild(webview);
 }
 
+// Before this test runs, the browser-side test code has a tab paired to a
+// Serial port for the same origin used in the webview. We confirm that the
+// webview cannot access or request the port.
+function testSerialDisabled() {
+  const webview = document.createElement('webview');
+  webview.src = embedder.emptyGuestURL;
+  webview.addEventListener('loadstop', async () => {
+    const getSerialPorts = async () => {
+      const ports = await navigator.serial.getPorts();
+      return ports;
+    };
+
+    const requestSerialPort = async () => {
+      const port = await navigator.serial.requestPort();
+      return port.getInfo;
+    };
+
+    try {
+      // Confirm that no port is available for WebView.
+      const result = await evalInWebView(webview, getSerialPorts, []);
+      embedder.test.assertEq(0, result.length);
+    } catch (_) {
+      embedder.test.fail();
+    }
+
+    try {
+      // Attempting to request a port should fail, expecting an exception.
+      await evalInWebView(webview, requestSerialPort, []);
+      // It's unexpected behavior for execution to end up here, so trigger a
+      // test failure.
+      embedder.test.fail();
+    } catch (_) {
+      // We expect an exception while requesting a port, so do nothing.
+    }
+
+    try {
+      // Confirm that there is still no port available.
+      const result = await evalInWebView(webview, getSerialPorts, []);
+      embedder.test.assertEq(0, result.length);
+    } catch (_) {
+      embedder.test.fail();
+    }
+
+    embedder.test.succeed();
+  });
+
+  document.body.appendChild(webview);
+}
+
+// Before this test runs, the browser-side test code has a tab paired to a
+// Bluetooth device for the same origin used in the webview. We confirm that the
+// webview cannot request the device.
+function testBluetoothDisabled() {
+  const webview = document.createElement('webview');
+  webview.src = embedder.emptyGuestURL;
+  webview.addEventListener('loadstop', async () => {
+    const getBluetoothDeviceName = async () => {
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{services: ['heart_rate']}]
+      });
+      return device.name;
+    };
+
+    try {
+      const name = await evalInWebView(webview, getBluetoothDeviceName, []);
+      // Expecting the bluetooth request to throw, therefore test would fail if
+      // it reaches here.
+      embedder.test.fail();
+    } catch (e) {
+    }
+
+    embedder.test.succeed();
+  });
+
+  document.body.appendChild(webview);
+}
+
+// Before this test runs, the browser-side test code successfully requests File
+// System Access in a tab. We confirm that the webview can also receive File
+// System Access permission.
+//
+// Note that this test covers for existing behavior which may not be the desired
+// behavior.
+// TODO(crbug.com/352520731): Embedder should allow filesystem permission for
+// the content embedded inside <webview> to use FSA.
+function testFileSystemAccessAvailable() {
+  const webview = document.createElement('webview');
+  webview.src = embedder.emptyGuestURL;
+  webview.addEventListener('loadstop', async () => {
+    const getFileSystemAccess = async () => {
+      const [handle] = await showOpenFilePicker({
+        types: [
+          {
+            description: 'All files',
+            accept: {
+              '*/*': ['.txt', '.pdf', '.jpg', '.png'],
+            },
+          },
+        ],
+      });
+      await handle.getFile();
+    };
+
+    try {
+      await evalInWebView(webview, getFileSystemAccess, []);
+    } catch (e) {
+      embedder.test.fail();
+    }
+    embedder.test.succeed();
+  });
+
+  document.body.appendChild(webview);
+}
+
+function testCannotLockKeyboard() {
+  const webview = document.createElement('webview');
+  webview.src = embedder.emptyGuestURL;
+
+  webview.addEventListener('loadstop', async () => {
+    const lockKeyboard = () => {
+      return navigator.keyboard.lock();
+    };
+
+    try {
+      await evalInWebView(webview, lockKeyboard, []);
+      // The attempt to lock the keyboard should fail.
+      embedder.test.fail();
+    } catch {
+      embedder.test.succeed();
+    }
+  });
+
+  document.body.appendChild(webview);
+}
+
 embedder.test.testList = {
   'testAllowTransparencyAttribute': testAllowTransparencyAttribute,
   'testAutosizeHeight': testAutosizeHeight,
@@ -3953,6 +4092,10 @@ embedder.test.testList = {
   'testCannotRequestUsb': testCannotRequestUsb,
   'testCannotReuseUsbPairedInTab': testCannotReuseUsbPairedInTab,
   'testCannotRequestFonts': testCannotRequestFonts,
+  'testSerialDisabled': testSerialDisabled,
+  'testBluetoothDisabled': testBluetoothDisabled,
+  'testFileSystemAccessAvailable': testFileSystemAccessAvailable,
+  'testCannotLockKeyboard': testCannotLockKeyboard,
 };
 
 onload = function() {

@@ -20,10 +20,12 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Features.DisableFeatures;
 import org.chromium.base.test.util.Matchers;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -32,7 +34,6 @@ import org.chromium.chrome.browser.notifications.NotificationTestRule;
 import org.chromium.chrome.browser.permissions.PermissionTestRule;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.chrome.test.util.browser.TabTitleObserver;
 import org.chromium.components.browser_ui.notifications.MockNotificationManagerProxy.NotificationEntry;
 import org.chromium.components.content_settings.ContentSettingValues;
@@ -41,7 +42,6 @@ import org.chromium.components.gcm_driver.GCMMessage;
 import org.chromium.components.gcm_driver.instance_id.FakeInstanceIDWithSubtype;
 import org.chromium.components.permissions.PermissionDialogController;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServerRule;
 
 import java.util.concurrent.TimeoutException;
@@ -72,7 +72,7 @@ public class PushMessagingTest implements PushMessagingServiceObserver.Listener 
     @Before
     public void setUp() {
         final PushMessagingServiceObserver.Listener listener = this;
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     FakeInstanceIDWithSubtype.clearDataAndSetEnabled(true);
                     PushMessagingServiceObserver.setListenerForTesting(listener);
@@ -83,7 +83,7 @@ public class PushMessagingTest implements PushMessagingServiceObserver.Listener 
 
     @After
     public void tearDown() {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     PushMessagingServiceObserver.setListenerForTesting(null);
                     FakeInstanceIDWithSubtype.clearDataAndSetEnabled(false);
@@ -138,7 +138,7 @@ public class PushMessagingTest implements PushMessagingServiceObserver.Listener 
 
         // Dismissing the prompt should cause subscribe() to fail.
         PermissionTestRule.waitForDialog(mNotificationTestRule.getActivity());
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mNotificationTestRule.getActivity().onBackPressed();
                 });
@@ -313,7 +313,7 @@ public class PushMessagingTest implements PushMessagingServiceObserver.Listener 
             throws TimeoutException {
         final String appId = appIdAndSenderId.first;
         final String senderId = appIdAndSenderId.second;
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     Bundle extras = new Bundle();
                     extras.putString("subtype", appId);

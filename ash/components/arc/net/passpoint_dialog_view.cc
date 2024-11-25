@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "ash/components/arc/compat_mode/overlay_dialog.h"
@@ -90,7 +91,6 @@ PasspointDialogView::PasspointDialogView(
                         kDialogBorderMargin[2], kDialogBorderMargin[3]));
   SetBetweenChildSpacing(
       provider->GetDistanceMetric(views::DISTANCE_RELATED_CONTROL_VERTICAL));
-  SetSize(CalculatePreferredSize());
 
   auto border = std::make_unique<views::BubbleBorder>(
       views::BubbleBorder::NONE, views::BubbleBorder::STANDARD_SHADOW,
@@ -123,24 +123,17 @@ PasspointDialogView::PasspointDialogView(
 
 PasspointDialogView::~PasspointDialogView() = default;
 
-gfx::Size PasspointDialogView::CalculatePreferredSize() const {
-  gfx::Size size = views::View::CalculatePreferredSize();
-
-  views::LayoutProvider* provider = views::LayoutProvider::Get();
-  size.set_width(provider->GetDistanceMetric(
-      views::DistanceMetric::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH));
-  return size;
+gfx::Size PasspointDialogView::CalculatePreferredSize(
+    const views::SizeBounds& available_size) const {
+  return GetLayoutManager()->GetPreferredSize(this, available_size);
 }
 
 void PasspointDialogView::AddedToWidget() {
   auto& view_ax = GetWidget()->GetRootView()->GetViewAccessibility();
-  view_ax.OverrideRole(ax::mojom::Role::kDialog);
-  view_ax.OverrideName(l10n_util::GetStringFUTF16(
-      IDS_ASH_ARC_PASSPOINT_APP_APPROVAL_TITLE, app_name_));
-}
-
-int PasspointDialogView::GetLabelWidth() {
-  return width() - kDialogBorderMargin[1] - kDialogBorderMargin[3];
+  view_ax.SetRole(ax::mojom::Role::kDialog);
+  view_ax.SetName(l10n_util::GetStringFUTF16(
+                      IDS_ASH_ARC_PASSPOINT_APP_APPROVAL_TITLE, app_name_),
+                  ax::mojom::NameFrom::kAttribute);
 }
 
 std::unique_ptr<views::View> PasspointDialogView::MakeBaseLabelView(
@@ -152,7 +145,6 @@ std::unique_ptr<views::View> PasspointDialogView::MakeBaseLabelView(
       views::Builder<views::StyledLabel>()
           .CopyAddressTo(&body_text_)
           .SetText(label)
-          .SizeToFit(GetLabelWidth())
           .SetHorizontalAlignment(gfx::ALIGN_LEFT)
           .SetAutoColorReadabilityEnabled(false)
           .Build();
@@ -175,7 +167,7 @@ std::unique_ptr<views::View> PasspointDialogView::MakeBaseLabelView(
 }
 
 std::unique_ptr<views::View> PasspointDialogView::MakeSubscriptionLabelView(
-    base::StringPiece friendly_name) {
+    std::string_view friendly_name) {
   std::vector<size_t> offsets;
   const std::u16string learn_more = l10n_util::GetStringUTF16(
       IDS_ASH_ARC_PASSPOINT_APP_APPROVAL_LEARN_MORE_LABEL);
@@ -184,23 +176,24 @@ std::unique_ptr<views::View> PasspointDialogView::MakeSubscriptionLabelView(
       {ui::GetChromeOSDeviceName(), base::UTF8ToUTF16(friendly_name),
        learn_more},
       &offsets);
-  return views::Builder<views::StyledLabel>()
-      .CopyAddressTo(&body_subscription_text_)
-      .SetText(label)
-      .SizeToFit(GetLabelWidth())
-      .SetHorizontalAlignment(gfx::ALIGN_LEFT)
-      .SetAutoColorReadabilityEnabled(false)
-      .AddStyleRange(
-          gfx::Range(offsets.back(), offsets.back() + learn_more.length()),
-          views::StyledLabel::RangeStyleInfo::CreateForLink(
-              base::BindRepeating(&PasspointDialogView::OnLearnMoreClicked,
-                                  weak_factory_.GetWeakPtr())))
-      .Build();
+  std::unique_ptr<views::StyledLabel> styled_label =
+      views::Builder<views::StyledLabel>()
+          .CopyAddressTo(&body_subscription_text_)
+          .SetText(label)
+          .SetHorizontalAlignment(gfx::ALIGN_LEFT)
+          .SetAutoColorReadabilityEnabled(false)
+          .AddStyleRange(
+              gfx::Range(offsets.back(), offsets.back() + learn_more.length()),
+              views::StyledLabel::RangeStyleInfo::CreateForLink(
+                  base::BindRepeating(&PasspointDialogView::OnLearnMoreClicked,
+                                      weak_factory_.GetWeakPtr())))
+          .Build();
+  return styled_label;
 }
 
 std::unique_ptr<views::View> PasspointDialogView::MakeContentsView(
     bool is_expiring,
-    base::StringPiece friendly_name) {
+    std::string_view friendly_name) {
   views::LayoutProvider* provider = views::LayoutProvider::Get();
   std::unique_ptr<views::BoxLayoutView> contents =
       views::Builder<views::BoxLayoutView>()

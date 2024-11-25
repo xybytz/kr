@@ -9,8 +9,10 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "ash/public/cpp/window_tree_host_lookup.h"
 #include "base/callback_list.h"
 #include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
@@ -34,11 +36,22 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
 #include "extensions/browser/extension_system.h"
+#include "facegaze_settings_event_handler.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "services/accessibility/public/mojom/assistive_technology_type.mojom.h"
 #include "services/media_session/public/mojom/audio_focus.mojom.h"
 #include "ui/accessibility/ax_enums.mojom-forward.h"
 #include "ui/base/ime/ash/input_method_manager.h"
+#include "ui/events/base_event_utils.h"
+#include "ui/events/devices/input_device_event_observer.h"
+#include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/wm/core/coordinate_conversion.h"
+
+// Matches 'supports_os_accessibility_service` in
+// //services/accessibility/buildflags.gni.
+#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/common/extensions/api/accessibility_private.h"
+#include "services/accessibility/public/mojom/assistive_technology_type.mojom.h"
+#endif  // BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace content {
 struct FocusedNodeDetails;
@@ -92,6 +105,11 @@ struct AccessibilityStatusEventDetails {
   bool enabled;
 };
 
+struct FaceGazeGestureInfo {
+  std::string gesture;
+  int confidence;
+};
+
 using AccessibilityStatusCallbackList =
     base::RepeatingCallbackList<void(const AccessibilityStatusEventDetails&)>;
 using AccessibilityStatusCallback =
@@ -117,7 +135,6 @@ enum class PlaySoundOption {
 
 // AccessibilityManager changes the statuses of accessibility features
 // watching profile notifications and pref-changes.
-// TODO(yoshiki): merge MagnificationManager with AccessibilityManager.
 class AccessibilityManager
     : public session_manager::SessionManagerObserver,
       public extensions::api::braille_display_private::BrailleObserver,
@@ -126,7 +143,8 @@ class AccessibilityManager
       public input_method::InputMethodManager::Observer,
       public CrasAudioHandler::AudioObserver,
       public ProfileObserver,
-      public speech::SodaInstaller::Observer {
+      public speech::SodaInstaller::Observer,
+      public ui::InputDeviceEventObserver {
  public:
   AccessibilityManager(const AccessibilityManager&) = delete;
   AccessibilityManager& operator=(const AccessibilityManager&) = delete;
@@ -165,6 +183,9 @@ class AccessibilityManager
   // Returns true if the Sticky Keys is enabled, or false if not.
   bool IsStickyKeysEnabled() const;
 
+  // Returns true if the built-in touchpad is disabled, or false if not.
+  bool IsTouchpadDisabled() const;
+
   // Enables or disables spoken feedback. Enabling spoken feedback installs the
   // ChromeVox component extension.
   void EnableSpokenFeedback(bool enabled);
@@ -188,11 +209,37 @@ class AccessibilityManager
   // Returns true if autoclick is enabled.
   bool IsAutoclickEnabled() const;
 
+  // Enables or disables ReducedAnimations.
+  void EnableReducedAnimations(bool enabled);
+
+  // Returns true if ReducedAnimations is enabled.
+  bool IsReducedAnimationsEnabled() const;
+
+  // Enables or disables overlay scrollbar.
+  void EnableOverlayScrollbar(bool enabled);
+
+  // Returns true if overlay scrollbar is enabled.
+  bool IsOverlayScrollbarEnabled() const;
+
   // Enables or disables FaceGaze.
   void EnableFaceGaze(bool enabled);
 
   // Returns true if FaceGaze is enabled.
   bool IsFaceGazeEnabled() const;
+
+  // Adds the FaceGazeSettingsEventHandler to process events from FaceGaze.
+  void AddFaceGazeSettingsEventHandler(FaceGazeSettingsEventHandler* handler);
+
+  // Removes the FaceGazeSettingsEventHandler.
+  void RemoveFaceGazeSettingsEventHandler();
+
+  // Toggles whether FaceGaze is sending gesture detection information to
+  // settings.
+  void ToggleGestureInfoForSettings(bool enabled) const;
+
+  // Sends information about detected facial gestures from FaceGaze to settings.
+  void SendGestureInfoToSettings(
+      const std::vector<FaceGazeGestureInfo>& gesture_info) const;
 
   // Requests the Autoclick extension find the bounds of the nearest scrollable
   // ancestor to the point in the screen, as given in screen coordinates.
@@ -278,6 +325,17 @@ class AccessibilityManager
   // false.
   bool IsBrailleDisplayConnected() const;
 
+  // Returns if Fullscreen Magnifier is enabled.
+  bool IsFullscreenMagnifierEnabled() const;
+
+  // Returns if Docked Magnifier is enabled.
+  bool IsDockedMagnifierEnabled() const;
+
+  // Returns false if any accessibility settings are enabled that would indicate
+  // that a user might have trouble pointing their phone camera at their
+  // Chomebook screen in order to scan a QR code.
+  bool AllowQRCodeUX() const;
+
   // user_manager::UserManager::UserSessionStateObserver overrides:
   void ActiveUserChanged(user_manager::User* active_user) override;
 
@@ -295,14 +353,6 @@ class AccessibilityManager
 
   // Notify accessibility when locale changes occur.
   void OnLocaleChanged();
-
-  // Called when we first detect two fingers are held down, which can be
-  // used to toggle spoken feedback on some touch-only devices.
-  void OnTwoFingerTouchStart();
-
-  // Called when the user is no longer holding down two fingers (including
-  // releasing one, holding down three, or moving them).
-  void OnTwoFingerTouchStop();
 
   // Whether or not to enable toggling spoken feedback via holding down
   // two fingers on the screen.
@@ -355,7 +405,8 @@ class AccessibilityManager
   void HideFocusRing(std::string focus_ring_id);
 
   // Initializes the focus rings when a feature loads.
-  void InitializeFocusRings(ax::mojom::AssistiveTechnologyType at_type);
+  std::set<std::string>& GetFocusRingsForATType(
+      ax::mojom::AssistiveTechnologyType at_type);
 
   // Hides all focus rings for the `at_type`, and removes that `at_type` from
   // |focus_ring_names_for_at_type_|.
@@ -379,6 +430,10 @@ class AccessibilityManager
 
   // Sets the startup sound user preference.
   void SetStartupSoundEnabled(bool value) const;
+
+  // Requests that the system display a preview of the flash notifications
+  // feature.
+  void PreviewFlashNotification() const;
 
   // Gets the bluetooth braille display device address for the current user.
   const std::string GetBluetoothBrailleDisplayAddress() const;
@@ -408,12 +463,26 @@ class AccessibilityManager
   // Called when Shimless RMA launches to enable accessibility features.
   void OnShimlessRmaLaunched();
 
+  // Generates and fires a synthetic mouse event.
+  void SendSyntheticMouseEvent(ui::EventType type,
+                               int flags,
+                               int changed_button_flags,
+                               gfx::Point location_in_screen,
+                               bool use_rewriters);
+
+  // Looks up the action key that translates to F7 for caret browsing dialog.
+  std::optional<ui::KeyboardCode> GetCaretBrowsingActionKey();
+
   // SodaInstaller::Observer:
   void OnSodaInstalled(speech::LanguageCode language_code) override;
   void OnSodaInstallError(speech::LanguageCode language_code,
                           speech::SodaInstaller::ErrorCode error_code) override;
   void OnSodaProgress(speech::LanguageCode language_code,
                       int progress) override;
+
+  // ui::InputDeviceEventObserver
+  void OnInputDeviceConfigurationChanged(uint8_t input_device_type) override;
+  void OnDeviceListsComplete() override;
 
   // Test helpers:
   void SetProfileForTest(Profile* profile);
@@ -465,6 +534,8 @@ class AccessibilityManager
       const language_packs::PackResult& pack_result);
   void SetDlcPathForTest(base::FilePath path);
 
+  void LoadEnhancedNetworkTtsForTest();
+
  protected:
   AccessibilityManager();
   ~AccessibilityManager() override;
@@ -477,10 +548,8 @@ class AccessibilityManager
   void PostLoadSelectToSpeak();
   void PostUnloadSelectToSpeak();
 
-  void PostLoadSwitchAccess();
   void PostUnloadSwitchAccess();
 
-  void PostLoadAccessibilityCommon();
   void PostUnloadAccessibilityCommon();
 
   void UpdateEnhancedNetworkTts();
@@ -489,6 +558,7 @@ class AccessibilityManager
   void PostLoadEnhancedNetworkTts();
 
   void UpdateAlwaysShowMenuFromPref();
+  void OnFaceGazeChanged();
   void OnLargeCursorChanged();
   void OnLiveCaptionChanged();
   void OnStickyKeysChanged();
@@ -503,6 +573,7 @@ class AccessibilityManager
   void OnSelectToSpeakChanged();
   void OnAccessibilityCommonChanged(const std::string& pref_name);
   void OnSwitchAccessChanged();
+  void OnReducedAnimationsChanged() const;
   void OnFocusChangedInPage(const content::FocusedNodeDetails& details);
   // |triggered_by_user| is false when Dictation pref is changed at startup,
   // and true if Dictation enabled changed because the user changed their
@@ -532,6 +603,7 @@ class AccessibilityManager
 
   // session_manager::SessionManagerObserver:
   void OnLoginOrLockScreenVisible() override;
+  void OnSessionStateChanged() override;
 
   // Sets the current profile using the active profile.
   void SetActiveProfile();
@@ -586,18 +658,21 @@ class AccessibilityManager
 
   // Methods for managing the FaceGaze assets DLC.
   void OnFaceGazeAssetsInstalled(bool success, const std::string& root_path);
+  void OnFaceGazeAssetsFailed(std::string_view error);
   void OnFaceGazeAssetsCreated(
       std::optional<::extensions::api::accessibility_private::FaceGazeAssets>
           assets);
 
   // Pumpkin-related methods.
   void OnPumpkinInstalled(bool success, const std::string& root_path);
-  void OnPumpkinError(const std::string& error);
+  void OnPumpkinError(std::string_view error);
   void OnPumpkinDataCreated(
       std::optional<::extensions::api::accessibility_private::PumpkinData>
           data);
 
   void OnAppTerminating();
+
+  void MaybeLogBrailleDisplayConnectedTime();
 
   // Profile which has the current a11y context.
   raw_ptr<Profile> profile_ = nullptr;
@@ -625,6 +700,7 @@ class AccessibilityManager
   std::unique_ptr<AccessibilityServiceClient> accessibility_service_client_;
 
   bool braille_display_connected_ = false;
+  base::Time braille_display_connect_time_;
   base::ScopedObservation<
       extensions::api::braille_display_private::BrailleController,
       extensions::api::braille_display_private::BrailleObserver>
@@ -635,6 +711,8 @@ class AccessibilityManager
       soda_observation_{this};
 
   bool braille_ime_current_ = false;
+
+  raw_ptr<FaceGazeSettingsEventHandler> facegaze_settings_event_handler_;
 
   raw_ptr<ChromeVoxPanel> chromevox_panel_ = nullptr;
   std::unique_ptr<AccessibilityPanelWidgetObserver>
@@ -690,6 +768,9 @@ class AccessibilityManager
 
   // Whether the virtual keyboard was enabled before Switch Access loaded.
   bool was_vk_enabled_before_switch_access_ = false;
+
+  // Tracks whether or not on the locked screen currently.
+  bool locked_ = false;
 
   InstallFaceGazeAssetsCallback install_facegaze_assets_callback_;
 

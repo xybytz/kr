@@ -17,6 +17,7 @@
 #include "base/containers/id_map.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/raw_ptr_exclusion.h"
+#include "base/memory/weak_ptr.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "content/browser/media/session/audio_focus_delegate.h"
@@ -51,6 +52,7 @@ class MediaSessionImplVisibilityBrowserTest;
 class MediaSessionPlayerObserver;
 class MediaSessionServiceImpl;
 class MediaSessionServiceImplBrowserTest;
+class VideoPictureInPictureWindowControllerImpl;
 
 #if BUILDFLAG(IS_ANDROID)
 class MediaSessionAndroid;
@@ -332,6 +334,9 @@ class MediaSessionImpl : public MediaSession,
   // device switching.
   void OnAudioOutputSinkChangingDisabled();
 
+  // Called when any of the normal players video visibility changes.
+  CONTENT_EXPORT void OnVideoVisibilityChanged();
+
   // Update the value of `remote_playback_metadata_`.
   CONTENT_EXPORT void SetRemotePlaybackMetadata(
       media_session::mojom::RemotePlaybackMetadataPtr metadata);
@@ -345,6 +350,13 @@ class MediaSessionImpl : public MediaSession,
 
   // Returns the Audio Focus request ID associated with this media session.
   const base::UnguessableToken& GetRequestId() const;
+
+  // Flushes the VideoPictureInPictureWindowControllerImpl with the latest data.
+  void UpdateVideoPictureInPictureWindowController(
+      VideoPictureInPictureWindowControllerImpl* pip_controller) const;
+
+  // Returns a WeakPtr to `this`.
+  base::WeakPtr<MediaSessionImpl> GetWeakPtr();
 
   CONTENT_EXPORT bool HasImageCacheForTest(const GURL& image_url) const;
 
@@ -364,6 +376,7 @@ class MediaSessionImpl : public MediaSession,
   friend class MediaSessionImplTest;
   friend class MediaSessionImplDurationThrottleTest;
   friend class MediaInternalsAudioFocusTest;
+  friend class WebAppSystemMediaControlsBrowserTest;
 
   CONTENT_EXPORT void RemoveAllPlayersForTest();
   CONTENT_EXPORT MediaSessionUmaHelper* uma_helper_for_test();
@@ -381,8 +394,7 @@ class MediaSessionImpl : public MediaSession,
     bool operator==(const PlayerIdentifier& other) const;
     bool operator!=(const PlayerIdentifier& other) const;
     bool operator<(const PlayerIdentifier& other) const;
-    // This field is not a raw_ptr<> because it was filtered by the rewriter
-    // for: #constexpr-ctor-field-initializer, #union
+    // RAW_PTR_EXCLUSION: #union
     RAW_PTR_EXCLUSION MediaSessionPlayerObserver* observer;
     int player_id;
   };
@@ -470,6 +482,18 @@ class MediaSessionImpl : public MediaSession,
                      std::vector<media_session::MediaImage>& artwork);
 
   bool IsPictureInPictureAvailable() const;
+
+  // Iterates over all |normal_players_| and returns true if any of the players'
+  // videos is sufficiently visible, false otherwise.
+  CONTENT_EXPORT bool HasSufficientlyVisibleVideo() const;
+
+  // Iterates over all |normal_players_| and returns true if any of the players'
+  // videos is sufficiently visible, false otherwise.
+  //
+  // This is very similar to `HasSufficientlyVisibleVideo`, however this method
+  // is used to get notifications on demand, while `HasSufficientlyVisibleVideo`
+  // is constantly reporting visibility.
+  void GetVisibility(GetVisibilityCallback get_visibility_callback) override;
 
   // Returns the device ID for the audio output device being used by all of the
   // normal players. If the players are not all using the same audio output
@@ -603,7 +627,8 @@ class MediaSessionImpl : public MediaSession,
 
   // MediaSessionService-related fields
   using ServicesMap =
-      std::map<GlobalRenderFrameHostId, MediaSessionServiceImpl*>;
+      std::map<GlobalRenderFrameHostId,
+               raw_ptr<MediaSessionServiceImpl, CtnExperimental>>;
 
   // The current metadata and images associated with the current media session.
   media_session::MediaMetadata metadata_;
@@ -640,6 +665,17 @@ class MediaSessionImpl : public MediaSession,
   std::optional<PlayerIdentifier> guarding_player_id_;
 
   media_session::mojom::RemotePlaybackMetadataPtr remote_playback_metadata_;
+
+  // Used by tests to force media sessions to be ignored when finding a new
+  // active session.
+  bool always_ignore_for_active_session_for_testing_ = false;
+
+  // True if the given media has infinite duration OR has a duration that
+  // changes often enough to be considered live. See
+  // `MaybeGuardDurationUpdate()` for details on duration changes.
+  bool is_considered_live_ = false;
+
+  base::WeakPtrFactory<MediaSessionImpl> weak_factory_{this};
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
 };

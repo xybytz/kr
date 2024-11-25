@@ -68,7 +68,7 @@ class PaymentRequestState : public PaymentAppFactory::Delegate,
     virtual void OnSelectedInformationChanged() = 0;
 
    protected:
-    virtual ~Observer() {}
+    virtual ~Observer() = default;
   };
 
   class Delegate {
@@ -90,7 +90,7 @@ class PaymentRequestState : public PaymentAppFactory::Delegate,
     virtual void OnPayerInfoSelected(mojom::PayerDetailPtr payer_info) = 0;
 
    protected:
-    virtual ~Delegate() {}
+    virtual ~Delegate() = default;
   };
 
   using StatusCallback = base::OnceCallback<void(bool)>;
@@ -147,7 +147,7 @@ class PaymentRequestState : public PaymentAppFactory::Delegate,
   void SetCanMakePaymentEvenWithoutApps() override;
   base::WeakPtr<CSPChecker> GetCSPChecker() override;
   void SetOptOutOffered() override;
-  absl::optional<base::UnguessableToken> GetChromeOSTWAInstanceId()
+  std::optional<base::UnguessableToken> GetChromeOSTWAInstanceId()
       const override;
 
   // PaymentResponseHelper::Delegate

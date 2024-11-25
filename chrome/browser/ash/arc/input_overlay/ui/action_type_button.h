@@ -36,12 +36,15 @@ class ActionTypeButton : public ash::OptionButtonBase {
   bool IsIconOnTheLeftSide() override;
 
   // views::LabelButton:
-  void Layout() override;
+  void Layout(PassKey) override;
   gfx::ImageSkia GetImage(ButtonState for_state) const override;
 
   // views::View:
-  gfx::Size CalculatePreferredSize() const override;
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override;
   void OnThemeChanged() override;
+  // Assigns a11y name/label and a11y role as a radio button.
+  bool OnKeyPressed(const ui::KeyEvent& event) override;
 
   const raw_ref<const gfx::VectorIcon> icon_;
 };

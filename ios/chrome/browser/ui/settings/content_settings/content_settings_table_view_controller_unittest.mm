@@ -5,8 +5,9 @@
 #import "ios/chrome/browser/ui/settings/content_settings/content_settings_table_view_controller.h"
 
 #import "base/apple/foundation_util.h"
+#import "base/feature_list.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/ui/table_view/legacy_chrome_table_view_controller_test.h"
 #import "ios/chrome/grit/ios_strings.h"
 #import "ios/web/common/features.h"
@@ -20,8 +21,8 @@ class ContentSettingsTableViewControllerTest
     : public LegacyChromeTableViewControllerTest {
  protected:
   ContentSettingsTableViewControllerTest() {
-    browser_state_ = TestChromeBrowserState::Builder().Build();
-    browser_ = std::make_unique<TestBrowser>(browser_state_.get());
+    profile_ = TestProfileIOS::Builder().Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get());
   }
 
   void TearDown() override {
@@ -37,7 +38,7 @@ class ContentSettingsTableViewControllerTest
 
  private:
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<TestBrowser> browser_;
 };
 
@@ -54,7 +55,11 @@ TEST_F(ContentSettingsTableViewControllerTest,
   } else {
     ASSERT_EQ(1, NumberOfSections());
   }
-  ASSERT_EQ(4, NumberOfItemsInSection(0));
+  if (base::FeatureList::IsEnabled(web::features::kEnableMeasurements)) {
+    ASSERT_EQ(5, NumberOfItemsInSection(0));
+  } else {
+    ASSERT_EQ(4, NumberOfItemsInSection(0));
+  }
   CheckDetailItemTextWithIds(IDS_IOS_BLOCK_POPUPS, IDS_IOS_SETTING_ON, 0, 0);
 }
 

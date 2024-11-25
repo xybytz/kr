@@ -7,7 +7,6 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/paint/paint_controller_paint_test.h"
-#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 
 namespace blink {
@@ -35,6 +34,7 @@ class PaintPropertyTreeBuilderTest : public PaintControllerPaintTest {
       const Document* = nullptr);
   const ClipPaintPropertyNode* DocContentClip(const Document* = nullptr);
   const ScrollPaintPropertyNode* DocScroll(const Document* = nullptr);
+  const EffectPaintPropertyNode* DocEffect(const Document* = nullptr);
 
   // Return the local border box's paint offset. For more details, see
   // ObjectPaintProperties::localBorderBoxProperties().

@@ -50,9 +50,6 @@ have the mvhd version 0 32-bit duration field set to all 1's.
 
 VP8 video stream from bear-1280x720.mp4 in ivf container.
 
-#### negative-audio-timestamps.avi
-A truncated audio/video file with audio packet timestamps of -1. We need to ensure that these packets aren't dropped.
-
 #### noise-xhe-aac.mp4
 #### noise-xhe-aac-mono.mp4
 Fragmented mp4 of noise encoded with xHE-AAC, from xHE-AAC samples in [Android
@@ -559,6 +556,49 @@ bear-320x180-10bit-frame-1.h264: B
 bear-320x180-10bit-frame-2.h264: B
 bear-320x180-10bit-frame-3.h264: P
 
+#### gbrp.png
+
+A screenshot frame captured from `gbrp-av1.mp4` on macOS 14.
+
+#### gbrp-h264.mp4
+
+H.264 encoded video with GBR colorspace matrix and 4:4:4 chroma sampling.
+```
+ffmpeg -f lavfi -i testsrc=s=320x240:r=1:d=1 -pix_fmt gbrp -color_range 2 -colorspace 0 -color_primaries 1 -color_trc 13 -c:v libx264rgb gbrp-h264.mp4
+```
+
+#### gbrp-h265.mp4
+
+H.265 encoded video with GBR colorspace matrix and 4:4:4 chroma sampling.
+```
+ffmpeg -f lavfi -i testsrc=s=320x240:r=1:d=1 -pix_fmt gbrp -color_range 2 -colorspace 0 -color_primaries 1 -color_trc 13 -c:v libx265 gbrp-h265.mp4
+```
+
+#### gbrp-vp9.mp4
+
+VP9 encoded video with GBR colorspace matrix and 4:4:4 chroma sampling.
+```
+ffmpeg -f lavfi -i testsrc=s=320x240:r=1:d=1 -pix_fmt gbrp -color_range 2 -colorspace 0 -color_primaries 1 -color_trc 13 -c:v vp9 gbrp-vp9.mp4
+```
+
+#### gbrp-av1.mp4
+
+AV1 encoded video with GBR colorspace matrix and 4:4:4 chroma sampling.
+```
+ffmpeg -f lavfi -i testsrc=s=320x240:r=1:d=1 -pix_fmt gbrp -color_range 2 -colorspace 0 -color_primaries 1 -color_trc 13 -c:v av1 gbrp-av1.mp4
+```
+
+#### ebu-3213-e-vp9.mp4
+
+VP9 encoded video with `EBU_3213_E` colorspace primary.
+
+NOTE: FFmpeg can't convert a video to `EBU_3213_E` primary directly, the
+workaround is to convert it into `BT470BG` primary first because they should
+be identical, and then tag the primary as `EBU_3213_E` inside the container.
+```
+ffmpeg -f lavfi -i testsrc=s=320x240:r=1:d=1 -pix_fmt yuv420p -vf "colorspace=space=bt470bg:range=tv:primaries=smpte170m:trc=smpte170m:ispace=smpte170m:irange=tv:iprimaries=smpte170m:itrc=smpte170m" -color_range 1 -colorspace 6 -color_primaries 22 -color_trc 6 -c:v vp9 ebu-3213-e-vp9.mp4
+```
+
 ### AAC test data from MPEG-DASH demoplayer (44100 Hz, stereo)
 Duration of each packet is (1024/44100 Hz), approximately 23.22 ms.
 
@@ -979,6 +1019,16 @@ ffmpeg -i test-25fps.h264 -vcodec libaom-av1 test-25fps.av1.ivf
 
 #### test-25fps.av1.ivf.json:
 JSON file that contains all metadata related to test-25fps.av1.ivf, used by the
+video\_decode\_accelerator\_tests. This includes the video codec, resolution and
+md5 checksums of individual video frames when converted to the I420 format.
+
+#### av1-1-b8-02-allintra.ivf
+AOM AV1 test vector in which all frames are intra. This video comes from
+[here](https://code.videolan.org/videolan/dav1d-test-data/-/blob/0b1ae65ec0c949bb1aac496d1b3f8bde5ffb10b8/8-bit/intra/av1-1-b8-02-allintra.ivf)
+and is licensed under the AOM license.
+
+#### av1-1-b8-02-allintra.ivf.json
+JSON file that contains all metadata related to av1-1-b8-02-allintra.ivf, used by the
 video\_decode\_accelerator\_tests. This includes the video codec, resolution and
 md5 checksums of individual video frames when converted to the I420 format.
 
@@ -1445,6 +1495,11 @@ HEVC video stream with 10-bit main10 profile, generated with
 ```
 ffmpeg -i bear-1280x720.mp4 -vcodec hevc -pix_fmt yuv420p10le bear-1280x720-hevc-10bit.mp4
 ```
+#### bear-1280x720-hevc-10bit-no-audio.mp4
+HEVC video stream with 10-bit main10 profile, generated with
+```
+ffmpeg -i bear-1280x720-hevc-10bit.mp4 -vcodec copy -an bear-1280x720-hevc-10bit-no-audio.mp4
+```
 
 #### bear-1280x720-hevc-8bit-422.mp4
 HEVC video stream with 8-bit 422 range extension profile, generated with
@@ -1452,10 +1507,16 @@ HEVC video stream with 8-bit 422 range extension profile, generated with
 ffmpeg -i bear-1280x720.mp4 -vcodec hevc -pix_fmt yuv422p bear-1280x720-hevc-8bit-422.mp4
 ```
 
-#### bear-1280x720-hevc-10bit-no-audio.mp4
-HEVC video stream with 10-bit main10 profile, generated with
+#### bear-1280x720-hevc-8bit-422-no-audio.mp4
+HEVC video stream with 8-bit 422 range extension profile, generated with
 ```
-ffmpeg -i bear-1280x720-hevc-10bit.mp4 -vcodec copy -an bear-1280x720-hevc-10bit-no-audio.mp4
+ffmpeg -i bear-1280x720-hevc-8bit-422.mp4 -vcodec copy -an bear-1280x720-hevc-8bit-422-no-audio.mp4
+```
+
+#### bear-1280x720-hevc-8bit-444-no-audio.mp4
+HEVC video stream with 8-bit 444 range extension profile, generated with
+```
+ffmpeg -i bear-1280x720.mp4 -vcodec hevc -an -pix_fmt yuv444p bear-1280x720-hevc-8bit-444-no-audio.mp4
 ```
 
 #### bear-1280x720-hevc-10bit-422.mp4
@@ -1528,6 +1589,70 @@ Original sample from `https://media.developer.dolby.com/DolbyVision_Atmos/mp4/P8
 ffmpeg -ss 0:00:11 -i P81_GlassBlowing2_1920x1080@59.94fps_15200kbps_fmp4.mp4 -t 1 -vcodec copy -an glass-blowing2-dolby-vision-profile-8-1.hevc
 mp4mux --track h265:glass-blowing2-dolby-vision-profile-8-1.hevc#dv_profile=8,dv_bc=1,format="hvc1",frame_rate=60,video glass-blowing2-dolby-vision-profile-8-1.mp4
 mp4fragment glass-blowing2-dolby-vision-profile-8-1.mp4 glass-blowing2-dolby-vision-profile-8-1-frag.mp4
+```
+
+#### color_pattern_24_dvhe_05_1920x1080-3sec-frag-cenc.mp4
+Original sample from
+`https://ott.dolby.com/OnDelKits/DolbyVision_OSS_Media_Kit/clear/color_pattern_24_dvhe_05_1920x1080.mp4`
+. Dolby Vision profile 5 video stream encrypted using [Shaka Packager] with the
+following commands:
+```
+ffmpeg -ss 0:00:00 -i color_pattern_24_dvhe_05_1920x1080.mp4 -t 3 -vcodec copy -an color_pattern_24_dvhe_05_1920x1080.hevc
+mp4mux --track h265:color_pattern_24_dvhe_05_1920x1080.hevc#dv_profile=5,dv_bc=0,format="dvh1",frame_rate=24,video color_pattern_24_dvhe_05_1920x1080-3sec.mp4
+mp4fragment color_pattern_24_dvhe_05_1920x1080-3sec.mp4 color_pattern_24_dvhe_05_1920x1080-3sec-frag.mp4
+
+packager in=color_pattern_24_dvhe_05_1920x1080-3sec-frag.mp4,stream=video,output=color_pattern_24_dvhe_05_1920x1080-3sec-frag-cenc.mp4 \
+         --enable_raw_key_encryption \
+         --protection_scheme cenc \
+         --segment_duration 0.5 \
+         --clear_lead 0 \
+         --keys label=:key_id=30313233343536373839303132333435:key=ebdd62f16814d27b68ef122afce4ae3c \
+         --pssh 000000327073736800000000EDEF8BA979D64ACEA3C827DCD51D21ED000000121210303132333435363738393031323334350000003470737368010000001077EFECC0B24D02ACE33C1E52E2FB4B000000013031323334353637383930313233343500000000
+```
+
+#### color_pattern_24_dvhe_05_1920x1080-3sec-frag-cenc-clearlead-2sec.mp4
+Dolby Vision profile 5 video stream with clear lead generated using
+[Shaka Packager] with the following commands:
+```
+packager in=color_pattern_24_dvhe_05_1920x1080-3sec-frag.mp4,stream=video,output=color_pattern_24_dvhe_05_1920x1080-3sec-frag-cenc-clearlead-2sec.mp4 \
+         --enable_raw_key_encryption \
+         --protection_scheme cenc \
+         --segment_duration 0.5 \
+         --clear_lead 2 \
+         --keys label=:key_id=30313233343536373839303132333435:key=ebdd62f16814d27b68ef122afce4ae3c \
+         --pssh 000000327073736800000000EDEF8BA979D64ACEA3C827DCD51D21ED000000121210303132333435363738393031323334350000003470737368010000001077EFECC0B24D02ACE33C1E52E2FB4B000000013031323334353637383930313233343500000000
+```
+
+#### color_pattern_24_dvhe_081_1920x1080-3sec-frag-cenc.mp4
+Original sample from
+`https://ott.dolby.com/OnDelKits/DolbyVision_OSS_Media_Kit/clear/color_pattern_24_dvhe_081_1920x1080.mp4`
+. Dolby Vision profile 8.1 video stream encrypted using [Shaka Packager] with
+the following commands:
+```
+ffmpeg -ss 0:00:00 -i color_pattern_24_dvhe_081_1920x1080.mp4 -t 3 -vcodec copy -an color_pattern_24_dvhe_081_1920x1080.hevc
+mp4mux --track h265:color_pattern_24_dvhe_081_1920x1080.hevc#dv_profile=5,dv_bc=0,format="dvh1",frame_rate=24,video color_pattern_24_dvhe_081_1920x1080-3sec.mp4
+mp4fragment color_pattern_24_dvhe_081_1920x1080-3sec.mp4 color_pattern_24_dvhe_081_1920x1080-3sec-frag.mp4
+
+packager in=color_pattern_24_dvhe_081_1920x1080-3sec-frag.mp4,stream=video,output=color_pattern_24_dvhe_081_1920x1080-3sec-frag-cenc.mp4 \
+         --enable_raw_key_encryption \
+         --protection_scheme cenc \
+         --segment_duration 0.5 \
+         --clear_lead 0 \
+         --keys label=:key_id=30313233343536373839303132333435:key=ebdd62f16814d27b68ef122afce4ae3c \
+         --pssh 000000327073736800000000EDEF8BA979D64ACEA3C827DCD51D21ED000000121210303132333435363738393031323334350000003470737368010000001077EFECC0B24D02ACE33C1E52E2FB4B000000013031323334353637383930313233343500000000
+```
+
+#### color_pattern_24_dvhe_081_1920x1080-3sec-frag-cenc-clearlead-2sec.mp4
+Dolby Vision profile 8.1 video stream with clear lead generated using
+[Shaka Packager] with the following commands:
+```
+packager in=color_pattern_24_dvhe_081_1920x1080-3sec-frag.mp4,stream=video,output=color_pattern_24_dvhe_081_1920x1080-3sec-frag-cenc-clearlead-2sec.mp4 \
+         --enable_raw_key_encryption \
+         --protection_scheme cenc \
+         --segment_duration 0.5 \
+         --clear_lead 2 \
+         --keys label=:key_id=30313233343536373839303132333435:key=ebdd62f16814d27b68ef122afce4ae3c \
+         --pssh 000000327073736800000000EDEF8BA979D64ACEA3C827DCD51D21ED000000121210303132333435363738393031323334350000003470737368010000001077EFECC0B24D02ACE33C1E52E2FB4B000000013031323334353637383930313233343500000000
 ```
 
 ### Multi-track MP4 file
@@ -1665,3 +1790,13 @@ avc-bitstream-format-1.h264: Non-IDR
   ffmpeg -i %1 -f image2 -vcodec copy -bsf h264_mp4toannexb "%d.h264"
 - manually convert one of created Non-IDR annexb file to avc bitstream.
   (replace annexb start code with length)
+
+### reference-frame-scaling-test.ivf
+Video stream for testing reference frame scaling in AV1 files where resolution changes at various stages in a AV1 video stream.
+- 300 frames.
+- First 100 frames Resolution: 1920 x 1080.
+- Next 100 frames Resolution: 1280 x 720.
+- Last 100 frames Resolution: 960 x 540.
+
+### hls/ directory
+This directory contains all the HLS files needed to run pipeline integration tests against the HLS demuxer. The readme file in this directory contains specific steps to regenerate media and manifest files.

@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "google_apis/drive/drive_api_requests.h"
 
 #include <stddef.h>
@@ -162,7 +167,7 @@ class DriveApiRequestsTest : public testing::Test {
     network::mojom::URLLoaderFactoryParamsPtr params =
         network::mojom::URLLoaderFactoryParams::New();
     params->process_id = network::mojom::kBrowserProcessId;
-    params->is_corb_enabled = false;
+    params->is_orb_enabled = false;
     network_context_->CreateURLLoaderFactory(
         url_loader_factory_.BindNewPipeAndPassReceiver(), std::move(params));
     test_shared_loader_factory_ =
@@ -2134,6 +2139,8 @@ TEST_F(DriveApiRequestsTest, PermissionsInsertRequest) {
 TEST_F(DriveApiRequestsTest, BatchUploadRequest) {
   // Preapre constants.
   const char kTestContentType[] = "text/plain";
+  const char kTestConvertedMimeType[] = "application/vnd.google-apps.document";
+
   const std::string kTestContent(10, 'a');
   const base::FilePath kTestFilePath =
       temp_dir_.GetPath().AppendASCII("upload_file.txt");
@@ -2159,9 +2166,9 @@ TEST_F(DriveApiRequestsTest, BatchUploadRequest) {
         new drive::MultipartUploadNewFileDelegate(
             request_sender_->blocking_task_runner(),
             base::StringPrintf("new file title %d", i), "parent_resource_id",
-            kTestContentType, kTestContent.size(), base::Time(), base::Time(),
-            kTestFilePath, drive::Properties(), *url_generator_,
-            std::move(callback), ProgressCallback());
+            kTestContentType, kTestConvertedMimeType, kTestContent.size(),
+            base::Time(), base::Time(), kTestFilePath, drive::Properties(),
+            *url_generator_, std::move(callback), ProgressCallback());
     child_request->SetBoundaryForTesting("INNERBOUNDARY");
     request_ptr->AddRequest(child_request);
   }
@@ -2185,8 +2192,12 @@ TEST_F(DriveApiRequestsTest, BatchUploadRequest) {
       "--INNERBOUNDARY\n"
       "Content-Type: application/json\n"
       "\n"
-      "{\"parents\":[{\"id\":\"parent_resource_id\","
-      "\"kind\":\"drive#fileLink\"}],\"title\":\"new file title 0\"}\n"
+      "{"
+      "\"mimeType\":\"application/vnd.google-apps.document\","
+      "\"parents\":[{\"id\":\"parent_resource_id\","
+      "\"kind\":\"drive#fileLink\"}],"
+      "\"title\":\"new file title 0\""
+      "}\n"
       "--INNERBOUNDARY\n"
       "Content-Type: text/plain\n"
       "\n"
@@ -2203,8 +2214,12 @@ TEST_F(DriveApiRequestsTest, BatchUploadRequest) {
       "--INNERBOUNDARY\n"
       "Content-Type: application/json\n"
       "\n"
-      "{\"parents\":[{\"id\":\"parent_resource_id\","
-      "\"kind\":\"drive#fileLink\"}],\"title\":\"new file title 1\"}\n"
+      "{"
+      "\"mimeType\":\"application/vnd.google-apps.document\","
+      "\"parents\":[{\"id\":\"parent_resource_id\","
+      "\"kind\":\"drive#fileLink\"}],"
+      "\"title\":\"new file title 1\""
+      "}\n"
       "--INNERBOUNDARY\n"
       "Content-Type: text/plain\n"
       "\n"

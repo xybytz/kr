@@ -14,7 +14,7 @@
 #import "components/strings/grit/components_strings.h"
 #import "components/sync/test/mock_sync_service.h"
 #import "ios/chrome/browser/settings/model/sync/utils/sync_util.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_text_item.h"
 #import "ios/chrome/browser/signin/model/authentication_service.h"
 #import "ios/chrome/browser/signin/model/authentication_service_factory.h"
@@ -90,10 +90,10 @@ TEST_F(SyncEncryptionPassphraseTableViewControllerTest, TestModel) {
   EXPECT_EQ(1, NumberOfSections());
   EXPECT_EQ(2, NumberOfItemsInSection(0));
   // Passphrase message item.
-  NSString* userEmail = AuthenticationServiceFactory::GetForBrowserState(
-                            chrome_browser_state_.get())
-                            ->GetPrimaryIdentity(signin::ConsentLevel::kSignin)
-                            .userEmail;
+  NSString* userEmail =
+      AuthenticationServiceFactory::GetForProfile(profile_.get())
+          ->GetPrimaryIdentity(signin::ConsentLevel::kSignin)
+          .userEmail;
   EXPECT_NSEQ(
       l10n_util::GetNSStringF(IDS_IOS_SYNC_ENTER_PASSPHRASE_BODY_WITH_EMAIL,
                               base::SysNSStringToUTF16(userEmail)),
@@ -216,7 +216,7 @@ TEST_F(SyncEncryptionPassphraseTableViewControllerTest, TestMessage) {
   TurnSyncPassphraseErrorOn();
   EXPECT_FALSE([sync_controller syncErrorMessage]);
   TurnSyncOtherErrorOn(otherError);
-  EXPECT_NSEQ(GetSyncErrorMessageForBrowserState(chrome_browser_state_.get()),
+  EXPECT_NSEQ(GetSyncErrorMessageForProfile(profile_.get()),
               [sync_controller syncErrorMessage]);
   TurnSyncErrorOff();
   EXPECT_FALSE([sync_controller syncErrorMessage]);

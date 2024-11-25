@@ -36,23 +36,13 @@ class TestStorage : public DIPSStorage {
   }
 };
 
-scoped_refptr<base::SequencedTaskRunner> CreateTaskRunner() {
-  return base::ThreadPool::CreateSequencedTaskRunner(
-      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-       base::ThreadPolicy::PREFER_BACKGROUND});
-}
-
-void StoreState(std::optional<StateValue>* state_value,
-                const DIPSState& state) {
-  *state_value = state.was_loaded() ? std::make_optional(state.ToStateValue())
-                                    : std::nullopt;
-}
-
-class ScopedDIPSFeatureEnabledWithParams {
+// TODO(crbug.com/376754761): Remove this class, since it no longer sets the
+// main DIPS feature
+class ScopedDIPSInteractionTtlFeatureEnabledWithParams {
  public:
-  explicit ScopedDIPSFeatureEnabledWithParams(
+  explicit ScopedDIPSInteractionTtlFeatureEnabledWithParams(
       const base::FieldTrialParams& params) {
-    features_.InitAndEnableFeatureWithParameters(features::kDIPS, params);
+    features_.InitAndEnableFeatureWithParameters(features::kDIPSTtl, params);
   }
 
  private:
@@ -258,7 +248,8 @@ class DIPSStorageTest : public testing::Test {
 
  protected:
   base::test::TaskEnvironment env_;
-  ScopedDIPSFeatureEnabledWithParams feature{{{"interaction_ttl", "inf"}}};
+  ScopedDIPSInteractionTtlFeatureEnabledWithParams feature{
+      {{"interaction_ttl", "inf"}}};
   TestStorage storage_;
   base::SimpleTestClock clock_;
 };
@@ -678,15 +669,17 @@ TEST_F(DIPSStorageTest, RemovePopupEventsByTime) {
   base::Time delete_begin = base::Time::FromSecondsSinceUnixEpoch(3);
   base::Time delete_end = base::Time::FromSecondsSinceUnixEpoch(5);
 
-  ASSERT_TRUE(storage_.WritePopup(site1, site2, /*access_id=*/1u,
-                                  base::Time::FromSecondsSinceUnixEpoch(2),
-                                  /*is_current_interaction=*/true));
+  ASSERT_TRUE(storage_.WritePopup(
+      site1, site2, /*access_id=*/1u, base::Time::FromSecondsSinceUnixEpoch(2),
+      /*is_current_interaction=*/true, /*is_authentication_interaction=*/true));
   ASSERT_TRUE(storage_.WritePopup(site1, site3, /*access_id=*/2u,
                                   base::Time::FromSecondsSinceUnixEpoch(4),
-                                  /*is_current_interaction=*/true));
+                                  /*is_current_interaction=*/true,
+                                  /*is_authentication_interaction=*/false));
   ASSERT_TRUE(storage_.WritePopup(site2, site3, /*access_id=*/3u,
                                   base::Time::FromSecondsSinceUnixEpoch(6),
-                                  /*is_current_interaction=*/false));
+                                  /*is_current_interaction=*/false,
+                                  /*is_authentication_interaction=*/false));
 
   storage_.RemoveEvents(delete_begin, delete_end, nullptr,
                         DIPSEventRemovalType::kHistory);
@@ -699,6 +692,7 @@ TEST_F(DIPSStorageTest, RemovePopupEventsByTime) {
   EXPECT_EQ(popup1.value().last_popup_time,
             base::Time::FromSecondsSinceUnixEpoch(2));
   EXPECT_TRUE(popup1.value().is_current_interaction);
+  EXPECT_TRUE(popup1.value().is_authentication_interaction);
 
   std::optional<PopupsStateValue> popup2 = storage_.ReadPopup(site1, site3);
   ASSERT_FALSE(popup2.has_value());
@@ -709,6 +703,7 @@ TEST_F(DIPSStorageTest, RemovePopupEventsByTime) {
   EXPECT_EQ(popup3.value().last_popup_time,
             base::Time::FromSecondsSinceUnixEpoch(6));
   EXPECT_FALSE(popup3.value().is_current_interaction);
+  EXPECT_FALSE(popup3.value().is_authentication_interaction);
 }
 
 TEST_F(DIPSStorageTest, RemoveByTimeBounces) {
@@ -936,149 +931,15 @@ TEST_F(DIPSStorageTest, DidSiteHaveInteractionSince) {
       url1, base::Time::FromSecondsSinceUnixEpoch(4)));
 }
 
-class DIPSStoragePrepopulateTest : public testing::Test {
- public:
-  DIPSStoragePrepopulateTest()
-      : task_environment_(base::test::TaskEnvironment(
-            base::test::TaskEnvironment::ThreadPoolExecutionMode::QUEUED)),
-        storage_(base::SequenceBound<DIPSStorage>(CreateTaskRunner(),
-                                                  std::nullopt)) {}
-
- protected:
-  base::test::TaskEnvironment task_environment_;
-  ScopedDIPSFeatureEnabledWithParams feature{{{"interaction_ttl", "inf"}}};
-  base::SequenceBound<DIPSStorage> storage_;
-};
-
-TEST_F(DIPSStoragePrepopulateTest, NoExistingTime) {
-  base::Time time = base::Time::FromSecondsSinceUnixEpoch(1);
-
-  storage_.AsyncCall(&DIPSStorage::Prepopulate)
-      .WithArgs(time, std::vector<std::string>{"site"}, base::DoNothing());
-  std::optional<StateValue> state;
-  storage_.AsyncCall(&DIPSStorage::Read)
-      .WithArgs(GURL("http://site"))
-      .Then(base::BindOnce(StoreState, &state));
-  task_environment_.RunUntilIdle();
-
-  ASSERT_TRUE(state.has_value());
-  EXPECT_EQ(state->user_interaction_times->first, time);  // written
-  EXPECT_EQ(state->site_storage_times->first, time);      // written
+TEST_F(DIPSStorageTest, GetTimerLastFired_InitiallyReturnsEmpty) {
+  ASSERT_EQ(storage_.GetTimerLastFired(), std::nullopt);
 }
 
-TEST_F(DIPSStoragePrepopulateTest, ExistingStorageAndInteractionTimes) {
-  base::Time interaction_time = base::Time::FromSecondsSinceUnixEpoch(1);
-  base::Time storage_time = base::Time::FromSecondsSinceUnixEpoch(2);
-  base::Time prepopulate_time = base::Time::FromSecondsSinceUnixEpoch(3);
+TEST_F(DIPSStorageTest, GetTimerLastFired_ReturnsLastSetValue) {
+  const base::Time time1 = base::Time::FromTimeT(1);
+  const base::Time time2 = base::Time::FromTimeT(2);
 
-  // First record interaction and storage for the site, then call Prepopulate().
-  storage_.AsyncCall(&DIPSStorage::RecordInteraction)
-      .WithArgs(GURL("http://site"), interaction_time,
-                DIPSCookieMode::kBlock3PC);
-  storage_.AsyncCall(&DIPSStorage::RecordStorage)
-      .WithArgs(GURL("http://site"), storage_time, DIPSCookieMode::kBlock3PC);
-  storage_.AsyncCall(&DIPSStorage::Prepopulate)
-      .WithArgs(prepopulate_time, std::vector<std::string>{"site"},
-                base::DoNothing());
-  std::optional<StateValue> state;
-  storage_.AsyncCall(&DIPSStorage::Read)
-      .WithArgs(GURL("http://site"))
-      .Then(base::BindOnce(StoreState, &state));
-  task_environment_.RunUntilIdle();
-
-  // Prepopulate() didn't overwrite the previous timestamps.
-  ASSERT_TRUE(state.has_value());
-  EXPECT_EQ(state->user_interaction_times->first,
-            interaction_time);  // no change
-  EXPECT_EQ(state->site_storage_times->first,
-            storage_time);  // no change
-}
-
-TEST_F(DIPSStoragePrepopulateTest, ExistingStorageTime) {
-  base::Time storage_time = base::Time::FromSecondsSinceUnixEpoch(1);
-  base::Time prepopulate_time = base::Time::FromSecondsSinceUnixEpoch(2);
-
-  // Record only storage for the site, then call Prepopulate().
-  storage_.AsyncCall(&DIPSStorage::RecordStorage)
-      .WithArgs(GURL("http://site"), storage_time, DIPSCookieMode::kBlock3PC);
-  storage_.AsyncCall(&DIPSStorage::Prepopulate)
-      .WithArgs(prepopulate_time, std::vector<std::string>{"site"},
-                base::DoNothing());
-  std::optional<StateValue> state;
-  storage_.AsyncCall(&DIPSStorage::Read)
-      .WithArgs(GURL("http://site"))
-      .Then(base::BindOnce(StoreState, &state));
-  task_environment_.RunUntilIdle();
-
-  ASSERT_TRUE(state.has_value());
-  EXPECT_EQ(state->site_storage_times->first,
-            storage_time);  // no change
-  EXPECT_EQ(state->user_interaction_times->first,
-            prepopulate_time);  // written
-}
-
-TEST_F(DIPSStoragePrepopulateTest, ExistingInteractionTime) {
-  base::Time interaction_time = base::Time::FromSecondsSinceUnixEpoch(1);
-  base::Time prepopulate_time = base::Time::FromSecondsSinceUnixEpoch(2);
-
-  // Record only storage for the site, then call Prepopulate().
-  storage_.AsyncCall(&DIPSStorage::RecordInteraction)
-      .WithArgs(GURL("http://site"), interaction_time,
-                DIPSCookieMode::kBlock3PC);
-  storage_.AsyncCall(&DIPSStorage::Prepopulate)
-      .WithArgs(prepopulate_time, std::vector<std::string>{"site"},
-                base::DoNothing());
-  std::optional<StateValue> state;
-  storage_.AsyncCall(&DIPSStorage::Read)
-      .WithArgs(GURL("http://site"))
-      .Then(base::BindOnce(StoreState, &state));
-  task_environment_.RunUntilIdle();
-
-  ASSERT_TRUE(state.has_value());
-  EXPECT_EQ(state->user_interaction_times->first,
-            interaction_time);                          // no change
-  EXPECT_EQ(state->site_storage_times, std::nullopt);   // no change
-}
-
-TEST_F(DIPSStoragePrepopulateTest, WorksOnChunks) {
-  base::Time time = base::Time::FromSecondsSinceUnixEpoch(1);
-  std::vector<std::string> sites = {"site1", "site2", "site3"};
-  DIPSStorage::SetPrepopulateChunkSizeForTesting(2);
-
-  std::optional<StateValue> state1, state2, state3;
-  auto queue_state_reads = [&]() {
-    storage_.AsyncCall(&DIPSStorage::Read)
-        .WithArgs(GURL("http://site1"))
-        .Then(base::BindOnce(StoreState, &state1));
-    storage_.AsyncCall(&DIPSStorage::Read)
-        .WithArgs(GURL("http://site2"))
-        .Then(base::BindOnce(StoreState, &state2));
-    storage_.AsyncCall(&DIPSStorage::Read)
-        .WithArgs(GURL("http://site3"))
-        .Then(base::BindOnce(StoreState, &state3));
-  };
-
-  storage_.AsyncCall(&DIPSStorage::Prepopulate)
-      .WithArgs(time, std::move(sites), base::DoNothing());
-  queue_state_reads();
-  task_environment_.RunUntilIdle();
-
-  // At this point, the entire |sites| vector has been processed. But we made
-  // async calls to read the state for each site before Prepopulate()
-  // actually ran, so the reads were performed after only the first chunk of
-  // |sites| was processed.
-
-  // The first two sites were prepopulated.
-  EXPECT_TRUE(state1.has_value());
-  EXPECT_TRUE(state2.has_value());
-  // The last wasn't.
-  ASSERT_FALSE(state3.has_value());
-
-  queue_state_reads();
-  task_environment_.RunUntilIdle();
-
-  // Now we've read the final state for all sites.
-  EXPECT_TRUE(state1.has_value());
-  EXPECT_TRUE(state2.has_value());
-  EXPECT_TRUE(state3.has_value());
+  ASSERT_TRUE(storage_.SetTimerLastFired(time1));
+  ASSERT_TRUE(storage_.SetTimerLastFired(time2));
+  ASSERT_THAT(storage_.GetTimerLastFired(), testing::Optional(time2));
 }

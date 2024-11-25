@@ -6,12 +6,15 @@
 
 #include <memory>
 #include <set>
+#include <string_view>
 
 #include "ash/constants/ash_features.h"
 #include "base/files/file_path.h"
 #include "base/functional/bind.h"
+#include "base/metrics/histogram_base.h"
 #include "base/path_service.h"
-#include "base/strings/string_piece.h"
+#include "base/strings/strcat.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/test_future.h"
 #include "chrome/browser/ash/login/login_wizard.h"
 #include "chrome/browser/ash/login/oobe_screen.h"
@@ -21,10 +24,10 @@
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
 #include "chrome/browser/ash/login/test/oobe_screen_exit_waiter.h"
 #include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
-#include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/ash/login/login_display_host.h"
 #include "chrome/browser/ui/webui/ash/login/assistant_optin_flow_screen_handler.h"
 #include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
 #include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
@@ -68,10 +71,26 @@ constexpr char kValueProp[] = "valueProp";
 constexpr char kRelatedInfo[] = "relatedInfo";
 constexpr char kVoiceMatch[] = "voiceMatch";
 
+constexpr char kSettingsZippyTitle[] = "Settings-Zippy-Title";
+constexpr char kSettingsZippyDescription[] = "Settings-Zippy-Description";
+constexpr char kSettingsZippyAdditionalInfo[] =
+    "Settings-Zippy-Additional-Info";
+constexpr char kSettingsZippyLearnMoreLink[] = "Learn more";
+
+// &ensp;
+constexpr char kEnsp[] = "\xe2\x80\x82";
+
 const test::UIPath kAssistantLoading = {kAssistantOptInId,
                                         kAssistantOptInFlowCard, kLoading};
 const test::UIPath kLoadingRetryButton = {
     kAssistantOptInId, kAssistantOptInFlowCard, kLoading, "retry-button"};
+const test::UIPath kSettingsZippyTitleFirst = {
+    kAssistantOptInId, kAssistantOptInFlowCard, kValueProp, "title-0"};
+const test::UIPath kSettingsZippyDescriptionFirst = {
+    kAssistantOptInId, kAssistantOptInFlowCard, kValueProp, "description-0"};
+const test::UIPath kSettingsZippyAdditionalInfoFirst = {
+    kAssistantOptInId, kAssistantOptInFlowCard, kValueProp,
+    "additional-info-0"};
 
 const test::UIPath kAssistantValueProp = {kAssistantOptInId,
                                           kAssistantOptInFlowCard, kValueProp};
@@ -251,11 +270,11 @@ class ScopedAssistantSettings : public assistant::AssistantSettings {
     activity_control_ui->add_footer_paragraph();
     activity_control_ui->set_footer_paragraph(0, "A footer");
     auto* setting = activity_control_ui->add_setting_zippy();
-    setting->set_title("Cool feature");
+    setting->set_title(kSettingsZippyTitle);
     setting->add_description_paragraph();
-    setting->set_description_paragraph(0, "But needs consent");
+    setting->set_description_paragraph(0, kSettingsZippyDescription);
     setting->add_additional_info_paragraph();
-    setting->set_additional_info_paragraph(0, "And it's really cool");
+    setting->set_additional_info_paragraph(0, kSettingsZippyAdditionalInfo);
     setting->set_icon_uri("assistant_icon");
     setting->set_setting_set_id(assistant::SettingSetId::WAA);
   }
@@ -391,18 +410,18 @@ class AssistantOptInFlowBaseTest : public OobeBaseTest {
 
   // Waits for the button specified by IDs in `button_path` to become enabled,
   // and then taps it.
-  void TapWhenEnabled(std::initializer_list<base::StringPiece> button_path) {
+  void TapWhenEnabled(std::initializer_list<std::string_view> button_path) {
     test::OobeJS().CreateEnabledWaiter(true, button_path)->Wait();
     test::OobeJS().TapOnPath(button_path);
   }
 
-  bool ElementHasAttribute(std::initializer_list<base::StringPiece> element,
+  bool ElementHasAttribute(std::initializer_list<std::string_view> element,
                            const std::string& attribute) {
     return test::OobeJS().GetBool(test::GetOobeElementPath(element) +
                                   ".getAttribute('" + attribute + "')");
   }
 
-  void WaitForElementAttribute(std::initializer_list<base::StringPiece> element,
+  void WaitForElementAttribute(std::initializer_list<std::string_view> element,
                                const std::string& attribute) {
     test::OobeJS()
         .CreateWaiter(test::GetOobeElementPath(element) + ".getAttribute('" +
@@ -582,7 +601,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, AssistantStateUpdateAfterShow) {
                                      1);
 }
 
-// TODO(crbug.com/1513726): Flaky on ChromeOS.
+// TODO(crbug.com/41486294): Flaky on ChromeOS.
 IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest,
                        DISABLED_RetryOnWebviewLoadFail) {
   auto force_lib_assistant_enabled =
@@ -653,7 +672,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, RejectValueProp) {
                                      1);
 }
 
-// TODO(crbug.com/1454755): Flaky on ChromeOS.
+// TODO(crbug.com/40917081): Flaky on ChromeOS.
 #if BUILDFLAG(IS_CHROMEOS)
 #define MAYBE_SkipShowingValueProp DISABLED_SkipShowingValueProp
 #else
@@ -995,6 +1014,14 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowMinorModeTest,
   test::OobeJS().CreateVisibilityWaiter(true, kAssistantValueProp)->Wait();
   EXPECT_FALSE(
       test::OobeJS().GetAttributeBool("inverse", kValuePropNextButton));
+  test::OobeJS().ExpectElementText(kSettingsZippyTitle,
+                                   kSettingsZippyTitleFirst);
+  test::OobeJS().ExpectElementText(
+      base::StrCat(
+          {kSettingsZippyDescription, kEnsp, kSettingsZippyLearnMoreLink}),
+      kSettingsZippyDescriptionFirst);
+  test::OobeJS().ExpectElementText(kSettingsZippyAdditionalInfo,
+                                   kSettingsZippyAdditionalInfoFirst);
   TapWhenEnabled(kValuePropNextButton);
   EXPECT_FALSE(
       test::OobeJS().GetAttributeBool("inverse", kValuePropNextButton));

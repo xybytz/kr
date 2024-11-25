@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
 
 #include "components/viz/test/test_context_provider.h"
@@ -12,11 +17,14 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_tester.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_rect_init.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_background_blur.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_plane_layout.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_union_blob_htmlcanvaselement_htmlimageelement_htmlvideoelement_imagebitmap_imagedata_offscreencanvas_svgimageelement_videoframe.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_union_cssimagevalue_htmlcanvaselement_htmlimageelement_htmlvideoelement_imagebitmap_offscreencanvas_svgimageelement_videoframe.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_decoder_config.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_frame_copy_to_options.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_frame_init.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_video_frame_metadata.h"
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap.h"
 #include "third_party/blink/renderer/modules/canvas/imagebitmap/image_bitmap_factories.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame_handle.h"
@@ -49,7 +57,7 @@ class VideoFrameTest : public testing::Test {
     InitializeSharedGpuContextGLES2(test_context_provider_.get());
   }
 
-  void TearDown() override { SharedGpuContext::ResetForTesting(); }
+  void TearDown() override { SharedGpuContext::Reset(); }
 
   VideoFrame* CreateBlinkVideoFrame(
       scoped_refptr<media::VideoFrame> media_frame,
@@ -280,7 +288,7 @@ TEST_F(VideoFrameTest, ImageBitmapCreationAndZeroCopyRoundTrip) {
 
   const auto* default_options = ImageBitmapOptions::Create();
   auto* image_bitmap = MakeGarbageCollected<ImageBitmap>(
-      UnacceleratedStaticBitmapImage::Create(original_image), absl::nullopt,
+      UnacceleratedStaticBitmapImage::Create(original_image), std::nullopt,
       default_options);
   auto* source = MakeGarbageCollected<V8CanvasImageSource>(image_bitmap);
   auto* video_frame = VideoFrame::Create(scope.GetScriptState(), source, init,
@@ -351,7 +359,7 @@ TEST_F(VideoFrameTest, ImageReuse_VideoFrameFromImage) {
 
   const auto* default_options = ImageBitmapOptions::Create();
   auto* image_bitmap_layer = MakeGarbageCollected<ImageBitmap>(
-      UnacceleratedStaticBitmapImage::Create(original_image), absl::nullopt,
+      UnacceleratedStaticBitmapImage::Create(original_image), std::nullopt,
       default_options);
 
   TestWrappedVideoFrameImageReuse(
@@ -370,7 +378,7 @@ TEST_F(VideoFrameTest, ImageReuse_VideoFrameFromVideoFrameFromImage) {
 
   const auto* default_options = ImageBitmapOptions::Create();
   auto* image_bitmap = MakeGarbageCollected<ImageBitmap>(
-      UnacceleratedStaticBitmapImage::Create(original_image), absl::nullopt,
+      UnacceleratedStaticBitmapImage::Create(original_image), std::nullopt,
       default_options);
 
   auto* init = VideoFrameInit::Create();
@@ -392,7 +400,7 @@ TEST_F(VideoFrameTest, VideoFrameFromGPUImageBitmap) {
   auto resource_provider = CanvasResourceProvider::CreateSharedImageProvider(
       SkImageInfo::MakeN32Premul(100, 100), cc::PaintFlags::FilterQuality::kLow,
       CanvasResourceProvider::ShouldInitialize::kNo, context_provider_wrapper,
-      RasterMode::kGPU, /*shared_image_usage_flags=*/0u);
+      RasterMode::kGPU, gpu::SharedImageUsageSet());
 
   scoped_refptr<StaticBitmapImage> bitmap =
       resource_provider->Snapshot(FlushReason::kTesting);
@@ -630,6 +638,34 @@ TEST_F(VideoFrameTest,
   // externally allocated memory  when close has not been called before.
   EXPECT_EQ(scope.GetIsolate()->AdjustAmountOfExternalAllocatedMemory(0),
             initial_external_memory);
+}
+
+TEST_F(VideoFrameTest, MetadataBackgroundBlurIsExposedCorrectly) {
+  V8TestingScope scope;
+
+  scoped_refptr<media::VideoFrame> media_frame =
+      CreateDefaultBlackMediaVideoFrame();
+  auto* blink_frame =
+      CreateBlinkVideoFrame(media_frame, scope.GetExecutionContext());
+
+  // Background blur not populated when it isn't present on `media_frame`.
+  EXPECT_EQ(
+      blink_frame->metadata(scope.GetExceptionState())->hasBackgroundBlur(),
+      false);
+
+  // Background blur enabled is passed through.
+  media_frame->metadata().background_blur = media::EffectInfo{.enabled = true};
+  EXPECT_EQ(blink_frame->metadata(scope.GetExceptionState())
+                ->backgroundBlur()
+                ->enabled(),
+            true);
+
+  // Background blur disabled is passed through.
+  media_frame->metadata().background_blur = media::EffectInfo{.enabled = false};
+  EXPECT_EQ(blink_frame->metadata(scope.GetExceptionState())
+                ->backgroundBlur()
+                ->enabled(),
+            false);
 }
 
 }  // namespace

@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "extensions/browser/api/declarative_webrequest/webrequest_rules_registry.h"
 
 #include <stddef.h>
@@ -31,10 +36,6 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest-message.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-#include "chromeos/lacros/lacros_test_helper.h"
-#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 namespace helpers = extension_web_request_api_helpers;
 namespace keys = extensions::declarative_webrequest_constants;
@@ -228,10 +229,6 @@ class WebRequestRulesRegistryTest : public testing::Test {
 
  protected:
   content::BrowserTaskEnvironment task_environment_;
-
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  chromeos::ScopedLacrosServiceTestHelper lacros_service_test_helper_;
-#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
   TestingProfile profile_;
   // Two extensions with host permissions for all URLs and the DWR permission.

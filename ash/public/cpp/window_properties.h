@@ -73,9 +73,6 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<int32_t>* const
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
     kExcludeInMruKey;
 
-ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
-    kFrameRateThrottleKey;
-
 // A property key to indicate whether we should hide this window in overview
 // mode and Alt + Tab.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
@@ -84,6 +81,11 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
 // A property key to exclude the window in the transient tree iterator.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
     kExcludeFromTransientTreeTransformKey;
+
+// A property key that ignores window activation changes on the window even if
+// it is activatable.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
+    kIgnoreWindowActivationKey;
 
 // A property key to indicate whether we should hide this window in the shelf.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
@@ -104,6 +106,11 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
 // source.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
     kForceVisibleInMiniViewKey;
+
+// Set on lacros browser windows and identifies the lacros profile used to
+// launch the browser. See desk_profiles_delegate.h for more information.
+ASH_PUBLIC_EXPORT extern const aura::WindowProperty<uint64_t>* const
+    kLacrosProfileId;
 
 // A property key to store whether we should minimize a window when a system
 // synthesized back event (back gesture, back button) is processed by this

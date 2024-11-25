@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "ash/ash_export.h"
-#include "ash/display/window_tree_host_manager.h"
 #include "ash/login/login_screen_controller.h"
 #include "ash/login/ui/login_data_dispatcher.h"
 #include "ash/public/cpp/image_downloader.h"
@@ -34,6 +33,7 @@
 #include "ash/wallpaper/wallpaper_file_manager.h"
 #include "ash/wallpaper/wallpaper_time_of_day_scheduler.h"
 #include "ash/wallpaper/wallpaper_utils/wallpaper_calculated_colors.h"
+#include "ash/webui/common/mojom/sea_pen.mojom.h"
 #include "ash/webui/personalization_app/mojom/personalization_app.mojom-forward.h"
 #include "ash/wm/overview/overview_observer.h"
 #include "base/containers/flat_map.h"
@@ -49,6 +49,7 @@
 #include "components/user_manager/user_type.h"
 #include "ui/compositor/compositor_lock.h"
 #include "ui/display/display_observer.h"
+#include "ui/display/manager/display_manager_observer.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/native_theme/native_theme_observer.h"
@@ -88,7 +89,7 @@ using CustomWallpaperMap = std::map<AccountId, CustomWallpaperElement>;
 //     state is ACTIVE;
 class ASH_EXPORT WallpaperControllerImpl
     : public WallpaperController,
-      public WindowTreeHostManager::Observer,
+      public display::DisplayManagerObserver,
       public ShellObserver,
       public LoginDataDispatcher::Observer,
       public SessionObserver,
@@ -111,7 +112,6 @@ class ASH_EXPORT WallpaperControllerImpl
   // non-production members i.e. in tests.
   explicit WallpaperControllerImpl(
       std::unique_ptr<WallpaperPrefManager> pref_manager,
-      std::unique_ptr<OnlineWallpaperVariantInfoFetcher> fetcher,
       std::unique_ptr<WallpaperImageDownloader> image_downloader);
 
   WallpaperControllerImpl(const WallpaperControllerImpl&) = delete;
@@ -161,9 +161,6 @@ class ASH_EXPORT WallpaperControllerImpl
   // the faster animation that's used e.g. when switching between different
   // wallpapers at login screen).
   bool ShouldShowInitialAnimation();
-
-  // Returns true if the active user is allowed to open the wallpaper picker.
-  bool CanOpenWallpaperPicker();
 
   // Returns whether any wallpaper has been shown. It returns false before the
   // first wallpaper is set (which happens momentarily after startup), and will
@@ -238,9 +235,6 @@ class ASH_EXPORT WallpaperControllerImpl
 
   // WallpaperController:
   void SetClient(WallpaperControllerClient* client) override;
-  WallpaperDragDropDelegate* GetDragDropDelegate() override;
-  void SetDragDropDelegate(
-      std::unique_ptr<WallpaperDragDropDelegate> delegate) override;
   void SetDriveFsDelegate(
       std::unique_ptr<WallpaperDriveFsDelegate> drivefs_delegate) override;
   void Init(const base::FilePath& user_data,
@@ -298,19 +292,9 @@ class ASH_EXPORT WallpaperControllerImpl
                               WallpaperLayout layout,
                               const gfx::ImageSkia& image) override;
   void SetSeaPenWallpaper(const AccountId& account_id,
-                          const SeaPenImage& sea_pen_image,
-                          const std::string& query_info,
+                          uint32_t image_id,
+                          bool preview_mode,
                           SetWallpaperCallback callback) override;
-
-  void SetSeaPenWallpaperFromFile(const AccountId& account_id,
-                                  const base::FilePath& file_path,
-                                  SetWallpaperCallback callback) override;
-
-  void DeleteRecentSeaPenImage(
-      const AccountId& account_id,
-      const base::FilePath& file_path,
-      DeleteRecentSeaPenImageCallback callback) override;
-
   void ConfirmPreviewWallpaper() override;
   void CancelPreviewWallpaper() override;
   void UpdateCurrentWallpaperLayout(const AccountId& account_id,
@@ -339,7 +323,8 @@ class ASH_EXPORT WallpaperControllerImpl
   bool IsWallpaperControlledByPolicy(
       const AccountId& account_id) const override;
   std::optional<WallpaperInfo> GetActiveUserWallpaperInfo() const override;
-  bool ShouldShowWallpaperSetting() override;
+  std::optional<WallpaperInfo> GetWallpaperInfoForAccountId(
+      const AccountId& account_id) const override;
   void SetDailyRefreshCollectionId(const AccountId& account_id,
                                    const std::string& collection_id) override;
   std::string GetDailyRefreshCollectionId(
@@ -347,9 +332,10 @@ class ASH_EXPORT WallpaperControllerImpl
   void UpdateDailyRefreshWallpaper(
       RefreshWallpaperCallback callback = base::DoNothing()) override;
   void SyncLocalAndRemotePrefs(const AccountId& account_id) override;
+  const AccountId& CurrentAccountId() const override;
 
-  // WindowTreeHostManager::Observer:
-  void OnDisplayConfigurationChanged() override;
+  // display::DisplayManagerObserver:
+  void OnDidApplyDisplayChanges() override;
 
   // ShellObserver:
   void OnRootWindowAdded(aura::Window* root_window) override;
@@ -400,8 +386,9 @@ class ASH_EXPORT WallpaperControllerImpl
   // Proxy to private ReloadWallpaper().
   void ReloadWallpaperForTesting(bool clear_cache);
 
-  // Needed when logoff is simulated in testing.
-  void ClearPrefChangeObserverForTesting();
+  // Overrides `drivefs_delegate_` for testing.
+  void OverrideDriveFsDelegateForTesting(
+      std::unique_ptr<WallpaperDriveFsDelegate> drivefs_delegate);
 
   void set_bypass_decode_for_testing() { bypass_decode_for_testing_ = true; }
 
@@ -422,6 +409,10 @@ class ASH_EXPORT WallpaperControllerImpl
 
   raw_ptr<WallpaperTimeOfDayScheduler> time_of_day_scheduler_for_testing() {
     return time_of_day_scheduler_.get();
+  }
+
+  raw_ptr<WallpaperPrefManager> pref_manager_for_testing() {
+    return pref_manager_.get();
   }
 
  private:
@@ -570,9 +561,19 @@ class ASH_EXPORT WallpaperControllerImpl
   // Used as the callback of SeaPen wallpaper decoding. Shows the wallpaper
   // immediately if `account_id` is for the active user.
   void OnSeaPenWallpaperDecoded(const AccountId& account_id,
-                                const base::FilePath& file_path,
+                                uint32_t sea_pen_image_id,
+                                bool preview_mode,
                                 SetWallpaperCallback callback,
                                 const gfx::ImageSkia& image_skia);
+
+  void OnSeaPenWallpaperSavedToPublic(const AccountId& account_id,
+                                      const gfx::ImageSkia& image_skia,
+                                      uint32_t sea_pen_image_id,
+                                      bool preview_mode,
+                                      SetWallpaperCallback callback,
+                                      const base::FilePath& file_path);
+
+  void OnSeaPenFilesMigrated(const AccountId& account_id, bool success);
 
   // Saves |image| to disk if the user's data is not ephemeral, or if it is a
   // policy wallpaper for public accounts. Shows the wallpaper immediately if
@@ -775,10 +776,6 @@ class ASH_EXPORT WallpaperControllerImpl
   // Manages interactions with relevant preferences.
   std::unique_ptr<WallpaperPrefManager> pref_manager_;
 
-  // The delegate for drag-and-drop events over the wallpaper.
-  // NOTE: May be `nullptr` when drag-and-drop related features are disabled.
-  std::unique_ptr<WallpaperDragDropDelegate> drag_drop_delegate_;
-
   std::unique_ptr<WallpaperDriveFsDelegate> drivefs_delegate_;
 
   // Asynchronous task to extract colors from the wallpaper.
@@ -789,7 +786,7 @@ class ASH_EXPORT WallpaperControllerImpl
   std::unique_ptr<WallpaperWindowStateManager> window_state_manager_;
 
   // Delegate to resolve online wallpaper variants.
-  std::unique_ptr<OnlineWallpaperVariantInfoFetcher> variant_info_fetcher_;
+  OnlineWallpaperVariantInfoFetcher variant_info_fetcher_;
 
   // Manages the state of wallpaper blur.
   const std::unique_ptr<WallpaperBlurManager> blur_manager_;
@@ -799,7 +796,7 @@ class ASH_EXPORT WallpaperControllerImpl
   std::optional<WallpaperCalculatedColors> calculated_colors_;
 
   // Account id of the current user.
-  AccountId current_user_;
+  AccountId current_account_id_;
 
   // Cached wallpapers of users.
   CustomWallpaperMap wallpaper_cache_map_;

@@ -26,14 +26,19 @@ import org.mockito.junit.MockitoRule;
 
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ContextUtils;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.supplier.OneshotSupplier;
 import org.chromium.base.supplier.OneshotSupplierImpl;
 import org.chromium.base.test.util.AdvancedMockContext;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Features.DisableFeatures;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.app.tabmodel.TabWindowManagerSingleton;
 import org.chromium.chrome.browser.app.tabmodel.TabbedModeTabModelOrchestrator;
+import org.chromium.chrome.browser.crypto.CipherFactory;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.price_tracking.PriceTrackingFeatures;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.profiles.ProfileProvider;
@@ -50,7 +55,7 @@ import org.chromium.chrome.browser.tabpersistence.TabStateDirectory;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.browser.tabmodel.MockTabModel;
 import org.chromium.chrome.test.util.browser.tabmodel.MockTabModelSelector;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.url.GURL;
 
 import java.nio.ByteBuffer;
@@ -69,9 +74,12 @@ public class TabbedModeTabPersistencePolicyTest {
     @Mock ProfileProvider mProfileProvider;
     @Mock Profile mProfile;
     @Mock Profile mIncognitoProfile;
+    @Mock ActivityLifecycleDispatcher mActivityLifecycleDispatcher;
+    @Mock ModalDialogManager mModalDialogManager;
 
     private TestTabModelDirectory mMockDirectory;
     private AdvancedMockContext mAppContext;
+    private CipherFactory mCipherFactory;
 
     @Before
     public void setUp() throws Exception {
@@ -80,6 +88,7 @@ public class TabbedModeTabPersistencePolicyTest {
                     @Override
                     public TabModelSelector buildSelector(
                             Context context,
+                            ModalDialogManager modalDialogManager,
                             OneshotSupplier<ProfileProvider> profileProviderSupplier,
                             TabCreatorManager tabCreatorManager,
                             NextTabPolicySupplier nextTabPolicySupplier) {
@@ -100,6 +109,8 @@ public class TabbedModeTabPersistencePolicyTest {
                         TabStateDirectory.TABBED_MODE_DIRECTORY);
         TabStateDirectory.setBaseStateDirectoryForTests(mMockDirectory.getBaseDirectory());
 
+        mCipherFactory = new CipherFactory();
+
         Mockito.when(mProfileProvider.getOriginalProfile()).thenReturn(mProfile);
         Mockito.when(mIncognitoProfile.isOffTheRecord()).thenReturn(true);
         PriceTrackingFeatures.setPriceTrackingEnabledForTesting(false);
@@ -117,7 +128,7 @@ public class TabbedModeTabPersistencePolicyTest {
     }
 
     private TabbedModeTabModelOrchestrator buildTestTabModelSelector(
-            int[] normalTabIds, int[] incognitoTabIds) throws Exception {
+            int[] normalTabIds, int[] incognitoTabIds, boolean removeTabs) throws Exception {
         final CallbackHelper callbackSignal = new CallbackHelper();
         final int callCount = callbackSignal.getCallCount();
 
@@ -133,30 +144,35 @@ public class TabbedModeTabPersistencePolicyTest {
                                         return new GURL("https://www.google.com");
                                     }
                                 };
-                        tab.initialize(null, null, null, null, null, false, null, false);
+                        tab.initialize(null, null, null, null, null, null, false, null, false);
                         return tab;
                     }
                 };
 
         final MockTabModel normalTabModel =
-                TestThreadUtils.runOnUiThreadBlocking(
+                ThreadUtils.runOnUiThreadBlocking(
                         () -> new MockTabModel(mProfile, tabModelDelegate));
         final MockTabModel incognitoTabModel =
-                TestThreadUtils.runOnUiThreadBlocking(
+                ThreadUtils.runOnUiThreadBlocking(
                         () -> new MockTabModel(mIncognitoProfile, tabModelDelegate));
         TabbedModeTabModelOrchestrator orchestrator =
-                TestThreadUtils.runOnUiThreadBlocking(
+                ThreadUtils.runOnUiThreadBlocking(
                         () -> {
                             OneshotSupplierImpl<ProfileProvider> profileProviderSupplier =
                                     new OneshotSupplierImpl<>();
                             profileProviderSupplier.set(mProfileProvider);
                             TabbedModeTabModelOrchestrator tmpOrchestrator =
-                                    new TabbedModeTabModelOrchestrator(false);
+                                    new TabbedModeTabModelOrchestrator(
+                                            false, mActivityLifecycleDispatcher, mCipherFactory);
                             tmpOrchestrator.createTabModels(
                                     new ChromeTabbedActivity(),
+                                    mModalDialogManager,
                                     profileProviderSupplier,
                                     null,
                                     null,
+                                    (activityAtRequestedIndex,
+                                            isActivityInAppTasks,
+                                            isActivityInSameTask) -> false,
                                     0);
                             TabModelSelector selector = tmpOrchestrator.getTabModelSelector();
                             ((MockTabModelSelector) selector)
@@ -164,7 +180,7 @@ public class TabbedModeTabPersistencePolicyTest {
                             return tmpOrchestrator;
                         });
         TabPersistentStore store =
-                TestThreadUtils.runOnUiThreadBlocking(
+                ThreadUtils.runOnUiThreadBlocking(
                         () -> {
                             TabPersistentStore tmpStore =
                                     orchestrator.getTabPersistentStoreForTesting();
@@ -192,11 +208,22 @@ public class TabbedModeTabPersistencePolicyTest {
                                 addTabToSaveQueue(
                                         store, incognitoTabModel, incognitoTabModel.addTab(tabId));
                             }
-                            TabModelUtils.setIndex(normalTabModel, 0, false);
-                            TabModelUtils.setIndex(incognitoTabModel, 0, false);
+                            TabModelUtils.setIndex(normalTabModel, 0);
+                            TabModelUtils.setIndex(incognitoTabModel, 0);
                         });
         callbackSignal.waitForCallback(callCount);
+        if (removeTabs) {
+            ThreadUtils.runOnUiThreadBlocking(
+                    () -> {
+                        removeAllTabs(normalTabModel);
+                        removeAllTabs(incognitoTabModel);
+                    });
+        }
         return orchestrator;
+    }
+
+    private void removeAllTabs(MockTabModel tabModel) {
+        while (tabModel.getCount() > 0) tabModel.removeTab(tabModel.getTabAt(0));
     }
 
     private void addTabToSaveQueue(TabPersistentStore store, TabModel tabModel, Tab tab) {
@@ -214,21 +241,33 @@ public class TabbedModeTabPersistencePolicyTest {
     @Test
     @Feature("TabPersistentStore")
     @MediumTest
+    @DisableFeatures({
+        ChromeFeatureList.TAB_WINDOW_MANAGER_REPORT_INDICES_MISMATCH,
+        ChromeFeatureList.ANDROID_TAB_DECLUTTER_RESCUE_KILLSWITCH
+    })
     public void testCleanupInstanceState() throws Throwable {
         Assert.assertNotNull(TabStateDirectory.getOrCreateBaseStateDirectory());
 
         // Delete instance 1. Among the tabs (4, 6, 7) (12, 14, 19), only (4, 12, 14)
         // are not used by any other instances, therefore will be the target for cleanup.
-        buildTestTabModelSelector(new int[] {3, 5, 7}, new int[] {11, 13, 17});
+        //
+        // We remove the tabs to simulate that they weren't cleaned up and the instance is not
+        // running. A running instance would have had its tabs closed in
+        // MultiInstanceManagerApi31#closeInstance already. Failing to do so will throw an
+        // IllegalStateException.
+        buildTestTabModelSelector(
+                new int[] {3, 5, 7}, new int[] {11, 13, 17}, /* removeTabs= */ false);
         TabbedModeTabModelOrchestrator orchestrator1 =
-                buildTestTabModelSelector(new int[] {4, 6, 7}, new int[] {12, 14, 19});
-        buildTestTabModelSelector(new int[] {6, 8, 9}, new int[] {15, 18, 19});
+                buildTestTabModelSelector(
+                        new int[] {4, 6, 7}, new int[] {12, 14, 19}, /* removeTabs= */ true);
+        buildTestTabModelSelector(
+                new int[] {6, 8, 9}, new int[] {15, 18, 19}, /* removeTabs= */ false);
 
         final int id = 1;
         TabPersistencePolicy policy =
                 orchestrator1.getTabPersistentStoreForTesting().getTabPersistencePolicyForTesting();
         final CallbackHelper callbackSignal = new CallbackHelper();
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     policy.cleanupInstanceState(
                             id,

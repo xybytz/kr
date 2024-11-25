@@ -26,6 +26,7 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/notification_display_service.h"
+#include "chrome/browser/notifications/notification_display_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
@@ -43,9 +44,9 @@
 #include "extensions/browser/image_loader.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/extension_icon_set.h"
 #include "extensions/common/extension_id.h"
 #include "extensions/common/extension_set.h"
+#include "extensions/common/icons/extension_icon_set.h"
 #include "extensions/common/manifest_handlers/background_info.h"
 #include "extensions/common/manifest_handlers/icons_handler.h"
 #include "extensions/grit/extensions_browser_resources.h"
@@ -78,7 +79,7 @@ void CloseBalloon(const std::string& extension_id, Profile* profile) {
   if (g_disable_close_balloon_for_testing)
     return;
 
-  NotificationDisplayService::GetForProfile(profile)->Close(
+  NotificationDisplayServiceFactory::GetForProfile(profile)->Close(
       NotificationHandler::Type::TRANSIENT,
       kCrashedNotificationPrefix + extension_id);
 }
@@ -361,7 +362,6 @@ void BackgroundContentsService::OnExtensionUnloaded(
     }
   }
   NOTREACHED() << "Undefined UnloadedExtensionReason.";
-  return ShutdownAssociatedBackgroundContents(extension->id());
 }
 
 void BackgroundContentsService::OnExtensionUninstalled(
@@ -429,8 +429,8 @@ void BackgroundContentsService::LoadBackgroundContentsFromPrefs() {
   DCHECK(extension_registry);
   for (const auto [extension_id, _] : contents) {
     // Check to make sure that the parent extension is still enabled.
-    const Extension* extension = extension_registry->GetExtensionById(
-        extension_id, extensions::ExtensionRegistry::ENABLED);
+    const Extension* extension =
+        extension_registry->enabled_extensions().GetByID(extension_id);
     if (!extension) {
       // Normally, we shouldn't reach here - it shouldn't be possible for an app
       // to become uninstalled without the associated BackgroundContents being
@@ -472,9 +472,9 @@ void BackgroundContentsService::MaybeClearBackoffEntry(
 void BackgroundContentsService::LoadBackgroundContentsForExtension(
     const std::string& extension_id) {
   // First look if the manifest specifies a background page.
-  const Extension* extension =
-      extensions::ExtensionRegistry::Get(profile_)->GetExtensionById(
-          extension_id, extensions::ExtensionRegistry::ENABLED);
+  const Extension* extension = extensions::ExtensionRegistry::Get(profile_)
+                                   ->enabled_extensions()
+                                   .GetByID(extension_id);
   DCHECK(!extension || extension->is_hosted_app());
   if (extension && BackgroundInfo::HasBackgroundPage(extension)) {
     LoadBackgroundContents(BackgroundInfo::GetBackgroundURL(extension),
@@ -692,8 +692,8 @@ void BackgroundContentsService::OnBackgroundContentsNavigated(
   const std::string& appid = GetParentApplicationId(contents);
   extensions::ExtensionRegistry* extension_registry =
       extensions::ExtensionRegistry::Get(profile_);
-  const Extension* extension = extension_registry->GetExtensionById(
-      appid, extensions::ExtensionRegistry::ENABLED);
+  const Extension* extension =
+      extension_registry->enabled_extensions().GetByID(appid);
   if (extension && BackgroundInfo::HasBackgroundPage(extension))
     return;
   RegisterBackgroundContents(contents);
@@ -701,10 +701,9 @@ void BackgroundContentsService::OnBackgroundContentsNavigated(
 
 void BackgroundContentsService::OnBackgroundContentsTerminated(
     BackgroundContents* contents) {
-  HandleExtensionCrashed(
-      extensions::ExtensionRegistry::Get(profile_)->GetExtensionById(
-          GetParentApplicationId(contents),
-          extensions::ExtensionRegistry::ENABLED));
+  HandleExtensionCrashed(extensions::ExtensionRegistry::Get(profile_)
+                             ->enabled_extensions()
+                             .GetByID(GetParentApplicationId(contents)));
   DeleteBackgroundContents(contents);
 }
 
@@ -746,7 +745,7 @@ void BackgroundContentsService::NotificationImageReady(
     scoped_refptr<message_center::NotificationDelegate> delegate,
     const gfx::Image& icon) {
   NotificationDisplayService* notification_service =
-      NotificationDisplayService::GetForProfile(profile_);
+      NotificationDisplayServiceFactory::GetForProfile(profile_);
   CHECK(notification_service);
 
   if (g_browser_process->IsShuttingDown()) {
@@ -791,7 +790,7 @@ void BackgroundContentsService::ShowBalloon(const Extension* extension) {
   extension_misc::ExtensionIcons size(extension_misc::EXTENSION_ICON_LARGE);
   extensions::ExtensionResource resource =
       extensions::IconsInfo::GetIconResource(extension, size,
-                                             ExtensionIconSet::MATCH_SMALLER);
+                                             ExtensionIconSet::Match::kSmaller);
   // We can't just load the image in the Observe method below because, despite
   // what this method is called, it may call the callback synchronously.
   // However, it's possible that the extension went away during the interim,

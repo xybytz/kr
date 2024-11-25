@@ -8,6 +8,7 @@
 #include "base/functional/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/test/bind.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/test_future.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/api/browsing_data/browsing_data_api.h"
@@ -16,12 +17,11 @@
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/sync/sync_ui_util.h"
-#include "chrome/browser/ui/browser.h"
-#include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/base/chrome_test_utils.h"
+#include "chrome/test/base/platform_browser_test.h"
 #include "components/services/storage/public/mojom/local_storage_control.mojom.h"
 #include "components/services/storage/public/mojom/storage_usage_info.mojom.h"
 #include "components/signin/public/base/signin_buildflags.h"
-#include "components/signin/public/base/signin_switches.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
 #include "components/sync/service/sync_service.h"
@@ -29,28 +29,38 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/test/browser_test.h"
 #include "extensions/browser/api_test_utils.h"
+#include "extensions/test/test_extension_dir.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_inclusion_status.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/dom_storage/storage_area.mojom.h"
 #include "url/gurl.h"
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "chrome/browser/extensions/extension_apitest.h"
+#endif
+
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+#include "chrome/browser/ui/browser.h"
+#endif
 
 using extensions::api_test_utils::RunFunctionAndReturnSingleResult;
 
 namespace {
 
-class ExtensionBrowsingDataTest : public InProcessBrowserTest {
+class ExtensionBrowsingDataTest : public PlatformBrowserTest {
  public:
-  ExtensionBrowsingDataTest() {
-    // TODO(b/314968275): Add tests for when UNO Desktop is enabled.
-    scoped_feature_list_.InitAndDisableFeature(switches::kUnoDesktop);
-  }
+  ExtensionBrowsingDataTest() = default;
+  ExtensionBrowsingDataTest(const ExtensionBrowsingDataTest&) = delete;
+  ExtensionBrowsingDataTest& operator=(const ExtensionBrowsingDataTest&) =
+      delete;
+  ~ExtensionBrowsingDataTest() override = default;
 
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
+  Profile* GetProfile() { return chrome_test_utils::GetProfile(this); }
 };
 
 class ExtensionBrowsingDataTestWithStoragePartitioning
@@ -238,10 +248,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, DeleteLocalStorageAll) {
   const blink::StorageKey key2 =
       blink::StorageKey::CreateFromStringForTesting("https://other.com");
   // Create some local storage for each of the origins.
-  CreateLocalStorageForKey(browser()->profile(), key1);
-  CreateLocalStorageForKey(browser()->profile(), key2);
+  CreateLocalStorageForKey(GetProfile(), key1);
+  CreateLocalStorageForKey(GetProfile(), key2);
   // Verify that the data is actually stored.
-  auto usage_infos = GetLocalStorage(browser()->profile());
+  auto usage_infos = GetLocalStorage(GetProfile());
   EXPECT_EQ(2U, usage_infos.size());
   EXPECT_TRUE(UsageInfosHasStorageKey(usage_infos, key1));
   EXPECT_TRUE(UsageInfosHasStorageKey(usage_infos, key2));
@@ -249,9 +259,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, DeleteLocalStorageAll) {
   // Clear the data for everything.
   auto function = base::MakeRefCounted<BrowsingDataRemoveFunction>();
   EXPECT_FALSE(RunFunctionAndReturnSingleResult(
-      function.get(), kRemoveEverythingArguments, browser()->profile()));
+      function.get(), kRemoveEverythingArguments, GetProfile()));
 
-  usage_infos = GetLocalStorage(browser()->profile());
+  usage_infos = GetLocalStorage(GetProfile());
   EXPECT_EQ(0U, usage_infos.size());
 }
 
@@ -261,7 +271,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, DeleteLocalStorageIncognito) {
   const blink::StorageKey key2 =
       blink::StorageKey::CreateFromStringForTesting("https://other.com");
   // Create some local storage for each of the origins.
-  auto* incognito_profile = browser()->profile()->GetPrimaryOTRProfile(true);
+  auto* incognito_profile = GetProfile()->GetPrimaryOTRProfile(true);
   CreateLocalStorageForKey(incognito_profile, key1);
   CreateLocalStorageForKey(incognito_profile, key2);
   // Verify that the data is actually stored.
@@ -285,10 +295,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, DeleteLocalStorageOrigin) {
   const blink::StorageKey key2 =
       blink::StorageKey::CreateFromStringForTesting("https://other.com");
   // Create some local storage for each of the origins.
-  CreateLocalStorageForKey(browser()->profile(), key1);
-  CreateLocalStorageForKey(browser()->profile(), key2);
+  CreateLocalStorageForKey(GetProfile(), key1);
+  CreateLocalStorageForKey(GetProfile(), key2);
   // Verify that the data is actually stored.
-  auto usage_infos = GetLocalStorage(browser()->profile());
+  auto usage_infos = GetLocalStorage(GetProfile());
   EXPECT_EQ(2U, usage_infos.size());
   EXPECT_TRUE(UsageInfosHasStorageKey(usage_infos, key1));
   EXPECT_TRUE(UsageInfosHasStorageKey(usage_infos, key2));
@@ -302,9 +312,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, DeleteLocalStorageOrigin) {
     "localStorage": true
     }])";
   EXPECT_FALSE(RunFunctionAndReturnSingleResult(function.get(), removeArgs,
-                                                browser()->profile()));
+                                                GetProfile()));
 
-  usage_infos = GetLocalStorage(browser()->profile());
+  usage_infos = GetLocalStorage(GetProfile());
   EXPECT_EQ(1U, usage_infos.size());
   EXPECT_FALSE(UsageInfosHasStorageKey(usage_infos, key1));
   EXPECT_TRUE(UsageInfosHasStorageKey(usage_infos, key2));
@@ -359,11 +369,11 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTestWithStoragePartitioning,
                                          key5, key6, key7, key8};
   // Create some local storage for each of the keys.
   for (const auto& key : keys) {
-    CreateLocalStorageForKey(browser()->profile(), key);
+    CreateLocalStorageForKey(GetProfile(), key);
   }
 
   // Verify that the data is actually stored.
-  auto usage_infos = GetLocalStorage(browser()->profile());
+  auto usage_infos = GetLocalStorage(GetProfile());
   EXPECT_EQ(keys.size(), usage_infos.size());
   for (const auto& key : keys) {
     EXPECT_TRUE(UsageInfosHasStorageKey(usage_infos, key));
@@ -378,9 +388,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTestWithStoragePartitioning,
     "localStorage": true
     }])";
   EXPECT_FALSE(RunFunctionAndReturnSingleResult(function.get(), removeArgs,
-                                                browser()->profile()));
+                                                GetProfile()));
 
-  usage_infos = GetLocalStorage(browser()->profile());
+  usage_infos = GetLocalStorage(GetProfile());
   EXPECT_EQ(3U, usage_infos.size());
   EXPECT_FALSE(UsageInfosHasStorageKey(usage_infos, key1));
   EXPECT_FALSE(UsageInfosHasStorageKey(usage_infos, key2));
@@ -391,3 +401,43 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTestWithStoragePartitioning,
   EXPECT_FALSE(UsageInfosHasStorageKey(usage_infos, key7));
   EXPECT_FALSE(UsageInfosHasStorageKey(usage_infos, key8));
 }
+
+// TODO(crbug.com/371426261): Enable this test on desktop android.
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+class BrowsingDataApiTest : public extensions::ExtensionApiTest {};
+
+IN_PROC_BROWSER_TEST_F(BrowsingDataApiTest, ValidateFilters) {
+  static constexpr char kManifest[] =
+      R"({
+           "name": "Test",
+           "manifest_version": 3,
+           "version": "0.1",
+           "background": {"service_worker": "background.js"},
+           "permissions": ["browsingData"]
+         })";
+
+  static constexpr char kBackgroundJs[] = R"(chrome.test.runTests([
+      async function originFilter() {
+          await chrome.browsingData.remove(
+              {'origins': ['https://example.com']},
+              {'cookies': true});
+          chrome.test.succeed();
+      },
+      async function emptyOriginsFilter() {
+          const expectedError = new RegExp(
+              '.* Array must have at least 1 items; found 0.');
+          chrome.test.assertThrows(
+              chrome.browsingData.remove,
+              chrome.browsingData,
+              [{'origins': []}, {'cookies': true}],
+              expectedError);
+          chrome.test.succeed();
+      },
+  ]);)";
+
+  extensions::TestExtensionDir test_dir;
+  test_dir.WriteManifest(kManifest);
+  test_dir.WriteFile(FILE_PATH_LITERAL("background.js"), kBackgroundJs);
+  ASSERT_TRUE(RunExtensionTest(test_dir.UnpackedPath(), {}, {})) << message_;
+}
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)

@@ -12,13 +12,15 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.CollectionUtil;
 import org.chromium.base.Log;
 import org.chromium.base.Promise;
+import org.chromium.base.ServiceLoaderUtil;
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.lifetime.Destroyable;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.ActivityTabProvider;
-import org.chromium.chrome.browser.AppHooks;
-import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileKeyedMap;
+import org.chromium.chrome.browser.tab_ui.TabContentManager;
 import org.chromium.components.user_prefs.UserPrefs;
 
 import java.lang.ref.WeakReference;
@@ -29,14 +31,15 @@ import java.util.List;
  * Public interface for all usage stats related functionality. All calls to instances of
  * UsageStatsService must be made on the UI thread.
  */
-public class UsageStatsService {
+public class UsageStatsService implements Destroyable {
     private static final String TAG = "UsageStatsService";
 
-    private static UsageStatsService sInstance;
+    private static ProfileKeyedMap<UsageStatsService> sProfileMap =
+            ProfileKeyedMap.createMapOfDestroyables(
+                    ProfileKeyedMap.ProfileSelection.REDIRECTED_TO_ORIGINAL);
 
     private Profile mProfile;
     private EventTracker mEventTracker;
-    private NotificationSuspender mNotificationSuspender;
     private SuspensionTracker mSuspensionTracker;
     private TokenTracker mTokenTracker;
     private UsageStatsBridge mBridge;
@@ -53,42 +56,46 @@ public class UsageStatsService {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
     }
 
-    /** Get the global instance of UsageStatsService */
-    public static UsageStatsService getInstance() {
+    /** Return the {@link UsageStatsService} for the given {@link Profile}. */
+    public static UsageStatsService getForProfile(Profile profile) {
         assert isEnabled();
-        if (sInstance == null) {
-            sInstance = new UsageStatsService();
-        }
-
-        return sInstance;
+        return sProfileMap.getForProfile(profile, UsageStatsService::new);
     }
 
     /**
      * Creates a UsageStatsService for the given Activity if the feature is enabled.
+     *
      * @param activity The activity in which page view events are occurring.
+     * @param profile The {@link Profile} associated with the activity.
      * @param activityTabProvider The provider of the active tab for the activity.
      * @param tabContentManagerSupplier Supplier of the current {@link TabContentManager}.
      */
     public static void createPageViewObserverIfEnabled(
             Activity activity,
+            Profile profile,
             ActivityTabProvider activityTabProvider,
             Supplier<TabContentManager> tabContentManagerSupplier) {
         if (!isEnabled()) return;
 
-        getInstance()
+        getForProfile(profile)
                 .createPageViewObserver(activity, activityTabProvider, tabContentManagerSupplier);
     }
 
     @VisibleForTesting
-    UsageStatsService() {
-        mProfile = Profile.getLastUsedRegularProfile();
+    UsageStatsService(Profile profile) {
+        mProfile = profile;
         mBridge = new UsageStatsBridge(mProfile, this);
         mEventTracker = new EventTracker(mBridge);
-        mNotificationSuspender = new NotificationSuspender(mProfile);
-        mSuspensionTracker = new SuspensionTracker(mBridge, mNotificationSuspender);
+        mSuspensionTracker = new SuspensionTracker(mBridge, mProfile);
         mTokenTracker = new TokenTracker(mBridge);
         mPageViewObservers = new ArrayList<>();
-        mClient = AppHooks.get().createDigitalWellbeingClient();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            mClient = ServiceLoaderUtil.maybeCreate(DigitalWellbeingClient.class);
+        }
+        if (mClient == null) {
+            mClient = new DigitalWellbeingClient();
+        }
 
         mSuspensionTracker
                 .getAllSuspendedWebsites()
@@ -100,8 +107,13 @@ public class UsageStatsService {
         mOptInState = getOptInState();
     }
 
-    /* package */ NotificationSuspender getNotificationSuspender() {
-        return mNotificationSuspender;
+    @Override
+    public void destroy() {
+        mBridge.destroy();
+    }
+
+    public SuspensionTracker getSuspensionTracker() {
+        return mSuspensionTracker;
     }
 
     /**
@@ -220,7 +232,8 @@ public class UsageStatsService {
                                             (exceptionInner) -> {
                                                 Log.e(
                                                         TAG,
-                                                        "Failed to clear all events for history deletion");
+                                                        "Failed to clear all events for history"
+                                                                + " deletion");
                                             });
                         });
     }
@@ -245,7 +258,8 @@ public class UsageStatsService {
                                             (exceptionInner) -> {
                                                 Log.e(
                                                         TAG,
-                                                        "Failed to clear range of events for history deletion");
+                                                        "Failed to clear range of events for"
+                                                                + " history deletion");
                                             });
                         });
     }
@@ -266,7 +280,8 @@ public class UsageStatsService {
                                             (exceptionInner) -> {
                                                 Log.e(
                                                         TAG,
-                                                        "Failed to clear domain events for history deletion");
+                                                        "Failed to clear domain events for history"
+                                                                + " deletion");
                                             });
                         });
     }
@@ -286,13 +301,9 @@ public class UsageStatsService {
         return "1";
     }
 
-    public void stopTrackingToken(String token) {
-        return;
-    }
+    public void stopTrackingToken(String token) {}
 
-    public void setWebsitesSuspended(List<String> fqdns, boolean suspended) {
-        return;
-    }
+    public void setWebsitesSuspended(List<String> fqdns, boolean suspended) {}
 
     public List<String> getAllSuspendedWebsites() {
         return new ArrayList<>();

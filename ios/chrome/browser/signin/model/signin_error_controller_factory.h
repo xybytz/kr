@@ -5,21 +5,20 @@
 #ifndef IOS_CHROME_BROWSER_SIGNIN_MODEL_SIGNIN_ERROR_CONTROLLER_FACTORY_H_
 #define IOS_CHROME_BROWSER_SIGNIN_MODEL_SIGNIN_ERROR_CONTROLLER_FACTORY_H_
 
-#include <memory>
+#import <memory>
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 class SigninErrorController;
 
 namespace ios {
 // Singleton that owns all SigninErrorControllers and associates them with
-// ChromeBrowserState.
+// ProfileIOS.
 class SigninErrorControllerFactory : public BrowserStateKeyedServiceFactory {
  public:
-  static SigninErrorController* GetForBrowserState(
-      ChromeBrowserState* browser_state);
+  static SigninErrorController* GetForProfile(ProfileIOS* profile);
   static SigninErrorControllerFactory* GetInstance();
 
   SigninErrorControllerFactory(const SigninErrorControllerFactory&) = delete;

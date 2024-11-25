@@ -45,20 +45,12 @@ WebThreadScheduler::CreateMainThreadScheduler(
 
 // Stubs for main thread only virtual functions.
 scoped_refptr<base::SingleThreadTaskRunner>
-WebThreadScheduler::CompositorTaskRunner() {
-  NOTREACHED();
-  return nullptr;
-}
-
-scoped_refptr<base::SingleThreadTaskRunner>
 WebThreadScheduler::DeprecatedDefaultTaskRunner() {
   NOTREACHED();
-  return nullptr;
 }
 
 std::unique_ptr<MainThread> WebThreadScheduler::CreateMainThread() {
   NOTREACHED();
-  return nullptr;
 }
 
 void WebThreadScheduler::SetRendererHidden(bool hidden) {

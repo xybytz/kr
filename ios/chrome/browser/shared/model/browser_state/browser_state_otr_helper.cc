@@ -4,12 +4,11 @@
 
 #include "ios/chrome/browser/shared/model/browser_state/browser_state_otr_helper.h"
 
-#include "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/shared/model/profile/profile_ios.h"
 
 web::BrowserState* GetBrowserStateRedirectedInIncognito(
     web::BrowserState* browser_state) {
-  return static_cast<ChromeBrowserState*>(browser_state)
-      ->GetOriginalChromeBrowserState();
+  return ProfileIOS::FromBrowserState(browser_state)->GetOriginalProfile();
 }
 
 web::BrowserState* GetBrowserStateOwnInstanceInIncognito(

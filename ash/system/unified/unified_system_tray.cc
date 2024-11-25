@@ -8,7 +8,7 @@
 #include "ash/ash_element_identifiers.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/tray_background_view_catalog.h"
-#include "ash/focus_cycler.h"
+#include "ash/focus/focus_cycler.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
@@ -19,10 +19,10 @@
 #include "ash/system/channel_indicator/channel_indicator_utils.h"
 #include "ash/system/hotspot/hotspot_tray_view.h"
 #include "ash/system/human_presence/snooping_protection_view.h"
-#include "ash/system/notification_center/ash_message_popup_collection.h"
 #include "ash/system/model/clock_model.h"
 #include "ash/system/model/system_tray_model.h"
 #include "ash/system/network/network_tray_view.h"
+#include "ash/system/notification_center/ash_message_popup_collection.h"
 #include "ash/system/power/tray_power.h"
 #include "ash/system/privacy_screen/privacy_screen_toast_controller.h"
 #include "ash/system/status_area_widget.h"
@@ -59,6 +59,7 @@
 #include "ui/display/screen.h"
 #include "ui/display/tablet_state.h"
 #include "ui/gfx/geometry/point.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/view_class_properties.h"
 
@@ -115,11 +116,8 @@ UnifiedSystemTray::UnifiedSystemTray(Shelf* shelf)
   ime_mode_view_ = AddTrayItemToContainer(std::make_unique<ImeModeView>(shelf));
   managed_device_view_ = AddTrayItemToContainer(
       std::make_unique<ManagedDeviceTrayItemView>(shelf));
-
-  if (features::IsHotspotEnabled()) {
-    hotspot_tray_view_ =
-        AddTrayItemToContainer(std::make_unique<HotspotTrayView>(shelf));
-  }
+  hotspot_tray_view_ =
+      AddTrayItemToContainer(std::make_unique<HotspotTrayView>(shelf));
 
   if (features::IsSeparateNetworkIconsEnabled()) {
     AddTrayItemToContainer(std::make_unique<NetworkTrayView>(
@@ -133,7 +131,8 @@ UnifiedSystemTray::UnifiedSystemTray(Shelf* shelf)
             shelf, ActiveNetworkIcon::Type::kSingle));
   }
 
-  AddTrayItemToContainer(std::make_unique<PowerTrayView>(shelf));
+  power_tray_view_ =
+      AddTrayItemToContainer(std::make_unique<PowerTrayView>(shelf));
 
   if (ShouldChannelIndicatorBeShown()) {
     base::RecordAction(base::UserMetricsAction("Tray_ShowChannelInfo"));
@@ -179,6 +178,7 @@ void UnifiedSystemTray::OnButtonPressed(const ui::Event& event) {
 
   if (features::IsWelcomeTourEnabled()) {
     welcome_tour_metrics::RecordInteraction(
+        Shell::Get()->session_controller()->GetLastActiveUserPrefService(),
         welcome_tour_metrics::Interaction::kQuickSettings);
   }
 }
@@ -299,10 +299,6 @@ TrayBubbleView* UnifiedSystemTray::GetBubbleView() {
   return bubble_ ? bubble_->GetBubbleView() : nullptr;
 }
 
-const char* UnifiedSystemTray::GetClassName() const {
-  return "UnifiedSystemTray";
-}
-
 std::optional<AcceleratorAction> UnifiedSystemTray::GetAcceleratorAction()
     const {
   return std::make_optional(AcceleratorAction::kToggleSystemTrayBubble);
@@ -389,7 +385,7 @@ void UnifiedSystemTray::ShowBubble() {
   }
 }
 
-void UnifiedSystemTray::CloseBubble() {
+void UnifiedSystemTray::CloseBubbleInternal() {
   base::UmaHistogramMediumTimes("Ash.QuickSettings.UserJourneyTime",
                                 base::TimeTicks::Now() - time_opened_);
   HideBubbleInternal();
@@ -433,7 +429,7 @@ std::u16string UnifiedSystemTray::GetAccessibleNameForTray() {
   status.push_back(channel_indicator_view_ &&
                            channel_indicator_view_->GetVisible()
                        ? channel_indicator_view_->GetAccessibleNameString()
-                       : base::EmptyString16());
+                       : std::u16string());
 
   std::u16string network_string, hotspot_string;
   if (network_tray_view_->GetVisible()) {
@@ -454,15 +450,15 @@ std::u16string UnifiedSystemTray::GetAccessibleNameForTray() {
 
   status.push_back(managed_device_view_->GetVisible()
                        ? managed_device_view_->image_view()->GetTooltipText()
-                       : base::EmptyString16());
+                       : std::u16string());
 
   status.push_back(ime_mode_view_->GetVisible()
                        ? ime_mode_view_->label()->GetAccessibleNameString()
-                       : base::EmptyString16());
+                       : std::u16string());
   status.push_back(
       current_locale_view_->GetVisible()
           ? current_locale_view_->label()->GetAccessibleNameString()
-          : base::EmptyString16());
+          : std::u16string());
 
   return l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_ACCESSIBLE_DESCRIPTION,
                                     status, nullptr);
@@ -474,7 +470,18 @@ void UnifiedSystemTray::HideBubble(const TrayBubbleView* bubble_view) {
 
 void UnifiedSystemTray::HideBubbleWithView(const TrayBubbleView* bubble_view) {}
 
-void UnifiedSystemTray::ClickedOutsideBubble() {
+void UnifiedSystemTray::ClickedOutsideBubble(const ui::LocatedEvent& event) {
+  const gfx::Point event_location =
+      event.target() ? event.target()->GetScreenLocation(event)
+                     : event.root_location();
+
+  // When Quick Settings bubble is opened and the date tray is clicked, the
+  // bubble should not be closed since it will transition to show calendar.
+  if (shelf()->GetStatusAreaWidget()->date_tray()->GetBoundsInScreen().Contains(
+          event_location)) {
+    return;
+  }
+
   CloseBubble();
 }
 
@@ -519,6 +526,11 @@ void UnifiedSystemTray::ShowBubbleInternal() {
     return;
   }
   SetIsActive(true);
+
+  // UnifiedSystemTray::GetAccessibleNameForBubble() changes based on the value
+  // of ShowBubble(), so we need to set the accessible name once the bubble
+  // exists and is shown.
+  bubble_->bubble_view_->UpdateAccessibleName();
 }
 
 void UnifiedSystemTray::HideBubbleInternal() {
@@ -543,7 +555,7 @@ void UnifiedSystemTray::DestroyBubble() {
 }
 
 void UnifiedSystemTray::UpdateTrayItemColor(bool is_active) {
-  for (auto* tray_item : tray_items_) {
+  for (TrayItemView* tray_item : tray_items_) {
     tray_item->UpdateLabelOrImageViewColor(is_active);
   }
 }

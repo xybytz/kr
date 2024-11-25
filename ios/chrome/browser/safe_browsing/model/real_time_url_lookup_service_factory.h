@@ -5,14 +5,18 @@
 #ifndef IOS_CHROME_BROWSER_SAFE_BROWSING_MODEL_REAL_TIME_URL_LOOKUP_SERVICE_FACTORY_H_
 #define IOS_CHROME_BROWSER_SAFE_BROWSING_MODEL_REAL_TIME_URL_LOOKUP_SERVICE_FACTORY_H_
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
 class KeyedService;
+class ProfileIOS;
 
 namespace safe_browsing {
 class RealTimeUrlLookupService;
+}
+
+namespace variations {
+class VariationsService;
 }
 
 namespace web {
@@ -20,16 +24,12 @@ class BrowserState;
 }
 
 // Singleton that owns RealTimeUrlLookupService objects, one for each active
-// ChromeBrowserState. It returns nullptr for Incognito browser states.
+// profile. It returns nullptr for Incognito profiles.
 class RealTimeUrlLookupServiceFactory : public BrowserStateKeyedServiceFactory {
  public:
-  // Returns the instance of RealTimeUrlLookupService associated with this
-  // browser state, creating one if none exists and the given browser state is
-  // not in Incognito mode.
-  static safe_browsing::RealTimeUrlLookupService* GetForBrowserState(
-      ChromeBrowserState* browser_state);
-
-  // Returns the singleton instance of RealTimeUrlLookupServiceFactory.
+  // Returns null if `profile` is in Incognito mode.
+  static safe_browsing::RealTimeUrlLookupService* GetForProfile(
+      ProfileIOS* profile);
   static RealTimeUrlLookupServiceFactory* GetInstance();
 
  private:
@@ -41,6 +41,8 @@ class RealTimeUrlLookupServiceFactory : public BrowserStateKeyedServiceFactory {
   // BrowserStateKeyedServiceFactory:
   std::unique_ptr<KeyedService> BuildServiceInstanceFor(
       web::BrowserState* browser_state) const override;
+
+  static variations::VariationsService* GetVariationsService();
 };
 
 #endif  // IOS_CHROME_BROWSER_SAFE_BROWSING_MODEL_REAL_TIME_URL_LOOKUP_SERVICE_FACTORY_H_

@@ -44,7 +44,7 @@
 #import "ios/web/web_state/ui/crw_web_controller.h"
 #import "ios/web/web_state/web_state_impl.h"
 #import "ios/web/web_state/web_state_policy_decider_test_util.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "net/base/net_errors.h"
 #import "net/http/http_response_headers.h"
 #import "net/test/embedded_test_server/default_handlers.h"
@@ -625,7 +625,7 @@ ACTION_P4(VerifyRestorationStartedContext, web_state, url, context, nav_id) {
   *nav_id = (*context)->GetNavigationId();
   EXPECT_NE(0, *nav_id);
   EXPECT_EQ(url, (*context)->GetUrl());
-  // TODO(crbug.com/877671): restoration navigation should be
+  // TODO(crbug.com/41410021): restoration navigation should be
   // browser-initiated and should have user gesture.
   EXPECT_FALSE((*context)->HasUserGesture());
   ui::PageTransition actual_transition = (*context)->GetPageTransition();
@@ -637,7 +637,7 @@ ACTION_P4(VerifyRestorationStartedContext, web_state, url, context, nav_id) {
   EXPECT_FALSE((*context)->IsDownload());
   EXPECT_FALSE((*context)->IsPost());
   EXPECT_FALSE((*context)->GetError());
-  // TODO(crbug.com/877671): restoration navigation should be
+  // TODO(crbug.com/41410021): restoration navigation should be
   // browser-initiated.
   EXPECT_TRUE((*context)->IsRendererInitiated());
   ASSERT_FALSE((*context)->GetResponseHeaders());
@@ -663,7 +663,7 @@ ACTION_P5(VerifyRestorationFinishedContext,
   EXPECT_EQ(web_state, (*context)->GetWebState());
   EXPECT_EQ(*nav_id, (*context)->GetNavigationId());
   EXPECT_EQ(url, (*context)->GetUrl());
-  // TODO(crbug.com/877671): restoration navigation should be
+  // TODO(crbug.com/41410021): restoration navigation should be
   // browser-initiated and should have user gesture.
   EXPECT_FALSE((*context)->HasUserGesture());
   ui::PageTransition actual_transition = (*context)->GetPageTransition();
@@ -675,7 +675,7 @@ ACTION_P5(VerifyRestorationFinishedContext,
   EXPECT_FALSE((*context)->IsDownload());
   EXPECT_FALSE((*context)->IsPost());
   EXPECT_FALSE((*context)->GetError());
-  // TODO(crbug.com/877671): restoration navigation should be
+  // TODO(crbug.com/41410021): restoration navigation should be
   // browser-initiated.
   EXPECT_TRUE((*context)->IsRendererInitiated());
   ASSERT_TRUE((*context)->GetResponseHeaders());
@@ -855,6 +855,7 @@ TEST_F(WebStateObserverWithTitleTest, NewPageNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -910,6 +911,7 @@ TEST_F(WebStateObserverTest, NewPageNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -958,15 +960,28 @@ TEST_F(WebStateObserverTest, AboutNewTabNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
+  if (@available(iOS 18, *)) {
+    // The timing of the navigation policy decision has changed in iOS 18, with
+    // additional asynchrony in WebKit, so the `DidStopLoading` call arrives
+    // before the navigation policy callback.
+    EXPECT_CALL(observer_, DidStopLoading(web_state()));
+  }
+
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(expected_request_info), _))
       .WillOnce(
           RunOnceCallback<2>(WebStatePolicyDecider::PolicyDecision::Allow()));
 
-  EXPECT_CALL(observer_, DidStopLoading(web_state()));
+  if (@available(iOS 18, *)) {
+    // On iOS 18, the `DidStopLoading` call already happened above.
+  } else {
+    EXPECT_CALL(observer_, DidStopLoading(web_state()));
+  }
+
   EXPECT_CALL(observer_, DidStartLoading(web_state()));
 
   EXPECT_CALL(observer_, DidStartNavigation(web_state(), _))
@@ -976,8 +991,8 @@ TEST_F(WebStateObserverTest, AboutNewTabNavigation) {
 
   EXPECT_CALL(observer_, DidFinishNavigation(web_state(), _))
       .WillOnce(VerifyNewPageFinishedContext(
-          web_state(), first_url, /*mime_type=*/std::string(),
-          /*content_is_html=*/false, &context, &nav_id));
+          web_state(), first_url, kExpectedMimeType,
+          /*content_is_html=*/true, &context, &nav_id));
   EXPECT_CALL(observer_, DidStopLoading(web_state()));
   EXPECT_CALL(observer_,
               PageLoaded(web_state(), PageLoadCompletionStatus::SUCCESS));
@@ -1031,6 +1046,7 @@ TEST_F(WebStateObserverTest, EnableWebUsageTwice) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -1070,6 +1086,7 @@ TEST_F(WebStateObserverTest, FailedNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(expected_request_info), _))
@@ -1118,6 +1135,7 @@ TEST_F(WebStateObserverTest, InvalidURL) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -1166,6 +1184,7 @@ TEST_F(WebStateObserverTest, UrlWithSpecialSuffixNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -1205,6 +1224,7 @@ TEST_F(WebStateObserverTest, WebViewUnsupportedSchemeNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(expected_request_info), _))
@@ -1249,6 +1269,7 @@ TEST_F(WebStateObserverTest, WebViewUnsupportedUrlNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(expected_request_info), _))
@@ -1292,6 +1313,7 @@ TEST_F(WebStateObserverTest, WebStateUnsupportedSchemeNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(expected_request_info), _))
@@ -1315,6 +1337,7 @@ TEST_F(WebStateObserverTest, WebPageReloadNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -1341,6 +1364,7 @@ TEST_F(WebStateObserverTest, WebPageReloadNavigation) {
       ui::PageTransition::PAGE_TRANSITION_RELOAD,
       /*target_main_frame=*/true,
       /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(reload_request_info), _))
@@ -1374,6 +1398,7 @@ TEST_F(WebStateObserverTest, ReloadWithUserAgentType) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -1399,6 +1424,7 @@ TEST_F(WebStateObserverTest, ReloadWithUserAgentType) {
   const WebStatePolicyDecider::RequestInfo expected_reload_request_info(
       ui::PageTransition::PAGE_TRANSITION_RELOAD,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_,
               MockShouldAllowRequest(
@@ -1413,7 +1439,7 @@ TEST_F(WebStateObserverTest, ReloadWithUserAgentType) {
                              _, ResponseInfoMatch(expected_response_info), _))
       .WillOnce(
           RunOnceCallback<2>(WebStatePolicyDecider::PolicyDecision::Allow()));
-  // TODO(crbug.com/798836): verify the correct User-Agent header is sent.
+  // TODO(crbug.com/41363052): verify the correct User-Agent header is sent.
   EXPECT_CALL(observer_, DidFinishNavigation(web_state(), _));
   EXPECT_CALL(observer_, DidStopLoading(web_state()));
   EXPECT_CALL(observer_,
@@ -1435,6 +1461,7 @@ TEST_F(WebStateObserverTest, UserInitiatedHashChangeNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -1464,6 +1491,7 @@ TEST_F(WebStateObserverTest, UserInitiatedHashChangeNavigation) {
   const WebStatePolicyDecider::RequestInfo hash_url_expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
 
   EXPECT_CALL(observer_, DidStartLoading(web_state()));
@@ -1533,6 +1561,7 @@ TEST_F(WebStateObserverTest, RendererInitiatedHashChangeNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -1562,6 +1591,7 @@ TEST_F(WebStateObserverTest, RendererInitiatedHashChangeNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_hash_request_info(
       ui::PageTransition::PAGE_TRANSITION_CLIENT_REDIRECT,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_,
               MockShouldAllowRequest(
@@ -1598,6 +1628,7 @@ TEST_F(WebStateObserverTest, StateNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -1669,6 +1700,7 @@ TEST_F(WebStateObserverTest, UserInitiatedPostNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_GENERATED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -1711,6 +1743,7 @@ TEST_F(WebStateObserverTest, RendererInitiatedPostNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -1737,6 +1770,7 @@ TEST_F(WebStateObserverTest, RendererInitiatedPostNavigation) {
   const WebStatePolicyDecider::RequestInfo form_request_info(
       ui::PageTransition::PAGE_TRANSITION_FORM_SUBMIT,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_,
               MockShouldAllowRequest(_, RequestInfoMatch(form_request_info), _))
@@ -1775,6 +1809,7 @@ TEST_F(WebStateObserverTest, ReloadPostNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -1799,6 +1834,7 @@ TEST_F(WebStateObserverTest, ReloadPostNavigation) {
   const WebStatePolicyDecider::RequestInfo form_request_info(
       ui::PageTransition::PAGE_TRANSITION_FORM_SUBMIT,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_,
               MockShouldAllowRequest(_, RequestInfoMatch(form_request_info), _))
@@ -1828,6 +1864,7 @@ TEST_F(WebStateObserverTest, ReloadPostNavigation) {
   const WebStatePolicyDecider::RequestInfo form_reload_request_info(
       ui::PageTransition::PAGE_TRANSITION_RELOAD,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(form_reload_request_info), _))
@@ -1849,10 +1886,10 @@ TEST_F(WebStateObserverTest, ReloadPostNavigation) {
   EXPECT_CALL(observer_, DidStopLoading(web_state()));
   EXPECT_CALL(observer_,
               PageLoaded(web_state(), PageLoadCompletionStatus::SUCCESS));
-  // TODO(crbug.com/700958): ios/web ignores `check_for_repost` flag and current
-  // delegate does not run callback for ShowRepostFormWarningDialog. Clearing
-  // the delegate will allow form resubmission. Remove this workaround (clearing
-  // the delegate, once `check_for_repost` is supported).
+  // TODO(crbug.com/41307037): ios/web ignores `check_for_repost` flag and
+  // current delegate does not run callback for ShowRepostFormWarningDialog.
+  // Clearing the delegate will allow form resubmission. Remove this workaround
+  // (clearing the delegate, once `check_for_repost` is supported).
   web_state()->SetDelegate(nullptr);
   ASSERT_TRUE(ExecuteBlockAndWaitForLoad(action, ^{
     navigation_manager()->Reload(ReloadType::NORMAL,
@@ -1870,6 +1907,7 @@ TEST_F(WebStateObserverTest, ForwardPostNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -1894,6 +1932,7 @@ TEST_F(WebStateObserverTest, ForwardPostNavigation) {
   const WebStatePolicyDecider::RequestInfo form_request_info(
       ui::PageTransition::PAGE_TRANSITION_FORM_SUBMIT,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_,
               MockShouldAllowRequest(_, RequestInfoMatch(form_request_info), _))
@@ -1921,6 +1960,7 @@ TEST_F(WebStateObserverTest, ForwardPostNavigation) {
           ui::PageTransition::PAGE_TRANSITION_FORWARD_BACK |
           ui::PageTransition::PAGE_TRANSITION_TYPED),
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(observer_, DidStartLoading(web_state()));
   EXPECT_CALL(observer_, DidChangeBackForwardState(web_state())).Times(2);
@@ -1944,6 +1984,7 @@ TEST_F(WebStateObserverTest, ForwardPostNavigation) {
           ui::PageTransition::PAGE_TRANSITION_FORM_SUBMIT |
           ui::PageTransition::PAGE_TRANSITION_FORWARD_BACK),
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   NavigationContext* context = nullptr;
   int32_t nav_id = 0;
@@ -1968,10 +2009,10 @@ TEST_F(WebStateObserverTest, ForwardPostNavigation) {
   EXPECT_CALL(observer_, DidStopLoading(web_state()));
   EXPECT_CALL(observer_,
               PageLoaded(web_state(), PageLoadCompletionStatus::SUCCESS));
-  // TODO(crbug.com/700958): ios/web ignores `check_for_repost` flag and current
-  // delegate does not run callback for ShowRepostFormWarningDialog. Clearing
-  // the delegate will allow form resubmission. Remove this workaround (clearing
-  // the delegate, once `check_for_repost` is supported).
+  // TODO(crbug.com/41307037): ios/web ignores `check_for_repost` flag and
+  // current delegate does not run callback for ShowRepostFormWarningDialog.
+  // Clearing the delegate will allow form resubmission. Remove this workaround
+  // (clearing the delegate, once `check_for_repost` is supported).
   web_state()->SetDelegate(nullptr);
   ASSERT_TRUE(ExecuteBlockAndWaitForLoad(action, ^{
     navigation_manager()->GoForward();
@@ -1995,6 +2036,7 @@ TEST_F(WebStateObserverTest, RedirectNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -2011,6 +2053,7 @@ TEST_F(WebStateObserverTest, RedirectNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_redirect_request_info(
       ui::PageTransition::PAGE_TRANSITION_CLIENT_REDIRECT,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_,
               MockShouldAllowRequest(
@@ -2059,6 +2102,11 @@ TEST_F(WebStateObserverTest, RedirectNavigation) {
 
 // Tests download navigation.
 TEST_F(WebStateObserverTest, DownloadNavigation) {
+  // TODO(crbug.com/330370835): Re-enable on iOS 17.4 when fixed.
+  if (@available(iOS 17.4, *)) {
+    return;
+  }
+
   GURL url = test_server_->GetURL("/download");
 
   // Perform download navigation.
@@ -2068,6 +2116,7 @@ TEST_F(WebStateObserverTest, DownloadNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(expected_request_info), _))
@@ -2098,6 +2147,7 @@ TEST_F(WebStateObserverTest, FailedLoad) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -2153,6 +2203,7 @@ TEST_F(WebStateObserverTest, FailedSslConnection) {
   const WebStatePolicyDecider::RequestInfo request_info_explicit(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(request_info_explicit), _))
@@ -2184,6 +2235,7 @@ TEST_F(WebStateObserverTest, DisallowRequest) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(expected_request_info), _))
@@ -2205,6 +2257,7 @@ TEST_F(WebStateObserverTest, DisallowRequestAndShowError) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
 
   NSError* error = [NSError errorWithDomain:net::kNSErrorDomain
@@ -2215,6 +2268,13 @@ TEST_F(WebStateObserverTest, DisallowRequestAndShowError) {
       .WillOnce(RunOnceCallback<2>(
           WebStatePolicyDecider::PolicyDecision::CancelAndDisplayError(error)));
 
+  if (@available(iOS 18, *)) {
+    // On iOS 18, loading stops when the navigation is canceled and then
+    // starts again for the error page navigation, rather than appearing as
+    // one continuous load.
+    EXPECT_CALL(observer_, DidStopLoading(web_state()));
+    EXPECT_CALL(observer_, DidStartLoading(web_state()));
+  }
   EXPECT_CALL(observer_, DidStartNavigation(web_state(), _));
   EXPECT_CALL(observer_, DidStopLoading(web_state()));
   EXPECT_CALL(observer_, DidFinishNavigation(web_state(), _));
@@ -2245,6 +2305,7 @@ TEST_F(WebStateObserverTest, AsyncAllowResponse) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -2292,6 +2353,7 @@ TEST_F(WebStateObserverTest, DisallowResponse) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -2329,6 +2391,7 @@ TEST_F(WebStateObserverTest, AsyncDisallowResponse) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -2369,6 +2432,7 @@ TEST_F(WebStateObserverTest, ImmediatelyStopNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(expected_request_info), _))
@@ -2391,6 +2455,7 @@ TEST_F(WebStateObserverTest, StopFinishedNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -2433,6 +2498,7 @@ TEST_F(WebStateObserverTest, IframeNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -2451,6 +2517,7 @@ TEST_F(WebStateObserverTest, IframeNavigation) {
   const WebStatePolicyDecider::RequestInfo iframe_request_info(
       ui::PageTransition::PAGE_TRANSITION_CLIENT_REDIRECT,
       /*target_main_frame=*/false, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo iframe_response_info(
       /*for_main_frame=*/false);
@@ -2473,6 +2540,7 @@ TEST_F(WebStateObserverTest, IframeNavigation) {
   const WebStatePolicyDecider::RequestInfo link_clicked_request_info(
       ui::PageTransition::PAGE_TRANSITION_LINK,
       /*target_main_frame=*/false, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/true, /*user_tapped_recently=*/true);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(link_clicked_request_info), _))
@@ -2501,6 +2569,7 @@ TEST_F(WebStateObserverTest, IframeNavigation) {
   const WebStatePolicyDecider::RequestInfo forward_back_request_info(
       ui::PageTransition::PAGE_TRANSITION_FORWARD_BACK,
       /*target_main_frame=*/false, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/true, /*user_tapped_recently=*/true);
   EXPECT_CALL(observer_, DidChangeBackForwardState(web_state()))
       .Times(2);  // called once each for canGoBack and canGoForward
@@ -2554,6 +2623,7 @@ TEST_F(WebStateObserverTest, CrossOriginIframeNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);
@@ -2572,6 +2642,7 @@ TEST_F(WebStateObserverTest, CrossOriginIframeNavigation) {
   const WebStatePolicyDecider::RequestInfo iframe_request_info(
       ui::PageTransition::PAGE_TRANSITION_CLIENT_REDIRECT,
       /*target_main_frame=*/false, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo iframe_response_info(
       /*for_main_frame=*/false);
@@ -2597,6 +2668,7 @@ TEST_F(WebStateObserverTest, CrossOriginIframeNavigation) {
   const WebStatePolicyDecider::RequestInfo iframe_request_info2(
       ui::PageTransition::PAGE_TRANSITION_CLIENT_REDIRECT,
       /*target_main_frame=*/false, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(iframe_request_info2), _))
@@ -2620,6 +2692,7 @@ TEST_F(WebStateObserverTest, CrossOriginIframeNavigation) {
   const WebStatePolicyDecider::RequestInfo iframe_request_info3(
       ui::PageTransition::PAGE_TRANSITION_CLIENT_REDIRECT,
       /*target_main_frame=*/false, /*target_frame_is_cross_origin=*/true,
+      /*target_window_is_cross_origin=*/true,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(iframe_request_info3), _))
@@ -2777,6 +2850,7 @@ TEST_F(WebStateObserverTest, PdfFileUrlNavigation) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   EXPECT_CALL(*decider_, MockShouldAllowRequest(
                              _, RequestInfoMatch(expected_request_info), _))
@@ -2811,6 +2885,7 @@ TEST_F(WebStateObserverTest, LoadData) {
   const WebStatePolicyDecider::RequestInfo expected_request_info(
       ui::PageTransition::PAGE_TRANSITION_TYPED,
       /*target_main_frame=*/true, /*target_frame_is_cross_origin=*/false,
+      /*target_window_is_cross_origin=*/false,
       /*is_user_initiated=*/false, /*user_tapped_recently=*/false);
   const WebStatePolicyDecider::ResponseInfo expected_response_info(
       /*for_main_frame=*/true);

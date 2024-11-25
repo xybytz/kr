@@ -13,7 +13,7 @@
 #include "base/notreached.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ui/ash/wallpaper_controller_client_impl.h"
+#include "chrome/browser/ui/ash/wallpaper/wallpaper_controller_client_impl.h"
 #include "chromeos/ash/components/login/login_state/login_state.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/user.h"
@@ -69,10 +69,13 @@ void RecordCustomWallpaperLayout(const ash::WallpaperLayout& layout) {
 
 std::vector<uint8_t> GenerateThumbnail(const gfx::ImageSkia& image,
                                        const gfx::Size& size) {
-  std::vector<uint8_t> data_out;
-  gfx::JPEGCodec::Encode(*ScaleAspectRatioAndCropCenter(size, image).bitmap(),
-                         kThumbnailEncodeQuality, &data_out);
-  return data_out;
+  std::optional<std::vector<uint8_t>> data_out = gfx::JPEGCodec::Encode(
+      *ScaleAspectRatioAndCropCenter(size, image).bitmap(),
+      kThumbnailEncodeQuality);
+  if (!data_out) {
+    return {};
+  }
+  return data_out.value();
 }
 
 }  // namespace

@@ -518,7 +518,6 @@ HTMLTableElement::CellBorders HTMLTableElement::GetCellBorders() const {
       return kInsetBorders;
   }
   NOTREACHED();
-  return kNoBorders;
 }
 
 CSSPropertyValueSet* HTMLTableElement::CreateSharedCellStyle() {

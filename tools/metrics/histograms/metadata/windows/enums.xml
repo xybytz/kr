@@ -26,6 +26,13 @@ chromium-metrics-reviews@google.com.
 
 <enums>
 
+<enum name="DisplayIdResult">
+  <int value="0" label="Error">Error calling EnumDisplayDevices</int>
+  <int value="1" label="Empty">DISPLAY_DEVICE data was empty</int>
+  <int value="2" label="Conflict">Display ID conflict detected</int>
+  <int value="3" label="Valid">Display ID was not empty and unique</int>
+</enum>
+
 <enum name="IsPinnedToTaskbarResult">
   <int value="0" label="Not pinned"/>
   <int value="1" label="Pinned"/>
@@ -37,6 +44,7 @@ chromium-metrics-reviews@google.com.
     The hash of a lower case process name generated using metrics::HashName.
   </summary>
   <int value="-2031320757" label="naio.exe"/>
+  <int value="-1984598427" label="olk.exe"/>
   <int value="-1975402871" label="windbg.exe"/>
   <int value="-1883802758" label="chrome.exe"/>
   <int value="-1861811955" label="origin.exe"/>
@@ -75,11 +83,14 @@ chromium-metrics-reviews@google.com.
   <int value="1000072556" label="java.exe"/>
   <int value="1408608854" label="old_chrome.exe"/>
   <int value="1412988381" label="claunch.exe"/>
+  <int value="1482213424" label="slack.exe"/>
   <int value="1590408389" label="services.exe"/>
   <int value="1614875030" label="taskeng.exe"/>
   <int value="1630952668" label="line.exe"/>
   <int value="1641914182" label="winword.exe"/>
   <int value="1660748446" label="acad.exe"/>
+  <int value="1669114077" label="thunderbird.exe"/>
+  <int value="1761114345" label="powershell.exe"/>
   <int value="1775984853" label="spotify.exe"/>
   <int value="1896894115" label="filmora.exe"/>
   <int value="1914315258" label="cdb.exe"/>
@@ -98,6 +109,13 @@ https://www.dmtf.org/sites/default/files/standards/documents/DSP0134_2.7.1.pdf
   <int value="0" label="Error"/>
   <int value="1" label="Other"/>
   <int value="2" label="Unknown"/>
+</enum>
+
+<enum name="UsedDisplayIdFallback">
+  <int value="0" label="Did not use fallback">
+    Not missing DISPLAYCONFIG_PATH_INFO
+  </int>
+  <int value="1" label="Used fallback">Missing DISPLAYCONFIG_PATH_INFO</int>
 </enum>
 
 <enum name="WindowsPatchLevel">

@@ -49,8 +49,7 @@
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "components/session_manager/core/session_manager.h"
 
-namespace ash {
-namespace phonehub {
+namespace ash::phonehub {
 
 namespace {
 
@@ -70,31 +69,35 @@ PhoneHubManagerImpl::PhoneHubManagerImpl(
         attestation_certificate_generator)
     : icon_decoder_(std::make_unique<IconDecoderImpl>()),
       phone_hub_structured_metrics_logger_(
-          std::make_unique<PhoneHubStructuredMetricsLogger>()),
+          std::make_unique<PhoneHubStructuredMetricsLogger>(pref_service)),
       connection_manager_(
           std::make_unique<secure_channel::ConnectionManagerImpl>(
               multidevice_setup_client,
               device_sync_client,
               secure_channel_client,
               kSecureChannelFeatureName,
-              std::make_unique<PhoneHubMetricsRecorder>())),
+              std::make_unique<PhoneHubMetricsRecorder>(),
+              phone_hub_structured_metrics_logger_.get())),
       feature_status_provider_(std::make_unique<FeatureStatusProviderImpl>(
           device_sync_client,
           multidevice_setup_client,
           connection_manager_.get(),
           session_manager::SessionManager::Get(),
-          chromeos::PowerManagerClient::Get())),
+          chromeos::PowerManagerClient::Get(),
+          phone_hub_structured_metrics_logger_.get())),
       user_action_recorder_(std::make_unique<UserActionRecorderImpl>(
           feature_status_provider_.get())),
       phone_hub_ui_readiness_recorder_(
           std::make_unique<PhoneHubUiReadinessRecorder>(
               feature_status_provider_.get(),
               connection_manager_.get())),
-      message_receiver_(
-          std::make_unique<MessageReceiverImpl>(connection_manager_.get())),
+      message_receiver_(std::make_unique<MessageReceiverImpl>(
+          connection_manager_.get(),
+          phone_hub_structured_metrics_logger_.get())),
       message_sender_(std::make_unique<MessageSenderImpl>(
           connection_manager_.get(),
-          phone_hub_ui_readiness_recorder_.get())),
+          phone_hub_ui_readiness_recorder_.get(),
+          phone_hub_structured_metrics_logger_.get())),
       phone_model_(std::make_unique<MutablePhoneModel>()),
       cros_state_sender_(std::make_unique<CrosStateSender>(
           message_sender_.get(),
@@ -163,7 +166,8 @@ PhoneHubManagerImpl::PhoneHubManagerImpl(
           app_stream_manager_.get(),
           app_stream_launcher_data_model_.get(),
           icon_decoder_.get(),
-          phone_hub_ui_readiness_recorder_.get())),
+          phone_hub_ui_readiness_recorder_.get(),
+          phone_hub_structured_metrics_logger_.get())),
       tether_controller_(
           std::make_unique<TetherControllerImpl>(phone_model_.get(),
                                                  user_action_recorder_.get(),
@@ -356,5 +360,4 @@ void PhoneHubManagerImpl::Shutdown() {
   phone_hub_structured_metrics_logger_.reset();
 }
 
-}  // namespace phonehub
-}  // namespace ash
+}  // namespace ash::phonehub

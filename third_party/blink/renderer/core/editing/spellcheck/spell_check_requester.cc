@@ -273,8 +273,6 @@ bool SpellCheckRequester::EnsureValidRequestQueueFor(int sequence) {
   if (processing_request_->Sequence() == sequence)
     return true;
   NOTREACHED();
-  request_queue_.clear();
-  return false;
 }
 
 void SpellCheckRequester::DidCheck(int sequence) {

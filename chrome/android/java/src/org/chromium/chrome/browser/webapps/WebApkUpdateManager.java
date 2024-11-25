@@ -4,9 +4,9 @@
 
 package org.chromium.chrome.browser.webapps;
 
-import static org.chromium.chrome.browser.dependency_injection.ChromeCommonQualifiers.ACTIVITY_CONTEXT;
 import static org.chromium.components.webapk.lib.common.WebApkConstants.WEBAPK_PACKAGE_PREFIX;
 
+import android.app.Activity;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -19,6 +19,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.jni_zero.CalledByNative;
+import org.jni_zero.JniType;
 import org.jni_zero.NativeMethods;
 
 import org.chromium.base.Callback;
@@ -26,6 +27,7 @@ import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.ResettersForTesting;
+import org.chromium.base.TimeUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.blink.mojom.DisplayMode;
@@ -36,8 +38,6 @@ import org.chromium.chrome.browser.browserservices.intents.WebApkExtras;
 import org.chromium.chrome.browser.browserservices.intents.WebApkShareTarget;
 import org.chromium.chrome.browser.browserservices.intents.WebappInfo;
 import org.chromium.chrome.browser.browserservices.metrics.WebApkUmaRecorder;
-import org.chromium.chrome.browser.browserservices.metrics.WebApkUmaRecorder.UpdateRequestQueued;
-import org.chromium.chrome.browser.dependency_injection.ActivityScope;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
@@ -58,19 +58,20 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-import javax.inject.Inject;
-import javax.inject.Named;
-
 /**
  * WebApkUpdateManager manages when to check for updates to the WebAPK's Web Manifest, and sends an
  * update request to the WebAPK Server when an update is needed.
  */
-@ActivityScope
 public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, DestroyObserver {
     private static final String TAG = "WebApkUpdateManager";
 
     // Maximum wait time for WebAPK update to be scheduled.
     private static final long UPDATE_TIMEOUT_MILLISECONDS = DateUtils.SECOND_IN_MILLIS * 30;
+
+    // Number of milliseconds that a WebAPK shell is outdated from last
+    // install/update and should be updated again.
+    @VisibleForTesting
+    static final long OLD_SHELL_NEEDS_UPDATE_INTERVAL = DateUtils.DAY_IN_MILLIS * 360;
 
     // Flags for AppIdentity Update dialog histograms.
     private static final int CHANGING_NOTHING = 0;
@@ -79,16 +80,18 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
     private static final int CHANGING_APP_NAME = 1 << 2;
     private static final int CHANGING_SHORTNAME = 1 << 3;
     private static final int CHANGING_ICON_BELOW_THRESHOLD = 1 << 4;
-    private static final int CHANGING_ICON_SHELL_UPDATE = 1 << 5;
+    // Removed CHANGING_ICON_SHELL_UPDATE = 1 << 5;
     private static final int HISTOGRAM_SCOPE = 1 << 6;
 
-    private static final String PARAM_SHELL_VERSION = "shell_version";
-    private static final String PARAM_CHANGE_THRESHOLD = "change_threshold";
+    private static final int WEB_APK_ICON_UPDATE_BLOCKED_AT_PERCENTAGE = 11;
 
     private final ActivityTabProvider mTabProvider;
 
     /** Whether updates are enabled. Some tests disable updates. */
     private static boolean sUpdatesDisabledForTesting;
+
+    /** The icon change threshold while testing updates. */
+    private static Integer sIconThresholdForTesting;
 
     /** The activity context to use. */
     private Context mContext;
@@ -125,12 +128,11 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
         public void onResultFromNative(@WebApkInstallResult int result, boolean relaxUpdates);
     }
 
-    @Inject
     public WebApkUpdateManager(
-            @Named(ACTIVITY_CONTEXT) Context context,
+            Activity activity,
             ActivityTabProvider tabProvider,
             ActivityLifecycleDispatcher lifecycleDispatcher) {
-        mContext = context;
+        mContext = activity;
         mTabProvider = tabProvider;
         lifecycleDispatcher.register(this);
     }
@@ -172,6 +174,12 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
     public static void setUpdatesDisabledForTesting(boolean value) {
         sUpdatesDisabledForTesting = value;
         ResettersForTesting.register(() -> sUpdatesDisabledForTesting = false);
+    }
+
+    public static void setIconThresholdForTesting(int percentage) {
+        sIconThresholdForTesting = percentage;
+        ResettersForTesting.register(
+                () -> sIconThresholdForTesting = WEB_APK_ICON_UPDATE_BLOCKED_AT_PERCENTAGE);
     }
 
     /**
@@ -335,8 +343,6 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
                 mUpdateReasons.contains(WebApkUpdateReason.PRIMARY_ICON_HASH_DIFFERS)
                         || mUpdateReasons.contains(
                                 WebApkUpdateReason.PRIMARY_ICON_MASKABLE_DIFFERS);
-        boolean shellUpdateInProgress =
-                mUpdateReasons.contains(WebApkUpdateReason.PRIMARY_ICON_CHANGE_SHELL_UPDATE);
         boolean iconChangeBelowThreshold =
                 mUpdateReasons.contains(WebApkUpdateReason.PRIMARY_ICON_CHANGE_BELOW_THRESHOLD);
         boolean shortNameChanging = mUpdateReasons.contains(WebApkUpdateReason.SHORT_NAME_DIFFERS);
@@ -348,9 +354,6 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
         }
         if (mUpdateReasons.contains(WebApkUpdateReason.PRIMARY_ICON_CHANGE_BELOW_THRESHOLD)) {
             histogramAction |= CHANGING_ICON_BELOW_THRESHOLD;
-        }
-        if (mUpdateReasons.contains(WebApkUpdateReason.PRIMARY_ICON_CHANGE_SHELL_UPDATE)) {
-            histogramAction |= CHANGING_ICON_SHELL_UPDATE;
         }
         if (mUpdateReasons.contains(WebApkUpdateReason.PRIMARY_ICON_MASKABLE_DIFFERS)) {
             histogramAction |= CHANGING_ICON_MASK;
@@ -366,8 +369,7 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
                         && TextUtils.equals(hash, mStorage.getLastWebApkUpdateHashAccepted());
         boolean showDialogForName =
                 (nameChanging || shortNameChanging) && nameUpdateDialogEnabled();
-        boolean showDialogForIcon =
-                iconChanging && !iconChangeBelowThreshold && !shellUpdateInProgress;
+        boolean showDialogForIcon = iconChanging && !iconChangeBelowThreshold;
 
         if ((showDialogForName || showDialogForIcon) && !alreadyUserApproved) {
             RecordHistogram.recordEnumeratedHistogram(
@@ -403,12 +405,6 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
         return true;
     }
 
-    private static boolean allowIconUpdateForShellVersion(int shellVersion) {
-        return ChromeFeatureList.getFieldTrialParamByFeatureAsInt(
-                        ChromeFeatureList.WEB_APK_ALLOW_ICON_UPDATE, PARAM_SHELL_VERSION, 0)
-                >= shellVersion;
-    }
-
     /**
      * @return whether a percentage change is below the threshold allowed for icon updates. Note
      *     that percentage values are rounded using a floor function, so a `percentage` change of 1
@@ -417,11 +413,12 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
      *     changes up to 1%).
      */
     private static boolean belowAppIdIconUpdateThreshold(int percentage) {
-        return percentage
-                < ChromeFeatureList.getFieldTrialParamByFeatureAsInt(
-                        ChromeFeatureList.WEB_APK_ICON_UPDATE_THRESHOLD,
-                        PARAM_CHANGE_THRESHOLD,
-                        -1);
+        // See also go/app-id-update-threshold/ for (internal) discussion.
+        int threshold =
+                sIconThresholdForTesting != null
+                        ? sIconThresholdForTesting
+                        : WEB_APK_ICON_UPDATE_BLOCKED_AT_PERCENTAGE;
+        return percentage < threshold;
     }
 
     protected void showIconOrNameUpdateDialog(
@@ -469,7 +466,8 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
         // in the update dialog warning (presses Back). Otherwise, they can be left in a state where
         // they always press Back and are stuck on an old version of the app forever.
         if (dismissalCause != DialogDismissalCause.POSITIVE_BUTTON_CLICKED
-                && dismissalCause != DialogDismissalCause.NAVIGATE_BACK_OR_TOUCH_OUTSIDE) {
+                && dismissalCause != DialogDismissalCause.NAVIGATE_BACK
+                && dismissalCause != DialogDismissalCause.TOUCH_OUTSIDE) {
             return;
         }
 
@@ -520,8 +518,6 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
             boolean isManifestStale,
             boolean appIdentityUpdateSupported,
             List<Integer> updateReasons) {
-        recordWebApkUpdateUniqueIdHistogram(mInfo, mFetchedInfo);
-
         Callback<Boolean> callback =
                 (success) -> {
                     if (!success) {
@@ -529,7 +525,7 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
                                 mStorage, WebApkInstallResult.FAILURE, /* relaxUpdates= */ false);
                         return;
                     }
-                    scheduleUpdate();
+                    scheduleUpdate(info.shellApkVersion());
                 };
         String updateRequestPath = mStorage.createAndSetUpdateRequestFilePath(info);
         encodeIconsInBackground(
@@ -543,24 +539,10 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
                 callback);
     }
 
-    private void recordWebApkUpdateUniqueIdHistogram(WebappInfo oldInfo, WebappInfo fetchedInfo) {
-        if (fetchedInfo == null) return;
-
-        String baseName =
-                "WebApk.Update.UniqueId"
-                        + (TextUtils.isEmpty(oldInfo.manifestId()) ? "Empty" : "Same");
-        RecordHistogram.recordBooleanHistogram(
-                baseName + ".ManifestUrl",
-                TextUtils.equals(oldInfo.manifestUrl(), fetchedInfo.manifestUrl()));
-        RecordHistogram.recordBooleanHistogram(
-                baseName + ".StartUrl",
-                TextUtils.equals(oldInfo.manifestStartUrl(), fetchedInfo.manifestStartUrl()));
-    }
-
     /** Schedules update for when WebAPK is not running. */
     @VisibleForTesting
-    protected void scheduleUpdate() {
-        WebApkUmaRecorder.recordUpdateRequestQueued(UpdateRequestQueued.TWICE);
+    protected void scheduleUpdate(int shellApkVersion) {
+        WebApkUmaRecorder.recordQueuedUpdateShellVersion(shellApkVersion);
         TaskInfo updateTask;
         if (mStorage.shouldForceUpdate()) {
             // Start an update task ASAP for forced updates.
@@ -621,9 +603,12 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
         return sWebApkTargetShellVersion;
     }
 
-    /** Whether there is a new version of the //chrome/android/webapk/shell_apk code. */
+    /** Whether the shell version is outdated. */
     private static boolean isShellApkVersionOutOfDate(WebappInfo info) {
-        return info.shellApkVersion() < webApkTargetShellVersion();
+        return info.shellApkVersion() < webApkTargetShellVersion()
+                || (info.lastUpdateTime() > 0
+                        && TimeUtils.currentTimeMillis() - info.lastUpdateTime()
+                                > OLD_SHELL_NEEDS_UPDATE_INTERVAL);
     }
 
     /**
@@ -751,11 +736,6 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
             if (belowAppIdIconUpdateThreshold(iconDiffValue)) {
                 shouldUpdateIcon = true;
                 updateReasons.add(WebApkUpdateReason.PRIMARY_ICON_CHANGE_BELOW_THRESHOLD);
-            }
-
-            if (allowIconUpdateForShellVersion(oldInfo.shellApkVersion())) {
-                updateReasons.add(WebApkUpdateReason.PRIMARY_ICON_CHANGE_SHELL_UPDATE);
-                shouldUpdateIcon = true;
             }
 
             if (iconUpdateDialogEnabled) {
@@ -889,9 +869,6 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
             i++;
         }
 
-        String maniefstId =
-                TextUtils.isEmpty(info.manifestId()) ? info.manifestStartUrl() : info.manifestId();
-
         String[][] shortcuts = new String[info.shortcutItems().size()][];
         byte[][] shortcutIconData = new byte[info.shortcutItems().size()][];
         for (int j = 0; j < info.shortcutItems().size(); j++) {
@@ -937,7 +914,8 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
                         info.scopeUrl(),
                         info.name(),
                         info.shortName(),
-                        maniefstId,
+                        info.hasCustomName(),
+                        info.manifestIdWithFallback(),
                         info.appKey(),
                         primaryIconUrl,
                         primaryIconData,
@@ -974,38 +952,39 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
     @NativeMethods
     interface Natives {
         public void storeWebApkUpdateRequestToFile(
-                String updateRequestPath,
-                String startUrl,
-                String scope,
-                String name,
-                String shortName,
-                String manifestId,
-                String appKey,
-                String primaryIconUrl,
+                @JniType("std::string") String updateRequestPath,
+                @JniType("std::string") String startUrl,
+                @JniType("std::string") String scope,
+                @JniType("std::u16string") String name,
+                @JniType("std::u16string") String shortName,
+                boolean hasCustomName,
+                @JniType("std::string") String manifestId,
+                @JniType("std::string") String appKey,
+                @JniType("std::string") String primaryIconUrl,
                 byte[] primaryIconData,
                 boolean isPrimaryIconMaskable,
-                String splashIconUrl,
+                @JniType("std::string") String splashIconUrl,
                 byte[] splashIconData,
                 boolean isSplashIconMaskable,
-                String[] iconUrls,
-                String[] iconHashes,
+                @JniType("std::vector<std::string>") String[] iconUrls,
+                @JniType("std::vector<std::string>") String[] iconHashes,
                 @DisplayMode.EnumType int displayMode,
                 int orientation,
                 long themeColor,
                 long backgroundColor,
                 long darkThemeColor,
                 long darkBackgroundColor,
-                String shareTargetAction,
-                String shareTargetParamTitle,
-                String shareTargetParamText,
+                @JniType("std::string") String shareTargetAction,
+                @JniType("std::u16string") String shareTargetParamTitle,
+                @JniType("std::u16string") String shareTargetParamText,
                 boolean shareTargetParamIsMethodPost,
                 boolean shareTargetParamIsEncTypeMultipart,
-                String[] shareTargetParamFileNames,
+                @JniType("std::vector<std::u16string>") String[] shareTargetParamFileNames,
                 Object[] shareTargetParamAccepts,
                 String[][] shortcuts,
                 byte[][] shortcutIconData,
-                String manifestUrl,
-                String webApkPackage,
+                @JniType("std::string") String manifestUrl,
+                @JniType("std::string") String webApkPackage,
                 int webApkVersion,
                 boolean isManifestStale,
                 boolean isAppIdentityUpdateSupported,

@@ -7,9 +7,9 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include "ash/public/cpp/ash_public_export.h"
-#include "base/strings/string_piece.h"
 #include "components/access_code_cast/common/access_code_cast_metrics.h"
 #include "components/version_info/channel.h"
 #include "url/gurl.h"
@@ -38,7 +38,7 @@ class ASH_PUBLIC_EXPORT SystemTrayClient {
   // should be in the form "XX:XX:XX:XX:XX:XX". When |device_address| is not
   // provided the dialog will show the device list instead.
   virtual void ShowBluetoothPairingDialog(
-      std::optional<base::StringPiece> device_address) = 0;
+      std::optional<std::string_view> device_address) = 0;
 
   // Shows the settings related to date, timezone etc.
   virtual void ShowDateSettings() = 0;
@@ -125,6 +125,9 @@ class ASH_PUBLIC_EXPORT SystemTrayClient {
   // if we should navigate to the physical SIM setup flow or to the page that
   // allows the user to select which flow they wish to enter (pSIM or eSIM).
   virtual void ShowSettingsCellularSetup(bool show_psim_flow) = 0;
+
+  // Opens Mobile data subpage.
+  virtual void ShowMobileDataSubpage() = 0;
 
   // Opens SIM unlock dialog in OS Settings.
   virtual void ShowSettingsSimUnlock() = 0;
@@ -216,6 +219,19 @@ class ASH_PUBLIC_EXPORT SystemTrayClient {
   // Shows the remap keyboard keys settings subpage for the keyboard with
   // `device_id`.
   virtual void ShowRemapKeysSubpage(int device_id) = 0;
+
+  // Shows a page about premium plans.
+  virtual void ShowYouTubeMusicPremiumPage() = 0;
+  virtual void ShowChromebookPerksYouTubePage() = 0;
+
+  // Shows settings related to keyboards.
+  virtual void ShowKeyboardSettings() = 0;
+
+  // Shows settings related to pointing sticks.
+  virtual void ShowPointingStickSettings() = 0;
+
+  // Shows settings related to Quick Share (formerly Nearby Share).
+  virtual void ShowNearbyShareSettings() = 0;
 
  protected:
   SystemTrayClient() {}

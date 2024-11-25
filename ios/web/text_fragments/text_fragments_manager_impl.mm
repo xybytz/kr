@@ -196,7 +196,7 @@ void TextFragmentsManagerImpl::DoHighlight() {
 bool TextFragmentsManagerImpl::AreTextFragmentsAllowed(
     const web::NavigationContext* context) {
   if (!web_state_ || web_state_->HasOpener()) {
-    // TODO(crbug.com/1099268): Loosen this restriction if the opener has the
+    // TODO(crbug.com/40137397): Loosen this restriction if the opener has the
     // same domain.
     return false;
   }
@@ -206,7 +206,7 @@ bool TextFragmentsManagerImpl::AreTextFragmentsAllowed(
 
 TextFragmentsJavaScriptFeature* TextFragmentsManagerImpl::GetJSFeature() {
   return js_feature_for_testing_
-             ? js_feature_for_testing_
+             ? js_feature_for_testing_.get()
              : TextFragmentsJavaScriptFeature::GetInstance();
 }
 

@@ -78,10 +78,8 @@ ReadableStreamBytesConsumer::ReadableStreamBytesConsumer(
 ReadableStreamBytesConsumer::~ReadableStreamBytesConsumer() {}
 
 BytesConsumer::Result ReadableStreamBytesConsumer::BeginRead(
-    const char** buffer,
-    size_t* available) {
-  *buffer = nullptr;
-  *available = 0;
+    base::span<const char>& buffer) {
+  buffer = {};
   if (state_ == PublicState::kErrored)
     return Result::kError;
   if (state_ == PublicState::kClosed)
@@ -97,9 +95,8 @@ BytesConsumer::Result ReadableStreamBytesConsumer::BeginRead(
     }
 
     DCHECK_LE(pending_offset_, pending_buffer_->length());
-    *buffer = reinterpret_cast<const char*>(pending_buffer_->Data()) +
-              pending_offset_;
-    *available = pending_buffer_->length() - pending_offset_;
+    buffer =
+        base::as_chars(pending_buffer_->ByteSpan().subspan(pending_offset_));
     return Result::kOk;
   }
   if (!is_reading_) {
@@ -109,7 +106,7 @@ BytesConsumer::Result ReadableStreamBytesConsumer::BeginRead(
     DCHECK(reader_);
 
     ExceptionState exception_state(script_state_->GetIsolate(),
-                                   ExceptionContextType::kUnknown, "", "");
+                                   v8::ExceptionContext::kUnknown, "", "");
     auto* read_request = MakeGarbageCollected<BytesConsumerReadRequest>(this);
     ReadableStreamDefaultReader::Read(script_state_, reader_, read_request,
                                       exception_state);
@@ -157,7 +154,7 @@ void ReadableStreamBytesConsumer::Cancel() {
   if (!ScriptForbiddenScope::IsScriptForbidden()) {
     ScriptState::Scope scope(script_state_);
     ExceptionState exception_state(script_state_->GetIsolate(),
-                                   ExceptionContextType::kUnknown, "", "");
+                                   v8::ExceptionContext::kUnknown, "", "");
     reader_->cancel(script_state_, exception_state);
     // We ignore exceptions as we can do nothing here.
   }

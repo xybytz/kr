@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/icons.html.js';
+import 'chrome://resources/ash/common/cr_elements/icons.html.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 import './diagnostics_shared.css.js';
 
@@ -118,6 +118,15 @@ export class DiagnosticsStickyBannerElement extends PolymerElement {
     // for at least 300ms.
     this.scrollTimerId = window.setTimeout(() => this.scrollingClass = '', 300);
   }
+
+  getScrollingClassForTesting(): string {
+    return this.scrollingClass;
+  }
+
+  getScrollTimerIdForTesting(): number {
+    return this.scrollTimerId;
+  }
+
 }
 
 declare global {

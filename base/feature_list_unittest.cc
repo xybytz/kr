@@ -2,14 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40284755): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "base/feature_list.h"
 
 #include <stddef.h>
 
+#include <ostream>
+#include <set>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "base/feature_list_buildflags.h"
+#include "base/feature_visitor.h"
 #include "base/format_macros.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/metrics/field_trial.h"
@@ -17,10 +27,10 @@
 #include "base/metrics/persistent_memory_allocator.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/strcat.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_feature_list.h"
+#include "build/chromeos_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
@@ -28,15 +38,17 @@ namespace base {
 namespace {
 
 constexpr char kFeatureOnByDefaultName[] = "OnByDefault";
-constinit Feature kFeatureOnByDefault(kFeatureOnByDefaultName,
-                                      FEATURE_ENABLED_BY_DEFAULT);
+BASE_FEATURE(kFeatureOnByDefault,
+             kFeatureOnByDefaultName,
+             FEATURE_ENABLED_BY_DEFAULT);
 
 constexpr char kFeatureOffByDefaultName[] = "OffByDefault";
-constinit Feature kFeatureOffByDefault(kFeatureOffByDefaultName,
-                                       FEATURE_DISABLED_BY_DEFAULT);
+BASE_FEATURE(kFeatureOffByDefault,
+             kFeatureOffByDefaultName,
+             FEATURE_DISABLED_BY_DEFAULT);
 
 std::string SortFeatureListString(const std::string& feature_list) {
-  std::vector<base::StringPiece> features =
+  std::vector<std::string_view> features =
       FeatureList::SplitFeatureListString(feature_list);
   ranges::sort(features);
   return JoinString(features, ",");
@@ -163,9 +175,8 @@ TEST_F(FeatureListTest, CheckFeatureIdentity) {
 
   // Now, call it with a distinct struct for |kFeatureOnByDefaultName|, which
   // should return false.
-  struct Feature kFeatureOnByDefault2 {
-    kFeatureOnByDefaultName, FEATURE_ENABLED_BY_DEFAULT
-  };
+  static BASE_FEATURE(kFeatureOnByDefault2, kFeatureOnByDefaultName,
+                      FEATURE_ENABLED_BY_DEFAULT);
   EXPECT_FALSE(feature_list->CheckFeatureIdentity(kFeatureOnByDefault2));
 }
 
@@ -454,13 +465,47 @@ TEST_F(FeatureListTest, AssociateReportingFieldTrial) {
   }
 }
 
+TEST_F(FeatureListTest, RegisterExtraFeatureOverrides_ReplaceUseDefault) {
+  auto feature_list = std::make_unique<FeatureList>();
+
+  FieldTrial* trial1 = FieldTrialList::CreateFieldTrial("Trial1", "Group");
+  feature_list->RegisterFieldTrialOverride(
+      kFeatureOnByDefaultName, FeatureList::OVERRIDE_USE_DEFAULT, trial1);
+
+  FieldTrial* trial2 = FieldTrialList::CreateFieldTrial("Trial2", "Group");
+  feature_list->RegisterFieldTrialOverride(
+      kFeatureOffByDefaultName, FeatureList::OVERRIDE_USE_DEFAULT, trial2);
+
+  std::vector<FeatureList::FeatureOverrideInfo> overrides;
+  overrides.emplace_back(std::cref(kFeatureOnByDefault),
+                         FeatureList::OverrideState::OVERRIDE_DISABLE_FEATURE);
+  overrides.emplace_back(std::cref(kFeatureOffByDefault),
+                         FeatureList::OverrideState::OVERRIDE_ENABLE_FEATURE);
+  feature_list->RegisterExtraFeatureOverrides(
+      std::move(overrides), /*replace_use_default_overrides=*/true);
+  test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitWithFeatureList(std::move(feature_list));
+
+  // OVERRIDE_USE_DEFAULT entries should be overridden by AwFeatureOverrides.
+  // Before querying the feature, the trials shouldn't be active, but should
+  // be activated after querying.
+
+  EXPECT_FALSE(base::FieldTrialList::IsTrialActive("Trial1"));
+  EXPECT_FALSE(FeatureList::IsEnabled(kFeatureOnByDefault));
+  EXPECT_TRUE(base::FieldTrialList::IsTrialActive("Trial1"));
+
+  EXPECT_FALSE(base::FieldTrialList::IsTrialActive("Trial2"));
+  EXPECT_TRUE(FeatureList::IsEnabled(kFeatureOffByDefault));
+  EXPECT_TRUE(base::FieldTrialList::IsTrialActive("Trial2"));
+}
+
 TEST_F(FeatureListTest, RegisterExtraFeatureOverrides) {
   auto feature_list = std::make_unique<FeatureList>();
   std::vector<FeatureList::FeatureOverrideInfo> overrides;
-  overrides.push_back({std::cref(kFeatureOnByDefault),
-                       FeatureList::OverrideState::OVERRIDE_DISABLE_FEATURE});
-  overrides.push_back({std::cref(kFeatureOffByDefault),
-                       FeatureList::OverrideState::OVERRIDE_ENABLE_FEATURE});
+  overrides.emplace_back(std::cref(kFeatureOnByDefault),
+                         FeatureList::OverrideState::OVERRIDE_DISABLE_FEATURE);
+  overrides.emplace_back(std::cref(kFeatureOffByDefault),
+                         FeatureList::OverrideState::OVERRIDE_ENABLE_FEATURE);
   feature_list->RegisterExtraFeatureOverrides(std::move(overrides));
   test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitWithFeatureList(std::move(feature_list));
@@ -474,10 +519,10 @@ TEST_F(FeatureListTest, InitFromCommandLineThenRegisterExtraOverrides) {
   feature_list->InitFromCommandLine(kFeatureOnByDefaultName,
                                     kFeatureOffByDefaultName);
   std::vector<FeatureList::FeatureOverrideInfo> overrides;
-  overrides.push_back({std::cref(kFeatureOnByDefault),
-                       FeatureList::OverrideState::OVERRIDE_DISABLE_FEATURE});
-  overrides.push_back({std::cref(kFeatureOffByDefault),
-                       FeatureList::OverrideState::OVERRIDE_ENABLE_FEATURE});
+  overrides.emplace_back(std::cref(kFeatureOnByDefault),
+                         FeatureList::OverrideState::OVERRIDE_DISABLE_FEATURE);
+  overrides.emplace_back(std::cref(kFeatureOffByDefault),
+                         FeatureList::OverrideState::OVERRIDE_ENABLE_FEATURE);
   feature_list->RegisterExtraFeatureOverrides(std::move(overrides));
   test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitWithFeatureList(std::move(feature_list));
@@ -499,13 +544,13 @@ TEST_F(FeatureListTest, GetFeatureOverrides) {
   auto feature_list = std::make_unique<FeatureList>();
   feature_list->InitFromCommandLine("A,X", "D");
 
-  Feature feature_b = {"B", FEATURE_ENABLED_BY_DEFAULT};
-  Feature feature_c = {"C", FEATURE_DISABLED_BY_DEFAULT};
+  static BASE_FEATURE(feature_b, "B", FEATURE_ENABLED_BY_DEFAULT);
+  static BASE_FEATURE(feature_c, "C", FEATURE_DISABLED_BY_DEFAULT);
   std::vector<FeatureList::FeatureOverrideInfo> overrides;
-  overrides.push_back({std::cref(feature_b),
-                       FeatureList::OverrideState::OVERRIDE_DISABLE_FEATURE});
-  overrides.push_back({std::cref(feature_c),
-                       FeatureList::OverrideState::OVERRIDE_ENABLE_FEATURE});
+  overrides.emplace_back(std::cref(feature_b),
+                         FeatureList::OverrideState::OVERRIDE_DISABLE_FEATURE);
+  overrides.emplace_back(std::cref(feature_c),
+                         FeatureList::OverrideState::OVERRIDE_ENABLE_FEATURE);
   feature_list->RegisterExtraFeatureOverrides(std::move(overrides));
 
   FieldTrial* trial = FieldTrialList::CreateFieldTrial("Trial", "Group");
@@ -728,10 +773,13 @@ TEST_F(FeatureListTest, SetEarlyAccessInstance_ReplaceByRealList) {
     defined(GTEST_HAS_DEATH_TEST)
 using FeatureListDeathTest = FeatureListTest;
 TEST_F(FeatureListDeathTest, DiesWithBadFeatureName) {
+  // TODO(dcheng): Add a nocompile version of this test. In general, people
+  // should not be constructing features at runtime anyway but just in case...
   EXPECT_DEATH(
       Feature(
           StrCat({BUILDFLAG(BANNED_BASE_FEATURE_PREFIX), "MyFeature"}).c_str(),
-          FEATURE_DISABLED_BY_DEFAULT),
+          FEATURE_DISABLED_BY_DEFAULT,
+          internal::FeatureMacroHandshake::kSecret),
       StrCat({"Invalid feature name ", BUILDFLAG(BANNED_BASE_FEATURE_PREFIX),
               "MyFeature"}));
 }
@@ -832,6 +880,164 @@ TEST(FeatureListAccessorTest, InitFromCommandLineWithFeatureParams) {
         << i;
     EXPECT_EQ(test_case.expected_feature_params, actual_params) << i;
   }
+}
+
+// Test only class to verify correctness of
+// FeatureList::VisitFeaturesAndParams().
+class TestFeatureVisitor : public FeatureVisitor {
+ public:
+  TestFeatureVisitor() = default;
+
+  TestFeatureVisitor(const TestFeatureVisitor&) = delete;
+  TestFeatureVisitor& operator=(const TestFeatureVisitor&) = delete;
+
+  ~TestFeatureVisitor() override = default;
+
+  struct VisitedFeatureState {
+    auto operator<=>(const VisitedFeatureState&) const = default;
+
+    std::string feature_name;
+    const base::FeatureList::OverrideState override_state;
+    base::FieldTrialParams params;
+    std::string trial_name;
+    std::string group_name;
+  };
+
+  void Visit(const std::string& feature_name,
+             FeatureList::OverrideState override_state,
+             const FieldTrialParams& params,
+             const std::string& trial_name,
+             const std::string& group_name) override {
+    feature_state_.insert(TestFeatureVisitor::VisitedFeatureState{
+        feature_name, override_state, params, trial_name, group_name});
+  }
+
+  const std::multiset<TestFeatureVisitor::VisitedFeatureState>&
+  feature_state() {
+    return feature_state_;
+  }
+
+ private:
+  std::multiset<VisitedFeatureState> feature_state_;
+};
+
+// Makes test output human readable.
+std::ostream& operator<<(std::ostream& out,
+                         const TestFeatureVisitor::VisitedFeatureState& state) {
+  out << ".feature_name='" << state.feature_name
+      << "', .override_state=" << state.override_state << ", .params={";
+
+  for (const auto& param : state.params) {
+    out << param.first << "=" << param.second << ", ";
+  }
+
+  out << "}, .trial_name='" << state.trial_name << "', .group_name='"
+      << state.group_name << "'";
+  return out;
+}
+
+TEST(TestFeatureVisitor, FeatureWithNoFieldTrial) {
+  base::test::ScopedFeatureList outer_scope;
+  outer_scope.InitWithEmptyFeatureAndFieldTrialLists();
+
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(/*enabled_features=*/{kFeatureOffByDefault},
+                                /*disabled_features=*/{kFeatureOnByDefault});
+
+  TestFeatureVisitor visitor;
+  base::FeatureList::VisitFeaturesAndParams(visitor);
+  std::multiset<TestFeatureVisitor::VisitedFeatureState> actual_feature_state =
+      visitor.feature_state();
+
+  std::multiset<TestFeatureVisitor::VisitedFeatureState>
+      expected_feature_state = {
+          {"OnByDefault", FeatureList::OverrideState::OVERRIDE_DISABLE_FEATURE,
+           FieldTrialParams{}, "", ""},
+          {"OffByDefault", FeatureList::OverrideState::OVERRIDE_ENABLE_FEATURE,
+           FieldTrialParams{}, "", ""},
+      };
+
+  EXPECT_EQ(actual_feature_state, expected_feature_state);
+}
+
+TEST(TestFeatureVisitor, FeatureOverrideUseDefault) {
+  base::test::ScopedFeatureList outer_scope;
+  outer_scope.InitWithEmptyFeatureAndFieldTrialLists();
+
+  auto feature_list = std::make_unique<base::FeatureList>();
+  base::FieldTrial* trial =
+      base::FieldTrialList::CreateFieldTrial("TrialExample", "A");
+  feature_list->RegisterFieldTrialOverride(
+      "TestFeature", base::FeatureList::OVERRIDE_USE_DEFAULT, trial);
+
+  base::test::ScopedFeatureList initialized_feature_list;
+  initialized_feature_list.InitWithFeatureList(std::move(feature_list));
+
+  TestFeatureVisitor visitor;
+  base::FeatureList::VisitFeaturesAndParams(visitor);
+  std::multiset<TestFeatureVisitor::VisitedFeatureState> actual_feature_state =
+      visitor.feature_state();
+
+  std::multiset<TestFeatureVisitor::VisitedFeatureState>
+      expected_feature_state = {
+          {"TestFeature", FeatureList::OverrideState::OVERRIDE_USE_DEFAULT,
+           FieldTrialParams{}, "TrialExample", "A"}};
+
+  EXPECT_EQ(actual_feature_state, expected_feature_state);
+}
+
+TEST(TestFeatureVisitor, FeatureHasParams) {
+  base::test::ScopedFeatureList outer_scope;
+  outer_scope.InitWithEmptyFeatureAndFieldTrialLists();
+
+  base::test::ScopedFeatureList initialized_feature_list;
+
+  initialized_feature_list.InitFromCommandLine(
+      /*enabled_features=*/"TestFeature<foo.bar:k1/v1/k2/v2",
+      /*disabled_features=*/"");
+
+  TestFeatureVisitor visitor;
+  base::FeatureList::VisitFeaturesAndParams(visitor);
+  std::multiset<TestFeatureVisitor::VisitedFeatureState> actual_feature_state =
+      visitor.feature_state();
+
+  std::multiset<TestFeatureVisitor::VisitedFeatureState>
+      expected_feature_state = {
+          {"TestFeature", FeatureList::OverrideState::OVERRIDE_ENABLE_FEATURE,
+           FieldTrialParams{{"k1", "v1"}, {"k2", "v2"}}, "foo", "bar"},
+      };
+
+  EXPECT_EQ(actual_feature_state, expected_feature_state);
+}
+
+TEST(TestFeatureVisitor, FeatureWithPrefix) {
+  base::test::ScopedFeatureList outer_scope;
+  outer_scope.InitWithEmptyFeatureAndFieldTrialLists();
+
+  base::test::ScopedFeatureList initialized_feature_list;
+
+  initialized_feature_list.InitFromCommandLine(
+      /*enable_features=*/
+      "AFeature,AnotherFeature,TestFeature,TestFeature2,PrefixedFeature,"
+      "PrefixedFeature2",
+      /*disable_features=*/"");
+
+  TestFeatureVisitor visitor;
+  base::FeatureList::VisitFeaturesAndParams(visitor, "Prefixed");
+  std::multiset<TestFeatureVisitor::VisitedFeatureState> actual_feature_state =
+      visitor.feature_state();
+
+  std::multiset<TestFeatureVisitor::VisitedFeatureState>
+      expected_feature_state = {
+          {"PrefixedFeature",
+           FeatureList::OverrideState::OVERRIDE_ENABLE_FEATURE,
+           FieldTrialParams{}, "", ""},
+          {"PrefixedFeature2",
+           FeatureList::OverrideState::OVERRIDE_ENABLE_FEATURE,
+           FieldTrialParams{}, "", ""},
+      };
+
+  EXPECT_EQ(actual_feature_state, expected_feature_state);
 }
 
 }  // namespace base

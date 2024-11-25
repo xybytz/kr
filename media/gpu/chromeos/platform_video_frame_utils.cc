@@ -32,7 +32,6 @@
 #include "media/base/video_frame_layout.h"
 #include "media/base/video_util.h"
 #include "media/gpu/buffer_validation.h"
-#include "media/gpu/chromeos/chromeos_compressed_gpu_memory_buffer_video_frame_utils.h"
 #include "media/gpu/macros.h"
 #include "ui/gfx/buffer_format_util.h"
 #include "ui/gfx/buffer_types.h"
@@ -244,7 +243,10 @@ class GbmDeviceWrapper {
     // flag.
     constexpr auto kScanoutUsages = base::MakeFixedFlatSet<gfx::BufferUsage>(
         {gfx::BufferUsage::SCANOUT,
+         gfx::BufferUsage::PROTECTED_SCANOUT,
+#if !BUILDFLAG(USE_V4L2_CODEC)
          gfx::BufferUsage::PROTECTED_SCANOUT_VDA_WRITE,
+#endif
          gfx::BufferUsage::SCANOUT_FRONT_RENDERING});
     if (!kScanoutUsages.contains(buffer_usage))
       flags &= ~GBM_BO_USE_SCANOUT;
@@ -256,6 +258,7 @@ class GbmDeviceWrapper {
   base::Lock lock_;
   std::unique_ptr<ui::GbmDevice> gbm_device_ GUARDED_BY(lock_);
 };
+}  // namespace
 
 gfx::GpuMemoryBufferHandle AllocateGpuMemoryBufferHandle(
     VideoPixelFormat pixel_format,
@@ -268,7 +271,70 @@ gfx::GpuMemoryBufferHandle AllocateGpuMemoryBufferHandle(
   return GbmDeviceWrapper::Get()->CreateGpuMemoryBuffer(
       *buffer_format, coded_size, buffer_usage);
 }
-}  // namespace
+
+UniqueTrackingTokenHelper::UniqueTrackingTokenHelper() {
+  Initialize();
+}
+
+UniqueTrackingTokenHelper::~UniqueTrackingTokenHelper() = default;
+
+void UniqueTrackingTokenHelper::ClearTokens() {
+  tokens_.clear();
+  Initialize();
+}
+
+void UniqueTrackingTokenHelper::Initialize() {
+  // This should only be run with an empty token list.
+  CHECK_EQ(0u, tokens_.size());
+
+  // Insert an empty tracking token. This guarantees that all returned tokens
+  // will be non-empty.
+  tokens_.insert(base::UnguessableToken());
+}
+
+void UniqueTrackingTokenHelper::ClearToken(
+    const base::UnguessableToken& token) {
+  // Only non-empty tokens are stored.
+  CHECK(!token.is_empty());
+  auto iter = tokens_.find(token);
+  CHECK(iter != tokens_.end());
+  tokens_.erase(iter);
+}
+
+base::UnguessableToken UniqueTrackingTokenHelper::GenerateToken() {
+  CHECK(tokens_.size() < kMaxNumberOfTokens);
+
+  // Capping the number of insertion attempts is done to avoid an unbounded
+  // while loop. The expected collision frequency is very low since
+  // base::UnguessableToken is a 128-bit number. If we can't find a unique token
+  // in 1024 attempts, then something is likely wrong.
+  constexpr int kMaxAttempts = 1024;
+  for (int attempt_count = 0; attempt_count < kMaxAttempts; ++attempt_count) {
+    // Generate an UnguessableToken and attempt to insert it into |tokens_|.
+    auto res = tokens_.insert(base::UnguessableToken::Create());
+    if (res.second) {
+      // Success
+      return *res.first;
+    }
+  }
+  LOG(FATAL) << "Unable to generate a unique UnguessableToken. Aborting.";
+}
+
+void UniqueTrackingTokenHelper::SetUniqueTrackingToken(
+    VideoFrameMetadata& metadata) {
+  CHECK(tokens_.size() < kMaxNumberOfTokens);
+
+  if (metadata.tracking_token.has_value()) {
+    if (auto res = tokens_.insert(*metadata.tracking_token);
+        true == res.second) {
+      // We were able to insert the tracking token into |tokens_|. There is
+      // nothing left to do.
+      return;
+    }
+  }
+  // Otherwise, it needs to be generated.
+  metadata.tracking_token = GenerateToken();
+}
 
 gfx::GpuMemoryBufferId GetNextGpuMemoryBufferId() {
   static base::NoDestructor<base::Lock> id_lock;
@@ -290,23 +356,24 @@ scoped_refptr<VideoFrame> CreateGpuMemoryBufferVideoFrame(
   if (gmb_handle.is_null() || gmb_handle.type != gfx::NATIVE_PIXMAP)
     return nullptr;
 
+  return CreateVideoFrameFromGpuMemoryBufferHandle(
+      std::move(gmb_handle), pixel_format, coded_size, visible_rect,
+      natural_size, timestamp, buffer_usage);
+}
+
+scoped_refptr<VideoFrame> CreateVideoFrameFromGpuMemoryBufferHandle(
+    gfx::GpuMemoryBufferHandle gmb_handle,
+    VideoPixelFormat pixel_format,
+    const gfx::Size& coded_size,
+    const gfx::Rect& visible_rect,
+    const gfx::Size& natural_size,
+    base::TimeDelta timestamp,
+    gfx::BufferUsage buffer_usage) {
   const bool supports_zero_copy_webgpu_import =
       gmb_handle.native_pixmap_handle.supports_zero_copy_webgpu_import;
 
   auto buffer_format = VideoPixelFormatToGfxBufferFormat(pixel_format);
   DCHECK(buffer_format);
-  const uint64_t modifier = gmb_handle.native_pixmap_handle.modifier;
-  const bool is_intel_media_compressed_buffer =
-      IsIntelMediaCompressedModifier(modifier);
-  const bool is_intel_media_compression_enabled =
-#if BUILDFLAG(IS_CHROMEOS)
-      base::FeatureList::IsEnabled(features::kEnableIntelMediaCompression);
-#elif BUILDFLAG(IS_LINUX)
-      false;
-#endif
-
-  CHECK(!is_intel_media_compressed_buffer ||
-        is_intel_media_compression_enabled);
   gpu::GpuMemoryBufferSupport support;
   std::unique_ptr<gfx::GpuMemoryBuffer> gpu_memory_buffer =
       support.CreateGpuMemoryBufferImplFromHandle(
@@ -315,25 +382,15 @@ scoped_refptr<VideoFrame> CreateGpuMemoryBufferVideoFrame(
   if (!gpu_memory_buffer)
     return nullptr;
 
-  scoped_refptr<VideoFrame> frame;
-  if (is_intel_media_compressed_buffer) {
-    CHECK(pixel_format == PIXEL_FORMAT_NV12 ||
-          pixel_format == PIXEL_FORMAT_P016LE);
-    frame = WrapChromeOSCompressedGpuMemoryBufferAsVideoFrame(
-        visible_rect, natural_size, std::move(gpu_memory_buffer), timestamp);
-  } else {
-    // The empty mailbox is ok because this VideoFrame is not rendered.
-    const gpu::MailboxHolder mailbox_holders[VideoFrame::kMaxPlanes] = {};
-    frame = VideoFrame::WrapExternalGpuMemoryBuffer(
-        visible_rect, natural_size, std::move(gpu_memory_buffer),
-        mailbox_holders, base::NullCallback(), timestamp);
-  }
-
+  // It is not necessary to pass a SharedImage because this VideoFrame is not
+  // rendered.
+  scoped_refptr<VideoFrame> frame = VideoFrame::WrapExternalGpuMemoryBuffer(
+      visible_rect, natural_size, std::move(gpu_memory_buffer), timestamp);
   if (!frame)
     return nullptr;
 
   // We only support importing non-DISJOINT multi-planar GbmBuffer right now.
-  // TODO(crbug.com/1258986): Add DISJOINT support.
+  // TODO(crbug.com/40201271): Add DISJOINT support.
   frame->metadata().is_webgpu_compatible = supports_zero_copy_webgpu_import;
 
   return frame;
@@ -375,7 +432,7 @@ scoped_refptr<VideoFrame> CreatePlatformVideoFrame(
   return frame;
 }
 
-absl::optional<VideoFrameLayout> GetPlatformVideoFrameLayout(
+std::optional<VideoFrameLayout> GetPlatformVideoFrameLayout(
     VideoPixelFormat pixel_format,
     const gfx::Size& coded_size,
     gfx::BufferUsage buffer_usage) {
@@ -384,8 +441,8 @@ absl::optional<VideoFrameLayout> GetPlatformVideoFrameLayout(
   auto frame =
       CreatePlatformVideoFrame(pixel_format, coded_size, gfx::Rect(coded_size),
                                coded_size, base::TimeDelta(), buffer_usage);
-  return frame ? absl::make_optional<VideoFrameLayout>(frame->layout())
-               : absl::nullopt;
+  return frame ? std::make_optional<VideoFrameLayout>(frame->layout())
+               : std::nullopt;
 }
 
 gfx::GpuMemoryBufferHandle CreateGpuMemoryBufferHandle(
@@ -395,7 +452,7 @@ gfx::GpuMemoryBufferHandle CreateGpuMemoryBufferHandle(
   gfx::GpuMemoryBufferHandle handle;
   switch (video_frame->storage_type()) {
     case VideoFrame::STORAGE_GPU_MEMORY_BUFFER:
-      handle = video_frame->GetGpuMemoryBuffer()->CloneHandle();
+      handle = video_frame->GetGpuMemoryBufferHandle();
       // TODO(crbug.com/1097956): handle a failure gracefully.
       CHECK_EQ(handle.type, gfx::NATIVE_PIXMAP)
           << "The cloned handle has an unexpected type: " << handle.type;
@@ -474,6 +531,16 @@ scoped_refptr<gfx::NativePixmapDmaBuf> CreateNativePixmapDmaBuf(
 
   DCHECK(native_pixmap->AreDmaBufFdsValid());
   return native_pixmap;
+}
+
+gfx::GenericSharedMemoryId GetSharedMemoryId(const VideoFrame& frame) {
+  if (auto* gmb = frame.GetGpuMemoryBuffer()) {
+    return gmb->GetId();
+  }
+  if (frame.HasDmaBufs()) {
+    return gfx::GenericSharedMemoryId(frame.GetDmabufFd(0));
+  }
+  NOTREACHED() << "The frame is not backed by shared memory";
 }
 
 bool CanImportGpuMemoryBufferHandle(

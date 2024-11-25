@@ -2,7 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/public/platform/web_vector.h"
+
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
@@ -51,7 +57,7 @@ TEST(WebVectorTest, Empty) {
   WebVector<int> vector;
   ASSERT_TRUE(vector.empty());
   int value = 1;
-  vector.Assign(&value, 1);
+  vector.Assign(base::span_from_ref(value));
   ASSERT_EQ(1u, vector.size());
   ASSERT_FALSE(vector.empty());
 }

@@ -11,11 +11,6 @@ ChromeVoxPhoneticDataTest = class extends ChromeVoxE2ETest {
   /** @override */
   async setUpDeferred() {
     await super.setUpDeferred();
-
-    // Alphabetical based on file path.
-    await importModule(
-        'PhoneticData', '/chromevox/background/phonetic_data.js');
-
     JaPhoneticData.init(JA_TEST_MAP);
   }
 };
@@ -52,7 +47,7 @@ JA_TEST_MAP = new Map([
   ['働', 'ロウドウノドウ'],
 ]);
 
-// TODO(crbug/1195393): Polish phonetic readings so that users can disambiguate
+// TODO(crbug.com/40758998): Polish phonetic readings so that users can disambiguate
 // more precisely.
 AX_TEST_F('ChromeVoxPhoneticDataTest', 'forCharacterJa', function() {
   assertEquals('ヒラガナ アサヒ ノ ア', PhoneticData.forCharacter('あ', 'ja'));

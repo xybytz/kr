@@ -36,9 +36,13 @@
 #include "extensions/common/extension_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/ash/login/users/scoped_test_user_manager.h"
+#if BUILDFLAG(IS_CHROMEOS)
+#include "chrome/browser/ash/login/users/user_manager_delegate_impl.h"
 #include "chrome/browser/ash/settings/scoped_cros_settings_test_helper.h"
+#include "chrome/browser/browser_process.h"
+#include "chromeos/ash/components/settings/cros_settings.h"
+#include "components/user_manager/scoped_user_manager.h"
+#include "components/user_manager/user_manager_impl.h"
 #endif
 
 namespace extensions {
@@ -47,17 +51,15 @@ class FullStreamUIPolicyTest : public testing::Test {
  public:
   FullStreamUIPolicyTest()
       : task_environment_(content::BrowserTaskEnvironment::IO_MAINLOOP) {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-    test_user_manager_ = std::make_unique<ash::ScopedTestUserManager>();
-#endif
     base::CommandLine no_program_command_line(base::CommandLine::NO_PROGRAM);
     profile_ = std::make_unique<TestingProfile>();
     base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
     command_line->AppendSwitch(switches::kEnableExtensionActivityLogging);
     command_line->AppendSwitch(switches::kEnableExtensionActivityLogTesting);
-    extension_service_ = static_cast<TestExtensionSystem*>(
-        ExtensionSystem::Get(profile_.get()))->CreateExtensionService
-            (&no_program_command_line, base::FilePath(), false);
+    extension_service_ =
+        static_cast<TestExtensionSystem*>(ExtensionSystem::Get(profile_.get()))
+            ->CreateExtensionService(&no_program_command_line, base::FilePath(),
+                                     false);
 
     // Run pending async tasks resulting from profile construction to ensure
     // these are complete before the test begins.
@@ -65,10 +67,11 @@ class FullStreamUIPolicyTest : public testing::Test {
   }
 
   ~FullStreamUIPolicyTest() override {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-    test_user_manager_.reset();
+#if BUILDFLAG(IS_CHROMEOS)
+    user_manager_.Reset();
 #endif
     base::RunLoop().RunUntilIdle();
+    extension_service_ = nullptr;
     profile_.reset();
     base::RunLoop().RunUntilIdle();
   }
@@ -327,13 +330,17 @@ class FullStreamUIPolicyTest : public testing::Test {
   }
 
  protected:
-  raw_ptr<ExtensionService, DanglingUntriaged> extension_service_;
+  raw_ptr<ExtensionService> extension_service_ = nullptr;
   std::unique_ptr<TestingProfile> profile_;
   content::BrowserTaskEnvironment task_environment_;
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   ash::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
-  std::unique_ptr<ash::ScopedTestUserManager> test_user_manager_;
+  user_manager::ScopedUserManager user_manager_{
+      std::make_unique<user_manager::UserManagerImpl>(
+          std::make_unique<ash::UserManagerDelegateImpl>(),
+          g_browser_process->local_state(),
+          ash::CrosSettings::Get())};
 #endif
 };
 
@@ -348,10 +355,9 @@ TEST_F(FullStreamUIPolicyTest, Construct) {
                            .Set("manifest_version", 2))
           .Build();
   extension_service_->AddExtension(extension.get());
-  scoped_refptr<Action> action = new Action(extension->id(),
-                                            base::Time::Now(),
-                                            Action::ACTION_API_CALL,
-                                            "tabs.testMethod");
+  scoped_refptr<Action> action =
+      new Action(extension->id(), base::Time::Now(), Action::ACTION_API_CALL,
+                 "tabs.testMethod");
   action->set_args(base::Value::List());
   policy->ProcessAction(action);
   policy->Close();
@@ -371,17 +377,15 @@ TEST_F(FullStreamUIPolicyTest, LogAndFetchActions) {
   GURL gurl("http://www.google.com");
 
   // Write some API calls
-  scoped_refptr<Action> action_api = new Action(extension->id(),
-                                                base::Time::Now(),
-                                                Action::ACTION_API_CALL,
-                                                "tabs.testMethod");
+  scoped_refptr<Action> action_api =
+      new Action(extension->id(), base::Time::Now(), Action::ACTION_API_CALL,
+                 "tabs.testMethod");
   action_api->set_args(base::Value::List());
   policy->ProcessAction(action_api);
 
-  scoped_refptr<Action> action_dom = new Action(extension->id(),
-                                                base::Time::Now(),
-                                                Action::ACTION_DOM_ACCESS,
-                                                "document.write");
+  scoped_refptr<Action> action_dom =
+      new Action(extension->id(), base::Time::Now(), Action::ACTION_DOM_ACCESS,
+                 "document.write");
   action_dom->set_args(base::Value::List());
   action_dom->set_page_url(gurl);
   policy->ProcessAction(action_dom);
@@ -408,17 +412,15 @@ TEST_F(FullStreamUIPolicyTest, LogAndFetchFilteredActions) {
   GURL gurl("http://www.google.com");
 
   // Write some API calls
-  scoped_refptr<Action> action_api = new Action(extension->id(),
-                                                base::Time::Now(),
-                                                Action::ACTION_API_CALL,
-                                                "tabs.testMethod");
+  scoped_refptr<Action> action_api =
+      new Action(extension->id(), base::Time::Now(), Action::ACTION_API_CALL,
+                 "tabs.testMethod");
   action_api->set_args(base::Value::List());
   policy->ProcessAction(action_api);
 
-  scoped_refptr<Action> action_dom = new Action(extension->id(),
-                                                base::Time::Now(),
-                                                Action::ACTION_DOM_ACCESS,
-                                                "document.write");
+  scoped_refptr<Action> action_dom =
+      new Action(extension->id(), base::Time::Now(), Action::ACTION_DOM_ACCESS,
+                 "document.write");
   action_dom->set_args(base::Value::List());
   action_dom->set_page_url(gurl);
   policy->ProcessAction(action_dom);
@@ -487,10 +489,9 @@ TEST_F(FullStreamUIPolicyTest, LogWithArguments) {
 
   auto args = base::Value::List().Append("hello");
   args.Append("world");
-  scoped_refptr<Action> action = new Action(extension->id(),
-                                            base::Time::Now(),
-                                            Action::ACTION_API_CALL,
-                                            "extension.connect");
+  scoped_refptr<Action> action =
+      new Action(extension->id(), base::Time::Now(), Action::ACTION_API_CALL,
+                 "extension.connect");
   action->set_args(std::move(args));
 
   policy->ProcessAction(action);
@@ -743,9 +744,7 @@ TEST_F(FullStreamUIPolicyTest, CapReturns) {
 
   for (int i = 0; i < 305; i++) {
     scoped_refptr<Action> action =
-        new Action("punky",
-                   base::Time::Now(),
-                   Action::ACTION_API_CALL,
+        new Action("punky", base::Time::Now(), Action::ACTION_API_CALL,
                    base::StringPrintf("apicall_%d", i));
     policy->ProcessAction(action);
   }
@@ -778,17 +777,15 @@ TEST_F(FullStreamUIPolicyTest, DeleteDatabase) {
   GURL gurl("http://www.google.com");
 
   // Write some API calls.
-  scoped_refptr<Action> action_api = new Action(extension->id(),
-                                                base::Time::Now(),
-                                                Action::ACTION_API_CALL,
-                                                "tabs.testMethod");
+  scoped_refptr<Action> action_api =
+      new Action(extension->id(), base::Time::Now(), Action::ACTION_API_CALL,
+                 "tabs.testMethod");
   action_api->set_args(base::Value::List());
   policy->ProcessAction(action_api);
 
-  scoped_refptr<Action> action_dom = new Action(extension->id(),
-                                                base::Time::Now(),
-                                                Action::ACTION_DOM_ACCESS,
-                                                "document.write");
+  scoped_refptr<Action> action_dom =
+      new Action(extension->id(), base::Time::Now(), Action::ACTION_DOM_ACCESS,
+                 "document.write");
   action_dom->set_args(base::Value::List());
   action_dom->set_page_url(gurl);
   policy->ProcessAction(action_dom);

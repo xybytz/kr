@@ -23,14 +23,15 @@
 #include "base/test/task_environment.h"
 #include "chrome/browser/ash/input_method/mock_candidate_window_controller.h"
 #include "chrome/browser/ash/input_method/mock_input_method_engine.h"
+#include "chrome/browser/ash/input_method/test_ime_controller.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ui/ash/ime_controller_client_impl.h"
+#include "chrome/browser/ui/ash/input_method/ime_controller_client_impl.h"
 #include "chrome/browser/ui/ash/keyboard/chrome_keyboard_controller_client_test_helper.h"
-#include "chrome/browser/ui/ash/test_ime_controller.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "chromeos/components/kiosk/kiosk_test_utils.h"
 #include "components/account_id/account_id.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -62,8 +63,9 @@ const char kExtensionId2[] = "11111111111111111111111111111111";
 bool Contain(const InputMethodDescriptors& descriptors,
              const InputMethodDescriptor& target) {
   for (const auto& descriptor : descriptors) {
-    if (descriptor.id() == target.id())
+    if (descriptor.id() == target.id()) {
       return true;
+    }
   }
   return false;
 }
@@ -118,9 +120,7 @@ class TestCandidateWindowObserver
     : public InputMethodManager::CandidateWindowObserver {
  public:
   TestCandidateWindowObserver()
-      : candidate_window_opened_count_(0),
-        candidate_window_closed_count_(0) {
-  }
+      : candidate_window_opened_count_(0), candidate_window_closed_count_(0) {}
 
   TestCandidateWindowObserver(const TestCandidateWindowObserver&) = delete;
   TestCandidateWindowObserver& operator=(const TestCandidateWindowObserver&) =
@@ -140,7 +140,7 @@ class TestCandidateWindowObserver
 };
 }  // namespace
 
-class InputMethodManagerImplTest :  public BrowserWithTestWindowTest {
+class InputMethodManagerImplTest : public BrowserWithTestWindowTest {
  public:
   InputMethodManagerImplTest() = default;
 
@@ -1139,8 +1139,8 @@ TEST_F(InputMethodManagerImplTest, TestAddRemoveExtensionInputMethods) {
   MockInputMethodEngine engine;
   InputMethodDescriptors descriptors;
   descriptors.push_back(descriptor1);
-  manager_->GetActiveIMEState()->AddInputMethodExtension(
-      kExtensionId1, descriptors, &engine);
+  manager_->GetActiveIMEState()->AddInputMethodExtension(kExtensionId1,
+                                                         descriptors, &engine);
 
   // Extension IMEs are not enabled by default.
   EXPECT_EQ(1U, manager_->GetActiveIMEState()->GetNumEnabledInputMethods());
@@ -1169,8 +1169,8 @@ TEST_F(InputMethodManagerImplTest, TestAddRemoveExtensionInputMethods) {
   descriptors.clear();
   descriptors.push_back(descriptor2);
   MockInputMethodEngine engine2;
-  manager_->GetActiveIMEState()->AddInputMethodExtension(
-      kExtensionId2, descriptors, &engine2);
+  manager_->GetActiveIMEState()->AddInputMethodExtension(kExtensionId2,
+                                                         descriptors, &engine2);
   EXPECT_EQ(2U, manager_->GetActiveIMEState()->GetNumEnabledInputMethods());
 
   extension_ime_ids.push_back(ext2_id);
@@ -1219,8 +1219,8 @@ TEST_F(InputMethodManagerImplTest, TestAddExtensionInputThenLockScreen) {
   MockInputMethodEngine engine;
   InputMethodDescriptors descriptors;
   descriptors.push_back(descriptor);
-  manager_->GetActiveIMEState()->AddInputMethodExtension(
-      kExtensionId1, descriptors, &engine);
+  manager_->GetActiveIMEState()->AddInputMethodExtension(kExtensionId1,
+                                                         descriptors, &engine);
 
   // Extension IME is not enabled by default.
   EXPECT_EQ(1U, manager_->GetActiveIMEState()->GetNumEnabledInputMethods());
@@ -1321,7 +1321,7 @@ TEST_F(InputMethodManagerImplTest, MigrateInputMethodsTest) {
   input_method_ids.emplace_back("_comp_ime_asdf_pinyin");
   input_method_ids.push_back(ImeIdFromEngineId(kPinyinImeId));
 
-  manager_->MigrateInputMethods(&input_method_ids);
+  manager_->GetMigratedInputMethodIDs(&input_method_ids);
 
   ASSERT_EQ(4U, input_method_ids.size());
 
@@ -1530,19 +1530,16 @@ TEST_F(InputMethodManagerImplTest, AllowedInputMethodsAndExtensions) {
                                    ImeIdFromEngineId(kNaclMozcJpId)));
 }
 
-TEST_F(InputMethodManagerImplTest, EnableAllowedInputMethodsInKiosk) {
-  // Login as a kiosk app user.
-  const std::string user_id = "kiosk@account.user";
-  const std::string user_email = user_id;
-  const AccountId account_id =
-      AccountId::FromUserEmailGaiaId(user_email, user_id);
+class InputMethodManagerImplKioskTest : public InputMethodManagerImplTest {
+ public:
+  void LogIn(const std::string& email) override {
+    chromeos::SetUpFakeKioskSession(email);
+    ash_test_helper()->test_session_controller_client()->AddUserSession(
+        email, user_manager::UserType::kKioskApp);
+  }
+};
 
-  ash::FakeChromeUserManager* fake_user_manager =
-      static_cast<ash::FakeChromeUserManager*>(
-          user_manager::UserManager::Get());
-  fake_user_manager->AddKioskAppUser(account_id);
-  fake_user_manager->LoginUser(account_id);
-
+TEST_F(InputMethodManagerImplKioskTest, EnableAllowedInputMethods) {
   // First, setup xkb:fr::fra input method
   std::string original_input_method(ImeIdFromEngineId("xkb:fr::fra"));
   ASSERT_TRUE(
@@ -1567,8 +1564,6 @@ TEST_F(InputMethodManagerImplTest, EnableAllowedInputMethodsInKiosk) {
   EXPECT_THAT(manager_->GetActiveIMEState()->GetAllowedInputMethodIds(),
               testing::ElementsAre(ImeIdFromEngineId("xkb:us::eng"),
                                    ImeIdFromEngineId("xkb:de::ger")));
-  // Logout kiosk app user.
-  fake_user_manager->RemoveUserFromList(account_id);
 }
 
 TEST_F(InputMethodManagerImplTest, SetLoginDefaultWithAllowedInputMethods) {

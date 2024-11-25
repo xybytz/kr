@@ -122,10 +122,6 @@ void AddAccountHelper::OnNewProfileInitialized(Profile* new_profile) {
   DCHECK(account_);
   if (!new_profile) {
     NOTREACHED() << "Error creating new profile";
-    profile_path_ = base::FilePath();
-    MaybeCompleteAddAccount();
-    // `this` may be deleted.
-    return;
   }
 
   OnShowAddAccountDialogCompletedWithProfilePath(new_profile->GetPath());

@@ -14,6 +14,7 @@
 #include "chromeos/ui/frame/caption_buttons/caption_button_model.h"
 #include "chromeos/ui/frame/caption_buttons/frame_back_button.h"
 #include "chromeos/ui/frame/caption_buttons/frame_caption_button_container_view.h"
+#include "chromeos/ui/frame/caption_buttons/frame_center_button.h"
 #include "chromeos/ui/frame/default_frame_header.h"
 #include "chromeos/ui/frame/frame_utils.h"
 #include "ui/aura/client/aura_constants.h"
@@ -65,7 +66,7 @@ class HeaderView::HeaderContentView : public views::View {
       views::PaintInfo::ScaleType::kScaleWithEdgeSnapping;
 };
 
-BEGIN_METADATA(HeaderView, HeaderContentView, views::View)
+BEGIN_METADATA(HeaderView, HeaderContentView)
 END_METADATA
 
 HeaderView::HeaderView(views::Widget* target_widget,
@@ -91,12 +92,10 @@ void HeaderView::Init() {
 
   aura::Window* window = target_widget_->GetNativeWindow();
   window_observation_.Observe(window);
-  display::Screen::GetScreen()->AddObserver(this);
+  display_observer_.emplace(this);
 }
 
-HeaderView::~HeaderView() {
-  display::Screen::GetScreen()->RemoveObserver(this);
-}
+HeaderView::~HeaderView() = default;
 
 void HeaderView::SchedulePaintForTitle() {
   frame_header_->SchedulePaintForTitle();
@@ -118,9 +117,9 @@ int HeaderView::GetPreferredOnScreenHeight() {
 }
 
 int HeaderView::GetPreferredHeight() {
-  // Calculating the preferred height requires at least one Layout().
+  // Calculating the preferred height requires at least one layout.
   if (!did_layout_)
-    Layout();
+    DeprecatedLayoutImmediately();
   return frame_header_->GetHeaderHeightForPainting();
 }
 
@@ -144,7 +143,7 @@ void HeaderView::SetAvatarIcon(const gfx::ImageSkia& avatar) {
     avatar_icon_->SetImage(avatar);
   }
   frame_header_->SetLeftHeaderView(avatar_icon_);
-  Layout();
+  DeprecatedLayoutImmediately();
 }
 
 void HeaderView::UpdateCaptionButtons() {
@@ -154,7 +153,7 @@ void HeaderView::UpdateCaptionButtons() {
   UpdateBackButton();
   UpdateCenterButton();
 
-  Layout();
+  DeprecatedLayoutImmediately();
 }
 
 void HeaderView::SetWidthInPixels(int width_in_pixels) {
@@ -171,7 +170,7 @@ void HeaderView::SetHeaderCornerRadius(int radius) {
   frame_header_->SetHeaderCornerRadius(radius);
 }
 
-void HeaderView::Layout() {
+void HeaderView::Layout(PassKey) {
   did_layout_ = true;
   header_content_view_->SetBoundsRect(GetLocalBounds());
   frame_header_->LayoutHeader();
@@ -183,7 +182,7 @@ void HeaderView::ChildPreferredSizeChanged(views::View* child) {
 
   // May be null during view initialization.
   if (parent())
-    parent()->Layout();
+    parent()->DeprecatedLayoutImmediately();
 }
 
 bool HeaderView::IsDrawn() const {
@@ -224,14 +223,21 @@ void HeaderView::OnWindowPropertyChanged(aura::Window* window,
 void HeaderView::OnWindowDestroying(aura::Window* window) {
   DCHECK(window_observation_.IsObservingSource(window));
   window_observation_.Reset();
+  display_observer_.reset();
+
   // A HeaderView may outlive the target widget.
   target_widget_ = nullptr;
 }
 
 void HeaderView::OnDisplayMetricsChanged(const display::Display& display,
                                          uint32_t changed_metrics) {
+  // When the display is rotated, the frame header may have invalid snap icons.
+  // For example, rotating from landscape display to portrait display layout
+  // should update snap icons from left/right arrows to upward/downward arrows
+  // for top and bottom snaps.
   if ((changed_metrics & display::DisplayObserver::DISPLAY_METRIC_ROTATION) &&
       frame_header_) {
+    CHECK(target_widget_);
     frame_header_->LayoutHeader();
   }
 }
@@ -241,17 +247,17 @@ void HeaderView::OnDisplayTabletStateChanged(display::TabletState state) {
     case display::TabletState::kInTabletMode:
       UpdateCaptionButtonsVisibility();
       caption_button_container_->UpdateCaptionButtonState(true /*=animate*/);
-      parent()->Layout();
+      parent()->DeprecatedLayoutImmediately();
       if (target_widget_) {
-        target_widget_->non_client_view()->Layout();
+        target_widget_->non_client_view()->DeprecatedLayoutImmediately();
       }
       break;
     case display::TabletState::kInClamshellMode:
       UpdateCaptionButtonsVisibility();
       caption_button_container_->UpdateCaptionButtonState(true /*=animate*/);
-      parent()->Layout();
+      parent()->DeprecatedLayoutImmediately();
       if (target_widget_)
-        target_widget_->non_client_view()->Layout();
+        target_widget_->non_client_view()->DeprecatedLayoutImmediately();
       break;
     case display::TabletState::kEnteringTabletMode:
       break;
@@ -289,14 +295,14 @@ void HeaderView::OnImmersiveRevealStarted() {
     // The immersive layer should always be top.
     layer()->parent()->StackAtTop(layer());
   }
-  parent()->Layout();
+  parent()->DeprecatedLayoutImmediately();
 }
 
 void HeaderView::OnImmersiveRevealEnded() {
   fullscreen_visible_fraction_ = 0;
   if (add_layer_for_immersive_)
     DestroyLayer();
-  parent()->Layout();
+  parent()->DeprecatedLayoutImmediately();
 }
 
 void HeaderView::OnImmersiveFullscreenEntered() {
@@ -319,7 +325,7 @@ void HeaderView::OnImmersiveFullscreenExited() {
 void HeaderView::SetVisibleFraction(double visible_fraction) {
   if (fullscreen_visible_fraction_ != visible_fraction) {
     fullscreen_visible_fraction_ = visible_fraction;
-    parent()->Layout();
+    parent()->DeprecatedLayoutImmediately();
   }
 }
 
@@ -336,7 +342,7 @@ std::vector<gfx::Rect> HeaderView::GetVisibleBoundsInScreen() const {
 }
 
 void HeaderView::Relayout() {
-  parent()->Layout();
+  parent()->DeprecatedLayoutImmediately();
 }
 
 void HeaderView::PaintHeaderContent(gfx::Canvas* canvas) {

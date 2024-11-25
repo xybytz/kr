@@ -9,12 +9,13 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
-#include "base/containers/cxx20_erase.h"
+#include "base/containers/fixed_flat_set.h"
 #include "base/containers/flat_set.h"
 #include "base/feature_list.h"
 #include "base/files/file.h"
@@ -24,7 +25,6 @@
 #include "base/no_destructor.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequence_local_storage_slot.h"
@@ -39,6 +39,7 @@
 #include "components/metrics/metrics_state_manager.h"
 #include "components/metrics/test/test_enabled_state_provider.h"
 #include "components/network_hints/browser/simple_network_hints_handler_impl.h"
+#include "components/performance_manager/embedder/binders.h"
 #include "components/performance_manager/embedder/performance_manager_registry.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -50,6 +51,7 @@
 #include "components/variations/service/variations_field_trial_creator.h"
 #include "components/variations/service/variations_service.h"
 #include "components/variations/service/variations_service_client.h"
+#include "components/variations/synthetic_trial_registry.h"
 #include "components/variations/variations_safe_seed_store_local_state.h"
 #include "components/variations/variations_switches.h"
 #include "content/public/browser/client_certificate_delegate.h"
@@ -63,6 +65,7 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switch_dependent_feature_overrides.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/isolated_world_ids.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/user_agent.h"
 #include "content/shell/browser/shell.h"
@@ -77,6 +80,9 @@
 #include "media/mojo/mojom/media_service.mojom.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
+#include "net/base/features.h"
+#include "net/dns/public/dns_over_https_config.h"
+#include "net/dns/public/secure_dns_mode.h"
 #include "net/ssl/client_cert_identity.h"
 #include "services/device/public/cpp/geolocation/location_system_permission_status.h"
 #include "services/network/public/cpp/features.h"
@@ -105,7 +111,7 @@
 #endif
 
 #if BUILDFLAG(IS_MAC)
-#include "services/device/public/cpp/test/fake_geolocation_manager.h"
+#include "services/device/public/cpp/test/fake_geolocation_system_permission_manager.h"
 #endif
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)
@@ -135,6 +141,9 @@
 namespace content {
 
 namespace {
+
+using PerformanceManagerRegistry =
+    performance_manager::PerformanceManagerRegistry;
 
 // Tests may install their own ShellContentBrowserClient, track the list here.
 // The list is ordered with oldest first and newer ones added after it.
@@ -176,14 +185,14 @@ class ShellControllerImpl : public mojom::ShellController {
     CHECK(!Shell::windows().empty());
     WebContents* contents = Shell::windows()[0]->web_contents();
     contents->GetPrimaryMainFrame()->ExecuteJavaScriptForTests(
-        script, std::move(callback));
+        script, std::move(callback), ISOLATED_WORLD_ID_GLOBAL);
   }
 
   void ShutDown() override { Shell::Shutdown(); }
 };
 
-// TODO(crbug/1219642): Consider not needing VariationsServiceClient just to use
-// VariationsFieldTrialCreator.
+// TODO(crbug.com/40772375): Consider not needing VariationsServiceClient just
+// to use VariationsFieldTrialCreator.
 class ShellVariationsServiceClient
     : public variations::VariationsServiceClient {
  public:
@@ -204,6 +213,11 @@ class ShellVariationsServiceClient
   }
   bool OverridesRestrictParameter(std::string* parameter) override {
     return false;
+  }
+  base::FilePath GetVariationsSeedFileDir() override {
+    base::FilePath seed_file_dir;
+    base::PathService::Get(SHELL_DIR_USER_DATA, &seed_file_dir);
+    return seed_file_dir;
   }
   bool IsEnterprise() override { return false; }
   // Profiles aren't supported, so nothing to do here.
@@ -236,11 +250,11 @@ base::flat_set<url::Origin> GetIsolatedContextOriginSetFromFlag() {
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
           switches::kIsolatedContextOrigins));
 
-  std::vector<base::StringPiece> origin_strings = base::SplitStringPiece(
+  std::vector<std::string_view> origin_strings = base::SplitStringPiece(
       cmdline_origins, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
 
   base::flat_set<url::Origin> origin_set;
-  for (const base::StringPiece& origin_string : origin_strings) {
+  for (std::string_view origin_string : origin_strings) {
     url::Origin allowed_origin = url::Origin::Create(GURL(origin_string));
     if (!allowed_origin.opaque()) {
       origin_set.insert(allowed_origin);
@@ -257,14 +271,16 @@ base::flat_set<url::Origin> GetIsolatedContextOriginSetFromFlag() {
 struct SharedState {
   SharedState() {
 #if BUILDFLAG(IS_MAC)
-    location_manager = std::make_unique<device::FakeGeolocationManager>();
+    location_manager =
+        std::make_unique<device::FakeGeolocationSystemPermissionManager>();
     location_manager->SetSystemPermission(
         device::LocationSystemPermissionStatus::kAllowed);
 #endif
   }
 
 #if BUILDFLAG(IS_MAC)
-  std::unique_ptr<device::FakeGeolocationManager> location_manager;
+  std::unique_ptr<device::FakeGeolocationSystemPermissionManager>
+      location_manager;
 #endif
 
   // Owned by content::BrowserMainLoop.
@@ -323,7 +339,7 @@ blink::UserAgentMetadata GetShellUserAgentMetadata() {
 
   metadata.bitness = GetCpuBitness();
   metadata.wow64 = content::IsWoW64();
-  metadata.form_factor = {"Desktop"};
+  metadata.form_factors = {"Desktop"};
 
   return metadata;
 }
@@ -342,7 +358,7 @@ ShellContentBrowserClient::ShellContentBrowserClient() {
 }
 
 ShellContentBrowserClient::~ShellContentBrowserClient() {
-  base::Erase(GetShellContentBrowserClientInstancesImpl(), this);
+  std::erase(GetShellContentBrowserClientInstancesImpl(), this);
 }
 
 std::unique_ptr<BrowserMainParts>
@@ -371,8 +387,8 @@ ShellContentBrowserClient::CreateURLLoaderThrottles(
     BrowserContext* browser_context,
     const base::RepeatingCallback<WebContents*()>& wc_getter,
     NavigationUIData* navigation_ui_data,
-    int frame_tree_node_id,
-    absl::optional<int64_t> navigation_id) {
+    FrameTreeNodeId frame_tree_node_id,
+    std::optional<int64_t> navigation_id) {
   std::vector<std::unique_ptr<blink::URLLoaderThrottle>> result;
 
   auto* factory = custom_handlers::SimpleProtocolHandlerRegistryFactory::
@@ -387,19 +403,24 @@ ShellContentBrowserClient::CreateURLLoaderThrottles(
 }
 
 bool ShellContentBrowserClient::IsHandledURL(const GURL& url) {
-  if (!url.is_valid())
+  if (!url.is_valid()) {
     return false;
-  static const char* const kProtocolList[] = {
-      url::kHttpScheme, url::kHttpsScheme,        url::kWsScheme,
-      url::kWssScheme,  url::kBlobScheme,         url::kFileSystemScheme,
-      kChromeUIScheme,  kChromeUIUntrustedScheme, kChromeDevToolsScheme,
-      url::kDataScheme, url::kFileScheme,
-  };
-  for (const char* supported_protocol : kProtocolList) {
-    if (url.scheme_piece() == supported_protocol)
-      return true;
   }
-  return false;
+  constexpr auto kProtocolList = base::MakeFixedFlatSet<std::string_view>({
+      url::kHttpScheme,
+      url::kHttpsScheme,
+      url::kWsScheme,
+      url::kWssScheme,
+      url::kBlobScheme,
+      url::kFileSystemScheme,
+      kChromeUIScheme,
+      kChromeUIUntrustedScheme,
+      kChromeDevToolsScheme,
+      url::kDataScheme,
+      url::kFileScheme,
+  });
+
+  return kProtocolList.contains(url.scheme_piece());
 }
 
 bool ShellContentBrowserClient::AreIsolatedWebAppsEnabled(
@@ -447,13 +468,16 @@ void ShellContentBrowserClient::AppendExtraCommandLineSwitches(
   }
 }
 
-device::GeolocationManager* ShellContentBrowserClient::GetGeolocationManager() {
+device::GeolocationSystemPermissionManager*
+ShellContentBrowserClient::GetGeolocationSystemPermissionManager() {
 #if BUILDFLAG(IS_MAC)
   return GetSharedState().location_manager.get();
 #elif BUILDFLAG(IS_IOS)
-  // TODO(crbug.com/1431447, 1411704): Unify this to FakeGeolocationManager once
-  // exploring browser features in ContentShell on iOS is done.
-  return GetSharedState().shell_browser_main_parts->GetGeolocationManager();
+  // TODO(crbug.com/1431447, 1411704): Unify this to
+  // FakeGeolocationSystemPermissionManager once exploring browser features in
+  // ContentShell on iOS is done.
+  return GetSharedState()
+      .shell_browser_main_parts->GetGeolocationSystemPermissionManager();
 #else
   return nullptr;
 #endif
@@ -470,8 +494,6 @@ std::string ShellContentBrowserClient::GetDefaultDownloadName() {
 std::unique_ptr<WebContentsViewDelegate>
 ShellContentBrowserClient::GetWebContentsViewDelegate(
     WebContents* web_contents) {
-  performance_manager::PerformanceManagerRegistry::GetInstance()
-      ->MaybeCreatePageNodeForWebContents(web_contents);
   return CreateShellWebContentsViewDelegate(web_contents);
 }
 
@@ -487,12 +509,24 @@ bool ShellContentBrowserClient::IsSharedStorageAllowed(
     content::BrowserContext* browser_context,
     content::RenderFrameHost* rfh,
     const url::Origin& top_frame_origin,
-    const url::Origin& accessing_origin) {
+    const url::Origin& accessing_origin,
+    std::string* out_debug_message,
+    bool* out_block_is_site_setting_specific) {
   return true;
 }
 
 bool ShellContentBrowserClient::IsSharedStorageSelectURLAllowed(
     content::BrowserContext* browser_context,
+    const url::Origin& top_frame_origin,
+    const url::Origin& accessing_origin,
+    std::string* out_debug_message,
+    bool* out_block_is_site_setting_specific) {
+  return true;
+}
+
+bool ShellContentBrowserClient::IsFencedStorageReadAllowed(
+    content::BrowserContext* browser_context,
+    content::RenderFrameHost* rfh,
     const url::Origin& top_frame_origin,
     const url::Origin& accessing_origin) {
   return true;
@@ -521,6 +555,7 @@ ShellContentBrowserClient::GetGeneratedCodeCacheSettings(
 
 base::OnceClosure ShellContentBrowserClient::SelectClientCertificate(
     BrowserContext* browser_context,
+    int process_id,
     WebContents* web_contents,
     net::SSLCertRequestInfo* cert_request_info,
     net::ClientCertIdentityList client_certs,
@@ -550,8 +585,10 @@ void ShellContentBrowserClient::OverrideWebkitPrefs(
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kForceHighContrast)) {
+    prefs->in_forced_colors = true;
     prefs->preferred_contrast = blink::mojom::PreferredContrast::kMore;
   } else {
+    prefs->in_forced_colors = false;
     prefs->preferred_contrast = blink::mojom::PreferredContrast::kNoPreference;
   }
 
@@ -568,9 +605,18 @@ void ShellContentBrowserClient::ExposeInterfacesToRenderer(
     service_manager::BinderRegistry* registry,
     blink::AssociatedInterfaceRegistry* associated_registry,
     RenderProcessHost* render_process_host) {
-  performance_manager::PerformanceManagerRegistry::GetInstance()
-      ->CreateProcessNodeAndExposeInterfacesToRendererProcess(
-          registry, render_process_host);
+  PerformanceManagerRegistry::GetInstance()->CreateProcessNode(
+      render_process_host);
+  PerformanceManagerRegistry::GetInstance()
+      ->GetBinders()
+      .ExposeInterfacesToRendererProcess(registry, render_process_host);
+}
+
+void ShellContentBrowserClient::ExposeInterfacesToChild(
+    mojo::BinderMapWithContext<content::BrowserChildProcessHost*>* map) {
+  PerformanceManagerRegistry::GetInstance()
+      ->GetBinders()
+      .ExposeInterfacesToBrowserChildProcess(map);
 }
 
 mojo::Remote<::media::mojom::MediaService>
@@ -588,8 +634,9 @@ ShellContentBrowserClient::RunSecondaryMediaService() {
 void ShellContentBrowserClient::RegisterBrowserInterfaceBindersForFrame(
     RenderFrameHost* render_frame_host,
     mojo::BinderMapWithContext<RenderFrameHost*>* map) {
-  performance_manager::PerformanceManagerRegistry::GetInstance()
-      ->ExposeInterfacesToRenderFrame(map);
+  PerformanceManagerRegistry::GetInstance()
+      ->GetBinders()
+      .ExposeInterfacesToRenderFrame(map);
   map->Add<network_hints::mojom::NetworkHintsHandler>(
       base::BindRepeating(&BindNetworkHintsHandler));
 #if BUILDFLAG(IS_WIN)
@@ -622,13 +669,16 @@ std::unique_ptr<LoginDelegate> ShellContentBrowserClient::CreateLoginDelegate(
     content::WebContents* web_contents,
     content::BrowserContext* browser_context,
     const content::GlobalRequestID& request_id,
-    bool is_request_for_primary_main_frame,
+    bool is_request_for_primary_main_frame_navigation,
+    bool is_request_for_navigation,
     const GURL& url,
     scoped_refptr<net::HttpResponseHeaders> response_headers,
     bool first_auth_attempt,
     LoginAuthRequiredCallback auth_required_callback) {
   if (!login_request_callback_.is_null()) {
-    std::move(login_request_callback_).Run(is_request_for_primary_main_frame);
+    std::move(login_request_callback_)
+        .Run(is_request_for_primary_main_frame_navigation,
+             is_request_for_navigation);
   }
   return nullptr;
 }
@@ -702,6 +752,25 @@ void ShellContentBrowserClient::GetAdditionalMappedFilesForChildProcess(
 }
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) ||
         // BUILDFLAG(IS_ANDROID)
+
+// Note that ShellContentBrowserClient overrides this method to work around
+// test flakiness that happens when NetworkService::SetTestDohConfigForTesting()
+// is used.
+// TODO(crbug.com/41494161): Remove that override once the flakiness is fixed.
+void ShellContentBrowserClient::OnNetworkServiceCreated(
+    network::mojom::NetworkService* network_service) {
+  // TODO(bashi): Consider enabling this for Android. Excluded because the
+  // built-in resolver may not work on older SDK versions.
+#if !BUILDFLAG(IS_ANDROID)
+  if (base::FeatureList::IsEnabled(net::features::kAsyncDns)) {
+    network_service->ConfigureStubHostResolver(
+        /*insecure_dns_client_enabled=*/true,
+        /*secure_dns_mode=*/net::SecureDnsMode::kAutomatic,
+        net::DnsOverHttpsConfig(),
+        /*additional_dns_types_enabled=*/true);
+  }
+#endif
+}
 
 void ShellContentBrowserClient::ConfigureNetworkContextParams(
     BrowserContext* context,
@@ -791,6 +860,12 @@ bool ShellContentBrowserClient::HasErrorPage(int http_status_code) {
   return http_status_code >= 400 && http_status_code < 600;
 }
 
+void ShellContentBrowserClient::OnWebContentsCreated(
+    WebContents* web_contents) {
+  PerformanceManagerRegistry::GetInstance()->MaybeCreatePageNodeForWebContents(
+      web_contents);
+}
+
 void ShellContentBrowserClient::CreateFeatureListAndFieldTrials() {
   GetSharedState().local_state = CreateLocalState();
   SetUpFieldTrials();
@@ -802,16 +877,16 @@ void ShellContentBrowserClient::CreateFeatureListAndFieldTrials() {
 void ShellContentBrowserClient::SetUpFieldTrials() {
   metrics::TestEnabledStateProvider enabled_state_provider(/*consent=*/false,
                                                            /*enabled=*/false);
-  base::FilePath path;
-  base::PathService::Get(SHELL_DIR_USER_DATA, &path);
+  base::FilePath user_data_dir;
+  base::PathService::Get(SHELL_DIR_USER_DATA, &user_data_dir);
   std::unique_ptr<metrics::MetricsStateManager> metrics_state_manager =
       metrics::MetricsStateManager::Create(
           GetSharedState().local_state.get(), &enabled_state_provider,
-          std::wstring(), path, metrics::StartupVisibility::kUnknown,
+          std::wstring(), user_data_dir, metrics::StartupVisibility::kUnknown,
           {
               .force_benchmarking_mode =
                   base::CommandLine::ForCurrentProcess()->HasSwitch(
-                      cc::switches::kEnableGpuBenchmarking),
+                      switches::kEnableGpuBenchmarking),
           });
   metrics_state_manager->InstantiateFieldTrialList();
 
@@ -834,7 +909,12 @@ void ShellContentBrowserClient::SetUpFieldTrials() {
           GetSharedState().local_state.get(), std::move(initial_seed),
           /*signature_verification_enabled=*/true,
           std::make_unique<variations::VariationsSafeSeedStoreLocalState>(
-              GetSharedState().local_state.get())),
+              GetSharedState().local_state.get(),
+              variations_service_client.GetVariationsSeedFileDir(),
+              variations_service_client.GetChannelForVariations(),
+              /*entropy_providers=*/nullptr),
+          variations_service_client.GetChannelForVariations(),
+          variations_service_client.GetVariationsSeedFileDir()),
       variations::UIStringOverrider(),
       // The limited entropy synthetic trial will not be registered for this
       // purpose.
@@ -866,20 +946,23 @@ void ShellContentBrowserClient::SetUpFieldTrials() {
 
   // Since this is a test-only code path, some arguments to SetUpFieldTrials are
   // null.
-  // TODO(crbug/1248066): Consider passing a low entropy source.
+  // TODO(crbug.com/40790318): Consider passing a low entropy source.
   variations::PlatformFieldTrials platform_field_trials;
+  variations::SyntheticTrialRegistry synthetic_trial_registry;
   field_trial_creator.SetUpFieldTrials(
       variation_ids,
       command_line.GetSwitchValueASCII(
           variations::switches::kForceVariationIds),
       feature_overrides, std::move(feature_list), metrics_state_manager.get(),
-      &platform_field_trials, &safe_seed_manager,
-      /*add_entropy_source_to_variations_ids=*/false);
+      &synthetic_trial_registry, &platform_field_trials, &safe_seed_manager,
+      /*add_entropy_source_to_variations_ids=*/false,
+      *metrics_state_manager->CreateEntropyProviders(
+          /*enable_limited_entropy_mode=*/false));
 }
 
 std::optional<blink::ParsedPermissionsPolicy>
 ShellContentBrowserClient::GetPermissionsPolicyForIsolatedWebApp(
-    content::BrowserContext* browser_context,
+    WebContents* web_contents,
     const url::Origin& app_origin) {
   blink::ParsedPermissionsPolicyDeclaration coi_decl(
       blink::mojom::PermissionsPolicyFeature::kCrossOriginIsolated,

@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -19,9 +20,8 @@
 #include "build/build_config.h"
 #include "build/buildflag.h"
 #include "build/chromecast_buildflags.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/peerconnection/peer_connection_tracker.mojom-blink.h"
+#include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/interface_registry.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream.h"
 #include "third_party/blink/public/platform/platform.h"
@@ -31,6 +31,7 @@
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
+#include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/modules/mediastream/media_constraints.h"
 #include "third_party/blink/renderer/modules/mediastream/user_media_request.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_peer_connection_handler.h"
@@ -40,6 +41,7 @@
 #include "third_party/blink/renderer/platform/peerconnection/rtc_ice_candidate_platform.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_offer_options_platform.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_peer_connection_handler_client.h"
+#include "third_party/blink/renderer/platform/peerconnection/webrtc_util.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
@@ -107,23 +109,6 @@ String SerializeServers(
   return result.ToString();
 }
 
-// TODO(https://crbug.com/1318448): When goog-constraints have been removed,
-// this serialization code is no longer needed.
-String SerializePeerConnectionMediaConstraints(
-    const webrtc::PeerConnectionInterface::RTCConfiguration& config) {
-  StringBuilder builder;
-#if BUILDFLAG(IS_FUCHSIA) && BUILDFLAG(ENABLE_CAST_RECEIVER)
-  // TODO(crbug.com/804275): Delete when Fuchsia no longer needs it.
-  if (config.enable_dtls_srtp.has_value()) {
-    if (builder.length())
-      builder.Append(", ");
-    builder.Append("DtlsSrtpKeyAgreement: ");
-    builder.Append(config.enable_dtls_srtp.value() ? "true" : "false");
-  }
-#endif
-  return builder.ToString();
-}
-
 String SerializeGetUserMediaMediaConstraints(
     const MediaConstraints& constraints) {
   return String(constraints.ToString());
@@ -185,12 +170,11 @@ String SerializeDirection(webrtc::RtpTransceiverDirection direction) {
       return "'stopped'";
     default:
       NOTREACHED();
-      return String();
   }
 }
 
 String SerializeOptionalDirection(
-    const absl::optional<webrtc::RtpTransceiverDirection>& direction) {
+    const std::optional<webrtc::RtpTransceiverDirection>& direction) {
   return direction ? SerializeDirection(*direction) : "null";
 }
 
@@ -400,9 +384,7 @@ String SerializeRtcpMuxPolicy(
   return policy_str;
 }
 
-// Serializes things that are of interest from the RTCConfiguration. Note that
-// this does not include some parameters that were passed down via
-// GoogMediaConstraints; see SerializePeerConnectionMediaConstraints() for that.
+// Serializes things that are of interest from the RTCConfiguration.
 String SerializeConfiguration(
     const webrtc::PeerConnectionInterface::RTCConfiguration& config,
     bool usesInsertableStreams) {
@@ -440,7 +422,6 @@ const char* GetTransceiverUpdatedReasonString(
       return "setRemoteDescription";
   }
   NOTREACHED();
-  return nullptr;
 }
 
 int GetNextProcessLocalID() {
@@ -458,11 +439,13 @@ int GetNextProcessLocalID() {
 class InternalStandardStatsObserver : public webrtc::RTCStatsCollectorCallback {
  public:
   InternalStandardStatsObserver(
+      const base::WeakPtr<RTCPeerConnectionHandler> pc_handler,
       int lid,
       scoped_refptr<base::SingleThreadTaskRunner> main_thread,
       Vector<std::unique_ptr<blink::RTCRtpSenderPlatform>> senders,
       CrossThreadOnceFunction<void(int, base::Value::List)> completion_callback)
-      : lid_(lid),
+      : pc_handler_(pc_handler),
+        lid_(lid),
         main_thread_(std::move(main_thread)),
         senders_(std::move(senders)),
         completion_callback_(std::move(completion_callback)) {}
@@ -500,6 +483,13 @@ class InternalStandardStatsObserver : public webrtc::RTCStatsCollectorCallback {
     }
 
     base::Value::List result_list;
+
+    if (!pc_handler_) {
+      return result_list;
+    }
+    auto* local_frame = To<WebLocalFrameImpl>(*pc_handler_->frame()).GetFrame();
+    DocumentLoadTiming& time_converter =
+        local_frame->Loader().GetDocumentLoader()->GetTiming();
     // Used for string comparisons with const char* below.
     const std::string kTypeMediaSource = "media-source";
     for (const auto& stats : *report) {
@@ -508,9 +498,12 @@ class InternalStandardStatsObserver : public webrtc::RTCStatsCollectorCallback {
       // The timestamp unit is milliseconds but we want decimal
       // precision so we convert ourselves.
       base::Value::Dict stats_subdictionary;
+      base::TimeDelta monotonic_time =
+          time_converter.MonotonicTimeToPseudoWallTime(
+              ConvertToBaseTimeTicks(stats.timestamp()));
       stats_subdictionary.Set(
           "timestamp",
-          stats.timestamp().us() /
+          monotonic_time.InMicrosecondsF() /
               static_cast<double>(base::Time::kMicrosecondsPerMillisecond));
       // Values are reported as
       // "values": ["attribute1", value, "attribute2", value...]
@@ -575,9 +568,10 @@ class InternalStandardStatsObserver : public webrtc::RTCStatsCollectorCallback {
       return base::Value(attribute.get<double>());
     }
     // Types not supported by `base::Value` are converted to string.
-    return base::Value(attribute.ValueToString());
+    return base::Value(attribute.ToString());
   }
 
+  const base::WeakPtr<RTCPeerConnectionHandler> pc_handler_;
   const int lid_;
   const scoped_refptr<base::SingleThreadTaskRunner> main_thread_;
   const Vector<std::unique_ptr<blink::RTCRtpSenderPlatform>> senders_;
@@ -625,21 +619,32 @@ PeerConnectionTracker::PeerConnectionTracker(
     scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner,
     base::PassKey<PeerConnectionTracker>)
     : Supplement<LocalDOMWindow>(window),
+      // Do not set a lifecycle notifier for `peer_connection_tracker_host_` to
+      // ensure that its mojo pipe stays alive until the execution context is
+      // destroyed. `RTCPeerConnection`, which owns a `RTCPeerConnectionHandler`
+      // which keeps `this` alive, will to close and unregister the peer
+      // connection when the execution context is destroyed. For this to happen,
+      // the mojo pipe _must_ be alive to relay. See https://crbug.com/1426377
+      // for details.
+      peer_connection_tracker_host_(nullptr),
       receiver_(this, &window),
       main_thread_task_runner_(std::move(main_thread_task_runner)) {
   window.GetBrowserInterfaceBroker().GetInterface(
-      peer_connection_tracker_host_.BindNewPipeAndPassReceiver());
+      peer_connection_tracker_host_.BindNewPipeAndPassReceiver(
+          main_thread_task_runner_));
 }
 
 // Constructor used for testing. Note that receiver_ doesn't have a context
 // notifier in this case.
 PeerConnectionTracker::PeerConnectionTracker(
-    mojo::Remote<blink::mojom::blink::PeerConnectionTrackerHost> host,
+    mojo::PendingRemote<blink::mojom::blink::PeerConnectionTrackerHost> host,
     scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner)
     : Supplement(nullptr),
-      peer_connection_tracker_host_(std::move(host)),
+      peer_connection_tracker_host_(nullptr),
       receiver_(this, nullptr),
-      main_thread_task_runner_(std::move(main_thread_task_runner)) {}
+      main_thread_task_runner_(std::move(main_thread_task_runner)) {
+  peer_connection_tracker_host_.Bind(std::move(host), main_thread_task_runner_);
+}
 
 PeerConnectionTracker::~PeerConnectionTracker() {}
 
@@ -716,7 +721,8 @@ void PeerConnectionTracker::GetStandardStats() {
         pair.key->GetPlatformSenders();
     rtc::scoped_refptr<InternalStandardStatsObserver> observer(
         new rtc::RefCountedObject<InternalStandardStatsObserver>(
-            pair.value, main_thread_task_runner_, std::move(senders),
+            pair.key->GetWeakPtr(), pair.value, main_thread_task_runner_,
+            std::move(senders),
             CrossThreadBindOnce(&PeerConnectionTracker::AddStandardStats,
                                 WrapCrossThreadWeakPersistent(this))));
     pair.key->GetStandardStatsForTracker(observer);
@@ -745,7 +751,6 @@ void PeerConnectionTracker::RegisterPeerConnection(
   info->rtc_configuration =
       SerializeConfiguration(config, pc_handler->encoded_insertable_streams());
 
-  info->constraints = SerializePeerConnectionMediaConstraints(config);
   if (frame)
     info->url = frame->GetDocument().Url().GetString();
   else
@@ -769,7 +774,7 @@ void PeerConnectionTracker::UnregisterPeerConnection(
   auto it = peer_connection_local_id_map_.find(pc_handler);
 
   if (it == peer_connection_local_id_map_.end()) {
-    // The PeerConnection might not have been registered if its initilization
+    // The PeerConnection might not have been registered if its initialization
     // failed.
     return;
   }
@@ -848,11 +853,15 @@ void PeerConnectionTracker::TrackAddIceCandidate(
   int id = GetLocalIDForHandler(pc_handler);
   if (id == -1)
     return;
+  std::optional<String> relay_protocol = candidate->RelayProtocol();
+  std::optional<String> url = candidate->Url();
   String value =
       "sdpMid: " + String(candidate->SdpMid()) + ", " + "sdpMLineIndex: " +
       (candidate->SdpMLineIndex() ? String::Number(*candidate->SdpMLineIndex())
                                   : "null") +
-      ", " + "candidate: " + String(candidate->Candidate());
+      ", candidate: " + String(candidate->Candidate()) +
+      (url ? ", url: " + *url : String()) +
+      (relay_protocol ? ", relayProtocol: " + *relay_protocol : String());
 
   // OnIceCandidate always succeeds as it's a callback from the browser.
   DCHECK(source != kSourceLocal || succeeded);
@@ -868,7 +877,7 @@ void PeerConnectionTracker::TrackAddIceCandidate(
 void PeerConnectionTracker::TrackIceCandidateError(
     RTCPeerConnectionHandler* pc_handler,
     const String& address,
-    absl::optional<uint16_t> port,
+    std::optional<uint16_t> port,
     const String& host_candidate,
     const String& url,
     int error_code,
@@ -941,13 +950,12 @@ void PeerConnectionTracker::TrackCreateDataChannel(
   result.Append(String::FromUTF8(data_channel->label()));
   result.Append(", ordered: ");
   result.Append(SerializeBoolean(data_channel->ordered()));
-  absl::optional<uint16_t> maxPacketLifeTime =
-      data_channel->maxPacketLifeTime();
+  std::optional<uint16_t> maxPacketLifeTime = data_channel->maxPacketLifeTime();
   if (maxPacketLifeTime.has_value()) {
     result.Append(", maxPacketLifeTime: ");
     result.Append(String::Number(*maxPacketLifeTime));
   }
-  absl::optional<uint16_t> maxRetransmits = data_channel->maxRetransmitsOpt();
+  std::optional<uint16_t> maxRetransmits = data_channel->maxRetransmitsOpt();
   if (maxRetransmits.has_value()) {
     result.Append(", maxRetransmits: ");
     result.Append(String::Number(*maxRetransmits));
@@ -1055,7 +1063,6 @@ void PeerConnectionTracker::TrackSessionDescriptionCallback(
       break;
     default:
       NOTREACHED();
-      break;
   }
   update_type = update_type + callback_type;
 
@@ -1199,8 +1206,9 @@ int PeerConnectionTracker::GetLocalIDForHandler(
     RTCPeerConnectionHandler* handler) const {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
   const auto found = peer_connection_local_id_map_.find(handler);
-  if (found == peer_connection_local_id_map_.end())
+  if (found == peer_connection_local_id_map_.end()) {
     return -1;
+  }
   DCHECK_NE(found->value, -1);
   return found->value;
 }
@@ -1216,10 +1224,6 @@ void PeerConnectionTracker::SendPeerConnectionUpdate(
 
 void PeerConnectionTracker::AddStandardStats(int lid, base::Value::List value) {
   peer_connection_tracker_host_->AddStandardStats(lid, std::move(value));
-}
-
-void PeerConnectionTracker::AddLegacyStats(int lid, base::Value::List value) {
-  peer_connection_tracker_host_->AddLegacyStats(lid, std::move(value));
 }
 
 }  // namespace blink

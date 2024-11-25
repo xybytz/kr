@@ -11,18 +11,13 @@ import org.chromium.chrome.browser.browserservices.metrics.TrustedWebActivityUma
 import org.chromium.chrome.browser.browserservices.ui.controller.CurrentPageVerifier;
 import org.chromium.chrome.browser.browserservices.ui.controller.CurrentPageVerifier.VerificationState;
 import org.chromium.chrome.browser.browserservices.ui.controller.CurrentPageVerifier.VerificationStatus;
-import org.chromium.chrome.browser.dependency_injection.ActivityScope;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.PauseResumeWithNativeObserver;
 import org.chromium.chrome.browser.tab.Tab;
 
-import javax.inject.Inject;
-
 /** Records how long Trusted Web Activities are used for. */
-@ActivityScope
 public class TrustedWebActivityOpenTimeRecorder implements PauseResumeWithNativeObserver {
     private final CurrentPageVerifier mCurrentPageVerifier;
-    private final TrustedWebActivityUmaRecorder mRecorder;
     private final ActivityTabProvider mTabProvider;
 
     private long mOnResumeTimestampMs;
@@ -31,17 +26,14 @@ public class TrustedWebActivityOpenTimeRecorder implements PauseResumeWithNative
     private boolean mInVerifiedOrigin;
     private boolean mTwaOpenedRecorded;
 
-    @Inject
-    TrustedWebActivityOpenTimeRecorder(
-            ActivityLifecycleDispatcher lifecycleDispatcher,
+    public TrustedWebActivityOpenTimeRecorder(
             CurrentPageVerifier currentPageVerifier,
-            TrustedWebActivityUmaRecorder recorder,
-            ActivityTabProvider provider) {
+            ActivityTabProvider tabProvider,
+            ActivityLifecycleDispatcher lifecycleDispatcher) {
         mCurrentPageVerifier = currentPageVerifier;
-        mRecorder = recorder;
-        mTabProvider = provider;
+        mTabProvider = tabProvider;
         lifecycleDispatcher.register(this);
-        currentPageVerifier.addVerificationObserver(this::onVerificationStateChanged);
+        mCurrentPageVerifier.addVerificationObserver(this::onVerificationStateChanged);
     }
 
     @Override
@@ -52,7 +44,8 @@ public class TrustedWebActivityOpenTimeRecorder implements PauseResumeWithNative
     @Override
     public void onPauseWithNative() {
         assert mOnResumeTimestampMs != 0;
-        mRecorder.recordTwaOpenTime(SystemClock.elapsedRealtime() - mOnResumeTimestampMs);
+        TrustedWebActivityUmaRecorder.recordTwaOpenTime(
+                SystemClock.elapsedRealtime() - mOnResumeTimestampMs);
         recordTimeCurrentState();
         mOnResumeTimestampMs = 0;
     }
@@ -73,7 +66,7 @@ public class TrustedWebActivityOpenTimeRecorder implements PauseResumeWithNative
         if (mInVerifiedOrigin && !mTwaOpenedRecorded) {
             Tab tab = mTabProvider.get();
             if (tab != null) {
-                mRecorder.recordTwaOpened(tab.getWebContents());
+                TrustedWebActivityUmaRecorder.recordTwaOpened(tab.getWebContents());
             }
             mTwaOpenedRecorded = true;
         }
@@ -87,9 +80,9 @@ public class TrustedWebActivityOpenTimeRecorder implements PauseResumeWithNative
                 SystemClock.elapsedRealtime()
                         - Math.max(mLastStateChangeTimestampMs, mOnResumeTimestampMs);
         if (mInVerifiedOrigin) {
-            mRecorder.recordTimeInVerifiedOrigin(timeInCurrentState);
+            TrustedWebActivityUmaRecorder.recordTimeInVerifiedOrigin(timeInCurrentState);
         } else {
-            mRecorder.recordTimeOutOfVerifiedOrigin(timeInCurrentState);
+            TrustedWebActivityUmaRecorder.recordTimeOutOfVerifiedOrigin(timeInCurrentState);
         }
     }
 }

@@ -53,6 +53,8 @@ class TextfieldTest : public ViewsTestBase, public TextfieldController {
   void InitTextfield(int count = 1);
   ui::MenuModel* GetContextMenuModel();
 
+  void MockAXModeAdded();
+
   bool TestingNativeMac() const;
   bool TestingNativeCrOs() const;
 
@@ -60,7 +62,7 @@ class TextfieldTest : public ViewsTestBase, public TextfieldController {
   T* PrepareTextfields(int count,
                        std::unique_ptr<T> textfield_owned,
                        gfx::Rect bounds) {
-    widget_ = CreateTestWidget();
+    widget_ = CreateTestWidget(Widget::InitParams::CLIENT_OWNS_WIDGET);
     widget_->SetBounds(bounds);
 
     View* container = widget_->SetContentsView(std::make_unique<View>());

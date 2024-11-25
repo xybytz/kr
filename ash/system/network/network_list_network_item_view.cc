@@ -80,7 +80,6 @@ bool NetworkTypeIsConfigurable(NetworkType type) {
       return false;
   }
   NOTREACHED();
-  return false;
 }
 
 ActivationStateType GetNetworkActivationState(
@@ -102,7 +101,6 @@ bool IsCellularNetworkSimLocked(
 
 bool IsCellularNetworkCarrierLocked(
     const NetworkStatePropertiesPtr& network_properties) {
-  CHECK(features::IsCellularCarrierLockEnabled());
   CHECK(
       NetworkTypeMatchesType(network_properties->type, NetworkType::kCellular));
   return network_properties->type_state->get_cellular()->sim_locked &&
@@ -184,9 +182,14 @@ gfx::ImageSkia GetNetworkImageForNetwork(
     const NetworkStatePropertiesPtr& network_properties) {
   gfx::ImageSkia network_image;
 
-  if (IsCellularNetworkUnActivated(network_properties) &&
-      Shell::Get()->session_controller()->login_status() ==
-          LoginStatus::NOT_LOGGED_IN) {
+  if (NetworkTypeMatchesType(network_properties->type,
+                             NetworkType::kCellular) &&
+      IsCellularNetworkCarrierLocked(network_properties)) {
+    network_image = network_icon::GetImageForCarrierLockedNetwork(
+        color_provider, network_icon::ICON_TYPE_LIST);
+  } else if (IsCellularNetworkUnActivated(network_properties) &&
+             Shell::Get()->session_controller()->login_status() ==
+                 LoginStatus::NOT_LOGGED_IN) {
     network_image =
         network_icon::GetImageForPSimPendingActivationWhileLoggedOut(
             color_provider, network_icon::ICON_TYPE_LIST);
@@ -225,10 +228,8 @@ gfx::ImageSkia GetNetworkImageForNetwork(
 
 int GetCellularNetworkSubText(
     const NetworkStatePropertiesPtr& network_properties) {
-  if (features::IsCellularCarrierLockEnabled()) {
-    if (IsCellularNetworkCarrierLocked(network_properties)) {
-      return IDS_ASH_STATUS_TRAY_NETWORK_STATUS_CARRIER_LOCKED;
-    }
+  if (IsCellularNetworkCarrierLocked(network_properties)) {
+    return IDS_ASH_STATUS_TRAY_NETWORK_STATUS_CARRIER_LOCKED;
   }
 
   if (IsCellularNetworkUnActivated(network_properties)) {
@@ -316,9 +317,8 @@ void NetworkListNetworkItemView::UpdateViewForNetwork(
     network_icon::NetworkIconAnimation::GetInstance()->RemoveObserver(this);
   }
 
-  SetAccessibleName(GenerateAccessibilityLabel(label));
-  GetViewAccessibility().OverrideDescription(
-      GenerateAccessibilityDescription());
+  GetViewAccessibility().SetName(GenerateAccessibilityLabel(label));
+  GetViewAccessibility().SetDescription(GenerateAccessibilityDescription());
 }
 
 void NetworkListNetworkItemView::NetworkIconChanged() {
@@ -538,11 +538,9 @@ std::u16string
 NetworkListNetworkItemView::GenerateAccessibilityDescriptionForCellular(
     const std::u16string& connection_status,
     int signal_strength) {
-  if (features::IsCellularCarrierLockEnabled()) {
-    if (IsCellularNetworkCarrierLocked(network_properties())) {
-      return l10n_util::GetStringUTF16(
-          IDS_ASH_STATUS_TRAY_NETWORK_STATUS_CARRIER_LOCKED);
-    }
+  if (IsCellularNetworkCarrierLocked(network_properties())) {
+    return l10n_util::GetStringUTF16(
+        IDS_ASH_STATUS_TRAY_NETWORK_STATUS_CARRIER_LOCKED);
   }
   if (IsCellularNetworkUnActivated(network_properties())) {
     if (Shell::Get()->session_controller()->login_status() ==
@@ -603,7 +601,7 @@ NetworkListNetworkItemView::GenerateAccessibilityDescriptionForTether(
       base::FormatPercent(battery_percentage));
 }
 
-BEGIN_METADATA(NetworkListNetworkItemView, NetworkListItemView)
+BEGIN_METADATA(NetworkListNetworkItemView)
 END_METADATA
 
 }  // namespace ash

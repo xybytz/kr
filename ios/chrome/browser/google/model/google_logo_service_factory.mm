@@ -9,15 +9,15 @@
 #import "ios/chrome/browser/google/model/google_logo_service.h"
 #import "ios/chrome/browser/search_engines/model/template_url_service_factory.h"
 #import "ios/chrome/browser/shared/model/browser_state/browser_state_otr_helper.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/signin/model/identity_manager_factory.h"
 #import "services/network/public/cpp/shared_url_loader_factory.h"
 
 // static
-GoogleLogoService* GoogleLogoServiceFactory::GetForBrowserState(
-    ChromeBrowserState* browser_state) {
+GoogleLogoService* GoogleLogoServiceFactory::GetForProfile(
+    ProfileIOS* profile) {
   return static_cast<GoogleLogoService*>(
-      GetInstance()->GetServiceForBrowserState(browser_state, true));
+      GetInstance()->GetServiceForBrowserState(profile, true));
 }
 
 // static
@@ -38,12 +38,11 @@ GoogleLogoServiceFactory::~GoogleLogoServiceFactory() {}
 
 std::unique_ptr<KeyedService> GoogleLogoServiceFactory::BuildServiceInstanceFor(
     web::BrowserState* context) const {
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(context);
+  ProfileIOS* profile = ProfileIOS::FromBrowserState(context);
   return std::make_unique<GoogleLogoService>(
-      ios::TemplateURLServiceFactory::GetForBrowserState(browser_state),
-      IdentityManagerFactory::GetForBrowserState(browser_state),
-      browser_state->GetSharedURLLoaderFactory());
+      ios::TemplateURLServiceFactory::GetForProfile(profile),
+      IdentityManagerFactory::GetForProfile(profile),
+      profile->GetSharedURLLoaderFactory());
 }
 
 web::BrowserState* GoogleLogoServiceFactory::GetBrowserStateToUse(

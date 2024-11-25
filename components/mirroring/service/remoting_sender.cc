@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "base/containers/heap_array.h"
 #include "base/dcheck_is_on.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
@@ -24,8 +25,8 @@
 #include "media/cast/openscreen/decoder_buffer_reader.h"
 #include "media/cast/openscreen/remoting_proto_utils.h"
 #include "media/cast/sender/openscreen_frame_sender.h"
-#include "third_party/openscreen/src/cast/streaming/encoded_frame.h"
-#include "third_party/openscreen/src/cast/streaming/sender.h"
+#include "third_party/openscreen/src/cast/streaming/public/encoded_frame.h"
+#include "third_party/openscreen/src/cast/streaming/public/sender.h"
 
 using Dependency = openscreen::cast::EncodedFrame::Dependency;
 
@@ -73,18 +74,15 @@ class RemotingSender::SenderEncodedFrameFactory {
     remoting_frame->frame_id = frame_id;
 
     // DecoderBuffer data must be encoded in a special format.
-    std::vector<uint8_t> data =
+    remoting_frame->data =
         media::cast::DecoderBufferToByteArray(decoder_buffer);
-    if (!decoder_buffer.end_of_stream() && data.empty()) {
+    if (!decoder_buffer.end_of_stream() && remoting_frame->data.empty()) {
       return nullptr;
     }
-    remoting_frame->data =
-        std::string(reinterpret_cast<const char*>(data.data()), data.size());
 
     const bool is_key_frame =
         !decoder_buffer.end_of_stream() && decoder_buffer.is_key_frame();
-    remoting_frame->dependency =
-        is_key_frame ? Dependency::kKeyFrame : Dependency::kDependent;
+    remoting_frame->is_key_frame = is_key_frame;
     remoting_frame->referenced_frame_id =
         is_key_frame ? frame_id : frame_id - 1;
     remoting_frame->reference_time = clock_->NowTicks();
@@ -131,23 +129,6 @@ class RemotingSender::SenderEncodedFrameFactory {
   // The total number of times CreateEncodedFrame() has been called.
   int64_t frames_created_ = 0;
 };
-
-RemotingSender::RemotingSender(
-    scoped_refptr<media::cast::CastEnvironment> cast_environment,
-    media::cast::CastTransport* transport,
-    const media::cast::FrameSenderConfig& config,
-    mojo::ScopedDataPipeConsumerHandle pipe,
-    mojo::PendingReceiver<media::mojom::RemotingDataStreamSender> stream_sender,
-    base::OnceClosure error_callback)
-    : RemotingSender(cast_environment,
-                     media::cast::FrameSender::Create(cast_environment,
-                                                      config,
-                                                      transport,
-                                                      *this),
-                     config,
-                     std::move(pipe),
-                     std::move(stream_sender),
-                     std::move(error_callback)) {}
 
 RemotingSender::RemotingSender(
     scoped_refptr<media::cast::CastEnvironment> cast_environment,
@@ -232,12 +213,10 @@ void RemotingSender::CancelInFlightData() {
 
 int RemotingSender::GetNumberOfFramesInEncoder() const {
   NOTREACHED();
-  return 0;
 }
 
 base::TimeDelta RemotingSender::GetEncoderBacklogDuration() const {
   NOTREACHED();
-  return base::TimeDelta();
 }
 
 void RemotingSender::OnFrameCanceled(media::cast::FrameId frame_id) {
@@ -270,7 +249,7 @@ void RemotingSender::TrySendFrame() {
 #if DCHECK_IS_ON()
   CHECK_GE(remoting_frame->referenced_frame_id, remoting_frame->frame_id - 1);
   if (flow_restart_pending_) {
-    CHECK_EQ(remoting_frame->dependency, Dependency::kKeyFrame);
+    CHECK(remoting_frame->is_key_frame);
     CHECK_EQ(remoting_frame->referenced_frame_id, remoting_frame->frame_id);
   } else {
     CHECK_GT(remoting_frame->frame_id, media::cast::FrameId::first());

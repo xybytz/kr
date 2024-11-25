@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40284755): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
+
 #ifndef BASE_TRACE_EVENT_BUILTIN_CATEGORIES_H_
 #define BASE_TRACE_EVENT_BUILTIN_CATEGORIES_H_
 
@@ -32,6 +37,7 @@
   /* The rest of the list is in alphabetical order */                    \
   X("accessibility")                                                     \
   X("AccountFetcherService")                                             \
+  X("android.adpf")                                                      \
   X("android.ui.jank")                                                   \
   X("android_webview")                                                   \
   X("android_webview.timeline")                                          \
@@ -68,6 +74,11 @@
   X("chromeos")                                                          \
   X("cma")                                                               \
   X("compositor")                                                        \
+  /* Config categories do not emit trace events, but are used */         \
+  /* to configure enabling additional information at runtime, */         \
+  /* which then is emitted in other trace events. */                     \
+  /* Controls details emitted by TaskAnnotator::EmitTaskTimingDetails */ \
+  X("config.scheduler.record_task_post_time")                            \
   X("content")                                                           \
   X("content_capture")                                                   \
   X("interactions")                                                      \
@@ -118,6 +129,7 @@
   X("log")                                                               \
   X("login")                                                             \
   X("media")                                                             \
+  X("mediastream")                                                       \
   X("media_router")                                                      \
   X("memory")                                                            \
   X("midi")                                                              \
@@ -163,7 +175,6 @@
   X("service_manager")                                                   \
   X("sharing")                                                           \
   X("shell")                                                             \
-  X("shortcut_viewer")                                                   \
   X("shutdown")                                                          \
   X("skia")                                                              \
   X("sql")                                                               \
@@ -230,6 +241,9 @@
   X(TRACE_DISABLED_BY_DEFAULT("devtools.timeline.layers"))               \
   X(TRACE_DISABLED_BY_DEFAULT("devtools.timeline.picture"))              \
   X(TRACE_DISABLED_BY_DEFAULT("devtools.timeline.stack"))                \
+  X(TRACE_DISABLED_BY_DEFAULT("devtools.target-rundown"))                \
+  X(TRACE_DISABLED_BY_DEFAULT("devtools.v8-source-rundown"))             \
+  X(TRACE_DISABLED_BY_DEFAULT("devtools.v8-source-rundown-sources"))     \
   X(TRACE_DISABLED_BY_DEFAULT("file"))                                   \
   X(TRACE_DISABLED_BY_DEFAULT("fonts"))                                  \
   X(TRACE_DISABLED_BY_DEFAULT("gpu_cmd_queue"))                          \
@@ -250,10 +264,12 @@
   X(TRACE_DISABLED_BY_DEFAULT("memory-infra"))                           \
   X(TRACE_DISABLED_BY_DEFAULT("memory-infra.v8.code_stats"))             \
   X(TRACE_DISABLED_BY_DEFAULT("mojom"))                                  \
+  X(TRACE_DISABLED_BY_DEFAULT("navigation"))                             \
   X(TRACE_DISABLED_BY_DEFAULT("net"))                                    \
   X(TRACE_DISABLED_BY_DEFAULT("network"))                                \
   X(TRACE_DISABLED_BY_DEFAULT("paint-worklet"))                          \
   X(TRACE_DISABLED_BY_DEFAULT("power"))                                  \
+  X(TRACE_DISABLED_BY_DEFAULT("system_metrics"))                         \
   X(TRACE_DISABLED_BY_DEFAULT("renderer.scheduler"))                     \
   X(TRACE_DISABLED_BY_DEFAULT("renderer.scheduler.debug"))               \
   X(TRACE_DISABLED_BY_DEFAULT("sequence_manager"))                       \
@@ -266,7 +282,6 @@
   X(TRACE_DISABLED_BY_DEFAULT("skottie"))                                \
   X(TRACE_DISABLED_BY_DEFAULT("SyncFileSystem"))                         \
   X(TRACE_DISABLED_BY_DEFAULT("system_power"))                           \
-  X(TRACE_DISABLED_BY_DEFAULT("system_stats"))                           \
   X(TRACE_DISABLED_BY_DEFAULT("thread_pool_diagnostics"))                \
   X(TRACE_DISABLED_BY_DEFAULT("toplevel.ipc"))                           \
   X(TRACE_DISABLED_BY_DEFAULT("user_action_samples"))                    \
@@ -319,6 +334,7 @@
   X("blink,blink.resource")                                                   \
   X("blink,blink_style")                                                      \
   X("blink,devtools.timeline")                                                \
+  X("blink,latency")                                                          \
   X("blink,loading")                                                          \
   X("blink,rail")                                                             \
   X("blink.animations,devtools.timeline,benchmark,rail")                      \
@@ -330,6 +346,7 @@
   X("category1,category2")                                                    \
   X("cc,benchmark")                                                           \
   X("cc,benchmark,input,input.scrolling")                                     \
+  X("cc,benchmark,latency")                                                   \
   X("cc,benchmark," TRACE_DISABLED_BY_DEFAULT("devtools.timeline.frame"))     \
   X("cc,input")                                                               \
   X("cc,raf_investigation")                                                   \
@@ -357,6 +374,7 @@
   X("input,rail")                                                             \
   X("input,input.scrolling")                                                  \
   X("input,views")                                                            \
+  X("interactions,input.scrolling")                                           \
   X("interactions,startup")                                                   \
   X("ipc,security")                                                           \
   X("ipc,toplevel")                                                           \
@@ -370,6 +388,7 @@
   X("navigation,benchmark,rail")                                              \
   X("navigation,rail")                                                        \
   X("renderer,benchmark,rail")                                                \
+  X("renderer,benchmark,rail,input.scrolling")                                \
   X("renderer,webkit")                                                        \
   X("renderer_host,navigation")                                               \
   X("renderer_host," TRACE_DISABLED_BY_DEFAULT("viz.surface_id_flow"))        \
@@ -377,6 +396,7 @@
   X("shutdown,viz")                                                           \
   X("startup,benchmark,rail")                                                 \
   X("startup,rail")                                                           \
+  X("toplevel,graphics.pipeline")                                             \
   X("toplevel,Java")                                                          \
   X("toplevel,viz")                                                           \
   X("ui,input")                                                               \
@@ -385,8 +405,12 @@
   X("v8," TRACE_DISABLED_BY_DEFAULT("v8.compile"))                            \
   X("v8,devtools.timeline")                                                   \
   X("v8,devtools.timeline," TRACE_DISABLED_BY_DEFAULT("v8.compile"))          \
+  X("viz,android.adpf")                                                       \
   X("viz,benchmark")                                                          \
   X("viz,benchmark,graphics.pipeline")                                        \
+  X("viz,benchmark,input.scrolling")                                          \
+  X("viz,input.scrolling")                                                    \
+  X("wakeup.flow,toplevel.flow")                                              \
   X("WebCore,benchmark,rail")                                                 \
   X(TRACE_DISABLED_BY_DEFAULT("cc.debug") "," TRACE_DISABLED_BY_DEFAULT(      \
       "viz.quads") "," TRACE_DISABLED_BY_DEFAULT("devtools.timeline.layers")) \
@@ -400,7 +424,6 @@
 
 #define INTERNAL_TRACE_INIT_CATEGORY(name) {0, 0, name},
 
-#if BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 PERFETTO_DEFINE_TEST_CATEGORY_PREFIXES("cat",
                                        "foo",
                                        "test",
@@ -426,7 +449,6 @@ PERFETTO_USE_CATEGORIES_FROM_NAMESPACE(base);
 
 #undef INTERNAL_CATEGORY
 #undef INTERNAL_CATEGORY_GROUP
-#endif  // BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 
 namespace base {
 namespace trace_event {

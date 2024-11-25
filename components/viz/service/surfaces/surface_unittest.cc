@@ -81,7 +81,7 @@ TEST_P(OnBeginFrameAcksSurfaceTest, PresentationCallback) {
   if (BeginFrameAcksEnabled()) {
     support->SetWantsBeginFrameAcks();
   }
-  uint32_t frame_token = kInvalidOrLocalFrameToken;
+  uint32_t frame_token = kInvalidFrameToken;
   {
     CompositorFrame frame =
         CompositorFrameBuilder()
@@ -89,7 +89,7 @@ TEST_P(OnBeginFrameAcksSurfaceTest, PresentationCallback) {
             .SetBeginFrameSourceId(kBeginFrameSourceId)
             .Build();
     frame_token = frame.metadata.frame_token;
-    ASSERT_NE(frame_token, kInvalidOrLocalFrameToken);
+    ASSERT_NE(frame_token, kInvalidFrameToken);
     EXPECT_CALL(client, DidReceiveCompositorFrameAck(testing::_))
         .Times(BeginFrameAcksEnabled() ? 0 : 1);
     support->SubmitCompositorFrame(local_surface_id, std::move(frame));
@@ -166,8 +166,8 @@ TEST_F(SurfaceTest, CopyRequestLifetime) {
   EXPECT_TRUE(surface_manager->GetSurfaceForId(surface_id));
   EXPECT_FALSE(copy_called);
 
-  int max_frame = 3, start_id = 200;
-  for (int i = 0; i < max_frame; ++i) {
+  uint64_t max_frame = 3, start_id = 200;
+  for (uint64_t i = 0; i < max_frame; ++i) {
     frame = CompositorFrameBuilder().Build();
     frame.render_pass_list.push_back(CompositorRenderPass::Create());
     frame.render_pass_list.back()->id =
@@ -183,6 +183,7 @@ TEST_F(SurfaceTest, CopyRequestLifetime) {
   }
 
   CompositorRenderPassId last_pass_id{(max_frame - 1) * 3 + start_id + 2};
+
   // The copy request should stay on the Surface until TakeCopyOutputRequests
   // is called.
   EXPECT_FALSE(copy_called);
@@ -299,6 +300,51 @@ TEST_F(SurfaceTest, ActiveSurfaceReferencesWithOverlappingReferences) {
 
   EXPECT_THAT(root_surface->active_referenced_surfaces(),
               testing::ElementsAre(child_surface_id2));
+}
+
+TEST_F(SurfaceTest, PendingCopySurfaceIncludedInActiveReferencedSurfaces) {
+  SurfaceManager* surface_manager = frame_sink_manager_.surface_manager();
+
+  gfx::Rect rect(5, 5);
+
+  auto support = std::make_unique<CompositorFrameSinkSupport>(
+      nullptr, &frame_sink_manager_, kArbitraryFrameSinkId,
+      /*is_root=*/false);
+
+  TestSurfaceIdAllocator allocator(kArbitraryFrameSinkId);
+  SurfaceId prev_id = allocator.Get();
+  allocator.Increment();
+  SurfaceId curr_id = allocator.Get();
+
+  {
+    CompositorFrame frame =
+        MakeCompositorFrame(RenderPassBuilder(CompositorRenderPassId{1}, rect)
+                                .AddSolidColorQuad(rect, SkColors::kBlue)
+                                .AddSolidColorQuad(rect, SkColors::kBlue)
+                                .Build());
+    support->SubmitCompositorFrame(prev_id.local_surface_id(),
+                                   std::move(frame));
+  }
+  {
+    CompositorFrame frame =
+        MakeCompositorFrame(RenderPassBuilder(CompositorRenderPassId{2}, rect)
+                                .AddSolidColorQuad(rect, SkColors::kBlue)
+                                .AddSolidColorQuad(rect, SkColors::kBlue)
+                                .Build());
+    frame.metadata.screenshot_destination =
+        blink::SameDocNavigationScreenshotDestinationToken(
+            base::UnguessableToken::Create());
+    support->SubmitCompositorFrame(curr_id.local_surface_id(),
+                                   std::move(frame));
+  }
+
+  auto* curr_surface = surface_manager->GetSurfaceForId(curr_id);
+  ASSERT_TRUE(curr_surface);
+  ASSERT_THAT(curr_surface->active_referenced_surfaces(),
+              ::testing::UnorderedElementsAre(prev_id));
+
+  curr_surface->ResetPendingCopySurfaceId();
+  ASSERT_TRUE(curr_surface->active_referenced_surfaces().empty());
 }
 
 // Parameterized by whether we should enable kDrawImmediatelyWhenInteractive.

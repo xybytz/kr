@@ -89,7 +89,7 @@ void CameraPreviewResizeButton::PseudoBlur() {
   camera_preview_view_->ScheduleRefreshResizeButtonVisibility();
 }
 
-BEGIN_METADATA(CameraPreviewResizeButton, IconButton)
+BEGIN_METADATA(CameraPreviewResizeButton)
 END_METADATA
 
 // -----------------------------------------------------------------------------
@@ -130,6 +130,10 @@ CameraPreviewView::CameraPreviewView(
   accessibility_observation_.Observe(Shell::Get()->accessibility_controller());
   RefreshResizeButtonVisibility();
   UpdateResizeButtonTooltip();
+
+  GetViewAccessibility().SetRole(ax::mojom::Role::kVideo);
+  GetViewAccessibility().SetName(
+      l10n_util::GetStringUTF16(IDS_ASH_SCREEN_CAPTURE_CAMERA_PREVIEW_FOCUSED));
 }
 
 CameraPreviewView::~CameraPreviewView() {
@@ -283,28 +287,28 @@ void CameraPreviewView::OnGestureEvent(ui::GestureEvent* event) {
       capture_mode_util::GetEventScreenLocation(*event);
 
   switch (event->type()) {
-    case ui::ET_GESTURE_SCROLL_BEGIN:
+    case ui::EventType::kGestureScrollBegin:
       camera_controller_->StartDraggingPreview(screen_location);
       break;
-    case ui::ET_GESTURE_SCROLL_UPDATE:
+    case ui::EventType::kGestureScrollUpdate:
       DCHECK(camera_controller_->is_drag_in_progress());
       camera_controller_->ContinueDraggingPreview(screen_location);
       break;
-    case ui::ET_SCROLL_FLING_START:
+    case ui::EventType::kScrollFlingStart:
       // TODO(conniekxu): Handle fling event.
       break;
-    case ui::ET_GESTURE_SCROLL_END:
+    case ui::EventType::kGestureScrollEnd:
       DCHECK(camera_controller_->is_drag_in_progress());
       camera_controller_->EndDraggingPreview(screen_location,
                                              /*is_touch=*/true);
       break;
-    case ui::ET_GESTURE_END:
+    case ui::EventType::kGestureEnd:
       if (camera_controller_->is_drag_in_progress()) {
         camera_controller_->EndDraggingPreview(screen_location,
                                                /*is_touch=*/true);
       }
       break;
-    case ui::ET_GESTURE_TAP:
+    case ui::EventType::kGestureTap:
       has_been_tapped_ = true;
       RefreshResizeButtonVisibility();
       has_been_tapped_ = false;
@@ -325,7 +329,7 @@ void CameraPreviewView::OnMouseExited(const ui::MouseEvent& event) {
   ScheduleRefreshResizeButtonVisibility();
 }
 
-void CameraPreviewView::Layout() {
+void CameraPreviewView::Layout(PassKey) {
   const gfx::Size resize_button_size = resize_button_->GetPreferredSize();
   const gfx::Rect bounds(
       (width() - resize_button_size.width()) / 2.f,
@@ -354,13 +358,6 @@ void CameraPreviewView::Layout() {
   // Refocus the camera preview to relayout the focus ring on it.
   if (has_focus())
     PseudoFocus();
-}
-
-void CameraPreviewView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  views::View::GetAccessibleNodeData(node_data);
-  node_data->role = ax::mojom::Role::kVideo;
-  node_data->SetName(
-      l10n_util::GetStringUTF16(IDS_ASH_SCREEN_CAPTURE_CAMERA_PREVIEW_FOCUSED));
 }
 
 views::View* CameraPreviewView::GetView() {
@@ -469,7 +466,7 @@ void CameraPreviewView::BlurA11yFocus() {
   UpdateA11yOverrideWindow();
 }
 
-BEGIN_METADATA(CameraPreviewView, views::View)
+BEGIN_METADATA(CameraPreviewView)
 END_METADATA
 
 }  // namespace ash

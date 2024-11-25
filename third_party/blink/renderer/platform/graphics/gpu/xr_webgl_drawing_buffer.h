@@ -12,6 +12,7 @@
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/deque.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
+#include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace gpu {
@@ -48,7 +49,9 @@ class PLATFORM_EXPORT XRWebGLDrawingBuffer
 
   scoped_refptr<StaticBitmapImage> TransferToStaticBitmapImage();
 
-  void UseSharedBuffer(const gpu::MailboxHolder&);
+  void UseSharedBuffer(
+      const scoped_refptr<gpu::ClientSharedImage>& buffer_shared_image,
+      const gpu::SyncToken& buffer_sync_token);
   void DoneWithSharedBuffer();
 
   // Prepare for destruction by breaking reference loops. This must be called to
@@ -58,14 +61,13 @@ class PLATFORM_EXPORT XRWebGLDrawingBuffer
 
  private:
   struct PLATFORM_EXPORT ColorBuffer
-      : public base::RefCountedThreadSafe<ColorBuffer> {
+      : public ThreadSafeRefCounted<ColorBuffer> {
     ColorBuffer(base::WeakPtr<XRWebGLDrawingBuffer>,
                 const gfx::Size&,
                 scoped_refptr<gpu::ClientSharedImage> shared_image,
                 GLuint texture_id);
     ColorBuffer(const ColorBuffer&) = delete;
     ColorBuffer& operator=(const ColorBuffer&) = delete;
-    ~ColorBuffer();
 
     // The thread on which the ColorBuffer is created and the DrawingBuffer is
     // bound to.
@@ -90,6 +92,10 @@ class PLATFORM_EXPORT XRWebGLDrawingBuffer
     // The sync token for when this buffer was received back from the
     // compositor.
     gpu::SyncToken receive_sync_token;
+
+   private:
+    friend class ThreadSafeRefCounted<ColorBuffer>;
+    ~ColorBuffer();
   };
 
   XRWebGLDrawingBuffer(DrawingBuffer*,

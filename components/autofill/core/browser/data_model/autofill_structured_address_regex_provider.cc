@@ -7,11 +7,11 @@
 #include <utility>
 
 #include "base/no_destructor.h"
+#include "base/notreached.h"
 #include "base/strings/strcat.h"
 #include "components/autofill/core/browser/data_model/autofill_structured_address_constants.h"
 #include "components/autofill/core/browser/data_model/autofill_structured_address_utils.h"
-
-#include "base/notreached.h"
+#include "components/autofill/core/browser/field_types.h"
 
 namespace autofill {
 
@@ -193,6 +193,16 @@ std::string ParseSeparatedCJkNameExpression() {
                               {.separator = kCjkNameSeperatorsRe}),
        // Parse the remaining CJK characters into the first name.
        CaptureTypeWithPattern(NAME_FIRST, kCjkCharactersRe)});
+}
+
+std::string ParseSeparatedCJkAlternativeNameExpression() {
+  return CaptureTypeWithPattern(
+      ALTERNATIVE_FULL_NAME,
+      {// Parse one or more CJK characters into the last name.
+       CaptureTypeWithPattern(ALTERNATIVE_FAMILY_NAME, kCjkCharactersRe,
+                              {.separator = kCjkNameSeperatorsRe}),
+       // Parse the remaining CJK characters into the first name.
+       CaptureTypeWithPattern(ALTERNATIVE_GIVEN_NAME, kCjkCharactersRe)});
 }
 
 // Returns an expression to parse a CJK name that starts with a known
@@ -478,20 +488,6 @@ std::string ParseHouseNumberStreetNameExpression() {
            },
            CaptureOptions{.quantifier = MatchQuantifier::kOptional})});
 }
-
-// Returns a regular expression to parse a name with a honorific into the prefix
-// and the full name.
-std::string ParsePrefixedName() {
-  return CaptureTypeWithPattern(
-      NAME_FULL_WITH_HONORIFIC_PREFIX,
-      {CaptureTypeWithPattern(
-           NAME_HONORIFIC_PREFIX, kHonorificPrefixRe,
-           CaptureOptions{.quantifier = MatchQuantifier::kOptional}),
-       CaptureTypeWithPattern(
-           NAME_FULL, ".+",
-           CaptureOptions{.quantifier = MatchQuantifier::kRequired})});
-}
-
 }  // namespace
 
 StructuredAddressesRegExProvider::StructuredAddressesRegExProvider() = default;
@@ -511,6 +507,8 @@ std::string StructuredAddressesRegExProvider::GetPattern(
       return kSingleWordRe;
     case RegEx::kParseSeparatedCjkName:
       return ParseSeparatedCJkNameExpression();
+    case RegEx::kParseSeparatedCjkAlternativeName:
+      return ParseSeparatedCJkAlternativeNameExpression();
     case RegEx::kParseCommonCjkTwoCharacterLastName:
       return ParseCommonCjkTwoCharacterLastNameExpression();
     case RegEx::kParseKoreanTwoCharacterLastName:
@@ -545,8 +543,6 @@ std::string StructuredAddressesRegExProvider::GetPattern(
       return ParseStreetNameHouseNumberSuffixedFloorAndAppartmentExpression();
     case RegEx::kParseStreetNameHouseNumber:
       return ParseStreetNameHouseNumberExpression();
-    case RegEx::kParsePrefixedName:
-      return ParsePrefixedName();
   }
   NOTREACHED();
 }

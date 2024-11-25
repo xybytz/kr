@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "base/compiler_specific.h"
 #include "base/files/file.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/memory/ref_counted.h"
@@ -30,8 +31,9 @@ class MemoryMappedRuleset final : public base::RefCounted<MemoryMappedRuleset> {
 
   static void SetMemoryMapFailuresForTesting(bool fail);
 
-  const uint8_t* data() const { return ruleset_.data(); }
-  size_t length() const { return base::strict_cast<size_t>(ruleset_.length()); }
+  base::span<const uint8_t> data() const LIFETIME_BOUND {
+    return ruleset_.bytes();
+  }
 
   base::WeakPtr<MemoryMappedRuleset> AsWeakPtr() {
     return weak_ptr_factory_.GetWeakPtr();

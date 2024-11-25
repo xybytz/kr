@@ -11,7 +11,9 @@
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/window_state.h"
 #include "base/memory/raw_ptr.h"
+#include "base/path_service.h"
 #include "base/ranges/algorithm.h"
+#include "components/app_constants/constants.h"
 #include "components/app_restore/window_properties.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/screen_position_client.h"
@@ -24,6 +26,8 @@
 namespace ash {
 
 namespace {
+
+base::FilePath informed_restore_image_path_for_test_;
 
 // If `use_screen` is true we convert to screen coordinates, otherwise we
 // convert to root window coordinates.
@@ -48,7 +52,6 @@ gfx::Rect GetBoundsIgnoringTransforms(const aura::Window* window,
 std::unique_ptr<app_restore::WindowInfo> BuildWindowInfo(
     aura::Window* window,
     std::optional<int> activation_index,
-    bool for_saved_desks,
     const std::vector<raw_ptr<aura::Window, VectorExperimental>>& mru_windows) {
   auto window_info = std::make_unique<app_restore::WindowInfo>();
   int window_activation_index = -1;
@@ -134,30 +137,44 @@ std::unique_ptr<app_restore::WindowInfo> BuildWindowInfo(
   // For saved desks, store the readable app name so that we can have a nice
   // error message if the user tries to used the saved desk on a device that
   // doesn't have the app.
-  if (for_saved_desks) {
-    std::string* app_id = window->GetProperty(kAppIDKey);
-    window_info->app_title =
-        app_id
-            ? base::UTF8ToUTF16(
-                  Shell::Get()->saved_desk_delegate()->GetAppShortName(*app_id))
-            : window->GetTitle();
-  }
+  std::string* app_id = window->GetProperty(kAppIDKey);
+  window_info->app_title =
+      app_id
+          ? base::UTF8ToUTF16(
+                Shell::Get()->saved_desk_delegate()->GetAppShortName(*app_id))
+          : window->GetTitle();
 
   // Save window size restriction of ARC app window.
   if (IsArcWindow(window)) {
     views::Widget* widget = views::Widget::GetWidgetForNativeWindow(window);
     if (widget) {
-      auto extra = app_restore::WindowInfo::ArcExtraInfo();
-      extra.maximum_size = widget->GetMaximumSize();
-      extra.minimum_size = widget->GetMinimumSize();
-      extra.bounds_in_root =
-          GetBoundsIgnoringTransforms(window, /*use_screen=*/false);
-      window_info->arc_extra_info = extra;
+      window_info->arc_extra_info = {
+          .maximum_size = widget->GetMaximumSize(),
+          .minimum_size = widget->GetMinimumSize(),
+          .bounds_in_root =
+              GetBoundsIgnoringTransforms(window, /*use_screen=*/false)};
       window_info->app_title = window->GetTitle();
     }
   }
 
   return window_info;
+}
+
+bool IsBrowserAppId(const std::string& id) {
+  return id == app_constants::kChromeAppId || id == app_constants::kLacrosAppId;
+}
+
+base::FilePath GetInformedRestoreImagePath() {
+  if (!informed_restore_image_path_for_test_.empty()) {
+    return informed_restore_image_path_for_test_;
+  }
+  base::FilePath home_dir;
+  CHECK(base::PathService::Get(base::DIR_HOME, &home_dir));
+  return home_dir.AppendASCII("informed_restore_image.png");
+}
+
+void SetInformedRestoreImagePathForTest(const base::FilePath& path) {
+  informed_restore_image_path_for_test_ = path;
 }
 
 }  // namespace ash

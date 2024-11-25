@@ -15,22 +15,22 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "chrome/browser/sync/test/integration/multi_client_status_change_checker.h"
-#include "components/autofill/core/browser/personal_data_manager_observer.h"
+#include "components/autofill/core/browser/payments_data_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace autofill {
-struct AutofillMetadata;
 class AutofillWebDataService;
 class CreditCard;
 struct CreditCardCloudTokenData;
 struct PaymentsCustomerData;
+struct PaymentsMetadata;
 class PersonalDataManager;
+struct ServerCvc;
 }  // namespace autofill
 
 namespace sync_pb {
+class DataTypeState;
 class SyncEntity;
-class ModelType;
-class ModelTypeState;
 }  // namespace sync_pb
 
 namespace wallet_helper {
@@ -65,18 +65,23 @@ void SetCreditCardCloudTokenData(
     int profile,
     const std::vector<autofill::CreditCardCloudTokenData>& cloud_token_data);
 
+void SetServerCardCredentialData(int profile,
+                                 const autofill::CreditCard& credit_card);
+
+void RemoveServerCardCredentialData(int profile,
+                                    const autofill::CreditCard& credit_card);
+
+void UpdateServerCardCredentialData(int profile,
+                                    const autofill::CreditCard& credit_card);
+
 void UpdateServerCardMetadata(int profile,
                               const autofill::CreditCard& credit_card);
 
-std::vector<autofill::AutofillMetadata> GetServerCardsMetadata(int profile);
+std::vector<autofill::PaymentsMetadata> GetServerCardsMetadata(int profile);
 
 // Function supports AUTOFILL_WALLET_DATA and AUTOFILL_WALLET_OFFER.
-sync_pb::ModelTypeState GetWalletModelTypeState(syncer::ModelType type,
-                                                int profile);
-
-void UnmaskServerCard(int profile,
-                      const autofill::CreditCard& credit_card,
-                      const std::u16string& full_number);
+sync_pb::DataTypeState GetWalletDataTypeState(syncer::DataType type,
+                                              int profile);
 
 sync_pb::SyncEntity CreateDefaultSyncWalletCard();
 
@@ -100,9 +105,16 @@ sync_pb::SyncEntity CreateSyncCreditCardCloudTokenData(
     const std::string& cloud_token_data_id);
 sync_pb::SyncEntity CreateDefaultSyncCreditCardCloudTokenData();
 
+sync_pb::SyncEntity CreateDefaultSyncWalletCredential();
+
+sync_pb::SyncEntity CreateSyncWalletCredential(
+    const autofill::ServerCvc& server_cvc);
+
 // TODO(sebsg): Instead add a function to create a card, and one to inject in
 // the server. Then compare the cards directly.
 void ExpectDefaultCreditCardValues(const autofill::CreditCard& card);
+
+void ExpectDefaultWalletCredentialValues(const autofill::CreditCard& card);
 
 // Load current data from the database of profile |profile|.
 std::vector<autofill::CreditCard*> GetServerCreditCards(int profile);
@@ -111,7 +123,7 @@ std::vector<autofill::CreditCard*> GetServerCreditCards(int profile);
 
 // Checker to block until autofill wallet data matches on both profiles.
 class AutofillWalletChecker : public StatusChangeChecker,
-                              public autofill::PersonalDataManagerObserver {
+                              public autofill::PaymentsDataManager::Observer {
  public:
   AutofillWalletChecker(int profile_a, int profile_b);
   ~AutofillWalletChecker() override;
@@ -120,8 +132,8 @@ class AutofillWalletChecker : public StatusChangeChecker,
   bool Wait() override;
   bool IsExitConditionSatisfied(std::ostream* os) override;
 
-  // autofill::PersonalDataManager implementation.
-  void OnPersonalDataChanged() override;
+  // autofill::PaymentsDataManager::Observer implementation.
+  void OnPaymentsDataChanged() override;
 
  private:
   const int profile_a_;
@@ -131,7 +143,7 @@ class AutofillWalletChecker : public StatusChangeChecker,
 // Checker to block until autofill wallet metadata sizes match on both profiles.
 class AutofillWalletMetadataSizeChecker
     : public StatusChangeChecker,
-      public autofill::PersonalDataManagerObserver {
+      public autofill::PaymentsDataManager::Observer {
  public:
   AutofillWalletMetadataSizeChecker(int profile_a, int profile_b);
   ~AutofillWalletMetadataSizeChecker() override;
@@ -139,8 +151,8 @@ class AutofillWalletMetadataSizeChecker
   // StatusChangeChecker implementation.
   bool IsExitConditionSatisfied(std::ostream* os) override;
 
-  // autofill::PersonalDataManager implementation.
-  void OnPersonalDataChanged() override;
+  // autofill::PaymentsDataManager::Observer implementation.
+  void OnPaymentsDataChanged() override;
 
  private:
   bool IsExitConditionSatisfiedImpl();
@@ -158,7 +170,7 @@ class FullUpdateTypeProgressMarkerChecker : public StatusChangeChecker,
   FullUpdateTypeProgressMarkerChecker(
       base::Time min_required_progress_marker_timestamp,
       syncer::SyncService* service,
-      syncer::ModelType model_type);
+      syncer::DataType data_type);
   ~FullUpdateTypeProgressMarkerChecker() override;
 
   FullUpdateTypeProgressMarkerChecker(
@@ -175,7 +187,7 @@ class FullUpdateTypeProgressMarkerChecker : public StatusChangeChecker,
  private:
   const base::Time min_required_progress_marker_timestamp_;
   const raw_ptr<const syncer::SyncService> service_;
-  const syncer::ModelType model_type_;
+  const syncer::DataType data_type_;
 
   base::ScopedObservation<syncer::SyncService, syncer::SyncServiceObserver>
       scoped_observation_{this};

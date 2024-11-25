@@ -24,8 +24,10 @@ const char kRandomOrTopTopicDecisionPrefix[] =
 const char kRandomTopicIndexDecisionPrefix[] =
     "TopicsV1_RandomTopicIndexDecision|";
 const char kTopTopicIndexDecisionPrefix[] = "TopicsV1_TopTopicIndexDecision|";
-const char kEpochSwitchTimeDecisionPrefix[] =
+const char kEpochIntroductionTimeDecisionPrefix[] =
     "TopicsV1_EpochSwitchTimeDecision|";
+const char kEpochPhaseOutTimeDecisionPrefix[] =
+    "TopicsV1_EpochPhaseOutTimeDecision|";
 const char kContextDomainStoragePrefix[] = "TopicsV1_ContextDomainStorage|";
 const char kMainFrameHostStoragePrefix[] = "TopicsV1_MainFrameHostStorage|";
 
@@ -43,20 +45,35 @@ uint64_t HmacHash(ReadOnlyHmacKey hmac_key,
 }
 
 bool g_hmac_key_overridden = false;
-  
+
 browsing_topics::HmacKey& GetHmacKeyOverrideForTesting() {
   static browsing_topics::HmacKey key;
   return key;
 }
 
+std::string GetEpochId(base::Time epoch_calculation_time) {
+  int64_t time_microseconds =
+      epoch_calculation_time.ToDeltaSinceWindowsEpoch().InMicroseconds();
+
+  return std::string(reinterpret_cast<const char*>(&time_microseconds),
+                     sizeof(time_microseconds));
+}
+
 }  // namespace
+
+bool DoesCalculationFailDueToHanging(CalculatorResultStatus status) {
+  return status == CalculatorResultStatus::kHangingAfterApiUsageRequested ||
+         status == CalculatorResultStatus::kHangingAfterHistoryRequested ||
+         status == CalculatorResultStatus::kHangingAfterModelRequested ||
+         status == CalculatorResultStatus::kHangingAfterAnnotationRequested;
+}
 
 HmacKey GenerateRandomHmacKey() {
   if (g_hmac_key_overridden)
     return GetHmacKeyOverrideForTesting();
 
   HmacKey result = {};
-  base::RandBytes(result.data(), result.size());
+  base::RandBytes(result);
 
   return result;
 }
@@ -65,48 +82,40 @@ uint64_t HashTopDomainForRandomOrTopTopicDecision(
     ReadOnlyHmacKey hmac_key,
     base::Time epoch_calculation_time,
     const std::string& top_domain) {
-  int64_t time_microseconds =
-      epoch_calculation_time.ToDeltaSinceWindowsEpoch().InMicroseconds();
-
-  std::string epoch_id(reinterpret_cast<const char*>(&time_microseconds),
-                       sizeof(time_microseconds));
-
   return HmacHash(hmac_key, kRandomOrTopTopicDecisionPrefix,
-                  epoch_id + top_domain);
+                  GetEpochId(epoch_calculation_time) + top_domain);
 }
 
 uint64_t HashTopDomainForRandomTopicIndexDecision(
     ReadOnlyHmacKey hmac_key,
     base::Time epoch_calculation_time,
     const std::string& top_domain) {
-  int64_t time_microseconds =
-      epoch_calculation_time.ToDeltaSinceWindowsEpoch().InMicroseconds();
-
-  std::string epoch_id(reinterpret_cast<const char*>(&time_microseconds),
-                       sizeof(time_microseconds));
-
   return HmacHash(hmac_key, kRandomTopicIndexDecisionPrefix,
-                  epoch_id + top_domain);
+                  GetEpochId(epoch_calculation_time) + top_domain);
 }
 
 uint64_t HashTopDomainForTopTopicIndexDecision(
     ReadOnlyHmacKey hmac_key,
     base::Time epoch_calculation_time,
     const std::string& top_domain) {
-  int64_t time_microseconds =
-      epoch_calculation_time.ToDeltaSinceWindowsEpoch().InMicroseconds();
-
-  std::string epoch_id(reinterpret_cast<const char*>(&time_microseconds),
-                       sizeof(time_microseconds));
-
   return HmacHash(hmac_key, kTopTopicIndexDecisionPrefix,
-                  epoch_id + top_domain);
+                  GetEpochId(epoch_calculation_time) + top_domain);
 }
 
-uint64_t HashTopDomainForEpochSwitchTimeDecision(
+uint64_t HashTopDomainForEpochIntroductionTimeDecision(
     ReadOnlyHmacKey hmac_key,
+    base::Time epoch_calculation_time,
     const std::string& top_domain) {
-  return HmacHash(hmac_key, kEpochSwitchTimeDecisionPrefix, top_domain);
+  return HmacHash(hmac_key, kEpochIntroductionTimeDecisionPrefix,
+                  GetEpochId(epoch_calculation_time) + top_domain);
+}
+
+uint64_t HashTopDomainForEpochPhaseOutTimeDecision(
+    ReadOnlyHmacKey hmac_key,
+    base::Time epoch_calculation_time,
+    const std::string& top_domain) {
+  return HmacHash(hmac_key, kEpochPhaseOutTimeDecisionPrefix,
+                  GetEpochId(epoch_calculation_time) + top_domain);
 }
 
 HashedDomain HashContextDomainForStorage(ReadOnlyHmacKey hmac_key,

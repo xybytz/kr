@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40284755): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "net/proxy_resolution/proxy_bypass_rules.h"
 
 #include "base/strings/string_util.h"
@@ -372,7 +377,7 @@ TEST(ProxyBypassRulesTest, BypassSimpleHostnames) {
   ExpectBypassMisc(rules, false, {"foo", "loopback"});
 }
 
-TEST(ProxyBypassRulesTest, ParseAndMatchCIDR_IPv4) {
+TEST(ProxyBypassRulesTest, ParseAndMatchCIDRIPv4) {
   ProxyBypassRules rules;
   rules.ParseFromString("192.168.1.1/16");
   ASSERT_EQ(1u, rules.rules().size());
@@ -390,7 +395,7 @@ TEST(ProxyBypassRulesTest, ParseAndMatchCIDR_IPv4) {
   EXPECT_FALSE(rules.Matches(GURL("http://192.168.1.1.xx")));
 }
 
-TEST(ProxyBypassRulesTest, ParseAndMatchCIDR_IPv6) {
+TEST(ProxyBypassRulesTest, ParseAndMatchCIDRIPv6) {
   ProxyBypassRules rules;
   rules.ParseFromString("a:b:c:d::/48");
   ASSERT_EQ(1u, rules.rules().size());

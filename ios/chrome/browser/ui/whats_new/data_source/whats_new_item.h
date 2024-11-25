@@ -28,7 +28,17 @@ enum class WhatsNewType {
   kLensSearch = 12,
   kBottomOmnibox = 13,
   kESB = 14,
-  kMaxValue = kESB
+  kPWMWidget = 15,
+  kPinnedTabs = 16,
+  kInactiveTabs = 17,
+  kPackageTracking = 18,
+  kPasswordSharing = 19,
+  kCustomizableOverflowMenu = 20,
+  kDockingBling = 21,
+  kPriceTracking = 22,
+  kPriceHistory = 23,
+  kOtherBuyingOptions = 24,
+  kMaxValue = kOtherBuyingOptions
 };
 
 // An enum representing the different primary button actions for features in
@@ -42,7 +52,9 @@ enum class WhatsNewPrimaryAction {
   kChromeSettings = 3,
   kIOSSettingsPasswords = 4,
   kLens = 5,
-  kMaxValue = kLens,
+  kSafeBrowsingSettings = 6,
+  kChromePasswordManager = 7,
+  kMaxValue = kChromePasswordManager,
 };
 
 class GURL;
@@ -72,6 +84,8 @@ class GURL;
 @property(nonatomic, copy) NSString* screenshotName;
 // What's New entry screenshot text provier for localization.
 @property(nonatomic, copy) NSDictionary* screenshotTextProvider;
+// Whether or not the feature or Chrome tip is exclusively available on iPhone.
+@property(nonatomic, assign) BOOL isIphoneOnly;
 
 @end
 

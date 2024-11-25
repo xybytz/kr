@@ -4,9 +4,10 @@
 
 #include "media/muxers/muxer.h"
 
+#include <optional>
+
 #include "media/base/video_codecs.h"
 #include "media/base/video_frame.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -22,7 +23,7 @@ Muxer::VideoParameters::VideoParameters(
     gfx::Size visible_rect_size,
     double frame_rate,
     VideoCodec codec,
-    absl::optional<gfx::ColorSpace> color_space)
+    std::optional<gfx::ColorSpace> color_space)
     : visible_rect_size(visible_rect_size),
       frame_rate(frame_rate),
       codec(codec),
@@ -43,15 +44,11 @@ std::string Muxer::VideoParameters::AsHumanReadableString() const {
 Muxer::EncodedFrame::EncodedFrame() = default;
 Muxer::EncodedFrame::EncodedFrame(
     absl::variant<AudioParameters, VideoParameters> params,
-    absl::optional<media::AudioEncoder::CodecDescription> codec_description,
-    std::string data,
-    std::string alpha_data,
-    bool is_keyframe)
+    std::optional<media::AudioEncoder::CodecDescription> codec_description,
+    scoped_refptr<DecoderBuffer> data)
     : params(std::move(params)),
       codec_description(std::move(codec_description)),
-      data(std::move(data)),
-      alpha_data(std::move(alpha_data)),
-      is_keyframe(is_keyframe) {}
+      data(std::move(data)) {}
 Muxer::EncodedFrame::~EncodedFrame() = default;
 Muxer::EncodedFrame::EncodedFrame(EncodedFrame&&) = default;
 

@@ -12,7 +12,6 @@ features:
   per_profile: false
 owners:
 - jimmyxgong@chromium.org
-- zentaro@chromium.org
 - cros-peripheral@google.com
 items:
 - caption: Allow the user to customize system shortcuts
@@ -21,7 +20,7 @@ items:
   value: false
 schema:
   type: boolean
-future_on:
-- chrome_os
+supported_on:
+- chrome_os:123-
 tags: []
 type: main

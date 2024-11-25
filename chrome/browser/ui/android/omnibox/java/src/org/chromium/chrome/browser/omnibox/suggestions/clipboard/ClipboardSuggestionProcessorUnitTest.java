@@ -41,6 +41,7 @@ import org.chromium.chrome.browser.omnibox.suggestions.base.BaseSuggestionViewPr
 import org.chromium.chrome.browser.omnibox.suggestions.basic.SuggestionViewProperties;
 import org.chromium.chrome.browser.omnibox.suggestions.basic.SuggestionViewViewBinder;
 import org.chromium.chrome.browser.omnibox.test.R;
+import org.chromium.components.omnibox.AutocompleteInput;
 import org.chromium.components.omnibox.AutocompleteMatch;
 import org.chromium.components.omnibox.AutocompleteMatchBuilder;
 import org.chromium.components.omnibox.OmniboxSuggestionType;
@@ -49,6 +50,7 @@ import org.chromium.url.GURL;
 import org.chromium.url.JUnitTestGURLs;
 
 import java.io.ByteArrayOutputStream;
+import java.util.Optional;
 
 /** Tests for {@link ClipboardSuggestionProcessor}. */
 @RunWith(BaseRobolectricTestRunner.class)
@@ -61,6 +63,7 @@ public class ClipboardSuggestionProcessorUnitTest {
     private @Mock SuggestionHost mSuggestionHost;
     private @Mock OmniboxImageSupplier mImageSupplier;
     private @Mock Resources mResources;
+    private @Mock AutocompleteInput mInput;
 
     private Context mContext;
     private ClipboardSuggestionProcessor mProcessor;
@@ -78,7 +81,9 @@ public class ClipboardSuggestionProcessorUnitTest {
                 new ContextThemeWrapper(
                         ContextUtils.getApplicationContext(), R.style.Theme_BrowserUI_DayNight);
         mBitmap = Bitmap.createBitmap(10, 5, Bitmap.Config.ARGB_8888);
-        mProcessor = new ClipboardSuggestionProcessor(mContext, mSuggestionHost, mImageSupplier);
+        mProcessor =
+                new ClipboardSuggestionProcessor(
+                        mContext, mSuggestionHost, Optional.of(mImageSupplier));
         mRootView = new LinearLayout(mContext);
         mTitleTextView = new TextView(mContext);
         mTitleTextView.setId(R.id.line_1);
@@ -126,7 +131,7 @@ public class ClipboardSuggestionProcessorUnitTest {
                         .setClipboardImageData(clipboardImageData)
                         .build();
         mModel = mProcessor.createModel();
-        mProcessor.populateModel(mSuggestion, mModel, 0);
+        mProcessor.populateModel(mInput, mSuggestion, mModel, 0);
         SuggestionViewViewBinder.bind(mModel, mRootView, SuggestionViewProperties.TEXT_LINE_1_TEXT);
         SuggestionViewViewBinder.bind(mModel, mRootView, SuggestionCommonProperties.COLOR_SCHEME);
         SuggestionViewViewBinder.bind(

@@ -6,6 +6,7 @@ package org.chromium.chrome.browser.consent_auditor;
 
 import androidx.annotation.StringRes;
 
+import org.jni_zero.JniType;
 import org.jni_zero.NativeMethods;
 
 import org.chromium.base.ThreadUtils;
@@ -23,12 +24,15 @@ public final class ConsentAuditorBridge {
 
     /**
      * Records that the user consented to a feature.
+     *
+     * @param profile The {@link Profile} associated with this consent record.
      * @param accountId The account Id for which to record the consent.
      * @param feature The {@link ConsentAuditorFeature} for which to record the consent.
      * @param consentDescription The resource IDs of the text the user read before consenting.
      * @param consentConfirmation The resource ID of the text the user clicked when consenting.
      */
     public void recordConsent(
+            Profile profile,
             CoreAccountId accountId,
             @ConsentAuditorFeature int feature,
             List<Integer> consentDescription,
@@ -40,7 +44,7 @@ public final class ConsentAuditorBridge {
         ConsentAuditorBridgeJni.get()
                 .recordConsent(
                         ConsentAuditorBridge.this,
-                        Profile.getLastUsedRegularProfile(),
+                        profile,
                         accountId,
                         feature,
                         consentDescriptionArray,
@@ -60,7 +64,7 @@ public final class ConsentAuditorBridge {
     interface Natives {
         void recordConsent(
                 ConsentAuditorBridge caller,
-                Profile profile,
+                @JniType("Profile*") Profile profile,
                 CoreAccountId accountId,
                 int feature,
                 int[] consentDescription,

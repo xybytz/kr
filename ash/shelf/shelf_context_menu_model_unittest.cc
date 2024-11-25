@@ -46,8 +46,6 @@ class ShelfContextMenuModelTest
   ~ShelfContextMenuModelTest() override = default;
 
   void SetUp() override {
-    delegate_provider_ = std::make_unique<TestNewWindowDelegateProvider>(
-        std::make_unique<MockNewWindowDelegate>());
     AshTestBase::SetUp();
     TestSessionControllerClient* session = GetSessionControllerClient();
     session->AddUserSession("user1@test.com", GetUserType());
@@ -57,13 +55,12 @@ class ShelfContextMenuModelTest
 
   user_manager::UserType GetUserType() const { return GetParam(); }
 
-  MockNewWindowDelegate* GetMockNewWindowDelegate() {
-    return static_cast<MockNewWindowDelegate*>(
-        delegate_provider_->GetPrimary());
+  MockNewWindowDelegate& GetMockNewWindowDelegate() {
+    return new_window_delegate_;
   }
 
  private:
-  std::unique_ptr<TestNewWindowDelegateProvider> delegate_provider_;
+  MockNewWindowDelegate new_window_delegate_;
 };
 
 // A test shelf item delegate that records the commands sent for execution.
@@ -99,8 +96,8 @@ class TestShelfItemDelegate : public ShelfItemDelegate {
 
 INSTANTIATE_TEST_SUITE_P(,
                          ShelfContextMenuModelTest,
-                         ::testing::Values(user_manager::USER_TYPE_REGULAR,
-                                           user_manager::USER_TYPE_CHILD));
+                         ::testing::Values(user_manager::UserType::kRegular,
+                                           user_manager::UserType::kChild));
 
 // Tests the default items in a shelf context menu.
 TEST_P(ShelfContextMenuModelTest, Basic) {
@@ -162,7 +159,7 @@ TEST_P(ShelfContextMenuModelTest, OpensPersonalizationHubOrWallpaper) {
 
   ShelfContextMenuModel menu(nullptr, display_id, /*menu_in_shelf=*/false);
 
-  EXPECT_CALL(*GetMockNewWindowDelegate(), OpenPersonalizationHub).Times(1);
+  EXPECT_CALL(GetMockNewWindowDelegate(), OpenPersonalizationHub).Times(1);
   menu.ActivatedAt(2);
 }
 
@@ -203,7 +200,8 @@ TEST_P(ShelfContextMenuModelTest, AutohideShelfOptionOnExternalDisplay) {
   int64_t secondary_id = GetSecondaryDisplay().id();
 
   // Create a normal window on the primary display.
-  std::unique_ptr<views::Widget> widget = CreateTestWidget();
+  std::unique_ptr<views::Widget> widget =
+      CreateTestWidget(views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET);
   widget->Show();
   widget->SetFullscreen(true);
 
@@ -318,8 +316,8 @@ class DeskButtonContextMenuModelTest : public ShelfContextMenuModelTest {
 
 INSTANTIATE_TEST_SUITE_P(,
                          DeskButtonContextMenuModelTest,
-                         ::testing::Values(user_manager::USER_TYPE_REGULAR,
-                                           user_manager::USER_TYPE_CHILD));
+                         ::testing::Values(user_manager::UserType::kRegular,
+                                           user_manager::UserType::kChild));
 
 // Tests that the default items are in the shelf context menu when it is created
 // outside of the shelf, and that the desk button menu item also appears when

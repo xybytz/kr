@@ -6,39 +6,45 @@
 
 #import "base/check.h"
 #import "base/check_op.h"
+#import "base/functional/bind.h"
+#import "base/memory/raw_ptr.h"
 #import "base/strings/sys_string_conversions.h"
+#import "components/signin/public/identity_manager/identity_manager.h"
 #import "components/signin/public/identity_manager/objc/identity_manager_observer_bridge.h"
 #import "components/sync/service/sync_service.h"
 #import "components/sync/service/sync_user_settings.h"
-#import "components/unified_consent/unified_consent_service.h"
 #import "ios/chrome/browser/signin/model/authentication_service.h"
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service.h"
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service_observer_bridge.h"
-#import "ios/chrome/browser/ui/authentication/account_capabilities_latency_tracker.h"
+#import "ios/chrome/browser/ui/authentication/history_sync/history_sync_capabilities_fetcher.h"
 #import "ios/chrome/browser/ui/authentication/history_sync/history_sync_consumer.h"
 #import "ios/chrome/grit/ios_strings.h"
 #import "ui/base/l10n/l10n_util.h"
 
+// Mediator that handles the sync operations.
 @interface HistorySyncMediator () <ChromeAccountManagerServiceObserver,
                                    IdentityManagerObserverBridgeDelegate>
 @end
 
 @implementation HistorySyncMediator {
-  AuthenticationService* _authenticationService;
+  raw_ptr<AuthenticationService> _authenticationService;
   // Account manager service with observer.
-  ChromeAccountManagerService* _accountManagerService;
+  raw_ptr<ChromeAccountManagerService> _accountManagerService;
   std::unique_ptr<ChromeAccountManagerServiceObserverBridge>
       _accountManagerServiceObserver;
+  raw_ptr<signin::IdentityManager> _identityManager;
   // Observer for `IdentityManager`.
   std::unique_ptr<signin::IdentityManagerObserverBridge>
       _identityManagerObserver;
   // Sync service.
-  syncer::SyncService* _syncService;
+  raw_ptr<syncer::SyncService> _syncService;
   // `YES` if the user's email should be shown in the footer text.
   BOOL _showUserEmail;
-  // Records the latency of capabilities fetch for this view.
-  std::unique_ptr<signin::AccountCapabilitiesLatencyTracker>
-      _accountCapabilitiesLatencyTracker;
+  // Capabilities fetcher to determine minor mode restriction.
+  HistorySyncCapabilitiesFetcher* _capabilitiesFetcher;
+  // This boolean should help to understand CHECK failure with
+  // crbug.com/366198713. This variable can be removed once the bug is fixed.
+  BOOL _signoutNotificationCalled;
 }
 
 - (instancetype)
@@ -55,32 +61,47 @@
     _accountManagerServiceObserver =
         std::make_unique<ChromeAccountManagerServiceObserverBridge>(
             self, _accountManagerService);
+    _identityManager = identityManager;
     _identityManagerObserver =
         std::make_unique<signin::IdentityManagerObserverBridge>(identityManager,
                                                                 self);
     _syncService = syncService;
     _showUserEmail = showUserEmail;
-    _accountCapabilitiesLatencyTracker =
-        std::make_unique<signin::AccountCapabilitiesLatencyTracker>(
-            identityManager);
+    _capabilitiesFetcher = [[HistorySyncCapabilitiesFetcher alloc]
+        initWithIdentityManager:identityManager];
   }
+
   return self;
 }
 
 - (void)disconnect {
-  _accountCapabilitiesLatencyTracker.reset();
   _accountManagerServiceObserver.reset();
   _identityManagerObserver.reset();
+  [_capabilitiesFetcher shutdown];
+  _capabilitiesFetcher = nil;
   _authenticationService = nullptr;
   _accountManagerService = nullptr;
+  _identityManager = nullptr;
   _syncService = nullptr;
 }
 
 - (void)enableHistorySyncOptin {
   id<SystemIdentity> identity =
       _authenticationService->GetPrimaryIdentity(signin::ConsentLevel::kSignin);
-  CHECK(identity);
-  // TODO(crbug.com/1467853): Record the history sync opt-in when the new
+  bool hasPrimaryAccount =
+      _identityManager->HasPrimaryAccount(signin::ConsentLevel::kSignin);
+  // It is possible to have no identity from AuthenticationService here
+  // (see crbug.com/366198713).
+  // The mediator listens for IdentityManagerObserverBridgeDelegate to know
+  // if the user is signed out. If it happens, the dialog is supposed to be
+  // dissmissed automatically.
+  // to understand if there is a difference between AuthenticationService and
+  // IdentityManager, the CHECK logs if there is primary identity
+  // from AuthenticationService and from IdentityManager.
+  CHECK(identity) << "IdentityManager has primary identity: "
+                  << hasPrimaryAccount << ", _signoutNotificationCalled: "
+                  << _signoutNotificationCalled;
+  // TODO(crbug.com/40068130): Record the history sync opt-in when the new
   // consent type will be available.
   syncer::SyncUserSettings* syncUserSettings = _syncService->GetUserSettings();
   syncUserSettings->SetSelectedType(syncer::UserSelectableType::kHistory, true);
@@ -111,17 +132,24 @@
                 base::SysNSStringToUTF16(identity.userEmail))
           : l10n_util::GetNSString(IDS_IOS_HISTORY_SYNC_FOOTER_WITHOUT_EMAIL);
   [_consumer setFooterText:footerText];
+
+  [self.consumer
+      displayButtonsWithRestrictionCapability:
+          [_capabilitiesFetcher canShowUnrestrictedOptInsCapability]];
 }
 
 #pragma mark - ChromeAccountManagerServiceObserver
 
 - (void)identityUpdated:(id<SystemIdentity>)identity {
-  [self updateAvatarImageWithIdentity:identity];
+  if ([identity isEqual:_authenticationService->GetPrimaryIdentity(
+                            signin::ConsentLevel::kSignin)]) {
+    [self updateAvatarImageWithIdentity:identity];
+  }
 }
 
 - (void)onChromeAccountManagerServiceShutdown:
     (ChromeAccountManagerService*)accountManagerService {
-  // TODO(crbug.com/1489595): Remove `[self disconnect]`.
+  // TODO(crbug.com/40284086): Remove `[self disconnect]`.
   [self disconnect];
 }
 
@@ -131,12 +159,9 @@
     (const signin::PrimaryAccountChangeEvent&)event {
   if (event.GetEventTypeFor(signin::ConsentLevel::kSignin) ==
       signin::PrimaryAccountChangeEvent::Type::kCleared) {
+    _signoutNotificationCalled = YES;
     [self.delegate historySyncMediatorPrimaryAccountCleared:self];
   }
-}
-
-- (void)onExtendedAccountInfoUpdated:(const AccountInfo&)info {
-  _accountCapabilitiesLatencyTracker->OnExtendedAccountInfoUpdated(info);
 }
 
 #pragma mark - Private

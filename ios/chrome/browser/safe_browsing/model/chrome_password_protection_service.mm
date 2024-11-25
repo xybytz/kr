@@ -25,12 +25,13 @@
 #import "components/safe_browsing/core/browser/verdict_cache_manager.h"
 #import "components/safe_browsing/core/common/features.h"
 #import "components/safe_browsing/core/common/safe_browsing_prefs.h"
-#import "components/safe_browsing/core/common/safebrowsing_constants.h"
+#import "components/safe_browsing/core/common/safebrowsing_switches.h"
 #import "components/safe_browsing/core/common/utils.h"
 #import "components/safe_browsing/ios/browser/password_protection/password_protection_request_ios.h"
+#import "components/signin/public/identity_manager/account_managed_status_finder.h"
 #import "components/signin/public/identity_manager/identity_manager.h"
 #import "components/strings/grit/components_strings.h"
-#import "components/sync/base/model_type.h"
+#import "components/sync/base/data_type.h"
 #import "components/sync/protocol/user_event_specifics.pb.h"
 #import "components/sync/service/sync_service.h"
 #import "components/sync_user_events/user_event_service.h"
@@ -41,7 +42,7 @@
 #import "ios/chrome/browser/safe_browsing/model/user_population_helper.h"
 #import "ios/chrome/browser/safe_browsing/model/verdict_cache_manager_factory.h"
 #import "ios/chrome/browser/shared/model/application_context/application_context.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/signin/model/identity_manager_factory.h"
 #import "ios/chrome/browser/sync/model/ios_user_event_service_factory.h"
 #import "ios/chrome/browser/sync/model/sync_service_factory.h"
@@ -83,7 +84,7 @@ namespace {
 bool HasArtificialCachedVerdict() {
   std::string phishing_url_string =
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          safe_browsing::kArtificialCachedPhishGuardVerdictFlag);
+          safe_browsing::switches::kArtificialCachedPhishGuardVerdictFlag);
   return !phishing_url_string.empty();
 }
 
@@ -132,7 +133,7 @@ std::unique_ptr<UserEventSpecifics> GetUserEventSpecifics(
 
 ChromePasswordProtectionService::ChromePasswordProtectionService(
     SafeBrowsingService* sb_service,
-    ChromeBrowserState* browser_state,
+    ProfileIOS* profile,
     history::HistoryService* history_service,
     safe_browsing::SafeBrowsingMetricsCollector*
         safe_browsing_metrics_collector,
@@ -144,11 +145,11 @@ ChromePasswordProtectionService::ChromePasswordProtectionService(
           history_service,
           /*pref_service=*/nullptr,
           /*token_fetcher=*/nullptr,
-          browser_state->IsOffTheRecord(),
+          profile->IsOffTheRecord(),
           /*identity_manager=*/nullptr,
           /*try_token_fetch=*/false,
           safe_browsing_metrics_collector),
-      browser_state_(browser_state),
+      profile_(profile),
       add_phished_credentials_(std::move(add_phished_credentials)),
       remove_phished_credentials_(std::move(remove_phished_credentials)) {}
 
@@ -202,9 +203,8 @@ void ChromePasswordProtectionService::CacheVerdict(
   if (!CanGetReputationOfURL(url) || IsIncognito()) {
     return;
   }
-  VerdictCacheManagerFactory::GetForBrowserState(browser_state_)
-      ->CachePhishGuardVerdict(trigger_type, password_type, verdict,
-                               receive_time);
+  VerdictCacheManagerFactory::GetForProfile(profile_)->CachePhishGuardVerdict(
+      trigger_type, password_type, verdict, receive_time);
 }
 
 LoginReputationClientResponse::VerdictType
@@ -215,7 +215,7 @@ ChromePasswordProtectionService::GetCachedVerdict(
     LoginReputationClientResponse* out_response) {
   if (HasArtificialCachedVerdict() ||
       (url.is_valid() && CanGetReputationOfURL(url))) {
-    return VerdictCacheManagerFactory::GetForBrowserState(browser_state_)
+    return VerdictCacheManagerFactory::GetForProfile(profile_)
         ->GetCachedPhishGuardVerdict(url, trigger_type, password_type,
                                      out_response);
   }
@@ -224,12 +224,12 @@ ChromePasswordProtectionService::GetCachedVerdict(
 
 int ChromePasswordProtectionService::GetStoredVerdictCount(
     LoginReputationClientRequest::TriggerType trigger_type) {
-  return VerdictCacheManagerFactory::GetForBrowserState(browser_state_)
+  return VerdictCacheManagerFactory::GetForProfile(profile_)
       ->GetStoredPhishGuardVerdictCount(trigger_type);
 }
 
 void ChromePasswordProtectionService::MaybeReportPasswordReuseDetected(
-    safe_browsing::PasswordProtectionRequest* request,
+    const GURL& main_frame_url,
     const std::string& username,
     PasswordType password_type,
     bool is_phishing_url,
@@ -257,7 +257,7 @@ void ChromePasswordProtectionService::SanitizeReferrerChain(
 void ChromePasswordProtectionService::PersistPhishedSavedPasswordCredential(
     const std::vector<password_manager::MatchingReusedCredential>&
         matching_reused_credentials) {
-  if (!browser_state_) {
+  if (!profile_) {
     return;
   }
 
@@ -275,7 +275,7 @@ void ChromePasswordProtectionService::PersistPhishedSavedPasswordCredential(
 void ChromePasswordProtectionService::RemovePhishedSavedPasswordCredential(
     const std::vector<password_manager::MatchingReusedCredential>&
         matching_reused_credentials) {
-  if (!browser_state_) {
+  if (!profile_) {
     return;
   }
 
@@ -311,7 +311,7 @@ RequestOutcome ChromePasswordProtectionService::GetPingNotSentReason(
           safe_browsing::PASSWORD_PROTECTION_OFF) {
     return RequestOutcome::TURNED_OFF_BY_ADMIN;
   }
-  PrefService* prefs = browser_state_->GetPrefs();
+  PrefService* prefs = profile_->GetPrefs();
   if (safe_browsing::IsURLAllowlistedByPolicy(url, *prefs)) {
     return RequestOutcome::MATCHED_ENTERPRISE_ALLOWLIST;
   }
@@ -371,7 +371,7 @@ ChromePasswordProtectionService::GetUrlDisplayExperiment() const {
 
 AccountInfo ChromePasswordProtectionService::GetAccountInfo() const {
   signin::IdentityManager* identity_manager =
-      IdentityManagerFactory::GetForBrowserState(browser_state_);
+      IdentityManagerFactory::GetForProfile(profile_);
   if (!identity_manager) {
     return AccountInfo();
   }
@@ -381,13 +381,12 @@ AccountInfo ChromePasswordProtectionService::GetAccountInfo() const {
 
 safe_browsing::ChromeUserPopulation::UserPopulation
 ChromePasswordProtectionService::GetUserPopulationPref() const {
-  return safe_browsing::GetUserPopulationPref(browser_state_->GetPrefs());
+  return safe_browsing::GetUserPopulationPref(profile_->GetPrefs());
 }
 
 AccountInfo ChromePasswordProtectionService::GetAccountInfoForUsername(
     const std::string& username) const {
-  auto* identity_manager =
-      IdentityManagerFactory::GetForBrowserState(browser_state_);
+  auto* identity_manager = IdentityManagerFactory::GetForProfile(profile_);
   if (!identity_manager) {
     return AccountInfo();
   }
@@ -430,7 +429,7 @@ bool ChromePasswordProtectionService::CanShowInterstitial(
 
 bool ChromePasswordProtectionService::IsURLAllowlistedForPasswordEntry(
     const GURL& url) const {
-  if (!browser_state_) {
+  if (!profile_) {
     return false;
   }
 
@@ -469,7 +468,7 @@ bool ChromePasswordProtectionService::IsPingingEnabled(
 }
 
 bool ChromePasswordProtectionService::IsIncognito() {
-  return browser_state_->IsOffTheRecord();
+  return profile_->IsOffTheRecord();
 }
 
 bool ChromePasswordProtectionService::IsExtendedReporting() {
@@ -478,8 +477,7 @@ bool ChromePasswordProtectionService::IsExtendedReporting() {
 }
 
 bool ChromePasswordProtectionService::IsPrimaryAccountSyncingHistory() const {
-  syncer::SyncService* sync =
-      SyncServiceFactory::GetForBrowserState(browser_state_);
+  syncer::SyncService* sync = SyncServiceFactory::GetForProfile(profile_);
   return sync &&
          sync->GetActiveDataTypes().Has(syncer::HISTORY_DELETE_DIRECTIVES) &&
          !sync->IsLocalSyncEnabled();
@@ -490,10 +488,16 @@ bool ChromePasswordProtectionService::IsPrimaryAccountSignedIn() const {
          !GetAccountInfo().hosted_domain.empty();
 }
 
-bool ChromePasswordProtectionService::IsAccountGmail(
+bool ChromePasswordProtectionService::IsAccountConsumer(
     const std::string& username) const {
-  return GetAccountInfoForUsername(username).hosted_domain ==
-         kNoHostedDomainFound;
+  // Check that `username` is likely an email address because if `username` has
+  // no email domain MayBeEnterpriseUserBasedOnEmail will assume it is a
+  // consumer account.
+  return (username.find("@") != std::string::npos &&
+          !signin::AccountManagedStatusFinder::MayBeEnterpriseUserBasedOnEmail(
+              username)) ||
+         GetAccountInfoForUsername(username).hosted_domain ==
+             kNoHostedDomainFound;
 }
 
 bool ChromePasswordProtectionService::IsInExcludedCountry() {
@@ -503,7 +507,7 @@ bool ChromePasswordProtectionService::IsInExcludedCountry() {
     return false;
   }
   return base::Contains(safe_browsing::GetExcludedCountries(),
-                        variations_service->GetStoredPermanentCountry());
+                        variations_service->GetLatestCountry());
 }
 
 void ChromePasswordProtectionService::MaybeStartProtectedPasswordEntryRequest(
@@ -549,7 +553,7 @@ void ChromePasswordProtectionService::MaybeLogPasswordReuseLookupEvent(
     RequestOutcome outcome,
     PasswordType password_type,
     const LoginReputationClientResponse* response) {
-  // TODO(crbug.com/1147967): Complete PhishGuard iOS implementation.
+  // TODO(crbug.com/40731022): Complete PhishGuard iOS implementation.
 }
 
 void ChromePasswordProtectionService::MaybeLogPasswordReuseDetectedEvent(
@@ -561,7 +565,7 @@ void ChromePasswordProtectionService::MaybeLogPasswordReuseDetectedEvent(
   }
 
   syncer::UserEventService* user_event_service =
-      IOSUserEventServiceFactory::GetForBrowserState(browser_state_);
+      IOSUserEventServiceFactory::GetForProfile(profile_);
   if (!user_event_service) {
     return;
   }
@@ -592,7 +596,7 @@ void ChromePasswordProtectionService::MaybeLogPasswordReuseDialogInteraction(
   }
 
   syncer::UserEventService* user_event_service =
-      IOSUserEventServiceFactory::GetForBrowserState(browser_state_);
+      IOSUserEventServiceFactory::GetForProfile(profile_);
   if (!user_event_service) {
     return;
   }
@@ -661,7 +665,6 @@ void ChromePasswordProtectionService::OnUserAction(
       break;
     default:
       NOTREACHED();
-      break;
   }
   RemoveWarningRequestsByWebState(web_state);
 }
@@ -695,11 +698,10 @@ void ChromePasswordProtectionService::RemoveWarningRequestsByWebState(
 void ChromePasswordProtectionService::FillUserPopulation(
     const GURL& main_frame_url,
     LoginReputationClientRequest* request_proto) {
-  *request_proto->mutable_population() =
-      GetUserPopulationForBrowserState(browser_state_);
+  *request_proto->mutable_population() = GetUserPopulationForProfile(profile_);
 
   safe_browsing::VerdictCacheManager* cache_manager =
-      VerdictCacheManagerFactory::GetForBrowserState(browser_state_);
+      VerdictCacheManagerFactory::GetForProfile(profile_);
   ChromeUserPopulation::PageLoadToken token =
       cache_manager->GetPageLoadToken(main_frame_url);
   // It's possible that the token is not found because real time URL check is
@@ -715,7 +717,7 @@ void ChromePasswordProtectionService::FillUserPopulation(
 password_manager::PasswordStoreInterface*
 ChromePasswordProtectionService::GetStoreForReusedCredential(
     const password_manager::MatchingReusedCredential& reused_credential) {
-  if (!browser_state_) {
+  if (!profile_) {
     return nullptr;
   }
   return reused_credential.in_store ==
@@ -728,20 +730,20 @@ password_manager::PasswordStoreInterface*
 ChromePasswordProtectionService::GetProfilePasswordStore() const {
   // Always use EXPLICIT_ACCESS as the password manager checks IsIncognito
   // itself when it shouldn't access the PasswordStore.
-  return IOSChromeProfilePasswordStoreFactory::GetForBrowserState(
-             browser_state_, ServiceAccessType::EXPLICIT_ACCESS)
+  return IOSChromeProfilePasswordStoreFactory::GetForProfile(
+             profile_, ServiceAccessType::EXPLICIT_ACCESS)
       .get();
 }
 
 password_manager::PasswordStoreInterface*
 ChromePasswordProtectionService::GetAccountPasswordStore() const {
-  return IOSChromeAccountPasswordStoreFactory::GetForBrowserState(
-             browser_state_, ServiceAccessType::EXPLICIT_ACCESS)
+  return IOSChromeAccountPasswordStoreFactory::GetForProfile(
+             profile_, ServiceAccessType::EXPLICIT_ACCESS)
       .get();
 }
 
 PrefService* ChromePasswordProtectionService::GetPrefs() const {
-  return browser_state_->GetPrefs();
+  return profile_->GetPrefs();
 }
 
 bool ChromePasswordProtectionService::IsSafeBrowsingEnabled() {

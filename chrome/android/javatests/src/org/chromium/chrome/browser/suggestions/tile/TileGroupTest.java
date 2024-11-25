@@ -15,33 +15,28 @@ import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.hamcrest.Matchers;
 import org.junit.Assert;
-import org.junit.Assume;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.FeatureList;
-import org.chromium.base.test.params.ParameterAnnotations;
-import org.chromium.base.test.params.ParameterSet;
-import org.chromium.base.test.params.ParameterizedRunner;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.app.ChromeActivity;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.native_page.ContextMenuManager;
 import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.suggestions.SiteSuggestion;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
-import org.chromium.chrome.features.start_surface.StartSurfaceConfiguration;
-import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
+import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
@@ -49,29 +44,20 @@ import org.chromium.chrome.test.util.NewTabPageTestUtils;
 import org.chromium.chrome.test.util.browser.suggestions.SuggestionsDependenciesRule;
 import org.chromium.chrome.test.util.browser.suggestions.mostvisited.FakeMostVisitedSites;
 import org.chromium.components.embedder_support.util.UrlConstants;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.TestTouchUtils;
 import org.chromium.net.test.EmbeddedTestServer;
+import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.test.util.ViewUtils;
 import org.chromium.url.GURL;
 
-import java.util.Arrays;
-import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
 /** Instrumentation tests for {@link TileGroup} on the New Tab Page. */
-@RunWith(ParameterizedRunner.class)
-@ParameterAnnotations.UseRunnerDelegate(ChromeJUnit4RunnerDelegate.class)
+@RunWith(ChromeJUnit4ClassRunner.class)
 @Batch(Batch.PER_CLASS)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class TileGroupTest {
-    @ParameterAnnotations.ClassParameter
-    private static List<ParameterSet> sClassParams =
-            Arrays.asList(
-                    new ParameterSet().value(true).name("EnableScrollableMVTOnNTP"),
-                    new ParameterSet().value(false).name("DisableScrollableMVTOnNTP"));
-
     @ClassRule
     public static final ChromeTabbedActivityTestRule sActivityTestRule =
             new ChromeTabbedActivityTestRule();
@@ -93,28 +79,9 @@ public class TileGroupTest {
     private String[] mSiteSuggestionUrls;
     private FakeMostVisitedSites mMostVisitedSites;
     private EmbeddedTestServer mTestServer;
-    private boolean mEnableScrollableMVT;
-
-    public TileGroupTest(boolean enableScrollableMVT) {
-        mEnableScrollableMVT = enableScrollableMVT;
-    }
 
     @Before
     public void setUp() {
-        Assume.assumeFalse(sActivityTestRule.getActivity().isTablet() && mEnableScrollableMVT);
-        FeatureList.TestValues testValuesOverride = new FeatureList.TestValues();
-        testValuesOverride.addFeatureFlagOverride(
-                ChromeFeatureList.SHOW_SCROLLABLE_MVT_ON_NTP_ANDROID, mEnableScrollableMVT);
-        if (!ChromeFeatureList.sSurfacePolish.isEnabled()) {
-            testValuesOverride.addFeatureFlagOverride(
-                    ChromeFeatureList.SHOW_SCROLLABLE_MVT_ON_NTP_PHONE_ANDROID,
-                    mEnableScrollableMVT);
-        } else {
-            StartSurfaceConfiguration.SURFACE_POLISH_SCROLLABLE_MVT.setForTesting(
-                    mEnableScrollableMVT);
-        }
-        FeatureList.setTestValues(testValuesOverride);
-
         mTestServer =
                 EmbeddedTestServer.createAndStartServer(
                         ApplicationProvider.getApplicationContext());
@@ -141,7 +108,20 @@ public class TileGroupTest {
     @Test
     @MediumTest
     @Feature({"NewTabPage"})
-    public void testDismissTileWithContextMenu() throws Exception {
+    @Restriction({DeviceFormFactor.PHONE})
+    public void testDismissTileWithContextMenu_Phones() throws Exception {
+        testDismissTileWithContextMenuImpl();
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"NewTabPage"})
+    @Restriction({DeviceFormFactor.TABLET})
+    public void testDismissTileWithContextMenu_Tablets() throws Exception {
+        testDismissTileWithContextMenuImpl();
+    }
+
+    private void testDismissTileWithContextMenuImpl() throws Exception {
         initializeTab();
         SiteSuggestion siteToDismiss = mMostVisitedSites.getCurrentSites().get(0);
         final View tileView = getNonNullTileViewFor(siteToDismiss);
@@ -152,7 +132,7 @@ public class TileGroupTest {
 
         // Ensure that the removal is reflected in the ui.
         Assert.assertEquals(3, getTileLayout().getChildCount());
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mMostVisitedSites.setTileSuggestions(
                             mSiteSuggestionUrls[1], mSiteSuggestionUrls[2]);
@@ -164,7 +144,20 @@ public class TileGroupTest {
     @Test
     @MediumTest
     @Feature({"NewTabPage"})
-    public void testDismissTileUndo() throws Exception {
+    @Restriction({DeviceFormFactor.PHONE})
+    public void testDismissTileUndo_Phones() throws Exception {
+        testDismissTileUndoImpl();
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"NewTabPage"})
+    @Restriction({DeviceFormFactor.TABLET})
+    public void testDismissTileUndo_Tablets() throws Exception {
+        testDismissTileUndoImpl();
+    }
+
+    private void testDismissTileUndoImpl() throws Exception {
         initializeTab();
         GURL url0 = new GURL(mSiteSuggestionUrls[0]);
         SiteSuggestion siteToDismiss = mMostVisitedSites.getCurrentSites().get(0);
@@ -176,7 +169,7 @@ public class TileGroupTest {
         invokeContextMenu(tileView, ContextMenuManager.ContextMenuItemId.REMOVE);
 
         // Ensure that the removal update goes through.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mMostVisitedSites.setTileSuggestions(
                             mSiteSuggestionUrls[1], mSiteSuggestionUrls[2]);
@@ -186,7 +179,7 @@ public class TileGroupTest {
         final View snackbarButton = waitForSnackbar(sActivityTestRule.getActivity());
 
         Assert.assertTrue(mMostVisitedSites.isUrlBlocklisted(url0));
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     snackbarButton.callOnClick();
                 });
@@ -194,7 +187,7 @@ public class TileGroupTest {
         Assert.assertFalse(mMostVisitedSites.isUrlBlocklisted(url0));
 
         // Ensure that the removal of the update goes through.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     mMostVisitedSites.setTileSuggestions(mSiteSuggestionUrls);
                 });
@@ -202,29 +195,19 @@ public class TileGroupTest {
         Assert.assertEquals(3, tileContainer.getChildCount());
     }
 
-    private ViewGroup getTileLayout() {
+    private MostVisitedTilesLayout getTileLayout() {
         ViewGroup newTabPageLayout = mNtp.getNewTabPageLayout();
         Assert.assertNotNull("Unable to retrieve the NewTabPageLayout.", newTabPageLayout);
 
-        ViewGroup viewGroup = newTabPageLayout.findViewById(R.id.mv_tiles_layout);
-        Assert.assertNotNull(
-                "Unable to retrieve the "
-                        + (mEnableScrollableMVT ? "MvTilesLayout." : "TileGridLayout."),
-                viewGroup);
-        return viewGroup;
+        MostVisitedTilesLayout mostVisitedTilesLayout =
+                newTabPageLayout.findViewById(R.id.mv_tiles_layout);
+        Assert.assertNotNull("Unable to retrieve the MvTilesLayout.", mostVisitedTilesLayout);
+        return mostVisitedTilesLayout;
     }
 
     private View getTileViewFor(SiteSuggestion suggestion) {
         View tileView;
-        if (mEnableScrollableMVT) {
-            tileView =
-                    ((MostVisitedTilesCarouselLayout) getTileLayout())
-                            .findTileViewForTesting(suggestion);
-        } else {
-            tileView =
-                    ((MostVisitedTilesGridLayout) getTileLayout())
-                            .findTileViewForTesting(suggestion);
-        }
+        tileView = getTileLayout().findTileViewForTesting(suggestion);
         return tileView;
     }
 
@@ -251,8 +234,7 @@ public class TileGroupTest {
                 () -> {
                     SnackbarManager snackbarManager = activity.getSnackbarManager();
                     Criteria.checkThat(snackbarManager.isShowing(), Matchers.is(true));
-                    TextView snackbarMessage =
-                            (TextView) activity.findViewById(R.id.snackbar_message);
+                    TextView snackbarMessage = activity.findViewById(R.id.snackbar_message);
                     Criteria.checkThat(snackbarMessage, Matchers.notNullValue());
                     Criteria.checkThat(
                             snackbarMessage.getText().toString(),

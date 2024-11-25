@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "third_party/blink/renderer/modules/breakout_box/media_stream_audio_track_underlying_source.h"
 
 #include "base/run_loop.h"
@@ -14,6 +19,7 @@
 #include "third_party/blink/public/web/web_heap.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_tester.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_readable_stream_read_result.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
 #include "third_party/blink/renderer/core/streams/readable_stream_default_controller_with_script_scope.h"
@@ -99,7 +105,7 @@ class MediaStreamAudioTrackUnderlyingSourceTest : public testing::Test {
   // beginning of the audio data to be pushed into |track|.
   void PushData(
       MediaStreamTrack* track,
-      const absl::optional<base::TimeDelta>& timestamp = absl::nullopt) {
+      const std::optional<base::TimeDelta>& timestamp = std::nullopt) {
     auto data = media::AudioBuffer::CreateEmptyBuffer(
         media::ChannelLayout::CHANNEL_LAYOUT_STEREO, /*channel_count=*/2,
         kSampleRate, kNumFrames, timestamp.value_or(base::Seconds(1)));

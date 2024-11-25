@@ -21,6 +21,11 @@
  *
  */
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_TEXT_TEXT_RUN_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_TEXT_TEXT_RUN_H_
 
@@ -28,6 +33,7 @@
 
 #include "base/check_op.h"
 #include "base/containers/span.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
@@ -137,8 +143,7 @@ class PLATFORM_EXPORT TextRun final {
   }
 
   StringView ToStringView() const {
-    return Is8Bit() ? StringView(data_.characters8, len_)
-                    : StringView(data_.characters16, len_);
+    return Is8Bit() ? StringView(Span8()) : StringView(Span16());
   }
 
   UChar32 CodepointAt(unsigned i) const {
@@ -202,9 +207,10 @@ class PLATFORM_EXPORT TextRun final {
 
  private:
   union {
-    const LChar* characters8;
-    const UChar* characters16;
-    const void* bytes_;
+    // RAW_PTR_EXCLUSION: #union
+    RAW_PTR_EXCLUSION const LChar* characters8;
+    RAW_PTR_EXCLUSION const UChar* characters16;
+    RAW_PTR_EXCLUSION const void* bytes_;
   } data_;
   unsigned len_;
 

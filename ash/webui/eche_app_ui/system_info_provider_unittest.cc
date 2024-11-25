@@ -35,7 +35,7 @@ const bool kFakeMeasureLatency = false;
 const bool kFakeSendStartSignaling = true;
 const bool kFakeDisableStunServer = false;
 const bool kFakeCheckAndroidNetworkInfo = true;
-const bool kFakeProcessAndroidAccessibilityTree = false;
+const bool kFakeProcessAndroidAccessibilityTree = true;
 
 void ParseJson(const std::string& json,
                std::string& device_name,
@@ -205,7 +205,7 @@ class SystemInfoProviderTest : public testing::Test {
 
   // testing::Test:
   void SetUp() override {
-    display::Screen::GetScreen()->OverrideTabletStateForTesting(
+    test_screen_.OverrideTabletStateForTesting(
         display::TabletState::kInTabletMode);
 
     system_info_provider_ =

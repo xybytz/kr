@@ -4,8 +4,6 @@
 
 #import "ios/chrome/app/startup/register_experimental_settings.h"
 
-#import <ostream>
-
 #import "base/apple/bundle_locations.h"
 #import "base/check.h"
 #import "base/notreached.h"
@@ -29,7 +27,6 @@ BOOL IsDefaultSettingValueValid(id value) {
   // Add support for other types as necessary.
   NOTREACHED() << "Unhandled value type "
                << base::SysNSStringToUTF8(NSStringFromClass([value class]));
-  return NO;
 }
 }  // namespace
 

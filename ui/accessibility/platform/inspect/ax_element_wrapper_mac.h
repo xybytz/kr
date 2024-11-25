@@ -7,9 +7,10 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include <optional>
+
 #include "base/component_export.h"
 #include "base/functional/callback_forward.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/platform/inspect/ax_inspect.h"
 #include "ui/accessibility/platform/inspect/ax_optional.h"
 
@@ -21,6 +22,11 @@ using AXOptionalNSObject = AXOptional<id>;
 // A wrapper around either AXUIElement or NSAccessibilityElement object.
 class COMPONENT_EXPORT(AX_PLATFORM) AXElementWrapper final {
  public:
+  enum class AXType { kNSAccessibilityElement = 0, kAXUIElement };
+
+  // Returns type of the node.
+  static AXType TypeOf(const id node);
+
   // Returns true if the object is either NSAccessibilityElement or
   // AXUIElement.
   static bool IsValidElement(const id node);
@@ -76,14 +82,14 @@ class COMPONENT_EXPORT(AX_PLATFORM) AXElementWrapper final {
   // Performs the given selector on the object and returns the result. If
   // the object does not conform to the NSAccessibility protocol or the selector
   // is not found, then returns nullopt.
-  absl::optional<id> PerformSelector(const std::string& selector) const;
+  std::optional<id> PerformSelector(const std::string& selector) const;
 
   // Performs the given selector on the object with exactly one string
   // argument and returns the result. If the object does not conform to the
   // NSAccessibility protocol or the selector is not found, then returns
   // nullopt.
-  absl::optional<id> PerformSelector(const std::string& selector_string,
-                                     const std::string& argument_string) const;
+  std::optional<id> PerformSelector(const std::string& selector_string,
+                                    const std::string& argument_string) const;
 
   // Sets attribute value on the object.
   void SetAttributeValue(NSString* attribute, id value) const;

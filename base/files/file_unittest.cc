@@ -2,10 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40284755): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "base/files/file.h"
 
 #include <stdint.h>
 
+#include <optional>
 #include <utility>
 
 #include "base/files/file_util.h"
@@ -222,10 +228,14 @@ TEST(FileTest, ReadWrite) {
     EXPECT_EQ(data_to_write[i], data_read_1[i]);
 
   // Read again, but using the trivial native wrapper.
-  bytes_read = file.ReadNoBestEffort(0, data_read_1, kTestDataSize);
-  EXPECT_LE(bytes_read, kTestDataSize);
-  for (int i = 0; i < bytes_read; i++)
+  std::optional<size_t> maybe_bytes_read =
+      file.ReadNoBestEffort(0, base::as_writable_byte_span(data_read_1)
+                                   .first(static_cast<size_t>(kTestDataSize)));
+  ASSERT_TRUE(maybe_bytes_read.has_value());
+  EXPECT_LE(maybe_bytes_read.value(), static_cast<size_t>(kTestDataSize));
+  for (size_t i = 0; i < maybe_bytes_read.value(); i++) {
     EXPECT_EQ(data_to_write[i], data_read_1[i]);
+  }
 
   // Write past the end of the file.
   const int kOffsetBeyondEndOfFile = 10;
@@ -235,13 +245,13 @@ TEST(FileTest, ReadWrite) {
   EXPECT_EQ(kPartialWriteLength, bytes_written);
 
   // Make sure the file was extended.
-  int64_t file_size = 0;
-  EXPECT_TRUE(GetFileSize(file_path, &file_size));
-  EXPECT_EQ(kOffsetBeyondEndOfFile + kPartialWriteLength, file_size);
+  std::optional<int64_t> file_size = GetFileSize(file_path);
+  ASSERT_TRUE(file_size.has_value());
+  EXPECT_EQ(kOffsetBeyondEndOfFile + kPartialWriteLength, file_size.value());
 
   // Make sure the file was zero-padded.
   char data_read_2[32];
-  bytes_read = file.Read(0, data_read_2, static_cast<int>(file_size));
+  bytes_read = file.Read(0, data_read_2, static_cast<int>(file_size.value()));
   EXPECT_EQ(file_size, bytes_read);
   for (int i = 0; i < kTestDataSize; i++)
     EXPECT_EQ(data_to_write[i], data_read_2[i]);
@@ -260,7 +270,7 @@ TEST(FileTest, ReadWriteSpans) {
   ASSERT_TRUE(file.IsValid());
 
   // Write 0 bytes to the file.
-  absl::optional<size_t> bytes_written = file.Write(0, base::span<uint8_t>());
+  std::optional<size_t> bytes_written = file.Write(0, base::span<uint8_t>());
   ASSERT_TRUE(bytes_written.has_value());
   EXPECT_EQ(0u, bytes_written.value());
 
@@ -272,7 +282,7 @@ TEST(FileTest, ReadWriteSpans) {
 
   // Read from EOF.
   uint8_t data_read_1[32];
-  absl::optional<size_t> bytes_read =
+  std::optional<size_t> bytes_read =
       file.Read(bytes_written.value(), data_read_1);
   ASSERT_TRUE(bytes_read.has_value());
   EXPECT_EQ(0u, bytes_read.value());
@@ -309,10 +319,10 @@ TEST(FileTest, ReadWriteSpans) {
   EXPECT_EQ(kPartialWriteLength, bytes_written.value());
 
   // Make sure the file was extended.
-  int64_t file_size = 0;
-  EXPECT_TRUE(GetFileSize(file_path, &file_size));
+  std::optional<int64_t> file_size = GetFileSize(file_path);
+  ASSERT_TRUE(file_size.has_value());
   EXPECT_EQ(static_cast<int64_t>(kOffsetBeyondEndOfFile + kPartialWriteLength),
-            file_size);
+            file_size.value());
 
   // Make sure the file was zero-padded.
   uint8_t data_read_2[32];
@@ -419,15 +429,15 @@ TEST(FileTest, Length) {
 
   // Extend the file.
   const int kExtendedFileLength = 10;
-  int64_t file_size = 0;
   EXPECT_TRUE(file.SetLength(kExtendedFileLength));
   EXPECT_EQ(kExtendedFileLength, file.GetLength());
-  EXPECT_TRUE(GetFileSize(file_path, &file_size));
-  EXPECT_EQ(kExtendedFileLength, file_size);
+  std::optional<int64_t> file_size = GetFileSize(file_path);
+  ASSERT_TRUE(file_size.has_value());
+  EXPECT_EQ(kExtendedFileLength, file_size.value());
 
   // Make sure the file was zero-padded.
   char data_read[32];
-  int bytes_read = file.Read(0, data_read, static_cast<int>(file_size));
+  int bytes_read = file.Read(0, data_read, static_cast<int>(file_size.value()));
   EXPECT_EQ(file_size, bytes_read);
   for (int i = 0; i < kTestDataSize; i++)
     EXPECT_EQ(data_to_write[i], data_read[i]);
@@ -438,22 +448,26 @@ TEST(FileTest, Length) {
   const int kTruncatedFileLength = 2;
   EXPECT_TRUE(file.SetLength(kTruncatedFileLength));
   EXPECT_EQ(kTruncatedFileLength, file.GetLength());
-  EXPECT_TRUE(GetFileSize(file_path, &file_size));
-  EXPECT_EQ(kTruncatedFileLength, file_size);
+
+  file_size = GetFileSize(file_path);
+  ASSERT_TRUE(file_size.has_value());
+  EXPECT_EQ(kTruncatedFileLength, file_size.value());
 
   // Make sure the file was truncated.
   bytes_read = file.Read(0, data_read, kTestDataSize);
-  EXPECT_EQ(file_size, bytes_read);
-  for (int i = 0; i < file_size; i++)
+  EXPECT_EQ(file_size.value(), bytes_read);
+  for (int i = 0; i < file_size.value(); i++) {
     EXPECT_EQ(data_to_write[i], data_read[i]);
+  }
 
 #if !BUILDFLAG(IS_FUCHSIA)  // Fuchsia doesn't seem to support big files.
   // Expand the file past the 4 GB limit.
   const int64_t kBigFileLength = 5'000'000'000;
   EXPECT_TRUE(file.SetLength(kBigFileLength));
   EXPECT_EQ(kBigFileLength, file.GetLength());
-  EXPECT_TRUE(GetFileSize(file_path, &file_size));
-  EXPECT_EQ(kBigFileLength, file_size);
+  file_size = GetFileSize(file_path);
+  ASSERT_TRUE(file_size.has_value());
+  EXPECT_EQ(kBigFileLength, file_size.value());
 #endif
 
   // Close the file and reopen with base::File::FLAG_CREATE_ALWAYS, and make
@@ -588,7 +602,7 @@ TEST(FileTest, ReadAtCurrentPositionSpans) {
   EXPECT_TRUE(file.IsValid());
 
   std::string data("test");
-  absl::optional<size_t> result = file.Write(0, base::as_byte_span(data));
+  std::optional<size_t> result = file.Write(0, base::as_byte_span(data));
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(data.size(), result.value());
 
@@ -645,7 +659,7 @@ TEST(FileTest, WriteAtCurrentPositionSpans) {
 
   std::string data("test");
   size_t first_chunk_size = data.size() / 2;
-  absl::optional<size_t> result =
+  std::optional<size_t> result =
       file.WriteAtCurrentPos(base::as_byte_span(data).first(first_chunk_size));
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(first_chunk_size, result.value());

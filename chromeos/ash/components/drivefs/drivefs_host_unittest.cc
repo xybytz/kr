@@ -63,10 +63,7 @@ class MockDriveFs : public mojom::DriveFsInterceptorForTesting,
  public:
   MockDriveFs() = default;
 
-  DriveFs* GetForwardingInterface() override {
-    NOTREACHED();
-    return nullptr;
-  }
+  DriveFs* GetForwardingInterface() override { NOTREACHED(); }
 
   void FetchChangeLog(
       std::vector<mojom::FetchChangeLogOptionsPtr> options) override {
@@ -184,6 +181,11 @@ class TestingDriveFsHostDelegate : public DriveFsHost::Delegate,
   const std::string GetMachineRootID() override { return ""; }
 
   void PersistMachineRootID(const std::string& id) override {}
+
+  void PersistNotification(
+      mojom::DriveFsNotificationPtr notification) override {}
+
+  void PersistSyncErrors(mojom::MirrorSyncErrorListPtr error_list) override {}
 
   const raw_ptr<signin::IdentityManager> identity_manager_;
   const AccountId account_id_;

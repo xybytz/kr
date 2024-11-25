@@ -5,13 +5,13 @@
 #ifndef IOS_CHROME_BROWSER_LANGUAGE_MODEL_LANGUAGE_MODEL_MANAGER_FACTORY_H_
 #define IOS_CHROME_BROWSER_LANGUAGE_MODEL_LANGUAGE_MODEL_MANAGER_FACTORY_H_
 
-#include <memory>
+#import <memory>
 
-#include "base/no_destructor.h"
-#include "components/keyed_service/core/keyed_service.h"
-#include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/core/keyed_service.h"
+#import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
+class ProfileIOS;
 
 namespace language {
 class LanguageModelManager;
@@ -21,9 +21,8 @@ class LanguageModelManager;
 // provided depends on feature flags.
 class LanguageModelManagerFactory : public BrowserStateKeyedServiceFactory {
  public:
+  static language::LanguageModelManager* GetForProfile(ProfileIOS* profile);
   static LanguageModelManagerFactory* GetInstance();
-  static language::LanguageModelManager* GetForBrowserState(
-      ChromeBrowserState* browser_state);
 
   LanguageModelManagerFactory(const LanguageModelManagerFactory&) = delete;
   LanguageModelManagerFactory& operator=(const LanguageModelManagerFactory&) =

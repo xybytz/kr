@@ -13,6 +13,7 @@
 #include "ui/aura/window.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/mojom/dialog_button.mojom.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/chromeos/styles/cros_tokens_color_mappings.h"
 #include "ui/gfx/geometry/insets.h"
@@ -39,7 +40,7 @@ RichNudge::RichNudge(aura::Window* parent_window)
   set_close_on_deactivate(false);
   set_accept_events(false);
   set_adjust_if_offscreen(false);
-  SetButtons(ui::DIALOG_BUTTON_NONE);
+  SetButtons(static_cast<int>(ui::mojom::DialogButton::kNone));
   SetCanActivate(false);
   // Ignore this view for accessibility purposes.
   SetAccessibleWindowRole(ax::mojom::Role::kNone);
@@ -91,6 +92,6 @@ void RichNudge::VisibilityChanged(views::View* starting_from, bool is_visible) {
   }
 }
 
-BEGIN_METADATA(RichNudge, views::BubbleDialogDelegateView)
+BEGIN_METADATA(RichNudge)
 END_METADATA
 }  // namespace arc::input_overlay

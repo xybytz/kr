@@ -22,7 +22,8 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium_win_clang_tot",
-                "target_bits": 32
+                "target_bits": 32,
+                "target_platform": "win"
               },
               "legacy_gclient_config": {
                 "apply_configs": [
@@ -40,8 +41,23 @@
           "builder": "ToTWin",
           "project": "chromium"
         }
-      ]
+      ],
+      "targets_spec_directory": "src/infra/config/generated/builders/ci/ToTWin/targets"
     }
+  },
+  "$build/reclient": {
+    "instance": "rbe-chromium-trusted",
+    "metrics_project": "chromium-reclient-metrics",
+    "scandeps_server": true
+  },
+  "$build/siso": {
+    "configs": [
+      "builder"
+    ],
+    "enable_cloud_profiler": true,
+    "enable_cloud_trace": true,
+    "experiments": [],
+    "project": "rbe-chromium-trusted"
   },
   "$recipe_engine/resultdb/test_presentation": {
     "column_keys": [],
@@ -51,6 +67,9 @@
     ]
   },
   "builder_group": "chromium.clang",
+  "gardener_rotations": [
+    "chromium.clang"
+  ],
   "perf_dashboard_machine_group": "ChromiumClang",
   "recipe": "chromium",
   "sheriff_rotations": [

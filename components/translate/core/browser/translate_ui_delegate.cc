@@ -41,7 +41,7 @@ TranslateUIDelegate::TranslateUIDelegate(
 
   translate_ui_languages_manager_ =
       std::make_unique<TranslateUILanguagesManager>(
-          translate_manager, language_codes, source_language, target_language);
+          language_codes, source_language, target_language);
 
   if (base::FeatureList::IsEnabled(
           language::kContentLanguagesInLanguagePicker)) {
@@ -294,7 +294,7 @@ void TranslateUIDelegate::SetAlwaysTranslate(bool value) {
     if (IsSiteOnNeverPromptList())
       SetNeverPromptSite(false);
   } else {
-    prefs_->RemoveLanguagePairFromAlwaysTranslateList(source_lang, target_lang);
+    prefs_->RemoveLanguagePairFromAlwaysTranslateList(source_lang);
   }
 
   UIInteraction interaction =

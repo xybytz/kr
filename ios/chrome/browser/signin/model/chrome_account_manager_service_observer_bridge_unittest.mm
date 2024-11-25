@@ -4,7 +4,7 @@
 
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service_observer_bridge.h"
 
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service.h"
 #import "ios/chrome/browser/signin/model/chrome_account_manager_service_factory.h"
 #import "ios/chrome/browser/signin/model/fake_system_identity.h"
@@ -18,11 +18,10 @@ class ChromeAccountManagerServiceObserverBridgeTest : public PlatformTest {
   void SetUp() override {
     PlatformTest::SetUp();
 
-    TestChromeBrowserState::Builder builder;
-    browser_state_ = builder.Build();
+    TestProfileIOS::Builder builder;
+    profile_ = std::move(builder).Build();
     ChromeAccountManagerService* account_manager_service =
-        ChromeAccountManagerServiceFactory::GetForBrowserState(
-            browser_state_.get());
+        ChromeAccountManagerServiceFactory::GetForProfile(profile_.get());
 
     test_observer_ =
         OCMStrictProtocolMock(@protocol(ChromeAccountManagerServiceObserver));
@@ -39,7 +38,7 @@ class ChromeAccountManagerServiceObserverBridgeTest : public PlatformTest {
 
  protected:
   base::test::TaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<ChromeAccountManagerService::Observer> observer_bridge_;
   id<ChromeAccountManagerServiceObserver> test_observer_ = nil;
 };
@@ -47,7 +46,7 @@ class ChromeAccountManagerServiceObserverBridgeTest : public PlatformTest {
 // Tests that `onIdentityListChanged` is forwarded.
 TEST_F(ChromeAccountManagerServiceObserverBridgeTest, onIdentityListChanged) {
   OCMExpect([test_observer_ identityListChanged]);
-  observer_bridge_->OnIdentityListChanged(/*notify_user=*/false);
+  observer_bridge_->OnIdentityListChanged();
 }
 
 // Tests that `onIdentityChanged` is forwarded.

@@ -13,10 +13,8 @@
 #import "components/password_manager/core/browser/password_manager_client.h"
 #import "components/password_manager/core/browser/ui/affiliated_group.h"
 #import "components/password_manager/core/browser/ui/credential_ui_entry.h"
-#import "components/password_manager/core/common/password_manager_features.h"
 #import "components/prefs/pref_service.h"
 #import "components/strings/grit/components_strings.h"
-#import "ios/chrome/browser/credential_provider_promo/model/features.h"
 #import "ios/chrome/browser/passwords/model/metrics/ios_password_manager_metrics.h"
 #import "ios/chrome/browser/passwords/model/metrics/ios_password_manager_visits_recorder.h"
 #import "ios/chrome/browser/passwords/model/password_tab_helper.h"
@@ -25,22 +23,19 @@
 #import "ios/chrome/browser/shared/model/browser/browser.h"
 #import "ios/chrome/browser/shared/model/browser/browser_list.h"
 #import "ios/chrome/browser/shared/model/browser/browser_list_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/shared/model/prefs/pref_names.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/shared/public/commands/application_commands.h"
 #import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
-#import "ios/chrome/browser/shared/public/commands/credential_provider_promo_commands.h"
 #import "ios/chrome/browser/shared/public/commands/snackbar_commands.h"
-#import "ios/chrome/browser/shared/public/features/features.h"
-#import "ios/chrome/browser/ui/settings/password/password_details/password_details.h"
+#import "ios/chrome/browser/ui/settings/password/password_details/credential_details.h"
 #import "ios/chrome/browser/ui/settings/password/password_details/password_details_consumer.h"
 #import "ios/chrome/browser/ui/settings/password/password_details/password_details_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/settings/password/password_details/password_details_handler.h"
 #import "ios/chrome/browser/ui/settings/password/password_details/password_details_mediator.h"
 #import "ios/chrome/browser/ui/settings/password/password_details/password_details_mediator_delegate.h"
 #import "ios/chrome/browser/ui/settings/password/password_details/password_details_table_view_controller.h"
-#import "ios/chrome/browser/ui/settings/password/password_manager_ui_features.h"
 #import "ios/chrome/browser/ui/settings/password/password_sharing/password_sharing_coordinator.h"
 #import "ios/chrome/browser/ui/settings/password/password_sharing/password_sharing_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/settings/password/password_sharing/password_sharing_first_run_coordinator.h"
@@ -53,7 +48,9 @@
 #import "ios/web/public/web_state.h"
 #import "ui/base/l10n/l10n_util.h"
 
-using password_manager::features::IsAuthOnEntryV2Enabled;
+namespace {
+const CGFloat kShareSpinnerMinTimeInSeconds = 0.5;
+}  // namespace
 
 @interface PasswordDetailsCoordinator () <
     PasswordDetailsHandler,
@@ -103,6 +100,14 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
 
   // For recording visits after successful authentication.
   IOSPasswordManagerVisitsRecorder* _visitsRecorder;
+
+  // Timer that ensures that the spinner displayed during fetching password
+  // sharing data is visible for at least a defined period of time.
+  NSTimer* _shareSpinnerTimer;
+
+  // Whether password sharing coordinator fetched all necessary data to start
+  // the flow.
+  BOOL _shareDataFetched;
 }
 
 @synthesize baseNavigationController = _baseNavigationController;
@@ -165,13 +170,12 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
     credentials.push_back(_credential);
   }
 
-  ChromeBrowserState* browserState = self.browser->GetBrowserState();
-  self.mediator =
-      [[PasswordDetailsMediator alloc] initWithPasswords:credentials
-                                             displayName:displayName
-                                            browserState:browserState
-                                                 context:_context
-                                                delegate:self];
+  ProfileIOS* profile = self.browser->GetProfile();
+  self.mediator = [[PasswordDetailsMediator alloc] initWithPasswords:credentials
+                                                         displayName:displayName
+                                                             profile:profile
+                                                             context:_context
+                                                            delegate:self];
   self.mediator.consumer = self.viewController;
   self.viewController.handler = self;
   self.viewController.delegate = self.mediator;
@@ -180,8 +184,8 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
   self.viewController.snackbarCommandsHandler = HandlerForProtocol(
       self.browser->GetCommandDispatcher(), SnackbarCommands);
   self.viewController.reauthModule = self.reauthenticationModule;
-  if (self.showCancelButton) {
-    [self.viewController setupLeftCancelButton];
+  if (self.openInEditMode) {
+    [self.viewController editButtonPressed];
   }
 
   BOOL requireAuth = [self shouldRequireAuthOnStart];
@@ -200,9 +204,7 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
     [_visitsRecorder maybeRecordVisitMetric];
   }
 
-  if (IsAuthOnEntryV2Enabled()) {
-    [self startReauthCoordinator];
-  }
+  [self startReauthCoordinator];
 }
 
 - (void)stop {
@@ -260,15 +262,16 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
   [self.actionSheetCoordinator start];
 }
 
-- (void)showPasswordDeleteDialogWithPasswordDetails:(PasswordDetails*)password
-                                         anchorView:(UIView*)anchorView {
+- (void)showCredentialDeleteDialogWithCredentialDetails:
+            (CredentialDetails*)credential
+                                             anchorView:(UIView*)anchorView {
   NSString* title;
   NSString* message;
   // Blocked websites have empty `password` and no title or message.
-  if ([password.password length]) {
+  if ([credential.password length]) {
     std::tie(title, message) =
         password_manager::GetPasswordAlertTitleAndMessageForOrigins(
-            password.origins);
+            credential.origins);
   }
   NSString* buttonText = l10n_util::GetNSString(IDS_IOS_DELETE_ACTION_TITLE);
 
@@ -292,7 +295,7 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
   [self.actionSheetCoordinator
       addItemWithTitle:buttonText
                 action:^{
-                  [weakMediator removeCredential:password];
+                  [weakMediator removeCredential:credential];
                   [weakSelf dismissActionSheetCoordinator];
                 }
                  style:UIAlertActionStyleDestructive];
@@ -305,11 +308,11 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
   [self.actionSheetCoordinator start];
 }
 
-- (void)moveCredentialToAccountStore:(PasswordDetails*)password
+- (void)moveCredentialToAccountStore:(CredentialDetails*)credential
                           anchorView:(UIView*)anchorView
                      movedCompletion:(void (^)())movedCompletion {
-  if (![self.mediator hasPasswordConflictInAccount:password]) {
-    [self.mediator moveCredentialToAccountStore:password];
+  if (![self.mediator hasPasswordConflictInAccount:credential]) {
+    [self.mediator moveCredentialToAccountStore:credential];
     movedCompletion();
     return;
   }
@@ -330,7 +333,7 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
       addItemWithTitle:l10n_util::GetNSString(IDS_IOS_KEEP_RECENT_PASSWORD)
                 action:^{
                   [weakSelf.mediator
-                      moveCredentialToAccountStoreWithConflict:password];
+                      moveCredentialToAccountStoreWithConflict:credential];
                   movedCompletion();
                   [weakSelf dismissActionSheetCoordinator];
                 }
@@ -349,25 +352,14 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
   [self.viewController showEditViewWithoutAuthentication];
 }
 
-- (void)onPasswordCopiedByUser {
-  if (IsCredentialProviderExtensionPromoEnabledOnPasswordCopied()) {
-    id<CredentialProviderPromoCommands> credentialProviderPromoHandler =
-        HandlerForProtocol(self.browser->GetCommandDispatcher(),
-                           CredentialProviderPromoCommands);
-    [credentialProviderPromoHandler
-        showCredentialProviderPromoWithTrigger:CredentialProviderPromoTrigger::
-                                                   PasswordCopied];
-  }
-}
-
 - (void)onAllPasswordsDeleted {
   DCHECK_EQ(self.baseNavigationController.topViewController,
             self.viewController);
-  // For password details opened outside of the settings context.
+  // For credential details opened outside of the settings context.
   if (_context == DetailsContext::kOutsideSettings) {
     [self dismissPasswordDetailsTableViewController];
   } else {
-    // For password details opened from the Password Manager in the settings.
+    // For credential details opened from the Password Manager in the settings.
     [self.baseNavigationController popViewControllerAnimated:YES];
   }
 }
@@ -376,7 +368,7 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
   LogPasswordSharingInteraction(
       PasswordSharingInteraction::kPasswordDetailsShareButtonClicked);
 
-  if (self.browser->GetBrowserState()->GetPrefs()->GetBoolean(
+  if (self.browser->GetProfile()->GetPrefs()->GetBoolean(
           prefs::kPasswordSharingFlowHasBeenEntered)) {
     [self startPasswordSharingCoordinator];
   } else {
@@ -392,7 +384,8 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
 
 #pragma mark - PasswordDetailsMediatorDelegate
 
-- (void)showDismissWarningDialogWithPasswordDetails:(PasswordDetails*)password {
+- (void)showDismissWarningDialogWithCredentialDetails:
+    (CredentialDetails*)credential {
   NSString* title =
       l10n_util::GetNSString(IDS_IOS_DISMISS_WARNING_DIALOG_TITLE);
   NSString* message =
@@ -417,7 +410,8 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
   [self.alertCoordinator
       addItemWithTitle:dismissButtonText
                 action:^{
-                  [weakMediator didConfirmWarningDismissalForPassword:password];
+                  [weakMediator
+                      didConfirmWarningDismissalForPassword:credential];
                   [weakSelf dismissAlertCoordinator];
                 }
                  style:UIAlertActionStyleDefault
@@ -427,15 +421,11 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
 }
 
 - (void)updateFormManagers {
-  ChromeBrowserState* browserState = self.browser->GetBrowserState();
-  BrowserList* browserList =
-      BrowserListFactory::GetForBrowserState(browserState);
+  ProfileIOS* profile = self.browser->GetProfile();
+  BrowserList* browserList = BrowserListFactory::GetForProfile(profile);
 
-  for (Browser* browser : browserList->AllRegularBrowsers()) {
-    [self updateFormManagersForBrowser:browser];
-  }
-
-  for (Browser* browser : browserList->AllIncognitoBrowsers()) {
+  for (Browser* browser :
+       browserList->BrowsersOfType(BrowserList::BrowserType::kAll)) {
     [self updateFormManagersForBrowser:browser];
   }
 }
@@ -472,11 +462,23 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
   }
 }
 
+- (void)shareDataFetched {
+  // If the timer has not fired yet, it's because the request to fetch the data
+  // about sharing recipients finished too quickly (for UX purposes). Defer
+  // moving to the next password sharing screen until the timer fires.
+  if (_shareSpinnerTimer.isValid) {
+    _shareDataFetched = YES;
+  } else {
+    [self.viewController showShareButton];
+    [self.passwordSharingCoordinator showFirstStep];
+  }
+}
+
 #pragma mark - PasswordSharingFirstRunCoordinatorDelegate
 
 - (void)passwordSharingFirstRunCoordinatorDidAccept:
     (PasswordSharingFirstRunCoordinator*)coordinator {
-  self.browser->GetBrowserState()->GetPrefs()->SetBoolean(
+  self.browser->GetProfile()->GetPrefs()->SetBoolean(
       prefs::kPasswordSharingFlowHasBeenEntered, true);
 
   if (self.passwordSharingFirstRunCoordinator == coordinator) {
@@ -520,8 +522,19 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
   [_reauthCoordinator start];
 }
 
-// Starts the main coordinator for the password sharing flow.
+// Starts the main coordinator for the password sharing flow. Notifies the view
+// to replace share button with a spinner for the time when password sharing
+// coordinator will be fetching necessary data and starts the timer to ensure
+// the spinner is displayed for at least a defined period of time.
 - (void)startPasswordSharingCoordinator {
+  [self.viewController showSpinnerOnRightNavigationBar];
+  _shareSpinnerTimer =
+      [NSTimer scheduledTimerWithTimeInterval:kShareSpinnerMinTimeInSeconds
+                                       target:self
+                                     selector:@selector(shareSpinnerTimerFired)
+                                     userInfo:nil
+                                      repeats:NO];
+
   [self.passwordSharingCoordinator stop];
   self.passwordSharingCoordinator = [[PasswordSharingCoordinator alloc]
       initWithBaseViewController:self.viewController
@@ -551,10 +564,6 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
 // Whether Local Authentication should be required before displaying the
 // contents of Password Details.
 - (BOOL)shouldRequireAuthOnStart {
-  if (!IsAuthOnEntryV2Enabled()) {
-    return NO;
-  }
-
   // Authentication required only if opening Password Details from outside the
   // Password Manager.
   switch (_context) {
@@ -578,6 +587,15 @@ using password_manager::features::IsAuthOnEntryV2Enabled;
   password_manager::PasswordManagerClient* passwordManagerClient =
       PasswordTabHelper::FromWebState(webState)->GetPasswordManagerClient();
   passwordManagerClient->UpdateFormManagers();
+}
+
+// Called when the minimum time for which the password sharing spinner should be
+// displayed passes.
+- (void)shareSpinnerTimerFired {
+  if (_shareDataFetched) {
+    [self.viewController showShareButton];
+    [self.passwordSharingCoordinator showFirstStep];
+  }
 }
 
 @end

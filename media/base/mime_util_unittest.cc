@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "media/base/mime_util.h"
 
 #include <stddef.h>
@@ -26,7 +31,7 @@
 namespace media::internal {
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
-// TODO(https://crbug.com/1117275): Remove conditioning of kUsePropCodecs when
+// TODO(crbug.com/40145071): Remove conditioning of kUsePropCodecs when
 // testing *parsing* functions.
 const bool kUsePropCodecs = true;
 #else
@@ -138,6 +143,11 @@ static bool HasEac3Support() {
 }
 
 static bool HasAc4Support() {
+  return false;
+}
+
+static bool HasIamfSupport() {
+  // TODO (crbug.com/1517114): Enable once IAMF is supported on Android.
   return false;
 }
 
@@ -284,7 +294,7 @@ TEST(MimeUtilTest, ParseVideoCodecString) {
 
 // Basic smoke test for API. More exhaustive codec string testing found in
 // media_canplaytype_browsertest.cc.
-TEST(MimeUtilTest, ParseVideoCodecString_NoMimeType) {
+TEST(MimeUtilTest, ParseVideoCodecStringNoMimeType) {
   // Invalid to give empty codec without a mime type.
   EXPECT_FALSE(ParseVideoCodecString("", ""));
 
@@ -389,7 +399,7 @@ TEST(MimeUtilTest, ParseAudioCodecString) {
                                      &out_codec));
 }
 
-TEST(MimeUtilTest, ParseAudioCodecString_NoMimeType) {
+TEST(MimeUtilTest, ParseAudioCodecStringNoMimeType) {
   bool out_is_ambiguous;
   AudioCodec out_codec;
 
@@ -433,7 +443,7 @@ TEST(MimeUtilTest, ParseAudioCodecString_NoMimeType) {
 
 // MP3 is a weird case where we allow either the mime type, codec string, or
 // both, and there are several valid codec strings.
-TEST(MimeUtilTest, ParseAudioCodecString_Mp3) {
+TEST(MimeUtilTest, ParseAudioCodecStringMp3) {
   bool out_is_ambiguous;
   AudioCodec out_codec;
 
@@ -464,7 +474,7 @@ TEST(MimeUtilTest, ParseAudioCodecString_Mp3) {
 
 // These codecs really only have one profile. Ensure that |out_profile| is
 // correctly mapped.
-TEST(MimeUtilTest, ParseVideoCodecString_SimpleCodecsHaveProfiles) {
+TEST(MimeUtilTest, ParseVideoCodecStringSimpleCodecsHaveProfiles) {
   // Valid VP8 string.
   {
     auto result = ParseVideoCodecString("video/webm", "vp8");
@@ -475,24 +485,8 @@ TEST(MimeUtilTest, ParseVideoCodecString_SimpleCodecsHaveProfiles) {
     EXPECT_EQ(VideoColorSpace::REC709(), result->color_space);
   }
 
-  const bool kHaveTheoraCodec =
-#if BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
-      base::FeatureList::IsEnabled(kTheoraVideoCodec);
-#else
-      false;
-#endif
-
   // Valid Theora string.
-  if (kHaveTheoraCodec) {
-    auto result = ParseVideoCodecString("video/ogg", "theora");
-    ASSERT_TRUE(result);
-    EXPECT_EQ(VideoCodec::kTheora, result->codec);
-    EXPECT_EQ(THEORAPROFILE_ANY, result->profile);
-    EXPECT_EQ(kNoVideoCodecLevel, result->level);
-    EXPECT_EQ(VideoColorSpace::REC709(), result->color_space);
-  } else {
-    EXPECT_FALSE(ParseVideoCodecString("video/ogg", "theora"));
-  }
+  EXPECT_FALSE(ParseVideoCodecString("video/ogg", "theora"));
 }
 
 TEST(IsCodecSupportedOnAndroidTest, EncryptedCodecBehavior) {
@@ -570,6 +564,10 @@ TEST(IsCodecSupportedOnAndroidTest, EncryptedCodecBehavior) {
           case MimeUtil::AC4:
             EXPECT_EQ(HasAc4Support(), result);
             break;
+
+          case MimeUtil::IAMF:
+            EXPECT_EQ(HasIamfSupport(), result);
+            break;
         }
       });
 }
@@ -640,6 +638,10 @@ TEST(IsCodecSupportedOnAndroidTest, ClearCodecBehavior) {
 
           case MimeUtil::AC4:
             EXPECT_EQ(HasAc4Support(), result);
+            break;
+
+          case MimeUtil::IAMF:
+            EXPECT_EQ(HasIamfSupport(), result);
             break;
         }
       });

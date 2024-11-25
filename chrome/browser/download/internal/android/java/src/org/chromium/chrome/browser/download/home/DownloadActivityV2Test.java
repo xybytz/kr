@@ -39,6 +39,9 @@ import androidx.test.filters.MediumTest;
 import org.hamcrest.Description;
 import org.hamcrest.Matcher;
 import org.junit.Assert;
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -48,14 +51,15 @@ import org.mockito.MockitoAnnotations;
 import org.chromium.base.BuildInfo;
 import org.chromium.base.Callback;
 import org.chromium.base.DiscardableReferencePool;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
+import org.chromium.base.test.BaseActivityTestRule;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.HistogramWatcher;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.back_press.BackPressHelper;
 import org.chromium.chrome.browser.back_press.SecondaryActivityBackPressUma.SecondaryActivity;
 import org.chromium.chrome.browser.download.home.list.ListUtils;
@@ -78,9 +82,8 @@ import org.chromium.components.offline_items_collection.RenameResult;
 import org.chromium.components.url_formatter.SchemeDisplay;
 import org.chromium.components.url_formatter.UrlFormatter;
 import org.chromium.components.url_formatter.UrlFormatterJni;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.modaldialog.ModalDialogManager;
-import org.chromium.ui.test.util.BlankUiTestActivityTestCase;
+import org.chromium.ui.test.util.BlankUiTestActivity;
 import org.chromium.url.GURL;
 import org.chromium.url.JUnitTestGURLs;
 
@@ -93,10 +96,15 @@ import java.util.List;
 /** Tests the download home V2. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @Batch(Batch.UNIT_TESTS)
-public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
+public class DownloadActivityV2Test {
+    @ClassRule
+    public static BaseActivityTestRule<BlankUiTestActivity> sActivityTestRule =
+            new BaseActivityTestRule<>(BlankUiTestActivity.class);
+
+    private static BlankUiTestActivity sActivity;
+
     @Mock private Tracker mTracker;
     @Mock private SnackbarManager mSnackbarManager;
-    @Rule public JniMocker mJniMocker = new JniMocker();
     @Mock private UrlFormatter.Natives mUrlFormatterJniMock;
 
     @Rule
@@ -135,11 +143,15 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
         };
     }
 
-    @Override
-    public void setUpTest() throws Exception {
-        super.setUpTest();
+    @BeforeClass
+    public static void setupSuite() {
+        sActivity = sActivityTestRule.launchActivity(null);
+    }
+
+    @Before
+    public void setUp() throws Exception {
         MockitoAnnotations.initMocks(this);
-        mJniMocker.mock(UrlFormatterJni.TEST_HOOKS, mUrlFormatterJniMock);
+        UrlFormatterJni.setInstanceForTesting(mUrlFormatterJniMock);
         when(mUrlFormatterJniMock.formatUrlForSecurityDisplay(
                         any(), eq(SchemeDisplay.OMIT_HTTP_AND_HTTPS)))
                 .then(
@@ -177,36 +189,36 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
     private void setUpUi() {
         DownloadManagerUiConfig config =
                 DownloadManagerUiConfigHelper.fromFlags()
-                        .setOTRProfileID(null)
+                        .setOtrProfileId(null)
                         .setIsSeparateActivity(true)
                         .build();
 
-        mAppModalPresenter = new AppModalPresenter(getActivity());
+        mAppModalPresenter = new AppModalPresenter(sActivity);
 
         mModalDialogManager =
                 new ModalDialogManager(mAppModalPresenter, ModalDialogManager.ModalDialogType.APP);
 
         FaviconProvider faviconProvider = (url, faviconSizePx, callback) -> {};
-        Callback<Context> settingsLauncher = context -> {};
+        Callback<Context> settingsNavigation = context -> {};
         ObservableSupplierImpl<Boolean> isPrefetchEnabledSupplier = new ObservableSupplierImpl<>();
         isPrefetchEnabledSupplier.set(true);
 
         mDownloadCoordinator =
                 new DownloadManagerCoordinatorImpl(
-                        getActivity(),
+                        sActivity,
                         config,
                         isPrefetchEnabledSupplier,
-                        settingsLauncher,
+                        settingsNavigation,
                         mSnackbarManager,
                         mModalDialogManager,
                         mTracker,
                         faviconProvider,
                         mStubbedOfflineContentProvider,
                         mDiscardableReferencePool);
-        getActivity().setContentView(mDownloadCoordinator.getView());
+        sActivity.setContentView(mDownloadCoordinator.getView());
         BackPressHelper.create(
-                getActivity(),
-                getActivity().getOnBackPressedDispatcher(),
+                sActivity,
+                sActivity.getOnBackPressedDispatcher(),
                 mDownloadCoordinator.getBackPressHandlers(),
                 SecondaryActivity.DOWNLOAD);
 
@@ -215,8 +227,9 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
 
     @Test
     @MediumTest
+    @DisabledTest(message = "crbug.com/372835715")
     public void testLaunchingActivity() {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     setUpUi();
                 });
@@ -239,7 +252,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
     @Test
     @MediumTest
     public void testTabsAreShown() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     setUpUi();
                 });
@@ -262,7 +275,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
     @Test
     @MediumTest
     public void testChipsAreShown() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     setUpUi();
                 });
@@ -303,7 +316,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
     @Test
     @MediumTest
     public void testPrefetchTabEmptyText() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     setUpUi();
                 });
@@ -327,7 +340,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
     @Test
     @MediumTest
     public void testAddRemoveItems() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     setUpUi();
                 });
@@ -348,12 +361,12 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
                         100000,
                         OfflineItemFilter.OTHER);
 
-        TestThreadUtils.runOnUiThreadBlocking(() -> mStubbedOfflineContentProvider.addItem(item5));
+        ThreadUtils.runOnUiThreadBlocking(() -> mStubbedOfflineContentProvider.addItem(item5));
         onView(withText("page 5")).check(matches(isDisplayed()));
         onView(withText(containsString("Using 2.10 KB of"))).check(matches(isDisplayed()));
 
         // Delete an item. The item should be gone and the storage text should be updated.
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> mStubbedOfflineContentProvider.removeItem(item5.id));
         onView(withText("page 5")).check(doesNotExist());
         onView(withText(containsString("Using 1.10 KB of"))).check(matches(isDisplayed()));
@@ -362,7 +375,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
     @Test
     @MediumTest
     public void testShowListItemMenuWithRename() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     setUpUi();
                 });
@@ -385,7 +398,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
     @Test
     @MediumTest
     public void testShowListItemMenuWithoutRename() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     setUpUi();
                 });
@@ -412,7 +425,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
     @Test
     @MediumTest
     public void testShowToolbarMenu() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     setUpUi();
                 });
@@ -466,7 +479,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
     @Test
     @MediumTest
     public void testDeleteItem() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     setUpUi();
                 });
@@ -493,7 +506,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
         PostTask.runOrPostTask(
                 TaskTraits.UI_DEFAULT,
                 () -> {
-                    DownloadHomeToolbar toolbar = getActivity().findViewById(R.id.download_toolbar);
+                    DownloadHomeToolbar toolbar = sActivity.findViewById(R.id.download_toolbar);
                     toolbar.getMenu()
                             .performIdentifierAction(R.id.selection_mode_delete_menu_id, 0);
                 });
@@ -506,7 +519,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
     @MediumTest
     @DisabledTest(message = "https://crbug.com/1338140")
     public void testRenameItem() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     setUpUi();
                 });
@@ -539,7 +552,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
     @Test
     @MediumTest
     public void testShareItem() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     setUpUi();
                 });
@@ -560,16 +573,17 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
 
     @Test
     @MediumTest
+    @DisabledTest(message = "crbug.com/372835715")
     public void testSearchView() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     setUpUi();
                 });
 
-        final DownloadHomeToolbar toolbar = getActivity().findViewById(R.id.download_toolbar);
+        final DownloadHomeToolbar toolbar = sActivity.findViewById(R.id.download_toolbar);
         onView(withId(R.id.search_text)).check(matches(not(isDisplayed())));
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 (Runnable) () -> toolbar.getMenu().performIdentifierAction(R.id.search_menu_id, 0));
 
         // The selection should be cleared when a search is started.
@@ -590,16 +604,17 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
 
     @Test
     @MediumTest
+    @DisabledTest(message = "https://crbug.com/372252512")
     public void testDismissSearchViewByBackPress() {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     setUpUi();
                 });
 
-        final DownloadHomeToolbar toolbar = getActivity().findViewById(R.id.download_toolbar);
+        final DownloadHomeToolbar toolbar = sActivity.findViewById(R.id.download_toolbar);
         onView(withId(R.id.search_text)).check(matches(not(isDisplayed())));
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 (Runnable) () -> toolbar.getMenu().performIdentifierAction(R.id.search_menu_id, 0));
 
         // The selection should be cleared when a search is started.
@@ -613,8 +628,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
         var backPressRecorder =
                 HistogramWatcher.newSingleRecordWatcher(
                         "Android.BackPress.SecondaryActivity", SecondaryActivity.DOWNLOAD);
-        TestThreadUtils.runOnUiThreadBlocking(
-                getActivity().getOnBackPressedDispatcher()::onBackPressed);
+        ThreadUtils.runOnUiThreadBlocking(sActivity.getOnBackPressedDispatcher()::onBackPressed);
         backPressRecorder.assertExpected();
         onView(withId(R.id.search_text)).check(matches(isDisplayed()));
 
@@ -622,8 +636,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
         var backPressRecorder2 =
                 HistogramWatcher.newSingleRecordWatcher(
                         "Android.BackPress.SecondaryActivity", SecondaryActivity.DOWNLOAD);
-        TestThreadUtils.runOnUiThreadBlocking(
-                getActivity().getOnBackPressedDispatcher()::onBackPressed);
+        ThreadUtils.runOnUiThreadBlocking(sActivity.getOnBackPressedDispatcher()::onBackPressed);
         backPressRecorder2.assertExpected();
         CriteriaHelper.pollInstrumentationThread(
                 () -> {
@@ -712,7 +725,7 @@ public class DownloadActivityV2Test extends BlankUiTestActivityTestCase {
                 .perform(ViewActions.click());
 
         if (expectErrorMsgId != -1) {
-            onView(withText(getActivity().getResources().getString(expectErrorMsgId)))
+            onView(withText(sActivity.getResources().getString(expectErrorMsgId)))
                     .check(matches(isDisplayed()));
         }
     }

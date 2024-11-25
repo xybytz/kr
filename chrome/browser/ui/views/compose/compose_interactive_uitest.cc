@@ -3,10 +3,13 @@
 // found in the LICENSE file.
 
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "base/test/bind.h"
 #include "chrome/browser/optimization_guide/mock_optimization_guide_keyed_service.h"
+#include "chrome/browser/optimization_guide/optimization_guide_keyed_service.h"
+#include "chrome/browser/optimization_guide/optimization_guide_keyed_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
@@ -21,9 +24,11 @@
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/compose/core/browser/compose_features.h"
 #include "components/compose/core/browser/config.h"
+#include "components/optimization_guide/core/mock_optimization_guide_model_executor.h"
 #include "components/optimization_guide/core/model_quality/feature_type_map.h"
 #include "components/optimization_guide/core/model_quality/model_quality_log_entry.h"
 #include "components/optimization_guide/core/optimization_guide_features.h"
+#include "components/optimization_guide/core/optimization_guide_proto_util.h"
 #include "components/optimization_guide/proto/features/compose.pb.h"
 #include "components/optimization_guide/proto/model_execution.pb.h"
 #include "components/optimization_guide/proto/model_quality_service.pb.h"
@@ -31,6 +36,7 @@
 #include "components/signin/public/identity_manager/identity_test_utils.h"
 #include "components/unified_consent/pref_names.h"
 #include "content/public/test/browser_test.h"
+#include "content/public/test/browser_test_utils.h"
 #include "content/public/test/fenced_frame_test_util.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/default_handlers.h"
@@ -39,12 +45,14 @@
 #include "ui/base/ui_base_features.h"
 #include "ui/views/interaction/element_tracker_views.h"
 
-using testing::_;
-using testing::An;
-using testing::Return;
-using DeepQuery = WebContentsInteractionTestUtil::DeepQuery;
-
 namespace {
+
+using ::optimization_guide::MockSession;
+using ::testing::_;
+using ::testing::An;
+using ::testing::NiceMock;
+using ::testing::Return;
+using DeepQuery = ::WebContentsInteractionTestUtil::DeepQuery;
 
 DEFINE_LOCAL_ELEMENT_IDENTIFIER_VALUE(kContentPageTabId);
 DEFINE_LOCAL_ELEMENT_IDENTIFIER_VALUE(kComposeWebContents);
@@ -59,42 +67,6 @@ const DeepQuery kSubmitButton = {"compose-app", "#submitButton"};
 const DeepQuery kAcceptButton = {"compose-app", "#acceptButton"};
 const DeepQuery kComposeTextArea = {"compose-app", "compose-textarea"};
 const DeepQuery kTextarea = {"#elem1"};
-
-class MockSession
-    : public optimization_guide::OptimizationGuideModelExecutor::Session {
- public:
-  MOCK_METHOD(void,
-              AddContext,
-              (const google::protobuf::MessageLite& request_metadata));
-  MOCK_METHOD(
-      void,
-      ExecuteModel,
-      (const google::protobuf::MessageLite& request_metadata,
-       optimization_guide::
-           OptimizationGuideModelExecutionResultStreamingCallback callback));
-};
-
-// A wrapper that passes through calls to the underlying MockSession. Allows for
-// easily mocking calls with a single session object.
-class MockSessionWrapper
-    : public optimization_guide::OptimizationGuideModelExecutor::Session {
- public:
-  explicit MockSessionWrapper(MockSession& session) : session_(session) {}
-
-  void AddContext(
-      const google::protobuf::MessageLite& request_metadata) override {
-    session_->AddContext(request_metadata);
-  }
-  void ExecuteModel(
-      const google::protobuf::MessageLite& request_metadata,
-      optimization_guide::OptimizationGuideModelExecutionResultStreamingCallback
-          callback) override {
-    session_->ExecuteModel(request_metadata, std::move(callback));
-  }
-
- private:
-  raw_ref<MockSession> session_;
-};
 
 }  // namespace
 
@@ -111,7 +83,6 @@ class MAYBE_ComposeInteractiveUiTest : public InteractiveBrowserTest {
   MAYBE_ComposeInteractiveUiTest() {
     feature_list_.InitWithFeatures(
         {compose::features::kEnableCompose,
-         autofill::features::kAutofillContentEditables,
          optimization_guide::features::kOptimizationGuideModelExecution},
         {});
     subscription_ =
@@ -158,7 +129,7 @@ class MAYBE_ComposeInteractiveUiTest : public InteractiveBrowserTest {
         MoveMouseTo(kContentPageTabId, kTextarea),
         ClickMouse(ui_controls::RIGHT),
         WaitForShow(RenderViewContextMenu::kComposeMenuItem),
-        FlushEvents(),  // Required to fully render the menu before selection.
+        // Required to fully render the menu before selection.
         SelectMenuItem(RenderViewContextMenu::kComposeMenuItem),
         WaitForShow(ComposeDialogView::kComposeDialogId),
         InstrumentNonTabWebView(kComposeWebContents, kComposeWebviewElementId));
@@ -242,9 +213,10 @@ class MAYBE_ComposeInteractiveUiTest : public InteractiveBrowserTest {
     ON_CALL(*mock_optimization_guide_keyed_service_,
             ShouldFeatureBeCurrentlyEnabledForUser)
         .WillByDefault(Return(true));
-    ON_CALL(*mock_optimization_guide_keyed_service_, StartSession(_))
-        .WillByDefault(
-            [&] { return std::make_unique<MockSessionWrapper>(session()); });
+    ON_CALL(*mock_optimization_guide_keyed_service_, StartSession(_, _))
+        .WillByDefault([&] {
+          return std::make_unique<NiceMock<MockSession>>(&session());
+        });
     ON_CALL(session(), ExecuteModel(_, _))
         .WillByDefault(testing::WithArg<1>(testing::Invoke(
             [&](optimization_guide::
@@ -254,12 +226,11 @@ class MAYBE_ComposeInteractiveUiTest : public InteractiveBrowserTest {
                   FROM_HERE,
                   base::BindOnce(
                       std::move(callback),
-                      OptimizationGuideResponse(
-                          ComposeResponse(true, "Cucumbers")),
-                      std::make_unique<
-                          optimization_guide::ModelQualityLogEntry>(
+                      OptimizationGuideStreamingResult(
+                          ComposeResponse(true, "Cucumbers"), true, false,
                           std::make_unique<
-                              optimization_guide::proto::LogAiDataRequest>())));
+                              optimization_guide::ModelQualityLogEntry>(
+                              nullptr))));
             })));
   }
 
@@ -275,7 +246,7 @@ class MAYBE_ComposeInteractiveUiTest : public InteractiveBrowserTest {
   content::test::FencedFrameTestHelper& fenced_frame_test_helper() {
     return fenced_frame_test_helper_;
   }
-  MockSession& session() { return session_; }
+  optimization_guide::MockSession& session() { return session_; }
 
  private:
   static void OnWillCreateBrowserContextServices(
@@ -293,15 +264,22 @@ class MAYBE_ComposeInteractiveUiTest : public InteractiveBrowserTest {
   optimization_guide::StreamingResponse OptimizationGuideResponse(
       const optimization_guide::proto::ComposeResponse compose_response,
       bool is_complete = true) {
-    constexpr char kTypeURL[] =
-        "type.googleapis.com/optimization_guide.proto.ComposeResponse";
-    optimization_guide::proto::Any any;
-    any.set_type_url(kTypeURL);
-    compose_response.SerializeToString(any.mutable_value());
     return optimization_guide::StreamingResponse{
-        .response = any,
+        .response = optimization_guide::AnyWrapProto(compose_response),
         .is_complete = is_complete,
     };
+  }
+
+  optimization_guide::OptimizationGuideModelStreamingExecutionResult
+  OptimizationGuideStreamingResult(
+      const optimization_guide::proto::ComposeResponse compose_response,
+      bool is_complete = true,
+      bool provided_by_on_device = false,
+      std::unique_ptr<optimization_guide::ModelQualityLogEntry> log_entry =
+          nullptr) {
+    return optimization_guide::OptimizationGuideModelStreamingExecutionResult(
+        base::ok(OptimizationGuideResponse(compose_response, is_complete)),
+        provided_by_on_device, std::move(log_entry));
   }
 
   optimization_guide::proto::ComposeResponse ComposeResponse(
@@ -320,7 +298,7 @@ class MAYBE_ComposeInteractiveUiTest : public InteractiveBrowserTest {
       mock_optimization_guide_keyed_service_;
   std::unique_ptr<IdentityTestEnvironmentProfileAdaptor>
       identity_test_environment_adaptor_;
-  testing::NiceMock<MockSession> session_;
+  testing::NiceMock<optimization_guide::MockSession> session_;
 };
 
 // Flaky on all platforms: https://crbug.com/1517430

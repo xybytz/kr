@@ -5,12 +5,13 @@
 #import "ios/chrome/browser/ui/settings/privacy/privacy_guide/privacy_guide_main_coordinator.h"
 
 #import <UIKit/UIKit.h>
+
 #import <memory>
 
 #import "base/apple/foundation_util.h"
 #import "base/test/task_environment.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/test/scoped_key_window.h"
 #import "testing/gtest/include/gtest/gtest.h"
 #import "testing/platform_test.h"
@@ -19,8 +20,8 @@
 class PrivacyGuideMainCoordinatorTest : public PlatformTest {
  protected:
   PrivacyGuideMainCoordinatorTest() {
-    browser_state_ = TestChromeBrowserState::Builder().Build();
-    browser_ = std::make_unique<TestBrowser>(browser_state_.get());
+    profile_ = TestProfileIOS::Builder().Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get());
 
     root_view_controller_ = [[UIViewController alloc] init];
     scoped_window_.Get().rootViewController = root_view_controller_;
@@ -39,7 +40,7 @@ class PrivacyGuideMainCoordinatorTest : public PlatformTest {
   }
 
   base::test::TaskEnvironment task_environment_;
-  std::unique_ptr<ChromeBrowserState> browser_state_;
+  std::unique_ptr<ProfileIOS> profile_;
   std::unique_ptr<TestBrowser> browser_;
   UIViewController* root_view_controller_;
   PrivacyGuideMainCoordinator* coordinator_;

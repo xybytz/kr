@@ -11,7 +11,7 @@
 #include <utility>
 
 #include "base/check_op.h"
-#include "base/debug/alias.h"
+#include "base/containers/span.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/functional/bind.h"
@@ -20,6 +20,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
@@ -28,6 +29,7 @@
 #include "base/timer/timer.h"
 #include "base/trace_event/interned_args_helper.h"
 #include "base/trace_event/typed_macros.h"
+#include "base/types/optional_ref.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
@@ -53,7 +55,13 @@ namespace network {
 constexpr size_t SimpleURLLoader::kMaxBoundedStringDownloadSize;
 constexpr size_t SimpleURLLoader::kMaxUploadStringSizeToCopy;
 
+BASE_FEATURE(kSimpleURLLoaderUseReadAndDiscardBodyOption,
+             "SimpleURLLoaderUseReadAndDiscardBodyOption",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
 namespace {
+
+constexpr int64_t kReceivedBodySizeUnknown = -1;
 
 // Used by tests to override the tick clock for the timeout timer.
 const base::TickClock* timeout_tick_clock_ = nullptr;
@@ -90,9 +98,9 @@ void GetFromUniquePtrToOptional(
 
 class StringUploadDataPipeGetter : public mojom::DataPipeGetter {
  public:
-  StringUploadDataPipeGetter(const std::string& upload_string,
+  StringUploadDataPipeGetter(std::string upload_string,
                              const base::Location& url_loader_created_from)
-      : upload_string_(upload_string) {}
+      : upload_string_(std::move(upload_string)) {}
 
   StringUploadDataPipeGetter(const StringUploadDataPipeGetter&) = delete;
   StringUploadDataPipeGetter& operator=(const StringUploadDataPipeGetter&) =
@@ -157,19 +165,19 @@ class StringUploadDataPipeGetter : public mojom::DataPipeGetter {
     DCHECK_LE(write_position_, upload_string_.length());
 
     while (true) {
-      uint32_t write_size = static_cast<uint32_t>(
-          std::min(static_cast<size_t>(32 * 1024),
-                   upload_string_.length() - write_position_));
-      if (write_size == 0) {
+      base::span<const uint8_t> bytes = base::as_byte_span(upload_string_);
+      bytes = bytes.subspan(write_position_);
+      bytes = bytes.first(std::min(bytes.size(), size_t{32 * 1024}));
+      if (bytes.empty()) {
         // Upload is done. Close the upload body pipe and wait for another call
         // to Read().
         ResetBodyPipe();
         return;
       }
 
-      int result =
-          upload_body_pipe_->WriteData(upload_string_.data() + write_position_,
-                                       &write_size, MOJO_WRITE_DATA_FLAG_NONE);
+      size_t actually_written_bytes;
+      MojoResult result = upload_body_pipe_->WriteData(
+          bytes, MOJO_WRITE_DATA_FLAG_NONE, actually_written_bytes);
       if (result == MOJO_RESULT_SHOULD_WAIT) {
         handle_watcher_->ArmOrNotify();
         return;
@@ -182,7 +190,7 @@ class StringUploadDataPipeGetter : public mojom::DataPipeGetter {
         return;
       }
 
-      write_position_ += write_size;
+      write_position_ += actually_written_bytes;
       DCHECK_LE(write_position_, upload_string_.length());
     }
   }
@@ -258,9 +266,15 @@ class SimpleURLLoaderImpl : public SimpleURLLoader,
       DownloadProgressCallback on_download_progress_callback) override;
   void SetAllowPartialResults(bool allow_partial_results) override;
   void SetAllowHttpErrorResults(bool allow_http_error_results) override;
-  void AttachStringForUpload(const std::string& upload_data,
-                             const std::string& upload_content_type) override;
-  void AttachStringForUpload(const std::string& upload_data) override;
+  void AttachStringForUpload(std::string_view upload_data,
+                             std::string_view upload_content_type) override;
+  void AttachStringForUpload(std::string_view upload_data) override;
+  void AttachStringForUpload(const char* upload_data,
+                             std::string_view upload_content_type) override;
+  void AttachStringForUpload(const char* upload_data) override;
+  void AttachStringForUpload(std::string&& upload_data,
+                             std::string_view upload_content_type) override;
+  void AttachStringForUpload(std::string&& upload_data) override;
   void AttachFileForUpload(
       const base::FilePath& upload_file_path,
       const std::string& upload_content_type,
@@ -277,12 +291,14 @@ class SimpleURLLoaderImpl : public SimpleURLLoader,
 
   int NetError() const override;
   const mojom::URLResponseHead* ResponseInfo() const override;
-  const absl::optional<URLLoaderCompletionStatus>& CompletionStatus()
+  mojom::URLResponseHeadPtr TakeResponseInfo() override;
+  const std::optional<URLLoaderCompletionStatus>& CompletionStatus()
       const override;
   const GURL& GetFinalURL() const override;
   bool LoadedFromCache() const override;
   int64_t GetContentSize() const override;
   int GetNumRetries() const override;
+  base::WeakPtr<const SimpleURLLoader> GetWeakPtr() const override;
 
   // Called by BodyHandler when the BodyHandler body handler is done. If |error|
   // is not net::OK, some error occurred reading or consuming the body. If it is
@@ -318,6 +334,7 @@ class SimpleURLLoaderImpl : public SimpleURLLoader,
     bool body_started = false;
     bool body_completed = false;
     // Final size of the body. Set once the body's Mojo pipe has been closed.
+    // Set to kReceivedBodySizeUnknown if we never actually read a body.
     int64_t received_body_size = 0;
 
     // Set to true when FinishWithResult() is called. Once that happens, the
@@ -331,11 +348,19 @@ class SimpleURLLoaderImpl : public SimpleURLLoader,
 
     mojom::URLResponseHeadPtr response_info;
 
-    absl::optional<URLLoaderCompletionStatus> completion_status;
+    std::optional<URLLoaderCompletionStatus> completion_status;
   };
 
-  void AttachStringForUpload(const std::string& upload_data,
-                             const std::string* const upload_content_type);
+  // Need two different methods to avoid a double-copy (string copy, then copy
+  // to a vector) when need to call UploadData::AppendBytes() for short request
+  // bodies.
+  void AttachStringForUploadInternal(
+      std::string_view upload_data,
+      base::optional_ref<std::string_view> upload_content_type);
+  void AttachStringForUploadInternal(
+      std::string&& upload_data,
+      base::optional_ref<std::string_view> upload_content_type);
+
   void AttachFileForUpload(
       const base::FilePath& upload_file_path,
       const std::string* const upload_content_type,
@@ -360,7 +385,7 @@ class SimpleURLLoaderImpl : public SimpleURLLoader,
   void OnReceiveResponse(
       mojom::URLResponseHeadPtr response_head,
       mojo::ScopedDataPipeConsumerHandle body,
-      absl::optional<mojo_base::BigBuffer> cached_metadata) override;
+      std::optional<mojo_base::BigBuffer> cached_metadata) override;
   void OnReceiveRedirect(const net::RedirectInfo& redirect_info,
                          mojom::URLResponseHeadPtr response_head) override;
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override;
@@ -461,7 +486,7 @@ class BodyReader {
     // It's safe to delete the BodyReader during this call. If that happens,
     // |data| will still remain valid for the duration of the call, and the
     // returned net::Error will be ignored.
-    virtual net::Error OnDataRead(uint32_t length, const char* data) = 0;
+    virtual net::Error OnDataRead(base::span<const uint8_t> data) = 0;
 
     // Called when the pipe is closed by the remote size, the size limit is
     // reached, or OnDataRead returned an error. |error| is net::OK if the
@@ -537,10 +562,9 @@ class BodyReader {
         return;
       }
 
-      const void* body_data;
-      uint32_t read_size;
-      MojoResult result = body_data_pipe_->BeginReadData(
-          &body_data, &read_size, MOJO_READ_DATA_FLAG_NONE);
+      base::span<const uint8_t> body;
+      MojoResult result =
+          body_data_pipe_->BeginReadData(MOJO_READ_DATA_FLAG_NONE, body);
       if (result == MOJO_RESULT_SHOULD_WAIT) {
         handle_watcher_->ArmOrNotify();
         return;
@@ -561,14 +585,18 @@ class BodyReader {
       }
 
       // Check size against the limit.
-      uint32_t copy_size = read_size;
-      if (static_cast<int64_t>(copy_size) > max_body_size_ - total_bytes_read_)
-        copy_size = max_body_size_ - total_bytes_read_;
+      size_t copy_size = body.size();
+      size_t limit =
+          base::saturated_cast<size_t>(max_body_size_ - total_bytes_read_);
+      if (copy_size > limit) {
+        copy_size = limit;
+      }
 
       total_bytes_read_ += copy_size;
 
-      if (copy_size < read_size)
+      if (copy_size < body.size()) {
         pending_error_ = net::ERR_INSUFFICIENT_RESOURCES;
+      }
 
       // Need a weak pointer to |this| to detect deletion.
       base::WeakPtr<BodyReader> weak_this =
@@ -579,23 +607,9 @@ class BodyReader {
       mojo::ScopedDataPipeConsumerHandle body_data_pipe =
           std::move(body_data_pipe_);
 
-      // TODO(mmenke): Remove this once https://crbug.com/875253 is understood
-      // and fixed.
-      int total_bytes_read = total_bytes_read_;
-      int max_body_size = max_body_size_;
-      base::debug::Alias(&body_data);
-      base::debug::Alias(&max_body_size);
-      base::debug::Alias(&total_bytes_read);
-      base::debug::Alias(&read_size);
-      base::debug::Alias(&copy_size);
-      // This is just to make sure the first byte of body_data is accessible.
-      char first_read_byte = static_cast<const char*>(body_data)[0];
-      base::debug::Alias(&first_read_byte);
-
       // This call may delete the BodyReader.
-      net::Error error =
-          delegate_->OnDataRead(copy_size, static_cast<const char*>(body_data));
-      body_data_pipe->EndReadData(read_size);
+      net::Error error = delegate_->OnDataRead(body.first(copy_size));
+      body_data_pipe->EndReadData(body.size());
       if (!weak_this) {
         // This object was deleted, so nothing else to do.
         return;
@@ -653,6 +667,13 @@ class BodyHandler {
   BodyHandler& operator=(const BodyHandler&) = delete;
 
   virtual ~BodyHandler() = default;
+
+  // Called by SimpleURLLoader if no data pipe was received from the URLLoader.
+  // Returns whether or not a data pipe is required. In most cases a data pipe
+  // is required for a successful response, but if we don't need the body then
+  // this can return false. If there is no data pipe and this method returns
+  // false, OnStartLoadingResponseBody() will not be called.
+  virtual bool RequiresBodyDataPipe() { return true; }
 
   // Called by SimpleURLLoader with the data pipe received from the URLLoader.
   // The BodyHandler is responsible for reading from it and monitoring it for
@@ -741,13 +762,8 @@ class SaveToStringBodyHandler : public BodyHandler,
  private:
   // BodyReader::Delegate implementation.
 
-  net::Error OnDataRead(uint32_t length, const char* data) override {
-    // TODO(mmenke): Remove this once https://crbug.com/875253 is understood and
-    // fixed.
-    std::string* body = body_.get();
-    base::debug::Alias(&body);
-
-    body_->append(data, length);
+  net::Error OnDataRead(base::span<const uint8_t> data) override {
+    body_->append(base::as_string_view(data));
     ReportProgress(body_reader_->total_bytes_read());
     return net::OK;
   }
@@ -783,9 +799,11 @@ class HeadersOnlyBodyHandler : public BodyHandler, public BodyReader::Delegate {
   ~HeadersOnlyBodyHandler() override = default;
 
   // BodyHandler implementation
+  bool RequiresBodyDataPipe() override { return false; }
+
   void OnStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle body_data_pipe) override {
-    // TODO(crbug.com/871420): The request can be completed at this point
+    // TODO(crbug.com/41406327): The request can be completed at this point
     // however that requires more changes to SimpleURLLoader as OnComplete()
     // will not have been called yet.
     DCHECK(!body_reader_);
@@ -809,7 +827,7 @@ class HeadersOnlyBodyHandler : public BodyHandler, public BodyReader::Delegate {
 
  private:
   // BodyReader::Delegate implementation
-  net::Error OnDataRead(uint32_t length, const char* data) override {
+  net::Error OnDataRead(base::span<const uint8_t> data) override {
     return net::OK;
   }
 
@@ -1040,16 +1058,18 @@ class SaveToFileBodyHandler : public BodyHandler {
     }
 
     // BodyReader::Delegate implementation:
-    net::Error OnDataRead(uint32_t length, const char* data) override {
+    net::Error OnDataRead(base::span<const uint8_t> data) override {
       DCHECK(file_writer_task_runner_->RunsTasksInCurrentSequence());
-      while (length > 0) {
-        int written = file_.WriteAtCurrentPos(
-            data, std::min(length, static_cast<uint32_t>(
-                                       std::numeric_limits<int>::max())));
-        if (written < 0)
+      while (data.size() > 0) {
+        // Akwardly, the span version of File::WriteAtCurrentPos doesn't
+        // actually handle lengths > int_max w/o CHECKing.
+        base::span<const uint8_t> to_write = data.first(std::min(
+            data.size(), static_cast<size_t>(std::numeric_limits<int>::max())));
+        std::optional<size_t> written = file_.WriteAtCurrentPos(to_write);
+        if (!written.has_value()) {
           return net::MapSystemError(logging::GetLastSystemErrorCode());
-        length -= written;
-        data += written;
+        }
+        data = data.subspan(*written);
       }
 
       if (progress_callback_) {
@@ -1198,12 +1218,12 @@ class DownloadAsStreamBodyHandler : public BodyHandler,
  private:
   // BodyReader::Delegate implementation.
 
-  net::Error OnDataRead(uint32_t length, const char* data) override {
+  net::Error OnDataRead(base::span<const uint8_t> data) override {
     in_recursive_call_ = true;
     base::WeakPtr<DownloadAsStreamBodyHandler> weak_this(
         weak_ptr_factory_.GetWeakPtr());
     stream_consumer_->OnDataReceived(
-        std::string_view(data, length),
+        base::as_string_view(data),
         base::BindOnce(&DownloadAsStreamBodyHandler::Resume,
                        weak_ptr_factory_.GetWeakPtr()));
     // Protect against deletion.
@@ -1323,6 +1343,10 @@ void SimpleURLLoaderImpl::DownloadHeadersOnly(
   on_download_progress_callback_.Reset();
   body_handler_ = std::make_unique<HeadersOnlyBodyHandler>(
       this, std::move(headers_only_callback));
+  if (base::FeatureList::IsEnabled(
+          kSimpleURLLoaderUseReadAndDiscardBodyOption)) {
+    url_loader_factory_options_ |= mojom::kURLLoadOptionReadAndDiscardBody;
+  }
   Start(url_loader_factory);
 }
 
@@ -1406,9 +1430,9 @@ void SimpleURLLoaderImpl::SetAllowHttpErrorResults(
   allow_http_error_results_ = allow_http_error_results;
 }
 
-void SimpleURLLoaderImpl::AttachStringForUpload(
-    const std::string& upload_data,
-    const std::string* const upload_content_type) {
+void SimpleURLLoaderImpl::AttachStringForUploadInternal(
+    std::string_view upload_data,
+    base::optional_ref<std::string_view> upload_content_type) {
   // Currently only allow a single string to be attached.
   DCHECK(!resource_request_->request_body);
   DCHECK(resource_request_->method != net::HttpRequestHeaders::kGetMethod &&
@@ -1417,15 +1441,13 @@ void SimpleURLLoaderImpl::AttachStringForUpload(
   resource_request_->request_body = new ResourceRequestBody();
 
   if (upload_data.length() <= kMaxUploadStringSizeToCopy) {
-    int copy_length = static_cast<int>(upload_data.length());
-    DCHECK_EQ(static_cast<size_t>(copy_length), upload_data.length());
-    resource_request_->request_body->AppendBytes(upload_data.c_str(),
-                                                 copy_length);
+    resource_request_->request_body->AppendCopyOfBytes(
+        base::as_byte_span(upload_data));
   } else {
     // Don't attach the upload body here.  A new pipe will need to be created
     // each time the request is tried.
     string_upload_data_pipe_getter_ =
-        std::make_unique<StringUploadDataPipeGetter>(upload_data,
+        std::make_unique<StringUploadDataPipeGetter>(std::string(upload_data),
                                                      created_from_);
   }
 
@@ -1435,15 +1457,61 @@ void SimpleURLLoaderImpl::AttachStringForUpload(
   }
 }
 
+void SimpleURLLoaderImpl::AttachStringForUploadInternal(
+    std::string&& upload_data,
+    base::optional_ref<std::string_view> upload_content_type) {
+  // Currently only allow a single string to be attached.
+  DCHECK(!resource_request_->request_body);
+  DCHECK(resource_request_->method != net::HttpRequestHeaders::kGetMethod &&
+         resource_request_->method != net::HttpRequestHeaders::kHeadMethod);
+
+  resource_request_->request_body = new ResourceRequestBody();
+
+  if (upload_data.length() <= kMaxUploadStringSizeToCopy) {
+    resource_request_->request_body->AppendCopyOfBytes(
+        base::as_byte_span(upload_data));
+  } else {
+    // Don't attach the upload body here.  A new pipe will need to be created
+    // each time the request is tried.
+    string_upload_data_pipe_getter_ =
+        std::make_unique<StringUploadDataPipeGetter>(std::move(upload_data),
+                                                     created_from_);
+  }
+
+  if (upload_content_type) {
+    resource_request_->headers.SetHeader(net::HttpRequestHeaders::kContentType,
+                                         *upload_content_type);
+  }
+}
 void SimpleURLLoaderImpl::AttachStringForUpload(
-    const std::string& upload_data,
-    const std::string& upload_content_type) {
-  AttachStringForUpload(upload_data, &upload_content_type);
+    std::string_view upload_data,
+    std::string_view upload_content_type) {
+  AttachStringForUploadInternal(upload_data, upload_content_type);
+}
+
+void SimpleURLLoaderImpl::AttachStringForUpload(std::string_view upload_data) {
+  AttachStringForUploadInternal(upload_data, std::nullopt);
 }
 
 void SimpleURLLoaderImpl::AttachStringForUpload(
-    const std::string& upload_data) {
-  AttachStringForUpload(upload_data, nullptr);
+    const char* upload_data,
+    std::string_view upload_content_type) {
+  AttachStringForUploadInternal(std::string_view(upload_data),
+                                upload_content_type);
+}
+
+void SimpleURLLoaderImpl::AttachStringForUpload(const char* upload_data) {
+  AttachStringForUploadInternal(std::string_view(upload_data), std::nullopt);
+}
+
+void SimpleURLLoaderImpl::AttachStringForUpload(
+    std::string&& upload_data,
+    std::string_view upload_content_type) {
+  AttachStringForUploadInternal(std::move(upload_data), upload_content_type);
+}
+
+void SimpleURLLoaderImpl::AttachStringForUpload(std::string&& upload_data) {
+  AttachStringForUploadInternal(std::move(upload_data), std::nullopt);
 }
 
 void SimpleURLLoaderImpl::AttachFileForUpload(
@@ -1558,13 +1626,23 @@ int SimpleURLLoaderImpl::GetNumRetries() const {
   return num_retries_;
 }
 
+base::WeakPtr<const SimpleURLLoader> SimpleURLLoaderImpl::GetWeakPtr() const {
+  return weak_ptr_factory_.GetWeakPtr();
+}
+
 const mojom::URLResponseHead* SimpleURLLoaderImpl::ResponseInfo() const {
   // Should only be called once the request is complete.
   DCHECK(request_state_->finished);
   return request_state_->response_info.get();
 }
 
-const absl::optional<URLLoaderCompletionStatus>&
+mojom::URLResponseHeadPtr SimpleURLLoaderImpl::TakeResponseInfo() {
+  // Should only be called once the request is complete.
+  DCHECK(request_state_->finished);
+  return std::move(request_state_->response_info);
+}
+
+const std::optional<URLLoaderCompletionStatus>&
 SimpleURLLoaderImpl::CompletionStatus() const {
   // Should only be called once the request is complete.
   DCHECK(request_state_->finished);
@@ -1582,7 +1660,7 @@ void SimpleURLLoaderImpl::OnBodyHandlerDone(net::Error error,
     // Reset the completion status since the contained metrics like encoded body
     // length and net error are not reliable when the body itself was not
     // successfully completed.
-    request_state_->completion_status = absl::nullopt;
+    request_state_->completion_status = std::nullopt;
     // When |allow_partial_results_| is true, a valid body|file_path is
     // passed to the completion callback even in the case of failures.
     // For consistency, it makes sense to also hold the actual decompressed
@@ -1630,7 +1708,7 @@ void SimpleURLLoaderImpl::FinishWithResult(int net_error) {
 
   client_receiver_.reset();
   url_loader_.reset();
-  timeout_timer_.AbandonAndStop();
+  timeout_timer_.Stop();
 
   request_state_->finished = true;
   request_state_->net_error = net_error;
@@ -1740,7 +1818,7 @@ void SimpleURLLoaderImpl::OnReceiveEarlyHints(
 void SimpleURLLoaderImpl::OnReceiveResponse(
     mojom::URLResponseHeadPtr response_head,
     mojo::ScopedDataPipeConsumerHandle body,
-    absl::optional<mojo_base::BigBuffer> cached_metadata) {
+    std::optional<mojo_base::BigBuffer> cached_metadata) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (request_state_->response_info) {
     // The final headers have already been received, so the URLLoader is
@@ -1781,8 +1859,19 @@ void SimpleURLLoaderImpl::OnReceiveResponse(
     return;
   }
 
-  if (!weak_this || !body)
+  if (!weak_this) {
     return;
+  }
+
+  if (!body) {
+    if (!body_handler_->RequiresBodyDataPipe()) {
+      // Fix up our state as if a body was read.
+      request_state_->body_started = true;
+      request_state_->body_completed = true;
+      request_state_->received_body_size = kReceivedBodySizeUnknown;
+    }
+    return;
+  }
 
   if (request_state_->body_started || !request_state_->response_info) {
     // If this was already called, or the headers have not been received,
@@ -1855,7 +1944,7 @@ void SimpleURLLoaderImpl::OnComplete(const URLLoaderCompletionStatus& status) {
   // URLLoader is violating the API contract.
   if (request_state_->net_error == net::OK && !request_state_->body_started) {
     request_state_->net_error = net::ERR_UNEXPECTED;
-    request_state_->completion_status = absl::nullopt;
+    request_state_->completion_status = std::nullopt;
   }
 
   MaybeComplete();
@@ -1874,7 +1963,7 @@ void SimpleURLLoaderImpl::OnMojoDisconnect() {
 
   request_state_->request_completed = true;
   request_state_->net_error = net::ERR_FAILED;
-  request_state_->completion_status = absl::nullopt;
+  request_state_->completion_status = std::nullopt;
 
   // Wait to receive any pending data on the data pipe before reporting the
   // failure.
@@ -1913,6 +2002,16 @@ void SimpleURLLoaderImpl::MaybeComplete() {
     return;
   }
 
+  // If the URLLoader didn't supply a data pipe because we set the
+  // ReadAndDiscardBody option, then we don't yet have a value for
+  // `received_body_size`, so just set it to the size reported by URLLoader.
+  if (request_state_->received_body_size == kReceivedBodySizeUnknown) {
+    request_state_->received_body_size =
+        request_state_->completion_status
+            ? request_state_->completion_status->decoded_body_length
+            : 0;
+  }
+
   // When OnCompleted sees a success result, still need to report an error if
   // the size isn't what was expected.
   if (request_state_->net_error == net::OK &&
@@ -1923,14 +2022,14 @@ void SimpleURLLoaderImpl::MaybeComplete() {
         request_state_->received_body_size) {
       // The body pipe was closed before it received the entire body.
       request_state_->net_error = net::ERR_FAILED;
-      request_state_->completion_status = absl::nullopt;
+      request_state_->completion_status = std::nullopt;
     } else {
       // The caller provided more data through the pipe than it reported in
       // URLLoaderCompletionStatus, so the URLLoader is violating the
       // API contract. Just fail the request and delete the retained completion
       // status.
       request_state_->net_error = net::ERR_UNEXPECTED;
-      request_state_->completion_status = absl::nullopt;
+      request_state_->completion_status = std::nullopt;
     }
   }
 

@@ -33,9 +33,7 @@
 #include "base/containers/adapters.h"
 #include "base/hash/hash.h"
 #include "base/ranges/algorithm.h"
-#include "third_party/blink/public/mojom/frame/color_scheme.mojom-blink.h"
 #include "third_party/blink/public/mojom/timing/resource_timing.mojom-blink.h"
-#include "third_party/blink/public/platform/web_theme_engine.h"
 #include "third_party/blink/renderer/core/css/cascade_layer_map.h"
 #include "third_party/blink/renderer/core/css/check_pseudo_has_cache_scope.h"
 #include "third_party/blink/renderer/core/css/container_query_data.h"
@@ -53,7 +51,7 @@
 #include "third_party/blink/renderer/core/css/invalidation/invalidation_set.h"
 #include "third_party/blink/renderer/core/css/media_feature_overrides.h"
 #include "third_party/blink/renderer/core/css/media_values.h"
-#include "third_party/blink/renderer/core/css/position_fallback_data.h"
+#include "third_party/blink/renderer/core/css/out_of_flow_data.h"
 #include "third_party/blink/renderer/core/css/property_registration.h"
 #include "third_party/blink/renderer/core/css/property_registry.h"
 #include "third_party/blink/renderer/core/css/resolver/scoped_style_resolver.h"
@@ -75,7 +73,6 @@
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
 #include "third_party/blink/renderer/core/dom/layout_tree_builder_traversal.h"
-#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/nth_index_cache.h"
 #include "third_party/blink/renderer/core/dom/processing_instruction.h"
 #include "third_party/blink/renderer/core/dom/scriptable_document_parser.h"
@@ -92,12 +89,16 @@
 #include "third_party/blink/renderer/core/html/track/text_track.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
+#include "third_party/blink/renderer/core/inspector/invalidation_set_to_selector_map.h"
 #include "third_party/blink/renderer/core/layout/adjust_for_absolute_zoom.h"
 #include "third_party/blink/renderer/core/layout/geometry/logical_size.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_size.h"
+#include "third_party/blink/renderer/core/layout/layout_counter.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
+#include "third_party/blink/renderer/core/layout/list/layout_inline_list_item.h"
+#include "third_party/blink/renderer/core/layout/list/layout_list_item.h"
 #include "third_party/blink/renderer/core/loader/render_blocking_resource_manager.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/page_popup_controller.h"
@@ -115,7 +116,7 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
-#include "third_party/blink/renderer/platform/theme/web_theme_engine_helper.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
@@ -126,7 +127,7 @@ namespace {
 
 CSSFontSelector* CreateCSSFontSelectorFor(Document& document) {
   DCHECK(document.GetFrame());
-  if (UNLIKELY(document.GetFrame()->PagePopupOwner())) {
+  if (document.GetFrame()->PagePopupOwner()) [[unlikely]] {
     return PagePopupController::CreateCSSFontSelector(document);
   }
   return MakeGarbageCollected<CSSFontSelector>(document);
@@ -139,9 +140,10 @@ enum RuleSetFlags {
   kCounterStyleRules = 1 << 3,
   kLayerRules = 1 << 4,
   kFontPaletteValuesRules = 1 << 5,
-  kPositionFallbackRules = 1 << 6,
+  kPositionTryRules = 1 << 6,
   kFontFeatureValuesRules = 1 << 7,
-  kViewTransitionRules = 1 << 8
+  kViewTransitionRules = 1 << 8,
+  kFunctionRules = 1 << 9,
 };
 
 const unsigned kRuleSetFlagsAll = ~0u;
@@ -170,11 +172,14 @@ unsigned GetRuleSetFlags(const HeapHashSet<Member<RuleSet>> rule_sets) {
     if (rule_set->HasCascadeLayers()) {
       flags |= kLayerRules;
     }
-    if (!rule_set->PositionFallbackRules().empty()) {
-      flags |= kPositionFallbackRules;
+    if (!rule_set->PositionTryRules().empty()) {
+      flags |= kPositionTryRules;
     }
     if (!rule_set->ViewTransitionRules().empty()) {
       flags |= kViewTransitionRules;
+    }
+    if (!rule_set->FunctionRules().empty()) {
+      flags |= kFunctionRules;
     }
   }
   return flags;
@@ -209,38 +214,30 @@ StyleEngine::StyleEngine(Document& document)
           MakeGarbageCollected<StyleContainmentScopeTree>()),
       document_style_sheet_collection_(
           MakeGarbageCollected<DocumentStyleSheetCollection>(document)),
-      resolver_(MakeGarbageCollected<StyleResolver>(document)),
       preferred_color_scheme_(mojom::blink::PreferredColorScheme::kLight),
+      owner_preferred_color_scheme_(mojom::blink::PreferredColorScheme::kLight),
       owner_color_scheme_(mojom::blink::ColorScheme::kLight) {
   if (document.GetFrame()) {
+    resolver_ = MakeGarbageCollected<StyleResolver>(document);
     global_rule_set_ = MakeGarbageCollected<CSSGlobalRuleSet>();
     font_selector_ = CreateCSSFontSelectorFor(document);
     font_selector_->RegisterForInvalidationCallbacks(this);
-    if (const auto* owner = document.GetFrame()->Owner()) {
+    if (const FrameOwner* owner = document.GetFrame()->Owner()) {
       owner_color_scheme_ = owner->GetColorScheme();
+      owner_preferred_color_scheme_ = owner->GetPreferredColorScheme();
     }
 
     // Viewport styles are only processed in the main frame of a page with an
     // active viewport. That is, a pages that their own independently zoomable
-    // viewport: the outermost main frame and portals.
+    // viewport: the outermost main frame.
     DCHECK(document.GetPage());
     VisualViewport& viewport = document.GetPage()->GetVisualViewport();
     if (document.IsInMainFrame() && viewport.IsActiveViewport()) {
       viewport_resolver_ =
           MakeGarbageCollected<ViewportStyleResolver>(document);
     }
-
-    DCHECK(document.GetSettings());
-    preferred_color_scheme_ = document.GetSettings()->GetPreferredColorScheme();
-    force_dark_mode_enabled_ =
-        document.GetSettings()->GetForceDarkModeEnabled();
-    UpdateColorSchemeMetrics();
-
-    UpdateForcedBackgroundColor();
   }
 
-  forced_colors_ =
-      WebThemeEngineHelper::GetNativeThemeEngine()->GetForcedColors();
   UpdateColorScheme();
 
   // Mostly for the benefit of unit tests.
@@ -687,26 +684,34 @@ void StyleEngine::UpdateCounterStyles() {
   counter_styles_need_update_ = false;
 }
 
-void StyleEngine::MarkPositionFallbackStylesDirty() {
+void StyleEngine::MarkPositionTryStylesDirty(
+    const HeapHashSet<Member<RuleSet>>& changed_rule_sets) {
+  for (RuleSet* rule_set : changed_rule_sets) {
+    CHECK(rule_set);
+    for (StyleRulePositionTry* try_rule : rule_set->PositionTryRules()) {
+      if (try_rule) {
+        dirty_position_try_names_.insert(try_rule->Name());
+      }
+    }
+  }
   // TODO(crbug.com/1381623): Currently invalidating all elements in the
-  // document with a position-fallback, regardless of where the
-  // @position-fallback rules are added. In order to make invalidation more
-  // targeted we would need to add per tree-scope dirtiness, but
-  // also adding at-rules in one tree-scope may affect multiple other tree
-  // scopes through :host, ::slotted, ::part, exportparts, and inheritance.
-  // Doing that is going to be a lot more complicated.
-  position_fallback_styles_dirty_ = true;
+  // document with position-options, regardless of where the @position-try rules
+  // are added. In order to make invalidation more targeted we would need to add
+  // per tree-scope dirtiness, but also adding at-rules in one tree-scope may
+  // affect multiple other tree scopes through :host, ::slotted, ::part,
+  // exportparts, and inheritance. Doing that is going to be a lot more
+  // complicated.
+  position_try_styles_dirty_ = true;
   GetDocument().ScheduleLayoutTreeUpdateIfNeeded();
 }
 
-void StyleEngine::InvalidatePositionFallbackStyles() {
-  if (!position_fallback_styles_dirty_) {
+void StyleEngine::InvalidatePositionTryStyles() {
+  if (!position_try_styles_dirty_) {
     return;
   }
-  position_fallback_styles_dirty_ = false;
+  position_try_styles_dirty_ = false;
   const bool mark_style_dirty = true;
-  GetDocument().GetLayoutView()->InvalidateSubtreePositionFallback(
-      mark_style_dirty);
+  GetDocument().GetLayoutView()->InvalidateSubtreePositionTry(mark_style_dirty);
 }
 
 void StyleEngine::UpdateViewport() {
@@ -725,6 +730,7 @@ void StyleEngine::UpdateActiveStyle() {
   DCHECK(GetDocument().IsActive());
   DCHECK(IsMainThread());
   TRACE_EVENT0("blink", "Document::updateActiveStyle");
+  InvalidationSetToSelectorMap::StartOrStopTrackingIfNeeded(*this);
   UpdateViewport();
   UpdateActiveStyleSheets();
   UpdateGlobalRuleSet();
@@ -754,6 +760,68 @@ const ActiveStyleSheetVector StyleEngine::ActiveStyleSheetsForInspector() {
   // However, creating such a large vector might cause performance regression.
   // Need to implement some smarter solution.
   return active_style_sheets;
+}
+
+void StyleEngine::UpdateCounters() {
+  if (!CountersChanged() || !GetDocument().documentElement()) {
+    return;
+  }
+  counters_changed_ = false;
+  CountersAttachmentContext context;
+  context.SetAttachmentRootIsDocumentElement();
+  UpdateCounters(*GetDocument().documentElement(), context);
+  GetDocument().ScheduleLayoutTreeUpdateIfNeeded();
+}
+
+// Recursively look for potential LayoutCounters to update,
+// since in case of ::marker they can be deep child of original
+// pseudo element's layout object.
+void StyleEngine::UpdateLayoutCounters(const LayoutObject& layout_object,
+                                       CountersAttachmentContext& context) {
+  // Check out the parameter list ^^^
+  for (LayoutObject* child = layout_object.NextInPreOrder(&layout_object);
+       child; child = child->NextInPreOrder(&layout_object)) {
+    if (auto* layout_counter = DynamicTo<LayoutCounter>(child)) {
+      Vector<int> counter_values =
+          context.GetCounterValues(layout_object, layout_counter->Identifier(),
+                                   layout_counter->Separator().IsNull());
+      layout_counter->UpdateCounter(std::move(counter_values));
+    }
+  }
+}
+
+void StyleEngine::UpdateCounters(const Element& element,
+                                 CountersAttachmentContext& context) {
+  LayoutObject* layout_object = element.GetLayoutObject();
+  // Manually update list item ordinals here.
+  if (layout_object) {
+    context.EnterObject(*layout_object);
+    if (auto* ng_list_item = DynamicTo<LayoutListItem>(layout_object)) {
+      if (!ng_list_item->Ordinal().UseExplicitValue()) {
+        ng_list_item->Ordinal().MarkDirty();
+        ng_list_item->OrdinalValueChanged();
+      }
+    } else if (auto* inline_list_item =
+                   DynamicTo<LayoutInlineListItem>(layout_object)) {
+      if (!inline_list_item->Ordinal().UseExplicitValue()) {
+        inline_list_item->Ordinal().MarkDirty();
+        inline_list_item->OrdinalValueChanged();
+      }
+    }
+    if (element.GetComputedStyle() &&
+        !element.GetComputedStyle()->ContentBehavesAsNormal()) {
+      UpdateLayoutCounters(*layout_object, context);
+    }
+  }
+  for (Node* child = LayoutTreeBuilderTraversal::FirstChild(element); child;
+       child = LayoutTreeBuilderTraversal::NextSibling(*child)) {
+    if (Element* child_element = DynamicTo<Element>(child)) {
+      UpdateCounters(*child_element, context);
+    }
+  }
+  if (layout_object) {
+    context.LeaveObject(*layout_object);
+  }
 }
 
 void StyleEngine::ShadowRootInsertedToDocument(ShadowRoot& shadow_root) {
@@ -986,12 +1054,8 @@ CSSStyleSheet* StyleEngine::CreateSheet(
   // that keeps it alive.
   AtomicString key;
   if (text.length() >= 1024) {
-    size_t digest = FastHash(base::span<const uint8_t>(
-        reinterpret_cast<const uint8_t*>(text.Bytes()),
-        text.CharactersSizeInBytes()));
-    LChar digest_as_char[sizeof(digest)];
-    memcpy(digest_as_char, &digest, sizeof(digest));
-    key = AtomicString(digest_as_char, sizeof(digest));
+    size_t digest = FastHash(text.RawByteSpan());
+    key = AtomicString(base::byte_span_from_ref(digest));
   } else {
     key = AtomicString(text);
   }
@@ -1075,18 +1139,18 @@ void StyleEngine::MarkViewportUnitDirty(ViewportUnitFlag flag) {
 
 namespace {
 
-void SetNeedsStyleRecalcForViewportUnits(TreeScope& tree_scope,
-                                         unsigned dirty_flags) {
+template <typename Func>
+void MarkElementsForRecalc(TreeScope& tree_scope,
+                           const StyleChangeReasonForTracing& reason,
+                           Func predicate) {
   for (Element* element = ElementTraversal::FirstWithin(tree_scope.RootNode());
        element; element = ElementTraversal::NextIncludingPseudo(*element)) {
     if (ShadowRoot* root = element->GetShadowRoot()) {
-      SetNeedsStyleRecalcForViewportUnits(*root, dirty_flags);
+      MarkElementsForRecalc(*root, reason, predicate);
     }
     const ComputedStyle* style = element->GetComputedStyle();
-    if (style && (style->ViewportUnitFlags() & dirty_flags)) {
-      element->SetNeedsStyleRecalc(kLocalStyleChange,
-                                   StyleChangeReasonForTracing::Create(
-                                       style_change_reason::kViewportUnits));
+    if (style && predicate(*style)) {
+      element->SetNeedsStyleRecalc(kLocalStyleChange, reason);
     }
   }
 }
@@ -1109,7 +1173,13 @@ void StyleEngine::InvalidateViewportUnitStylesIfNeeded() {
     return;
   }
 
-  SetNeedsStyleRecalcForViewportUnits(GetDocument(), dirty_flags);
+  const auto& reason =
+      StyleChangeReasonForTracing::Create(style_change_reason::kViewportUnits);
+  MarkElementsForRecalc(
+      GetDocument(), reason, [dirty_flags](const ComputedStyle& style) {
+        return (style.ViewportUnitFlags() & dirty_flags) ||
+               style.HighlightPseudoElementStylesDependOnViewportUnits();
+      });
 }
 
 void StyleEngine::InvalidateStyleAndLayoutForFontUpdates() {
@@ -1188,7 +1258,6 @@ bool StyleEngine::ShouldSkipInvalidationFor(const Element& element) const {
     // TODO(crbug.com/1175902): This is a speculative fix for a crash.
     NOTREACHED()
         << "global_rule_set_ should only be null for inactive documents.";
-    return true;
   }
   if (GetDocument().InStyleRecalc()) {
 #if DCHECK_IS_ON()
@@ -1301,17 +1370,19 @@ void StyleEngine::InvalidateElementAffectedByHas(
     element.SetNeedsStyleRecalc(
         StyleChangeType::kLocalStyleChange,
         StyleChangeReasonForTracing::Create(
-            blink::style_change_reason::kStyleInvalidator));
+            blink::style_change_reason::kAffectedByHas));
 
-    if (GetRuleFeatureSet().UsesHasInsideNth()) {
+    if (GetRuleFeatureSet().GetRuleInvalidationData().UsesHasInsideNth()) {
       PossiblyScheduleNthPseudoInvalidations(element);
     }
   }
 
   if (element.AffectedByNonSubjectHas()) {
     InvalidationLists invalidation_lists;
-    GetRuleFeatureSet().CollectInvalidationSetsForPseudoClass(
-        invalidation_lists, element, CSSSelector::kPseudoHas);
+    GetRuleFeatureSet()
+        .GetRuleInvalidationData()
+        .CollectInvalidationSetsForPseudoClass(invalidation_lists, element,
+                                               CSSSelector::kPseudoHas);
     pending_invalidations_.ScheduleInvalidationSetsForNode(invalidation_lists,
                                                            element);
   }
@@ -1330,6 +1401,13 @@ class StyleEngine::PseudoHasInvalidationTraversalContext {
 
  public:
   Element* FirstElement() const { return first_element_; }
+
+  // Returns true if the traversal starts at the shadow host for an
+  // insertion/removal at a shadow root. In that case we only need to
+  // invalidate for that host.
+  bool IsFirstElementShadowHost() const {
+    return is_first_element_shadow_host_;
+  }
 
   bool TraverseToParentOfFirstElement() const {
     return traverse_to_parent_of_first_element_;
@@ -1351,49 +1429,85 @@ class StyleEngine::PseudoHasInvalidationTraversalContext {
     bool traverse_ancestors =
         changed_element.AncestorsOrAncestorSiblingsAffectedByHas();
 
-    Element* parent =
-        traverse_ancestors ? changed_element.parentElement() : nullptr;
+    Element* first_element = nullptr;
+    bool is_first_element_shadow_host = false;
+    if (traverse_ancestors) {
+      first_element = changed_element.parentElement();
+      if (!first_element) {
+        first_element = changed_element.ParentOrShadowHostElement();
+        is_first_element_shadow_host = first_element;
+      }
+    }
+
     Element* previous_sibling =
         changed_element.GetSiblingsAffectedByHasFlags()
             ? ElementTraversal::PreviousSibling(changed_element)
             : nullptr;
+    if (previous_sibling) {
+      first_element = previous_sibling;
+      is_first_element_shadow_host = false;
+    }
 
     return PseudoHasInvalidationTraversalContext(
-        previous_sibling ? previous_sibling : parent, traverse_ancestors);
+        first_element, is_first_element_shadow_host, traverse_ancestors);
   }
 
   // Create :has() invalidation traversal context for element or subtree
   // insertion.
   static PseudoHasInvalidationTraversalContext ForInsertion(
-      Element* parent,
+      Element* parent_or_shadow_host,
+      bool insert_shadow_root_child,
       Element* previous_sibling) {
-    bool traverse_ancestors =
-        parent ? parent->AncestorsOrAncestorSiblingsAffectedByHas() : false;
+    Element* first_element = parent_or_shadow_host;
+    bool is_first_element_shadow_host = false;
+    bool traverse_ancestors = false;
+
+    if (first_element) {
+      traverse_ancestors =
+          first_element->AncestorsOrAncestorSiblingsAffectedByHas();
+      is_first_element_shadow_host = insert_shadow_root_child;
+    }
+
+    if (previous_sibling) {
+      first_element = previous_sibling;
+      is_first_element_shadow_host = false;
+    }
 
     return PseudoHasInvalidationTraversalContext(
-        previous_sibling ? previous_sibling : parent, traverse_ancestors);
+        first_element, is_first_element_shadow_host, traverse_ancestors);
   }
 
   // Create :has() invalidation traversal context for element or subtree
   // removal. In case of subtree removal, the subtree root element will be
   // passed through the 'removed_element'.
   static PseudoHasInvalidationTraversalContext ForRemoval(
-      Element* parent,
+      Element* parent_or_shadow_host,
+      bool remove_shadow_root_child,
       Element* previous_sibling,
       Element& removed_element) {
+    Element* first_element = nullptr;
+    bool is_first_element_shadow_host = false;
+
     bool traverse_ancestors =
         removed_element.AncestorsOrAncestorSiblingsAffectedByHas();
-
-    if (!traverse_ancestors) {
-      parent = nullptr;
+    if (traverse_ancestors) {
+      first_element = parent_or_shadow_host;
+      if (first_element) {
+        is_first_element_shadow_host = remove_shadow_root_child;
+      }
     }
 
     if (!removed_element.GetSiblingsAffectedByHasFlags()) {
       previous_sibling = nullptr;
     }
 
+    if (previous_sibling) {
+      first_element = previous_sibling;
+      is_first_element_shadow_host = false;
+    }
+
     return PseudoHasInvalidationTraversalContext(
-        previous_sibling ? previous_sibling : parent, traverse_ancestors);
+        first_element, is_first_element_shadow_host, traverse_ancestors);
   }
 
   // Create :has() invalidation traversal context for removing all children of
@@ -1401,19 +1515,24 @@ class StyleEngine::PseudoHasInvalidationTraversalContext {
   static PseudoHasInvalidationTraversalContext ForAllChildrenRemoved(
       Element& parent) {
     return PseudoHasInvalidationTraversalContext(
-        &parent, parent.AncestorsOrAncestorSiblingsAffectedByHas());
+        &parent, /* is_first_element_shadow_host */ false,
+        parent.AncestorsOrAncestorSiblingsAffectedByHas());
   }
 
  private:
   PseudoHasInvalidationTraversalContext(
       Element* first_element,
+      bool is_first_element_shadow_host,
       bool traverse_to_parent_of_first_element)
       : first_element_(first_element),
+        is_first_element_shadow_host_(is_first_element_shadow_host),
         traverse_to_parent_of_first_element_(
             traverse_to_parent_of_first_element) {}
 
   // The first element of the :has() invalidation traversal.
   Element* first_element_;
+
+  bool is_first_element_shadow_host_;
 
   // This flag indicates whether the :has() invalidation traversal moves to the
   // parent of the first element or not.
@@ -1439,6 +1558,11 @@ void StyleEngine::InvalidateAncestorsOrSiblingsAffectedByHas(
   Element* element = traversal_context.FirstElement();
   bool for_element_affected_by_pseudo_in_has =
       traversal_context.ForElementAffectedByPseudoInHas();
+  Element* shadow_host = nullptr;
+  if (traversal_context.IsFirstElementShadowHost()) {
+    shadow_host = element;
+    element = nullptr;
+  }
 
   while (element) {
     traverse_to_parent |= element->AncestorsOrAncestorSiblingsAffectedByHas();
@@ -1458,8 +1582,18 @@ void StyleEngine::InvalidateAncestorsOrSiblingsAffectedByHas(
       return;
     }
 
-    element = element->parentElement();
+    if (Element* parent = element->parentElement()) {
+      element = parent;
+    } else {
+      shadow_host = element->ParentOrShadowHostElement();
+      element = nullptr;
+    }
     traverse_to_parent = false;
+  }
+
+  if (shadow_host) {
+    InvalidateElementAffectedByHas(*shadow_host,
+                                   for_element_affected_by_pseudo_in_has);
   }
 }
 
@@ -1480,13 +1614,13 @@ void StyleEngine::ClassChangedForElement(
     return;
   }
 
-  const RuleFeatureSet& features = GetRuleFeatureSet();
+  const RuleInvalidationData& rule_invalidation_data =
+      GetRuleFeatureSet().GetRuleInvalidationData();
 
-  if (features.NeedsHasInvalidationForClassChange() &&
+  if (rule_invalidation_data.NeedsHasInvalidationForClassChange() &&
       PossiblyAffectingHasState(element)) {
-    unsigned changed_size = changed_classes.size();
-    for (unsigned i = 0; i < changed_size; ++i) {
-      if (features.NeedsHasInvalidationForClass(changed_classes[i])) {
+    for (const AtomicString& changed_class : changed_classes) {
+      if (rule_invalidation_data.NeedsHasInvalidationForClass(changed_class)) {
         InvalidateChangedElementAffectedByLogicalCombinationsInHas(
             element, /* for_element_affected_by_pseudo_in_has */ false);
         InvalidateAncestorsOrSiblingsAffectedByHas(
@@ -1502,10 +1636,9 @@ void StyleEngine::ClassChangedForElement(
   }
 
   InvalidationLists invalidation_lists;
-  unsigned changed_size = changed_classes.size();
-  for (unsigned i = 0; i < changed_size; ++i) {
-    features.CollectInvalidationSetsForClass(invalidation_lists, element,
-                                             changed_classes[i]);
+  for (const AtomicString& changed_class : changed_classes) {
+    rule_invalidation_data.CollectInvalidationSetsForClass(
+        invalidation_lists, element, changed_class);
   }
   pending_invalidations_.ScheduleInvalidationSetsForNode(invalidation_lists,
                                                          element);
@@ -1523,11 +1656,12 @@ void StyleEngine::ClassChangedForElement(const SpaceSplitString& old_classes,
     return;
   }
 
-  const RuleFeatureSet& features = GetRuleFeatureSet();
+  const RuleInvalidationData& rule_invalidation_data =
+      GetRuleFeatureSet().GetRuleInvalidationData();
 
   bool needs_schedule_invalidation = !IsSubtreeAndSiblingsStyleDirty(element);
   bool possibly_affecting_has_state =
-      features.NeedsHasInvalidationForClassChange() &&
+      rule_invalidation_data.NeedsHasInvalidationForClassChange() &&
       PossiblyAffectingHasState(element);
   if (!needs_schedule_invalidation && !possibly_affecting_has_state) {
     return;
@@ -1540,25 +1674,25 @@ void StyleEngine::ClassChangedForElement(const SpaceSplitString& old_classes,
   InvalidationLists invalidation_lists;
   bool affecting_has_state = false;
 
-  for (unsigned i = 0; i < new_classes.size(); ++i) {
+  for (const AtomicString& new_class : new_classes) {
     bool found = false;
-    for (unsigned j = 0; j < old_classes.size(); ++j) {
-      if (new_classes[i] == old_classes[j]) {
+    for (unsigned i = 0; i < old_classes.size(); ++i) {
+      if (new_class == old_classes[i]) {
         // Mark each class that is still in the newClasses so we can skip doing
         // an n^2 search below when looking for removals. We can't break from
         // this loop early since a class can appear more than once.
-        remaining_class_bits[j] = true;
+        remaining_class_bits[i] = true;
         found = true;
       }
     }
     // Class was added.
     if (!found) {
-      if (LIKELY(needs_schedule_invalidation)) {
-        features.CollectInvalidationSetsForClass(invalidation_lists, element,
-                                                 new_classes[i]);
+      if (needs_schedule_invalidation) [[likely]] {
+        rule_invalidation_data.CollectInvalidationSetsForClass(
+            invalidation_lists, element, new_class);
       }
-      if (UNLIKELY(possibly_affecting_has_state)) {
-        if (features.NeedsHasInvalidationForClass(new_classes[i])) {
+      if (possibly_affecting_has_state) [[unlikely]] {
+        if (rule_invalidation_data.NeedsHasInvalidationForClass(new_class)) {
           affecting_has_state = true;
           possibly_affecting_has_state = false;  // Clear to skip check
         }
@@ -1571,12 +1705,12 @@ void StyleEngine::ClassChangedForElement(const SpaceSplitString& old_classes,
       continue;
     }
     // Class was removed.
-    if (LIKELY(needs_schedule_invalidation)) {
-      features.CollectInvalidationSetsForClass(invalidation_lists, element,
-                                               old_classes[i]);
+    if (needs_schedule_invalidation) [[likely]] {
+      rule_invalidation_data.CollectInvalidationSetsForClass(
+          invalidation_lists, element, old_classes[i]);
     }
-    if (UNLIKELY(possibly_affecting_has_state)) {
-      if (features.NeedsHasInvalidationForClass(old_classes[i])) {
+    if (possibly_affecting_has_state) [[unlikely]] {
+      if (rule_invalidation_data.NeedsHasInvalidationForClass(old_classes[i])) {
         affecting_has_state = true;
         possibly_affecting_has_state = false;  // Clear to skip check
       }
@@ -1599,19 +1733,31 @@ void StyleEngine::ClassChangedForElement(const SpaceSplitString& old_classes,
 namespace {
 
 bool HasAttributeDependentGeneratedContent(const Element& element) {
-  if (PseudoElement* before = element.GetPseudoElement(kPseudoIdBefore)) {
-    const ComputedStyle* style = before->GetComputedStyle();
-    if (style && style->HasAttrContent()) {
-      return true;
+  DCHECK(!RuntimeEnabledFeatures::CSSAdvancedAttrFunctionEnabled());
+
+  const auto HasAttrFunc = [](PseudoElement* pseudo_element) {
+    if (!pseudo_element) {
+      return false;
     }
+
+    const ComputedStyle* style = pseudo_element->GetComputedStyle();
+    return style && style->HasAttrFunction();
+  };
+
+  return HasAttrFunc(element.GetPseudoElement(kPseudoIdCheckMark)) ||
+         HasAttrFunc(element.GetPseudoElement(kPseudoIdBefore)) ||
+         HasAttrFunc(element.GetPseudoElement(kPseudoIdAfter)) ||
+         HasAttrFunc(element.GetPseudoElement(kPseudoIdSelectArrow)) ||
+         HasAttrFunc(element.GetPseudoElement(kPseudoIdScrollMarker));
+}
+
+bool HasAttributeDependentStyle(const Element& element) {
+  DCHECK(RuntimeEnabledFeatures::CSSAdvancedAttrFunctionEnabled());
+  const ComputedStyle* style = element.GetComputedStyle();
+  if (style && style->HasAttrFunction()) {
+    return true;
   }
-  if (PseudoElement* after = element.GetPseudoElement(kPseudoIdAfter)) {
-    const ComputedStyle* style = after->GetComputedStyle();
-    if (style && style->HasAttrContent()) {
-      return true;
-    }
-  }
-  return false;
+  return element.PseudoElementStylesDependOnAttr();
 }
 
 }  // namespace
@@ -1623,11 +1769,13 @@ void StyleEngine::AttributeChangedForElement(
     return;
   }
 
-  const RuleFeatureSet& features = GetRuleFeatureSet();
+  const RuleInvalidationData& rule_invalidation_data =
+      GetRuleFeatureSet().GetRuleInvalidationData();
 
-  if (features.NeedsHasInvalidationForAttributeChange() &&
+  if (rule_invalidation_data.NeedsHasInvalidationForAttributeChange() &&
       PossiblyAffectingHasState(element)) {
-    if (features.NeedsHasInvalidationForAttribute(attribute_name)) {
+    if (rule_invalidation_data.NeedsHasInvalidationForAttribute(
+            attribute_name)) {
       InvalidateChangedElementAffectedByLogicalCombinationsInHas(
           element, /* for_element_affected_by_pseudo_in_has */ false);
       InvalidateAncestorsOrSiblingsAffectedByHas(
@@ -1641,16 +1789,21 @@ void StyleEngine::AttributeChangedForElement(
   }
 
   InvalidationLists invalidation_lists;
-  features.CollectInvalidationSetsForAttribute(invalidation_lists, element,
-                                               attribute_name);
+  rule_invalidation_data.CollectInvalidationSetsForAttribute(
+      invalidation_lists, element, attribute_name);
   pending_invalidations_.ScheduleInvalidationSetsForNode(invalidation_lists,
                                                          element);
 
-  if (!element.NeedsStyleRecalc() &&
-      HasAttributeDependentGeneratedContent(element)) {
-    element.SetNeedsStyleRecalc(
-        kLocalStyleChange,
-        StyleChangeReasonForTracing::FromAttribute(attribute_name));
+  if (!element.NeedsStyleRecalc()) {
+    bool attr_dependent =
+        RuntimeEnabledFeatures::CSSAdvancedAttrFunctionEnabled()
+            ? HasAttributeDependentStyle(element)
+            : HasAttributeDependentGeneratedContent(element);
+    if (attr_dependent) {
+      element.SetNeedsStyleRecalc(
+          kLocalStyleChange,
+          StyleChangeReasonForTracing::FromAttribute(attribute_name));
+    }
   }
 }
 
@@ -1661,12 +1814,15 @@ void StyleEngine::IdChangedForElement(const AtomicString& old_id,
     return;
   }
 
-  const RuleFeatureSet& features = GetRuleFeatureSet();
+  const RuleInvalidationData& rule_invalidation_data =
+      GetRuleFeatureSet().GetRuleInvalidationData();
 
-  if (features.NeedsHasInvalidationForIdChange() &&
+  if (rule_invalidation_data.NeedsHasInvalidationForIdChange() &&
       PossiblyAffectingHasState(element)) {
-    if ((!old_id.empty() && features.NeedsHasInvalidationForId(old_id)) ||
-        (!new_id.empty() && features.NeedsHasInvalidationForId(new_id))) {
+    if ((!old_id.empty() &&
+         rule_invalidation_data.NeedsHasInvalidationForId(old_id)) ||
+        (!new_id.empty() &&
+         rule_invalidation_data.NeedsHasInvalidationForId(new_id))) {
       InvalidateChangedElementAffectedByLogicalCombinationsInHas(
           element, /* for_element_affected_by_pseudo_in_has */ false);
       InvalidateAncestorsOrSiblingsAffectedByHas(
@@ -1681,10 +1837,12 @@ void StyleEngine::IdChangedForElement(const AtomicString& old_id,
 
   InvalidationLists invalidation_lists;
   if (!old_id.empty()) {
-    features.CollectInvalidationSetsForId(invalidation_lists, element, old_id);
+    rule_invalidation_data.CollectInvalidationSetsForId(invalidation_lists,
+                                                        element, old_id);
   }
   if (!new_id.empty()) {
-    features.CollectInvalidationSetsForId(invalidation_lists, element, new_id);
+    rule_invalidation_data.CollectInvalidationSetsForId(invalidation_lists,
+                                                        element, new_id);
   }
   pending_invalidations_.ScheduleInvalidationSetsForNode(invalidation_lists,
                                                          element);
@@ -1702,12 +1860,14 @@ void StyleEngine::PseudoStateChangedForElement(
     return;
   }
 
-  const RuleFeatureSet& features = GetRuleFeatureSet();
+  const RuleInvalidationData& rule_invalidation_data =
+      GetRuleFeatureSet().GetRuleInvalidationData();
 
   if (invalidate_ancestors_or_siblings &&
-      features.NeedsHasInvalidationForPseudoStateChange() &&
+      rule_invalidation_data.NeedsHasInvalidationForPseudoStateChange() &&
       PossiblyAffectingHasState(element)) {
-    if (features.NeedsHasInvalidationForPseudoClass(pseudo_type)) {
+    if (rule_invalidation_data.NeedsHasInvalidationForPseudoClass(
+            pseudo_type)) {
       InvalidateChangedElementAffectedByLogicalCombinationsInHas(
           element, /* for_element_affected_by_pseudo_in_has */ true);
       InvalidateAncestorsOrSiblingsAffectedByHas(
@@ -1723,8 +1883,8 @@ void StyleEngine::PseudoStateChangedForElement(
   }
 
   InvalidationLists invalidation_lists;
-  features.CollectInvalidationSetsForPseudoClass(invalidation_lists, element,
-                                                 pseudo_type);
+  rule_invalidation_data.CollectInvalidationSetsForPseudoClass(
+      invalidation_lists, element, pseudo_type);
   pending_invalidations_.ScheduleInvalidationSetsForNode(invalidation_lists,
                                                          element);
 }
@@ -1739,7 +1899,7 @@ void StyleEngine::PartChangedForElement(Element& element) {
   if (element.GetTreeScope() == document_) {
     return;
   }
-  if (!GetRuleFeatureSet().InvalidatesParts()) {
+  if (!GetRuleFeatureSet().GetRuleInvalidationData().InvalidatesParts()) {
     return;
   }
   element.SetNeedsStyleRecalc(
@@ -1759,7 +1919,8 @@ void StyleEngine::ExportpartsChangedForElement(Element& element) {
   }
 
   InvalidationLists invalidation_lists;
-  GetRuleFeatureSet().CollectPartInvalidationSet(invalidation_lists);
+  GetRuleFeatureSet().GetRuleInvalidationData().CollectPartInvalidationSet(
+      invalidation_lists);
   pending_invalidations_.ScheduleInvalidationSetsForNode(invalidation_lists,
                                                          element);
 }
@@ -1772,29 +1933,30 @@ void StyleEngine::ScheduleSiblingInvalidationsForElement(
 
   InvalidationLists invalidation_lists;
 
-  const RuleFeatureSet& features = GetRuleFeatureSet();
+  const RuleInvalidationData& rule_invalidation_data =
+      GetRuleFeatureSet().GetRuleInvalidationData();
 
   if (element.HasID()) {
-    features.CollectSiblingInvalidationSetForId(invalidation_lists, element,
-                                                element.IdForStyleResolution(),
-                                                min_direct_adjacent);
+    rule_invalidation_data.CollectSiblingInvalidationSetForId(
+        invalidation_lists, element, element.IdForStyleResolution(),
+        min_direct_adjacent);
   }
 
   if (element.HasClass()) {
     const SpaceSplitString& class_names = element.ClassNames();
-    for (wtf_size_t i = 0; i < class_names.size(); i++) {
-      features.CollectSiblingInvalidationSetForClass(
-          invalidation_lists, element, class_names[i], min_direct_adjacent);
+    for (const AtomicString& class_name : class_names) {
+      rule_invalidation_data.CollectSiblingInvalidationSetForClass(
+          invalidation_lists, element, class_name, min_direct_adjacent);
     }
   }
 
   for (const Attribute& attribute : element.Attributes()) {
-    features.CollectSiblingInvalidationSetForAttribute(
+    rule_invalidation_data.CollectSiblingInvalidationSetForAttribute(
         invalidation_lists, element, attribute.GetName(), min_direct_adjacent);
   }
 
-  features.CollectUniversalSiblingInvalidationSet(invalidation_lists,
-                                                  min_direct_adjacent);
+  rule_invalidation_data.CollectUniversalSiblingInvalidationSet(
+      invalidation_lists, min_direct_adjacent);
 
   pending_invalidations_.ScheduleSiblingInvalidationsAsDescendants(
       invalidation_lists, scheduling_parent);
@@ -1852,7 +2014,8 @@ void StyleEngine::ScheduleInvalidationsForRemovedSibling(
 
 void StyleEngine::ScheduleNthPseudoInvalidations(ContainerNode& nth_parent) {
   InvalidationLists invalidation_lists;
-  GetRuleFeatureSet().CollectNthInvalidationSet(invalidation_lists);
+  GetRuleFeatureSet().GetRuleInvalidationData().CollectNthInvalidationSet(
+      invalidation_lists);
   pending_invalidations_.ScheduleInvalidationSetsForNode(invalidation_lists,
                                                          nth_parent);
 }
@@ -1870,8 +2033,7 @@ static bool FlagsCauseInvalidation(const MatchResult& result) {
   return result.HasFlag(MatchFlag::kAffectedByDrag) ||
          result.HasFlag(MatchFlag::kAffectedByFocusWithin) ||
          result.HasFlag(MatchFlag::kAffectedByHover) ||
-         result.HasFlag(MatchFlag::kAffectedByActive) ||
-         result.HasFlag(MatchFlag::kAffectedByActiveViewTransition);
+         result.HasFlag(MatchFlag::kAffectedByActive);
 }
 
 static bool AnyRuleCausesInvalidation(const MatchRequest& match_request,
@@ -1908,7 +2070,19 @@ void StyleEngine::ApplyRuleSetInvalidationForElement(
     SelectorFilter& selector_filter,
     StyleScopeFrame& style_scope_frame,
     const HeapHashSet<Member<RuleSet>>& rule_sets,
+    unsigned changed_rule_flags,
     bool is_shadow_host) {
+  if ((changed_rule_flags & kFunctionRules) && element.GetComputedStyle() &&
+      element.GetComputedStyle()->AffectedByCSSFunction()) {
+    // If @function rules have changed, and the style is (was) using a function,
+    // we invalidate it unconditionally. We currently do not attempt
+    // finer-grained invalidation, since it would also require tracking which
+    // functions call other functions on some level.
+    element.SetNeedsStyleRecalc(kLocalStyleChange,
+                                StyleChangeReasonForTracing::Create(
+                                    style_change_reason::kFunctionRuleChange));
+    return;
+  }
   ElementResolveContext element_resolve_context(element);
   MatchResult match_result;
   EInsideLink inside_link =
@@ -1942,7 +2116,7 @@ void StyleEngine::ApplyRuleSetInvalidationForElement(
   if (matched_any) {
     element.SetNeedsStyleRecalc(kLocalStyleChange,
                                 StyleChangeReasonForTracing::Create(
-                                    style_change_reason::kStyleInvalidator));
+                                    style_change_reason::kStyleRuleChange));
   }
 }
 
@@ -1960,25 +2134,52 @@ void StyleEngine::ScheduleCustomElementInvalidations(
                                                          *document_);
 }
 
-void StyleEngine::ScheduleInvalidationsForHasPseudoAffectedByInsertion(
-    Element* parent,
+void StyleEngine::ScheduleInvalidationsForHasPseudoAffectedByInsertionOrRemoval(
+    ContainerNode* parent,
     Node* node_before_change,
-    Element& inserted_element) {
-  if (!parent) {
+    Element& changed_element,
+    bool removal) {
+  Element* parent_or_shadow_host = nullptr;
+  bool insert_or_remove_shadow_root_child = false;
+  if (Element* element = DynamicTo<Element>(parent)) {
+    parent_or_shadow_host = element;
+  } else if (ShadowRoot* shadow_root = DynamicTo<ShadowRoot>(parent)) {
+    parent_or_shadow_host = &shadow_root->host();
+    insert_or_remove_shadow_root_child = true;
+  }
+
+  if (!parent_or_shadow_host) {
     return;
   }
 
-  if (ShouldSkipInvalidationFor(*parent)) {
+  if (ShouldSkipInvalidationFor(*parent_or_shadow_host)) {
     return;
   }
 
-  const RuleFeatureSet& features = GetRuleFeatureSet();
-  if (!features.NeedsHasInvalidationForInsertionOrRemoval()) {
+  if (!GetRuleFeatureSet()
+           .GetRuleInvalidationData()
+           .NeedsHasInvalidationForInsertionOrRemoval()) {
     return;
   }
 
   Element* previous_sibling = SelfOrPreviousSibling(node_before_change);
 
+  if (removal) {
+    ScheduleInvalidationsForHasPseudoAffectedByRemoval(
+        parent_or_shadow_host, previous_sibling, changed_element,
+        insert_or_remove_shadow_root_child);
+  } else {
+    ScheduleInvalidationsForHasPseudoAffectedByInsertion(
+        parent_or_shadow_host, previous_sibling, changed_element,
+        insert_or_remove_shadow_root_child);
+  }
+}
+
+void StyleEngine::ScheduleInvalidationsForHasPseudoAffectedByInsertion(
+    Element* parent_or_shadow_host,
+    Element* previous_sibling,
+    Element& inserted_element,
+    bool insert_shadow_root_child) {
   bool possibly_affecting_has_state = false;
   bool descendants_possibly_affecting_has_state = false;
 
@@ -1992,7 +2193,7 @@ void StyleEngine::ScheduleInvalidationsForHasPseudoAffectedByInsertion(
             SiblingsAffectedByHasFlags::kFlagForSiblingDescendantRelationship);
   }
   if (InsertionOrRemovalPossiblyAffectHasStateOfAncestorsOrAncestorSiblings(
-          parent)) {
+          parent_or_shadow_host)) {
     inserted_element.SetAncestorsOrAncestorSiblingsAffectedByHas();
     possibly_affecting_has_state = true;
     descendants_possibly_affecting_has_state = true;
@@ -2002,15 +2203,18 @@ void StyleEngine::ScheduleInvalidationsForHasPseudoAffectedByInsertion(
     return;  // Inserted subtree will not affect :has() state
   }
 
+  const RuleInvalidationData& rule_invalidation_data =
+      GetRuleFeatureSet().GetRuleInvalidationData();
+
   // Always schedule :has() invalidation if the inserted element may affect
   // a match result of a compound after direct adjacent combinator by changing
   // sibling order. (e.g. When we have a style rule '.a:has(+ .b) {}', we always
   // need :has() invalidation if any element is inserted before '.b')
   bool needs_has_invalidation_for_inserted_subtree =
-      parent->ChildrenAffectedByDirectAdjacentRules();
+      parent_or_shadow_host->ChildrenAffectedByDirectAdjacentRules();
 
   if (!needs_has_invalidation_for_inserted_subtree &&
-      features.NeedsHasInvalidationForInsertedOrRemovedElement(
+      rule_invalidation_data.NeedsHasInvalidationForInsertedOrRemovedElement(
           inserted_element)) {
     needs_has_invalidation_for_inserted_subtree = true;
   }
@@ -2021,7 +2225,8 @@ void StyleEngine::ScheduleInvalidationsForHasPseudoAffectedByInsertion(
     for (Element& element : ElementTraversal::DescendantsOf(inserted_element)) {
       element.SetAncestorsOrAncestorSiblingsAffectedByHas();
       if (!needs_has_invalidation_for_inserted_subtree &&
-          features.NeedsHasInvalidationForInsertedOrRemovedElement(element)) {
+          rule_invalidation_data
+              .NeedsHasInvalidationForInsertedOrRemovedElement(element)) {
         needs_has_invalidation_for_inserted_subtree = true;
       }
     }
@@ -2029,40 +2234,26 @@ void StyleEngine::ScheduleInvalidationsForHasPseudoAffectedByInsertion(
 
   if (needs_has_invalidation_for_inserted_subtree) {
     InvalidateAncestorsOrSiblingsAffectedByHas(
-        PseudoHasInvalidationTraversalContext::ForInsertion(parent,
-                                                            previous_sibling));
+        PseudoHasInvalidationTraversalContext::ForInsertion(
+            parent_or_shadow_host, insert_shadow_root_child, previous_sibling));
     return;
   }
 
-  if (features.NeedsHasInvalidationForPseudoStateChange()) {
+  if (rule_invalidation_data.NeedsHasInvalidationForPseudoStateChange()) {
     InvalidateAncestorsOrSiblingsAffectedByHas(
-        PseudoHasInvalidationTraversalContext::ForInsertion(parent,
-                                                            previous_sibling)
+        PseudoHasInvalidationTraversalContext::ForInsertion(
+            parent_or_shadow_host, insert_shadow_root_child, previous_sibling)
             .SetForElementAffectedByPseudoInHas());
   }
 }
 
 void StyleEngine::ScheduleInvalidationsForHasPseudoAffectedByRemoval(
-    Element* parent,
-    Node* node_before_change,
-    Element& removed_element) {
-  if (!parent) {
-    return;
-  }
-
-  if (ShouldSkipInvalidationFor(*parent)) {
-    return;
-  }
-
-  const RuleFeatureSet& features = GetRuleFeatureSet();
-  if (!features.NeedsHasInvalidationForInsertionOrRemoval()) {
-    return;
-  }
-
-  Element* previous_sibling = SelfOrPreviousSibling(node_before_change);
-
+    Element* parent_or_shadow_host,
+    Element* previous_sibling,
+    Element& removed_element,
+    bool remove_shadow_root_child) {
   if (!InsertionOrRemovalPossiblyAffectHasStateOfAncestorsOrAncestorSiblings(
-          parent) &&
+          parent_or_shadow_host) &&
       !InsertionOrRemovalPossiblyAffectHasStateOfPreviousSiblings(
           previous_sibling)) {
     // Removed element will not affect :has() state
@@ -2073,27 +2264,34 @@ void StyleEngine::ScheduleInvalidationsForHasPseudoAffectedByRemoval(
   // a match result of a compound after direct adjacent combinator by changing
   // sibling order. (e.g. When we have a style rule '.a:has(+ .b) {}', we always
   // need :has() invalidation if the preceding element of '.b' is removed)
-  if (parent->ChildrenAffectedByDirectAdjacentRules()) {
+  if (parent_or_shadow_host->ChildrenAffectedByDirectAdjacentRules()) {
     InvalidateAncestorsOrSiblingsAffectedByHas(
         PseudoHasInvalidationTraversalContext::ForRemoval(
-            parent, previous_sibling, removed_element));
+            parent_or_shadow_host, remove_shadow_root_child, previous_sibling,
+            removed_element));
     return;
   }
 
+  const RuleInvalidationData& rule_invalidation_data =
+      GetRuleFeatureSet().GetRuleInvalidationData();
+
   for (Element& element :
        ElementTraversal::InclusiveDescendantsOf(removed_element)) {
-    if (features.NeedsHasInvalidationForInsertedOrRemovedElement(element)) {
+    if (rule_invalidation_data.NeedsHasInvalidationForInsertedOrRemovedElement(
+            element)) {
       InvalidateAncestorsOrSiblingsAffectedByHas(
           PseudoHasInvalidationTraversalContext::ForRemoval(
-              parent, previous_sibling, removed_element));
+              parent_or_shadow_host, remove_shadow_root_child, previous_sibling,
+              removed_element));
       return;
     }
   }
 
-  if (features.NeedsHasInvalidationForPseudoStateChange()) {
+  if (rule_invalidation_data.NeedsHasInvalidationForPseudoStateChange()) {
     InvalidateAncestorsOrSiblingsAffectedByHas(
         PseudoHasInvalidationTraversalContext::ForRemoval(
-            parent, previous_sibling, removed_element)
+            parent_or_shadow_host, remove_shadow_root_child, previous_sibling,
+            removed_element)
             .SetForElementAffectedByPseudoInHas());
   }
 }
@@ -2104,8 +2302,9 @@ void StyleEngine::ScheduleInvalidationsForHasPseudoWhenAllChildrenRemoved(
     return;
   }
 
-  const RuleFeatureSet& features = GetRuleFeatureSet();
-  if (!features.NeedsHasInvalidationForInsertionOrRemoval()) {
+  const RuleInvalidationData& rule_invalidation_data =
+      GetRuleFeatureSet().GetRuleInvalidationData();
+  if (!rule_invalidation_data.NeedsHasInvalidationForInsertionOrRemoval()) {
     return;
   }
 
@@ -2128,12 +2327,12 @@ void StyleEngine::InvalidateStyle() {
   style_invalidation_root_.Clear();
 }
 
-void StyleEngine::InvalidateSlottedElements(HTMLSlotElement& slot) {
+void StyleEngine::InvalidateSlottedElements(
+    HTMLSlotElement& slot,
+    const StyleChangeReasonForTracing& reason) {
   for (auto& node : slot.FlattenedAssignedNodes()) {
     if (node->IsElementNode()) {
-      node->SetNeedsStyleRecalc(kLocalStyleChange,
-                                StyleChangeReasonForTracing::Create(
-                                    style_change_reason::kStyleSheetChange));
+      node->SetNeedsStyleRecalc(kLocalStyleChange, reason);
     }
   }
 }
@@ -2172,6 +2371,7 @@ void StyleEngine::ApplyRuleSetInvalidationForTreeScope(
     SelectorFilter& selector_filter,
     StyleScopeFrame& style_scope_frame,
     const HeapHashSet<Member<RuleSet>>& rule_sets,
+    unsigned changed_rule_flags,
     InvalidationScope invalidation_scope) {
   TRACE_EVENT0("blink,blink_style",
                "StyleEngine::scheduleInvalidationsForRuleSets");
@@ -2186,6 +2386,7 @@ void StyleEngine::ApplyRuleSetInvalidationForTreeScope(
     selector_filter.PopParent(host);
     ApplyRuleSetInvalidationForElement(tree_scope, host, selector_filter,
                                        style_scope_frame, rule_sets,
+                                       changed_rule_flags,
                                        /*is_shadow_host=*/true);
     selector_filter.PushParent(host);
     if (host.GetStyleChangeType() == kSubtreeStyleChange) {
@@ -2225,7 +2426,8 @@ void StyleEngine::ApplyRuleSetInvalidationForTreeScope(
     ApplyRuleSetInvalidationForSubtree(
         tree_scope, child, selector_filter,
         /* parent_style_scope_frame */ style_scope_frame, rule_sets,
-        invalidation_scope, invalidate_slotted, invalidate_part);
+        changed_rule_flags, invalidation_scope, invalidate_slotted,
+        invalidate_part);
   }
 }
 
@@ -2235,6 +2437,7 @@ void StyleEngine::ApplyRuleSetInvalidationForSubtree(
     SelectorFilter& selector_filter,
     StyleScopeFrame& parent_style_scope_frame,
     const HeapHashSet<Member<RuleSet>>& rule_sets,
+    unsigned changed_rule_flags,
     InvalidationScope invalidation_scope,
     bool invalidate_slotted,
     bool invalidate_part) {
@@ -2246,16 +2449,19 @@ void StyleEngine::ApplyRuleSetInvalidationForSubtree(
     // attribute, just invalidate it.
     element.SetNeedsStyleRecalc(kLocalStyleChange,
                                 StyleChangeReasonForTracing::Create(
-                                    style_change_reason::kStyleInvalidator));
+                                    style_change_reason::kStyleRuleChange));
   } else {
     ApplyRuleSetInvalidationForElement(tree_scope, element, selector_filter,
                                        style_scope_frame, rule_sets,
+                                       changed_rule_flags,
                                        /*is_shadow_host=*/false);
   }
 
   auto* html_slot_element = DynamicTo<HTMLSlotElement>(element);
   if (html_slot_element && invalidate_slotted) {
-    InvalidateSlottedElements(*html_slot_element);
+    InvalidateSlottedElements(*html_slot_element,
+                              StyleChangeReasonForTracing::Create(
+                                  style_change_reason::kStyleRuleChange));
   }
 
   if (invalidation_scope == kInvalidateAllScopes) {
@@ -2281,7 +2487,8 @@ void StyleEngine::ApplyRuleSetInvalidationForSubtree(
       ApplyRuleSetInvalidationForSubtree(
           tree_scope, child, selector_filter,
           /* parent_style_scope_frame */ style_scope_frame, rule_sets,
-          invalidation_scope, invalidate_slotted, invalidate_part);
+          changed_rule_flags, invalidation_scope, invalidate_slotted,
+          invalidate_part);
     }
 
     selector_filter.PopParent(element);
@@ -2377,7 +2584,9 @@ void StyleEngine::UpdateViewTransitionOptIn() {
 
   // TODO(https://crbug.com/1463966): This will likely need to change to a
   // CSSValueList if we want to support multiple tokens as a trigger.
+  Vector<String> types;
   if (view_transition_rule_) {
+    types = view_transition_rule_->GetTypes();
     if (const CSSValue* value = view_transition_rule_->GetNavigation()) {
       cross_document_enabled =
           To<CSSIdentifierValue>(value)->GetValueID() == CSSValueID::kAuto;
@@ -2385,12 +2594,14 @@ void StyleEngine::UpdateViewTransitionOptIn() {
   }
 
   ViewTransitionSupplement::From(GetDocument())
-      ->OnViewTransitionsStyleUpdated(cross_document_enabled);
+      ->OnViewTransitionsStyleUpdated(cross_document_enabled, types);
 }
 
 bool StyleEngine::HasRulesForId(const AtomicString& id) const {
   DCHECK(global_rule_set_);
-  return global_rule_set_->GetRuleFeatureSet().HasSelectorForId(id);
+  return global_rule_set_->GetRuleFeatureSet()
+      .GetRuleInvalidationData()
+      .HasSelectorForId(id);
 }
 
 void StyleEngine::InitialStyleChanged() {
@@ -2466,9 +2677,10 @@ void StyleEngine::InvalidateForRuleSetChanges(
           ? To<ShadowRoot>(tree_scope).host()
           : *tree_scope.GetDocument().documentElement());
 
-  ApplyRuleSetInvalidationForTreeScope(tree_scope, tree_scope.RootNode(),
-                                       selector_filter, style_scope_frame,
-                                       changed_rule_sets, invalidation_scope);
+  NthIndexCache nth_index_cache(tree_scope.GetDocument());
+  ApplyRuleSetInvalidationForTreeScope(
+      tree_scope, tree_scope.RootNode(), selector_filter, style_scope_frame,
+      changed_rule_sets, changed_rule_flags, invalidation_scope);
 }
 
 void StyleEngine::InvalidateInitialData() {
@@ -2488,7 +2700,7 @@ class StyleEngine::AtRuleCascadeMap {
   struct Priority {
     DISALLOW_NEW();
     bool is_user_style;
-    unsigned layer_order;
+    uint16_t layer_order;
 
     bool operator<(const Priority& other) const {
       if (is_user_style != other.is_user_style) {
@@ -2517,7 +2729,7 @@ class StyleEngine::AtRuleCascadeMap {
   }
 
  private:
-  unsigned GetLayerOrder(bool is_user_style, const CascadeLayer* layer) {
+  uint16_t GetLayerOrder(bool is_user_style, const CascadeLayer* layer) {
     if (!layer) {
       return CascadeLayerMap::kImplicitOuterLayerOrder;
     }
@@ -2599,10 +2811,9 @@ void StyleEngine::ApplyUserRuleSetChanges(
       ClearKeyframeRules();
     }
 
-    for (auto* it = new_style_sheets.begin(); it != new_style_sheets.end();
-         it++) {
-      DCHECK(it->second);
-      AddUserKeyframeRules(*it->second);
+    for (const auto& sheet : new_style_sheets) {
+      DCHECK(sheet.second);
+      AddUserKeyframeRules(*sheet.second);
     }
     ScopedStyleResolver::KeyframesRulesAdded(GetDocument());
   }
@@ -2612,11 +2823,10 @@ void StyleEngine::ApplyUserRuleSetChanges(
       user_counter_style_map_->Dispose();
     }
 
-    for (auto* it = new_style_sheets.begin(); it != new_style_sheets.end();
-         it++) {
-      DCHECK(it->second);
-      if (!it->second->CounterStyleRules().empty()) {
-        EnsureUserCounterStyleMap().AddCounterStyles(*it->second);
+    for (const auto& sheet : new_style_sheets) {
+      DCHECK(sheet.second);
+      if (!sheet.second->CounterStyleRules().empty()) {
+        EnsureUserCounterStyleMap().AddCounterStyles(*sheet.second);
       }
     }
 
@@ -2650,10 +2860,10 @@ void StyleEngine::ApplyUserRuleSetChanges(
     }
   }
 
-  if (changed_rule_flags & kPositionFallbackRules) {
-    // TODO(crbug.com/1383907): @position-fallback rules are not yet collected
-    // from user stylesheets.
-    MarkPositionFallbackStylesDirty();
+  if (changed_rule_flags & kPositionTryRules) {
+    // TODO(crbug.com/1383907): @position-try rules are not yet collected from
+    // user stylesheets.
+    MarkPositionTryStylesDirty(changed_rule_sets);
   }
 
   InvalidateForRuleSetChanges(GetDocument(), changed_rule_sets,
@@ -2784,8 +2994,8 @@ void StyleEngine::ApplyRuleSetChanges(
     }
   }
 
-  if (changed_rule_flags & kPositionFallbackRules) {
-    MarkPositionFallbackStylesDirty();
+  if (changed_rule_flags & kPositionTryRules) {
+    MarkPositionTryStylesDirty(changed_rule_sets);
   }
 
   if (changed_rule_flags & kViewTransitionRules) {
@@ -2793,6 +3003,14 @@ void StyleEngine::ApplyRuleSetChanges(
     // doesn't apply within one.
     if (tree_scope.RootNode().IsDocumentNode()) {
       AddViewTransitionRules(new_style_sheets);
+    }
+  }
+
+  if (changed_rule_flags & kFunctionRules) {
+    // Changes in function can affect function-using declarations
+    // in arbitrary ways.
+    if (resolver_) {
+      resolver_->InvalidateMatchedPropertiesCache();
     }
   }
 
@@ -2816,8 +3034,9 @@ void StyleEngine::LoadVisionDeficiencyFilter() {
     vision_deficiency_filter_ = nullptr;
   } else {
     AtomicString url = CreateVisionDeficiencyFilterUrl(vision_deficiency_);
-    cssvalue::CSSURIValue css_uri_value{CSSUrlData(url)};
-    SVGResource* svg_resource = css_uri_value.EnsureResourceReference();
+    cssvalue::CSSURIValue* css_uri_value =
+        MakeGarbageCollected<cssvalue::CSSURIValue>(CSSUrlData(url));
+    SVGResource* svg_resource = css_uri_value->EnsureResourceReference();
     // Note: The fact that we're using data: URLs here is an
     // implementation detail. Emulating vision deficiencies should still
     // work even if the Document's Content-Security-Policy disallows
@@ -2854,13 +3073,13 @@ const MediaQueryEvaluator& StyleEngine::EnsureMediaQueryEvaluator() {
   return *media_query_evaluator_;
 }
 
-bool StyleEngine::StyleMaybeAffectedByLayout(const Node& node) {
+bool StyleEngine::StyleMaybeAffectedByLayout(const Element& element) {
   // Note that the StyleAffectedByLayout flag is set based on which
   // ComputedStyles we've resolved previously. Since style resolution may never
   // reach elements in display:none, we defensively treat any null-or-ensured
   // ComputedStyle as affected by layout.
   return StyleAffectedByLayout() ||
-         ComputedStyle::IsNullOrEnsured(node.GetComputedStyle());
+         ComputedStyle::IsNullOrEnsured(element.GetComputedStyle());
 }
 
 bool StyleEngine::UpdateRootFontRelativeUnits(
@@ -2902,19 +3121,42 @@ void StyleEngine::PropertyRegistryChanged() {
 }
 
 void StyleEngine::EnvironmentVariableChanged() {
-  MarkAllElementsForStyleRecalc(StyleChangeReasonForTracing::Create(
-      style_change_reason::kPropertyRegistration));
+  is_env_dirty_ = true;
   if (resolver_) {
     resolver_->InvalidateMatchedPropertiesCache();
   }
+  GetDocument().ScheduleLayoutTreeUpdateIfNeeded();
+}
+
+void StyleEngine::InvalidateEnvDependentStylesIfNeeded() {
+  if (!is_env_dirty_) {
+    return;
+  }
+  is_env_dirty_ = false;
+  const auto& reason = StyleChangeReasonForTracing::Create(
+      style_change_reason::kEnvironmentVariableChanged);
+  MarkElementsForRecalc(GetDocument(), reason, [](const ComputedStyle& style) {
+    return style.HasEnv();
+  });
 }
 
 void StyleEngine::NodeWillBeRemoved(Node& node) {
   if (auto* element = DynamicTo<Element>(node)) {
+    if (const ComputedStyle* style = element->GetComputedStyle();
+        style && style->GetCounterDirectives()) {
+      MarkCountersDirty();
+    }
+    if (element->GetComputedStyle() &&
+        element->ComputedStyleRef().ContainsStyle()) {
+      MarkCountersDirty();
+    }
+    if (element->PseudoElementStylesAffectCounters()) {
+      MarkCountersDirty();
+    }
     if (StyleContainmentScopeTree* tree = GetStyleContainmentScopeTree()) {
       if (element->GetComputedStyle() &&
           element->ComputedStyleRef().ContainsStyle()) {
-        tree->DestroyScopeForElement(*element);
+        tree->RemoveScopeForElement(*element);
       }
     }
     pending_invalidations_.RescheduleSiblingInvalidationsAsDescendants(
@@ -2958,12 +3200,12 @@ void StyleEngine::CollectMatchingUserRules(
   for (const ActiveStyleSheet& style_sheet : active_user_style_sheets_) {
     match_request.AddRuleset(style_sheet.second);
     if (match_request.IsFull()) {
-      collector.CollectMatchingRules(match_request);
+      collector.CollectMatchingRules(match_request, /*part_names*/ nullptr);
       match_request.ClearAfterMatching();
     }
   }
   if (!match_request.IsEmpty()) {
-    collector.CollectMatchingRules(match_request);
+    collector.CollectMatchingRules(match_request, /*part_names*/ nullptr);
   }
 }
 
@@ -3142,22 +3384,23 @@ StyleRuleFontPaletteValues* StyleEngine::FontPaletteValuesForNameAndFamily(
 
 DocumentStyleEnvironmentVariables& StyleEngine::EnsureEnvironmentVariables() {
   if (!environment_variables_) {
-    environment_variables_ = DocumentStyleEnvironmentVariables::Create(
-        StyleEnvironmentVariables::GetRootInstance(), *document_);
+    environment_variables_ =
+        MakeGarbageCollected<DocumentStyleEnvironmentVariables>(
+            StyleEnvironmentVariables::GetRootInstance(), *document_);
   }
-  return *environment_variables_.get();
+  return *environment_variables_.Get();
 }
 
-scoped_refptr<StyleInitialData> StyleEngine::MaybeCreateAndGetInitialData() {
-  if (initial_data_) {
-    return initial_data_;
-  }
-  if (const PropertyRegistry* registry = document_->GetPropertyRegistry()) {
-    if (!registry->IsEmpty()) {
-      initial_data_ = StyleInitialData::Create(GetDocument(), *registry);
+StyleInitialData* StyleEngine::MaybeCreateAndGetInitialData() {
+  if (!initial_data_) {
+    if (const PropertyRegistry* registry = document_->GetPropertyRegistry()) {
+      if (!registry->IsEmpty()) {
+        initial_data_ =
+            MakeGarbageCollected<StyleInitialData>(GetDocument(), *registry);
+      }
     }
   }
-  return initial_data_;
+  return initial_data_.Get();
 }
 
 bool StyleEngine::RecalcHighlightStylesForContainer(Element& container) {
@@ -3293,13 +3536,14 @@ void StyleEngine::UpdateStyleForNonEligibleContainer(Element& container) {
   ContainerQueryEvaluator& evaluator =
       container.EnsureContainerQueryEvaluator();
   ContainerQueryEvaluator::Change query_change =
-      evaluator.SizeContainerChanged(PhysicalSize(), kPhysicalAxisNone);
+      evaluator.SizeContainerChanged(PhysicalSize(), kPhysicalAxesNone);
   switch (query_change) {
     case ContainerQueryEvaluator::Change::kNone:
       DCHECK(cq_data->SkippedStyleRecalc());
       break;
     case ContainerQueryEvaluator::Change::kNearestContainer:
-      if (!IsShadowHost(container)) {
+      if (RuntimeEnabledFeatures::CSSFlatTreeContainerEnabled() ||
+          !IsShadowHost(container)) {
         change = change.ForceRecalcSizeContainer();
         break;
       }
@@ -3320,7 +3564,6 @@ void StyleEngine::UpdateStyleForNonEligibleContainer(Element& container) {
     container.ComputedStyleRef().ClearCachedPseudoElementStyles();
   }
 
-  DecrementSkippedContainerRecalc();
   AllowMarkForReattachFromRebuildLayoutTreeScope allow_reattach(*this);
   base::AutoReset<bool> cq_recalc(&in_container_query_style_recalc_, true);
   RecalcStyleForContainer(container, change);
@@ -3360,7 +3603,8 @@ void StyleEngine::UpdateStyleAndLayoutTreeForContainer(
       }
       break;
     case ContainerQueryEvaluator::Change::kNearestContainer:
-      if (!IsShadowHost(container)) {
+      if (RuntimeEnabledFeatures::CSSFlatTreeContainerEnabled() ||
+          !IsShadowHost(container)) {
         change = change.ForceRecalcSizeContainer();
         break;
       }
@@ -3397,9 +3641,6 @@ void StyleEngine::UpdateStyleAndLayoutTreeForContainer(
 
   NthIndexCache nth_index_cache(GetDocument());
 
-  if (cq_data->SkippedStyleRecalc()) {
-    DecrementSkippedContainerRecalc();
-  }
   UpdateViewportSize();
   RecalcStyleForContainer(container, change);
 
@@ -3430,45 +3671,34 @@ void StyleEngine::UpdateStyleAndLayoutTreeForContainer(
     // styles.
     GetStyleResolver().PropagateStyleToViewport();
   }
-  GetDocument().GetLayoutView()->UpdateMarkersAndCountersAfterStyleChange(
+  GetDocument().GetLayoutView()->UpdateCountersAfterStyleChange(
       container.GetLayoutObject());
+  GetDocument().InvalidatePendingSVGResources();
 }
 
-void StyleEngine::UpdateStyleForPositionFallback(
-    Element& element,
-    const CSSPropertyValueSet* try_set) {
-  // Note that we enter this function for any OOF element, not just those that
-  // use position-fallback. Therefore, it's important to return immediately
-  // without doing any work when `try_set` and `existing_try_set` both are
-  // nullptr.
+void StyleEngine::UpdateStyleForOutOfFlow(Element& element,
+                                          const CSSPropertyValueSet* try_set,
+                                          const TryTacticList& tactic_list,
+                                          AnchorEvaluator* anchor_evaluator) {
+  const CSSPropertyValueSet* try_tactics_set =
+      try_value_flips_.FlipSet(tactic_list);
 
-  PositionFallbackData* position_fallback_data =
-      element.GetPositionFallbackData();
-  const CSSPropertyValueSet* existing_try_set =
-      position_fallback_data ? position_fallback_data->GetTryPropertyValueSet()
-                             : nullptr;
-  if (existing_try_set == try_set) {
-    // No need to update style, the try set is the one we already used.
-    return;
-  }
-
-  // The last seen `try_set` is persisted on Element, such that subsequent
-  // regular style recalcs can continue to include this set.
-  element.EnsurePositionFallbackData().SetTryPropertyValueSet(try_set);
-
-  base::AutoReset<bool> pf_recalc(&in_position_fallback_style_recalc_, true);
+  base::AutoReset<bool> pt_recalc(&in_position_try_style_recalc_, true);
 
   UpdateViewportSize();
 
   StyleRecalcContext style_recalc_context =
       StyleRecalcContext::FromAncestors(element);
-  style_recalc_context.is_position_fallback = true;
+  style_recalc_context.is_interleaved_oof = true;
+  style_recalc_context.anchor_evaluator = anchor_evaluator;
+  style_recalc_context.try_set = try_set;
+  style_recalc_context.try_tactics_set = try_tactics_set;
 
   StyleRecalcChange change = StyleRecalcChange().ForceRecalcChildren();
 
   if (auto* pseudo_element = DynamicTo<PseudoElement>(element)) {
-    RecalcPositionFallbackStyleForPseudoElement(*pseudo_element, change,
-                                                style_recalc_context);
+    RecalcPositionTryStyleForPseudoElement(*pseudo_element, change,
+                                           style_recalc_context);
   } else {
     element.SetChildNeedsStyleRecalc();
     style_recalc_root_.Update(nullptr, &element);
@@ -3476,14 +3706,14 @@ void StyleEngine::UpdateStyleForPositionFallback(
   }
 }
 
-StyleRulePositionFallback* StyleEngine::GetPositionFallbackRule(
+StyleRulePositionTry* StyleEngine::GetPositionTryRule(
     const ScopedCSSName& scoped_name) {
   const TreeScope* tree_scope = scoped_name.GetTreeScope();
   if (!tree_scope) {
     tree_scope = &GetDocument();
   }
-  return GetStyleResolver().ResolvePositionFallbackRule(tree_scope,
-                                                        scoped_name.GetName());
+  return GetStyleResolver().ResolvePositionTryRule(tree_scope,
+                                                   scoped_name.GetName());
 }
 
 void StyleEngine::RecalcStyle(StyleRecalcChange change,
@@ -3491,7 +3721,8 @@ void StyleEngine::RecalcStyle(StyleRecalcChange change,
   DCHECK(GetDocument().documentElement());
   ScriptForbiddenScope forbid_script;
   SkipStyleRecalcScope skip_scope(*this);
-  CheckPseudoHasCacheScope check_pseudo_has_cache_scope(&GetDocument());
+  CheckPseudoHasCacheScope check_pseudo_has_cache_scope(
+      &GetDocument(), /*within_selector_checking=*/false);
   Element& root_element = style_recalc_root_.RootElement();
   Element* parent = FlatTreeTraversal::ParentElement(root_element);
 
@@ -3511,15 +3742,16 @@ void StyleEngine::RecalcStyle(StyleRecalcChange change,
   }
 }
 
-void StyleEngine::RecalcPositionFallbackStyleForPseudoElement(
+void StyleEngine::RecalcPositionTryStyleForPseudoElement(
     PseudoElement& pseudo_element,
     const StyleRecalcChange style_recalc_change,
     const StyleRecalcContext& style_recalc_context) {
   ScriptForbiddenScope forbid_script;
   SkipStyleRecalcScope skip_scope(*this);
-  CheckPseudoHasCacheScope check_pseudo_has_cache_scope(&GetDocument());
-  SelectorFilterRootScope filter_scope(
-      FlatTreeTraversal::ParentElement(*pseudo_element.OriginatingElement()));
+  CheckPseudoHasCacheScope check_pseudo_has_cache_scope(
+      &GetDocument(), /*within-selector_checking=*/false);
+  SelectorFilterRootScope filter_scope(FlatTreeTraversal::ParentElement(
+      *pseudo_element.UltimateOriginatingElement()));
   pseudo_element.RecalcStyle(style_recalc_change, style_recalc_context);
 }
 
@@ -3622,7 +3854,7 @@ void StyleEngine::ReattachContainerSubtree(Element& container) {
   // be sufficient.
 
   DCHECK(container.NeedsReattachLayoutTree());
-  DCHECK(DynamicTo<HTMLFieldSetElement>(container));
+  DCHECK(CountersChanged() || DynamicTo<HTMLFieldSetElement>(container));
 
   base::AutoReset<bool> rebuild_scope(&in_layout_tree_rebuild_, true);
   container.ReattachLayoutTreeChildren(base::PassKey<StyleEngine>());
@@ -3664,6 +3896,7 @@ void StyleEngine::UpdateStyleAndLayoutTree() {
     if (StyleContainmentScopeTree* tree = GetStyleContainmentScopeTree()) {
       tree->UpdateQuotes();
     }
+    UpdateCounters();
   } else {
     style_recalc_root_.Clear();
   }
@@ -3812,8 +4045,10 @@ StyleEngine::AncestorAnalysis StyleEngine::AnalyzeInclusiveAncestor(
   if (IsRootOrSibling(style_invalidation_root_.GetRootNode(), node)) {
     return AncestorAnalysis::kStyleRoot;
   }
-  if (ComputedStyle::IsInterleavingRoot(node.GetComputedStyle())) {
-    return AncestorAnalysis::kInterleavingRoot;
+  if (auto* element = DynamicTo<Element>(node)) {
+    if (ComputedStyle::IsInterleavingRoot(element->GetComputedStyle())) {
+      return AncestorAnalysis::kInterleavingRoot;
+    }
   }
   return AncestorAnalysis::kNone;
 }
@@ -3869,18 +4104,22 @@ bool StyleEngine::SupportsDarkColorScheme() {
 }
 
 void StyleEngine::UpdateColorScheme() {
-  auto* settings = GetDocument().GetSettings();
-  auto* web_theme_engine = WebThemeEngineHelper::GetNativeThemeEngine();
-  if (!settings || !web_theme_engine) {
+  const Settings* settings = GetDocument().GetSettings();
+  if (!settings) {
     return;
   }
 
   ForcedColors old_forced_colors = forced_colors_;
-  forced_colors_ = web_theme_engine->GetForcedColors();
+  forced_colors_ = settings->GetInForcedColors() ? ForcedColors::kActive
+                                                 : ForcedColors::kNone;
 
   mojom::blink::PreferredColorScheme old_preferred_color_scheme =
       preferred_color_scheme_;
-  preferred_color_scheme_ = settings->GetPreferredColorScheme();
+  if (GetDocument().IsInMainFrame()) {
+    preferred_color_scheme_ = settings->GetPreferredColorScheme();
+  } else {
+    preferred_color_scheme_ = owner_preferred_color_scheme_;
+  }
   bool old_force_dark_mode_enabled = force_dark_mode_enabled_;
   force_dark_mode_enabled_ = settings->GetForceDarkModeEnabled();
   bool media_feature_override_color_scheme = false;
@@ -3889,11 +4128,11 @@ void StyleEngine::UpdateColorScheme() {
   // overrides?
   if (const MediaFeatureOverrides* overrides =
           GetDocument().GetPage()->GetMediaFeatureOverrides()) {
-    if (absl::optional<ForcedColors> forced_color_override =
+    if (std::optional<ForcedColors> forced_color_override =
             overrides->GetForcedColors()) {
       forced_colors_ = forced_color_override.value();
     }
-    if (absl::optional<mojom::blink::PreferredColorScheme>
+    if (std::optional<mojom::blink::PreferredColorScheme>
             preferred_color_scheme_override =
                 overrides->GetPreferredColorScheme()) {
       preferred_color_scheme_ = preferred_color_scheme_override.value();
@@ -3904,7 +4143,7 @@ void StyleEngine::UpdateColorScheme() {
   const PreferenceOverrides* preference_overrides =
       GetDocument().GetPage()->GetPreferenceOverrides();
   if (preference_overrides && !media_feature_override_color_scheme) {
-    absl::optional<mojom::blink::PreferredColorScheme>
+    std::optional<mojom::blink::PreferredColorScheme>
         preferred_color_scheme_override =
             preference_overrides->GetPreferredColorScheme();
     if (preferred_color_scheme_override.has_value()) {
@@ -3927,7 +4166,7 @@ void StyleEngine::UpdateColorScheme() {
 }
 
 void StyleEngine::UpdateColorSchemeMetrics() {
-  auto* settings = GetDocument().GetSettings();
+  const Settings* settings = GetDocument().GetSettings();
   if (settings->GetForceDarkModeEnabled()) {
     UseCounter::Count(GetDocument(), WebFeature::kForcedDarkMode);
   }
@@ -4022,7 +4261,9 @@ void StyleEngine::UpdateColorSchemeBackground(bool color_scheme_changed) {
         use_color_adjust_background =
             LocalFrameView::UseColorAdjustBackground::kIfBaseNotTransparent;
       }
-    } else if (root_color_scheme != owner_color_scheme_) {
+    } else if (root_color_scheme != owner_color_scheme_ &&
+               // https://html.spec.whatwg.org/C#is-initial-about:blank
+               !view->GetFrame().Loader().IsOnInitialEmptyDocument()) {
       // Iframes should paint a solid background if the embedding iframe has a
       // used color-scheme different from the used color-scheme of the embedded
       // root element. Normally, iframes as transparent by default.
@@ -4035,25 +4276,26 @@ void StyleEngine::UpdateColorSchemeBackground(bool color_scheme_changed) {
                                     color_scheme_changed);
 }
 
-void StyleEngine::SetOwnerColorScheme(mojom::blink::ColorScheme color_scheme) {
+void StyleEngine::SetOwnerColorScheme(
+    mojom::blink::ColorScheme color_scheme,
+    mojom::blink::PreferredColorScheme preferred_color_scheme) {
   DCHECK(!GetDocument().IsInMainFrame());
-  if (owner_color_scheme_ == color_scheme) {
-    return;
+  if (owner_preferred_color_scheme_ != preferred_color_scheme) {
+    owner_preferred_color_scheme_ = preferred_color_scheme;
+    GetDocument().ColorSchemeChanged();
   }
-  owner_color_scheme_ = color_scheme;
-  UpdateColorSchemeBackground(true);
+  if (owner_color_scheme_ != color_scheme) {
+    owner_color_scheme_ = color_scheme;
+    UpdateColorSchemeBackground(true);
+  }
 }
 
 mojom::blink::PreferredColorScheme StyleEngine::ResolveColorSchemeForEmbedding(
     const ComputedStyle* embedder_style) const {
-  const bool embedder_color_scheme_is_normal =
-      !embedder_style || embedder_style->ColorScheme().empty();
   // ...if 'color-scheme' is 'normal' and there's no 'color-scheme' meta tag,
   // the propagated scheme is the preferred color-scheme of the embedder
   // document.
-  if (embedder_color_scheme_is_normal &&
-      GetPageColorSchemes() ==
-          static_cast<ColorSchemeFlags>(ColorSchemeFlag::kNormal)) {
+  if (!embedder_style || embedder_style->ColorSchemeFlagsIsNormal()) {
     return GetPreferredColorScheme();
   }
   return embedder_style && embedder_style->UsedColorScheme() ==
@@ -4068,7 +4310,8 @@ void StyleEngine::UpdateForcedBackgroundColor() {
   forced_background_color_ = LayoutTheme::GetTheme().SystemColor(
       CSSValueID::kCanvas, color_scheme,
       GetDocument().GetPage()->GetColorProviderForPainting(
-          color_scheme, forced_colors_ != ForcedColors::kNone));
+          color_scheme, forced_colors_ != ForcedColors::kNone),
+      GetDocument().IsInWebAppScope());
 }
 
 Color StyleEngine::ColorAdjustBackgroundColor() const {
@@ -4106,7 +4349,7 @@ void StyleEngine::UpdateViewportStyle() {
 
 bool StyleEngine::NeedsFullStyleUpdate() const {
   return NeedsActiveStyleUpdate() || IsViewportStyleDirty() ||
-         viewport_unit_dirty_flags_;
+         viewport_unit_dirty_flags_ || is_env_dirty_;
 }
 
 void StyleEngine::PropagateWritingModeAndDirectionToHTMLRoot() {
@@ -4148,35 +4391,6 @@ const CounterStyle& StyleEngine::FindCounterStyleAcrossScopes(
   return CounterStyle::GetDecimal();
 }
 
-void StyleEngine::ChangeRenderingForHTMLSelect(HTMLSelectElement& select) {
-  // TODO(crbug.com/1191353): SetForceReattachLayoutTree() should be the correct
-  // way to create a new layout tree for a select element that changes rendering
-  // and not style, but the code for updating the selected index relies on the
-  // layout tree to be deleted. To work around that, we do a synchronous
-  // DetachLayoutTree as if the subtree is taken out of the flat tree.
-  // DetachLayoutTree will clear dirty bits which means we also need to simulate
-  // that we are in a dom removal to make the style recalc root be updated
-  // correctly.
-  StyleEngine::DetachLayoutTreeScope detach_scope(*this);
-  StyleEngine::DOMRemovalScope removal_scope(*this);
-  To<Element>(select).DetachLayoutTree();
-  // If the recalc root is in this subtree, DetachLayoutTree() above clears the
-  // bits and we need to update the root. Otherwise the AssertRootNodeInvariants
-  // will fail for SetNeedsStyleRecalc below.
-  if (Element* parent = select.GetStyleRecalcParent()) {
-    style_recalc_root_.SubtreeModified(*parent);
-  } else if (GetDocument() == select.parentNode()) {
-    // Style recalc parent being null either means the select element is not
-    // part of the flat tree or the document root node. In the latter case all
-    // dirty bits will be cleared by DetachLayoutTree() and we can clear the
-    // recalc root.
-    style_recalc_root_.Clear();
-  }
-  select.SetNeedsStyleRecalc(
-      kLocalStyleChange,
-      StyleChangeReasonForTracing::Create(style_change_reason::kControl));
-}
-
 void StyleEngine::Trace(Visitor* visitor) const {
   visitor->Trace(document_);
   visitor->Trace(injected_user_style_sheets_);
@@ -4186,6 +4400,8 @@ void StyleEngine::Trace(Visitor* visitor) const {
   visitor->Trace(font_palette_values_rule_map_);
   visitor->Trace(user_counter_style_map_);
   visitor->Trace(user_cascade_layer_map_);
+  visitor->Trace(environment_variables_);
+  visitor->Trace(initial_data_);
   visitor->Trace(inspector_style_sheet_);
   visitor->Trace(document_style_sheet_collection_);
   visitor->Trace(style_sheet_collection_map_);
@@ -4210,6 +4426,8 @@ void StyleEngine::Trace(Visitor* visitor) const {
   visitor->Trace(style_image_cache_);
   visitor->Trace(fill_or_clip_path_uri_value_cache_);
   visitor->Trace(style_containment_scope_tree_);
+  visitor->Trace(try_value_flips_);
+  visitor->Trace(last_successful_option_dirty_set_);
   FontSelectorClient::Trace(visitor);
 }
 
@@ -4297,6 +4515,115 @@ void StyleEngine::BaseURLChanged() {
 void StyleEngine::UpdateViewportSize() {
   viewport_size_ =
       CSSToLengthConversionData::ViewportSize(GetDocument().GetLayoutView());
+}
+
+namespace {
+
+bool UpdateLastSuccessfulPositionFallback(Element& element) {
+  if (OutOfFlowData* out_of_flow_data = element.GetOutOfFlowData()) {
+    LayoutObject* layout_object = element.GetLayoutObject();
+    if (out_of_flow_data->ApplyPendingSuccessfulPositionFallback(
+            layout_object) &&
+        layout_object) {
+      layout_object->SetNeedsLayoutAndFullPaintInvalidation(
+          layout_invalidation_reason::kAnchorPositioning);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool InvalidatePositionTryNames(Element* root,
+                                const HashSet<AtomicString>& try_names) {
+  bool invalidated = false;
+  Node* current = root;
+  while (current) {
+    if (auto* element = DynamicTo<Element>(current)) {
+      if (OutOfFlowData* data = element->GetOutOfFlowData()) {
+        if (data->InvalidatePositionTryNames(try_names)) {
+          if (LayoutObject* layout_object = element->GetLayoutObject()) {
+            layout_object->SetNeedsLayoutAndFullPaintInvalidation(
+                layout_invalidation_reason::kAnchorPositioning);
+            invalidated = true;
+          }
+        }
+      }
+      if (ComputedStyle::NullifyEnsured(element->GetComputedStyle()) ==
+          nullptr) {
+        current =
+            LayoutTreeBuilderTraversal::NextSkippingChildren(*element, root);
+        continue;
+      }
+    }
+    current = LayoutTreeBuilderTraversal::Next(*current, root);
+  }
+  return invalidated;
+}
+
+}  // namespace
+
+bool StyleEngine::UpdateLastSuccessfulPositionFallbacks() {
+  bool invalidated = false;
+  if (!dirty_position_try_names_.empty()) {
+    // Added, removed, or modified @position-try rules.
+    // Walk the whole tree and invalidate last successful position for elements
+    // with position-try-fallbacks referring those names.
+    if (InvalidatePositionTryNames(GetDocument().documentElement(),
+                                   dirty_position_try_names_)) {
+      invalidated = true;
+    }
+    dirty_position_try_names_.clear();
+  }
+
+  if (!last_successful_option_dirty_set_.empty()) {
+    for (Element* element : last_successful_option_dirty_set_) {
+      if (UpdateLastSuccessfulPositionFallback(*element)) {
+        invalidated = true;
+      }
+    }
+    last_successful_option_dirty_set_.clear();
+  }
+  return invalidated;
+}
+
+void StyleEngine::RevisitActiveStyleSheetsForInspector() {
+  // TODO(crbug.com/337076014): Also revisit other stylesheets such as those in
+  // shadow trees, user sheets, and UA sheets.
+  const RuleFeatureSet& global_features = GetRuleFeatureSet();
+  const ActiveStyleSheetVector& active_style_sheets =
+      GetDocumentStyleSheetCollection().ActiveStyleSheets();
+  for (const ActiveStyleSheet& sheet : active_style_sheets) {
+    // We need to revisit each sheet twice, once with the global rule set and
+    // once with the sheet's associated rule set.
+    // The global rule set contains the rule invalidation data we're currently
+    // using for style invalidations. However, if a stylesheet change occurs,
+    // we may throw out the global rule set data and rebuild it from the
+    // individual sheets' data, so the inspector needs to know about both.
+    StyleSheetContents* contents = sheet.first->Contents();
+    RevisitStyleRulesForInspector(global_features, contents->ChildRules());
+    if (contents->HasRuleSet()) {
+      RevisitStyleRulesForInspector(contents->GetRuleSet().Features(),
+                                    contents->ChildRules());
+    }
+  }
+}
+
+void StyleEngine::RevisitStyleRulesForInspector(
+    const RuleFeatureSet& features,
+    const HeapVector<Member<StyleRuleBase>>& rules) {
+  for (StyleRuleBase* rule : rules) {
+    if (StyleRule* style_rule = DynamicTo<StyleRule>(rule)) {
+      for (const CSSSelector* selector = style_rule->FirstSelector(); selector;
+           selector = CSSSelectorList::Next(*selector)) {
+        InvalidationSetToSelectorMap::SelectorScope selector_scope(
+            style_rule, style_rule->SelectorIndex(*selector));
+        features.RevisitSelectorForInspector(*selector);
+      }
+    } else if (StyleRuleGroup* style_rule_group =
+                   DynamicTo<StyleRuleGroup>(rule)) {
+      RevisitStyleRulesForInspector(features, style_rule_group->ChildRules());
+    }
+  }
 }
 
 }  // namespace blink

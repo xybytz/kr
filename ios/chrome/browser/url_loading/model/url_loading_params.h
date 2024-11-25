@@ -5,6 +5,7 @@
 #ifndef IOS_CHROME_BROWSER_URL_LOADING_MODEL_URL_LOADING_PARAMS_H_
 #define IOS_CHROME_BROWSER_URL_LOADING_MODEL_URL_LOADING_PARAMS_H_
 
+#import "ios/chrome/browser/shared/model/web_state_list/tab_group.h"
 #import "ios/chrome/browser/shared/public/commands/open_new_tab_command.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #include "ui/base/window_open_disposition.h"
@@ -101,12 +102,27 @@ struct UrlLoadParams {
   // Note: Currently only applies to tabs that are not instant-loaded.
   std::u16string placeholder_title;
 
+  // Whether the URL should be loaded as part of pinned tabs.
+  bool load_pinned = false;
+
+  // Whether the URL should be loaded as part of a tab group.
+  bool load_in_group = false;
+
+  // Whether the current mode (incognito/regular) should be updated to match the
+  // one from this URL (for foreground loads only).
+  bool switch_mode_if_needed = true;
+
+  // The tab group where the URL should be loaded (if null and `load_in_group`
+  // the URL is loaded in a new tab group).
+  base::WeakPtr<const TabGroup> tab_group;
+
   bool in_background() const {
     return disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB;
   }
 
   // Public for testing only.
   UrlLoadParams();
+  ~UrlLoadParams();
 };
 
 #endif  // IOS_CHROME_BROWSER_URL_LOADING_MODEL_URL_LOADING_PARAMS_H_

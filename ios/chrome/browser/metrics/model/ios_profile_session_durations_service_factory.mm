@@ -11,16 +11,15 @@
 #import "components/sync/service/sync_service.h"
 #import "ios/chrome/browser/metrics/model/ios_profile_session_durations_service.h"
 #import "ios/chrome/browser/shared/model/browser_state/browser_state_otr_helper.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/browser/signin/model/identity_manager_factory.h"
 #import "ios/chrome/browser/sync/model/sync_service_factory.h"
 
 // static
 IOSProfileSessionDurationsService*
-IOSProfileSessionDurationsServiceFactory::GetForBrowserState(
-    ChromeBrowserState* browser_state) {
+IOSProfileSessionDurationsServiceFactory::GetForProfile(ProfileIOS* profile) {
   return static_cast<IOSProfileSessionDurationsService*>(
-      GetInstance()->GetServiceForBrowserState(browser_state, true));
+      GetInstance()->GetServiceForBrowserState(profile, true));
 }
 
 // static
@@ -45,14 +44,13 @@ IOSProfileSessionDurationsServiceFactory::
 std::unique_ptr<KeyedService>
 IOSProfileSessionDurationsServiceFactory::BuildServiceInstanceFor(
     web::BrowserState* context) const {
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(context);
+  ProfileIOS* profile = ProfileIOS::FromBrowserState(context);
   syncer::SyncService* sync_service =
-      SyncServiceFactory::GetForBrowserState(browser_state);
+      SyncServiceFactory::GetForProfile(profile);
   signin::IdentityManager* identity_manager =
-      IdentityManagerFactory::GetForBrowserState(browser_state);
+      IdentityManagerFactory::GetForProfile(profile);
   return std::make_unique<IOSProfileSessionDurationsService>(
-      sync_service, browser_state->GetPrefs(), identity_manager);
+      sync_service, profile->GetPrefs(), identity_manager);
 }
 
 web::BrowserState*

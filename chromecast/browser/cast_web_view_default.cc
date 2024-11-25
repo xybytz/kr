@@ -168,7 +168,9 @@ void CastWebViewDefault::CloseContents(content::WebContents* source) {
 
 content::WebContents* CastWebViewDefault::OpenURLFromTab(
     content::WebContents* source,
-    const content::OpenURLParams& params) {
+    const content::OpenURLParams& params,
+    base::OnceCallback<void(content::NavigationHandle&)>
+        navigation_handle_callback) {
   LOG(INFO) << "Change url: " << params.url;
   // If source is NULL which means current tab, use web_contents_ of this class.
   if (!source)
@@ -176,8 +178,12 @@ content::WebContents* CastWebViewDefault::OpenURLFromTab(
   DCHECK_EQ(source, web_contents_.get());
   // We don't want to create another web_contents. Load url only when source is
   // specified.
-  source->GetController().LoadURL(params.url, params.referrer,
-                                  params.transition, params.extra_headers);
+  auto navigation_handle = source->GetController().LoadURL(
+      params.url, params.referrer, params.transition, params.extra_headers);
+
+  if (navigation_handle_callback && navigation_handle) {
+    std::move(navigation_handle_callback).Run(*navigation_handle);
+  }
   return source;
 }
 
@@ -217,9 +223,9 @@ bool CastWebViewDefault::DidAddMessageToConsole(
 
 const blink::MediaStreamDevice* GetRequestedDeviceOrDefault(
     const blink::MediaStreamDevices& devices,
-    const std::string& requested_device_id) {
-  if (!requested_device_id.empty()) {
-    auto it = base::ranges::find(devices, requested_device_id,
+    const std::vector<std::string>& requested_device_ids) {
+  if (!requested_device_ids.empty() && !requested_device_ids.front().empty()) {
+    auto it = base::ranges::find(devices, requested_device_ids.front(),
                                  &blink::MediaStreamDevice::id);
     return it != devices.end() ? &(*it) : nullptr;
   }
@@ -258,7 +264,7 @@ void CastWebViewDefault::RequestMediaAccessPermission(
   if (request.audio_type ==
       blink::mojom::MediaStreamType::DEVICE_AUDIO_CAPTURE) {
     const blink::MediaStreamDevice* device = GetRequestedDeviceOrDefault(
-        audio_devices, request.requested_audio_device_id);
+        audio_devices, request.requested_audio_device_ids);
     if (device) {
       DVLOG(1) << __func__ << "Using audio device: id=" << device->id
                << " name=" << device->name;
@@ -269,7 +275,7 @@ void CastWebViewDefault::RequestMediaAccessPermission(
   if (request.video_type ==
       blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE) {
     const blink::MediaStreamDevice* device = GetRequestedDeviceOrDefault(
-        video_devices, request.requested_video_device_id);
+        video_devices, request.requested_video_device_ids);
     if (device) {
       DVLOG(1) << __func__ << "Using video device: id=" << device->id
                << " name=" << device->name;

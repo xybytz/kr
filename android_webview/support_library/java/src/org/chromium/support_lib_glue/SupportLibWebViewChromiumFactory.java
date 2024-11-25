@@ -22,6 +22,7 @@ import org.chromium.base.TraceEvent;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.support_lib_boundary.StaticsBoundaryInterface;
 import org.chromium.support_lib_boundary.WebViewProviderFactoryBoundaryInterface;
+import org.chromium.support_lib_boundary.WebViewStartUpCallbackBoundaryInterface;
 import org.chromium.support_lib_boundary.util.BoundaryInterfaceReflectionUtil;
 import org.chromium.support_lib_boundary.util.Features;
 
@@ -31,11 +32,11 @@ import java.util.List;
 import java.util.Set;
 
 /** Support library glue version of WebViewChromiumFactoryProvider. */
-class SupportLibWebViewChromiumFactory implements WebViewProviderFactoryBoundaryInterface {
+public class SupportLibWebViewChromiumFactory implements WebViewProviderFactoryBoundaryInterface {
     // SupportLibWebkitToCompatConverterAdapter
     private final InvocationHandler mCompatConverterAdapter;
     private final WebViewChromiumAwInit mAwInit;
-    private final String[] mWebViewSupportedFeatures =
+    private static final String[] sWebViewSupportedFeatures =
             new String[] {
                 Features.VISUAL_STATE_CALLBACK,
                 Features.OFF_SCREEN_PRERASTER,
@@ -92,6 +93,13 @@ class SupportLibWebViewChromiumFactory implements WebViewProviderFactoryBoundary
                 Features.MULTI_PROFILE,
                 Features.ATTRIBUTION_BEHAVIOR,
                 Features.WEBVIEW_MEDIA_INTEGRITY_API_STATUS,
+                Features.MUTE_AUDIO,
+                Features.WEB_AUTHENTICATION,
+                Features.SPECULATIVE_LOADING,
+                Features.BACK_FORWARD_CACHE,
+                Features.PREFETCH_WITH_URL + Features.DEV_SUFFIX,
+                Features.DEFAULT_TRAFFICSTATS_TAGGING + Features.DEV_SUFFIX,
+                Features.ASYNC_WEBVIEW_STARTUP + Features.DEV_SUFFIX,
                 // Add new features above. New features must include `+ Features.DEV_SUFFIX`
                 // when they're initially added (this can be removed in a future CL). The final
                 // feature should have a trailing comma for cleaner diffs.
@@ -99,6 +107,7 @@ class SupportLibWebViewChromiumFactory implements WebViewProviderFactoryBoundary
 
     // These values are persisted to logs. Entries should not be renumbered and
     // numeric values should never be reused.
+    // LINT.IfChange(ApiCall)
     @IntDef({
         ApiCall.ADD_WEB_MESSAGE_LISTENER,
         ApiCall.CLEAR_PROXY_OVERRIDE,
@@ -199,6 +208,21 @@ class SupportLibWebViewChromiumFactory implements WebViewProviderFactoryBoundary
         ApiCall.GET_WEBVIEW_MEDIA_INTEGRITY_API_DEFAULT_STATUS,
         ApiCall.GET_WEBVIEW_MEDIA_INTEGRITY_API_OVERRIDE_RULES,
         ApiCall.SET_WEBVIEW_MEDIA_INTEGRITY_API_STATUS,
+        ApiCall.SET_AUDIO_MUTED,
+        ApiCall.IS_AUDIO_MUTED,
+        ApiCall.WEB_SETTINGS_SET_WEBAUTHN_SUPPORT,
+        ApiCall.WEB_SETTINGS_GET_WEBAUTHN_SUPPORT,
+        ApiCall.SET_SPECULATIVE_LOADING_STATUS,
+        ApiCall.GET_SPECULATIVE_LOADING_STATUS,
+        ApiCall.SET_BACK_FORWARD_CACHE_ENABLED,
+        ApiCall.GET_BACK_FORWARD_CACHE_ENABLED,
+        ApiCall.PREFETCH_URL,
+        ApiCall.PREFETCH_URL_WITH_PARAMS,
+        ApiCall.CLEAR_PREFETCH,
+        ApiCall.CANCEL_PREFETCH,
+        ApiCall.SET_DEFAULT_TRAFFICSTATS_TAG,
+        ApiCall.SET_DEFAULT_TRAFFICSTATS_UID,
+        ApiCall.START_UP_WEBVIEW,
         // Add new constants above. The final constant should have a trailing comma for cleaner
         // diffs.
         ApiCall.COUNT, // Added to suppress WrongConstant in #recordApiCall
@@ -305,9 +329,26 @@ class SupportLibWebViewChromiumFactory implements WebViewProviderFactoryBoundary
         int GET_WEBVIEW_MEDIA_INTEGRITY_API_DEFAULT_STATUS = 97;
         int GET_WEBVIEW_MEDIA_INTEGRITY_API_OVERRIDE_RULES = 98;
         int SET_WEBVIEW_MEDIA_INTEGRITY_API_STATUS = 99;
+        int SET_AUDIO_MUTED = 100;
+        int IS_AUDIO_MUTED = 101;
+        int WEB_SETTINGS_SET_WEBAUTHN_SUPPORT = 102;
+        int WEB_SETTINGS_GET_WEBAUTHN_SUPPORT = 103;
+        int SET_SPECULATIVE_LOADING_STATUS = 104;
+        int GET_SPECULATIVE_LOADING_STATUS = 105;
+        int SET_BACK_FORWARD_CACHE_ENABLED = 106;
+        int GET_BACK_FORWARD_CACHE_ENABLED = 107;
+        int PREFETCH_URL = 108;
+        int PREFETCH_URL_WITH_PARAMS = 109;
+        int CLEAR_PREFETCH = 110;
+        int CANCEL_PREFETCH = 111;
+        int SET_DEFAULT_TRAFFICSTATS_TAG = 112;
+        int SET_DEFAULT_TRAFFICSTATS_UID = 113;
+        int START_UP_WEBVIEW = 114;
         // Remember to update AndroidXWebkitApiCall in enums.xml when adding new values here
-        int COUNT = 100;
+        int COUNT = 114;
     }
+
+    // LINT.ThenChange(/tools/metrics/histograms/metadata/android/enums.xml:AndroidXWebkitApiCall)
 
     public static void recordApiCall(@ApiCall int apiCall) {
         RecordHistogram.recordEnumeratedHistogram(
@@ -408,6 +449,24 @@ class SupportLibWebViewChromiumFactory implements WebViewProviderFactoryBoundary
                 return mSharedStatics.getVariationsHeader();
             }
         }
+
+        @Override
+        public void setDefaultTrafficStatsTag(int tag) {
+            try (TraceEvent event =
+                    TraceEvent.scoped("WebView.APICall.AndroidX.SET_DEFAULT_TRAFFICSTATS_TAG")) {
+                recordApiCall(ApiCall.SET_DEFAULT_TRAFFICSTATS_TAG);
+                mSharedStatics.setDefaultTrafficStatsTag(tag);
+            }
+        }
+
+        @Override
+        public void setDefaultTrafficStatsUid(int uid) {
+            try (TraceEvent event =
+                    TraceEvent.scoped("WebView.APICall.AndroidX.SET_DEFAULT_TRAFFICSTATS_UID")) {
+                recordApiCall(ApiCall.SET_DEFAULT_TRAFFICSTATS_UID);
+                mSharedStatics.setDefaultTrafficStatsUid(uid);
+            }
+        }
     }
 
     @Override
@@ -429,7 +488,11 @@ class SupportLibWebViewChromiumFactory implements WebViewProviderFactoryBoundary
 
     @Override
     public String[] getSupportedFeatures() {
-        return mWebViewSupportedFeatures;
+        return sWebViewSupportedFeatures;
+    }
+
+    public static String[] getSupportedFeaturesForTesting() {
+        return sWebViewSupportedFeatures;
     }
 
     @Override
@@ -513,6 +576,41 @@ class SupportLibWebViewChromiumFactory implements WebViewProviderFactoryBoundary
                 }
             }
             return mProfileStore;
+        }
+    }
+
+    @Override
+    public void startUpWebView(
+            /* WebViewStartUpConfig */ InvocationHandler configInvoHandler,
+            /* WebViewStartUpCallback */ InvocationHandler callbackInvoHandler) {
+        try (TraceEvent event = TraceEvent.scoped("WebView.APICall.AndroidX.START_UP_WEBVIEW")) {
+            recordApiCall(ApiCall.START_UP_WEBVIEW);
+            final WebViewStartUpCallbackBoundaryInterface webViewStartUpCallback =
+                    BoundaryInterfaceReflectionUtil.castToSuppLibClass(
+                            WebViewStartUpCallbackBoundaryInterface.class, callbackInvoHandler);
+            WebViewChromiumAwInit.WebViewStartUpCallback callback =
+                    new WebViewChromiumAwInit.WebViewStartUpCallback() {
+                        @Override
+                        public void onSuccess(
+                                WebViewChromiumAwInit.WebViewStartUpDiagnostics result) {
+                            SupportLibStartUpResult supportLibResult =
+                                    new SupportLibStartUpResult();
+                            supportLibResult.setTotalTimeInUiThreadMillis(
+                                    result.getTotalTimeUiThreadChromiumInitMillis());
+                            supportLibResult.setMaxTimePerTaskInUiThreadMillis(
+                                    result.getMaxTimePerTaskUiThreadChromiumInitMillis());
+                            Throwable syncChromiumInitLocation =
+                                    result.getSynchronousChromiumInitLocationOrNull();
+                            if (syncChromiumInitLocation != null) {
+                                supportLibResult.addBlockingStartUpLocation(
+                                        syncChromiumInitLocation);
+                            }
+                            webViewStartUpCallback.onSuccess(
+                                    BoundaryInterfaceReflectionUtil.createInvocationHandlerFor(
+                                            supportLibResult));
+                        }
+                    };
+            mAwInit.startUpWebView(callback);
         }
     }
 }

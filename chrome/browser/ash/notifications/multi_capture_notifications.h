@@ -59,6 +59,9 @@ class MultiCaptureNotifications : public MultiCaptureServiceClient::Observer,
   // MultiCaptureServiceClient::Observer:
   void MultiCaptureStarted(const std::string& label,
                            const url::Origin& origin) override;
+  void MultiCaptureStartedFromApp(const std::string& label,
+                                  const std::string& app_id,
+                                  const std::string& app_short_name) override;
   void MultiCaptureStopped(const std::string& label) override;
   void MultiCaptureServiceClientDestroyed() override;
 
@@ -66,6 +69,10 @@ class MultiCaptureNotifications : public MultiCaptureServiceClient::Observer,
   void LoggedInStateChanged() override;
 
  private:
+  void MultiCaptureStartedInternal(const std::string& label,
+                                   const std::string& notification_id,
+                                   const std::string& app_name);
+
   // Maps the multi capture label (as received in `MultiCaptureStarted` and
   // `MultiCaptureStopped`) to the notification metadata.
   std::map<std::string, NotificationMetadata> notifications_metadata_;
@@ -77,8 +84,6 @@ class MultiCaptureNotifications : public MultiCaptureServiceClient::Observer,
       login_state_observation_{this};
   base::WeakPtrFactory<MultiCaptureNotifications> weak_factory_{this};
 };
-
-void SetIsMultiCaptureAllowedForTesting(bool is_multi_capture_allowed);
 
 }  // namespace ash
 

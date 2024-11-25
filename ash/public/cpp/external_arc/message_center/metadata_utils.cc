@@ -15,7 +15,7 @@ namespace ash {
 std::unique_ptr<message_center::Notification>
 CreateNotificationFromArcNotificationData(
     const message_center::NotificationType notification_type,
-    const std::string notification_id,
+    const std::string& notification_id,
     ArcNotificationData* data,
     const message_center::NotifierId notifier_id,
     message_center::RichNotificationData rich_data,
@@ -74,6 +74,17 @@ CreateNotificationFromArcNotificationData(
       rich_data.items.emplace_back(std::u16string(),
                                    base::UTF8ToUTF16(texts[num_texts - 1]));
     }
+  }
+
+  if (render_on_chrome && data->messages) {
+    for (const auto& message : *data->messages) {
+      rich_data.items.emplace_back(message_center::NotificationItem(
+          base::UTF8ToUTF16(message->sender_name.value_or("")),
+          base::UTF8ToUTF16(message->message.value_or("")),
+          ui::ImageModel::FromImage(gfx::Image::CreateFrom1xBitmap(
+              message->sender_icon.value_or(*data->small_icon)))));
+    }
+    data->message = "";
   }
 
   auto notification = std::make_unique<message_center::Notification>(

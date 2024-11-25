@@ -25,11 +25,22 @@ struct OverflowMenuActionToggleStyle: ToggleStyle {
           .imageScale(.large)
       }
     }
+    .overflowMenuActionToggleCompat()
+  }
+}
+
+extension View {
+  /// For whatever reason, in iOS 15, the button is not toggleable unless this
+  /// `buttonStyle` is set. In iOS 16+, the `buttonStyle` is not necessary.
+  fileprivate func overflowMenuActionToggleCompat() -> some View {
+    if #available(iOS 16.0, *) {
+      return self
+    }
+    return self.buttonStyle(.borderless)
   }
 }
 
 /// A view that displays an action in the overflow menu.
-@available(iOS 15, *)
 struct OverflowMenuActionRow: View {
   /// Remove some of the default padding on the row, as it is too large by
   /// default.
@@ -59,12 +70,15 @@ struct OverflowMenuActionRow: View {
     button
       .listRowBackground(background)
       .onChange(of: action.highlighted) { _ in
+        guard action.automaticallyUnhighlight else {
+          return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.highlightDuration) {
           action.highlighted = false
         }
       }
       .onAppear {
-        if action.highlighted {
+        if action.highlighted && action.automaticallyUnhighlight {
           DispatchQueue.main.asyncAfter(deadline: .now() + Self.highlightDuration) {
             action.highlighted = false
           }

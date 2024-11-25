@@ -4,6 +4,8 @@
 
 #include "cc/tiles/software_image_decode_cache.h"
 
+#include "base/feature_list.h"
+#include "cc/base/features.h"
 #include "cc/paint/draw_image.h"
 #include "cc/paint/paint_image_builder.h"
 #include "cc/test/fake_paint_image_generator.h"
@@ -326,7 +328,7 @@ TEST_F(SoftwareImageDecodeCacheTest,
   EXPECT_EQ(100u * 100u * 4u, key.locked_bytes());
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt1_5Scale) {
+TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt15Scale) {
   PaintImage paint_image = CreatePaintImage(500, 200);
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
@@ -347,7 +349,7 @@ TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt1_5Scale) {
   EXPECT_EQ(500u * 200u * 4u, key.locked_bytes());
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt1_0cale) {
+TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt10Scale) {
   PaintImage paint_image = CreatePaintImage(500, 200);
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
@@ -368,7 +370,7 @@ TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt1_0cale) {
   EXPECT_EQ(500u * 200u * 4u, key.locked_bytes());
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, ImageKeyLowQualityAt0_75Scale) {
+TEST_F(SoftwareImageDecodeCacheTest, ImageKeyLowQualityAt075Scale) {
   PaintImage paint_image = CreatePaintImage(500, 200);
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
@@ -389,7 +391,7 @@ TEST_F(SoftwareImageDecodeCacheTest, ImageKeyLowQualityAt0_75Scale) {
   EXPECT_EQ(500u * 200u * 4u, key.locked_bytes());
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt0_5Scale) {
+TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt05Scale) {
   PaintImage paint_image = CreatePaintImage(500, 200);
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
@@ -409,7 +411,7 @@ TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt0_5Scale) {
   EXPECT_EQ(250u * 100u * 4u, key.locked_bytes());
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt0_49Scale) {
+TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt049Scale) {
   PaintImage paint_image = CreatePaintImage(500, 200);
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
@@ -429,7 +431,7 @@ TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt0_49Scale) {
   EXPECT_EQ(250u * 100u * 4u, key.locked_bytes());
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt0_1Scale) {
+TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt01Scale) {
   PaintImage paint_image = CreatePaintImage(500, 200);
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
@@ -449,7 +451,7 @@ TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt0_1Scale) {
   EXPECT_EQ(63u * 25u * 4u, key.locked_bytes());
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt0_01Scale) {
+TEST_F(SoftwareImageDecodeCacheTest, ImageKeyMediumQualityAt001Scale) {
   PaintImage paint_image = CreatePaintImage(500, 200);
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
@@ -765,6 +767,193 @@ TEST_F(SoftwareImageDecodeCacheTest, GetTaskForImageSameImage) {
 
   TestTileTaskRunner::ProcessTask(result.task.get());
 
+  cache_.UnrefImage(draw_image);
+  cache_.UnrefImage(draw_image);
+}
+
+TEST_F(SoftwareImageDecodeCacheTest,
+       GetRasterTaskBeforeStandAloneTaskSameImage) {
+  if (!base::FeatureList::IsEnabled(features::kPreventDuplicateImageDecodes)) {
+    return;
+  }
+  PaintImage paint_image = CreatePaintImage(100, 100);
+  DrawImage draw_image(
+      paint_image, false,
+      SkIRect::MakeWH(paint_image.width(), paint_image.height()),
+      PaintFlags::FilterQuality::kHigh,
+      CreateMatrix(SkSize::Make(0.5f, 0.5f), true),
+      PaintImage::kDefaultFrameIndex, DefaultTargetColorParams());
+
+  ImageDecodeCache::TaskResult raster_result = cache_.GetTaskForImageAndRef(
+      cache_client_id_, draw_image, ImageDecodeCache::TracingInfo());
+  EXPECT_TRUE(raster_result.need_unref);
+  EXPECT_TRUE(raster_result.task);
+  TileTask* raster_decode_task = raster_result.task.get();
+
+  ImageDecodeCache::TaskResult stand_alone_result =
+      cache_.GetOutOfRasterDecodeTaskForImageAndRef(cache_client_id_,
+                                                    draw_image);
+  EXPECT_TRUE(stand_alone_result.need_unref);
+  EXPECT_EQ(stand_alone_result.task->dependencies().size(), 1u);
+  EXPECT_EQ(stand_alone_result.task->dependencies()[0].get(),
+            raster_decode_task);
+  EXPECT_EQ(raster_decode_task->external_dependent().get(),
+            stand_alone_result.task.get());
+
+  TestTileTaskRunner::ProcessTask(raster_decode_task);
+  TestTileTaskRunner::ProcessTask(stand_alone_result.task.get());
+
+  cache_.UnrefImage(draw_image);
+  cache_.UnrefImage(draw_image);
+}
+
+TEST_F(SoftwareImageDecodeCacheTest,
+       GetStandAloneTaskBeforeRasterTaskSameImage) {
+  if (!base::FeatureList::IsEnabled(features::kPreventDuplicateImageDecodes)) {
+    return;
+  }
+  PaintImage paint_image = CreatePaintImage(100, 100);
+  DrawImage draw_image(
+      paint_image, false,
+      SkIRect::MakeWH(paint_image.width(), paint_image.height()),
+      PaintFlags::FilterQuality::kHigh,
+      CreateMatrix(SkSize::Make(0.5f, 0.5f), true),
+      PaintImage::kDefaultFrameIndex, DefaultTargetColorParams());
+
+  ImageDecodeCache::TaskResult stand_alone_result =
+      cache_.GetOutOfRasterDecodeTaskForImageAndRef(cache_client_id_,
+                                                    draw_image);
+  EXPECT_TRUE(stand_alone_result.need_unref);
+  EXPECT_TRUE(stand_alone_result.task);
+
+  ImageDecodeCache::TaskResult raster_result = cache_.GetTaskForImageAndRef(
+      cache_client_id_, draw_image, ImageDecodeCache::TracingInfo());
+  EXPECT_TRUE(raster_result.need_unref);
+  EXPECT_TRUE(raster_result.task);
+  TileTask* raster_decode_task = raster_result.task.get();
+
+  // Stand-alone task hasn't started yet, so it depends on raster task.
+  EXPECT_EQ(stand_alone_result.task->dependencies().size(), 1u);
+  EXPECT_EQ(stand_alone_result.task->dependencies()[0].get(),
+            raster_decode_task);
+  EXPECT_EQ(raster_decode_task->external_dependent().get(),
+            stand_alone_result.task.get());
+
+  TestTileTaskRunner::ProcessTask(raster_decode_task);
+  TestTileTaskRunner::ProcessTask(stand_alone_result.task.get());
+
+  cache_.UnrefImage(draw_image);
+  cache_.UnrefImage(draw_image);
+}
+
+TEST_F(SoftwareImageDecodeCacheTest,
+       StandAloneTaskStartedBeforeRasterTaskSameImage) {
+  if (!base::FeatureList::IsEnabled(features::kPreventDuplicateImageDecodes)) {
+    return;
+  }
+  PaintImage paint_image = CreatePaintImage(100, 100);
+  DrawImage draw_image(
+      paint_image, false,
+      SkIRect::MakeWH(paint_image.width(), paint_image.height()),
+      PaintFlags::FilterQuality::kHigh,
+      CreateMatrix(SkSize::Make(0.5f, 0.5f), true),
+      PaintImage::kDefaultFrameIndex, DefaultTargetColorParams());
+
+  ImageDecodeCache::TaskResult stand_alone_result =
+      cache_.GetOutOfRasterDecodeTaskForImageAndRef(cache_client_id_,
+                                                    draw_image);
+  EXPECT_TRUE(stand_alone_result.need_unref);
+  EXPECT_TRUE(stand_alone_result.task);
+  TileTask* stand_alone_decode_task = stand_alone_result.task.get();
+
+  // Start stand-alone decode task before requesting image for raster
+  stand_alone_decode_task->state().DidSchedule();
+  stand_alone_decode_task->state().DidStart();
+
+  ImageDecodeCache::TaskResult raster_result = cache_.GetTaskForImageAndRef(
+      cache_client_id_, draw_image, ImageDecodeCache::TracingInfo());
+  EXPECT_TRUE(raster_result.need_unref);
+  EXPECT_TRUE(raster_result.task);
+  TileTask* raster_decode_task = raster_result.task.get();
+
+  // Raster task depends on in-flight stand-alone task
+  EXPECT_EQ(raster_decode_task->dependencies().size(), 1u);
+  EXPECT_EQ(raster_decode_task->dependencies()[0].get(),
+            stand_alone_decode_task);
+  EXPECT_EQ(stand_alone_decode_task->external_dependent().get(),
+            raster_decode_task);
+
+  stand_alone_decode_task->RunOnWorkerThread();
+  stand_alone_decode_task->state().DidFinish();
+  TestTileTaskRunner::CompleteTask(stand_alone_decode_task);
+  TestTileTaskRunner::ProcessTask(raster_decode_task);
+
+  cache_.UnrefImage(draw_image);
+  cache_.UnrefImage(draw_image);
+}
+
+TEST_F(SoftwareImageDecodeCacheTest, ExternalDependentRasterTaskCanceled) {
+  if (!base::FeatureList::IsEnabled(features::kPreventDuplicateImageDecodes)) {
+    return;
+  }
+
+  PaintImage paint_image = CreatePaintImage(100, 100);
+  DrawImage draw_image(
+      paint_image, false,
+      SkIRect::MakeWH(paint_image.width(), paint_image.height()),
+      PaintFlags::FilterQuality::kHigh,
+      CreateMatrix(SkSize::Make(0.5f, 0.5f), true),
+      PaintImage::kDefaultFrameIndex, DefaultTargetColorParams());
+
+  ImageDecodeCache::TaskResult stand_alone_result =
+      cache_.GetOutOfRasterDecodeTaskForImageAndRef(cache_client_id_,
+                                                    draw_image);
+  EXPECT_TRUE(stand_alone_result.need_unref);
+  EXPECT_TRUE(stand_alone_result.task);
+  TileTask* stand_alone_decode_task = stand_alone_result.task.get();
+
+  // Start stand-alone decode task before requesting image for raster
+  stand_alone_decode_task->state().DidSchedule();
+  stand_alone_decode_task->state().DidStart();
+
+  ImageDecodeCache::TaskResult raster_result = cache_.GetTaskForImageAndRef(
+      cache_client_id_, draw_image, ImageDecodeCache::TracingInfo());
+  EXPECT_TRUE(raster_result.need_unref);
+  EXPECT_TRUE(raster_result.task);
+  TileTask* raster_decode_task = raster_result.task.get();
+
+  // Raster task depends on in-flight stand-alone task
+  EXPECT_EQ(raster_decode_task->dependencies().size(), 1u);
+  EXPECT_EQ(raster_decode_task->dependencies()[0].get(),
+            stand_alone_decode_task);
+  EXPECT_EQ(stand_alone_decode_task->external_dependent().get(),
+            raster_decode_task);
+
+  // Cancel the upload and decode raster tasks
+  TestTileTaskRunner::CancelTask(raster_decode_task);
+  TestTileTaskRunner::CompleteTask(raster_decode_task);
+
+  // Create a new raster task depending on the stand-alone task. This
+  // should be OK since the first raster task was canceled.
+  raster_result = cache_.GetTaskForImageAndRef(cache_client_id_, draw_image,
+                                               ImageDecodeCache::TracingInfo());
+  EXPECT_TRUE(raster_result.need_unref);
+  EXPECT_TRUE(raster_result.task);
+  EXPECT_NE(raster_result.task.get(), raster_decode_task);
+  raster_decode_task = raster_result.task.get();
+  EXPECT_EQ(raster_decode_task->dependencies().size(), 1u);
+  EXPECT_EQ(raster_decode_task->dependencies()[0].get(),
+            stand_alone_decode_task);
+  EXPECT_EQ(stand_alone_decode_task->external_dependent().get(),
+            raster_decode_task);
+
+  stand_alone_decode_task->RunOnWorkerThread();
+  stand_alone_decode_task->state().DidFinish();
+  TestTileTaskRunner::CompleteTask(stand_alone_decode_task);
+  EXPECT_TRUE(raster_decode_task->dependencies().empty());
+  TestTileTaskRunner::ProcessTask(raster_decode_task);
+
+  cache_.UnrefImage(draw_image);
   cache_.UnrefImage(draw_image);
   cache_.UnrefImage(draw_image);
 }
@@ -1372,7 +1561,7 @@ TEST_F(SoftwareImageDecodeCacheTest, NoneQualityScaledSubrectIsHandled) {
   cache_.UnrefImage(draw_image);
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt01_5ScaleIsHandled) {
+TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt015ScaleIsHandled) {
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
 
@@ -1404,7 +1593,7 @@ TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt01_5ScaleIsHandled) {
   cache_.UnrefImage(draw_image);
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt1_0ScaleIsHandled) {
+TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt10ScaleIsHandled) {
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
 
@@ -1436,7 +1625,7 @@ TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt1_0ScaleIsHandled) {
   cache_.UnrefImage(draw_image);
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt0_75ScaleIsHandled) {
+TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt075ScaleIsHandled) {
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
 
@@ -1468,7 +1657,7 @@ TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt0_75ScaleIsHandled) {
   cache_.UnrefImage(draw_image);
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt0_5ScaleIsHandled) {
+TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt05ScaleIsHandled) {
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
 
@@ -1500,7 +1689,7 @@ TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt0_5ScaleIsHandled) {
   cache_.UnrefImage(draw_image);
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt0_49ScaleIsHandled) {
+TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt049ScaleIsHandled) {
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
 
@@ -1532,7 +1721,7 @@ TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt0_49ScaleIsHandled) {
   cache_.UnrefImage(draw_image);
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt0_1ScaleIsHandled) {
+TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt01ScaleIsHandled) {
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
 
@@ -1564,7 +1753,7 @@ TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt0_1ScaleIsHandled) {
   cache_.UnrefImage(draw_image);
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt0_01ScaleIsHandled) {
+TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt001ScaleIsHandled) {
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
 
@@ -1596,7 +1785,7 @@ TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt0_01ScaleIsHandled) {
   cache_.UnrefImage(draw_image);
 }
 
-TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt0_001ScaleIsHandled) {
+TEST_F(SoftwareImageDecodeCacheTest, MediumQualityAt0001ScaleIsHandled) {
   bool is_decomposable = true;
   PaintFlags::FilterQuality quality = PaintFlags::FilterQuality::kMedium;
 

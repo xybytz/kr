@@ -28,6 +28,7 @@ import org.chromium.chrome.browser.price_tracking.proto.Notifications.ChromeNoti
 import org.chromium.chrome.browser.price_tracking.proto.Notifications.ChromeNotification.NotificationDataType;
 import org.chromium.chrome.browser.price_tracking.proto.Notifications.ExpandedView;
 import org.chromium.chrome.browser.price_tracking.proto.Notifications.PriceDropNotificationPayload;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.components.commerce.PriceTracking.ProductPrice;
 import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.optimization_guide.proto.CommonTypesProto.Any;
@@ -41,34 +42,33 @@ import java.util.List;
  */
 public class PriceTrackingNotificationBridge {
     private static final String TAG = "PriceTrackNotif";
-    private final long mNativePriceTrackingNotificationBridge;
     private final PriceDropNotifier mNotifier;
     private final PriceDropNotificationManager mPriceDropNotificationManager;
 
     /**
      * Construct a {@link PriceTrackingNotificationBridge} object from native code.
+     *
      * @param nativePriceTrackingNotificationBridge The native JNI object pointer.
      * @param notifier {@link PriceDropNotifier} used to create the actual notification in tray.
      * @param notificationManager {@link PriceDropNotificationManager} used to check price drop
-     *         notification channel.
+     *     notification channel.
      */
     @VisibleForTesting
     PriceTrackingNotificationBridge(
             long nativePriceTrackingNotificationBridge,
             PriceDropNotifier notifier,
             PriceDropNotificationManager notificationManager) {
-        mNativePriceTrackingNotificationBridge = nativePriceTrackingNotificationBridge;
         mNotifier = notifier;
         mPriceDropNotificationManager = notificationManager;
     }
 
     @CalledByNative
     private static PriceTrackingNotificationBridge create(
-            long nativePriceTrackingNotificationBridge) {
+            long nativePriceTrackingNotificationBridge, Profile profile) {
         return new PriceTrackingNotificationBridge(
                 nativePriceTrackingNotificationBridge,
-                PriceDropNotifier.create(ContextUtils.getApplicationContext()),
-                PriceDropNotificationManagerFactory.create());
+                new PriceDropNotifier(profile),
+                PriceDropNotificationManagerFactory.create(profile));
     }
 
     @VisibleForTesting

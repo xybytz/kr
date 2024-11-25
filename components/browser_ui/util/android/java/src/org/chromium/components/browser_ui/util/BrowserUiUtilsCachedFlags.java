@@ -7,15 +7,15 @@ package org.chromium.components.browser_ui.util;
 /**
  * A helper class that stores Chrome cached flag values to allow them to be used in //components.
  *
- * <p>TODO(crbug.com/1442347): Remove this class after code changes allow for //components to access
- * cached flags.
+ * <p>TODO(crbug.com/40266922): Remove this class after code changes allow for //components to
+ * access cached flags.
  */
 public class BrowserUiUtilsCachedFlags {
 
     /** The singleton instance for this class. */
     private static BrowserUiUtilsCachedFlags sInstance;
 
-    private boolean mUseVerticalAutomotiveBackButtonToolbar;
+    private boolean mAsyncNotificationManager;
 
     /** Returns the singleton instance, creating one if needed. */
     public static BrowserUiUtilsCachedFlags getInstance() {
@@ -25,11 +25,12 @@ public class BrowserUiUtilsCachedFlags {
         return sInstance;
     }
 
-    public void setVerticalAutomotiveBackButtonToolbarFlag(boolean value) {
-        mUseVerticalAutomotiveBackButtonToolbar = value;
+    /** Sets whether to use async notiication manager. */
+    public void setAsyncNotificationManagerFlag(boolean value) {
+        mAsyncNotificationManager = value;
     }
 
-    public boolean getVerticalAutomotiveBackButtonToolbarFlag() {
-        return mUseVerticalAutomotiveBackButtonToolbar;
+    public boolean getAsyncNotificationManagerFlag() {
+        return mAsyncNotificationManager;
     }
 }

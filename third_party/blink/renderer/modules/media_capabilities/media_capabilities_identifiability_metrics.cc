@@ -69,16 +69,16 @@ IdentifiableToken ComputeToken(const VideoConfiguration* configuration) {
       .AddValue(configuration->hasTransferFunction())
       .AddValue(configuration->hasScalabilityMode());
   if (configuration->hasHdrMetadataType()) {
-    builder.AddToken(
-        IdentifiabilityBenignStringToken(configuration->hdrMetadataType()));
+    builder.AddToken(IdentifiabilityBenignStringToken(
+        configuration->hdrMetadataType().AsString()));
   }
   if (configuration->hasColorGamut()) {
-    builder.AddToken(
-        IdentifiabilityBenignStringToken(configuration->colorGamut()));
+    builder.AddToken(IdentifiabilityBenignStringToken(
+        configuration->colorGamut().AsString()));
   }
   if (configuration->hasTransferFunction()) {
-    builder.AddToken(
-        IdentifiabilityBenignStringToken(configuration->transferFunction()));
+    builder.AddToken(IdentifiabilityBenignStringToken(
+        configuration->transferFunction().AsString()));
   }
   if (configuration->hasScalabilityMode()) {
     builder.AddToken(
@@ -150,9 +150,9 @@ IdentifiableToken ComputeToken(
       .AddValue(configuration->hasAudioCapabilities())
       .AddValue(configuration->hasVideoCapabilities())
       .AddToken(IdentifiabilityBenignStringToken(
-          configuration->distinctiveIdentifier()))
-      .AddToken(
-          IdentifiabilityBenignStringToken(configuration->persistentState()))
+          configuration->distinctiveIdentifier().AsString()))
+      .AddToken(IdentifiabilityBenignStringToken(
+          configuration->persistentState().AsString()))
       .AddValue(configuration->hasSessionTypes());
   if (configuration->hasInitDataTypes()) {
     builder.AddToken(
@@ -200,9 +200,9 @@ IdentifiableToken ComputeToken(
   builder.AddToken(IdentifiabilityBenignStringToken(configuration->keySystem()))
       .AddToken(IdentifiabilityBenignStringToken(configuration->initDataType()))
       .AddToken(IdentifiabilityBenignStringToken(
-          configuration->distinctiveIdentifier()))
-      .AddToken(
-          IdentifiabilityBenignStringToken(configuration->persistentState()))
+          configuration->distinctiveIdentifier().AsString()))
+      .AddToken(IdentifiabilityBenignStringToken(
+          configuration->persistentState().AsString()))
       .AddValue(configuration->hasSessionTypes())
       .AddValue(configuration->hasAudio())
       .AddValue(configuration->hasVideo());
@@ -224,7 +224,9 @@ IdentifiableToken ComputeToken(
     return IdentifiableToken();
 
   IdentifiableTokenBuilder builder;
-  builder.AddToken(IdentifiabilityBenignStringToken(configuration->type()))
+  builder
+      .AddToken(
+          IdentifiabilityBenignStringToken(configuration->type().AsString()))
       .AddValue(configuration->hasKeySystemConfiguration())
       .AddValue(configuration->hasAudio())
       .AddValue(configuration->hasVideo());
@@ -263,7 +265,7 @@ void ReportDecodingInfoResult(ExecutionContext* context,
 }
 
 void ReportDecodingInfoResult(ExecutionContext* context,
-                              absl::optional<IdentifiableToken> input_token,
+                              std::optional<IdentifiableToken> input_token,
                               const MediaCapabilitiesDecodingInfo* output) {
   DCHECK_EQ(IsDecodingInfoTypeAllowed(), input_token.has_value());
   if (!input_token.has_value() || !ShouldSampleDecodingInfoType())
@@ -273,10 +275,10 @@ void ReportDecodingInfoResult(ExecutionContext* context,
                                       IdentifiableToken());
 }
 
-absl::optional<IdentifiableToken> ComputeDecodingInfoInputToken(
+std::optional<IdentifiableToken> ComputeDecodingInfoInputToken(
     const MediaDecodingConfiguration* input) {
   if (!IsDecodingInfoTypeAllowed() || !ShouldSampleDecodingInfoType())
-    return absl::nullopt;
+    return std::nullopt;
 
   return ComputeToken(input);
 }

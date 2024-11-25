@@ -12,19 +12,19 @@ import androidx.annotation.VisibleForTesting;
 import org.jni_zero.CalledByNative;
 
 import org.chromium.base.Callback;
+import org.chromium.base.ServiceLoaderUtil;
 import org.chromium.base.ThreadUtils;
 import org.chromium.chrome.browser.search_engines.DefaultSearchEngineDialogHelper;
 import org.chromium.chrome.browser.search_engines.SearchEnginePromoType;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
-import org.chromium.components.browser_ui.settings.SettingsLauncher;
 import org.chromium.components.search_engines.TemplateUrl;
 import org.chromium.ui.base.PageTransition;
 
 import java.util.List;
 
 /**
- * Manager for some locale specific logics.
- * TODO(https://crbug.com/1198923) Turn this into a per-activity object.
+ * Manager for some locale specific logics. TODO(crbug.com/40177565) Turn this into a per-activity
+ * object.
  */
 public class LocaleManager implements DefaultSearchEngineDialogHelper.Delegate {
     private static final LocaleManager sInstance = new LocaleManager();
@@ -42,7 +42,12 @@ public class LocaleManager implements DefaultSearchEngineDialogHelper.Delegate {
 
     /** Default constructor. */
     private LocaleManager() {
-        mDelegate = new LocaleManagerDelegateImpl();
+        LocaleManagerDelegate delegate = ServiceLoaderUtil.maybeCreate(LocaleManagerDelegate.class);
+        if (delegate == null) {
+            // Fallback if no @ServiceImpl is found.
+            delegate = new LocaleManagerDelegate();
+        }
+        mDelegate = delegate;
         mDelegate.setDefaulSearchEngineDelegate(this);
     }
 
@@ -88,12 +93,9 @@ public class LocaleManager implements DefaultSearchEngineDialogHelper.Delegate {
         mDelegate.setSnackbarManager(manager);
     }
 
-    /**
-     * Sets the settings launcher for search engines.
-     * @param settingsLauncher Launcher to start search engine settings on the snackbar UI.
-     */
-    public void setSettingsLauncher(SettingsLauncher settingsLauncher) {
-        mDelegate.setSettingsLauncher(settingsLauncher);
+    /** Shows a snackbar notifying the user that the default search engine has changed. */
+    public void showSnackbarForDeviceSearchEngineUpdate() {
+        mDelegate.showSnackbarForDeviceSearchEngineUpdate();
     }
 
     /** Returns whether and which search engine promo should be shown. */

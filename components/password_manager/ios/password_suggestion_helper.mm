@@ -4,15 +4,20 @@
 
 #import "components/password_manager/ios/password_suggestion_helper.h"
 
-#include "base/strings/sys_string_conversions.h"
-#include "components/autofill/core/common/form_data.h"
-#include "components/autofill/core/common/password_form_fill_data.h"
+#import "base/feature_list.h"
+#import "base/not_fatal_until.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/time/time.h"
+#import "components/autofill/core/common/form_data.h"
+#import "components/autofill/core/common/password_form_fill_data.h"
+#import "components/autofill/ios/browser/autofill_driver_ios.h"
 #import "components/autofill/ios/browser/form_suggestion.h"
-#include "components/password_manager/core/browser/password_ui_utils.h"
-#include "components/password_manager/ios/account_select_fill_data.h"
+#import "components/password_manager/core/browser/features/password_features.h"
+#import "components/password_manager/core/browser/password_ui_utils.h"
+#import "components/password_manager/ios/account_select_fill_data.h"
 #import "components/password_manager/ios/password_manager_ios_util.h"
 #import "components/password_manager/ios/password_manager_java_script_feature.h"
-#include "ios/web/public/js_messaging/web_frame.h"
+#import "ios/web/public/js_messaging/web_frame.h"
 #import "ios/web/public/js_messaging/web_frames_manager.h"
 #import "ios/web/public/web_state.h"
 
@@ -28,12 +33,32 @@ using password_manager::AccountSelectFillData;
 using password_manager::FillData;
 using password_manager::IsCrossOriginIframe;
 
+namespace {
+
 // Status of form extraction for a given frame.
 enum class FormExtractionStatus {
   kNotRequested = 0,
   kRequested = 1,
   kCompleted = 2
 };
+
+// Gets the maximal period of time the form extraction queries can be hanging
+// before timing out.
+base::TimeDelta GetFormExtractionTimeoutMs() {
+  return base::Milliseconds(
+      password_manager::features::kIosPasswordFormExtractionRequestsTimeoutMs
+          .Get());
+}
+
+// Gets the period of time between the scheduled cleanup tasks that completes
+// the timed out form extraction queries. Set to be slightly more than
+// GetFormExtractionTimeoutMs() to make sure that the hanging extraction query
+// that originally triggered the cleanup task has the time to expire.
+base::TimeDelta GetCleanupTaskPeriodMs() {
+  return GetFormExtractionTimeoutMs() + base::Milliseconds(50);
+}
+
+}  // namespace
 
 @protocol FillDataProvider <NSObject>
 
@@ -53,16 +78,22 @@ enum class FormExtractionStatus {
 // ID of the frame targeted by the query.
 @property(nonatomic, strong, readonly) NSString* frameId;
 
+// Timestamp when the query was created.
+@property(nonatomic, readonly) base::TimeTicks creationTimestamp;
+
 // Initializes the object with a `query` to complete with `completion` for
 // frame with id `frameId`.
 - (instancetype)initWithQuery:(FormSuggestionProviderQuery*)query
                    completion:(SuggestionsAvailableCompletion)completion
              fillDataProvider:(id<FillDataProvider>)fillDataProvider
-                      frameId:(NSString*)frameId;
+              isPasswordField:(BOOL)isPasswordField;
 
 // Runs the completion callback with the available fill data. This can only be
 // done once in the lifetime of the query object.
 - (void)runCompletion;
+
+// Returns YES if the query is expired.
+- (BOOL)isExpired;
 
 @end
 
@@ -70,18 +101,21 @@ enum class FormExtractionStatus {
   FormSuggestionProviderQuery* _query;
   SuggestionsAvailableCompletion _completion;
   id<FillDataProvider> _fillDataProvider;
+  BOOL _isPasswordField;
 }
 
 - (instancetype)initWithQuery:(FormSuggestionProviderQuery*)query
                    completion:(SuggestionsAvailableCompletion)completion
              fillDataProvider:(id<FillDataProvider>)fillDataProvider
-                      frameId:(NSString*)frameId {
+              isPasswordField:(BOOL)isPasswordField {
   self = [super init];
   if (self) {
     _query = query;
     _completion = completion;
     _fillDataProvider = fillDataProvider;
-    _frameId = frameId;
+    _frameId = query.frameID;
+    _isPasswordField = isPasswordField;
+    _creationTimestamp = base::TimeTicks::Now();
   }
   return self;
 }
@@ -93,10 +127,15 @@ enum class FormExtractionStatus {
 
   _completion([_fillDataProvider
       areSuggestionsAvailableForFrameId:self.frameId
-                         formRendererId:_query.uniqueFormID
-                        fieldRendererId:_query.uniqueFieldID
-                        isPasswordField:[_query isOnPasswordField]]);
+                         formRendererId:_query.formRendererID
+                        fieldRendererId:_query.fieldRendererID
+                        isPasswordField:_isPasswordField]);
   _completion = nil;
+}
+
+- (BOOL)isExpired {
+  return base::TimeTicks::Now() >=
+         _creationTimestamp + GetFormExtractionTimeoutMs();
 }
 
 @end
@@ -117,6 +156,9 @@ enum class FormExtractionStatus {
 
   // Map of frame ids to the form extraction status for that frame.
   std::map<std::string, FormExtractionStatus> _framesFormExtractionStatus;
+
+  // YES if there is pending queries cleanup task that was already scheduled.
+  BOOL _cleanupScheduled;
 }
 
 #pragma mark - Initialization
@@ -126,32 +168,35 @@ enum class FormExtractionStatus {
   if (self) {
     _webState = webState->GetWeakPtr();
     _pendingFormQueries = [NSMutableArray array];
+    _cleanupScheduled = NO;
   }
   return self;
 }
 
 #pragma mark - Public methods
 
-- (NSArray<FormSuggestion*>*)
-    retrieveSuggestionsWithFormID:(FormRendererId)formIdentifier
-                  fieldIdentifier:(FieldRendererId)fieldIdentifier
-                       forFrameId:(const std::string&)frameId
-                        fieldType:(NSString*)fieldType {
+- (NSArray<FormSuggestion*>*)retrieveSuggestionsWithForm:
+    (FormSuggestionProviderQuery*)formQuery {
+  const std::string frameId = SysNSStringToUTF8(formQuery.frameID);
   AccountSelectFillData* fillData = [self fillDataForFrameId:frameId];
 
-  BOOL isPasswordField = [fieldType isEqual:kPasswordFieldType];
+  BOOL isPasswordField =
+      [self isPasswordFieldOnForm:formQuery
+                         webFrame:[self frameWithId:frameId]];
 
   NSMutableArray<FormSuggestion*>* results = [NSMutableArray array];
 
-  if (fillData->IsSuggestionsAvailable(formIdentifier, fieldIdentifier,
+  if (fillData->IsSuggestionsAvailable(formQuery.formRendererID,
+                                       formQuery.fieldRendererID,
                                        isPasswordField)) {
-    const password_manager::FormInfo* formInfo =
-        fillData->GetFormInfo(formIdentifier, fieldIdentifier, isPasswordField);
+    const password_manager::FormInfo* formInfo = fillData->GetFormInfo(
+        formQuery.formRendererID, formQuery.fieldRendererID, isPasswordField);
     bool is_single_username_form = formInfo && formInfo->username_element_id &&
                                    !formInfo->password_element_id;
 
     std::vector<password_manager::UsernameAndRealm> usernameAndRealms =
-        fillData->RetrieveSuggestions(formIdentifier, fieldIdentifier,
+        fillData->RetrieveSuggestions(formQuery.formRendererID,
+                                      formQuery.fieldRendererID,
                                       isPasswordField);
 
     for (const auto& usernameAndRealm : usernameAndRealms) {
@@ -165,19 +210,28 @@ enum class FormExtractionStatus {
       FormSuggestionMetadata metadata;
       metadata.is_single_username_form = is_single_username_form;
       [results
-          addObject:[FormSuggestion suggestionWithValue:username
-                                     displayDescription:realm
-                                                   icon:nil
-                                            popupItemId:autofill::PopupItemId::
-                                                            kAutocompleteEntry
-                                      backendIdentifier:nil
-                                         requiresReauth:YES
-                             acceptanceA11yAnnouncement:nil
-                                               metadata:std::move(metadata)]];
+          addObject:
+              [FormSuggestion
+                         suggestionWithValue:username
+                          displayDescription:realm
+                                        icon:nil
+                                        type:autofill::SuggestionType::
+                                                 kPasswordEntry
+                                     payload:autofill::Suggestion::Payload()
+                              requiresReauth:YES
+                  acceptanceA11yAnnouncement:nil
+                                    metadata:std::move(metadata)]];
     }
   }
 
   return [results copy];
+}
+
+// Adds a pending form extraction query and schedules a cleanup task in the case
+// the query hangs.
+- (void)addPendingQuery:(PendingFormQuery*)query {
+  [_pendingFormQueries addObject:query];
+  [self scheduleCleanupIfNeeded];
 }
 
 - (void)checkIfSuggestionsAvailableForForm:
@@ -195,11 +249,13 @@ enum class FormExtractionStatus {
   const std::string frame_id = SysNSStringToUTF8(formQuery.frameID);
   web::WebFrame* frame = [self frameWithId:frame_id];
   DCHECK(frame);
+
+  BOOL isPasswordField = [self isPasswordFieldOnForm:formQuery webFrame:frame];
   PendingFormQuery* query =
       [[PendingFormQuery alloc] initWithQuery:formQuery
                                    completion:completion
                              fillDataProvider:self
-                                      frameId:formQuery.frameID];
+                              isPasswordField:isPasswordField];
 
   AccountSelectFillData* fillData = [self fillDataForFrameId:frame_id];
 
@@ -221,7 +277,7 @@ enum class FormExtractionStatus {
   // Queue the form query until the fill data is processed. The queue can handle
   // concurent calls to -checkIfSuggestionsAvailableForForm, which may happen
   // when there is more than one consumer of suggestions.
-  [_pendingFormQueries addObject:query];
+  [self addPendingQuery:query];
 
   // Try to extract password forms from the frame's renderer content
   // because there is no knowledge of any extraction done yet. If
@@ -259,7 +315,9 @@ enum class FormExtractionStatus {
                       forSecurityOrigin:(const GURL&)origin {
   DCHECK(_webState.get());
   [self fillDataForFrameId:frameId]->Add(
-      formData, IsCrossOriginIframe(_webState.get(), isMainFrame, origin));
+      formData, [self shouldAlwaysPopulateRealmForFrame:frameId
+                                            isMainFrame:isMainFrame
+                                      forSecurityOrigin:origin]);
 
   // "attachListenersForBottomSheet" is used to add event listeners
   // to fields which must trigger a specific behavior. In this case,
@@ -276,6 +334,48 @@ enum class FormExtractionStatus {
 
 - (void)processWithNoSavedCredentialsWithFrameId:(const std::string&)frameId {
   [self completePendingFormQueriesForFrameId:frameId];
+}
+
+- (BOOL)isPasswordFieldOnForm:(FormSuggestionProviderQuery*)formQuery
+                     webFrame:(web::WebFrame*)webFrame {
+  if (![formQuery.fieldType isEqual:kObfuscatedFieldType]) {
+    return NO;
+  }
+
+  if (!_webState.get() || !webFrame) {
+    return YES;
+  }
+
+  auto* driver = autofill::AutofillDriverIOS::FromWebStateAndWebFrame(
+      _webState.get(), webFrame);
+  if (!driver) {
+    return YES;
+  }
+
+  autofill::FormStructure* form_structure =
+      driver->GetAutofillManager().FindCachedFormById(
+          {driver->GetFrameToken(), formQuery.formRendererID});
+  if (!form_structure) {
+    return YES;
+  }
+
+  const auto& fields = form_structure->fields();
+  auto itEnd = fields.end();
+  auto it = std::find_if(fields.begin(), itEnd, [&](auto& field) {
+    return formQuery.fieldRendererID == field->renderer_id();
+  });
+  if (it == itEnd) {
+    return YES;
+  }
+
+  autofill::FieldType fieldType = (*it)->Type().GetStorableType();
+  switch (GroupTypeOfFieldType(fieldType)) {
+    case autofill::FieldTypeGroup::kPasswordField:
+    case autofill::FieldTypeGroup::kNoGroup:
+      return YES;  // May be a password field.
+    default:
+      return NO;  // Not a password field.
+  }
 }
 
 #pragma mark - FillDataProvider
@@ -296,6 +396,29 @@ enum class FormExtractionStatus {
   password_manager::PasswordManagerJavaScriptFeature* feature =
       password_manager::PasswordManagerJavaScriptFeature::GetInstance();
   return feature->GetWebFramesManager(_webState.get())->GetFrameWithId(frameId);
+}
+
+// Returns whether to add the form's url as the Credential's realm if the realm
+// is not specified.
+- (bool)shouldAlwaysPopulateRealmForFrame:(const std::string&)frameId
+                              isMainFrame:(BOOL)isMainFrame
+                        forSecurityOrigin:(const GURL&)origin {
+  CHECK(_webState.get());
+  if (IsCrossOriginIframe(_webState.get(), isMainFrame, origin)) {
+    return true;
+  }
+
+  web::WebFrame* frame = [self frameWithId:frameId];
+  if (!frame) {
+    return false;
+  }
+
+  auto* driver = autofill::AutofillDriverIOS::FromWebStateAndWebFrame(
+      _webState.get(), frame);
+  if (!driver) {
+    return false;
+  }
+  return driver->GetAutofillClient().ShouldFormatForLargeKeyboardAccessory();
 }
 
 // Completes all the pending form queries that were queued for the frame that
@@ -330,6 +453,61 @@ enum class FormExtractionStatus {
       .insert(
           std::make_pair(frameId, std::make_unique<AccountSelectFillData>()))
       .first->second.get();
+}
+
+// Completes, if needed, frame extraction for `frameId`.
+- (void)completeFormExtractionForFrame:(const std::string&)frameId {
+  if (const auto it = _framesFormExtractionStatus.find(frameId);
+      it != _framesFormExtractionStatus.end() &&
+      it->second == FormExtractionStatus::kRequested) {
+    _framesFormExtractionStatus[frameId] = FormExtractionStatus::kCompleted;
+  }
+}
+
+// Schedules a cleanup task to clean up the expired queries for which no
+// response was ever received within the time limit. Only schedules the task if
+// there isn't already a task scheduled and there are still pending form queries
+// that are subject to hanging. Is no op if the feature isn't enabled.
+- (void)scheduleCleanupIfNeeded {
+  if (_cleanupScheduled || _pendingFormQueries.count == 0 ||
+      !base::FeatureList::IsEnabled(
+          password_manager::features::
+              kIosCleanupHangingPasswordFormExtractionRequests)) {
+    return;
+  }
+
+  _cleanupScheduled = YES;
+
+  __weak __typeof(self) weakSelf = self;
+  base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](__typeof(self) strongSelf) {
+            [strongSelf completeExpiredQueries];
+          },
+          weakSelf),
+      GetCleanupTaskPeriodMs());
+}
+
+// Completes all expired queries, across frames. Called by the scheduled cleanup
+// task. Automatically reassesses if a follow-up cleanup task is required after
+// this cleanup in the case there as still pending not yet expired queries.
+- (void)completeExpiredQueries {
+  _cleanupScheduled = NO;
+  NSMutableArray<PendingFormQuery*>* remainingQueries = [NSMutableArray array];
+  for (PendingFormQuery* query in _pendingFormQueries) {
+    if ([query isExpired]) {
+      [query runCompletion];
+      // Complete the extraction for the frame targeted by this expired
+      // `query`.
+      std::string frameId = SysNSStringToUTF8(query.frameId);
+      [self completeFormExtractionForFrame:frameId];
+    } else {
+      [remainingQueries addObject:query];
+    }
+  }
+  _pendingFormQueries = remainingQueries;
+  [self scheduleCleanupIfNeeded];
 }
 
 @end

@@ -4,10 +4,11 @@
 
 #import "ios/chrome/browser/url_loading/model/url_loading_observer_bridge.h"
 
+#import "base/memory/raw_ptr.h"
 #import "base/rand_util.h"
 #import "base/scoped_observation.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/url_loading/model/url_loading_notifier_browser_agent.h"
 #import "ios/chrome/browser/url_loading/model/url_loading_observer.h"
 #import "ios/chrome/browser/url_loading/model/url_loading_observer_bridge.h"
@@ -24,8 +25,8 @@ const char kTestUrl[] = "https://chromium.test/";
 class UrlLoadingObserverBridgeTest : public PlatformTest {
  protected:
   UrlLoadingObserverBridgeTest() {
-    chrome_browser_state_ = TestChromeBrowserState::Builder().Build();
-    browser_ = std::make_unique<TestBrowser>(chrome_browser_state_.get());
+    profile_ = TestProfileIOS::Builder().Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get());
     UrlLoadingNotifierBrowserAgent::CreateForBrowser(browser_.get());
 
     url_loading_notifier_ =
@@ -36,7 +37,7 @@ class UrlLoadingObserverBridgeTest : public PlatformTest {
         std::make_unique<base::ScopedObservation<UrlLoadingNotifierBrowserAgent,
                                                  UrlLoadingObserver>>(
             observer_bridge_.get());
-    scoped_observation_->Observe(url_loading_notifier_);
+    scoped_observation_->Observe(url_loading_notifier_.get());
   }
 
   // Returns URL loading notifier.
@@ -50,10 +51,10 @@ class UrlLoadingObserverBridgeTest : public PlatformTest {
  private:
   // Environment dependencies.
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> chrome_browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<TestBrowser> browser_;
   // Test dependencies.
-  UrlLoadingNotifierBrowserAgent* url_loading_notifier_;
+  raw_ptr<UrlLoadingNotifierBrowserAgent> url_loading_notifier_;
   id observer_;
   std::unique_ptr<UrlLoadingObserverBridge> observer_bridge_;
   std::unique_ptr<base::ScopedObservation<UrlLoadingNotifierBrowserAgent,

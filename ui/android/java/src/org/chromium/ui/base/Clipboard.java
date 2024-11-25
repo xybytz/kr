@@ -222,6 +222,28 @@ public class Clipboard {
     }
 
     /**
+     * Gets a list of content URIs on the primary clip on the Android Clipboard and their display
+     * names.
+     *
+     * @return list of content URIs and display names. item[i][0] is the URI, and item[i][1] is the
+     *     optional display name which will be an empty string when unknown.
+     */
+    @CalledByNative
+    protected String[][] getFilenames() {
+        return null;
+    }
+
+    /**
+     * Check if the system clipboard contains any content URIs (filenames).
+     *
+     * @return True if the system clipboard contains any content URIs (filenames).
+     */
+    @CalledByNative
+    public boolean hasFilenames() {
+        return false;
+    }
+
+    /**
      * Emulates the behavior of the now-deprecated
      * {@link android.text.ClipboardManager#setText(CharSequence)}, setting the
      * clipboard's current primary clip to a plain-text clip that consists of
@@ -271,27 +293,27 @@ public class Clipboard {
      * Writes password to the clipboard, and set the Clipdata is sensitive.
      * @param password  will become the content of the clipboard's primary clip.
      */
+    @CalledByNative
     public void setPassword(final String password) {
         Log.w(TAG, "setPassword is a no-op because Clipboard service isn't available");
     }
 
     /**
-     * Setting the clipboard's current primary clip to an image.
-     * This method requires background work and might not be immediately committed upon returning
-     * from this method.
-     * @param Uri The {@link Uri} will become the content of the clipboard's primary clip.
+     * Setting the clipboard's current primary clip to an image. This method requires background
+     * work and might not be immediately committed upon returning from this method.
+     *
+     * @param uri The {@link Uri} will become the content of the clipboard's primary clip.
      */
     public void setImageUri(final Uri uri) {
         Log.w(TAG, "setImageUri is a no-op because Clipboard service isn't available");
     }
 
     /**
-     * Setting the clipboard's current primary clip to an image.
-     * This method requires background work and might not be immediately committed upon returning
-     * from this method.
+     * Setting the clipboard's current primary clip to an image. This method requires background
+     * work and might not be immediately committed upon returning from this method.
      *
      * @see #setImageUri(Uri)
-     * @param Uri The {@link Uri} will become the content of the clipboard's primary clip.
+     * @param uri The {@link Uri} will become the content of the clipboard's primary clip.
      * @param notifyOnSuccess Whether show a notification when success.
      */
     public void setImageUri(final Uri uri, boolean notifyOnSuccess) {
@@ -307,6 +329,16 @@ public class Clipboard {
     @VisibleForTesting
     public void setImage(final byte[] imageData, final String extension) {
         Log.w(TAG, "setImage is a no-op because Clipboard service isn't available");
+    }
+
+    /**
+     * Writes content URI filenames to the clipboard.
+     *
+     * @param uriList list of content URIs.
+     */
+    @CalledByNative
+    public void setFilenames(final String[] uriList) {
+        Log.w(TAG, "setFilenames is a no-op because Clipboard service isn't available");
     }
 
     /** Clears the Clipboard Primary clip. */

@@ -6,6 +6,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include "base/check.h"
 #include "base/containers/flat_map.h"
@@ -25,7 +26,6 @@
 #include "components/signin/public/base/signin_metrics.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
-#include "components/sync/base/features.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "content/public/browser/web_ui_data_source.h"
@@ -44,7 +44,7 @@ namespace {
 std::string GetAccountImageURL(Profile* profile) {
   auto* identity_manager = IdentityManagerFactory::GetForProfile(profile);
   // The current version of the reauth only supports the primary account.
-  // TODO(crbug.com/1083429): generalize for arbitrary accounts by passing an
+  // TODO(crbug.com/40131388): generalize for arbitrary accounts by passing an
   // account id as a method parameter.
   CoreAccountId account_id =
       identity_manager->GetPrimaryAccountId(signin::ConsentLevel::kSignin);
@@ -75,15 +75,9 @@ bool WasPasswordSavedLocally(signin_metrics::ReauthAccessPoint access_point) {
 
 int GetReauthDescriptionStringId(
     signin_metrics::ReauthAccessPoint access_point) {
-  bool sync_passkeys =
-      base::FeatureList::IsEnabled(syncer::kSyncWebauthnCredentials);
-  if (WasPasswordSavedLocally(access_point)) {
-    return sync_passkeys
-               ? IDS_ACCOUNT_PASSWORDS_WITH_PASSKEYS_REAUTH_DESC_ALREADY_SAVED_LOCALLY
-               : IDS_ACCOUNT_PASSWORDS_REAUTH_DESC_ALREADY_SAVED_LOCALLY;
-  }
-  return sync_passkeys ? IDS_ACCOUNT_PASSWORDS_WITH_PASSKEYS_REAUTH_DESC
-                       : IDS_ACCOUNT_PASSWORDS_REAUTH_DESC;
+  return WasPasswordSavedLocally(access_point)
+             ? IDS_ACCOUNT_PASSWORDS_WITH_PASSKEYS_REAUTH_DESC_ALREADY_SAVED_LOCALLY
+             : IDS_ACCOUNT_PASSWORDS_WITH_PASSKEYS_REAUTH_DESC;
 }
 
 int GetReauthCloseButtonLabelStringId(
@@ -96,6 +90,12 @@ int GetReauthCloseButtonLabelStringId(
 
 }  // namespace
 
+bool SigninReauthUIConfig::IsWebUIEnabled(
+    content::BrowserContext* browser_context) {
+  Profile* profile = Profile::FromBrowserContext(browser_context);
+  return !profile->IsOffTheRecord();
+}
+
 SigninReauthUI::SigninReauthUI(content::WebUI* web_ui)
     : content::WebUIController(web_ui) {
   Profile* profile = Profile::FromWebUI(web_ui);
@@ -106,6 +106,8 @@ SigninReauthUI::SigninReauthUI(content::WebUI* web_ui)
       {"signin_reauth_app.js", IDR_SIGNIN_SIGNIN_REAUTH_SIGNIN_REAUTH_APP_JS},
       {"signin_reauth_app.html.js",
        IDR_SIGNIN_SIGNIN_REAUTH_SIGNIN_REAUTH_APP_HTML_JS},
+      {"signin_reauth_app.css.js",
+       IDR_SIGNIN_SIGNIN_REAUTH_SIGNIN_REAUTH_APP_CSS_JS},
       {"signin_reauth_browser_proxy.js",
        IDR_SIGNIN_SIGNIN_REAUTH_SIGNIN_REAUTH_BROWSER_PROXY_JS},
       {"signin_shared.css.js", IDR_SIGNIN_SIGNIN_SHARED_CSS_JS},
@@ -122,17 +124,12 @@ SigninReauthUI::SigninReauthUI(content::WebUI* web_ui)
 
   source->AddString("accountImageUrl", GetAccountImageURL(profile));
 
-  webui::SetupChromeRefresh2023(source);
-
   signin_metrics::ReauthAccessPoint access_point =
       GetReauthAccessPointForReauthConfirmationURL(
           web_ui->GetWebContents()->GetVisibleURL());
 
-  AddStringResource(
-      source, "signinReauthTitle",
-      base::FeatureList::IsEnabled(syncer::kSyncWebauthnCredentials)
-          ? IDS_ACCOUNT_PASSWORDS_WITH_PASSKEYS_REAUTH_TITLE
-          : IDS_ACCOUNT_PASSWORDS_REAUTH_TITLE);
+  AddStringResource(source, "signinReauthTitle",
+                    IDS_ACCOUNT_PASSWORDS_WITH_PASSKEYS_REAUTH_TITLE);
   AddStringResource(source, "signinReauthDesc",
                     GetReauthDescriptionStringId(access_point));
   AddStringResource(source, "signinReauthConfirmLabel",
@@ -151,7 +148,7 @@ void SigninReauthUI::InitializeMessageHandlerWithReauthController(
 }
 
 void SigninReauthUI::AddStringResource(content::WebUIDataSource* source,
-                                       base::StringPiece name,
+                                       std::string_view name,
                                        int ids) {
   source->AddLocalizedString(name, ids);
 

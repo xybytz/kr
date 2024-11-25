@@ -62,7 +62,7 @@ AccountInvestigator::AccountInvestigator(
     signin::IdentityManager* identity_manager)
     : pref_service_(pref_service), identity_manager_(identity_manager) {}
 
-AccountInvestigator::~AccountInvestigator() {}
+AccountInvestigator::~AccountInvestigator() = default;
 
 // static
 void AccountInvestigator::RegisterPrefs(PrefRegistrySimple* registry) {
@@ -76,7 +76,7 @@ void AccountInvestigator::Initialize() {
   previously_authenticated_ =
       identity_manager_->HasPrimaryAccount(signin::ConsentLevel::kSync);
 
-  // TODO(crbug.com/1121923): Refactor to use signin::PersistentRepeatingTimer
+  // TODO(crbug.com/40715763): Refactor to use signin::PersistentRepeatingTimer
   // instead.
   Time previous = Time::FromSecondsSinceUnixEpoch(
       pref_service_->GetDouble(prefs::kGaiaCookiePeriodicReportTime));
@@ -102,9 +102,9 @@ void AccountInvestigator::OnAccountsInCookieUpdated(
   }
 
   const std::vector<ListedAccount>& signed_in_accounts(
-      accounts_in_cookie_jar_info.signed_in_accounts);
+      accounts_in_cookie_jar_info.GetPotentiallyInvalidSignedInAccounts());
   const std::vector<ListedAccount>& signed_out_accounts(
-      accounts_in_cookie_jar_info.signed_out_accounts);
+      accounts_in_cookie_jar_info.GetSignedOutAccounts());
 
   // Handling this is tricky. We could be here because there was a change. We
   // could be here because we tried to do periodic reporting but there wasn't
@@ -173,9 +173,7 @@ std::string AccountInvestigator::HashAccounts(
 
   // PrefService will slightly mangle some undisplayable characters, by encoding
   // in Base64 we are sure to have all safe characters that PrefService likes.
-  std::string encoded;
-  base::Base64Encode(base::SHA1HashString(stream.str()), &encoded);
-  return encoded;
+  return base::Base64Encode(base::SHA1HashString(stream.str()));
 }
 
 // static
@@ -217,10 +215,11 @@ AccountRelation AccountInvestigator::DiscernRelation(
 void AccountInvestigator::TryPeriodicReport() {
   auto accounts_in_cookie_jar_info =
       identity_manager_->GetAccountsInCookieJar();
-  if (accounts_in_cookie_jar_info.accounts_are_fresh &&
+  if (accounts_in_cookie_jar_info.AreAccountsFresh() &&
       !WaitingForExtendedInfo(identity_manager_)) {
-    DoPeriodicReport(accounts_in_cookie_jar_info.signed_in_accounts,
-                     accounts_in_cookie_jar_info.signed_out_accounts);
+    DoPeriodicReport(
+        accounts_in_cookie_jar_info.GetPotentiallyInvalidSignedInAccounts(),
+        accounts_in_cookie_jar_info.GetSignedOutAccounts());
   } else {
     periodic_pending_ = true;
   }

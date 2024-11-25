@@ -9,15 +9,15 @@
 #include "components/search_engines/template_url_fetcher.h"
 #include "ios/chrome/browser/search_engines/model/template_url_service_factory.h"
 #include "ios/chrome/browser/shared/model/browser_state/browser_state_otr_helper.h"
-#include "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/shared/model/profile/profile_ios.h"
 
 namespace ios {
 
 // static
-TemplateURLFetcher* TemplateURLFetcherFactory::GetForBrowserState(
-    ChromeBrowserState* browser_state) {
+TemplateURLFetcher* TemplateURLFetcherFactory::GetForProfile(
+    ProfileIOS* profile) {
   return static_cast<TemplateURLFetcher*>(
-      GetInstance()->GetServiceForBrowserState(browser_state, true));
+      GetInstance()->GetServiceForBrowserState(profile, true));
 }
 
 // static
@@ -39,8 +39,8 @@ std::unique_ptr<KeyedService>
 TemplateURLFetcherFactory::BuildServiceInstanceFor(
     web::BrowserState* context) const {
   return std::make_unique<TemplateURLFetcher>(
-      TemplateURLServiceFactory::GetForBrowserState(
-          static_cast<ChromeBrowserState*>(context)));
+      TemplateURLServiceFactory::GetForProfile(
+          ProfileIOS::FromBrowserState(context)));
 }
 
 web::BrowserState* TemplateURLFetcherFactory::GetBrowserStateToUse(

@@ -9,6 +9,8 @@ import android.webkit.GeolocationPermissions;
 import android.webkit.ServiceWorkerController;
 import android.webkit.WebStorage;
 
+import java.lang.reflect.InvocationHandler;
+
 /** Boundary interface for Profile. */
 public interface ProfileBoundaryInterface {
     String getName();
@@ -20,4 +22,15 @@ public interface ProfileBoundaryInterface {
     GeolocationPermissions getGeoLocationPermissions();
 
     ServiceWorkerController getServiceWorkerController();
+
+    void prefetchUrl(String url, /* PrefetchOperationCallback */ InvocationHandler callback);
+
+    void prefetchUrl(
+            String url,
+            /* SpeculativeLoadingParameters */ InvocationHandler speculativeLoadingParams,
+            /* PrefetchOperationCallback */ InvocationHandler callback);
+
+    void cancelPrefetch(String url, /* PrefetchOperationCallback */ InvocationHandler callback);
+
+    void clearPrefetch(String url, /* PrefetchOperationCallback */ InvocationHandler callback);
 }

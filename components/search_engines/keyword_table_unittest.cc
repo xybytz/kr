@@ -2,15 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "components/search_engines/keyword_table.h"
+
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "base/files/scoped_temp_dir.h"
+#include "base/strings/cstring_view.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
-#include "components/search_engines/keyword_table.h"
 #include "components/search_engines/template_url_data.h"
 #include "components/webdata/common/web_database.h"
 #include "sql/statement.h"
@@ -21,12 +23,12 @@ using base::Time;
 
 class KeywordTableTest : public testing::Test {
  public:
-  KeywordTableTest() {}
+  KeywordTableTest() = default;
 
   KeywordTableTest(const KeywordTableTest&) = delete;
   KeywordTableTest& operator=(const KeywordTableTest&) = delete;
 
-  ~KeywordTableTest() override {}
+  ~KeywordTableTest() override = default;
 
  protected:
   void SetUp() override {
@@ -90,19 +92,9 @@ class KeywordTableTest : public testing::Test {
     return keywords;
   }
 
-  void KeywordMiscTest() const {
-    EXPECT_EQ(kInvalidTemplateURLID, table_->GetDefaultSearchProviderID());
-    EXPECT_EQ(0, table_->GetBuiltinKeywordVersion());
-
-    EXPECT_TRUE(table_->SetDefaultSearchProviderID(10));
-    EXPECT_TRUE(table_->SetBuiltinKeywordVersion(11));
-
-    EXPECT_EQ(10, table_->GetDefaultSearchProviderID());
-    EXPECT_EQ(11, table_->GetBuiltinKeywordVersion());
-  }
-
-  void GetStatement(const char* sql, sql::Statement* statement) const {
-    statement->Assign(table_->db_->GetUniqueStatement(sql));
+  void GetStatement(const base::cstring_view sql,
+                    sql::Statement* statement) const {
+    statement->Assign(table_->db()->GetUniqueStatement(sql));
   }
 
  private:
@@ -150,10 +142,6 @@ TEST_F(KeywordTableTest, Keywords) {
   RemoveKeyword(restored_keyword.id);
 
   EXPECT_EQ(0U, GetKeywords().size());
-}
-
-TEST_F(KeywordTableTest, KeywordMisc) {
-  KeywordMiscTest();
 }
 
 TEST_F(KeywordTableTest, UpdateKeyword) {

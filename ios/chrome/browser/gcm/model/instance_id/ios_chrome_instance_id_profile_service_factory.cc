@@ -10,14 +10,13 @@
 #include "components/gcm_driver/instance_id/instance_id_profile_service.h"
 #include "components/keyed_service/ios/browser_state_dependency_manager.h"
 #include "ios/chrome/browser/gcm/model/ios_chrome_gcm_profile_service_factory.h"
-#include "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/shared/model/profile/profile_ios.h"
 
 // static
 instance_id::InstanceIDProfileService*
-IOSChromeInstanceIDProfileServiceFactory::GetForBrowserState(
-    ChromeBrowserState* browser_state) {
+IOSChromeInstanceIDProfileServiceFactory::GetForProfile(ProfileIOS* profile) {
   return static_cast<instance_id::InstanceIDProfileService*>(
-      GetInstance()->GetServiceForBrowserState(browser_state, true));
+      GetInstance()->GetServiceForBrowserState(profile, true));
 }
 
 // static
@@ -43,10 +42,8 @@ IOSChromeInstanceIDProfileServiceFactory::BuildServiceInstanceFor(
     web::BrowserState* context) const {
   DCHECK(!context->IsOffTheRecord());
 
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(context);
+  ProfileIOS* profile = ProfileIOS::FromBrowserState(context);
   return std::make_unique<instance_id::InstanceIDProfileService>(
-      IOSChromeGCMProfileServiceFactory::GetForBrowserState(browser_state)
-          ->driver(),
-      browser_state->IsOffTheRecord());
+      IOSChromeGCMProfileServiceFactory::GetForProfile(profile)->driver(),
+      profile->IsOffTheRecord());
 }

@@ -33,12 +33,11 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.TextView;
 
+import androidx.annotation.Nullable;
+
 import org.chromium.components.webapk.lib.common.WebApkMetaDataKeys;
 
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 /** Contains utility methods for interacting with WebAPKs. */
 public class WebApkUtils {
@@ -103,29 +102,11 @@ public class WebApkUtils {
         return returnUrlBuilder.toString();
     }
 
-    /** Returns a browser-package-name->ResolveInfo mapping for all of the installed browsers. */
-    public static Map<String, ResolveInfo> getInstalledBrowserResolveInfos(
-            PackageManager packageManager) {
-        Intent browserIntent = getQueryInstalledBrowsersIntent();
-        // Note: {@link PackageManager#queryIntentActivities()} does not return ResolveInfos for
-        // disabled browsers.
-        List<ResolveInfo> resolveInfos =
-                packageManager.queryIntentActivities(browserIntent, PackageManager.MATCH_ALL);
-        resolveInfos.addAll(
-                packageManager.queryIntentActivities(
-                        browserIntent, PackageManager.MATCH_DEFAULT_ONLY));
-
-        Map<String, ResolveInfo> result = new HashMap<>();
-        for (ResolveInfo resolveInfo : resolveInfos) {
-            result.put(getPackageNameFromResolveInfo(resolveInfo), resolveInfo);
-        }
-        return result;
-    }
-
-    /** Returns the package name for the passed-in ResolveInfo. */
-    public static String getPackageNameFromResolveInfo(ResolveInfo resolveInfo) {
+    /** Returns the component name for the passed-in ResolveInfo. */
+    public static @Nullable ComponentName getComponentNameFromResolveInfo(ResolveInfo resolveInfo) {
         return (resolveInfo != null && resolveInfo.activityInfo != null)
-                ? resolveInfo.activityInfo.packageName
+                ? new ComponentName(
+                        resolveInfo.activityInfo.packageName, resolveInfo.activityInfo.name)
                 : null;
     }
 
@@ -202,7 +183,7 @@ public class WebApkUtils {
         bgG = (bgG < 0.03928f) ? bgG / 12.92f : (float) Math.pow((bgG + 0.055f) / 1.055f, 2.4f);
         bgB = (bgB < 0.03928f) ? bgB / 12.92f : (float) Math.pow((bgB + 0.055f) / 1.055f, 2.4f);
         float bgL = 0.2126f * bgR + 0.7152f * bgG + 0.0722f * bgB;
-        return Math.abs((1.05f) / (bgL + 0.05f));
+        return Math.abs(1.05f / (bgL + 0.05f));
     }
 
     /**
@@ -243,8 +224,8 @@ public class WebApkUtils {
     public static void setStatusBarIconColor(View rootView, boolean useDarkIcons, Context context) {
         int systemUiVisibility = rootView.getSystemUiVisibility();
         // The status bar should always be black in automotive devices to match the black back
-        // button toolbar, so we should use dark theme icons.
-        if (useDarkIcons || isAutomotive(context)) {
+        // button toolbar, so we should not use dark icons.
+        if (useDarkIcons && !isAutomotive(context)) {
             systemUiVisibility |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
         } else {
             systemUiVisibility &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;

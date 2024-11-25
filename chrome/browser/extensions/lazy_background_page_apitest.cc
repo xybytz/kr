@@ -50,6 +50,7 @@
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api_test_utils.h"
 #include "extensions/browser/event_router.h"
+#include "extensions/browser/extension_action_manager.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_host_test_helper.h"
 #include "extensions/browser/extension_registry.h"
@@ -364,11 +365,7 @@ IN_PROC_BROWSER_TEST_F(LazyBackgroundPageApiTest,
     }
     // There isn't really a tab corresponding to the extension background page,
     // but this is how DevTools refers to a top-level web contents.
-    std::string expected_type =
-        base::FeatureList::IsEnabled(::features::kDevToolsTabTarget)
-            ? content::DevToolsAgentHost::kTypeTab
-            : ChromeDevToolsManagerDelegate::kTypeBackgroundPage;
-    if (host->GetType() == expected_type) {
+    if (host->GetType() == content::DevToolsAgentHost::kTypeTab) {
       EXPECT_FALSE(background_host);
       background_host = host;
     }
@@ -731,15 +728,19 @@ IN_PROC_BROWSER_TEST_P(LazyBackgroundPageApiWithBFCacheParamTest,
 // close it, and that it can execute simple API calls that don't require an
 // asynchronous response.
 IN_PROC_BROWSER_TEST_F(LazyBackgroundPageApiTest, OnUnload) {
-  ASSERT_TRUE(LoadExtensionAndWait("on_unload"));
+  const Extension* extension = LoadExtensionAndWait("on_unload");
+  ASSERT_TRUE(extension);
 
   // Lazy Background Page has been shut down.
   EXPECT_FALSE(IsBackgroundPageAlive(last_loaded_extension_id()));
 
-  // The browser action has a new title.
-  auto browser_action = ExtensionActionTestHelper::Create(browser());
-  ASSERT_EQ(1, browser_action->NumberOfBrowserActions());
-  EXPECT_EQ("Success", browser_action->GetTooltip(last_loaded_extension_id()));
+  // The extension's action has a new title.
+  ExtensionAction* extension_action =
+      ExtensionActionManager::Get(browser()->profile())
+          ->GetExtensionAction(*extension);
+  ASSERT_TRUE(extension_action);
+  EXPECT_EQ("Success",
+            extension_action->GetTitle(ExtensionAction::kDefaultTabId));
 }
 
 // Tests that both a regular page and an event page will receive events when
@@ -829,7 +830,7 @@ IN_PROC_BROWSER_TEST_F(LazyBackgroundPageApiTest, EventListenerCleanup) {
 
 // Tests that an extension can fetch a file scheme URL from the lazy background
 // page, if it has file access.
-// TODO(crbug.com/1283851): Deflake test.
+// TODO(crbug.com/40813949): Deflake test.
 IN_PROC_BROWSER_TEST_F(LazyBackgroundPageApiTest,
                        DISABLED_FetchFileSchemeURLWithFileAccess) {
   ASSERT_TRUE(RunExtensionTest(

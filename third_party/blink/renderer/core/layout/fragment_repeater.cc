@@ -214,7 +214,6 @@ const LayoutResult* FragmentRepeater::GetClonableLayoutResult(
       return result;
   }
   NOTREACHED();
-  return nullptr;
 }
 
 }  // namespace blink

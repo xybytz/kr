@@ -1,8 +1,10 @@
 // Copyright 2023 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-#include "base/metrics/histogram.h"
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40284755): Remove this and spanify to fix the errors.
+#pragma allow_unsafe_buffers
+#endif
 
 #include <memory>
 #include <set>
@@ -11,10 +13,13 @@
 
 #include "base/atomicops.h"
 #include "base/containers/span.h"
+#include "base/memory/raw_span.h"
 #include "base/metrics/bucket_ranges.h"
+#include "base/metrics/histogram.h"
 #include "base/metrics/persistent_histogram_allocator.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/no_destructor.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/simple_thread.h"
@@ -112,7 +117,8 @@ class SnapshotDeltaThread : public SimpleThread {
         break;
       }
       case SPARSE_HISTOGRAM:
-        subtle::NoBarrier_AtomicIncrement(&real_bucket_counts_[sample], 1);
+        subtle::NoBarrier_AtomicIncrement(
+            &real_bucket_counts_[checked_cast<size_t>(sample)], 1);
         break;
       case LINEAR_HISTOGRAM:
       case BOOLEAN_HISTOGRAM:
@@ -137,17 +143,18 @@ class SnapshotDeltaThread : public SimpleThread {
       // This is to ensure SnapshotDelta() is fully thread-safe, not just
       // "eventually consistent".
       ASSERT_GE(count, 0);
-      subtle::NoBarrier_AtomicIncrement(&snapshots_bucket_counts_[min], count);
+      subtle::NoBarrier_AtomicIncrement(
+          &snapshots_bucket_counts_[checked_cast<size_t>(min)], count);
     }
   }
 
   const size_t num_emissions_;
-  span<HistogramBase*> histograms_;
+  raw_span<HistogramBase*> histograms_;
   const HistogramBase::Sample histogram_max_;
   raw_ptr<subtle::Atomic32> real_total_samples_count_;
-  span<subtle::Atomic32> real_bucket_counts_;
+  raw_span<subtle::Atomic32> real_bucket_counts_;
   raw_ptr<subtle::Atomic32> snapshots_total_samples_count_;
-  span<subtle::Atomic32> snapshots_bucket_counts_;
+  raw_span<subtle::Atomic32> snapshots_bucket_counts_;
 };
 
 }  // namespace

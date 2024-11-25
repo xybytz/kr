@@ -19,18 +19,18 @@
 #include "base/functional/callback_forward.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/raw_ptr_exclusion.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/time/default_clock.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "components/country_codes/country_codes.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/search_engines/choice_made_location.h"
 #include "components/search_engines/default_search_manager.h"
-#include "components/search_engines/enterprise_site_search_manager.h"
+#include "components/search_engines/enterprise/enterprise_search_manager.h"
 #include "components/search_engines/keyword_web_data_service.h"
 #include "components/search_engines/search_host_to_urls_map.h"
 #include "components/search_engines/search_terms_data.h"
@@ -54,6 +54,7 @@ class TemplateUrlServiceAndroid;
 
 namespace search_engines {
 class SearchEngineChoiceService;
+class ChoiceScreenData;
 }
 
 namespace syncer {
@@ -62,6 +63,10 @@ class SyncData;
 
 namespace user_prefs {
 class PrefRegistrySyncable;
+}
+
+namespace url {
+class Origin;
 }
 
 // TemplateURLService is the backend for keywords. It's used by
@@ -92,7 +97,7 @@ class TemplateURLService final : public WebDataServiceConsumer,
   using OwnedTemplateURLVector = TemplateURL::OwnedTemplateURLVector;
   using SyncDataMap = std::map<std::string, syncer::SyncData>;
   using OwnedTemplateURLDataVector =
-      EnterpriseSiteSearchManager::OwnedTemplateURLDataVector;
+      EnterpriseSearchManager::OwnedTemplateURLDataVector;
 
   static constexpr char kSiteSearchPolicyConflictCountHistogramName[] =
       "Search.SiteSearchPolicyConflict";
@@ -118,9 +123,7 @@ class TemplateURLService final : public WebDataServiceConsumer,
 
   // Search metadata that's often used to persist into History.
   struct SearchMetadata {
-    // This field is not a raw_ptr<> because it was filtered by the rewriter
-    // for: #union
-    RAW_PTR_EXCLUSION const TemplateURL* template_url;
+    raw_ptr<const TemplateURL> template_url;
     GURL normalized_url;
     std::u16string search_terms;
   };
@@ -137,8 +140,8 @@ class TemplateURLService final : public WebDataServiceConsumer,
   };
 
   TemplateURLService(
-      PrefService* prefs,
-      search_engines::SearchEngineChoiceService* search_engine_choice_service,
+      PrefService& prefs,
+      search_engines::SearchEngineChoiceService& search_engine_choice_service,
       std::unique_ptr<SearchTermsData> search_terms_data,
       const scoped_refptr<KeywordWebDataService>& web_data_service,
       std::unique_ptr<TemplateURLServiceClient> client,
@@ -149,16 +152,11 @@ class TemplateURLService final : public WebDataServiceConsumer,
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
   );
 
-  // For testing only.
-  // DEPRECATED, prefer the constructor that takes a `PrefService`.
-  // TODO(crbug.com/1499181): Remove once all usage is cleaned up.
-  TemplateURLService(const Initializer* initializers, const size_t count);
-
   // For testing only. `initializers` will be used to simulate having loaded
   // some template URL data.
   explicit TemplateURLService(
-      PrefService* prefs,
-      search_engines::SearchEngineChoiceService* search_engine_choice_service,
+      PrefService& prefs,
+      search_engines::SearchEngineChoiceService& search_engine_choice_service,
       base::span<const TemplateURLService::Initializer> initializers = {});
 
   TemplateURLService(const TemplateURLService&) = delete;
@@ -201,6 +199,11 @@ class TemplateURLService final : public WebDataServiceConsumer,
   // Returns whether |template_url| should be hidden from all lists of engines.
   bool HiddenFromLists(const TemplateURL* template_url) const;
 
+  // Returns true if `template_url` corresponds to a featured Enterprise site
+  // search engine (e.g. with keyword "@work") that hides the corresponding
+  // non-featured engine (e.g. with keyword "work") in the Settings page.
+  bool FeaturedOverridesNonFeatured(const TemplateURL* template_url) const;
+
   // Adds to |matches| all TemplateURLs whose keywords begin with |prefix|,
   // sorted shortest-keyword-first. If |supports_replacement_only| is true, only
   // TemplateURLs that support replacement are returned. This method must be
@@ -227,9 +230,12 @@ class TemplateURLService final : public WebDataServiceConsumer,
   TemplateURL* GetTemplateURLForHost(const std::string& host);
   const TemplateURL* GetTemplateURLForHost(const std::string& host) const;
 
+  // Returns the TemplateURL corresponding to |starter_pack_id|, if any.
+  TemplateURL* FindStarterPackTemplateURL(int starter_pack_id);
+
   // Returns the number of TemplateURLs that match `host`. Used for logging.
   // Caller must ensure TemplateURLService is loaded before calling this.
-  // TODO(crbug.com/1322216): Delete after bug is fixed.
+  // TODO(crbug.com/40224222): Delete after bug is fixed.
   size_t GetTemplateURLCountForHostForLogging(const std::string& host) const;
 
   // Adds a new TemplateURL to this model.
@@ -287,11 +293,13 @@ class TemplateURLService final : public WebDataServiceConsumer,
   // by TemplateURLService and should not be deleted.
   TemplateURLVector GetTemplateURLs();
 
-  // Returns the list of prepopulated template URLs for the current country
-  // shuffled for display in a search engine choice screen.
-  // TODO (b/282656014): Update the returned list of search engines to comply
-  // with choice screen requirements.
-  OwnedTemplateURLVector GetTemplateURLsForChoiceScreen();
+  // Returns key information needed to show a search engine choice screen, like
+  // the template URLs for the engines to show. See
+  // `search_engines::ChoiceScreenData` for more details.
+  std::unique_ptr<search_engines::ChoiceScreenData> GetChoiceScreenData();
+
+  TemplateURLService::TemplateURLVector GetFeaturedEnterpriseSearchEngines()
+      const;
 
 #if BUILDFLAG(IS_ANDROID)
   // Returns the list prepopulated template URLs for `country_code`.
@@ -318,24 +326,31 @@ class TemplateURLService final : public WebDataServiceConsumer,
   // engine.
   void SetIsActiveTemplateURL(TemplateURL* url, bool is_active);
 
-  // Creates a TemplateURL for |keyword| marked with created_from_play_api().
-  // Returns the newly created engine.
-  //
-  // This method must NOT be called multiple times for the same |keyword|,
-  // because that would create duplicate engines. Caller is responsible for
-  // verifying there are no existing |keyword| created_from_play_api() engines.
-  TemplateURL* CreatePlayAPISearchEngine(
-      const std::u16string& title,
+#if BUILDFLAG(IS_ANDROID)
+  // Creates a `TemplateURLData` from the provided raw data, and marks it as
+  // coming from an Play / Android OS-level search engine choice screen.
+  static TemplateURLData CreatePlayAPITemplateURLData(
       const std::u16string& keyword,
+      const std::u16string& name,
       const std::string& search_url,
-      const std::string& suggestions_url,
-      const std::string& favicon_url,
-      const std::string& new_tab_url,
-      const std::string& image_url,
-      const std::string& image_url_post_params,
-      const std::string& image_translate_url,
-      const std::string& image_translate_source_language_param_key,
-      const std::string& image_translate_target_language_param_key);
+      const std::string& suggest_url = std::string(),
+      const std::string& favicon_url = std::string(),
+      const std::string& new_tab_url = std::string(),
+      const std::string& image_url = std::string(),
+      const std::string& image_url_post_params = std::string(),
+      const std::string& image_translate_url = std::string(),
+      const std::string& image_translate_source_language_param_key =
+          std::string(),
+      const std::string& image_translate_target_language_param_key =
+          std::string());
+
+  // Register a new search provider from `new_play_api_turl_data` and sets
+  // it as the default search provider.
+  //
+  // If there is already existing search provider that was created from Play,
+  // it will be removed.
+  bool ResetPlayAPISearchEngine(const TemplateURLData& new_play_api_turl_data);
+#endif  // BUILDFLAG(IS_ANDROID)
 
   // Updates any search providers matching |potential_search_url| with the new
   // favicon location |favicon_url|.
@@ -366,6 +381,11 @@ class TemplateURLService final : public WebDataServiceConsumer,
   //       2.) The default search engine is disabled by policy.
   const TemplateURL* GetDefaultSearchProvider() const;
 
+  // Returns the Origin of the user's default search engine. If a default search
+  // engine is set and its URL is valid, the Origin of that URL is returned.
+  // Otherwise, an opaque Origin with a unique nonce is returned.
+  url::Origin GetDefaultSearchProviderOrigin() const;
+
   // Returns the default search provider, ignoring any that were provided by an
   // extension.
   const TemplateURL* GetDefaultSearchProviderIgnoringExtensions() const;
@@ -381,7 +401,7 @@ class TemplateURLService final : public WebDataServiceConsumer,
       const std::u16string& search_terms) const;
 
   // Returns search metadata if |url| is a valid Search URL.
-  absl::optional<SearchMetadata> ExtractSearchMetadata(const GURL& url) const;
+  std::optional<SearchMetadata> ExtractSearchMetadata(const GURL& url) const;
 
   // Returns true if the default search provider supports the side search
   // feature.
@@ -480,10 +500,10 @@ class TemplateURLService final : public WebDataServiceConsumer,
 
   // Returns the locale-direction-adjusted short name for the given keyword.
   // Also sets the out param to indicate whether the keyword belongs to an
-  // Omnibox extension.
-  std::u16string GetKeywordShortName(
-      const std::u16string& keyword,
-      bool* is_omnibox_api_extension_keyword) const;
+  // Omnibox extension or the Gemini starter pack engine.
+  std::u16string GetKeywordShortName(const std::u16string& keyword,
+                                     bool* is_omnibox_api_extension_keyword,
+                                     bool* is_gemini_keyword) const;
 
   // Called by the history service when a URL is visited.
   void OnHistoryURLVisited(const URLVisitedDetails& details);
@@ -498,21 +518,21 @@ class TemplateURLService final : public WebDataServiceConsumer,
 
   // Returns all syncable TemplateURLs from this model as SyncData. This should
   // include every search engine and no Extension keywords.
-  syncer::SyncDataList GetAllSyncData(syncer::ModelType type) const;
+  syncer::SyncDataList GetAllSyncData(syncer::DataType type) const;
   // Process new search engine changes from Sync, merging them into our local
   // data. This may send notifications if local search engines are added,
   // updated or removed.
-  absl::optional<syncer::ModelError> ProcessSyncChanges(
+  std::optional<syncer::ModelError> ProcessSyncChanges(
       const base::Location& from_here,
       const syncer::SyncChangeList& change_list) override;
   // Merge initial search engine data from Sync and push any local changes up
   // to Sync. This may send notifications if local search engines are added,
   // updated or removed.
-  absl::optional<syncer::ModelError> MergeDataAndStartSyncing(
-      syncer::ModelType type,
+  std::optional<syncer::ModelError> MergeDataAndStartSyncing(
+      syncer::DataType type,
       const syncer::SyncDataList& initial_sync_data,
       std::unique_ptr<syncer::SyncChangeProcessor> sync_processor) override;
-  void StopSyncing(syncer::ModelType type) override;
+  void StopSyncing(syncer::DataType type) override;
   base::WeakPtr<SyncableService> AsWeakPtr() override;
 
   // Processes a local TemplateURL change for Sync. |turl| is the TemplateURL
@@ -530,13 +550,6 @@ class TemplateURLService final : public WebDataServiceConsumer,
   // SearchEngineChoiceCountry. It might be different than what LocaleUtils
   // returns.
   bool IsEeaChoiceCountry();
-
-#if BUILDFLAG(IS_ANDROID)
-  // Returns whether the version of the search engines settings screen showing
-  // additional search engine info should be shown.
-  // TODO(b/318824817): To be removed post-launch.
-  bool ShouldShowUpdatedSettings();
-#endif
 
   // Returns a SearchTermsData which can be used to call TemplateURL methods.
   const SearchTermsData& search_terms_data() const {
@@ -624,8 +637,10 @@ class TemplateURLService final : public WebDataServiceConsumer,
   friend class Scoper;
   friend class TemplateURLServiceTestUtil;
   friend class TemplateUrlServiceAndroid;
+  friend class ProfileInternalsHandler;
 
-  using GUIDToTURL = std::map<std::string, TemplateURL*>;
+  using GUIDToTURL =
+      std::map<std::string, raw_ptr<TemplateURL, CtnExperimental>>;
 
   // A mapping from keywords to the corresponding TemplateURLs.
   // This is a multimap, so the system can
@@ -635,7 +650,8 @@ class TemplateURLService final : public WebDataServiceConsumer,
   // The values for any given keyword are not sorted. Users that want the best
   // value for each key must traverse through all matching items. The vast
   // majority of keywords should only have one item.
-  using KeywordToTURL = std::multimap<std::u16string, TemplateURL*>;
+  using KeywordToTURL =
+      std::multimap<std::u16string, raw_ptr<TemplateURL, CtnExperimental>>;
 
   // Declaration of values to be used in an enumerated histogram to tally
   // changes to the default search provider from various entry points. In
@@ -830,9 +846,6 @@ class TemplateURLService final : public WebDataServiceConsumer,
   // Returns the TemplateURL corresponding to |prepopulated_id|, if any.
   TemplateURL* FindPrepopulatedTemplateURL(int prepopulated_id);
 
-  // Returns the TemplateURL corresponding to |starter_pack_id|, if any.
-  TemplateURL* FindStarterPackTemplateURL(int starter_pack_id);
-
   // Returns the TemplateURL associated with |extension_id|, if any.
   TemplateURL* FindTemplateURLForExtension(const std::string& extension_id,
                                            TemplateURL::Type type);
@@ -867,9 +880,8 @@ class TemplateURLService final : public WebDataServiceConsumer,
   void EmitTemplateURLActiveOnStartupHistogram(
       OwnedTemplateURLVector* template_urls);
 
-  // Returns an instance of |EnterpriseSiteSearchManager| if feature
-  // |kSiteSearchSettingsPolicy| or nullptr otherwise.
-  std::unique_ptr<EnterpriseSiteSearchManager> GetEnterpriseSiteSearchManager(
+  // Returns an instance of |EnterpriseSearchManager|.
+  std::unique_ptr<EnterpriseSearchManager> GetEnterpriseSearchManager(
       PrefService* prefs);
 
   // Logs a histogram to track keyword conflicts between search engines created
@@ -878,11 +890,18 @@ class TemplateURLService final : public WebDataServiceConsumer,
   void LogSiteSearchPolicyConflict(
       const OwnedTemplateURLVector& policy_site_search_engines);
 
-  // ---------- Browser state related members ---------------------------------
-  raw_ptr<PrefService> prefs_ = nullptr;
+  int initial_keywords_database_country() {
+    return initial_keywords_database_country_;
+  }
+  int updated_keywords_database_country() {
+    return updated_keywords_database_country_;
+  }
 
-  raw_ptr<search_engines::SearchEngineChoiceService>
-      search_engine_choice_service_ = nullptr;
+  // ---------- Browser state related members ---------------------------------
+  raw_ref<PrefService> prefs_;
+
+  raw_ref<search_engines::SearchEngineChoiceService>
+      search_engine_choice_service_;
 
   std::unique_ptr<SearchTermsData> search_terms_data_ =
       std::make_unique<SearchTermsData>();
@@ -906,7 +925,7 @@ class TemplateURLService final : public WebDataServiceConsumer,
 
   // Mapping from keyword to TemplateURLs created by the `SiteSearchSettings`
   // policy.
-  base::flat_map<std::u16string, TemplateURL*>
+  base::flat_map<std::u16string, raw_ptr<TemplateURL, CtnExperimental>>
       enterprise_site_search_keyword_to_turl_;
 
   OwnedTemplateURLVector template_urls_;
@@ -996,9 +1015,8 @@ class TemplateURLService final : public WebDataServiceConsumer,
   // Helper class to manage the default search engine.
   DefaultSearchManager default_search_manager_;
 
-  // Site search engines defined by enterprise policy. Set as nullptr if feature
-  // |kSiteSearchSettingsPolicy| is not enabled.
-  std::unique_ptr<EnterpriseSiteSearchManager> enterprise_site_search_manager_;
+  // Site search engines defined by enterprise policy.
+  std::unique_ptr<EnterpriseSearchManager> enterprise_site_search_manager_;
 
   // This tracks how many Scoper handles exist. When the number of handles drops
   // to zero, a notification is made to observers if
@@ -1018,6 +1036,10 @@ class TemplateURLService final : public WebDataServiceConsumer,
   // with deletion. Used to postpone the deletion in case the default search
   // engine changes later. See ProcessSyncChanges() for details.
   std::string postponed_deleted_default_engine_guid_;
+
+  // TODO(b:380002162) - Remove these 2 properties when the bug is fixed.
+  int initial_keywords_database_country_ = country_codes::kCountryIDUnknown;
+  int updated_keywords_database_country_ = country_codes::kCountryIDUnknown;
 
 #if BUILDFLAG(IS_ANDROID)
   // Manage and fetch the java object that wraps this TemplateURLService on

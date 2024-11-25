@@ -42,6 +42,9 @@ class ExternalConstants : public base::RefCountedThreadSafe<ExternalConstants> {
   // The URL to fetch device management policies.
   virtual GURL DeviceManagementURL() const = 0;
 
+  // The URL for the app logos.
+  virtual GURL AppLogoURL() const = 0;
+
   // True if client update protocol signing of update checks is enabled.
   virtual bool UseCUP() const = 0;
 
@@ -69,6 +72,9 @@ class ExternalConstants : public base::RefCountedThreadSafe<ExternalConstants> {
 
   // True if the updater should request and apply diff updates.
   virtual bool EnableDiffUpdates() const = 0;
+
+  // The maximum time allowed to establish a connection to CECA.
+  virtual base::TimeDelta CecaConnectionTimeout() const = 0;
 
  protected:
   friend class base::RefCountedThreadSafe<ExternalConstants>;

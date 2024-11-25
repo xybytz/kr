@@ -6,12 +6,12 @@
 
 #include <algorithm>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "base/files/file_path.h"
 #include "base/i18n/time_formatting.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -187,8 +187,8 @@ void WriteItems(XmlWriter* xml_writer,
   std::string item_list;
   for (size_t i = 0; i < entries; ++i) {
     const auto& item = items[i];
-    item_list += base::UTF16ToUTF8(item.title) + " - " +
-                 base::UTF16ToUTF8(item.message) + "\n";
+    item_list += base::UTF16ToUTF8(item.title()) + " - " +
+                 base::UTF16ToUTF8(item.message()) + "\n";
   }
   WriteTextElement(xml_writer, item_list, TextType::NORMAL);
 }
@@ -465,7 +465,7 @@ std::wstring BuildNotificationTemplate(
   // The |kXmlVersionHeader| is automatically appended by libxml, but the toast
   // system in the Windows Action Center expects it to be absent.
   return base::UTF8ToWide(
-      base::StringPiece(template_xml).substr(sizeof(kXmlVersionHeader) - 1));
+      std::string_view(template_xml).substr(sizeof(kXmlVersionHeader) - 1));
 }
 
 void SetContextMenuLabelForTesting(const char* label) {

@@ -14,7 +14,7 @@ WebStateDependencyInstallationObserver::WebStateDependencyInstallationObserver(
   DCHECK(web_state_list_);
   DCHECK(dependency_installer_);
 
-  web_state_list_observation_.Observe(web_state_list_);
+  web_state_list_observation_.Observe(web_state_list_.get());
   for (int i = 0; i < web_state_list_->count(); i++) {
     OnWebStateAdded(web_state_list_->GetWebStateAt(i));
   }
@@ -59,6 +59,18 @@ void WebStateDependencyInstallationObserver::WebStateListDidChange(
       OnWebStateAdded(insert_change.inserted_web_state());
       break;
     }
+    case WebStateListChange::Type::kGroupCreate:
+      // Do nothing when a group is created.
+      break;
+    case WebStateListChange::Type::kGroupVisualDataUpdate:
+      // Do nothing when a tab group's visual data are updated.
+      break;
+    case WebStateListChange::Type::kGroupMove:
+      // Do nothing when a tab group is moved.
+      break;
+    case WebStateListChange::Type::kGroupDelete:
+      // Do nothing when a group is deleted.
+      break;
   }
 }
 

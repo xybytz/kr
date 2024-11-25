@@ -2,27 +2,27 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_components/settings_prefs/prefs.js';
+import '/shared/settings/prefs/prefs.js';
 import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_collapse/cr_collapse.js';
 import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
 import 'chrome://resources/cr_elements/cr_expand_button/cr_expand_button.js';
 import 'chrome://resources/cr_elements/cr_shared_style.css.js';
-import 'chrome://resources/polymer/v3_0/iron-collapse/iron-collapse.js';
-import '/shared/settings/controls/settings_toggle_button.js';
+import '../controls/settings_toggle_button.js';
 import './privacy_sandbox_interest_item.js';
 
-import {SettingsToggleButtonElement} from '/shared/settings/controls/settings_toggle_button.js';
-import {PrefsMixin} from 'chrome://resources/cr_components/settings_prefs/prefs_mixin.js';
+import {PrefsMixin} from '/shared/settings/prefs/prefs_mixin.js';
 import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {afterNextRender, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {HatsBrowserProxyImpl, TrustSafetyInteraction} from '../hats_browser_proxy.js';
-import {MetricsBrowserProxy, MetricsBrowserProxyImpl} from '../metrics_browser_proxy.js';
-import {routes} from '../route.js';
-import {Route, RouteObserverMixin} from '../router.js';
+import type {SettingsToggleButtonElement} from '../controls/settings_toggle_button.js';
+import {loadTimeData} from '../i18n_setup.js';
+import type {MetricsBrowserProxy} from '../metrics_browser_proxy.js';
+import {MetricsBrowserProxyImpl} from '../metrics_browser_proxy.js';
 
-import {FledgeState, PrivacySandboxBrowserProxy, PrivacySandboxBrowserProxyImpl, PrivacySandboxInterest} from './privacy_sandbox_browser_proxy.js';
+import type {FledgeState, PrivacySandboxBrowserProxy, PrivacySandboxInterest} from './privacy_sandbox_browser_proxy.js';
+import {PrivacySandboxBrowserProxyImpl} from './privacy_sandbox_browser_proxy.js';
 import {getTemplate} from './privacy_sandbox_fledge_subpage.html.js';
 
 export interface SettingsPrivacySandboxFledgeSubpageElement {
@@ -35,7 +35,7 @@ export interface SettingsPrivacySandboxFledgeSubpageElement {
 const maxFledgeSitesCount: number = 15;
 
 const SettingsPrivacySandboxFledgeSubpageElementBase =
-    RouteObserverMixin(I18nMixin(PrefsMixin(PolymerElement)));
+    I18nMixin(PrefsMixin(PolymerElement));
 
 export class SettingsPrivacySandboxFledgeSubpageElement extends
     SettingsPrivacySandboxFledgeSubpageElementBase {
@@ -122,6 +122,17 @@ export class SettingsPrivacySandboxFledgeSubpageElement extends
         value: false,
         observer: 'onBlockedSitesExpanded_',
       },
+
+      /**
+       * If true, the Ads API UX Enhancement should be shown.
+       */
+      shouldShowV2_: {
+        type: Boolean,
+        value: () => {
+          return loadTimeData.getBoolean(
+              'isPrivacySandboxAdsApiUxEnhancementsEnabled');
+        },
+      },
     };
   }
 
@@ -153,13 +164,6 @@ export class SettingsPrivacySandboxFledgeSubpageElement extends
             link.setAttribute('aria-description', this.i18n('opensInNewTab')));
   }
 
-  override currentRouteChanged(newRoute: Route) {
-    if (newRoute === routes.PRIVACY_SANDBOX_FLEDGE) {
-      HatsBrowserProxyImpl.getInstance().trustSafetyInteractionOccurred(
-          TrustSafetyInteraction.OPENED_FLEDGE_SUBPAGE);
-    }
-  }
-
   private isFledgePrefManaged_(): boolean {
     const fledgeEnabledPref = this.getPref('privacy_sandbox.m1.fledge_enabled');
     if (fledgeEnabledPref.enforcement ===
@@ -184,7 +188,6 @@ export class SettingsPrivacySandboxFledgeSubpageElement extends
     this.mainSitesList_ = this.sitesList_.slice(0, maxFledgeSitesCount);
     this.remainingSitesList_ = this.sitesList_.slice(maxFledgeSitesCount);
   }
-
 
   private isFledgeEnabledAndLoaded_(): boolean {
     return this.getPref('privacy_sandbox.m1.fledge_enabled').value &&
@@ -286,6 +289,10 @@ export class SettingsPrivacySandboxFledgeSubpageElement extends
       this.metricsBrowserProxy_.recordAction(
           'Settings.PrivacySandbox.Fledge.BlockedSitesOpened');
     }
+  }
+
+  private onPrivacyPolicyLinkClicked_() {
+    // TODO(crbug.com/377949882): Add metrics
   }
 }
 

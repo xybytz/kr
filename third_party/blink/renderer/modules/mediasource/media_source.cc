@@ -26,6 +26,7 @@
 #include "third_party/blink/public/platform/web_media_source.h"
 #include "third_party/blink/public/platform/web_source_buffer.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_audio_decoder_config.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_end_of_stream_error.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_source_buffer_config.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_decoder_config.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
@@ -287,7 +288,7 @@ SourceBuffer* MediaSource::AddSourceBufferUsingConfig(
       return nullptr;
     }
 
-    absl::optional<media::AudioDecoderConfig> out_audio_config =
+    std::optional<media::AudioDecoderConfig> out_audio_config =
         AudioDecoder::MakeMediaAudioDecoderConfig(*(config->audioConfig()),
                                                   &console_message /* out */);
 
@@ -309,7 +310,7 @@ SourceBuffer* MediaSource::AddSourceBufferUsingConfig(
     }
 
     bool converter_needed = false;
-    absl::optional<media::VideoDecoderConfig> out_video_config =
+    std::optional<media::VideoDecoderConfig> out_video_config =
         VideoDecoder::MakeMediaVideoDecoderConfig(*(config->videoConfig()),
                                                   &console_message /* out */,
                                                   &converter_needed /* out */);
@@ -317,7 +318,7 @@ SourceBuffer* MediaSource::AddSourceBufferUsingConfig(
     // TODO(crbug.com/1144908): Initial prototype does not support h264
     // buffering. See above.
     if (out_video_config && converter_needed) {
-      out_video_config = absl::nullopt;
+      out_video_config = std::nullopt;
       console_message =
           "H.264/H.265 EncodedVideoChunk buffering is not yet supported in "
           "MSE.See https://crbug.com/1144908.";
@@ -387,10 +388,6 @@ void MediaSource::AddSourceBuffer_Locked(
       std::move(video_config), *exception_state);
 
   if (!web_source_buffer) {
-    DCHECK(exception_state->CodeAs<DOMExceptionCode>() ==
-               DOMExceptionCode::kNotSupportedError ||
-           exception_state->CodeAs<DOMExceptionCode>() ==
-               DOMExceptionCode::kQuotaExceededError);
     // 2. If type contains a MIME type that is not supported ..., then throw a
     //    NotSupportedError exception and abort these steps.
     // 3. If the user agent can't handle any more SourceBuffer objects then
@@ -414,10 +411,10 @@ void MediaSource::AddSourceBuffer_Locked(
   // here, which depends on |buffer| being in |source_buffers_| in our
   // implementation.
   if (generate_timestamps_flag) {
-    buffer->SetMode_Locked(SourceBuffer::SequenceKeyword(), exception_state,
+    buffer->SetMode_Locked(V8AppendMode::Enum::kSequence, exception_state,
                            pass_key);
   } else {
-    buffer->SetMode_Locked(SourceBuffer::SegmentsKeyword(), exception_state,
+    buffer->SetMode_Locked(V8AppendMode::Enum::kSegments, exception_state,
                            pass_key);
   }
 
@@ -711,11 +708,10 @@ bool MediaSource::RunUnlessElementGoneOrClosingUs(
   DCHECK(IsMainThread() ||
          !tracer);  // Cross-thread attachments do not use a tracer.
 
-  // TODO(https://crbug.com/878133): Relax to DCHECK once clear that same-thread
-  // indeed always has attachment here and is not regressed by requiring one to
-  // run |cb|.
-  CHECK(attachment) << "Attempt to run operation requiring attachment, but "
-                       "without having one.";
+  if (!attachment) {
+    // Element's context destruction may be in flight.
+    return false;
+  }
 
   if (!attachment->RunExclusively(true /* abort if not fully attached */,
                                   std::move(cb))) {
@@ -1112,9 +1108,14 @@ AtomicString MediaSource::readyState() const {
   return ReadyStateToString(ready_state_);
 }
 
-void MediaSource::endOfStream(const AtomicString& error,
+void MediaSource::endOfStream(ExceptionState& exception_state) {
+  endOfStream(std::nullopt, exception_state);
+}
+
+void MediaSource::endOfStream(std::optional<V8EndOfStreamError> error,
                               ExceptionState& exception_state) {
-  DVLOG(3) << __func__ << " this=" << this << " : error=" << error;
+  DVLOG(3) << __func__ << " this=" << this
+           << " : error=" << (error.has_value() ? error->AsCStr() : "");
 
   // https://www.w3.org/TR/media-source/#dom-mediasource-endofstream
   // 1. If the readyState attribute is not in the "open" state then throw an
@@ -1126,13 +1127,20 @@ void MediaSource::endOfStream(const AtomicString& error,
     return;
 
   // 3. Run the end of stream algorithm with the error parameter set to error.
-  WebMediaSource::EndOfStreamStatus status;
-  if (error == "network")
-    status = WebMediaSource::kEndOfStreamStatusNetworkError;
-  else if (error == "decode")
-    status = WebMediaSource::kEndOfStreamStatusDecodeError;
-  else  // "" is allowed internally but not by IDL bindings.
-    status = WebMediaSource::kEndOfStreamStatusNoError;
+  WebMediaSource::EndOfStreamStatus status =
+      WebMediaSource::kEndOfStreamStatusNoError;
+  if (error.has_value()) {
+    switch (error->AsEnum()) {
+      case V8EndOfStreamError::Enum::kNetwork:
+        status = WebMediaSource::kEndOfStreamStatusNetworkError;
+        break;
+      case V8EndOfStreamError::Enum::kDecode:
+        status = WebMediaSource::kEndOfStreamStatusDecodeError;
+        break;
+      default:
+        NOTREACHED();
+    }
+  }
 
   // Do remainder of steps only if attachment is usable and underlying demuxer
   // is protected from destruction (applicable especially for MSE-in-Worker
@@ -1145,10 +1153,6 @@ void MediaSource::endOfStream(const AtomicString& error,
                             DOMExceptionCode::kInvalidStateError,
                             "Worker MediaSource attachment is closing");
   }
-}
-
-void MediaSource::endOfStream(ExceptionState& exception_state) {
-  endOfStream(g_empty_atom, exception_state);
 }
 
 void MediaSource::setLiveSeekableRange(double start,
@@ -1283,7 +1287,7 @@ MediaSourceHandleImpl* MediaSource::handle() {
     // origin of the worker's execution context for use later in a window thread
     // media element's attachment to the MediaSource leveraging existing URL
     // security checks and logging for legacy MSE object URLs.
-    SecurityOrigin* origin = GetExecutionContext()->GetMutableSecurityOrigin();
+    const SecurityOrigin* origin = GetExecutionContext()->GetSecurityOrigin();
     String internal_blob_url = BlobURL::CreatePublicURL(origin).GetString();
     DCHECK(!internal_blob_url.empty());
     worker_media_source_handle_ = MakeGarbageCollected<MediaSourceHandleImpl>(
@@ -1684,7 +1688,6 @@ std::unique_ptr<WebSourceBuffer> MediaSource::CreateWebSourceBuffer(
   }
 
   NOTREACHED();
-  return nullptr;
 }
 
 void MediaSource::ScheduleEvent(const AtomicString& event_name) {

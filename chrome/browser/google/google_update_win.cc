@@ -5,6 +5,7 @@
 #include "chrome/browser/google/google_update_win.h"
 
 #include <objbase.h>
+
 #include <stdint.h>
 #include <string.h>
 
@@ -542,8 +543,9 @@ UpdateCheckResult UpdateCheckDriver::BeginUpdateCheckInternal() {
   // Instantiate GoogleUpdate3Web{Machine,User}Class.
   if (!google_update_) {
     base::FilePath chrome_exe;
-    if (!base::PathService::Get(base::DIR_EXE, &chrome_exe))
+    if (!base::PathService::Get(base::DIR_EXE, &chrome_exe)) {
       NOTREACHED();
+    }
 
     system_level_install_ = !InstallUtil::IsPerUserInstall();
 
@@ -839,7 +841,6 @@ bool UpdateCheckDriver::IsIntermediateState(
     case STATE_ERROR:
     default:
       NOTREACHED();
-      return false;
   }
   return true;
 }

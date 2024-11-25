@@ -33,6 +33,7 @@
 #include "components/permissions/permission_util.h"
 #include "components/safe_browsing/buildflags.h"
 #include "components/safe_browsing/content/common/file_type_policies_test_util.h"
+#include "content/public/browser/file_system_access_permission_context.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/back_forward_cache_util.h"
@@ -209,8 +210,6 @@ IN_PROC_BROWSER_TEST_F(FileSystemAccessBrowserTest, OpenFile) {
   }
 }
 
-#if !BUILDFLAG(IS_CHROMEOS_LACROS)
-// TODO(crbug/1499052): Re-enable the test after fixing on Lacros.
 IN_PROC_BROWSER_TEST_F(FileSystemAccessBrowserTest, FullscreenOpenFile) {
   const base::FilePath test_file = CreateTestFile("");
   const std::string file_contents = "file contents to write";
@@ -259,7 +258,6 @@ IN_PROC_BROWSER_TEST_F(FileSystemAccessBrowserTest, FullscreenOpenFile) {
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(IsFullscreen());
 }
-#endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 class FileSystemAccessBrowserSlowLoadTest : public FileSystemAccessBrowserTest {
  public:
@@ -558,9 +556,32 @@ IN_PROC_BROWSER_TEST_F(FileSystemAccessBrowserTest,
   }
 }
 
+class PersistedPermissionsFileSystemAccessBrowserTest
+    : public FileSystemAccessBrowserTest {
+ public:
+  PersistedPermissionsFileSystemAccessBrowserTest() {
+    feature_list_.InitAndEnableFeature(
+        features::kFileSystemAccessPersistentPermissions);
+  }
+
+  void SetUpOnMainThread() override {
+    FileSystemAccessBrowserTest::SetUpOnMainThread();
+  }
+
+  ~PersistedPermissionsFileSystemAccessBrowserTest() override = default;
+
+  PersistedPermissionsFileSystemAccessBrowserTest(
+      const PersistedPermissionsFileSystemAccessBrowserTest&) = delete;
+  PersistedPermissionsFileSystemAccessBrowserTest& operator=(
+      const PersistedPermissionsFileSystemAccessBrowserTest&) = delete;
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
 // Tests that permissions are revoked after all top-level frames have navigated
 // away to a different origin.
-IN_PROC_BROWSER_TEST_F(FileSystemAccessBrowserTest,
+IN_PROC_BROWSER_TEST_F(PersistedPermissionsFileSystemAccessBrowserTest,
                        RevokePermissionAfterNavigation) {
   const base::FilePath test_file = CreateTestFile("");
   ui::SelectFileDialog::SetFactory(
@@ -710,27 +731,16 @@ IN_PROC_BROWSER_TEST_F(FileSystemAccessBrowserTest,
             content::EvalJs(third_party_iframe,
                             "self.entry.queryPermission({mode: 'readwrite'})"));
 
-  // Even after triggering the timer in the permission context.
-  FileSystemAccessPermissionContextFactory::GetForProfile(profile)
-      ->TriggerTimersForTesting();
-  EXPECT_EQ("granted",
-            content::EvalJs(third_party_iframe,
-                            "self.entry.queryPermission({mode: 'readwrite'})"));
-
   // Now navigate away from b.com in third window as well.
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       third_window, https_server.GetURL("a.com", "/title1.html")));
 
-  // Permission should still be granted in iframe.
-  EXPECT_EQ("granted",
-            content::EvalJs(third_party_iframe,
-                            "self.entry.queryPermission({mode: 'readwrite'})"));
-
-  // But after triggering the timer in the permission context ...
+  // On some platforms, permission revocation from the tab closure is
+  // triggered by timer, so manually invoke it.
   FileSystemAccessPermissionContextFactory::GetForProfile(profile)
       ->TriggerTimersForTesting();
 
-  // ... permission should have been revoked.
+  // Permission should have been revoked.
   EXPECT_EQ("prompt",
             content::EvalJs(third_party_iframe,
                             "self.entry.queryPermission({mode: 'readwrite'})"));
@@ -741,7 +751,7 @@ IN_PROC_BROWSER_TEST_F(FileSystemAccessBrowserTest,
 
 // Tests that permissions are revoked after all top-level frames have been
 // closed.
-IN_PROC_BROWSER_TEST_F(FileSystemAccessBrowserTest,
+IN_PROC_BROWSER_TEST_F(PersistedPermissionsFileSystemAccessBrowserTest,
                        RevokePermissionAfterClosingTab) {
   const base::FilePath test_file = CreateTestFile("");
   ui::SelectFileDialog::SetFactory(
@@ -867,16 +877,12 @@ IN_PROC_BROWSER_TEST_F(FileSystemAccessBrowserTest,
   ASSERT_EQ(browser()->tab_strip_model()->GetActiveWebContents(),
             third_party_web_contents);
 
-  // Permission should still be granted in iframe.
-  EXPECT_EQ("granted",
-            content::EvalJs(third_party_iframe,
-                            "self.entry.queryPermission({mode: 'readwrite'})"));
-
-  // But after triggering the timer in the permission context ...
+  // On some platforms, permission revocation from the tab closure is
+  // triggered by timer, so manually invoke it.
   FileSystemAccessPermissionContextFactory::GetForProfile(profile)
       ->TriggerTimersForTesting();
 
-  // ... permission should have been revoked.
+  // Permission should have been revoked.
   EXPECT_EQ("prompt",
             content::EvalJs(third_party_iframe,
                             "self.entry.queryPermission({mode: 'readwrite'})"));
@@ -884,32 +890,6 @@ IN_PROC_BROWSER_TEST_F(FileSystemAccessBrowserTest,
             content::EvalJs(third_party_iframe,
                             "self.entry.queryPermission({mode: 'read'})"));
 }
-
-class PersistedPermissionsFileSystemAccessBrowserTest
-    : public FileSystemAccessBrowserTest {
- public:
-  PersistedPermissionsFileSystemAccessBrowserTest() {
-    // Enable Persisted Permissions.
-    // TODO(crbug.com/1467574): Remove `kFileSystemAccessPersistentPermissions`
-    // flag after FSA Persistent Permissions feature launch.
-    feature_list_.InitAndEnableFeature(
-        features::kFileSystemAccessPersistentPermissions);
-  }
-
-  void SetUpOnMainThread() override {
-    FileSystemAccessBrowserTest::SetUpOnMainThread();
-  }
-
-  ~PersistedPermissionsFileSystemAccessBrowserTest() override = default;
-
-  PersistedPermissionsFileSystemAccessBrowserTest(
-      const PersistedPermissionsFileSystemAccessBrowserTest&) = delete;
-  PersistedPermissionsFileSystemAccessBrowserTest& operator=(
-      const PersistedPermissionsFileSystemAccessBrowserTest&) = delete;
-
- private:
-  base::test::ScopedFeatureList feature_list_;
-};
 
 IN_PROC_BROWSER_TEST_F(PersistedPermissionsFileSystemAccessBrowserTest,
                        UsageIndicatorVisibleWithPersistedPermissionsEnabled) {
@@ -935,12 +915,12 @@ IN_PROC_BROWSER_TEST_F(PersistedPermissionsFileSystemAccessBrowserTest,
       ->set_auto_response_for_test(permissions::PermissionAction::GRANTED);
   permission_context->SetOriginHasExtendedPermissionForTesting(kTestOrigin);
   auto grant = permission_context->GetWritePermissionGrant(
-      kTestOrigin, test_file,
+      kTestOrigin, content::PathInfo(test_file),
       content::FileSystemAccessPermissionContext::HandleType::kFile,
       content::FileSystemAccessPermissionContext::UserAction::kSave);
 
   EXPECT_TRUE(permission_context->HasExtendedPermissionForTesting(
-      kTestOrigin, test_file,
+      kTestOrigin, content::PathInfo(test_file),
       content::FileSystemAccessPermissionContext::HandleType::kFile,
       ChromeFileSystemAccessPermissionContext::GrantType::kWrite));
 
@@ -981,7 +961,7 @@ IN_PROC_BROWSER_TEST_F(PersistedPermissionsFileSystemAccessBrowserTest,
   // The usage indicator is not visible after navigating to another page.
   EXPECT_FALSE(IsUsageIndicatorVisible(browser()));
 
-  // TODO(https://crbug.com/1011533): Once Extended Permission UI is
+  // TODO(crbug.com/40101962): Once Extended Permission UI is
   // implemented, mock user's response to the UI and assert that the usage
   // indicator is visible when the original page is visited again.
 }
@@ -1035,7 +1015,7 @@ IN_PROC_BROWSER_TEST_F(BackForwardCacheFileSystemAccessBrowserTest,
   EXPECT_FALSE(deleted_observer.deleted());
 
   auto grant = permission_context->GetWritePermissionGrant(
-      url::Origin::Create(initial_url), test_file,
+      url::Origin::Create(initial_url), content::PathInfo(test_file),
       content::FileSystemAccessPermissionContext::HandleType::kFile,
       content::FileSystemAccessPermissionContext::UserAction::kOpen);
 
@@ -1104,7 +1084,8 @@ IN_PROC_BROWSER_TEST_F(PrerenderFileSystemAccessBrowserTest,
 
   // Load a page in the prerender.
   GURL prerender_url = embedded_test_server()->GetURL("/title2.html");
-  int host_id = prerender_helper_.AddPrerender(prerender_url);
+  content::FrameTreeNodeId host_id =
+      prerender_helper_.AddPrerender(prerender_url);
   content::test::PrerenderHostObserver host_observer(*web_contents, host_id);
   EXPECT_FALSE(host_observer.was_activated());
   content::RenderFrameHost* prerender_frame =
@@ -1113,7 +1094,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderFileSystemAccessBrowserTest,
   content::RenderFrameDeletedObserver deleted_observer(prerender_frame);
 
   auto grant = permission_context->GetWritePermissionGrant(
-      url::Origin::Create(initial_url), test_file,
+      url::Origin::Create(initial_url), content::PathInfo(test_file),
       content::FileSystemAccessPermissionContext::HandleType::kFile,
       content::FileSystemAccessPermissionContext::UserAction::kOpen);
 
@@ -1229,7 +1210,7 @@ IN_PROC_BROWSER_TEST_F(FencedFrameFileSystemAccessBrowserTest,
   EXPECT_FALSE(IsUsageIndicatorVisible(browser()));
 
   auto grant = permission_context->GetWritePermissionGrant(
-      url::Origin::Create(fenced_frame_url), test_file,
+      url::Origin::Create(fenced_frame_url), content::PathInfo(test_file),
       content::FileSystemAccessPermissionContext::HandleType::kFile,
       content::FileSystemAccessPermissionContext::UserAction::kOpen);
 

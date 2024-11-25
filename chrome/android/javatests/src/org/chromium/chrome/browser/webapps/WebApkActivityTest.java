@@ -21,9 +21,11 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.ApplicationTestUtils;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.cc.input.BrowserControlsState;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
@@ -37,7 +39,6 @@ import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.browser.webapps.WebApkIntentDataProviderBuilder;
 import org.chromium.components.permissions.PermissionDialogController;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.webapk.lib.common.WebApkConstants;
@@ -120,7 +121,7 @@ public final class WebApkActivityTest {
 
         ApplicationTestUtils.waitForActivityState(webApkActivity, Stage.STOPPED);
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     TabWebContentsDelegateAndroid tabDelegate =
                             TabTestUtils.getTabWebContentsDelegate(webApkActivity.getActivityTab());
@@ -134,6 +135,7 @@ public final class WebApkActivityTest {
     /** Test a permission dialog can be correctly presented. */
     @Test
     @LargeTest
+    @DisabledTest(message = "The test is flaky, see b/324471058.")
     public void testShowPermissionPrompt() throws TimeoutException {
         EmbeddedTestServer server = mActivityTestRule.getEmbeddedTestServerRule().getServer();
         String url = server.getURL("/content/test/data/android/permission_navigation.html");

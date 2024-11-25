@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {getInstance, MarginsType, NativeInitialSettings, NativeLayerImpl, PluginProxyImpl, PrintPreviewAppElement, ScalingType, SerializedSettings, Settings, SettingsMixinInterface} from 'chrome://print/print_preview.js';
+import type {NativeInitialSettings, PrintPreviewAppElement, SerializedSettings, Settings, SettingsMixinInterface} from 'chrome://print/print_preview.js';
+import {getInstance, MarginsType, NativeLayerImpl, PluginProxyImpl, ScalingType} from 'chrome://print/print_preview.js';
 import {assertEquals} from 'chrome://webui-test/chai_assert.js';
 
 // <if expr="is_chromeos">
@@ -188,7 +189,7 @@ suite('RestoreStateTest', function() {
   test('SaveValues', async function() {
     interface TestCase {
       section: string;
-      settingName: string;
+      settingName: keyof Settings;
       key: string;
       value: any;
     }

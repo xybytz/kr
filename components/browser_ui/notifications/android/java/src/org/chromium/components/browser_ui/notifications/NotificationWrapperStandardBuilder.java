@@ -19,7 +19,6 @@ import android.widget.RemoteViews;
 import androidx.core.app.NotificationCompat;
 
 import org.chromium.base.Log;
-import org.chromium.base.compat.ApiHelperForO;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.components.browser_ui.notifications.channels.ChannelsInitializer;
 
@@ -39,7 +38,7 @@ public class NotificationWrapperStandardBuilder implements NotificationWrapperBu
         mBuilder = new Notification.Builder(mContext);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             channelsInitializer.safeInitialize(channelId);
-            ApiHelperForO.setChannelId(mBuilder, channelId);
+            mBuilder.setChannelId(channelId);
         }
         mMetadata = metadata;
     }
@@ -207,6 +206,12 @@ public class NotificationWrapperStandardBuilder implements NotificationWrapperBu
     }
 
     @Override
+    public NotificationWrapperBuilder setDeleteIntent(
+            PendingIntentProvider intent, int ignoredActionType) {
+        return setDeleteIntent(intent);
+    }
+
+    @Override
     @SuppressWarnings("deprecation")
     public NotificationWrapperBuilder setPriorityBeforeO(int pri) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -320,7 +325,7 @@ public class NotificationWrapperStandardBuilder implements NotificationWrapperBu
     @Override
     public NotificationWrapperBuilder setTimeoutAfter(long ms) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ApiHelperForO.setTimeoutAfter(mBuilder, ms);
+            mBuilder.setTimeoutAfter(ms);
         }
         return this;
     }

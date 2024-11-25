@@ -7,8 +7,6 @@
 #include <list>
 #include <utility>
 
-#include <string.h>
-
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
@@ -20,11 +18,11 @@
 #include "chrome/test/chromedriver/chrome/status.h"
 #include "chrome/test/chromedriver/chrome/web_view.h"
 #include "chrome/test/chromedriver/logging.h"
-#include "third_party/abseil-cpp/absl/base/attributes.h"
+#include "chrome/test/chromedriver/net/timeout.h"
 
 namespace {
 
-ABSL_CONST_INIT thread_local Session* session = nullptr;
+constinit thread_local Session* session = nullptr;
 
 }  // namespace
 
@@ -141,12 +139,23 @@ Session::Session(const std::string& id, const std::string& host) : Session(id) {
 Session::~Session() {}
 
 Status Session::GetTargetWindow(WebView** web_view) {
-  if (!chrome)
+  if (!chrome) {
     return Status(kNoSuchWindow, "no chrome started in this session");
+  }
 
-  Status status = chrome->GetWebViewById(window, web_view);
-  if (status.IsError())
-    status = Status(kNoSuchWindow, "target window already closed", status);
+  WebView* tab = nullptr;
+  Status status = chrome->GetWebViewById(window, &tab);
+  if (status.IsError()) {
+    return Status(kNoSuchWindow, "target window already closed", status);
+  }
+
+  Timeout timeout;
+  status = tab->WaitForPendingActivePage(timeout);
+  if (status.IsError()) {
+    return status;
+  }
+
+  status = tab->GetActivePage(web_view);
   return status;
 }
 

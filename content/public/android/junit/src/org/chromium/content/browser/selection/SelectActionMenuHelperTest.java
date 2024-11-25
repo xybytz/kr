@@ -19,7 +19,6 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
@@ -45,7 +44,6 @@ import java.util.List;
 @Config(manifest = Config.NONE)
 public class SelectActionMenuHelperTest {
     @Mock private SelectActionMenuHelper.SelectActionMenuDelegate mDelegate;
-    @Rule public final Features.JUnitProcessor mProcessor = new Features.JUnitProcessor();
     @Mock private Context mContext;
 
     private static class TestSelectionActionMenuDelegate implements SelectionActionMenuDelegate {
@@ -53,6 +51,7 @@ public class SelectActionMenuHelperTest {
         public void modifyDefaultMenuItems(
                 List<SelectionMenuItem.Builder> menuItemBuilders,
                 boolean isSelectionPassword,
+                boolean isSelectionReadOnly,
                 String selectedText) {
             for (SelectionMenuItem.Builder builder : menuItemBuilders) {
                 int menuItemOrder = getMenuItemOrder(builder.mId);
@@ -104,6 +103,11 @@ public class SelectActionMenuHelperTest {
         public List<SelectionMenuItem> getAdditionalTextProcessingItems() {
             return new ArrayList<>();
         }
+
+        @Override
+        public boolean canReuseCachedSelectionMenu() {
+            return true;
+        }
     }
 
     @Before
@@ -128,6 +132,7 @@ public class SelectActionMenuHelperTest {
                         mDelegate,
                         null,
                         /* isSelectionPassword= */ true,
+                        /* isSelectionReadOnly= */ true,
                         /* selectedText= */ "test");
         assertEquals(7, menuGroup.items.size());
         SelectionMenuItem[] items = menuGroup.items.toArray(new SelectionMenuItem[0]);
@@ -152,6 +157,7 @@ public class SelectActionMenuHelperTest {
                         mDelegate,
                         selectionActionMenuDelegate,
                         /* isSelectionPassword= */ true,
+                        /* isSelectionReadOnly= */ true,
                         /* selectedText= */ "test");
         assertEquals(7, menuGroup.items.size());
         SelectionMenuItem[] items = menuGroup.items.toArray(new SelectionMenuItem[0]);

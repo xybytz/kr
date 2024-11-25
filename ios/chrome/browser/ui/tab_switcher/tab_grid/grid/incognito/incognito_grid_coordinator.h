@@ -9,6 +9,7 @@
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/incognito/incognito_grid_mediator_delegate.h"
 
 class Browser;
+@protocol GridCommands;
 @protocol GridCoordinatorAudience;
 @class IncognitoGridViewController;
 @class IncognitoGridMediator;
@@ -17,26 +18,24 @@ class Browser;
 @interface IncognitoGridCoordinator
     : BaseGridCoordinator <IncognitoGridMediatorDelegate>
 
+// The command handler to handle commands related to this grid. This is exposed
+// to make sure other can use it.
+@property(nonatomic, weak, readonly) id<GridCommands> gridHandler;
+
 // The Grid view controller.
-// TODO(crbug.com/1457146): Make it private.
+// TODO(crbug.com/40273478): Make it private.
 @property(nonatomic, readonly, strong)
     IncognitoGridViewController* gridViewController;
 // Incognito grid mediator.
-// TODO(crbug.com/1457146): Make it private.
+// TODO(crbug.com/40273478): Make it private.
 @property(nonatomic, readonly, strong)
     IncognitoGridMediator* incognitoGridMediator;
 
 // Audience for this coordinator.
 @property(nonatomic, weak) id<GridCoordinatorAudience> audience;
-// Tab Context Menu delegate.
-// TODO(crbug.com/1457146): This protocol should be implemented by this object.
-@property(nonatomic, weak) id<TabContextMenuDelegate> tabContextMenuDelegate;
 
 // The incognito browser can be reset during the execution of the app.
 - (void)setIncognitoBrowser:(Browser*)incognitoBrowser;
-
-// Stops all child coordinators.
-- (void)stopChildCoordinators;
 
 @end
 

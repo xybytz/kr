@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ash/guest_os/guest_os_registry_service.h"
 
+#include <string_view>
 #include <utility>
 
 #include "ash/constants/ash_features.h"
@@ -27,6 +28,7 @@
 #include "chrome/browser/ash/borealis/borealis_app_launcher.h"
 #include "chrome/browser/ash/borealis/borealis_features.h"
 #include "chrome/browser/ash/borealis/borealis_service.h"
+#include "chrome/browser/ash/borealis/borealis_service_factory.h"
 #include "chrome/browser/ash/borealis/borealis_util.h"
 #include "chrome/browser/ash/bruschetta/bruschetta_util.h"
 #include "chrome/browser/ash/crostini/crostini_features.h"
@@ -75,8 +77,11 @@ void Launch(vm_tools::apps::VmType vm_type,
       break;
 
     case VmType::BOREALIS:
-      borealis::BorealisService::GetForProfile(profile)->AppLauncher().Launch(
-          app_id, {url.spec()}, base::DoNothing());
+      borealis::BorealisServiceFactory::GetForProfile(profile)
+          ->AppLauncher()
+          .Launch(app_id, {url.spec()},
+                  borealis::BorealisLaunchSource::kAppUrlHandler,
+                  base::DoNothing());
       break;
 
     default:
@@ -321,8 +326,7 @@ static std::string Join(const List& list) {
   return joined;
 }
 
-std::string GetStringKey(const base::Value& dict,
-                         const base::StringPiece& key) {
+std::string GetStringKey(const base::Value& dict, std::string_view key) {
   if (!dict.is_dict()) {
     return std::string();
   }
@@ -456,12 +460,11 @@ bool GuestOsRegistryService::Registration::StartupNotify() const {
 }
 
 std::string GuestOsRegistryService::Registration::GetString(
-    base::StringPiece key) const {
+    std::string_view key) const {
   return GetStringKey(pref_, key);
 }
 
-bool GuestOsRegistryService::Registration::GetBool(
-    base::StringPiece key) const {
+bool GuestOsRegistryService::Registration::GetBool(std::string_view key) const {
   if (!pref_.is_dict()) {
     return false;
   }
@@ -471,7 +474,7 @@ bool GuestOsRegistryService::Registration::GetBool(
 
 // This is the companion to GuestOsRegistryService::SetCurrentTime().
 base::Time GuestOsRegistryService::Registration::GetTime(
-    base::StringPiece key) const {
+    std::string_view key) const {
   if (!pref_.is_dict()) {
     return base::Time();
   }
@@ -487,7 +490,7 @@ base::Time GuestOsRegistryService::Registration::GetTime(
 // undescores, e.g. 'fr' or 'en_US'), but users of the registry don't need to
 // deal with this.
 std::string GuestOsRegistryService::Registration::GetLocalizedString(
-    base::StringPiece key) const {
+    std::string_view key) const {
   if (!pref_.is_dict()) {
     return std::string();
   }
@@ -513,7 +516,7 @@ std::string GuestOsRegistryService::Registration::GetLocalizedString(
 }
 
 std::set<std::string> GuestOsRegistryService::Registration::GetLocalizedList(
-    base::StringPiece key) const {
+    std::string_view key) const {
   if (!pref_.is_dict()) {
     return {};
   }
@@ -569,9 +572,10 @@ GuestOsRegistryService::GetEnabledApps() const {
       crostini::CrostiniFeatures::Get()->IsEnabled(profile_);
   bool plugin_vm_enabled =
       plugin_vm::PluginVmFeatures::Get()->IsEnabled(profile_);
-  bool borealis_enabled = borealis::BorealisService::GetForProfile(profile_)
-                              ->Features()
-                              .IsEnabled();
+  bool borealis_enabled =
+      borealis::BorealisServiceFactory::GetForProfile(profile_)
+          ->Features()
+          .IsEnabled();
   if (!crostini_enabled && !plugin_vm_enabled && !borealis_enabled) {
     return {};
   }
@@ -679,7 +683,6 @@ base::FilePath GuestOsRegistryService::GetIconPath(
       return app_path.AppendASCII("icon.svg");
     default:
       NOTREACHED();
-      return base::FilePath();
   }
 }
 
@@ -967,7 +970,7 @@ void GuestOsRegistryService::UpdateApplicationList(
       }
 
       base::Value::Dict name = ProtoToDictionary(app.name());
-      if (name.Find(base::StringPiece()) == nullptr) {
+      if (name.Find(std::string_view()) == nullptr) {
         LOG(WARNING) << "Received app '" << app.desktop_file_id()
                      << "' with missing unlocalized name";
         continue;

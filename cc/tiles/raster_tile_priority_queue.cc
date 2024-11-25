@@ -37,7 +37,6 @@ std::unique_ptr<RasterTilePriorityQueue> RasterTilePriorityQueue::Create(
     }
   }
   NOTREACHED();
-  return nullptr;
 }
 
 }  // namespace cc

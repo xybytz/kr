@@ -22,11 +22,13 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "apply_configs": [
-                  "use_clang_coverage"
+                  "use_clang_coverage",
+                  "chromium_with_telemetry_dependencies"
                 ],
                 "config": "chromium"
               }
@@ -48,7 +50,8 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "apply_configs": [
@@ -79,14 +82,28 @@
           "project": "chromium"
         }
       ],
-      "is_compile_only": true
+      "is_compile_only": true,
+      "targets_spec_directory": "src/infra/config/generated/builders/try/linux_chromium_compile_rel_ng/targets"
     }
   },
   "$build/reclient": {
     "instance": "rbe-chromium-untrusted",
-    "jobs": 150,
     "metrics_project": "chromium-reclient-metrics",
     "scandeps_server": true
+  },
+  "$build/siso": {
+    "configs": [
+      "builder",
+      "remote-link"
+    ],
+    "enable_cloud_monitoring": true,
+    "enable_cloud_profiler": true,
+    "enable_cloud_trace": true,
+    "experiments": [],
+    "metrics_project": "chromium-reclient-metrics",
+    "output_local_strategy": "minimum",
+    "project": "rbe-chromium-untrusted",
+    "remote_jobs": 150
   },
   "$recipe_engine/resultdb/test_presentation": {
     "column_keys": [],

@@ -7,10 +7,9 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 
-#include "ash/system/tray/system_nudge_controller.h"
 #include "base/containers/fixed_flat_map.h"
-#include "base/strings/string_piece.h"
 #include "chrome/browser/ash/input_method/longpress_suggester.h"
 #include "chrome/browser/ash/input_method/suggestion_enums.h"
 #include "ui/events/event.h"
@@ -21,7 +20,7 @@ namespace ash::input_method {
 
 class SuggestionHandlerInterface;
 
-constexpr base::StringPiece16 kDiacriticsSeperator = u";";
+constexpr std::u16string_view kDiacriticsSeperator = u";";
 constexpr ui::DomCode kNextDomCode = ui::DomCode::ARROW_RIGHT;
 constexpr ui::DomCode kPreviousDomCode = ui::DomCode::ARROW_LEFT;
 constexpr ui::DomCode kAcceptDomCode = ui::DomCode::ENTER;
@@ -36,11 +35,6 @@ enum class IMEPKLongpressDiacriticAction {
   kDismiss = 2,
   kAutoRepeatSuppressed = 3,
   kMaxValue = kAutoRepeatSuppressed,
-};
-
-class DiacriticsNudgeController : public ash::SystemNudgeController {
- protected:
-  std::unique_ptr<SystemNudge> CreateSystemNudge() override;
 };
 
 class LongpressDiacriticsSuggester : public LongpressSuggester {
@@ -65,8 +59,8 @@ class LongpressDiacriticsSuggester : public LongpressSuggester {
   AssistiveType GetProposeActionType() override;
 
  private:
+  void ShowDiacriticsNudge();
   void SetButtonHighlighted(size_t index, bool highlighted);
-  DiacriticsNudgeController nudge_controller_;
   std::vector<std::u16string> GetCurrentShownDiacritics();
 
   // LongpressSuggester:

@@ -4,15 +4,20 @@
 
 #import "ios/chrome/browser/autofill/model/automation/automation_app_interface.h"
 
+#import <map>
+#import <string_view>
+
 #import "base/containers/contains.h"
 #import "base/json/json_reader.h"
 #import "base/strings/sys_string_conversions.h"
 #import "base/strings/utf_string_conversions.h"
 #import "base/uuid.h"
 #import "base/values.h"
+#import "components/autofill/core/browser/address_data_manager.h"
+#import "components/autofill/core/browser/payments_data_manager.h"
 #import "components/autofill/core/browser/personal_data_manager.h"
 #import "ios/chrome/browser/autofill/model/personal_data_manager_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
 #import "ios/chrome/test/app/tab_test_util.h"
 #import "ios/testing/nserror_util.h"
@@ -26,9 +31,8 @@ namespace {
 
 // Converts a string (from the test recipe) to the autofill FieldType it
 // represents.
-autofill::FieldType FieldTypeFromString(const std::string& str,
-                                        NSError** error) {
-  static std::map<const std::string, autofill::FieldType>
+autofill::FieldType FieldTypeFromString(std::string_view str, NSError** error) {
+  static std::map<std::string_view, autofill::FieldType>
       string_to_field_type_map;
 
   // Only init the string to autofill field type map on the first call.
@@ -39,7 +43,7 @@ autofill::FieldType FieldTypeFromString(const std::string& str,
     for (size_t i = autofill::NO_SERVER_DATA;
          i < autofill::MAX_VALID_FIELD_TYPE; ++i) {
       autofill::AutofillType autofill_type(static_cast<autofill::FieldType>(i));
-      string_to_field_type_map[autofill_type.ToString()] =
+      string_to_field_type_map[autofill_type.ToStringView()] =
           autofill_type.GetStorableType();
     }
 
@@ -47,7 +51,7 @@ autofill::FieldType FieldTypeFromString(const std::string& str,
          i <= static_cast<size_t>(autofill::HtmlFieldType::kMaxValue); ++i) {
       autofill::AutofillType autofill_type(
           static_cast<autofill::HtmlFieldType>(i));
-      string_to_field_type_map[autofill_type.ToString()] =
+      string_to_field_type_map[autofill_type.ToStringView()] =
           autofill_type.GetStorableType();
     }
   }
@@ -110,7 +114,7 @@ NSError* PrepareAutofillProfileWithValues(
       return error;
     }
 
-    // TODO(crbug.com/895968): Autofill profile and credit card info should be
+    // TODO(crbug.com/40598404): Autofill profile and credit card info should be
     // loaded from separate fields in the recipe, instead of being grouped
     // together. However, need to make sure this change is also performed on
     // desktop automation.
@@ -125,14 +129,22 @@ NSError* PrepareAutofillProfileWithValues(
     }
   }
 
-  // Save the profile and credit card generated to the personal data manager.
-  ChromeBrowserState* browser_state =
-      chrome_test_util::GetOriginalBrowserState();
+  // Clear all existing local data and save the profile and credit card
+  // generated to the personal data manager.
+  ProfileIOS* profileIOS = chrome_test_util::GetOriginalProfile();
   PersonalDataManager* personal_data_manager =
-      PersonalDataManagerFactory::GetForBrowserState(browser_state);
-  personal_data_manager->ClearAllLocalData();
-  personal_data_manager->AddCreditCard(credit_card);
-  personal_data_manager->AddProfile(profile);
+      PersonalDataManagerFactory::GetForProfile(profileIOS);
+  for (const autofill::CreditCard* local_card :
+       personal_data_manager->payments_data_manager().GetLocalCreditCards()) {
+    personal_data_manager->RemoveByGUID(local_card->guid());
+  }
+  for (const autofill::AutofillProfile* local_profile :
+       personal_data_manager->address_data_manager().GetProfilesByRecordType(
+           autofill::AutofillProfile::RecordType::kLocalOrSyncable)) {
+    personal_data_manager->RemoveByGUID(local_profile->guid());
+  }
+  personal_data_manager->payments_data_manager().AddCreditCard(credit_card);
+  personal_data_manager->address_data_manager().AddProfile(profile);
 
   return nil;
 }

@@ -8,6 +8,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -27,20 +28,21 @@ import org.mockito.junit.MockitoRule;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowLooper;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.task.TaskTraits;
 import org.chromium.base.task.test.ShadowPostTask;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.InMemorySharedPreferences;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.PauseResumeWithNativeObserver;
 import org.chromium.chrome.browser.preferences.Pref;
+import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManager;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.components.prefs.PrefService;
 import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.components.user_prefs.UserPrefsJni;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -55,28 +57,30 @@ public class SurveyClientUnitTest {
     private TestSurveyUtils.TestSurveyController mSurveyController;
 
     @Rule public MockitoRule mockitoRule = MockitoJUnit.rule();
-    @Rule public JniMocker mJniMocker = new JniMocker();
 
     @Mock private ActivityLifecycleDispatcher mLifecycleDispatcher;
     @Mock private UserPrefs.Natives mUserPrefsJniMock;
     @Mock private PrefService mPrefServiceMock;
     @Mock private Activity mActivity;
     @Mock private Profile mProfile;
+    @Mock private PrivacyPreferencesManager mPrivacyPreferencesManager;
     @Captor private ArgumentCaptor<PauseResumeWithNativeObserver> mLifecycleObserverCaptor;
 
     @Before
     public void setup() {
-        Profile.setLastUsedProfileForTesting(mProfile);
-        mJniMocker.mock(UserPrefsJni.TEST_HOOKS, mUserPrefsJniMock);
+        ProfileManager.setLastUsedProfileForTesting(mProfile);
+        UserPrefsJni.setInstanceForTesting(mUserPrefsJniMock);
         when(mUserPrefsJniMock.get(mProfile)).thenReturn(mPrefServiceMock);
         when(mPrefServiceMock.getBoolean(Pref.FEEDBACK_SURVEYS_ENABLED)).thenReturn(true);
 
-        mCrashUploadPermissionSupplier = new ObservableSupplierImpl<>();
-        mCrashUploadPermissionSupplier.set(true);
+        mCrashUploadPermissionSupplier = new ObservableSupplierImpl<>(true);
+        doReturn(mCrashUploadPermissionSupplier)
+                .when(mPrivacyPreferencesManager)
+                .getUsageAndCrashReportingPermittedObservableSupplier();
 
         mSurveyUiDelegate = new TestSurveyUtils.TestSurveyUiDelegate();
         mSurveyController = new TestSurveyUtils.TestSurveyController();
-        SurveyClientFactory.initialize(mCrashUploadPermissionSupplier);
+        SurveyClientFactory.initialize(mPrivacyPreferencesManager);
         SurveyMetadata.initializeForTesting(new InMemorySharedPreferences(), null);
 
         ShadowPostTask.setTestImpl(
@@ -87,7 +91,7 @@ public class SurveyClientUnitTest {
                         task.run();
                     }
                 });
-        TestThreadUtils.setThreadAssertsDisabled(true);
+        ThreadUtils.hasSubtleSideEffectsSetThreadAssertsDisabledForTesting(true);
     }
 
     @Test

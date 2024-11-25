@@ -4,12 +4,16 @@
 
 #include "components/autofill/core/browser/metrics/payments/card_unmask_flow_metrics.h"
 
+#include <string>
+
 #include "base/metrics/histogram_functions.h"
+#include "base/strings/strcat.h"
 #include "components/autofill/core/browser/metrics/autofill_metrics.h"
 
 namespace autofill::autofill_metrics {
 
-void LogServerCardUnmaskAttempt(AutofillClient::PaymentsRpcCardType card_type) {
+void LogServerCardUnmaskAttempt(
+    payments::PaymentsAutofillClient::PaymentsRpcCardType card_type) {
   base::UmaHistogramBoolean(
       "Autofill.ServerCardUnmask" +
           AutofillMetrics::GetHistogramStringForCardType(card_type) +
@@ -28,8 +32,8 @@ void LogCvcFilling(CvcFillingFlowType flow_type,
 
 void LogServerCardUnmaskResult(
     ServerCardUnmaskResult unmask_result,
-    absl::variant<AutofillClient::PaymentsRpcCardType, CreditCard::RecordType>
-        card_type,
+    absl::variant<payments::PaymentsAutofillClient::PaymentsRpcCardType,
+                  CreditCard::RecordType> card_type,
     ServerCardUnmaskFlowType flow_type) {
   std::string flow_type_suffix;
   switch (flow_type) {
@@ -51,6 +55,9 @@ void LogServerCardUnmaskResult(
     case ServerCardUnmaskFlowType::kDeviceUnlock:
       flow_type_suffix = ".DeviceUnlock";
       break;
+    case ServerCardUnmaskFlowType::kThreeDomainSecure:
+      flow_type_suffix = ".ThreeDomainSecure";
+      break;
   }
 
   base::UmaHistogramEnumeration(
@@ -61,7 +68,7 @@ void LogServerCardUnmaskResult(
 }
 
 void LogServerCardUnmaskFormSubmission(
-    AutofillClient::PaymentsRpcCardType card_type) {
+    payments::PaymentsAutofillClient::PaymentsRpcCardType card_type) {
   base::UmaHistogramBoolean(
       "Autofill.ServerCardUnmask" +
           AutofillMetrics::GetHistogramStringForCardType(card_type) +

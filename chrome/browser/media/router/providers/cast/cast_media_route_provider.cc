@@ -5,6 +5,7 @@
 #include "chrome/browser/media/router/providers/cast/cast_media_route_provider.h"
 
 #include <array>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -43,7 +44,7 @@ namespace {
 constexpr char kLoggerComponent[] = "CastMediaRouteProvider";
 
 // List of origins allowed to use a PresentationRequest to initiate mirroring.
-constexpr std::array<base::StringPiece, 3> kPresentationApiAllowlist = {
+constexpr std::array<std::string_view, 3> kPresentationApiAllowlist = {
     "https://docs.google.com",
     "https://meet.google.com",
     "https://music.youtube.com",
@@ -164,10 +165,11 @@ void CastMediaRouteProvider::Init(
   receiver_.Bind(std::move(receiver));
   media_router_.Bind(std::move(media_router));
   media_router_->GetLogger(logger_.BindNewPipeAndPassReceiver());
+  media_router_->GetDebugger(debugger_.BindNewPipeAndPassReceiver());
 
   activity_manager_ = std::make_unique<CastActivityManager>(
       media_sink_service_, session_tracker, message_handler_,
-      media_router_.get(), logger_.get(), hash_token);
+      media_router_.get(), logger_, debugger_, hash_token);
 }
 
 CastMediaRouteProvider::~CastMediaRouteProvider() {
@@ -187,7 +189,7 @@ void CastMediaRouteProvider::CreateRoute(const std::string& source_id,
                                          CreateRouteCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  // TODO(https://crbug.com/809249): Handle mirroring routes, including
+  // TODO(crbug.com/40561499): Handle mirroring routes, including
   // mirror-to-Cast transitions.
   const MediaSinkInternal* sink = media_sink_service_->GetSinkById(sink_id);
   if (!sink) {
@@ -212,7 +214,8 @@ void CastMediaRouteProvider::CreateRoute(const std::string& source_id,
     return;
   }
   activity_manager_->LaunchSession(*cast_source, *sink, presentation_id, origin,
-                                   frame_tree_node_id, std::move(callback));
+                                   content::FrameTreeNodeId(frame_tree_node_id),
+                                   std::move(callback));
 }
 
 void CastMediaRouteProvider::JoinRoute(const std::string& media_source,
@@ -237,19 +240,10 @@ void CastMediaRouteProvider::JoinRoute(const std::string& media_source,
     // This should never happen, but it looks like maybe it does.  See
     // crbug.com/1114067.
     NOTREACHED();
-    // This message will probably go unnoticed, but it's here to give some
-    // indication of what went wrong, since NOTREACHED() is compiled out of
-    // release builds.  It would be nice if we could log a message to |logger_|,
-    // but it's initialized in the same place as |activity_manager_|, so it's
-    // almost certainly not available here.
-    LOG(ERROR) << "missing activity manager";
-    std::move(callback).Run(std::nullopt, nullptr,
-                            "Internal error: missing activity manager",
-                            mojom::RouteRequestResultCode::UNKNOWN_ERROR);
-    return;
   }
   activity_manager_->JoinSession(*cast_source, presentation_id, origin,
-                                 frame_tree_node_id, std::move(callback));
+                                 content::FrameTreeNodeId(frame_tree_node_id),
+                                 std::move(callback));
 }
 
 void CastMediaRouteProvider::TerminateRoute(const std::string& route_id,
@@ -362,7 +356,6 @@ void CastMediaRouteProvider::OnSinkQueryUpdated(
       mojom::MediaRouteProviderId::CAST, source_id,
       GetRemotePlaybackMediaSourceCompatibleSinks(media_source, sinks),
       GetOrigins(source_id));
-  LOG(ERROR) << "sent sink updates";
 }
 
 }  // namespace media_router

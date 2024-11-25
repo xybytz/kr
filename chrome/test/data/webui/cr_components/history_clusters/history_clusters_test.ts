@@ -6,14 +6,16 @@ import 'chrome://history/strings.m.js';
 
 import {BrowserProxyImpl} from 'chrome://resources/cr_components/history_clusters/browser_proxy.js';
 import {HistoryClustersElement} from 'chrome://resources/cr_components/history_clusters/clusters.js';
-import {Cluster, RawVisitData, URLVisit} from 'chrome://resources/cr_components/history_clusters/history_cluster_types.mojom-webui.js';
-import {PageCallbackRouter, PageHandlerRemote, PageRemote, QueryResult} from 'chrome://resources/cr_components/history_clusters/history_clusters.mojom-webui.js';
+import type {Cluster, RawVisitData, URLVisit} from 'chrome://resources/cr_components/history_clusters/history_cluster_types.mojom-webui.js';
+import type {PageRemote, QueryResult} from 'chrome://resources/cr_components/history_clusters/history_clusters.mojom-webui.js';
+import {PageCallbackRouter, PageHandlerRemote} from 'chrome://resources/cr_components/history_clusters/history_clusters.mojom-webui.js';
 import {PageImageServiceBrowserProxy} from 'chrome://resources/cr_components/page_image_service/browser_proxy.js';
 import {ClientId as PageImageServiceClientId, PageImageServiceHandlerRemote} from 'chrome://resources/cr_components/page_image_service/page_image_service.mojom-webui.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {assertEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
 import {TestMock} from 'chrome://webui-test/test_mock.js';
+import {microtasksFinished} from 'chrome://webui-test/test_util.js';
 
 let handler: TestMock<PageHandlerRemote>&PageHandlerRemote;
 let callbackRouterRemote: PageRemote;
@@ -72,9 +74,10 @@ suite('history-clusters', () => {
       label: '',
       labelMatchPositions: [],
       relatedSearches: [],
-      imageUrl: undefined,
+      imageUrl: null,
       fromPersistence: false,
-      debugInfo: undefined,
+      debugInfo: null,
+      tabGroupName: null,
     };
 
     const cluster2: Cluster = {
@@ -83,9 +86,10 @@ suite('history-clusters', () => {
       label: '',
       labelMatchPositions: [],
       relatedSearches: [],
-      imageUrl: undefined,
+      imageUrl: null,
       fromPersistence: false,
-      debugInfo: undefined,
+      debugInfo: null,
+      tabGroupName: null,
     };
 
     const queryResult: QueryResult = {
@@ -114,6 +118,23 @@ suite('history-clusters', () => {
 
     return clustersElement;
   }
+
+  test('Updates IsEmpty attribute', async () => {
+    const clustersElement = new HistoryClustersElement();
+    document.body.appendChild(clustersElement);
+    await handler.whenCalled('startQueryClusters');
+
+    callbackRouterRemote.onClustersQueryResult({
+      query: '',
+      clusters: [],
+      canLoadMore: false,
+      isContinuation: false,
+    });
+    await callbackRouterRemote.$.flushForTesting();
+    await flushTasks();
+
+    assertTrue(clustersElement.isEmpty);
+  });
 
   test('List displays one element per cluster', async () => {
     const clustersElement = await setupClustersElement();
@@ -171,11 +192,10 @@ suite('history-clusters', () => {
 
     urlVisitHeader!.click();
 
-    const openHistoryClusterArgs =
-        await handler.whenCalled('openHistoryCluster');
+    const openHistoryUrlArgs = await handler.whenCalled('openHistoryUrl');
 
-    assertEquals(urlVisit!.$.url.innerHTML, openHistoryClusterArgs[0].url);
-    assertEquals(1, handler.getCallCount('openHistoryCluster'));
+    assertEquals(urlVisit!.$.url.innerHTML, openHistoryUrlArgs[0].url);
+    assertEquals(1, handler.getCallCount('openHistoryUrl'));
   });
 
   test('Navigate to url visit via keyboard', async () => {
@@ -204,12 +224,11 @@ suite('history-clusters', () => {
     urlVisitHeader!.dispatchEvent(shiftEnter);
 
     // Navigates to the first match is selected.
-    const openHistoryClusterArgs =
-        await handler.whenCalled('openHistoryCluster');
+    const openHistoryUrlArgs = await handler.whenCalled('openHistoryUrl');
 
-    assertEquals(urlVisit!.$.url.innerHTML, openHistoryClusterArgs[0].url);
-    assertEquals(true, openHistoryClusterArgs[1].shiftKey);
-    assertEquals(1, handler.getCallCount('openHistoryCluster'));
+    assertEquals(urlVisit!.$.url.innerHTML, openHistoryUrlArgs[0].url);
+    assertEquals(true, openHistoryUrlArgs[1].shiftKey);
+    assertEquals(1, handler.getCallCount('openHistoryUrl'));
   });
 
   test('url visit requests image', async () => {
@@ -225,16 +244,22 @@ suite('history-clusters', () => {
       result: {imageUrl: {url: 'https://example.com/image.png'}},
     }));
 
-    const urlVisit =
-        clustersElement.$.clusters.querySelector('history-cluster')!.$.container
-            .querySelector('url-visit');
+    const cluster = clustersElement.$.clusters.querySelector('history-cluster');
+    assertTrue(!!cluster);
+    const urlVisit = cluster.$.container.querySelector('url-visit');
     assertTrue(!!urlVisit);
     // Assign a copied visit object with `isKnownToSync` set to true.
-    urlVisit.visit = Object.assign({}, urlVisit.visit, {isKnownToSync: true});
+    const copiedVisit =
+        Object.assign({}, urlVisit.visit, {isKnownToSync: true});
+    const copiedCluster = Object.assign({}, cluster.cluster);
+    copiedCluster.visits[0] = copiedVisit;
+    cluster.cluster = copiedCluster;
 
     const [clientId, pageUrl] =
         await imageServiceHandler.whenCalled('getPageImageUrl');
+    await microtasksFinished();
     assertEquals(PageImageServiceClientId.Journeys, clientId);
+    assertTrue(!!urlVisit.visit);
     assertEquals(urlVisit.visit.normalizedUrl, pageUrl);
 
     // Verify the icon element received the handler's response.
@@ -252,9 +277,75 @@ suite('history-clusters', () => {
     icon.url = {url: 'https://something-different.com'};
     const [newClientId, newPageUrl] =
         await imageServiceHandler.whenCalled('getPageImageUrl');
+    await microtasksFinished();
     assertEquals(PageImageServiceClientId.Journeys, newClientId);
     assertTrue(!!newPageUrl);
     assertEquals('https://something-different.com', newPageUrl.url);
     assertTrue(!icon.getImageUrlForTesting());
+  });
+
+  test('sets scroll target', async () => {
+    const clustersElement = await setupClustersElement();
+    clustersElement.scrollTarget = document.body;
+    await microtasksFinished();
+
+    assertEquals(document.body, clustersElement.$.clusters.scrollTarget);
+  });
+
+  test('sets scroll offset', async () => {
+    const clustersElement = await setupClustersElement();
+    clustersElement.scrollOffset = 123;
+    await microtasksFinished();
+    assertEquals(123, clustersElement.$.clusters.scrollOffset);
+  });
+
+  test('loads and renders more results for tall monitors', async () => {
+    const clustersElement = new HistoryClustersElement();
+    clustersElement.scrollTarget = document.body;
+    document.body.appendChild(clustersElement);
+    await handler.whenCalled('startQueryClusters');
+    handler.reset();
+
+    // `canLoadMore` set to false should not load more results.
+    callbackRouterRemote.onClustersQueryResult(
+        Object.assign(getTestResult(), {canLoadMore: false}));
+    await new Promise(resolve => requestIdleCallback(resolve));
+    assertEquals(
+        0, handler.getCallCount('loadMoreClusters'),
+        'should not load more results');
+
+    // Make scroll target very short. Even if `canLoadMore` is set to true,
+    // more results should not be loaded since the scroll target is already
+    // filled.
+    document.body.style.height = '2px';
+    callbackRouterRemote.onClustersQueryResult(
+        Object.assign(getTestResult(), {canLoadMore: true}));
+    await new Promise(resolve => requestIdleCallback(resolve));
+    assertEquals(
+        0, handler.getCallCount('loadMoreClusters'),
+        'should not load more results for short scroll target');
+
+    // Make scroll target very tall. Now, more results should be loaded since
+    // the scroll target has plenty of extra unfilled space.
+    document.body.style.height = '2000px';
+    callbackRouterRemote.onClustersQueryResult(
+        Object.assign(getTestResult(), {canLoadMore: true}));
+    await new Promise(resolve => requestIdleCallback(resolve));
+    assertEquals(
+        1, handler.getCallCount('loadMoreClusters'),
+        'should load more results for tall scroll target');
+    await microtasksFinished();
+    // Initial 2 results are rendered.
+    assertEquals(
+        2,
+        clustersElement.shadowRoot!.querySelectorAll('history-cluster').length);
+
+    // More clusters requested. Simulate a response.
+    callbackRouterRemote.onClustersQueryResult(Object.assign(
+        getTestResult(), {canLoadMore: false, isContinuation: true}));
+    await microtasksFinished();
+    assertEquals(
+        4,
+        clustersElement.shadowRoot!.querySelectorAll('history-cluster').length);
   });
 });

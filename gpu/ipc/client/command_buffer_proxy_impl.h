@@ -149,8 +149,6 @@ class GPU_EXPORT CommandBufferProxyImpl : public gpu::CommandBuffer,
   void AddDeletionObserver(DeletionObserver* observer);
   void RemoveDeletionObserver(DeletionObserver* observer);
 
-  bool EnsureBackbuffer();
-
   int32_t route_id() const { return route_id_; }
 
   const scoped_refptr<GpuChannelHost>& channel() const { return channel_; }
@@ -162,6 +160,10 @@ class GPU_EXPORT CommandBufferProxyImpl : public gpu::CommandBuffer,
   const base::UnsafeSharedMemoryRegion& GetSharedStateRegion() const {
     return shared_state_shm_;
   }
+
+  // Used in cases where fence sync releases are not directly generated from
+  // this class itself.
+  void UpdateLastFenceSyncRelease(uint64_t release_count);
 
  private:
   typedef std::map<int32_t, scoped_refptr<gpu::Buffer>> TransferBufferMap;
@@ -232,7 +234,11 @@ class GPU_EXPORT CommandBufferProxyImpl : public gpu::CommandBuffer,
   void DisconnectChannel();
 
   // The shared memory area used to update state.
-  gpu::CommandBufferSharedState* shared_state() const;
+  gpu::CommandBufferSharedState* shared_state() {
+    return const_cast<gpu::CommandBufferSharedState*>(
+        std::as_const(*this).shared_state());
+  }
+  const gpu::CommandBufferSharedState* shared_state() const;
 
   base::HistogramBase* GetUMAHistogramEnsureWorkVisibleDuration();
 
@@ -272,8 +278,8 @@ class GPU_EXPORT CommandBufferProxyImpl : public gpu::CommandBuffer,
   mojo::SharedAssociatedRemote<mojom::CommandBuffer> command_buffer_;
   mojo::AssociatedReceiver<mojom::CommandBufferClient> client_receiver_{this};
 
-  // Next generated fence sync.
-  uint64_t next_fence_sync_release_ = 1;
+  // Last generated fence sync.
+  uint64_t last_fence_sync_release_ = 0;
 
   // Sync token waits that haven't been flushed yet.
   std::vector<SyncToken> pending_sync_token_fences_;
@@ -292,7 +298,7 @@ class GPU_EXPORT CommandBufferProxyImpl : public gpu::CommandBuffer,
   scoped_refptr<base::SequencedTaskRunner> callback_thread_;
 
   // Optional shared memory mapper to use when creating transfer buffers.
-  // TODO(1321521) remove this member and instead let callers of
+  // TODO(crbug.com/40837434) remove this member and instead let callers of
   // CreateTransferBuffer specify the mapper to use so that only the buffers
   // used for WebGPU ArrayBuffers use a non-default mapper.
   raw_ptr<base::SharedMemoryMapper> transfer_buffer_mapper_;

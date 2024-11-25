@@ -6,9 +6,12 @@
 
 #include <algorithm>
 
+#include "base/feature_list.h"
+#include "base/metrics/histogram_macros.h"
 #include "components/paint_preview/common/paint_preview_tracker.h"
 #include "printing/buildflags/buildflags.h"
 #include "third_party/blink/public/common/frame/frame_owner_element_type.h"
+#include "third_party/blink/public/common/page/page_zoom.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
@@ -33,6 +36,10 @@
 #endif
 
 namespace blink {
+
+BASE_FEATURE(kSkipUnnecessaryRemoteFrameGeometryPropagation,
+             "SkipUnnecessaryRemoteFrameGeometryPropagation",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 RemoteFrameView::RemoteFrameView(RemoteFrame* remote_frame)
     : FrameView(gfx::Rect()), remote_frame_(remote_frame) {
@@ -98,16 +105,54 @@ void RemoteFrameView::DetachFromLayout() {
 
 bool RemoteFrameView::UpdateViewportIntersectionsForSubtree(
     unsigned parent_flags,
-    absl::optional<base::TimeTicks>&) {
+    ComputeIntersectionsContext&) {
   UpdateViewportIntersection(parent_flags, needs_occlusion_tracking_);
   return needs_occlusion_tracking_;
 }
 
 void RemoteFrameView::SetViewportIntersection(
     const mojom::blink::ViewportIntersectionState& intersection_state) {
+  TRACE_EVENT0("blink", __PRETTY_FUNCTION__);
   mojom::blink::ViewportIntersectionState new_state(intersection_state);
   new_state.compositor_visible_rect = compositing_rect_;
-  if (!last_intersection_state_.Equals(new_state)) {
+
+  auto is_equal = [](mojom::blink::ViewportIntersectionState& a,
+                     mojom::blink::ViewportIntersectionState& b,
+                     bool ignore_outermost_main_frame_scroll_position) {
+    if (ignore_outermost_main_frame_scroll_position) {
+      auto b_copy = b;
+      b_copy.outermost_main_frame_scroll_position =
+          a.outermost_main_frame_scroll_position;
+      return a.Equals(b_copy);
+    }
+    return a.Equals(b);
+  };
+
+  bool needs_update;
+  if (base::FeatureList::IsEnabled(
+          kSkipUnnecessaryRemoteFrameGeometryPropagation)) {
+    // When the remote frame is not intersecting with the viewport, we don't
+    // need to propagate up to date outermost frame scroll offsets, since they
+    // are not relevant in this case. This is a non-trivial saving, since
+    // common pages can have 10+ remote frames, and the scroll offset changes at
+    // every frame while scrolling. Since the interface used to talk to the
+    // remote frames is (a) a Channel-assocaited interface, and (b) goes through
+    // CrossProcessFrameConnector in the browser process, this incurs a *lot* of
+    // context switches.
+    bool outside_viewport =
+        frame_visibility() &&
+        (*frame_visibility() == mojom::blink::FrameVisibility::kNotRendered ||
+         *frame_visibility() ==
+             mojom::blink::FrameVisibility::kRenderedOutOfViewport);
+    needs_update =
+        !is_equal(last_intersection_state_, new_state, outside_viewport);
+  } else {
+    needs_update = !last_intersection_state_.Equals(new_state);
+  }
+
+  UMA_HISTOGRAM_BOOLEAN(
+      "Blink.UpdateViewportIntersection.RemoteFrameNeedsUpdate", needs_update);
+  if (needs_update) {
     last_intersection_state_ = new_state;
     remote_frame_->SetViewportIntersection(new_state);
   } else if (needs_frame_rect_propagation_) {
@@ -120,8 +165,10 @@ void RemoteFrameView::SetNeedsOcclusionTracking(bool needs_tracking) {
     return;
   needs_occlusion_tracking_ = needs_tracking;
   if (needs_tracking) {
-    if (LocalFrameView* parent_view = ParentLocalRootFrameView())
+    if (LocalFrameView* parent_view = ParentLocalRootFrameView()) {
+      parent_view->SetIntersectionObservationState(LocalFrameView::kRequired);
       parent_view->ScheduleAnimation();
+    }
   }
 }
 
@@ -225,7 +272,7 @@ void RemoteFrameView::UpdateCompositingScaleFactor() {
   float frame_to_local_root_scale_factor = 1.0f;
   gfx::Transform local_root_transform =
       local_root_transform_state.AccumulatedTransform();
-  absl::optional<gfx::Vector2dF> scale_components =
+  std::optional<gfx::Vector2dF> scale_components =
       gfx::TryComputeTransform2dScaleComponents(local_root_transform);
   if (!scale_components) {
     frame_to_local_root_scale_factor =
@@ -263,7 +310,6 @@ void RemoteFrameView::Dispose() {
   // RemoteFrameView is disconnected before detachment.
   if (owner_element && owner_element->OwnedEmbeddedContentView() == this)
     owner_element->SetEmbeddedContentView(nullptr);
-  SetNeedsOcclusionTracking(false);
 }
 
 void RemoteFrameView::SetFrameRect(const gfx::Rect& rect) {
@@ -274,12 +320,10 @@ void RemoteFrameView::SetFrameRect(const gfx::Rect& rect) {
 }
 
 void RemoteFrameView::UpdateFrozenSize() {
-  if (frozen_size_)
-    return;
   auto* layout_embedded_content = GetLayoutEmbeddedContent();
   if (!layout_embedded_content)
     return;
-  absl::optional<PhysicalSize> frozen_phys_size =
+  std::optional<PhysicalSize> frozen_phys_size =
       layout_embedded_content->FrozenFrameSize();
   if (!frozen_phys_size)
     return;
@@ -287,6 +331,10 @@ void RemoteFrameView::UpdateFrozenSize() {
                                       frozen_phys_size->height.Ceil());
   frozen_size_ = rounded_frozen_size;
   needs_frame_rect_propagation_ = true;
+}
+
+void RemoteFrameView::ZoomFactorChanged(float zoom_factor) {
+  remote_frame_->ZoomFactorChanged(zoom_factor);
 }
 
 void RemoteFrameView::PropagateFrameRects() {
@@ -436,7 +484,7 @@ uint32_t RemoteFrameView::CapturePaintPreview(const gfx::Rect& rect,
   // to this HTMLFrameOwnerElement yet (over IPC). If the token is null the
   // failure can be handled gracefully by simply ignoring the subframe in the
   // result.
-  absl::optional<base::UnguessableToken> maybe_embedding_token =
+  std::optional<base::UnguessableToken> maybe_embedding_token =
       remote_frame_->GetEmbeddingToken();
   if (!maybe_embedding_token.has_value())
     return 0;

@@ -7,7 +7,7 @@
 #include "base/no_destructor.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/autofill/core/browser/iban_manager.h"
+#include "components/autofill/core/browser/payments/iban_manager.h"
 
 namespace autofill {
 
@@ -28,20 +28,23 @@ IbanManagerFactory::IbanManagerFactory()
           "IbanManager",
           ProfileSelections::Builder()
               .WithRegular(ProfileSelection::kOwnInstance)
-              // TODO(crbug.com/1418376): Check if this service is needed in
+              // TODO(crbug.com/40257657): Check if this service is needed in
               // Guest mode.
               .WithGuest(ProfileSelection::kOwnInstance)
+              // TODO(crbug.com/41488885): Check if this service is needed for
+              // Ash Internals.
+              .WithAshInternals(ProfileSelection::kOwnInstance)
               .Build()) {
   DependsOn(PersonalDataManagerFactory::GetInstance());
 }
 
 IbanManagerFactory::~IbanManagerFactory() = default;
 
-KeyedService* IbanManagerFactory::BuildServiceInstanceFor(
+std::unique_ptr<KeyedService>
+IbanManagerFactory::BuildServiceInstanceForBrowserContext(
     content::BrowserContext* context) const {
-  IbanManager* service = new IbanManager(
+  return std::make_unique<IbanManager>(
       PersonalDataManagerFactory::GetForBrowserContext(context));
-  return service;
 }
 
 }  // namespace autofill

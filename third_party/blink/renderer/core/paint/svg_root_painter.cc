@@ -4,14 +4,9 @@
 
 #include "third_party/blink/renderer/core/paint/svg_root_painter.h"
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_foreign_object.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_root.h"
-#include "third_party/blink/renderer/core/layout/svg/svg_layout_support.h"
-#include "third_party/blink/renderer/core/paint/box_painter.h"
-#include "third_party/blink/renderer/core/paint/object_paint_properties.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
-#include "third_party/blink/renderer/core/paint/scoped_svg_paint_state.h"
 #include "third_party/blink/renderer/core/paint/svg_foreign_object_painter.h"
 #include "third_party/blink/renderer/core/svg/svg_svg_element.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -43,12 +38,19 @@ AffineTransform SVGRootPainter::TransformToPixelSnappedBorderBox(
   const gfx::Rect snapped_size = PixelSnappedSize(paint_offset);
   AffineTransform paint_offset_to_border_box =
       AffineTransform::Translation(snapped_size.x(), snapped_size.y());
-  if (ShouldApplySnappingScaleAdjustment(layout_svg_root_)) {
-    PhysicalSize size = layout_svg_root_.Size();
-    if (!size.IsEmpty()) {
+  const PhysicalSize size = layout_svg_root_.Size();
+  if (!size.IsEmpty()) {
+    if (ShouldApplySnappingScaleAdjustment(layout_svg_root_)) {
       paint_offset_to_border_box.Scale(
           snapped_size.width() / size.width.ToFloat(),
           snapped_size.height() / size.height.ToFloat());
+    } else if (RuntimeEnabledFeatures::
+                   SvgInlineRootPixelSnappingScaleAdjustmentEnabled()) {
+      // Scale uniformly to fit in the snapped box.
+      const float scale_x = snapped_size.width() / size.width.ToFloat();
+      const float scale_y = snapped_size.height() / size.height.ToFloat();
+      const float uniform_scale = std::min(scale_x, scale_y);
+      paint_offset_to_border_box.Scale(uniform_scale);
     }
   }
   paint_offset_to_border_box.PreConcat(
@@ -69,19 +71,16 @@ void SVGRootPainter::PaintReplaced(const PaintInfo& paint_info,
   if (svg->HasEmptyViewBox())
     return;
 
-  ScopedSVGPaintState paint_state(layout_svg_root_, paint_info);
-
   if (paint_info.DescendantPaintingBlocked()) {
     return;
   }
 
-  PaintInfo child_info(paint_info);
   for (LayoutObject* child = layout_svg_root_.FirstChild(); child;
        child = child->NextSibling()) {
     if (auto* foreign_object = DynamicTo<LayoutSVGForeignObject>(child)) {
       SVGForeignObjectPainter(*foreign_object).PaintLayer(paint_info);
     } else {
-      child->Paint(child_info);
+      child->Paint(paint_info);
     }
   }
 }

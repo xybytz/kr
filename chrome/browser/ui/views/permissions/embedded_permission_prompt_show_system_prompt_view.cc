@@ -12,11 +12,17 @@
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
 
+DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(
+    EmbeddedPermissionPromptShowSystemPromptView,
+    kMainViewId);
+
 EmbeddedPermissionPromptShowSystemPromptView::
     EmbeddedPermissionPromptShowSystemPromptView(
         Browser* browser,
         base::WeakPtr<EmbeddedPermissionPromptViewDelegate> delegate)
-    : EmbeddedPermissionPromptBaseView(browser, delegate) {}
+    : EmbeddedPermissionPromptBaseView(browser, delegate) {
+  SetProperty(views::kElementIdentifierKey, kMainViewId);
+}
 
 EmbeddedPermissionPromptShowSystemPromptView::
     ~EmbeddedPermissionPromptShowSystemPromptView() = default;
@@ -47,7 +53,6 @@ void EmbeddedPermissionPromptShowSystemPromptView::RunButtonCallback(
     int button_id) {
   // This view has no buttons.
   NOTREACHED();
-  return;
 }
 
 std::vector<
@@ -61,4 +66,8 @@ std::vector<EmbeddedPermissionPromptShowSystemPromptView::ButtonConfiguration>
 EmbeddedPermissionPromptShowSystemPromptView::GetButtonsConfiguration() const {
   // This view has no buttons.
   return std::vector<ButtonConfiguration>();
+}
+
+bool EmbeddedPermissionPromptShowSystemPromptView::ShowLoadingIcon() const {
+  return true;
 }

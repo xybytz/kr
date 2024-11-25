@@ -6,12 +6,14 @@ package org.chromium.chrome.browser;
 
 import org.jni_zero.CalledByNative;
 import org.jni_zero.JNINamespace;
+import org.jni_zero.JniType;
 import org.jni_zero.NativeMethods;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 
 /** Static methods for use in tests to manipulate the PWA App list for restoring. */
 @JNINamespace("webapps")
@@ -19,22 +21,26 @@ public class PwaRestoreBottomSheetTestUtils {
     private static CallbackHelper sCallbackHelper = new CallbackHelper();
 
     public static void waitForWebApkDatabaseInitialization() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     ChromeBrowserInitializer.getInstance().handleSynchronousStartup();
                     PwaRestoreBottomSheetTestUtilsJni.get()
                             .waitForWebApkDatabaseInitialization(
-                                    Profile.getLastUsedRegularProfile());
+                                    ProfileManager.getLastUsedRegularProfile());
                 });
         sCallbackHelper.waitForNext();
     }
 
     /** Set the app list to use for testing. */
-    public static void setAppListForRestoring(String[][] appList) throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(
+    public static void setAppListForRestoring(String[][] appList, int[] lastUsedInDays)
+            throws Exception {
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     PwaRestoreBottomSheetTestUtilsJni.get()
-                            .setAppListForRestoring(appList, Profile.getLastUsedRegularProfile());
+                            .setAppListForRestoring(
+                                    appList,
+                                    lastUsedInDays,
+                                    ProfileManager.getLastUsedRegularProfile());
                 });
     }
 
@@ -45,8 +51,9 @@ public class PwaRestoreBottomSheetTestUtils {
 
     @NativeMethods
     interface Natives {
-        void waitForWebApkDatabaseInitialization(Profile profile);
+        void waitForWebApkDatabaseInitialization(@JniType("Profile*") Profile profile);
 
-        void setAppListForRestoring(String[][] appList, Profile profile);
+        void setAppListForRestoring(
+                String[][] appList, int[] lastUsedInDays, @JniType("Profile*") Profile profile);
     }
 }

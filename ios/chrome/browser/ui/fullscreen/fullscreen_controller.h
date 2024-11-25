@@ -27,7 +27,7 @@ class FullscreenController : public base::SupportsUserData::Data {
 
   // The ChromeBroadcaster through the FullscreenController receives UI
   // information necessary to calculate fullscreen progress.
-  // TODO(crbug.com/790886): Once FullscreenController is a BrowserUserData,
+  // TODO(crbug.com/41358770): Once FullscreenController is a BrowserUserData,
   // remove this ad-hoc broadcaster and drive the animations via the Browser's
   // ChromeBroadcaster.
   virtual ChromeBroadcaster* broadcaster() = 0;
@@ -83,12 +83,12 @@ class FullscreenController : public base::SupportsUserData::Data {
   virtual void ExitFullscreenWithoutAnimation() = 0;
 
   // Force fullscreen mode is used when the bottom omnibox is collapsed above
-  // the keyboard. When the mode is active:
+  // the keyboard or find-in-page is triggered. When the mode is active:
   // - Fullscreen progress is forced to 0 and should stay at 0.
-  // - Updating browser insets through fullscreen are disabled. (crbug/1490601)
+  // - Updating browser insets if insets_update_enabled is true. (crbug/1490601)
   // When exiting the mode, fullscreen is reset.
   virtual bool IsForceFullscreenMode() const = 0;
-  virtual void EnterForceFullscreenMode() = 0;
+  virtual void EnterForceFullscreenMode(bool insets_update_enabled) = 0;
   virtual void ExitForceFullscreenMode() = 0;
 
   // Force horizontal content resize, when content isn't tracking resize by

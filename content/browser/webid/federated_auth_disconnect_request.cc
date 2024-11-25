@@ -4,6 +4,7 @@
 
 #include "content/browser/webid/federated_auth_disconnect_request.h"
 
+#include "base/notreached.h"
 #include "content/browser/webid/webid_utils.h"
 #include "content/public/browser/federated_identity_api_permission_context_delegate.h"
 #include "content/public/browser/federated_identity_permission_context_delegate.h"
@@ -89,7 +90,6 @@ void FederatedAuthDisconnectRequest::SetCallbackAndStart(
       break;
     default:
       NOTREACHED();
-      break;
   }
   if (error_disconnect_status) {
     Complete(DisconnectStatus::kError, *error_disconnect_status);
@@ -110,7 +110,7 @@ void FederatedAuthDisconnectRequest::SetCallbackAndStart(
       *render_frame_host_, network_manager_.get());
   GURL config_url = options_->config->config_url;
   provider_fetcher_->Start(
-      {GURL(config_url)}, blink::mojom::RpMode::kWidget, /*icon_ideal_size=*/0,
+      {GURL(config_url)}, blink::mojom::RpMode::kPassive, /*icon_ideal_size=*/0,
       /*icon_minimum_size=*/0,
       base::BindOnce(
           &FederatedAuthDisconnectRequest::OnAllConfigAndWellKnownFetched,
@@ -135,57 +135,54 @@ void FederatedAuthDisconnectRequest::OnAllConfigAndWellKnownFetched(
 
     FedCmDisconnectStatus status;
     switch (fetch_error.result) {
-      case FederatedAuthRequestResult::kErrorFetchingWellKnownHttpNotFound: {
+      case FederatedAuthRequestResult::kWellKnownHttpNotFound: {
         status = FedCmDisconnectStatus::kWellKnownHttpNotFound;
         break;
       }
-      case FederatedAuthRequestResult::kErrorFetchingWellKnownNoResponse: {
+      case FederatedAuthRequestResult::kWellKnownNoResponse: {
         status = FedCmDisconnectStatus::kWellKnownNoResponse;
         break;
       }
-      case FederatedAuthRequestResult::kErrorFetchingWellKnownInvalidResponse: {
+      case FederatedAuthRequestResult::kWellKnownInvalidResponse: {
         status = FedCmDisconnectStatus::kWellKnownInvalidResponse;
         break;
       }
-      case FederatedAuthRequestResult::kErrorFetchingWellKnownListEmpty: {
+      case FederatedAuthRequestResult::kWellKnownListEmpty: {
         status = FedCmDisconnectStatus::kWellKnownListEmpty;
         break;
       }
-      case FederatedAuthRequestResult::
-          kErrorFetchingWellKnownInvalidContentType: {
+      case FederatedAuthRequestResult::kWellKnownInvalidContentType: {
         status = FedCmDisconnectStatus::kWellKnownInvalidContentType;
         break;
       }
-      case FederatedAuthRequestResult::kErrorFetchingConfigHttpNotFound: {
+      case FederatedAuthRequestResult::kConfigHttpNotFound: {
         status = FedCmDisconnectStatus::kConfigHttpNotFound;
         break;
       }
-      case FederatedAuthRequestResult::kErrorFetchingConfigNoResponse: {
+      case FederatedAuthRequestResult::kConfigNoResponse: {
         status = FedCmDisconnectStatus::kConfigNoResponse;
         break;
       }
-      case FederatedAuthRequestResult::kErrorFetchingConfigInvalidResponse: {
+      case FederatedAuthRequestResult::kConfigInvalidResponse: {
         status = FedCmDisconnectStatus::kConfigInvalidResponse;
         break;
       }
-      case FederatedAuthRequestResult::kErrorFetchingConfigInvalidContentType: {
+      case FederatedAuthRequestResult::kConfigInvalidContentType: {
         status = FedCmDisconnectStatus::kConfigInvalidContentType;
         break;
       }
-      case FederatedAuthRequestResult::kErrorWellKnownTooBig: {
+      case FederatedAuthRequestResult::kWellKnownTooBig: {
         status = FedCmDisconnectStatus::kWellKnownTooBig;
         break;
       }
-      case FederatedAuthRequestResult::kErrorConfigNotInWellKnown: {
+      case FederatedAuthRequestResult::kConfigNotInWellKnown: {
         status = FedCmDisconnectStatus::kConfigNotInWellKnown;
         break;
       }
       default: {
-        status = FedCmDisconnectStatus::kUnhandledRequest;
         // The FederatedProviderFetcher does not return any other type of
         // result.
-        CHECK(false);
-        break;
+        NOTREACHED();
       }
     }
     Complete(DisconnectStatus::kError, status);
@@ -249,9 +246,10 @@ void FederatedAuthDisconnectRequest::Complete(
       disconnect_request_sent_
           ? std::optional<base::TimeDelta>{base::TimeTicks::Now() - start_time_}
           : std::nullopt;
-  metrics_->RecordDisconnectMetrics(disconnect_status_for_metrics, duration,
-                                    *render_frame_host_, origin_,
-                                    embedding_origin_);
+  metrics_->RecordDisconnectMetrics(
+      disconnect_status_for_metrics, duration, *render_frame_host_, origin_,
+      embedding_origin_, options_->config->config_url,
+      webid::GetNewSessionID());
 
   std::move(callback_).Run(status);
 }

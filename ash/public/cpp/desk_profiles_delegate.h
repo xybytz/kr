@@ -26,10 +26,10 @@ struct ASH_PUBLIC_EXPORT LacrosProfileSummary {
   uint64_t profile_id = 0;
 
   // Profile name.
-  std::string name;
+  std::u16string name;
 
   // Profile email, may be empty.
-  std::string email;
+  std::u16string email;
 
   // Profile icon.
   gfx::ImageSkia icon;
@@ -53,7 +53,8 @@ class ASH_PUBLIC_EXPORT DeskProfilesDelegate {
   virtual ~DeskProfilesDelegate() = default;
 
   // Returns a snapshot of the current profiles.
-  virtual std::vector<LacrosProfileSummary> GetProfilesSnapshot() const = 0;
+  virtual const std::vector<LacrosProfileSummary>& GetProfilesSnapshot()
+      const = 0;
 
   // Returns the snapshot of profile by giving profile id.
   virtual const LacrosProfileSummary* GetProfilesSnapshotByProfileId(
@@ -61,6 +62,10 @@ class ASH_PUBLIC_EXPORT DeskProfilesDelegate {
 
   // Returns the primary profile ID.
   virtual uint64_t GetPrimaryProfileId() const = 0;
+
+  // If `profile_id` is zero, this returns `GetPrimaryProfileId`, otherwise
+  // `profile_id` is returned as-is.
+  uint64_t ResolveProfileId(uint64_t profile_id);
 
   // Adds or removes an observer that will receive profile updates.
   virtual void AddObserver(Observer* observer) = 0;

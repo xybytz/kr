@@ -23,6 +23,9 @@ std::string GetDeviceType(syncer::DeviceInfo::FormFactor form_factor) {
       device_type_message_id = IDS_SHARING_DEVICE_TYPE_COMPUTER;
       break;
 
+    case syncer::DeviceInfo::FormFactor::kAutomotive:
+    case syncer::DeviceInfo::FormFactor::kWearable:
+    case syncer::DeviceInfo::FormFactor::kTv:
     case syncer::DeviceInfo::FormFactor::kUnknown:
       device_type_message_id = IDS_SHARING_DEVICE_TYPE_DEVICE;
       break;
@@ -69,7 +72,7 @@ TargetDeviceInfo::TargetDeviceInfo(
       last_updated_timestamp(last_updated_timestamp) {}
 
 TargetDeviceInfo::TargetDeviceInfo(const TargetDeviceInfo& other) = default;
-TargetDeviceInfo::~TargetDeviceInfo() {}
+TargetDeviceInfo::~TargetDeviceInfo() = default;
 
 bool TargetDeviceInfo::operator==(const TargetDeviceInfo& rhs) const {
   return this->full_name == rhs.full_name &&

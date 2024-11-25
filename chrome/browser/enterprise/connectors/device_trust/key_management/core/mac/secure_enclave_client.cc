@@ -62,7 +62,6 @@ SecureEnclaveClient::GetTypeFromWrappedKey(
   }
 
   NOTREACHED();
-  return std::nullopt;
 }
 
 // static

@@ -28,22 +28,23 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.Callback;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.BaseActivityTestRule;
 import org.chromium.base.test.util.Batch;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.chrome.browser.share.ChromeShareExtras.DetailedContentType;
 import org.chromium.chrome.browser.share.ShareContentTypeHelper.ContentType;
 import org.chromium.chrome.test.AutomotiveContextWrapperTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.browser_ui.share.ShareParams;
 import org.chromium.components.favicon.IconType;
 import org.chromium.components.favicon.LargeIconBridge;
@@ -52,7 +53,6 @@ import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.url_formatter.SchemeDisplay;
 import org.chromium.components.url_formatter.UrlFormatter;
 import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.test.util.BlankUiTestActivity;
 import org.chromium.url.GURL;
 
@@ -66,8 +66,6 @@ public final class ShareSheetBottomSheetContentTest {
     @Rule
     public BaseActivityTestRule<BlankUiTestActivity> mActivityTestRule =
             new BaseActivityTestRule<>(BlankUiTestActivity.class);
-
-    @Rule public TestRule mFeaturesProcessor = new Features.JUnitProcessor();
 
     @Rule
     public AutomotiveContextWrapperTestRule mAutoTestRule = new AutomotiveContextWrapperTestRule();
@@ -103,7 +101,7 @@ public final class ShareSheetBottomSheetContentTest {
                         .setLinkToTextSuccessful(true)
                         .build();
         // Pretend the feature engagement feature is already initialized. Otherwise
-        // UserEducationHelper#requestShowIPH() calls get dropped during test.
+        // UserEducationHelper#requestShowIph() calls get dropped during test.
         doAnswer(
                         invocation -> {
                             invocation.<Callback<Boolean>>getArgument(0).onResult(true);
@@ -112,11 +110,13 @@ public final class ShareSheetBottomSheetContentTest {
                 .when(mFeatureEngagementTracker)
                 .addOnInitializedCallback(any());
         TrackerFactory.setTrackerForTests(mFeatureEngagementTracker);
-        Profile.setLastUsedProfileForTesting(mProfile);
+        ProfileManager.setLastUsedProfileForTesting(mProfile);
+        Mockito.when(mProfile.getOriginalProfile()).thenReturn(mProfile);
 
         mShareSheetBottomSheetContent =
                 new ShareSheetBottomSheetContent(
                         mActivity,
+                        mProfile,
                         new MockLargeIconBridge(),
                         null,
                         mShareParams,
@@ -130,6 +130,7 @@ public final class ShareSheetBottomSheetContentTest {
         ShareSheetBottomSheetContent shareSheetBottomSheetContent =
                 new ShareSheetBottomSheetContent(
                         mActivity,
+                        mProfile,
                         new MockLargeIconBridge(),
                         null,
                         new ShareParams.Builder(/* window= */ null, /* title= */ "", /* url= */ "")
@@ -161,6 +162,7 @@ public final class ShareSheetBottomSheetContentTest {
         ShareSheetBottomSheetContent shareSheetBottomSheetContent =
                 new ShareSheetBottomSheetContent(
                         mActivity,
+                        mProfile,
                         new MockLargeIconBridge(),
                         null,
                         new ShareParams.Builder(/* window= */ null, /* title= */ "", /* url= */ "")
@@ -192,6 +194,7 @@ public final class ShareSheetBottomSheetContentTest {
         ShareSheetBottomSheetContent shareSheetBottomSheetContent =
                 new ShareSheetBottomSheetContent(
                         mActivity,
+                        mProfile,
                         new MockLargeIconBridge(),
                         null,
                         new ShareParams.Builder(/* window= */ null, /* title= */ "", /* url= */ "")
@@ -331,6 +334,7 @@ public final class ShareSheetBottomSheetContentTest {
         ShareSheetBottomSheetContent shareSheetBottomSheetContent =
                 new ShareSheetBottomSheetContent(
                         mActivity,
+                        mProfile,
                         new MockLargeIconBridge(),
                         null,
                         new ShareParams.Builder(/* window= */ null, /* title= */ "", sUrl).build(),
@@ -362,6 +366,7 @@ public final class ShareSheetBottomSheetContentTest {
         ShareSheetBottomSheetContent shareSheetBottomSheetContent =
                 new ShareSheetBottomSheetContent(
                         mActivity,
+                        mProfile,
                         new MockLargeIconBridge(),
                         null,
                         new ShareParams.Builder(/* window= */ null, /* title= */ "", /* url= */ "")
@@ -372,7 +377,7 @@ public final class ShareSheetBottomSheetContentTest {
         when(mShareSheetLinkToggleCoordinator.shouldShowToggle()).thenReturn(true);
         when(mShareSheetLinkToggleCoordinator.shouldEnableToggleByDefault()).thenReturn(false);
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () ->
                         shareSheetBottomSheetContent.createRecyclerViews(
                                 ImmutableList.of(),
@@ -386,7 +391,7 @@ public final class ShareSheetBottomSheetContentTest {
                 shareSheetBottomSheetContent.getContentView().findViewById(R.id.link_toggle_view);
         assertEquals(View.VISIBLE, toggleView.getVisibility());
         verify(mFeatureEngagementTracker)
-                .shouldTriggerHelpUI(FeatureConstants.IPH_SHARING_HUB_LINK_TOGGLE_FEATURE);
+                .shouldTriggerHelpUi(FeatureConstants.IPH_SHARING_HUB_LINK_TOGGLE_FEATURE);
     }
 
     @Test
@@ -396,6 +401,7 @@ public final class ShareSheetBottomSheetContentTest {
         ShareSheetBottomSheetContent shareSheetBottomSheetContent =
                 new ShareSheetBottomSheetContent(
                         mActivity,
+                        mProfile,
                         new MockLargeIconBridge(),
                         null,
                         new ShareParams.Builder(/* window= */ null, /* title= */ "", /* url= */ "")
@@ -430,6 +436,7 @@ public final class ShareSheetBottomSheetContentTest {
         ShareSheetBottomSheetContent shareSheetBottomSheetContent =
                 new ShareSheetBottomSheetContent(
                         mActivity,
+                        mProfile,
                         new MockLargeIconBridge(),
                         null,
                         new ShareParams.Builder(/* window= */ null, /* title= */ "", /* url= */ "")
@@ -475,6 +482,7 @@ public final class ShareSheetBottomSheetContentTest {
         ShareSheetBottomSheetContent shareSheetBottomSheetContent =
                 new ShareSheetBottomSheetContent(
                         mActivity,
+                        mProfile,
                         new MockLargeIconBridge(),
                         null,
                         new ShareParams.Builder(/* window= */ null, /* title= */ "", /* url= */ "")

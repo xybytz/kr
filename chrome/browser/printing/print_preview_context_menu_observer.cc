@@ -45,6 +45,5 @@ bool PrintPreviewContextMenuObserver::IsCommandIdEnabled(int command_id) {
 
     default:
       NOTREACHED();
-      return true;
   }
 }

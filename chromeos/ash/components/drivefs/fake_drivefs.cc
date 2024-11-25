@@ -4,14 +4,15 @@
 
 #include "chromeos/ash/components/drivefs/fake_drivefs.h"
 
+#include <string_view>
 #include <tuple>
 #include <utility>
 #include <vector>
 
 #include "base/containers/contains.h"
-#include "base/containers/cxx20_erase.h"
 #include "base/files/file.h"
 #include "base/files/file_enumerator.h"
+#include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/functional/bind.h"
 #include "base/no_destructor.h"
@@ -65,7 +66,7 @@ base::FilePath MaybeMountDriveFs(
   for (const auto& option : mount_options) {
     if (base::StartsWith(option, "datadir=", base::CompareCase::SENSITIVE)) {
       auto datadir =
-          base::FilePath(base::StringPiece(option).substr(strlen("datadir=")));
+          base::FilePath(std::string_view(option).substr(strlen("datadir=")));
       CHECK(datadir.IsAbsolute());
       CHECK(!datadir.ReferencesParent());
       datadir_suffix = datadir.BaseName().value();
@@ -81,7 +82,6 @@ base::FilePath MaybeMountDriveFs(
     }
   }
   NOTREACHED() << datadir_suffix;
-  return {};
 }
 
 }  // namespace
@@ -184,7 +184,7 @@ class FakeDriveFs::SearchQuery : public mojom::SearchQuery {
       }
 
       // Filter out non-matching results.
-      base::EraseIf(results_, [=](const auto& item_ptr) {
+      std::erase_if(results_, [=, this](const auto& item_ptr) {
         if (!item_ptr->metadata) {
           return true;
         }
@@ -274,6 +274,9 @@ class FakeDriveFs::SearchQuery : public mojom::SearchQuery {
               });
           break;
 
+        case mojom::QueryParameters::SortField::kSharedWithMe:
+          NOTIMPLEMENTED();
+          break;
         case mojom::QueryParameters::SortField::kFileSize:
           NOTIMPLEMENTED();
           break;
@@ -467,7 +470,7 @@ void FakeDriveFs::GetMetadata(const base::FilePath& path,
   if (!stored_metadata.alternate_url.empty()) {
     metadata->alternate_url = stored_metadata.alternate_url;
   } else {
-    base::StringPiece prefix;
+    std::string_view prefix;
     if (stored_metadata.hosted) {
       prefix = "https://document_alternate_link/";
     } else if (info.is_directory) {
@@ -719,6 +722,18 @@ void FakeDriveFs::GetDocsOfflineStats(
   drivefs::mojom::DocsOfflineStatsPtr stats =
       drivefs::mojom::DocsOfflineStats::New();
   std::move(callback).Run(drive::FILE_ERROR_OK, std::move(stats));
+}
+
+void FakeDriveFs::GetMirrorSyncStatusForFile(
+    const base::FilePath& path,
+    drivefs::mojom::DriveFs::GetMirrorSyncStatusForFileCallback callback) {
+  std::move(callback).Run(drivefs::mojom::MirrorItemSyncingStatus::kSynced);
+}
+
+void FakeDriveFs::GetMirrorSyncStatusForDirectory(
+    const base::FilePath& path,
+    drivefs::mojom::DriveFs::GetMirrorSyncStatusForDirectoryCallback callback) {
+  std::move(callback).Run(drivefs::mojom::MirrorItemSyncingStatus::kSynced);
 }
 
 }  // namespace drivefs

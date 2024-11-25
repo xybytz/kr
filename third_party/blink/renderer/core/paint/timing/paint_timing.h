@@ -9,11 +9,13 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/time/time.h"
+#include "components/viz/common/frame_timing_details.h"
 #include "third_party/blink/public/web/web_performance_metrics_for_reporting.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/paint/paint_event.h"
 #include "third_party/blink/renderer/core/paint/timing/first_meaningful_paint_detector.h"
+#include "third_party/blink/renderer/core/paint/timing/paint_timing_info.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
@@ -32,7 +34,7 @@ class CORE_EXPORT PaintTiming final : public GarbageCollected<PaintTiming>,
                                       public Supplement<Document> {
   friend class FirstMeaningfulPaintDetector;
   using ReportTimeCallback =
-      WTF::CrossThreadOnceFunction<void(base::TimeTicks)>;
+      WTF::CrossThreadOnceFunction<void(const viz::FrameTimingDetails&)>;
   using RequestAnimationFrameTimesAfterBackForwardCacheRestore = std::array<
       base::TimeTicks,
       WebPerformanceMetricsForReporting::
@@ -78,11 +80,6 @@ class CORE_EXPORT PaintTiming final : public GarbageCollected<PaintTiming>,
       FirstMeaningfulPaintDetector::HadUserInput had_input);
   void NotifyPaint(bool is_first_paint, bool text_painted, bool image_painted);
 
-  // Notifies the PaintTiming that this Document received the onPortalActivate
-  // event.
-  void OnPortalActivate();
-  void SetPortalActivatedPaint(base::TimeTicks stamp);
-
   // The getters below return monotonically-increasing seconds, or zero if the
   // given paint event has not yet occurred. See the comments for
   // monotonicallyIncreasingTime in wtf/Time.h for additional details.
@@ -123,6 +120,8 @@ class CORE_EXPORT PaintTiming final : public GarbageCollected<PaintTiming>,
     soft_navigation_pending_paint_details_ = PaintDetails();
     first_paints_reset_ = true;
     soft_navigation_detected_ = false;
+    soft_navigation_fp_reported_ = false;
+    soft_navigation_fcp_reported_ = false;
   }
 
   // FirstImagePaint returns the first time that image content was painted.
@@ -142,11 +141,6 @@ class CORE_EXPORT PaintTiming final : public GarbageCollected<PaintTiming>,
     return first_meaningful_paint_presentation_;
   }
 
-  // The time that the first paint happened after a portal activation.
-  base::TimeTicks LastPortalActivatedPaint() const {
-    return last_portal_activated_presentation_;
-  }
-
   // FirstMeaningfulPaintCandidate indicates the first time we considered a
   // paint to qualify as the potentially first meaningful paint. Unlike
   // firstMeaningfulPaint, this signal is available in real time, but it may be
@@ -164,22 +158,24 @@ class CORE_EXPORT PaintTiming final : public GarbageCollected<PaintTiming>,
   }
 
   void RegisterNotifyPresentationTime(ReportTimeCallback);
-  void ReportPresentationTime(PaintEvent, base::TimeTicks timestamp);
+  void ReportPresentationTime(PaintEvent,
+                              base::TimeTicks rendering_update_end_time,
+                              const viz::FrameTimingDetails&);
+  void RecordFirstContentfulPaintTimingMetrics(const viz::FrameTimingDetails&);
   void ReportFirstPaintAfterBackForwardCacheRestorePresentationTime(
       wtf_size_t index,
-      base::TimeTicks timestamp);
+      const viz::FrameTimingDetails&);
 
   // The caller owns the |clock| which must outlive the PaintTiming.
   void SetTickClockForTesting(const base::TickClock* clock);
 
   void OnRestoredFromBackForwardCache();
 
-  // Indicates whether a mouseover event was recently dispatched over an
-  // HTMLImageElement LCP element.
-  bool IsLCPMouseoverDispatchedRecently() const;
-  void SetLCPMouseoverDispatched();
-
   void SoftNavigationDetected();
+
+  void SetRenderingUpdateEndTime(base::TimeTicks rendering_update_end_time) {
+    last_rendering_update_end_time_ = rendering_update_end_time;
+  }
 
   void Trace(Visitor*) const override;
 
@@ -206,8 +202,8 @@ class CORE_EXPORT PaintTiming final : public GarbageCollected<PaintTiming>,
   // trace events, update Web Perf API (FP and FCP only), and notify that paint
   // timing has changed, which triggers UMAs and UKMS. |stamp| is the
   // presentation timestamp used for tracing, UMA, UKM, and Web Perf API.
-  void SetFirstPaintPresentation(base::TimeTicks stamp);
-  void SetFirstContentfulPaintPresentation(base::TimeTicks stamp);
+  void SetFirstPaintPresentation(const PaintTimingInfo&);
+  void SetFirstContentfulPaintPresentation(const PaintTimingInfo&);
   void SetFirstImagePaintPresentation(base::TimeTicks stamp);
 
   // When quickly navigating back and forward between the pages in the cache
@@ -250,8 +246,10 @@ class CORE_EXPORT PaintTiming final : public GarbageCollected<PaintTiming>,
 
   PaintDetails paint_details_;
   PaintDetails soft_navigation_pending_paint_details_;
-  base::TimeTicks soft_navigation_pending_first_paint_presentation_;
-  base::TimeTicks soft_navigation_pending_first_contentful_paint_presentation_;
+  std::optional<PaintTimingInfo>
+      soft_navigation_pending_first_paint_timing_info_;
+  std::optional<PaintTimingInfo>
+      soft_navigation_pending_first_contentful_paint_timing_info_;
   // First paint timestamp that doesn't update after soft navigations, and only
   // used for UKM reporting.
   base::TimeTicks first_paint_presentation_for_ukm_;
@@ -261,10 +259,11 @@ class CORE_EXPORT PaintTiming final : public GarbageCollected<PaintTiming>,
   base::TimeTicks first_meaningful_paint_presentation_;
   base::TimeTicks first_meaningful_paint_candidate_;
   base::TimeTicks first_eligible_to_paint_;
+  base::TimeTicks last_rendering_update_end_time_;
   bool first_paints_reset_ = false;
   bool soft_navigation_detected_ = false;
-
-  base::TimeTicks last_portal_activated_presentation_;
+  bool soft_navigation_fp_reported_ = false;
+  bool soft_navigation_fcp_reported_ = false;
 
   base::TimeTicks lcp_mouse_over_dispatch_time_;
 

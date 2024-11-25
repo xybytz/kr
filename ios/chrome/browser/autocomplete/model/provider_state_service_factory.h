@@ -10,8 +10,8 @@
 #import "base/no_destructor.h"
 #import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
-class ChromeBrowserState;
 class KeyedService;
+class ProfileIOS;
 struct ProviderStateService;
 
 namespace web {
@@ -21,11 +21,10 @@ class BrowserState;
 namespace ios {
 
 // Singleton that owns all ProviderStateServices and associates them with
-// ChromeBrowserState.
+// profiles.
 class ProviderStateServiceFactory : public BrowserStateKeyedServiceFactory {
  public:
-  static ProviderStateService* GetForBrowserState(
-      ChromeBrowserState* browser_state);
+  static ProviderStateService* GetForProfile(ProfileIOS* profile);
   static ProviderStateServiceFactory* GetInstance();
 
   ProviderStateServiceFactory(const ProviderStateServiceFactory&) = delete;

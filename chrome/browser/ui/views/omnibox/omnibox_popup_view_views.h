@@ -67,7 +67,6 @@ class OmniboxPopupViewViews : public views::View,
   void OnMatchIconUpdated(size_t match_index) override;
   void OnDragCanceled() override;
   void GetPopupAccessibleNodeData(ui::AXNodeData* node_data) override;
-  void AddPopupAccessibleNodeData(ui::AXNodeData* node_data) override;
   std::u16string GetAccessibleButtonTextForResult(size_t line) override;
   void SetSuggestionGroupVisibility(size_t match_index,
                                     bool suggestion_group_hidden) override;
@@ -75,12 +74,12 @@ class OmniboxPopupViewViews : public views::View,
   // views::View:
   bool OnMouseDragged(const ui::MouseEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   // views::WidgetObserver:
   void OnWidgetBoundsChanged(views::Widget* widget,
                              const gfx::Rect& new_bounds) override;
   void OnWidgetVisibilityChanged(views::Widget* widget, bool visible) override;
+  void OnWidgetDestroying(views::Widget* widget) override;
 
   void FireAXEventsForNewActiveDescendant(View* descendant_view);
 
@@ -111,11 +110,15 @@ class OmniboxPopupViewViews : public views::View,
   // Find the index of the match under the given |point|, specified in window
   // coordinates. Returns OmniboxPopupSelection::kNoMatch if there isn't a match
   // at the specified point.
-  size_t GetIndexForPoint(const gfx::Point& point);
-
-  LocationBarView* location_bar_view() const { return location_bar_view_; }
+  size_t GetIndexForPoint(const gfx::Point& point) const;
 
  private:
+  void UpdateAccessibleStates() const;
+
+  void UpdateAccessibleControlIds();
+
+  void UpdateAccessibleActiveDescendantForInvokingView();
+
   // The popup that contains this view.  We create this, but it deletes itself
   // when its window is destroyed.  This is a WeakPtr because it's possible for
   // the OS to destroy the window and thus delete this object before we're

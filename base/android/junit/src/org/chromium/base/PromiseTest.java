@@ -4,10 +4,16 @@
 
 package org.chromium.base;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+
+import static org.chromium.base.test.util.Matchers.fulfilledPromise;
+import static org.chromium.base.test.util.Matchers.pendingPromise;
+import static org.chromium.base.test.util.Matchers.rejectedPromise;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -215,9 +221,9 @@ public class PromiseTest {
         Promise<Integer> promise = new Promise<>();
         promise.then(
                         (Function)
-                                (unusedArg -> {
+                                unusedArg -> {
                                     throw new IllegalArgumentException();
-                                }))
+                                })
                 .then(PromiseTest.pass(), PromiseTest.setValue(value, 5));
 
         promise.fulfill(0);
@@ -234,9 +240,9 @@ public class PromiseTest {
 
         promise.then(
                         (Promise.AsyncFunction)
-                                (unusedArg -> {
+                                unusedArg -> {
                                     throw new IllegalArgumentException();
-                                }))
+                                })
                 .then(PromiseTest.pass(), PromiseTest.setValue(value, 5));
 
         promise.fulfill(0);
@@ -263,6 +269,71 @@ public class PromiseTest {
 
         ShadowLooper.runUiThreadTasksIncludingDelayedTasks();
         assertEquals(value.get(), 5);
+    }
+
+    @Test
+    public void andFinallyOnFulfill() {
+        Value value = new Value();
+        Promise<Integer> promise = new Promise<>();
+
+        promise.andFinally(() -> value.set(5));
+        assertEquals(0, value.get());
+
+        promise.fulfill(0);
+
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks();
+        assertEquals(5, value.get());
+    }
+
+    @Test
+    public void andFinallyOnReject() {
+        Value value = new Value();
+        Promise<Integer> promise = new Promise<>();
+
+        promise.andFinally(() -> value.set(5));
+        assertEquals(0, value.get());
+
+        promise.reject();
+
+        ShadowLooper.runUiThreadTasksIncludingDelayedTasks();
+        assertEquals(5, value.get());
+    }
+
+    @Test
+    public void andFinallyChainingFulfillment() {
+        Value value = new Value();
+        Promise<Integer> promise = new Promise<>();
+
+        Promise<Integer> chainedPromise =
+                promise.andFinally(() -> value.set(value.get() + 1))
+                        .then(Object::toString)
+                        .andFinally(() -> value.set(value.get() * 10))
+                        .then(String::length);
+        assertEquals(0, value.get());
+        assertThat(chainedPromise, is(pendingPromise()));
+
+        promise.fulfill(123);
+        assertThat(chainedPromise, is(fulfilledPromise()));
+        assertEquals(10, value.get());
+        assertEquals(3, chainedPromise.getResult().intValue());
+    }
+
+    @Test
+    public void andFinallyChainingRejection() {
+        Value value = new Value();
+        Promise<Integer> promise = new Promise<>();
+
+        Promise<Integer> chainedPromise =
+                promise.andFinally(() -> value.set(value.get() + 1))
+                        .then(Object::toString)
+                        .andFinally(() -> value.set(value.get() * 10))
+                        .then(String::length);
+        assertEquals(0, value.get());
+        assertThat(chainedPromise, is(pendingPromise()));
+
+        promise.reject();
+        assertEquals(10, value.get()); // Both `andFinally()` still run.
+        assertThat(chainedPromise, is(rejectedPromise()));
     }
 
     /** Convenience method that returns a Callback that does nothing with its result. */

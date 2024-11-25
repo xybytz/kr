@@ -2,9 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_NOTIFICATIONS_NOTIFICATION_MOJOM_TRAITS_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_NOTIFICATIONS_NOTIFICATION_MOJOM_TRAITS_H_
 
+#include <optional>
 #include <string>
 
 #include "base/containers/span.h"
@@ -12,7 +18,6 @@
 #include "mojo/public/cpp/base/time_mojom_traits.h"
 #include "mojo/public/cpp/bindings/struct_traits.h"
 #include "skia/public/mojom/bitmap_skbitmap_mojom_traits.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/common/notifications/notification_resources.h"
 #include "third_party/blink/public/common/notifications/platform_notification_data.h"
@@ -86,8 +91,7 @@ struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::NotificationDataDataView,
   static const base::span<const uint8_t> data(
       const blink::PlatformNotificationData& data) {
     // TODO(https://crbug.com/798466): Align data types to avoid this cast.
-    return base::make_span(reinterpret_cast<const uint8_t*>(data.data.data()),
-                           data.data.size());
+    return base::as_byte_span(data.data);
   }
 
   static const std::vector<blink::mojom::NotificationActionPtr>& actions(
@@ -95,7 +99,7 @@ struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::NotificationDataDataView,
     return data.actions;
   }
 
-  static absl::optional<base::Time> show_trigger_timestamp(
+  static std::optional<base::Time> show_trigger_timestamp(
       const blink::PlatformNotificationData& data) {
     return data.show_trigger_timestamp;
   }

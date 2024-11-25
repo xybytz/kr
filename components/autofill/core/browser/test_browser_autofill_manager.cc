@@ -4,18 +4,18 @@
 
 #include "components/autofill/core/browser/test_browser_autofill_manager.h"
 
-#include "autofill_test_utils.h"
+#include "base/check_deref.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "components/autofill/core/browser/autofill_suggestion_generator.h"
+#include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/browser_autofill_manager_test_api.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/browser/form_structure_test_api.h"
-#include "components/autofill/core/browser/mock_single_field_form_fill_router.h"
-#include "components/autofill/core/browser/test_autofill_client.h"
+#include "components/autofill/core/browser/mock_single_field_fill_router.h"
 #include "components/autofill/core/browser/test_autofill_driver.h"
 #include "components/autofill/core/browser/test_autofill_manager_waiter.h"
+#include "components/autofill/core/browser/test_form_filler.h"
 #include "components/autofill/core/browser/test_personal_data_manager.h"
 #include "components/autofill/core/browser/ui/suggestion.h"
 #include "components/autofill/core/common/autofill_features.h"
@@ -24,88 +24,131 @@
 
 namespace autofill {
 
-TestBrowserAutofillManager::TestBrowserAutofillManager(AutofillDriver* driver,
-                                                       AutofillClient* client)
-    : BrowserAutofillManager(driver, client, "en-US") {}
+// TODO(crbug.com/374086145): Move to a separate file.
+class TestVotesUploader : public VotesUploader {
+ public:
+  using VotesUploader::VotesUploader;
+
+  bool MaybeStartVoteUploadProcess(
+      std::unique_ptr<FormStructure> form_structure,
+      bool observed_submission,
+      LanguageCode current_page_language,
+      base::TimeTicks initial_interaction_timestamp,
+      ukm::SourceId ukm_source_id) override;
+
+  void StoreUploadVotesAndLogQualityCallback(
+      FormSignature form_signature,
+      base::OnceClosure callback) override;
+
+  void UploadVotesAndLogQuality(std::unique_ptr<FormStructure> submitted_form,
+                                base::TimeTicks interaction_time,
+                                base::TimeTicks submission_time,
+                                bool observed_submission,
+                                const ukm::SourceId source_id) override;
+
+ private:
+  friend class TestBrowserAutofillManager;
+
+  std::unique_ptr<base::RunLoop> run_loop_;
+  std::string submitted_form_signature_;
+  std::optional<bool> expected_observed_submission_;
+  std::vector<FieldTypeSet> expected_submitted_field_types_;
+};
+
+TestBrowserAutofillManager::TestBrowserAutofillManager(AutofillDriver* driver)
+    : BrowserAutofillManager(driver) {
+  test_api(*this).set_form_filler(
+      std::make_unique<TestFormFiller>(*this, log_manager()));
+  test_api(*this).set_votes_uploader(std::make_unique<TestVotesUploader>(this));
+}
 
 TestBrowserAutofillManager::~TestBrowserAutofillManager() = default;
 
 void TestBrowserAutofillManager::OnLanguageDetermined(
     const translate::LanguageDetectionDetails& details) {
-  TestAutofillManagerWaiter waiter(*this,
-                                   {AutofillManagerEvent::kLanguageDetermined});
   AutofillManager::OnLanguageDetermined(details);
-  ASSERT_TRUE(waiter.Wait());
+  ASSERT_TRUE(waiter_.Wait(0));
 }
 
 void TestBrowserAutofillManager::OnFormsSeen(
     const std::vector<FormData>& updated_forms,
     const std::vector<FormGlobalId>& removed_forms) {
-  TestAutofillManagerWaiter waiter(*this, {AutofillManagerEvent::kFormsSeen});
   AutofillManager::OnFormsSeen(updated_forms, removed_forms);
-  ASSERT_TRUE(waiter.Wait());
+  ASSERT_TRUE(waiter_.Wait(0));
+}
+
+void TestBrowserAutofillManager::OnCaretMovedInFormField(
+    const FormData& form,
+    const FieldGlobalId& field_id,
+    const gfx::Rect& caret_bounds) {
+  AutofillManager::OnCaretMovedInFormField(form, field_id, caret_bounds);
+  ASSERT_TRUE(waiter_.Wait(0));
 }
 
 void TestBrowserAutofillManager::OnTextFieldDidChange(
     const FormData& form,
-    const FormFieldData& field,
-    const gfx::RectF& bounding_box,
+    const FieldGlobalId& field_id,
     const base::TimeTicks timestamp) {
-  TestAutofillManagerWaiter waiter(*this,
-                                   {AutofillManagerEvent::kTextFieldDidChange});
-  AutofillManager::OnTextFieldDidChange(form, field, bounding_box, timestamp);
-  ASSERT_TRUE(waiter.Wait());
+  AutofillManager::OnTextFieldDidChange(form, field_id, timestamp);
+  ASSERT_TRUE(waiter_.Wait(0));
+}
+
+void TestBrowserAutofillManager::OnTextFieldDidScroll(
+    const FormData& form,
+    const FieldGlobalId& field_id) {
+  AutofillManager::OnTextFieldDidScroll(form, field_id);
+  ASSERT_TRUE(waiter_.Wait(0));
+}
+
+void TestBrowserAutofillManager::OnSelectControlDidChange(
+    const FormData& form,
+    const FieldGlobalId& field_id) {
+  AutofillManager::OnSelectControlDidChange(form, field_id);
+  ASSERT_TRUE(waiter_.Wait(0));
+}
+
+void TestBrowserAutofillManager::OnAskForValuesToFill(
+    const FormData& form,
+    const FieldGlobalId& field_id,
+    const gfx::Rect& caret_bounds,
+    AutofillSuggestionTriggerSource trigger_source) {
+  AutofillManager::OnAskForValuesToFill(form, field_id, caret_bounds,
+                                        trigger_source);
+  ASSERT_TRUE(waiter_.Wait(0));
+}
+
+void TestBrowserAutofillManager::OnFocusOnFormField(
+    const FormData& form,
+    const FieldGlobalId& field_id) {
+  AutofillManager::OnFocusOnFormField(form, field_id);
+  ASSERT_TRUE(waiter_.Wait(0));
 }
 
 void TestBrowserAutofillManager::OnDidFillAutofillFormData(
     const FormData& form,
     const base::TimeTicks timestamp) {
-  TestAutofillManagerWaiter waiter(
-      *this, {AutofillManagerEvent::kDidFillAutofillFormData});
   AutofillManager::OnDidFillAutofillFormData(form, timestamp);
-  ASSERT_TRUE(waiter.Wait());
-}
-
-void TestBrowserAutofillManager::OnAskForValuesToFill(
-    const FormData& form,
-    const FormFieldData& field,
-    const gfx::RectF& bounding_box,
-    AutofillSuggestionTriggerSource trigger_source) {
-  TestAutofillManagerWaiter waiter(*this,
-                                   {AutofillManagerEvent::kAskForValuesToFill});
-  AutofillManager::OnAskForValuesToFill(form, field, bounding_box,
-                                        trigger_source);
-  ASSERT_TRUE(waiter.Wait());
+  ASSERT_TRUE(waiter_.Wait(0));
 }
 
 void TestBrowserAutofillManager::OnJavaScriptChangedAutofilledValue(
     const FormData& form,
-    const FormFieldData& field,
-    const std::u16string& old_value) {
-  TestAutofillManagerWaiter waiter(
-      *this, {AutofillManagerEvent::kJavaScriptChangedAutofilledValue});
-  AutofillManager::OnJavaScriptChangedAutofilledValue(form, field, old_value);
-  ASSERT_TRUE(waiter.Wait());
+    const FieldGlobalId& field_id,
+    const std::u16string& old_value,
+    bool formatting_only) {
+  AutofillManager::OnJavaScriptChangedAutofilledValue(form, field_id, old_value,
+                                                      formatting_only);
+  ASSERT_TRUE(waiter_.Wait(0));
 }
 
 void TestBrowserAutofillManager::OnFormSubmitted(
     const FormData& form,
-    const bool known_success,
     const mojom::SubmissionSource source) {
-  TestAutofillManagerWaiter waiter(*this, {AutofillManagerEvent::kFormsSeen});
-  AutofillManager::OnFormSubmitted(form, known_success, source);
-  ASSERT_TRUE(waiter.Wait());
+  AutofillManager::OnFormSubmitted(form, source);
+  ASSERT_TRUE(waiter_.Wait(0));
 }
 
-bool TestBrowserAutofillManager::IsAutofillProfileEnabled() const {
-  return autofill_profile_enabled_;
-}
-
-bool TestBrowserAutofillManager::IsAutofillPaymentMethodsEnabled() const {
-  return autofill_payment_methods_enabled_;
-}
-
-void TestBrowserAutofillManager::UploadVotesAndLogQuality(
+void TestVotesUploader::UploadVotesAndLogQuality(
     std::unique_ptr<FormStructure> submitted_form,
     base::TimeTicks interaction_time,
     base::TimeTicks submission_time,
@@ -130,28 +173,30 @@ void TestBrowserAutofillManager::UploadVotesAndLogQuality(
     for (size_t i = 0; i < expected_submitted_field_types_.size(); ++i) {
       SCOPED_TRACE(base::StringPrintf(
           "Field %d with value %s", static_cast<int>(i),
-          base::UTF16ToUTF8(submitted_form->field(i)->value).c_str()));
+          base::UTF16ToUTF8(
+              submitted_form->field(i)->value(ValueSemantics::kCurrent))
+              .c_str()));
       const FieldTypeSet& possible_types =
           submitted_form->field(i)->possible_types();
       EXPECT_EQ(expected_submitted_field_types_[i].size(),
                 possible_types.size());
       for (auto it : expected_submitted_field_types_[i]) {
         EXPECT_TRUE(possible_types.count(it))
-            << "Expected type: " << AutofillType(it).ToString();
+            << "Expected type: " << FieldTypeToStringView(it);
       }
     }
   }
 
-  BrowserAutofillManager::UploadVotesAndLogQuality(
-      std::move(submitted_form), interaction_time, submission_time,
-      observed_submission, source_id);
+  VotesUploader::UploadVotesAndLogQuality(std::move(submitted_form),
+                                          interaction_time, submission_time,
+                                          observed_submission, source_id);
 }
 
-void TestBrowserAutofillManager::StoreUploadVotesAndLogQualityCallback(
+void TestVotesUploader::StoreUploadVotesAndLogQualityCallback(
     FormSignature form_signature,
     base::OnceClosure callback) {
-  BrowserAutofillManager::StoreUploadVotesAndLogQualityCallback(
-      form_signature, std::move(callback));
+  VotesUploader::StoreUploadVotesAndLogQualityCallback(form_signature,
+                                                       std::move(callback));
   run_loop_->Quit();
 }
 
@@ -160,22 +205,20 @@ const gfx::Image& TestBrowserAutofillManager::GetCardImage(
   return card_image_;
 }
 
-void TestBrowserAutofillManager::ScheduleRefill(
-    const FormData& form,
-    const AutofillTriggerDetails& trigger_details) {
-  test_api(*this).TriggerRefill(form, trigger_details);
-}
-
-bool TestBrowserAutofillManager::MaybeStartVoteUploadProcess(
+bool TestVotesUploader::MaybeStartVoteUploadProcess(
     std::unique_ptr<FormStructure> form_structure,
-    bool observed_submission) {
+    bool observed_submission,
+    LanguageCode current_page_language,
+    base::TimeTicks initial_interaction_timestamp,
+    ukm::SourceId ukm_source_id) {
   // The purpose of this runloop is to ensure that the field type determination
   // finishes. If `observed_submission` is true, it's terminated in
   // LogQualityAndUploadVotes. Otherwise, it is already terminated in
   // StoreUploadVotesAndLogQualityCallback.
   run_loop_ = std::make_unique<base::RunLoop>();
-  if (BrowserAutofillManager::MaybeStartVoteUploadProcess(
-          std::move(form_structure), observed_submission)) {
+  if (VotesUploader::MaybeStartVoteUploadProcess(
+          std::move(form_structure), observed_submission, current_page_language,
+          initial_interaction_timestamp, ukm_source_id)) {
     run_loop_->Run();
     return true;
   }
@@ -205,9 +248,9 @@ void TestBrowserAutofillManager::AddSeenForm(
   auto form_structure = std::make_unique<FormStructure>(
       preserve_values_in_form_structure ? form : test::WithoutValues(form));
   test_api(*form_structure).SetFieldTypes(heuristic_types, server_types);
-  test_api(*form_structure).IdentifySections(/*ignore_autocomplete=*/false);
+  test_api(*form_structure).AssignSections();
   AddSeenFormStructure(std::move(form_structure));
-  form_interactions_ukm_logger()->OnFormsParsed(client().GetUkmSourceId());
+  test_api(*this).OnFormsParsed({form});
 }
 
 void TestBrowserAutofillManager::AddSeenFormStructure(
@@ -220,49 +263,33 @@ void TestBrowserAutofillManager::ClearFormStructures() {
   mutable_form_structures()->clear();
 }
 
-const std::string TestBrowserAutofillManager::GetSubmittedFormSignature() {
-  return submitted_form_signature_;
+const std::string& TestBrowserAutofillManager::GetSubmittedFormSignature() {
+  return votes_uploader().submitted_form_signature_;
 }
 
 void TestBrowserAutofillManager::OnAskForValuesToFillTest(
     const FormData& form,
-    const FormFieldData& field,
-    const gfx::RectF& bounding_box,
+    const FieldGlobalId& field_id,
     AutofillSuggestionTriggerSource trigger_source) {
-  TestAutofillManagerWaiter waiter(*this,
-                                   {AutofillManagerEvent::kAskForValuesToFill});
-  BrowserAutofillManager::OnAskForValuesToFill(form, field, bounding_box,
+  gfx::PointF p =
+      CHECK_DEREF(form.FindFieldByGlobalId(field_id)).bounds().origin();
+  gfx::Rect caret_bounds(gfx::Point(p.x(), p.y()), gfx::Size(0, 10));
+  BrowserAutofillManager::OnAskForValuesToFill(form, field_id, caret_bounds,
                                                trigger_source);
-  ASSERT_TRUE(waiter.Wait());
-}
-
-void TestBrowserAutofillManager::SetAutofillProfileEnabled(
-    TestAutofillClient& client,
-    bool autofill_profile_enabled) {
-  autofill_profile_enabled_ = autofill_profile_enabled;
-  if (!autofill_profile_enabled_) {
-    // Profile data is refreshed when this pref is changed.
-    client.GetPersonalDataManager()->ClearProfiles();
-  }
-}
-
-void TestBrowserAutofillManager::SetAutofillPaymentMethodsEnabled(
-    TestAutofillClient& client,
-    bool autofill_payment_methods_enabled) {
-  autofill_payment_methods_enabled_ = autofill_payment_methods_enabled;
-  if (!autofill_payment_methods_enabled) {
-    // Credit card data is refreshed when this pref is changed.
-    client.GetPersonalDataManager()->ClearCreditCards();
-  }
+  ASSERT_TRUE(waiter_.Wait(0));
 }
 
 void TestBrowserAutofillManager::SetExpectedSubmittedFieldTypes(
     const std::vector<FieldTypeSet>& expected_types) {
-  expected_submitted_field_types_ = expected_types;
+  votes_uploader().expected_submitted_field_types_ = expected_types;
 }
 
 void TestBrowserAutofillManager::SetExpectedObservedSubmission(bool expected) {
-  expected_observed_submission_ = expected;
+  votes_uploader().expected_observed_submission_ = expected;
+}
+
+TestVotesUploader& TestBrowserAutofillManager::votes_uploader() {
+  return static_cast<TestVotesUploader&>(test_api(*this).votes_uploader());
 }
 
 }  // namespace autofill

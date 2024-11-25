@@ -5,9 +5,12 @@
 #import "ios/chrome/app/tests_hook.h"
 
 #import <Foundation/Foundation.h>
+#import <os/log.h>
+#import <os/signpost.h>
 
 #import "base/time/time.h"
 #import "components/signin/internal/identity_manager/profile_oauth2_token_service_delegate.h"
+#import "ios/public/provider/chrome/browser/primes/primes_api.h"
 
 namespace tests_hook {
 
@@ -57,9 +60,7 @@ bool DisableUpgradeSigninPromo() {
 bool DisableUpdateService() {
   return false;
 }
-bool DisableMainThreadFreezeDetection() {
-  return false;
-}
+
 bool DelayAppLaunchPromos() {
   return true;
 }
@@ -69,8 +70,24 @@ policy::ConfigurationPolicyProvider* GetOverriddenPlatformPolicyProvider() {
 std::unique_ptr<SystemIdentityManager> CreateSystemIdentityManager() {
   return nullptr;
 }
+std::unique_ptr<TrustedVaultClientBackend> CreateTrustedVaultClientBackend() {
+  return nullptr;
+}
+std::unique_ptr<tab_groups::TabGroupSyncService> CreateTabGroupSyncService(
+    ProfileIOS* profile) {
+  return nullptr;
+}
+std::unique_ptr<ShareKitService> CreateShareKitService(
+    data_sharing::DataSharingService* data_sharing_service,
+    tab_groups::TabGroupSyncService* sync_service) {
+  return nullptr;
+}
 std::unique_ptr<password_manager::BulkLeakCheckServiceInterface>
 GetOverriddenBulkLeakCheckService() {
+  return nullptr;
+}
+std::unique_ptr<plus_addresses::PlusAddressService>
+GetOverriddenPlusAddressService() {
   return nullptr;
 }
 std::unique_ptr<password_manager::RecipientsFetcher>
@@ -80,13 +97,44 @@ GetOverriddenRecipientsFetcher() {
 void SetUpTestsIfPresent() {}
 void RunTestsIfPresent() {}
 
+void SignalAppLaunched() {
+  // The app launched signal is only used by startup tests, which unlike EG
+  // tests do not have a tear down method which stops logging, so stop logging
+  // here to flush logs
+  ios::provider::PrimesStopLogging();
+
+  os_log_t hke_os_log = os_log_create("com.google.hawkeye.ios",
+                                      OS_LOG_CATEGORY_POINTS_OF_INTEREST);
+  os_signpost_id_t os_signpost = os_signpost_id_generate(hke_os_log);
+  os_signpost_event_emit(hke_os_log, os_signpost, "APP_LAUNCHED");
+  // For startup tests instrumented with xctrace we need to log the signal using
+  // os_log
+  os_log(hke_os_log, "APP_LAUNCHED");
+
+  // For regular startup tests we rely on printf to signal that the app has
+  // started and can be terminated
+  printf("APP_LAUNCHED\n");
+}
+
 base::TimeDelta PasswordCheckMinimumDuration() {
   // No artificial delays for perf tests.
   return base::Seconds(0);
 }
 
+base::TimeDelta GetOverriddenSnackbarDuration() {
+  return base::Seconds(0);
+}
+
 std::unique_ptr<drive::DriveService> GetOverriddenDriveService() {
   return nullptr;
+}
+
+std::optional<std::string> FETDemoModeOverride() {
+  return std::nullopt;
+}
+
+void WipeProfileIfRequested(int argc, char* argv[]) {
+  // Do nothing.
 }
 
 }  // namespace tests_hook

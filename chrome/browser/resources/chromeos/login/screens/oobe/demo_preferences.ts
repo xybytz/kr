@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import '//resources/cr_elements/chromeos/cros_color_overrides.css.js';
-import '//resources/polymer/v3_0/paper-styles/color.js';
+import '//resources/ash/common/cr_elements/cros_color_overrides.css.js';
 import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
 import '../../components/oobe_icons.html.js';
 import '../../components/oobe_i18n_dropdown.js';
@@ -16,23 +15,23 @@ import '../../components/dialogs/oobe_adaptive_dialog.js';
 import {assert} from '//resources/js/assert.js';
 import {loadTimeData} from '//resources/js/load_time_data.js';
 import {PolymerElementProperties} from '//resources/polymer/v3_0/polymer/interfaces.js';
-import {mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.js';
-import {OobeDialogHostBehavior, OobeDialogHostBehaviorInterface} from '../../components/behaviors/oobe_dialog_host_behavior.js';
-import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {LoginScreenMixin} from '../../components/mixins/login_screen_mixin.js';
+import {OobeDialogHostMixin} from '../../components/mixins/oobe_dialog_host_mixin.js';
+import {OobeI18nMixin} from '../../components/mixins/oobe_i18n_mixin.js';
 import type {OobeTypes} from '../../components/oobe_types.js';
 import {Oobe} from '../../cr_ui.js';
 
 import {getTemplate} from './demo_preferences.html.js';
 
+// The retailer name input has the max length of 256 characters.
+const RETAILER_NAME_INPUT_MAX_LENGTH = 256;
+// The store number input has the max length of 256 characters.
+const STORE_NUMBER_INPUT_MAX_LENGTH = 256;
+
 const DemoPreferencesScreenBase =
-    mixinBehaviors(
-        [OobeI18nBehavior, OobeDialogHostBehavior, LoginScreenBehavior],
-        PolymerElement) as {
-      new (): PolymerElement & OobeI18nBehaviorInterface &
-          OobeDialogHostBehaviorInterface & LoginScreenBehaviorInterface,
-    };
+    OobeDialogHostMixin(LoginScreenMixin(OobeI18nMixin(PolymerElement)));
 
 export class DemoPreferencesScreen extends DemoPreferencesScreenBase {
   static get is() {
@@ -133,11 +132,6 @@ export class DemoPreferencesScreen extends DemoPreferencesScreenBase {
     this.updateLocalizedContent();
   }
 
-  /** Overridden from LoginScreenBehavior. */
-  override get EXTERNAL_API(): string[] {
-    return [];
-  }
-
   /** Returns a control which should receive an initial focus. */
   override get defaultControl(): HTMLElement {
     return this.shadowRoot!.getElementById('demoPreferencesDialog')!;
@@ -145,6 +139,7 @@ export class DemoPreferencesScreen extends DemoPreferencesScreenBase {
 
   /** Called when dialog is shown */
   override onBeforeShow(): void {
+    super.onBeforeShow();
     window.setTimeout(this.applyOobeConfiguration_.bind(this), 0);
   }
 
@@ -190,7 +185,7 @@ export class DemoPreferencesScreen extends DemoPreferencesScreenBase {
   private setCountryList_(countries: OobeTypes.DemoCountryDsc[]): void {
     this.countries = countries;
     this.shadowRoot!.getElementById('countryDropdownContainer')!.hidden =
-        countries.length == 0;
+        countries.length === 0;
     for (let i = 0; i < countries.length; ++i) {
       const country = countries[i];
       if (country.selected && country.value !== this.countryNotSelectedId) {
@@ -205,12 +200,26 @@ export class DemoPreferencesScreen extends DemoPreferencesScreenBase {
    * Based on the country, retailer name, and store number preferences being
    * correctly set.
    *
+   * We need to check all fields (parameters) are not undefined, not null and
+   * non-empty (console.log(!!"") => false) before checking their value or
+   * length.
+   *
+   * The retailer name must be a non-empty string in the max length of 256
+   * characters.
+   * The store number must be a non-empty numerical string in the max length
+   * of 256 characters.
+   *
+   * TODO(b/324086625): Add help text of the string length limit on the
+   * retailer name field and store number field.
    */
   private userCanContinue_(
       retailerNameInput: string, storeNumberInput: string,
       isCountrySelected: boolean): boolean {
-    return !!retailerNameInput && RegExp('^[0-9]+$').test(storeNumberInput) &&
-        isCountrySelected;
+    return !!retailerNameInput && !!isCountrySelected && !!storeNumberInput &&
+        isCountrySelected &&
+        storeNumberInput.length <= STORE_NUMBER_INPUT_MAX_LENGTH &&
+        retailerNameInput.length <= RETAILER_NAME_INPUT_MAX_LENGTH &&
+        RegExp('^[0-9]+$').test(storeNumberInput);
   }
 
   /**
@@ -218,6 +227,9 @@ export class DemoPreferencesScreen extends DemoPreferencesScreenBase {
    * only consider the input invalid if it's nonempty, thus the different
    * pattern than in {@link userCanContinue_}
    *
+   * TODO(b/324086625): Add help text of the string length limit on the
+   * retailer name field and store number field on the Demo Mode preferences
+   * screen.
    */
   private isStoreNumberInputInvalid_(storeNumberInput: string): boolean {
     return !RegExp('^[0-9]*$').test(storeNumberInput);
@@ -233,7 +245,7 @@ export class DemoPreferencesScreen extends DemoPreferencesScreenBase {
   }
 
   private onInputKeyDown_(e: KeyboardEvent): void {
-    if (e.key == 'Enter' &&
+    if (e.key === 'Enter' &&
         this.userCanContinue_(
             this.retailerNameInput, this.storeNumberInput,
             this.isCountrySelected)) {

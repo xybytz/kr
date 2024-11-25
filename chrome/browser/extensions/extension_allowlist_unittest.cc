@@ -10,6 +10,7 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_service_test_base.h"
 #include "chrome/browser/extensions/test_blocklist.h"
+#include "chrome/browser/policy/policy_test_utils.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
@@ -17,6 +18,7 @@
 #include "extensions/browser/blocklist_extension_prefs.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/extension_features.h"
+#include "extensions/common/extension_id.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace extensions {
@@ -45,7 +47,7 @@ class ExtensionAllowlistUnitTestBase : public ExtensionServiceTestBase {
     ExtensionServiceInitParams params;
     ASSERT_TRUE(
         params.ConfigureByTestDataDirectory(data_dir().AppendASCII("good")));
-    InitializeExtensionService(params);
+    InitializeExtensionService(std::move(params));
     extension_prefs_ = ExtensionPrefs::Get(profile());
 
     if (enhanced_protection_enabled) {
@@ -63,7 +65,7 @@ class ExtensionAllowlistUnitTestBase : public ExtensionServiceTestBase {
         safe_browsing::SafeBrowsingState::ENHANCED_PROTECTION);
   }
 
-  void PerformActionBasedOnOmahaAttributes(const std::string& extension_id,
+  void PerformActionBasedOnOmahaAttributes(const ExtensionId& extension_id,
                                            bool is_malware,
                                            bool is_allowlisted) {
     auto attributes = base::Value::Dict().Set("_esbAllowlist", is_allowlisted);
@@ -74,15 +76,15 @@ class ExtensionAllowlistUnitTestBase : public ExtensionServiceTestBase {
     service()->PerformActionBasedOnOmahaAttributes(extension_id, attributes);
   }
 
-  bool IsEnabled(const std::string& extension_id) {
+  bool IsEnabled(const ExtensionId& extension_id) {
     return registry()->enabled_extensions().Contains(extension_id);
   }
 
-  bool IsDisabled(const std::string& extension_id) {
+  bool IsDisabled(const ExtensionId& extension_id) {
     return registry()->disabled_extensions().Contains(extension_id);
   }
 
-  bool IsBlocklisted(const std::string& extension_id) {
+  bool IsBlocklisted(const ExtensionId& extension_id) {
     return registry()->blocklisted_extensions().Contains(extension_id);
   }
 
@@ -668,6 +670,8 @@ TEST_F(ExtensionAllowlistUnitTest, BypassFrictionSetAckowledgeEnabledByUser) {
 }
 
 TEST_F(ExtensionAllowlistUnitTest, NoEnforcementOnPolicyForceInstall) {
+  // Mark as enterprise managed.
+  policy::ScopedDomainEnterpriseManagement scoped_domain;
   CreateEmptyExtensionService();
   service()->Init();
 
@@ -796,6 +800,6 @@ TEST_F(ExtensionAllowlistWithFeatureDisabledUnitTest,
   EXPECT_FALSE(allowlist()->ShouldDisplayWarning(extension->id()));
 }
 
-// TODO(crbug.com/1194051): Add more ExtensionAllowlist::Observer coverage
+// TODO(crbug.com/40175473): Add more ExtensionAllowlist::Observer coverage
 
 }  // namespace extensions

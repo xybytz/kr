@@ -37,6 +37,10 @@ blink_modules_sources("indexeddb") {
     "idb_object_store.h",
     "idb_open_db_request.cc",
     "idb_open_db_request.h",
+    "idb_record.cc",
+    "idb_record.h",
+    "idb_record_array.cc",
+    "idb_record_array.h",
     "idb_request.cc",
     "idb_request.h",
     "idb_request_loader.cc",
@@ -54,12 +58,8 @@ blink_modules_sources("indexeddb") {
     "indexed_db.h",
     "indexed_db_blink_mojom_traits.cc",
     "indexed_db_blink_mojom_traits.h",
-    "indexed_db_dispatcher.cc",
-    "indexed_db_dispatcher.h",
     "inspector_indexed_db_agent.cc",
     "inspector_indexed_db_agent.h",
-    "web_idb_cursor.cc",
-    "web_idb_cursor.h",
   ]
 
   public_deps = [
@@ -72,6 +72,7 @@ source_set("unit_tests") {
   testonly = true
 
   sources = [
+    "idb_cursor_unittest.cc",
     "idb_key_path_test.cc",
     "idb_request_test.cc",
     "idb_test_helper.cc",
@@ -82,7 +83,6 @@ source_set("unit_tests") {
     "mock_idb_database.h",
     "mock_idb_transaction.cc",
     "mock_idb_transaction.h",
-    "web_idb_cursor_unittest.cc",
   ]
 
   configs += [

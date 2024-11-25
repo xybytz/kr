@@ -116,7 +116,7 @@ class PaintPreviewClientRenderViewHostTest
     : public content::RenderViewHostTestHarness,
       public testing::WithParamInterface<RecordingPersistence> {
  public:
-  PaintPreviewClientRenderViewHostTest() {}
+  PaintPreviewClientRenderViewHostTest() = default;
 
  protected:
   void SetUp() override {
@@ -164,7 +164,7 @@ TEST_P(PaintPreviewClientRenderViewHostTest, CaptureMainFrameMock) {
   GURL expected_url = rfh->GetLastCommittedURL();
 
   auto response = NewMockPaintPreviewCaptureResponse();
-  response->embedding_token = absl::nullopt;
+  response->embedding_token = std::nullopt;
   response->scroll_offsets = gfx::Point(5, 10);
   response->frame_offsets = gfx::Point(20, 30);
 
@@ -235,7 +235,6 @@ TEST_P(PaintPreviewClientRenderViewHostTest, CaptureMainFrameMock) {
 
           default:
             NOTREACHED();
-            break;
         }
 
         quit.Run();
@@ -303,7 +302,7 @@ TEST_P(PaintPreviewClientRenderViewHostTest, RenderFrameDeletedDuringCapture) {
   content::RenderFrameHost* rfh = main_rfh();
 
   auto response = NewMockPaintPreviewCaptureResponse();
-  response->embedding_token = absl::nullopt;
+  response->embedding_token = std::nullopt;
 
   base::RunLoop loop;
   auto callback = base::BindOnce(

@@ -2,7 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "media/base/amplitude_peak_detector.h"
+
+#include <string_view>
 
 #include "base/location.h"
 #include "base/test/bind.h"
@@ -70,7 +77,7 @@ class AmplitudePeakDetectorTest : public testing::TestWithParam<int> {
 
   void RunSimpleDetectionTest(float value,
                               bool expect_peak,
-                              base::StringPiece message) {
+                              std::string_view message) {
     const SampleLocation kTestSampleLocations[] = {
         {0, 0},
         {0, kFrames / 2},
@@ -101,7 +108,7 @@ TEST_F(AmplitudePeakDetectorTest, Constructor) {
           FROM_HERE, "Callback should not be run by default"));
 }
 
-TEST_F(AmplitudePeakDetectorTest, NoPeaks_Silent) {
+TEST_F(AmplitudePeakDetectorTest, NoPeaksSilent) {
   CreateDetector(base::MakeExpectedNotRunClosure(
       FROM_HERE, "No peaks should be detected for silent data"));
 
@@ -109,21 +116,21 @@ TEST_F(AmplitudePeakDetectorTest, NoPeaks_Silent) {
   peak_detector_->FindPeak(bus.get());
 }
 
-TEST_F(AmplitudePeakDetectorTest, NoPeaks_QuietValue) {
+TEST_F(AmplitudePeakDetectorTest, NoPeaksQuietValue) {
   RunSimpleDetectionTest(kQuietSample, /*expect_peak=*/false,
                          "No peaks should be detected for positive quiet data");
   RunSimpleDetectionTest(-kQuietSample, /*expect_peak=*/false,
                          "No peaks should be detected for negative quiet data");
 }
 
-TEST_F(AmplitudePeakDetectorTest, Peaks_LoudValue) {
+TEST_F(AmplitudePeakDetectorTest, PeaksLoudValue) {
   RunSimpleDetectionTest(kLoudSample, /*expect_peak=*/true,
                          "Peaks should be detected for positive loud data");
   RunSimpleDetectionTest(-kLoudSample, /*expect_peak=*/true,
                          "Peaks should be detected for negative loud data");
 }
 
-TEST_F(AmplitudePeakDetectorTest, Sequence_SilenceAndQuiet) {
+TEST_F(AmplitudePeakDetectorTest, SequenceSilenceAndQuiet) {
   auto silent_bus = GetSilentAudioBus();
   auto quiet_bus = GetAudioBusWithSetValue(kQuietSample, {0, 0});
 
@@ -139,7 +146,7 @@ TEST_F(AmplitudePeakDetectorTest, Sequence_SilenceAndQuiet) {
   EXPECT_EQ(peak_count, 0);
 }
 
-TEST_F(AmplitudePeakDetectorTest, Sequence_ShortPeak) {
+TEST_F(AmplitudePeakDetectorTest, SequenceShortPeak) {
   auto silent_bus = GetSilentAudioBus();
   auto loud_bus = GetAudioBusWithLoudValue();
 
@@ -162,7 +169,7 @@ TEST_F(AmplitudePeakDetectorTest, Sequence_ShortPeak) {
   EXPECT_EQ(peak_count, 2);
 }
 
-TEST_F(AmplitudePeakDetectorTest, Sequence_LongPeak) {
+TEST_F(AmplitudePeakDetectorTest, SequenceLongPeak) {
   auto silent_bus = GetSilentAudioBus();
   auto loud_bus = GetAudioBusWithLoudValue();
 
@@ -218,7 +225,7 @@ class FixedSampleAmplitudePeakDetector : public AmplitudePeakDetectorTest {
   template <typename SampleType>
   void RunSimpleDetectionTest_Fixed(float value,
                                     bool expect_peak,
-                                    base::StringPiece message) {
+                                    std::string_view message) {
     std::vector<SampleType> samples(
         kFrames, FixedSampleTypeTraits<SampleType>::kZeroPointValue);
 
@@ -238,7 +245,7 @@ class FixedSampleAmplitudePeakDetector : public AmplitudePeakDetectorTest {
 
   void VerifyFindPeaks(const void* data,
                        bool expect_peak,
-                       base::StringPiece message) {
+                       std::string_view message) {
     CreateDetector(
         expect_peak
             ? base::MakeExpectedRunAtLeastOnceClosure(FROM_HERE, message)
@@ -248,7 +255,7 @@ class FixedSampleAmplitudePeakDetector : public AmplitudePeakDetectorTest {
   }
 };
 
-TEST_P(FixedSampleAmplitudePeakDetector, NoPeaks_Silent) {
+TEST_P(FixedSampleAmplitudePeakDetector, NoPeaksSilent) {
   switch (bytes_per_samples()) {
     case 1:
       VerifyNoPeaksFoundInSilence<uint8_t>();
@@ -262,7 +269,7 @@ TEST_P(FixedSampleAmplitudePeakDetector, NoPeaks_Silent) {
   }
 }
 
-TEST_P(FixedSampleAmplitudePeakDetector, NoPeaks_Quiet) {
+TEST_P(FixedSampleAmplitudePeakDetector, NoPeaksQuiet) {
   constexpr char message[] = "No peaks detected from quiet values";
 
   switch (bytes_per_samples()) {
@@ -281,7 +288,7 @@ TEST_P(FixedSampleAmplitudePeakDetector, NoPeaks_Quiet) {
   }
 }
 
-TEST_P(FixedSampleAmplitudePeakDetector, Peaks_Loud) {
+TEST_P(FixedSampleAmplitudePeakDetector, PeaksLoud) {
   constexpr char message[] = "Peaks detected in loud values";
 
   switch (bytes_per_samples()) {
@@ -300,7 +307,7 @@ TEST_P(FixedSampleAmplitudePeakDetector, Peaks_Loud) {
   }
 }
 
-TEST_F(FixedSampleAmplitudePeakDetector, Sequence_SilenceAndQuiet) {
+TEST_F(FixedSampleAmplitudePeakDetector, SequenceSilenceAndQuiet) {
   constexpr int kBytesPerSample = 4;
   std::vector<uint32_t> silent_data(
       kFrames, SignedInt32SampleTypeTraits::kZeroPointValue);
@@ -319,7 +326,7 @@ TEST_F(FixedSampleAmplitudePeakDetector, Sequence_SilenceAndQuiet) {
   EXPECT_EQ(peak_count, 0);
 }
 
-TEST_F(FixedSampleAmplitudePeakDetector, Sequence_ShortPeak) {
+TEST_F(FixedSampleAmplitudePeakDetector, SequenceShortPeak) {
   constexpr int kBytesPerSample = 4;
   std::vector<uint32_t> silent_data(
       kFrames, SignedInt32SampleTypeTraits::kZeroPointValue);
@@ -345,7 +352,7 @@ TEST_F(FixedSampleAmplitudePeakDetector, Sequence_ShortPeak) {
   EXPECT_EQ(peak_count, 2);
 }
 
-TEST_P(FixedSampleAmplitudePeakDetector, Sequence_LongPeak) {
+TEST_P(FixedSampleAmplitudePeakDetector, SequenceLongPeak) {
   constexpr int kBytesPerSample = 4;
   std::vector<uint32_t> silent_data(
       kFrames, SignedInt32SampleTypeTraits::kZeroPointValue);

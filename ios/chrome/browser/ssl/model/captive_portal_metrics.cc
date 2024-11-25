@@ -21,8 +21,6 @@ CaptivePortalStatus CaptivePortalStatusFromDetectionResult(
       break;
     case captive_portal::RESULT_COUNT:
       NOTREACHED();
-      status = CaptivePortalStatus::UNKNOWN;
-      break;
   }
   return status;
 }

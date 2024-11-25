@@ -5,8 +5,9 @@
 #include "chrome/credential_provider/gaiacp/mdm_utils.h"
 
 #include <windows.h>
-#include <winternl.h>
+
 #include <lm.h>  // Needed for PNTSTATUS
+#include <winternl.h>
 
 #define _NTDEF_  // Prevent redefition errors, must come after <winternl.h>
 #include <MDMRegistration.h>  // For RegisterDeviceWithManagement()
@@ -305,8 +306,7 @@ HRESULT RegisterWithGoogleDeviceManagement(
     return false;
   }
 
-  std::string data_encoded;
-  base::Base64Encode(registration_data_str, &data_encoded);
+  std::string data_encoded = base::Base64Encode(registration_data_str);
 
   // This register call is blocking.  It won't return until the machine is
   // properly registered with the MDM server.
@@ -467,7 +467,7 @@ HRESULT EnrollToGoogleMdmIfNeeded(const base::Value::Dict& properties) {
   if (mdm_url.empty())
     return S_OK;
 
-  // TODO(crbug.com/935577): Check if machine is already enrolled because
+  // TODO(crbug.com/41443432): Check if machine is already enrolled because
   // attempting to enroll when already enrolled causes a crash.
   if (IsEnrolledWithGoogleMdm(mdm_url)) {
     LOGFN(VERBOSE) << "Already enrolled to Google MDM";

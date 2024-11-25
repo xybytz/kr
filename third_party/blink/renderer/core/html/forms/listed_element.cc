@@ -24,6 +24,7 @@
 
 #include "third_party/blink/renderer/core/html/forms/listed_element.h"
 
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/focus_params.h"
@@ -48,6 +49,8 @@
 #include "third_party/blink/renderer/core/page/validation_message_client.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/text/bidi_paragraph.h"
+#include "third_party/blink/renderer/core/html/forms/html_button_element.h"
+#include "third_party/blink/renderer/core/html/forms/html_select_element.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
@@ -56,14 +59,14 @@ namespace {
 
 void InvalidateShadowIncludingAncestorForms(ContainerNode& insertion_point) {
   // Let any forms in the shadow including ancestors know that this
-  // ListedElement has changed. Don't include any forms inside the same
-  // TreeScope know because that relationship isn't tracked by listed elements
-  // including shadow trees.
-  for (ContainerNode* parent = insertion_point.OwnerShadowHost(); parent;
+  // ListedElement has changed. We also cache listed elements inside
+  // (descendant) nested forms and therefore need to invalidate the caches also
+  // inside the same `TreeScope`.
+  ContainerNode* starting_node = insertion_point.ParentOrShadowHostNode();
+  for (ContainerNode* parent = starting_node; parent;
        parent = parent->ParentOrShadowHostNode()) {
     if (HTMLFormElement* form = DynamicTo<HTMLFormElement>(parent)) {
       form->InvalidateListedElementsIncludingShadowTrees();
-      return;
     }
   }
 }
@@ -118,7 +121,7 @@ void ListedElement::InsertedInto(ContainerNode& insertion_point) {
   // Force traversal to find ancestor
   may_have_fieldset_ancestor_ = true;
   data_list_ancestor_state_ = DataListAncestorState::kUnknown;
-  UpdateWillValidateCache();
+  UpdateWillValidateCache(WillValidateReason::kForInsertionOrRemoval);
 
   if (!form_was_set_by_parser_ || !form_ ||
       NodeTraversal::HighestAncestorOrSelf(insertion_point) !=
@@ -131,7 +134,8 @@ void ListedElement::InsertedInto(ContainerNode& insertion_point) {
       ResetFormAttributeTargetObserver();
   }
 
-  FieldSetAncestorsSetNeedsValidityCheck(&insertion_point);
+  FieldSetAncestorsSetNeedsValidityCheck(&insertion_point,
+                                         StartingNodeType::IS_INSERTION_POINT);
   DisabledStateMightBeChanged();
 
   if (ClassSupportsStateRestore() && insertion_point.isConnected() &&
@@ -151,12 +155,24 @@ void ListedElement::InsertedInto(ContainerNode& insertion_point) {
 }
 
 void ListedElement::RemovedFrom(ContainerNode& insertion_point) {
-  FieldSetAncestorsSetNeedsValidityCheck(&insertion_point);
+  FieldSetAncestorsSetNeedsValidityCheck(&insertion_point,
+                                         StartingNodeType::IS_INSERTION_POINT);
   HideVisibleValidationMessage();
   has_validation_message_ = false;
-  ancestor_disabled_state_ = AncestorDisabledState::kUnknown;
-  data_list_ancestor_state_ = DataListAncestorState::kUnknown;
-  UpdateWillValidateCache();
+  // Two values that might change as a result of being removed are
+  // `ancestor_disabled_state_` and `data_list_ancestor_state_`. Both of
+  // these values feed into the WillValidate cache. If this ListedElement is
+  // not in a fieldset and not in a data-list, then it won't be in a fieldset
+  // or fieldset after the removal, so that the cache does not need to be
+  // updated.
+  if (ancestor_disabled_state_ == AncestorDisabledState::kEnabled &&
+      data_list_ancestor_state_ == DataListAncestorState::kNotInsideDataList) {
+    DCHECK_EQ(will_validate_, RecalcWillValidate());
+  } else {
+    ancestor_disabled_state_ = AncestorDisabledState::kUnknown;
+    data_list_ancestor_state_ = DataListAncestorState::kUnknown;
+    UpdateWillValidateCache(WillValidateReason::kForInsertionOrRemoval);
+  }
 
   HTMLElement& element = ToHTMLElement();
   if (insertion_point.isConnected() &&
@@ -164,15 +180,18 @@ void ListedElement::RemovedFrom(ContainerNode& insertion_point) {
     SetFormAttributeTargetObserver(nullptr);
     ResetFormOwner();
   } else if (!form_ && insertion_point.isConnected()) {
-    // An unassociated listed element is detached from the document.
-    ResetFormOwner();
-  } else {
+    // If there is no associated form, then there won't be one after removing,
+    // so don't need to call ResetFormOwner(). While this doesn't need to call
+    // ResetFormOwner(), it needs to call SetForm() to ensure Document level
+    // state is updated.
+    form_was_set_by_parser_ = false;
+    SetForm(nullptr);
+  } else if (form_ && NodeTraversal::HighestAncestorOrSelf(element) !=
+                          NodeTraversal::HighestAncestorOrSelf(*form_.Get())) {
     // If the form and element are both in the same tree, preserve the
     // connection to the form.  Otherwise, null out our form and remove
     // ourselves from the form's list of elements.
-    if (form_ && NodeTraversal::HighestAncestorOrSelf(element) !=
-                     NodeTraversal::HighestAncestorOrSelf(*form_.Get()))
-      ResetFormOwner();
+    ResetFormOwner();
   }
 
   DisabledStateMightBeChanged();
@@ -193,28 +212,6 @@ void ListedElement::RemovedFrom(ContainerNode& insertion_point) {
     element.GetDocument().DidChangeFormRelatedElementDynamically(
         &element, WebFormRelatedChangeType::kRemove);
   }
-}
-
-HTMLFormElement* ListedElement::FindAssociatedForm(
-    const HTMLElement* element,
-    const AtomicString& form_id,
-    HTMLFormElement* form_ancestor) {
-  // 3. If the element is reassociateable, has a form content attribute, and
-  // is itself in a Document, then run these substeps:
-  if (!form_id.IsNull() && element->isConnected()) {
-    // 3.1. If the first element in the Document to have an ID that is
-    // case-sensitively equal to the element's form content attribute's
-    // value is a form element, then associate the form-associated element
-    // with that form element.
-    // 3.2. Abort the "reset the form owner" steps.
-    Element* new_form_candidate =
-        element->GetTreeScope().getElementById(form_id);
-    return DynamicTo<HTMLFormElement>(new_form_candidate);
-  }
-  // 4. Otherwise, if the form-associated element in question has an ancestor
-  // form element, then associate the form-associated element with the nearest
-  // such ancestor form element.
-  return form_ancestor;
 }
 
 void ListedElement::FormRemovedFromTree(const Node& form_root) {
@@ -273,35 +270,65 @@ void ListedElement::FormOwnerSetNeedsValidityCheck() {
   }
 }
 
-void ListedElement::FieldSetAncestorsSetNeedsValidityCheck(Node* node) {
+void ListedElement::FieldSetAncestorsSetNeedsValidityCheck(
+    Node* node,
+    StartingNodeType starting_type) {
   if (!node)
     return;
   if (!may_have_fieldset_ancestor_)
     return;
-  for (auto* field_set =
-           Traversal<HTMLFieldSetElement>::FirstAncestorOrSelf(*node);
-       field_set;
-       field_set = Traversal<HTMLFieldSetElement>::FirstAncestor(*field_set)) {
+  auto* field_set = Traversal<HTMLFieldSetElement>::FirstAncestorOrSelf(*node);
+  if (!field_set) {
+    if (starting_type == StartingNodeType::IS_PARENT) {
+      may_have_fieldset_ancestor_ = false;
+    }
+    return;
+  }
+  do {
     field_set->PseudoStateChanged(CSSSelector::kPseudoValid);
     field_set->PseudoStateChanged(CSSSelector::kPseudoInvalid);
     field_set->PseudoStateChanged(CSSSelector::kPseudoUserValid);
     field_set->PseudoStateChanged(CSSSelector::kPseudoUserInvalid);
-  }
+  } while (
+      (field_set = Traversal<HTMLFieldSetElement>::FirstAncestor(*field_set)));
 }
 
+// https://html.spec.whatwg.org/multipage/C#reset-the-form-owner
 void ListedElement::ResetFormOwner() {
+  // 1. Unset element's parser inserted flag.
   form_was_set_by_parser_ = false;
   HTMLElement& element = ToHTMLElement();
   const AtomicString& form_id(element.FastGetAttribute(html_names::kFormAttr));
   HTMLFormElement* nearest_form = element.FindFormAncestor();
-  // 1. If the element's form owner is not null, and either the element is not
-  // reassociateable or its form content attribute is not present, and the
-  // element's form owner is its nearest form element ancestor after the
-  // change to the ancestor chain, then do nothing, and abort these steps.
+  // 2. If all of the following are true:
+  //    - element's form owner is not null;
+  //    - element is not listed or its form content attribute is not present;
+  //      and
+  //    - element's form owner is its nearest form element ancestor after the
+  //      change to the ancestor chain,
+  // then return.
   if (form_ && form_id.IsNull() && form_.Get() == nearest_form)
     return;
 
-  SetForm(FindAssociatedForm(&element, form_id, nearest_form));
+  // 3. Set element's form owner to null.
+  // 4. If element is listed, has a form content attribute, and is connected,
+  //    then:
+  //    1. If the first element in element's tree, in tree order, to have an
+  //       ID that is identical to element's form content attribute's value,
+  //       is a form element, then associate the element with that form
+  //       element.
+  HTMLFormElement* new_form = nullptr;
+  if (!form_id.IsNull() && element.isConnected()) {
+    Element* new_form_candidate =
+        element.GetTreeScope().getElementById(form_id);
+    new_form = DynamicTo<HTMLFormElement>(new_form_candidate);
+  } else {
+    // 5. Otherwise, if element has an ancestor form element, then associate
+    //    element with the nearest such ancestor form element.
+    new_form = nearest_form;
+  }
+
+  SetForm(new_form);
 }
 
 void ListedElement::FormAttributeChanged() {
@@ -337,7 +364,7 @@ bool ListedElement::WillValidate() const {
   return will_validate_;
 }
 
-void ListedElement::UpdateWillValidateCache() {
+void ListedElement::UpdateWillValidateCache(WillValidateReason reason) {
   // We need to recalculate willValidate immediately because willValidate change
   // can causes style change.
   bool new_will_validate = RecalcWillValidate();
@@ -345,20 +372,37 @@ void ListedElement::UpdateWillValidateCache() {
     return;
   will_validate_initialized_ = true;
   will_validate_ = new_will_validate;
-  // Needs to force SetNeedsValidityCheck() to invalidate validity state of
-  // FORM/FIELDSET. If this element updates willValidate twice and
-  // IsValidElement() is not called between them, the second call of this
-  // function still has validity_is_dirty_==true, which means
-  // SetNeedsValidityCheck() doesn't invalidate validity state of
-  // FORM/FIELDSET.
-  validity_is_dirty_ = false;
-  SetNeedsValidityCheck();
-  // No need to trigger style recalculation here because
-  // SetNeedsValidityCheck() does it in the right away. This relies on
-  // the assumption that Valid() is always true if willValidate() is false.
 
-  if (!will_validate_)
-    HideVisibleValidationMessage();
+  if (reason != WillValidateReason::kForInsertionOrRemoval) {
+    // Needs to force SetNeedsValidityCheck() to invalidate validity state of
+    // FORM/FIELDSET. If this element updates willValidate twice and
+    // IsValidElement() is not called between them, the second call of this
+    // function still has validity_is_dirty_==true, which means
+    // SetNeedsValidityCheck() doesn't invalidate validity state of
+    // FORM/FIELDSET.
+    validity_is_dirty_ = false;
+    SetNeedsValidityCheck();
+    // No need to trigger style recalculation here because
+    // SetNeedsValidityCheck() does it in the right away. This relies on
+    // the assumption that Valid() is always true if willValidate() is false.
+
+    if (!will_validate_) {
+      HideVisibleValidationMessage();
+    }
+  } else {
+    // We don't need to do any of the work above for insertion or removal,
+    // because:
+    //
+    // * We don't need to notify that pseudo-states on this element have
+    //   changed because it wasn't previously in the tree (or won't be in the
+    //   tree shortly).
+    // * FormOwnerSetNeedsValidityCheck is also called when changing the form
+    // * FieldSetAncestorsSetNeedsValidityCheck is also called on insertion
+    //   and removal
+    // * RemovedFrom already hides the validation message, so we don't need to
+    //   update or hide it.
+    validity_is_dirty_ = true;
+  }
 }
 
 bool ListedElement::CustomError() const {
@@ -566,7 +610,8 @@ void ListedElement::SetNeedsValidityCheck() {
   if (!validity_is_dirty_) {
     validity_is_dirty_ = true;
     FormOwnerSetNeedsValidityCheck();
-    FieldSetAncestorsSetNeedsValidityCheck(element.parentNode());
+    FieldSetAncestorsSetNeedsValidityCheck(element.parentNode(),
+                                           StartingNodeType::IS_PARENT);
     element.PseudoStateChanged(CSSSelector::kPseudoValid);
     element.PseudoStateChanged(CSSSelector::kPseudoInvalid);
     element.PseudoStateChanged(CSSSelector::kPseudoUserValid);
@@ -600,37 +645,33 @@ void ListedElement::ReadonlyAttributeChanged() {
 }
 
 void ListedElement::UpdateAncestorDisabledState() const {
-  if (!may_have_fieldset_ancestor_) {
-    ancestor_disabled_state_ = AncestorDisabledState::kEnabled;
-    return;
-  }
-  may_have_fieldset_ancestor_ = false;
-  // <fieldset> element of which |disabled| attribute affects the
-  // target element.
-  HTMLFieldSetElement* disabled_fieldset_ancestor = nullptr;
-  ContainerNode* last_legend_ancestor = nullptr;
-  for (auto* ancestor = Traversal<HTMLElement>::FirstAncestor(ToHTMLElement());
-       ancestor; ancestor = Traversal<HTMLElement>::FirstAncestor(*ancestor)) {
-    if (IsA<HTMLLegendElement>(*ancestor)) {
-      last_legend_ancestor = ancestor;
-      continue;
-    }
-    if (HTMLFieldSetElement* fieldset_ancestor =
-            DynamicTo<HTMLFieldSetElement>(ancestor)) {
-      may_have_fieldset_ancestor_ = true;
-      if (fieldset_ancestor->is_element_disabled_) {
-        if (last_legend_ancestor &&
-            last_legend_ancestor == fieldset_ancestor->Legend()) {
-          continue;
+  ancestor_disabled_state_ = AncestorDisabledState::kEnabled;
+  const HTMLElement& element = ToHTMLElement();
+  if (may_have_fieldset_ancestor_ &&
+      element.GetDocument().HasAtLeastOneDisabledFieldset()) {
+    may_have_fieldset_ancestor_ = false;
+    ContainerNode* last_legend_ancestor = nullptr;
+    for (auto* ancestor = Traversal<HTMLElement>::FirstAncestor(element);
+         ancestor;
+         ancestor = Traversal<HTMLElement>::FirstAncestor(*ancestor)) {
+      if (IsA<HTMLLegendElement>(*ancestor)) {
+        last_legend_ancestor = ancestor;
+        continue;
+      }
+      if (HTMLFieldSetElement* fieldset_ancestor =
+              DynamicTo<HTMLFieldSetElement>(ancestor)) {
+        may_have_fieldset_ancestor_ = true;
+        if (fieldset_ancestor->is_element_disabled_) {
+          if (last_legend_ancestor &&
+              last_legend_ancestor == fieldset_ancestor->Legend()) {
+            continue;
+          }
+          ancestor_disabled_state_ = AncestorDisabledState::kDisabled;
+          break;
         }
-        disabled_fieldset_ancestor = fieldset_ancestor;
-        break;
       }
     }
   }
-  ancestor_disabled_state_ = disabled_fieldset_ancestor
-                                 ? AncestorDisabledState::kDisabled
-                                 : AncestorDisabledState::kEnabled;
 }
 
 void ListedElement::AncestorDisabledStateWasChanged() {
@@ -703,11 +744,19 @@ const AtomicString& ListedElement::GetName() const {
   return name.IsNull() ? g_empty_atom : name;
 }
 
+bool ListedElement::IsFormControlElement() const {
+  return false;
+}
+
 bool ListedElement::IsFormControlElementWithState() const {
   return false;
 }
 
 bool ListedElement::IsElementInternals() const {
+  return false;
+}
+
+bool ListedElement::IsObjectElement() const {
   return false;
 }
 
@@ -725,11 +774,13 @@ ListedElement* ListedElement::From(Element& element) {
 }
 
 const HTMLElement& ListedElement::ToHTMLElement() const {
-  if (auto* form_control_element = DynamicTo<HTMLFormControlElement>(this))
+  if (auto* form_control_element = DynamicTo<HTMLFormControlElement>(*this)) {
     return *form_control_element;
-  if (IsElementInternals())
-    return To<ElementInternals>(*this).Target();
-  return ToHTMLObjectElementFromListedElement(*this);
+  }
+  if (auto* element_internals = DynamicTo<ElementInternals>(*this)) {
+    return element_internals->Target();
+  }
+  return To<HTMLObjectElement>(*this);
 }
 
 HTMLElement& ListedElement::ToHTMLElement() {
@@ -739,9 +790,10 @@ HTMLElement& ListedElement::ToHTMLElement() {
 
 FormAttributeTargetObserver::FormAttributeTargetObserver(const AtomicString& id,
                                                          ListedElement* element)
-    : IdTargetObserver(
-          element->ToHTMLElement().GetTreeScope().GetIdTargetObserverRegistry(),
-          id),
+    : IdTargetObserver(element->ToHTMLElement()
+                           .GetTreeScope()
+                           .EnsureIdTargetObserverRegistry(),
+                       id),
       element_(element) {}
 
 void FormAttributeTargetObserver::Trace(Visitor* visitor) const {

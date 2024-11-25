@@ -7,6 +7,7 @@
 #import <memory>
 
 #import "base/functional/bind.h"
+#import "base/memory/raw_ptr.h"
 #import "base/strings/utf_string_conversions.h"
 #import "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 #import "components/send_tab_to_self/send_tab_to_self_entry.h"
@@ -15,7 +16,7 @@
 #import "components/send_tab_to_self/test_send_tab_to_self_model.h"
 #import "ios/chrome/browser/infobars/model/infobar_manager_impl.h"
 #import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
-#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
 #import "ios/chrome/browser/sync/model/send_tab_to_self_sync_service_factory.h"
@@ -23,7 +24,7 @@
 #import "ios/web/public/test/fakes/fake_navigation_manager.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
 #import "ios/web/public/test/web_task_environment.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "testing/gtest_mac.h"
 #import "testing/platform_test.h"
 #import "url/gurl.h"
@@ -81,7 +82,7 @@ class TestSendTabToSelfSyncService
     return model_.get();
   }
 
-  base::WeakPtr<syncer::ModelTypeControllerDelegate> GetControllerDelegate()
+  base::WeakPtr<syncer::DataTypeControllerDelegate> GetControllerDelegate()
       override {
     return nullptr;
   }
@@ -93,29 +94,23 @@ class TestSendTabToSelfSyncService
 class SendTabToSelfBrowserAgentTest : public PlatformTest {
  public:
   SendTabToSelfBrowserAgentTest() {
-    TestChromeBrowserState::Builder test_browser_state_builder;
-    test_browser_state_builder.AddTestingFactory(
+    TestProfileIOS::Builder test_profile_builder;
+    test_profile_builder.AddTestingFactory(
         SendTabToSelfSyncServiceFactory::GetInstance(),
         base::BindRepeating(&::TestSendTabToSelfSyncService::Build));
 
-    chrome_browser_state_ = test_browser_state_builder.Build();
-    browser_ = std::make_unique<TestBrowser>(chrome_browser_state_.get());
+    profile_ = std::move(test_profile_builder).Build();
+    browser_ = std::make_unique<TestBrowser>(profile_.get());
     SendTabToSelfBrowserAgent::CreateForBrowser(browser_.get());
     agent_ = SendTabToSelfBrowserAgent::FromBrowser(browser_.get());
     model_ = static_cast<FakeSendTabToSelfModel*>(
-        SendTabToSelfSyncServiceFactory::GetForBrowserState(
-            browser_->GetBrowserState())
+        SendTabToSelfSyncServiceFactory::GetForProfile(browser_->GetProfile())
             ->GetSendTabToSelfModel());
   }
 
-  web::FakeWebState* AppendNewWebState(const GURL& url) {
-    return AppendNewWebState(url, WebStateList::INSERT_ACTIVATE,
-                             /*is_visible=*/true);
-  }
-
   web::FakeWebState* AppendNewWebState(const GURL& url,
-                                       WebStateList::InsertionFlags flags,
-                                       bool is_visible) {
+                                       bool activate = true,
+                                       bool is_visible = true) {
     auto fake_web_state = std::make_unique<web::FakeWebState>();
     fake_web_state->SetCurrentURL(url);
     // Create a navigation item to match the URL and give it a title.
@@ -132,9 +127,9 @@ class SendTabToSelfBrowserAgentTest : public PlatformTest {
     // Capture a pointer to the created web state to return.
     web::FakeWebState* inserted_web_state = fake_web_state.get();
     InfoBarManagerImpl::CreateForWebState(inserted_web_state);
-    browser_->GetWebStateList()->InsertWebState(WebStateList::kInvalidIndex,
-                                                std::move(fake_web_state),
-                                                flags, WebStateOpener());
+    browser_->GetWebStateList()->InsertWebState(
+        std::move(fake_web_state),
+        WebStateList::InsertionParams::Automatic().Activate(activate));
 
     if (is_visible) {
       inserted_web_state->WasShown();
@@ -144,10 +139,10 @@ class SendTabToSelfBrowserAgentTest : public PlatformTest {
   }
 
   web::WebTaskEnvironment task_environment_;
-  std::unique_ptr<TestChromeBrowserState> chrome_browser_state_;
+  std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<Browser> browser_;
-  SendTabToSelfBrowserAgent* agent_;
-  FakeSendTabToSelfModel* model_;
+  raw_ptr<SendTabToSelfBrowserAgent> agent_;
+  raw_ptr<FakeSendTabToSelfModel> model_;
   // Storage vector for navigation items created for test cases.
   std::vector<std::unique_ptr<web::NavigationItem>> navigation_items_;
 
@@ -190,7 +185,7 @@ TEST_F(SendTabToSelfBrowserAgentTest, TestRemoteAddTabNotVisible) {
   // Add a web state, not visible.
   web::WebState* web_state =
       AppendNewWebState(GURL("http://www.blank.com"),
-                        WebStateList::INSERT_ACTIVATE, /*visible=*/false);
+                        /*activate=*/true, /*is_visible=*/false);
   InfoBarManagerImpl* infobar_manager =
       InfoBarManagerImpl::FromWebState(web_state);
   EXPECT_EQ(0UL, infobar_manager->infobars().size());
@@ -215,7 +210,7 @@ TEST_F(SendTabToSelfBrowserAgentTest, TestRemoteAddTabNotActive) {
   // Add a web state, not visible or active.
   web::WebState* web_state =
       AppendNewWebState(GURL("http://www.blank.com"),
-                        WebStateList::INSERT_NO_FLAGS, /*visible=*/false);
+                        /*activate=*/false, /*is_visible=*/false);
   InfoBarManagerImpl* infobar_manager =
       InfoBarManagerImpl::FromWebState(web_state);
   EXPECT_EQ(0UL, infobar_manager->infobars().size());
@@ -243,7 +238,7 @@ TEST_F(SendTabToSelfBrowserAgentTest, TestRemoteAddTabNotVisibleActivated) {
   // Add a web state, active but not visible.
   web::WebState* web_state =
       AppendNewWebState(GURL("http://www.blank.com"),
-                        WebStateList::INSERT_ACTIVATE, /*visible=*/false);
+                        /*activate=*/true, /*is_visible=*/false);
   InfoBarManagerImpl* infobar_manager =
       InfoBarManagerImpl::FromWebState(web_state);
   EXPECT_EQ(0UL, infobar_manager->infobars().size());

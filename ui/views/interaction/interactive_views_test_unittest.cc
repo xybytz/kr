@@ -65,9 +65,12 @@ class InteractiveViewsTestTest : public InteractiveViewsTest {
                 Builder<TabbedPane>()
                     .CopyAddressTo(&tabs_)
                     .SetProperty(kElementIdentifierKey, kTabbedPaneId)
-                    .AddTab(kTab1Title, std::make_unique<Label>(kTab1Contents))
-                    .AddTab(kTab2Title, std::make_unique<Label>(kTab2Contents))
-                    .AddTab(kTab3Title, std::make_unique<Label>(kTab3Contents)),
+                    .AddTab(kTab1Title, std::make_unique<Label>(kTab1Contents),
+                            nullptr)
+                    .AddTab(kTab2Title, std::make_unique<Label>(kTab2Contents),
+                            nullptr)
+                    .AddTab(kTab3Title, std::make_unique<Label>(kTab3Contents),
+                            nullptr),
                 Builder<FlexLayoutView>()
                     .SetProperty(kElementIdentifierKey, kButtonsId)
                     .SetOrientation(LayoutOrientation::kHorizontal)
@@ -101,7 +104,7 @@ class InteractiveViewsTestTest : public InteractiveViewsTest {
                                     .SetPreferredSize(gfx::Size(100, 100)))));
 
     // Create and show the test widget.
-    widget_ = CreateTestWidget();
+    widget_ = CreateTestWidget(Widget::InitParams::CLIENT_OWNS_WIDGET);
     widget_->SetContentsView(std::move(contents).Build());
     WidgetVisibleWaiter waiter(widget_.get());
     widget_->Show();

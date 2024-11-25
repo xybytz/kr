@@ -9,13 +9,13 @@
 
 #include "base/check.h"
 #include "base/containers/contains.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
 #include "base/strings/escape.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "extensions/browser/disable_reason.h"
+#include "extensions/common/extension_id.h"
 
 using extensions::mojom::ManifestLocation;
 
@@ -91,7 +91,6 @@ std::string ManifestFetchData::GetSimpleLocationString(ManifestLocation loc) {
       break;
     case ManifestLocation::kInvalidLocation:
       NOTREACHED();
-      break;
   }
 
   return result;
@@ -147,7 +146,6 @@ bool ManifestFetchData::AddExtension(const std::string& id,
          extension_location == ManifestLocation::kExternalPolicyDownload);
   if (base::Contains(extensions_data_, id)) {
     NOTREACHED() << "Duplicate extension id " << id;
-    return false;
   }
 
   if (fetch_priority_ != DownloadFetchPriority::kForeground) {
@@ -209,10 +207,8 @@ bool ManifestFetchData::AddExtension(const std::string& id,
   // Check against our max url size, exempting the first extension added.
   int new_size = full_url_.possibly_invalid_spec().size() + extra.size();
   if (!extensions_data_.empty() && new_size > kExtensionsManifestMaxURLSize) {
-    UMA_HISTOGRAM_PERCENTAGE("Extensions.UpdateCheckHitUrlSizeLimit", 1);
     return false;
   }
-  UMA_HISTOGRAM_PERCENTAGE("Extensions.UpdateCheckHitUrlSizeLimit", 0);
 
   // We have room so go ahead and add the extension.
   extensions_data_[id] = ExtensionData(base::Version(version), update_url_data,
@@ -264,11 +260,11 @@ ExtensionIdSet ManifestFetchData::GetExtensionIds() const {
   return extension_ids;
 }
 
-bool ManifestFetchData::Includes(const std::string& extension_id) const {
+bool ManifestFetchData::Includes(const ExtensionId& extension_id) const {
   return base::Contains(extensions_data_, extension_id);
 }
 
-bool ManifestFetchData::DidPing(const std::string& extension_id,
+bool ManifestFetchData::DidPing(const ExtensionId& extension_id,
                                 PingType type) const {
   auto i = pings_.find(extension_id);
   if (i == pings_.end())

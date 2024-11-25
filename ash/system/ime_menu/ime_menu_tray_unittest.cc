@@ -13,6 +13,7 @@
 #include "ash/public/cpp/ime_info.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
+#include "ash/strings/grit/ash_strings.h"
 #include "ash/system/ime_menu/ime_list_view.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/system/status_area_widget_test_helper.h"
@@ -20,6 +21,7 @@
 #include "base/containers/contains.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/accessibility/ax_enums.mojom.h"
@@ -27,12 +29,14 @@
 #include "ui/base/emoji/emoji_panel_helper.h"
 #include "ui/base/ime/ash/ime_bridge.h"
 #include "ui/base/ime/text_input_flags.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/display/test/display_manager_test_api.h"
 #include "ui/events/devices/device_data_manager_test_api.h"
 #include "ui/events/devices/input_device.h"
 #include "ui/events/devices/keyboard_device.h"
 #include "ui/events/devices/touchscreen_device.h"
 #include "ui/events/event.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/view_class_properties.h"
 
@@ -69,12 +73,6 @@ class ImeMenuTrayTest : public AshTestBase {
   ~ImeMenuTrayTest() override = default;
 
  protected:
-  void SetUp() override {
-    scoped_feature_list_.InitWithFeatureStates(
-        {{features::kImeTrayHideVoiceButton, true}});
-    AshTestBase::SetUp();
-  }
-
   // Returns true if the IME menu tray is visible.
   bool IsVisible() { return GetTray()->GetVisible(); }
 
@@ -155,9 +153,6 @@ class ImeMenuTrayTest : public AshTestBase {
     }
     return ImeListViewTestApi(GetTray()->ime_list_view_).GetToggleView();
   }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 // Tests that visibility of IME menu tray should be consistent with the
@@ -393,8 +388,9 @@ TEST_F(ImeMenuTrayTest, ImeBubbleAccelerator) {
 // Tests that tapping the emoji button does not crash. http://crbug.com/739630
 TEST_F(ImeMenuTrayTest, TapEmojiButton) {
   int call_count = 0;
-  ui::SetShowEmojiKeyboardCallback(
-      base::BindRepeating([](int* count) { (*count)++; }, (&call_count)));
+  ui::SetShowEmojiKeyboardCallback(base::BindLambdaForTesting(
+      [&](ui::EmojiPickerCategory unused, ui::EmojiPickerFocusBehavior,
+          const std::string&) { ++call_count; }));
 
   Shell::Get()->ime_controller()->ShowImeMenuOnShelf(true);
   Shell::Get()->ime_controller()->SetExtraInputOptionsEnabledState(
@@ -620,6 +616,30 @@ TEST_F(ImeMenuTrayTest, ImeMenuHasBottomInsetsOnLockScreen) {
                           ->GetViewByID(VIEW_ID_IME_LIST_VIEW_SCROLLER)
                           ->GetProperty(views::kMarginsKey);
   EXPECT_GT(container_margins->bottom(), 0);
+}
+
+TEST_F(ImeMenuTrayTest, AccessibleNames) {
+  Shell::Get()->ime_controller()->SetExtraInputOptionsEnabledState(
+      /*is_extra_input_options_enabled=*/true, /*is_emoji_enabled=*/true,
+      /*is_handwriting_enabled=*/true, /*is_voice_enabled=*/true);
+
+  {
+    ui::AXNodeData node_data;
+    GetTray()->GetViewAccessibility().GetAccessibleNodeData(&node_data);
+    EXPECT_EQ(node_data.GetString16Attribute(ax::mojom::StringAttribute::kName),
+              l10n_util::GetStringUTF16(IDS_ASH_IME_MENU_ACCESSIBLE_NAME));
+  }
+
+  // Show IME tray bubble.
+  GetTray()->ShowBubble();
+
+  TrayBubbleView* bubble_view = GetTray()->GetBubbleView();
+  {
+    ui::AXNodeData node_data;
+    bubble_view->GetViewAccessibility().GetAccessibleNodeData(&node_data);
+    EXPECT_EQ(node_data.GetString16Attribute(ax::mojom::StringAttribute::kName),
+              GetTray()->GetAccessibleNameForBubble());
+  }
 }
 
 }  // namespace ash

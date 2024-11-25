@@ -5,7 +5,6 @@
 package org.chromium.chrome.browser.price_tracking;
 
 import android.app.PendingIntent;
-import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.text.TextUtils;
@@ -14,6 +13,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
+import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.notifications.NotificationUmaTracker;
@@ -22,7 +22,6 @@ import org.chromium.chrome.browser.notifications.NotificationUmaTracker.SystemNo
 import org.chromium.chrome.browser.notifications.NotificationWrapperBuilderFactory;
 import org.chromium.chrome.browser.notifications.channels.ChromeChannelDefinitions.ChannelId;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.components.browser_ui.notifications.NotificationManagerProxy;
 import org.chromium.components.browser_ui.notifications.NotificationManagerProxyImpl;
 import org.chromium.components.browser_ui.notifications.NotificationMetadata;
 import org.chromium.components.browser_ui.notifications.NotificationWrapper;
@@ -95,29 +94,21 @@ public class PriceDropNotifier {
         public final CharSequence text;
     }
 
-    private final Context mContext;
+    private final Profile mProfile;
     private ImageFetcher mImageFetcher;
-    private final NotificationManagerProxy mNotificationManagerProxy;
     private PriceDropNotificationManager mPriceDropNotificationManager;
 
     /**
-     * Creates a {@link PriceDropNotifier} instance.
-     * @param context The Android context.
+     * @param profile The {@link Profile} associated with price drop registration.
      */
-    public static PriceDropNotifier create(Context context) {
-        return new PriceDropNotifier(context, new NotificationManagerProxyImpl(context));
-    }
-
-    @VisibleForTesting
-    PriceDropNotifier(Context context, NotificationManagerProxy notificationManager) {
-        mContext = context;
-        mNotificationManagerProxy = notificationManager;
-        mPriceDropNotificationManager =
-                PriceDropNotificationManagerFactory.create(mContext, mNotificationManagerProxy);
+    public PriceDropNotifier(Profile profile) {
+        mProfile = profile;
+        mPriceDropNotificationManager = PriceDropNotificationManagerFactory.create(mProfile);
     }
 
     /**
      * Shows a price drop notification.
+     *
      * @param notificationData Information about the notification contents.
      */
     public void showNotification(final NotificationData notificationData) {
@@ -133,8 +124,7 @@ public class PriceDropNotifier {
         if (mImageFetcher == null) {
             mImageFetcher =
                     ImageFetcherFactory.createImageFetcher(
-                            ImageFetcherConfig.NETWORK_ONLY,
-                            Profile.getLastUsedRegularProfile().getProfileKey());
+                            ImageFetcherConfig.NETWORK_ONLY, mProfile.getProfileKey());
         }
         return mImageFetcher;
     }
@@ -208,7 +198,7 @@ public class PriceDropNotifier {
             }
         }
         NotificationWrapper notificationWrapper = notificationBuilder.buildNotificationWrapper();
-        mNotificationManagerProxy.notify(notificationWrapper);
+        NotificationManagerProxyImpl.getInstance().notify(notificationWrapper);
         NotificationUmaTracker.getInstance()
                 .onNotificationShown(notificationType, notificationWrapper.getNotification());
         mPriceDropNotificationManager.updateNotificationTimestamps(notificationType, true);
@@ -229,7 +219,7 @@ public class PriceDropNotifier {
                 mPriceDropNotificationManager.getNotificationClickIntent(
                         destinationUrl, notificationId);
         return PendingIntentProvider.getActivity(
-                mContext, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
+                ContextUtils.getApplicationContext(), 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
     }
 
     private PendingIntentProvider createClickIntent(
@@ -238,7 +228,7 @@ public class PriceDropNotifier {
                 mPriceDropNotificationManager.getNotificationActionClickIntent(
                         actionId, url, offerId, clusterId, notificationId);
         return PendingIntentProvider.getActivity(
-                mContext, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
+                ContextUtils.getApplicationContext(), 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
     }
 
     private int getNotificationId(String offerId) {

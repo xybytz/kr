@@ -4,51 +4,54 @@
 
 package org.chromium.chrome.browser.compositor;
 
+import static androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE;
+
+import android.app.Activity;
 import android.content.Context;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.SystemClock;
 import android.util.AttributeSet;
-import android.util.Pair;
+import android.view.DragAndDropPermissions;
 import android.view.DragEvent;
-import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.PointerIcon;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.FrameLayout;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.view.ViewCompat;
-import androidx.core.view.accessibility.AccessibilityEventCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.customview.widget.ExploreByTouchHelper;
 
+import org.chromium.base.BuildInfo;
 import org.chromium.base.Callback;
+import org.chromium.base.InputHintChecker;
 import org.chromium.base.ObserverList;
 import org.chromium.base.SysUtils;
 import org.chromium.base.TraceEvent;
-import org.chromium.base.compat.ApiHelperForN;
-import org.chromium.base.compat.ApiHelperForO;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.ObservableSupplierImpl;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsUtils;
 import org.chromium.chrome.browser.compositor.layouts.LayoutManagerHost;
 import org.chromium.chrome.browser.compositor.layouts.LayoutManagerImpl;
 import org.chromium.chrome.browser.compositor.layouts.LayoutRenderHost;
-import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.fullscreen.BrowserControlsManager;
 import org.chromium.chrome.browser.fullscreen.FullscreenManager;
@@ -61,6 +64,7 @@ import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tab.TabLoadIfNeededCaller;
 import org.chromium.chrome.browser.tab.TabObscuringHandler;
 import org.chromium.chrome.browser.tab.TabObserver;
+import org.chromium.chrome.browser.tab_ui.TabContentManager;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
@@ -70,7 +74,6 @@ import org.chromium.chrome.browser.tasks.tab_management.TabUiFeatureUtilities;
 import org.chromium.chrome.browser.theme.TopUiThemeColorProvider;
 import org.chromium.chrome.browser.toolbar.ControlContainer;
 import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
-import org.chromium.chrome.features.start_surface.StartSurfaceUserData;
 import org.chromium.components.browser_ui.widget.TouchEventObserver;
 import org.chromium.components.browser_ui.widget.TouchEventProvider;
 import org.chromium.components.content_capture.OnscreenContentProvider;
@@ -83,12 +86,16 @@ import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.ApplicationViewportInsetSupplier;
 import org.chromium.ui.base.EventForwarder;
 import org.chromium.ui.base.EventOffsetHandler;
+import org.chromium.ui.base.SPenSupport;
+import org.chromium.ui.base.UiAndroidFeatureList;
+import org.chromium.ui.base.UiAndroidFeatureMap;
 import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.base.ViewportInsets;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.mojom.VirtualKeyboardMode;
 import org.chromium.ui.resources.ResourceManager;
 import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
+import org.chromium.url.GURL;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -119,20 +126,16 @@ public class CompositorViewHolder extends FrameLayout
         /**
          * Initializes the {@link CompositorViewHolder} with the relevant content it needs to
          * properly show content on the screen.
-         * @param layoutManager             A {@link LayoutManagerImpl} instance.  This class is
-         *                                  responsible for driving all high level screen content
-         * and determines which {@link Layout} is shown when.
-         * @param urlBar                    The {@link View} representing the URL bar (must be
-         *                                  focusable) or {@code null} if none exists.
-         * @param contentContainer          A {@link ViewGroup} that can have content attached by
-         *                                  {@link Layout}s.
-         * @param controlContainer          A {@link ControlContainer} instance to draw.
+         *
+         * @param layoutManager A {@link LayoutManagerImpl} instance. This class is responsible for
+         *     driving all high level screen content and determines which {@link Layout} is shown
+         *     when.
+         * @param urlBar The {@link View} representing the URL bar (must be focusable) or {@code
+         *     null} if none exists.
+         * @param controlContainer A {@link ControlContainer} instance to draw.
          */
         void initializeCompositorContent(
-                LayoutManagerImpl layoutManager,
-                View urlBar,
-                ViewGroup contentContainer,
-                ControlContainer controlContainer);
+                LayoutManagerImpl layoutManager, View urlBar, ControlContainer controlContainer);
     }
 
     private final ObserverList<TouchEventObserver> mTouchEventObservers = new ObserverList<>();
@@ -144,6 +147,7 @@ public class CompositorViewHolder extends FrameLayout
     private boolean mIsKeyboardShowing;
     private boolean mNativeInitialized;
     private LayoutManagerImpl mLayoutManager;
+    private Activity mActivity;
     private CompositorView mCompositorView;
 
     private boolean mContentOverlayVisiblity = true;
@@ -179,11 +183,15 @@ public class CompositorViewHolder extends FrameLayout
     private final Rect mCacheRect = new Rect();
     private final Point mCachePoint = new Point();
 
-    private boolean mIsInVr;
-
     private boolean mControlsResizeView;
     private boolean mInGesture;
     private boolean mContentViewScrolling;
+    // The number of active touch pointers. We are sending a gesture begin
+    // event for every added touch point, and a gesnture end event for every
+    // removed touch point.
+    // TODO(crbug.com/265479149): We will remove |mInGesture| if we enable the
+    // SUPPRESS_TOOLBAR_CAPTURES_AT_GESTURE_END feature.
+    private int mNumGestureActiveTouches;
     private ApplicationViewportInsetSupplier mApplicationBottomInsetSupplier;
 
     // Handler for changes to viewport insets.
@@ -221,13 +229,14 @@ public class CompositorViewHolder extends FrameLayout
     private long mBuffersSwappedTimestamp;
     private long mTabStateInitializedTimestamp;
 
-    /**
-     * Last MotionEvent dispatched to this object for a currently active gesture. If there is no
-     * active gesture, this is null.
-     */
-    private @Nullable MotionEvent mLastActiveTouchEvent;
-
     private TopUiThemeColorProvider mTopUiThemeColorProvider;
+
+    // Permissions are requested on a drop event, and are released when another drag starts
+    // (drag-started event) or when the current page navigates to a new URL or the tab changes.
+    private DragAndDropPermissions mDragAndDropPermissions;
+    // The URI when a drop contains a single URI. If the tab changes and is loading this URI, we do
+    // not clear the permissions.
+    private Uri mDropUri;
 
     private final EventOffsetHandler mEventOffsetHandler =
             new EventOffsetHandler(
@@ -246,7 +255,7 @@ public class CompositorViewHolder extends FrameLayout
                         @Override
                         public void setCurrentTouchEventOffsets(float top) {
                             EventForwarder forwarder = getEventForwarder();
-                            if (forwarder != null) forwarder.setCurrentTouchEventOffsets(0, top);
+                            if (forwarder != null) forwarder.setCurrentTouchOffsetY(top);
                         }
 
                         @Override
@@ -263,39 +272,16 @@ public class CompositorViewHolder extends FrameLayout
                         }
                     });
 
-    private final OnLayoutChangeListener mLayoutChangeListender =
-            new OnLayoutChangeListener() {
-                @Override
-                public void onLayoutChange(
-                        View v,
-                        int left,
-                        int top,
-                        int right,
-                        int bottom,
-                        int oldLeft,
-                        int oldTop,
-                        int oldRight,
-                        int oldBottom) {
-                    v.removeOnLayoutChangeListener(this);
-                    if (mLastActiveTouchEvent == null) return;
-                    MotionEvent touchEvent = MotionEvent.obtain(mLastActiveTouchEvent);
-                    touchEvent.setAction(MotionEvent.ACTION_DOWN);
-                    CompositorViewHolder.this.dispatchTouchEvent(touchEvent);
-                    for (int i = 1; i < mLastActiveTouchEvent.getPointerCount(); i++) {
-                        MotionEvent pointerDownEvent = MotionEvent.obtain(mLastActiveTouchEvent);
-                        pointerDownEvent.setAction(
-                                MotionEvent.ACTION_POINTER_DOWN
-                                        | (i << MotionEvent.ACTION_POINTER_INDEX_SHIFT));
-                        CompositorViewHolder.this.dispatchTouchEvent(pointerDownEvent);
-                    }
-                }
-            };
-
     private final TabObserver mTabObserver =
             new EmptyTabObserver() {
                 @Override
                 public void onContentChanged(Tab tab) {
                     CompositorViewHolder.this.onContentChanged();
+                }
+
+                @Override
+                public void onPageLoadStarted(Tab tab, GURL url) {
+                    CompositorViewHolder.this.releaseDragAndDropPermissions();
                 }
 
                 @Override
@@ -306,18 +292,8 @@ public class CompositorViewHolder extends FrameLayout
                 }
 
                 @Override
-                public void onWebContentsSwapped(
-                        Tab tab, boolean didStartLoad, boolean didFinishLoad) {
-                    // After swapping web contents, any gesture active in the old ContentView is
-                    // cancelled. We still want to continue a previously running gesture in the new
-                    // ContentView, so we synthetically dispatch a new ACTION_DOWN MotionEvent with
-                    // the coordinates of where we estimate the pointer currently is (the
-                    // coordinates of the last ACTION_MOVE MotionEvent received before the swap).
-                    //
-                    // We wait for layout to happen as the newly created ContentView currently
-                    // has a width and height of zero, which would result in the event not being
-                    // dispatched.
-                    mView.addOnLayoutChangeListener(mLayoutChangeListender);
+                public void onWillShowBrowserControls(Tab tab, boolean viewTransitionOptIn) {
+                    CompositorViewHolder.this.onWillShowBrowserControls(viewTransitionOptIn);
                 }
 
                 @Override
@@ -335,47 +311,21 @@ public class CompositorViewHolder extends FrameLayout
                         updateVirtualKeyboardMode(getWebContents().getVirtualKeyboardMode());
                     }
                 }
+
+                // TODO(crbug.com/265479149): Split out a specific delegate for
+                // gesture listening below and remove from TabObserver.
+                @Override
+                public void onGestureBegin() {
+                    mNumGestureActiveTouches++;
+                    updateInMotion();
+                }
+
+                @Override
+                public void onGestureEnd() {
+                    mNumGestureActiveTouches--;
+                    updateInMotion();
+                }
             };
-
-    /** This view is created on demand to display debugging information. */
-    private static class DebugOverlay extends View {
-        private final List<Pair<Rect, Integer>> mRectangles = new ArrayList<>();
-        private final Paint mPaint = new Paint();
-        private boolean mFirstPush = true;
-
-        /**
-         * @param context The current Android's context.
-         */
-        public DebugOverlay(Context context) {
-            super(context);
-        }
-
-        /**
-         * Pushes a rectangle to be drawn on the screen on top of everything.
-         *
-         * @param rect The rectangle to be drawn on screen
-         * @param color The color of the rectangle
-         */
-        public void pushRect(Rect rect, int color) {
-            if (mFirstPush) {
-                mRectangles.clear();
-                mFirstPush = false;
-            }
-            mRectangles.add(new Pair<>(rect, color));
-            invalidate();
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            for (int i = 0; i < mRectangles.size(); i++) {
-                mPaint.setColor(mRectangles.get(i).second);
-                canvas.drawRect(mRectangles.get(i).first, mPaint);
-            }
-            mFirstPush = true;
-        }
-    }
-
-    private DebugOverlay mDebugOverlay;
 
     private View mUrlBar;
 
@@ -385,12 +335,13 @@ public class CompositorViewHolder extends FrameLayout
     public PointerIcon onResolvePointerIcon(MotionEvent event, int pointerIndex) {
         View activeView = getContentView();
         if (activeView == null || !ViewCompat.isAttachedToWindow(activeView)) return null;
-        return ApiHelperForN.onResolvePointerIcon(activeView, event, pointerIndex);
+        return activeView.onResolvePointerIcon(event, pointerIndex);
     }
 
     /**
      * Creates a {@link CompositorView}.
-     * @param c     The Context to create this {@link CompositorView} in.
+     *
+     * @param c The Context to create this {@link CompositorView} in.
      * @param attrs The AttributeSet used to create this {@link CompositorView}.
      */
     public CompositorViewHolder(Context c, AttributeSet attrs) {
@@ -439,6 +390,13 @@ public class CompositorViewHolder extends FrameLayout
                 new FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
 
         setOnSystemUiVisibilityChangeListener(visibility -> handleSystemUiVisibilityChange());
+        if (isFullscreenApiMigrationEnabled()) {
+            setOnApplyWindowInsetsListener(
+                    (view, windowInsets) -> {
+                        handleSystemUiVisibilityChange();
+                        return windowInsets;
+                    });
+        }
         handleSystemUiVisibilityChange();
 
         mDelayTempStripRemoval = TabUiFeatureUtilities.isDelayTempStripRemovalEnabled(getContext());
@@ -446,7 +404,7 @@ public class CompositorViewHolder extends FrameLayout
                 TabManagementFieldTrial.DELAY_TEMP_STRIP_TIMEOUT_MS.getValue();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ApiHelperForO.setDefaultFocusHighlightEnabled(this, false);
+            setDefaultFocusHighlightEnabled(false);
         }
     }
 
@@ -479,7 +437,8 @@ public class CompositorViewHolder extends FrameLayout
         return mCachePoint;
     }
 
-    private void handleSystemUiVisibilityChange() {
+    @VisibleForTesting
+    void handleSystemUiVisibilityChange() {
         View view = getContentView();
         if (view == null || !ViewCompat.isAttachedToWindow(view)) view = this;
 
@@ -490,14 +449,8 @@ public class CompositorViewHolder extends FrameLayout
             view = (View) view.getParent();
         }
 
-        // SYSTEM_UI_FLAG_FULLSCREEN is cleared when showing the soft keyboard in older version of
-        // Android (prior to P).  The immersive mode flags are not cleared, so use those in
-        // combination to detect this state.
-        boolean isInFullscreen =
-                (uiVisibility & View.SYSTEM_UI_FLAG_FULLSCREEN) != 0
-                        || (uiVisibility & View.SYSTEM_UI_FLAG_IMMERSIVE) != 0
-                        || (uiVisibility & View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY) != 0;
-        boolean layoutFullscreen = (uiVisibility & View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN) != 0;
+        boolean isInFullscreen = isInFullscreenMode(uiVisibility, view);
+        boolean layoutFullscreen = isLayoutFullscreen(uiVisibility);
 
         if (mShowingFullscreen == isInFullscreen) return;
         mShowingFullscreen = isInFullscreen;
@@ -516,6 +469,55 @@ public class CompositorViewHolder extends FrameLayout
         // not reliably jump from updating the viewport too early.
         long delay = layoutFullscreen ? SYSTEM_UI_VIEWPORT_UPDATE_DELAY_MS : 0;
         postDelayed(mSystemUiFullscreenResizeRunnable, delay);
+    }
+
+    private static boolean isFullscreenApiMigrationEnabled() {
+        return ChromeFeatureList.sFullscreenInsetsApiMigration.isEnabled()
+                || (BuildInfo.getInstance().isAutomotive
+                        && ChromeFeatureList.sFullscreenInsetsApiMigrationOnAutomotive.isEnabled());
+    }
+
+    private boolean isInFullscreenMode(int uiVisibility, View view) {
+        // If the fullscreen api migration is enabled, check the updated API instead.
+        if (isFullscreenApiMigrationEnabled()) {
+            if (view != null
+                    && view.getRootWindowInsets() != null
+                    && mActivity != null
+                    && mActivity.getWindow() != null
+                    && mActivity.getWindow().getDecorView() != null) {
+                Window window = mActivity.getWindow();
+                return !WindowInsetsCompat.toWindowInsetsCompat(view.getRootWindowInsets(), view)
+                                .isVisible(WindowInsetsCompat.Type.statusBars())
+                        || WindowCompat.getInsetsController(window, window.getDecorView())
+                                        .getSystemBarsBehavior()
+                                == BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE;
+            } else {
+                return false;
+            }
+        } else {
+            // SYSTEM_UI_FLAG_FULLSCREEN is cleared when showing the soft keyboard in older version
+            // of
+            // Android (prior to P).  The immersive mode flags are not cleared, so use those in
+            // combination to detect this state.
+            return (uiVisibility & View.SYSTEM_UI_FLAG_FULLSCREEN) != 0
+                    || (uiVisibility & View.SYSTEM_UI_FLAG_IMMERSIVE) != 0
+                    || (uiVisibility & View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY) != 0;
+        }
+    }
+
+    private boolean isLayoutFullscreen(int uiVisibility) {
+        if (isFullscreenApiMigrationEnabled()) {
+            if (mActivity != null
+                    && mActivity.getWindow() != null
+                    && mActivity.getWindow().getDecorView() != null) {
+                // TODO(crbug.com/41492646): Coordinate usage of #setDecorFitsSystemWindows
+                return !mActivity.getWindow().getDecorView().getFitsSystemWindows();
+            } else {
+                return false;
+            }
+        } else {
+            return (uiVisibility & View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN) != 0;
+        }
     }
 
     /**
@@ -559,7 +561,7 @@ public class CompositorViewHolder extends FrameLayout
                     final ViewGroup controlContainerVG = (ViewGroup) mControlContainer;
                     mCompositorView.setBackgroundResource(0);
                     if (controlContainerVG != null) {
-                        controlContainerVG.setBackgroundResource(0);
+                        mControlContainer.setCompositorBackgroundInitialized();
                     }
                 };
     }
@@ -619,6 +621,7 @@ public class CompositorViewHolder extends FrameLayout
             WindowAndroid windowAndroid,
             TabContentManager tabContentManager,
             PrefService prefService) {
+        mActivity = windowAndroid.getActivity().get();
         mCompositorView.initNativeCompositor(
                 SysUtils.isLowEndDevice(), windowAndroid, tabContentManager);
 
@@ -675,7 +678,10 @@ public class CompositorViewHolder extends FrameLayout
 
         if (mLayoutManager == null) return false;
 
-        mEventOffsetHandler.onInterceptTouchEvent(e);
+        int actionMasked = SPenSupport.convertSPenEventAction(e.getActionMasked());
+        if (actionMasked == MotionEvent.ACTION_DOWN) {
+            mEventOffsetHandler.onInterceptTouchDownEvent(e);
+        }
         return mLayoutManager.onInterceptMotionEvent(e, mIsKeyboardShowing, EventType.TOUCH);
     }
 
@@ -701,16 +707,18 @@ public class CompositorViewHolder extends FrameLayout
             mInGesture = false;
             tryUpdateControlsAndWebContentsSizing();
         }
-        if (!ChromeFeatureList.sDeferNotifyInMotion.isEnabled()) {
-            updateInMotion();
-        }
     }
 
     private void updateInMotion() {
-        // TODO(https://crbug.com/1378716): Track fling as well.
-        boolean inMotion = mInGesture || mContentViewScrolling;
+        // TODO(crbug.com/40244051): Track fling as well.
+        boolean inMotion = mContentViewScrolling;
+        if (ChromeFeatureList.sSuppressToolbarCapturesAtGestureEnd.isEnabled()) {
+            inMotion |= mNumGestureActiveTouches > 0;
+        } else {
+            inMotion |= mInGesture;
+        }
         mInMotionSupplier.set(inMotion);
-        if (ChromeFeatureList.sDeferKeepScreenOnDuringGesture.isEnabled() && mContentView != null) {
+        if (mContentView != null) {
             mContentView.setDeferKeepScreenOnChanges(inMotion);
         }
     }
@@ -753,6 +761,16 @@ public class CompositorViewHolder extends FrameLayout
     @Override
     public boolean dispatchDragEvent(DragEvent e) {
         mEventOffsetHandler.onPreDispatchDragEvent(e.getAction(), 0.f, 0.f);
+        if (UiAndroidFeatureMap.isEnabled(UiAndroidFeatureList.DRAG_DROP_FILES)) {
+            if (e.getAction() == DragEvent.ACTION_DRAG_STARTED) {
+                releaseDragAndDropPermissions();
+            } else if (e.getAction() == DragEvent.ACTION_DROP) {
+                mDragAndDropPermissions = mActivity.requestDragAndDropPermissions(e);
+                if (e.getClipData() != null && e.getClipData().getItemCount() == 1) {
+                    mDropUri = e.getClipData().getItemAt(0).getUri();
+                }
+            }
+        }
         boolean ret = super.dispatchDragEvent(e);
         mEventOffsetHandler.onPostDispatchDragEvent(e.getAction());
         return ret;
@@ -761,7 +779,9 @@ public class CompositorViewHolder extends FrameLayout
     @Override
     public boolean dispatchTouchEvent(MotionEvent e) {
         assert e != null : "The motion event dispatched shouldn't be null!";
-        updateLastActiveTouchEvent(e);
+        if (mNativeInitialized) {
+            InputHintChecker.onCompositorViewHolderTouchEvent();
+        }
         updateIsInGesture(e);
         for (TouchEventObserver o : mTouchEventObservers) {
             if (o.dispatchTouchEvent(e)) return true;
@@ -772,23 +792,8 @@ public class CompositorViewHolder extends FrameLayout
         // notifying in motion, should be done after this.
         boolean handled = super.dispatchTouchEvent(e);
 
-        if (ChromeFeatureList.sDeferNotifyInMotion.isEnabled()) {
-            updateInMotion();
-        }
+        updateInMotion();
         return handled;
-    }
-
-    private void updateLastActiveTouchEvent(MotionEvent e) {
-        if (e.getActionMasked() == MotionEvent.ACTION_MOVE
-                || e.getActionMasked() == MotionEvent.ACTION_DOWN
-                || e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN
-                || e.getActionMasked() == MotionEvent.ACTION_POINTER_UP) {
-            mLastActiveTouchEvent = e;
-        }
-        if (e.getActionMasked() == MotionEvent.ACTION_CANCEL
-                || e.getActionMasked() == MotionEvent.ACTION_UP) {
-            mLastActiveTouchEvent = null;
-        }
     }
 
     /**
@@ -861,8 +866,6 @@ public class CompositorViewHolder extends FrameLayout
      */
     @VisibleForTesting
     void updateWebContentsSize(Tab tab) {
-        // When in VR, the CompositorView doesn't control the size of the WebContents.
-        if (mIsInVr) return;
         if (tab == null) return;
 
         WebContents webContents = tab.getWebContents();
@@ -875,7 +878,7 @@ public class CompositorViewHolder extends FrameLayout
 
         // The view size takes into account of the browser controls whose height should be
         // subtracted from the view if they are visible, therefore shrink Blink-side view size.
-        // TODO(https://crbug.com/1211066): Centralize the logic for calculating bottom insets by
+        // TODO(crbug.com/40767446): Centralize the logic for calculating bottom insets by
         // merging them into ApplicationBottomInsetSupplier.
         int controlsInsets = 0;
         if (mBrowserControlsManager != null) {
@@ -904,7 +907,7 @@ public class CompositorViewHolder extends FrameLayout
             if (mVirtualKeyboardMode == VirtualKeyboardMode.OVERLAYS_CONTENT) {
                 int keyboardHeight =
                         KeyboardVisibilityDelegate.getInstance()
-                                .calculateKeyboardHeight(this.getRootView());
+                                .calculateTotalKeyboardHeight(this.getRootView());
                 notifyVirtualKeyboardOverlayGeometryChangeEvent(width, keyboardHeight, webContents);
             }
         } else {
@@ -1016,9 +1019,19 @@ public class CompositorViewHolder extends FrameLayout
             int topControlsMinHeightOffset,
             int bottomOffset,
             int bottomControlsMinHeightOffset,
-            boolean needsAnimate) {
+            boolean needsAnimate,
+            boolean isVisibilityForced) {
         onViewportChanged();
-        if (needsAnimate) requestRender();
+
+        // When scrolling browser controls in viz, don't produce new browser frames unless it's
+        // forced with |needs_animate|
+        boolean scrollingWithBciv =
+                ChromeFeatureList.sBrowserControlsInViz.isEnabled()
+                        && (mInGesture || mContentViewScrolling);
+        if (needsAnimate && !scrollingWithBciv) {
+            requestRender();
+        }
+
         updateContentViewChildrenDimension();
     }
 
@@ -1099,7 +1112,6 @@ public class CompositorViewHolder extends FrameLayout
             float topViewsTranslation = mBrowserControlsManager.getTopVisibleContentOffset();
             float bottomMargin =
                     BrowserControlsUtils.getBottomContentOffset(mBrowserControlsManager);
-            applyTranslationToTopChildViews(view, topViewsTranslation);
             applyMarginToFullscreenChildViews(view, topViewsTranslation, bottomMargin);
             tryUpdateControlsAndWebContentsSizing();
         }
@@ -1122,20 +1134,6 @@ public class CompositorViewHolder extends FrameLayout
                 ViewUtils.requestLayout(
                         child, "CompositorViewHolder.applyMarginToFullscreenChildViews");
                 TraceEvent.instant("FullscreenManager:child.requestLayout()");
-            }
-        }
-    }
-
-    private static void applyTranslationToTopChildViews(ViewGroup contentView, float translation) {
-        for (int i = 0; i < contentView.getChildCount(); i++) {
-            View child = contentView.getChildAt(i);
-            if (!(child.getLayoutParams() instanceof FrameLayout.LayoutParams)) continue;
-
-            FrameLayout.LayoutParams layoutParams =
-                    (FrameLayout.LayoutParams) child.getLayoutParams();
-            if (Gravity.TOP == (layoutParams.gravity & Gravity.FILL_VERTICAL)) {
-                child.setTranslationY(translation);
-                TraceEvent.instant("FullscreenManager:child.setTranslationY()");
             }
         }
     }
@@ -1318,15 +1316,6 @@ public class CompositorViewHolder extends FrameLayout
     }
 
     @Override
-    public void pushDebugRect(Rect rect, int color) {
-        if (mDebugOverlay == null) {
-            mDebugOverlay = new DebugOverlay(getContext());
-            addView(mDebugOverlay);
-        }
-        mDebugOverlay.pushRect(rect, color);
-    }
-
-    @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
         mIsKeyboardShowing =
@@ -1368,12 +1357,10 @@ public class CompositorViewHolder extends FrameLayout
         onViewportChanged();
     }
 
-    @Override
     public int getTopControlsHeightPixels() {
         return mBrowserControlsManager != null ? mBrowserControlsManager.getTopControlsHeight() : 0;
     }
 
-    @Override
     public int getBottomControlsHeightPixels() {
         return mBrowserControlsManager != null
                 ? mBrowserControlsManager.getBottomControlsHeight()
@@ -1434,19 +1421,24 @@ public class CompositorViewHolder extends FrameLayout
 
     /**
      * Sets the appropriate objects this class should represent.
-     * @param tabModelSelector        The {@link TabModelSelector} this View should hold and
-     *                                represent.
-     * @param tabCreatorManager       The {@link TabCreatorManager} for this view.
+     *
+     * @param tabModelSelector The {@link TabModelSelector} this View should hold and represent.
+     * @param tabCreatorManager The {@link TabCreatorManager} for this view.
+     * @param bottomControlsOffsetSupplier Supplier of the offset, relative to the bottom of the
+     *     viewport, of the bottom-anchored toolbar.
      */
     public void onFinishNativeInitialization(
-            TabModelSelector tabModelSelector, TabCreatorManager tabCreatorManager) {
+            TabModelSelector tabModelSelector,
+            TabCreatorManager tabCreatorManager,
+            Supplier<Integer> bottomControlsOffsetSupplier) {
         assert mLayoutManager != null;
         mLayoutManager.init(
                 tabModelSelector,
                 tabCreatorManager,
                 mControlContainer,
                 mCompositorView.getResourceManager().getDynamicResourceLoader(),
-                mTopUiThemeColorProvider);
+                mTopUiThemeColorProvider,
+                bottomControlsOffsetSupplier);
 
         mTabModelSelector = tabModelSelector;
         tabModelSelector.addObserver(
@@ -1505,7 +1497,7 @@ public class CompositorViewHolder extends FrameLayout
             }
 
             // CompositorView always has index of 0.
-            // TODO(crbug.com/1216949): Look into enforcing the z-order of the views.
+            // TODO(crbug.com/40770763): Look into enforcing the z-order of the views.
             addView(mView, 1);
 
             setFocusable(false);
@@ -1537,12 +1529,26 @@ public class CompositorViewHolder extends FrameLayout
         setTab(tab);
     }
 
+    @VisibleForTesting
+    void onWillShowBrowserControls(boolean viewTransitionOptIn) {
+        // TODO(bokan): Flag guarding potential new behavior
+        // https://crbug.com/332331777.
+        if (!viewTransitionOptIn && !ChromeFeatureList.sBrowserControlsEarlyResize.isEnabled()) {
+            return;
+        }
+
+        // Let observers know the controls will be shown, resize the web content
+        // immediately rather than waiting for the controls animation to finish. This
+        // helps makes the resize more predictable, in particular, when capturing
+        // snapshots of outgoing content for a view transition.
+        if (mControlsResizeView) return;
+        mControlsResizeView = true;
+        updateWebContentsSize(getCurrentTab());
+        onControlsResizeViewChanged(getWebContents(), mControlsResizeView);
+    }
+
     private void setTab(Tab tab) {
-        // The StartSurfaceUserData.getInstance().getUnusedTabRestoredAtStartup() is only true when
-        // the Start surface is showing in the startup and there isn't any Tab opened. Thus, no
-        // Tab needs to be loaded. Once a new Tab is opening and Start surface is hiding, this flag
-        // will be reset.
-        if (tab != null && !StartSurfaceUserData.getInstance().getUnusedTabRestoredAtStartup()) {
+        if (tab != null) {
             tab.loadIfNeeded(TabLoadIfNeededCaller.SET_TAB);
         }
 
@@ -1576,6 +1582,13 @@ public class CompositorViewHolder extends FrameLayout
                     new OnscreenContentProvider(getContext(), this, getWebContents());
         } else {
             mOnscreenContentProvider.onWebContentsChanged(getWebContents());
+        }
+
+        // Clear drop permissions when tab changes unless this is a new tab loading from the drop.
+        if (mDropUri == null
+                || tab == null
+                || !tab.getUrl().getSpec().equals(mDropUri.toString())) {
+            releaseDragAndDropPermissions();
         }
     }
 
@@ -1638,29 +1651,9 @@ public class CompositorViewHolder extends FrameLayout
         updateWebContentsSize(tab);
     }
 
-    /**
-     * Called when VR is entered. The CompositorViewHolder loses control over WebContents sizing.
-     */
-    public void onEnterVr() {
-        mIsInVr = true;
-    }
-
-    /**
-     * Called when VR is exited. The CompositorViewHolder regains control over WebContents sizing.
-     */
-    public void onExitVr() {
-        mIsInVr = false;
-        tryUpdateControlsAndWebContentsSizing();
-    }
-
     @Override
     public void invalidateAccessibilityProvider() {
-        if (mNodeProvider != null) {
-            mNodeProvider.sendEventForVirtualView(
-                    mNodeProvider.getAccessibilityFocusedVirtualViewId(),
-                    AccessibilityEventCompat.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED);
-            mNodeProvider.invalidateRoot();
-        }
+        if (mNodeProvider != null) mNodeProvider.invalidateRoot();
     }
 
     // ChromeAccessibilityUtil.Observer
@@ -1803,9 +1796,13 @@ public class CompositorViewHolder extends FrameLayout
 
             node.setBoundsInParent(rectToPx(mTouchTarget));
             node.setContentDescription(view.getAccessibilityDescription());
-            node.addAction(AccessibilityNodeInfoCompat.ACTION_CLICK);
+            if (view.hasClickAction()) {
+                node.addAction(AccessibilityNodeInfoCompat.ACTION_CLICK);
+            }
             node.addAction(AccessibilityNodeInfoCompat.ACTION_FOCUS);
-            node.addAction(AccessibilityNodeInfoCompat.ACTION_LONG_CLICK);
+            if (view.hasLongClickAction()) {
+                node.addAction(AccessibilityNodeInfoCompat.ACTION_LONG_CLICK);
+            }
         }
 
         private Rect rectToPx(RectF rect) {
@@ -1844,5 +1841,14 @@ public class CompositorViewHolder extends FrameLayout
     @VirtualKeyboardMode.EnumType
     public int getVirtualKeyboardModeForTesting() {
         return mVirtualKeyboardMode;
+    }
+
+    /** Release any DragAndDropPermissions currently held. */
+    private void releaseDragAndDropPermissions() {
+        if (mDragAndDropPermissions != null) {
+            mDragAndDropPermissions.release();
+            mDragAndDropPermissions = null;
+        }
+        mDropUri = null;
     }
 }

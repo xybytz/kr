@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/ash/file_manager/copy_or_move_io_task.h"
 
 #include "base/files/file_util.h"
@@ -1496,7 +1501,7 @@ class CopyOrMoveIOTaskWithDLPTest : public testing::Test {
     user_manager::User* user =
         fake_user_manager_->AddUserWithAffiliationAndTypeAndProfile(
             account_id, /*is_affiliated=*/false,
-            user_manager::USER_TYPE_REGULAR, profile_.get());
+            user_manager::UserType::kRegular, profile_.get());
     fake_user_manager_->UserLoggedIn(account_id, user->username_hash(),
                                      /*browser_restart=*/false,
                                      /*is_child=*/false);

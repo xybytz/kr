@@ -8,7 +8,6 @@
 
 #include "ash/accessibility/a11y_feature_type.h"
 #include "ash/accessibility/accessibility_controller.h"
-#include "ash/constants/ash_features.h"
 #include "ash/constants/tray_background_view_catalog.h"
 #include "ash/ime/ime_controller_impl.h"
 #include "ash/keyboard/keyboard_controller_impl.h"
@@ -56,6 +55,7 @@
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/range/range.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
@@ -124,9 +124,6 @@ bool IsKioskSession() {
 
 bool ShouldShowVoiceButton() {
   auto* ime_controller = Shell::Get()->ime_controller();
-  if (!ash::features::IsImeTrayHideVoiceButtonEnabled()) {
-    return ime_controller->is_voice_enabled();
-  }
   const bool is_dictation_enabled =
       Shell::Get()
           ->accessibility_controller()
@@ -159,9 +156,9 @@ bool ShouldShowBottomButtons() {
 }
 
 class ImeMenuLabel : public views::Label {
- public:
-  METADATA_HEADER(ImeMenuLabel);
+  METADATA_HEADER(ImeMenuLabel, views::Label)
 
+ public:
   ImeMenuLabel() {
     // Sometimes the label will be more than 2 characters, e.g. INTL and EXTD.
     // This border makes sure we only leave room for ~2 and the others are
@@ -177,16 +174,15 @@ class ImeMenuLabel : public views::Label {
       const views::SizeBounds& available_size) const override {
     return gfx::Size(kTrayItemSize, kTrayItemSize);
   }
-  int GetHeightForWidth(int width) const override { return kTrayItemSize; }
 };
 
-BEGIN_METADATA(ImeMenuLabel, views::Label)
+BEGIN_METADATA(ImeMenuLabel)
 END_METADATA
 
 class ImeMenuImageView : public views::ImageView {
- public:
-  METADATA_HEADER(ImeMenuImageView);
+  METADATA_HEADER(ImeMenuImageView, views::ImageView)
 
+ public:
   ImeMenuImageView() {
     SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(0, 6)));
   }
@@ -195,13 +191,14 @@ class ImeMenuImageView : public views::ImageView {
   ~ImeMenuImageView() override = default;
 };
 
-BEGIN_METADATA(ImeMenuImageView, views::ImageView)
+BEGIN_METADATA(ImeMenuImageView)
 END_METADATA
 
 // The view that contains IME menu title.
 class ImeTitleView : public views::BoxLayoutView {
+  METADATA_HEADER(ImeTitleView, views::BoxLayoutView)
+
  public:
-  METADATA_HEADER(ImeTitleView);
   ImeTitleView() {
     SetID(VIEW_ID_IME_TITLE_VIEW);
     SetOrientation(views::BoxLayout::Orientation::kHorizontal);
@@ -243,13 +240,14 @@ class ImeTitleView : public views::BoxLayoutView {
   raw_ptr<IconButton> settings_button_ = nullptr;
 };
 
-BEGIN_METADATA(ImeTitleView, views::BoxLayoutView)
+BEGIN_METADATA(ImeTitleView)
 END_METADATA
 
 // The view that contains buttons shown on the bottom of IME menu.
 class ImeButtonsView : public views::View {
+  METADATA_HEADER(ImeButtonsView, views::View)
+
  public:
-  METADATA_HEADER(ImeButtonsView);
   ImeButtonsView(ImeMenuTray* ime_menu_tray,
                  bool show_emoji,
                  bool show_handwriting,
@@ -322,15 +320,15 @@ class ImeButtonsView : public views::View {
   raw_ptr<SystemMenuButton> voice_button_;
 };
 
-BEGIN_METADATA(ImeButtonsView, views::View)
+BEGIN_METADATA(ImeButtonsView)
 END_METADATA
 
 // A list of available IMEs shown in the opt-in IME menu, which has a
 // different height depending on the number of IMEs in the list.
 class ImeMenuListView : public ImeListView {
- public:
-  METADATA_HEADER(ImeMenuListView);
+  METADATA_HEADER(ImeMenuListView, ImeListView)
 
+ public:
   ImeMenuListView() : ImeMenuListView(std::make_unique<Delegate>()) {
     SetID(VIEW_ID_IME_MENU_LIST_VIEW);
   }
@@ -364,16 +362,16 @@ class ImeMenuListView : public ImeListView {
   }
 
   // ImeListView:
-  void Layout() override {
+  void Layout(PassKey) override {
     gfx::Range height_range = GetImeListViewRange();
     scroller()->ClipHeightTo(height_range.start(), height_range.end());
-    ImeListView::Layout();
+    LayoutSuperclass<ImeListView>(this);
   }
 
   std::unique_ptr<Delegate> delegate_;
 };
 
-BEGIN_METADATA(ImeMenuListView, ImeListView)
+BEGIN_METADATA(ImeMenuListView)
 END_METADATA
 
 }  // namespace
@@ -399,6 +397,9 @@ ImeMenuTray::ImeMenuTray(Shelf* shelf)
   // Show the tray even if virtual keyboard is shown. (Other tray buttons will
   // be hidden).
   set_show_with_virtual_keyboard(true);
+
+  GetViewAccessibility().SetName(
+      l10n_util::GetStringUTF16(IDS_ASH_IME_MENU_ACCESSIBLE_NAME));
 }
 
 ImeMenuTray::~ImeMenuTray() {
@@ -491,10 +492,6 @@ void ImeMenuTray::OnThemeChanged() {
   UpdateTrayLabel();
 }
 
-std::u16string ImeMenuTray::GetAccessibleNameForTray() {
-  return l10n_util::GetStringUTF16(IDS_ASH_IME_MENU_ACCESSIBLE_NAME);
-}
-
 void ImeMenuTray::HandleLocaleChange() {
   if (image_view_) {
     image_view_->SetTooltipText(
@@ -512,7 +509,7 @@ void ImeMenuTray::HideBubbleWithView(const TrayBubbleView* bubble_view) {
   }
 }
 
-void ImeMenuTray::ClickedOutsideBubble() {
+void ImeMenuTray::ClickedOutsideBubble(const ui::LocatedEvent& event) {
   CloseBubble();
 }
 
@@ -521,7 +518,7 @@ void ImeMenuTray::UpdateTrayItemColor(bool is_active) {
       extension_ime_util::IsArcIME(ime_controller_->current_ime().id));
 }
 
-void ImeMenuTray::CloseBubble() {
+void ImeMenuTray::CloseBubbleInternal() {
   bubble_.reset();
   ime_list_view_ = nullptr;
   SetIsActive(false);
@@ -689,7 +686,7 @@ void ImeMenuTray::UpdateTrayImageOrLabelColor(bool is_image) {
   label_->SetEnabledColorId(color_id);
 }
 
-BEGIN_METADATA(ImeMenuTray, TrayBackgroundView)
+BEGIN_METADATA(ImeMenuTray)
 END_METADATA
 
 }  // namespace ash

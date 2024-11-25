@@ -30,14 +30,10 @@ class VpxEncoder final : public VideoTrackRecorder::Encoder {
              bool use_vp9,
              const VideoTrackRecorder::OnEncodedVideoCB& on_encoded_video_cb,
              uint32_t bits_per_second,
+             bool is_screencast,
              const VideoTrackRecorder::OnErrorCB on_error_cb);
-
   VpxEncoder(const VpxEncoder&) = delete;
   VpxEncoder& operator=(const VpxEncoder&) = delete;
-
-  base::WeakPtr<Encoder> GetWeakPtr() override {
-    return weak_factory_.GetWeakPtr();
-  }
 
  private:
   // VideoTrackRecorder::Encoder implementation.
@@ -50,6 +46,10 @@ class VpxEncoder final : public VideoTrackRecorder::Encoder {
                                       vpx_codec_enc_cfg_t* codec_config,
                                       ScopedVpxCodecCtxPtr* encoder);
 
+  // This function creates a scoped_refptr<media::DecoderBuffer> that is passed
+  // as an out parameter. Note that this will NOT be the case for when is_alpha
+  // is true, as it is expected that the scoped_refptr<media::DecoderBuffer> is
+  // already populated.
   void DoEncode(vpx_codec_ctx_t* const encoder,
                 const gfx::Size& frame_size,
                 const uint8_t* data,
@@ -61,8 +61,8 @@ class VpxEncoder final : public VideoTrackRecorder::Encoder {
                 int v_stride,
                 const base::TimeDelta& duration,
                 bool force_keyframe,
-                std::string& output_data,
-                bool* const keyframe,
+                scoped_refptr<media::DecoderBuffer>* output_data,
+                bool is_alpha,
                 vpx_img_fmt_t img_fmt);
 
   // Returns true if |codec_config| has been filled in at least once.
@@ -73,6 +73,7 @@ class VpxEncoder final : public VideoTrackRecorder::Encoder {
 
   // Force usage of VP9 for encoding, instead of VP8 which is the default.
   const bool use_vp9_;
+  const bool is_screencast_;
 
   const VideoTrackRecorder::OnErrorCB on_error_cb_;
 
@@ -95,7 +96,6 @@ class VpxEncoder final : public VideoTrackRecorder::Encoder {
   // The |media::VideoFrame::timestamp()| of the last encoded frame.  This is
   // used to predict the duration of the next frame.
   base::TimeDelta last_frame_timestamp_;
-  base::WeakPtrFactory<VpxEncoder> weak_factory_{this};
 };
 
 }  // namespace blink

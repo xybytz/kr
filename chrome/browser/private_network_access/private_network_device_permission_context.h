@@ -30,7 +30,7 @@ enum class PrivateNetworkDeviceValidity {
   kExistingDevice = 0,
   kNewValidDevice = 1,
   kDeviceIDMissing = 2,
-  kDeviceIDInvalid = 3,
+  kDeviceIDInvalid = 3, // kDeviceIDInvalid is deprecated.
   kDeviceNameMissing = 4,
   kDeviceNameInvalid = 5,
   kMaxValue = kDeviceNameInvalid,
@@ -77,6 +77,9 @@ class PrivateNetworkDevicePermissionContext
   bool HasDevicePermission(const url::Origin& origin,
                            const blink::mojom::PrivateNetworkDevice& device,
                            bool is_device_valid);
+
+  // KeyedService:
+  void Shutdown() override;
 
   // Tracks the set of devices to which an origin has temporary access to.
   std::map<url::Origin, std::set<net::IPAddress>> ephemeral_devices_;

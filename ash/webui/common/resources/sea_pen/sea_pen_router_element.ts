@@ -2,24 +2,39 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'chrome://resources/ash/common/cr_elements/cr_dialog/cr_dialog.js';
 import 'chrome://resources/polymer/v3_0/iron-location/iron-location.js';
 import 'chrome://resources/polymer/v3_0/iron-location/iron-query-params.js';
+import './sea_pen_freeform_element.js';
+import './sea_pen_images_element.js';
 import './sea_pen_input_query_element.js';
+import './sea_pen_introduction_dialog_element.js';
+import './sea_pen_recent_wallpapers_element.js';
+import './sea_pen_samples_element.js';
 import './sea_pen_template_query_element.js';
 import './sea_pen_templates_element.js';
-import './sea_pen_images_element.js';
+import './sea_pen_toast_element.js';
 
 import {assert} from 'chrome://resources/js/assert.js';
-import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {afterNextRender} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {Query} from './constants.js';
+import {QUERY, Query} from './constants.js';
 import {isSeaPenEnabled, isSeaPenTextInputEnabled} from './load_time_booleans.js';
-import {SeaPenTemplateId} from './sea_pen.mojom-webui.js';
+import {cleanUpSeaPenQueryStates, closeSeaPenIntroductionDialog, getShouldShowSeaPenIntroductionDialog} from './sea_pen_controller.js';
+import {SeaPenTemplateId} from './sea_pen_generated.mojom-webui.js';
+import {getSeaPenProvider} from './sea_pen_interface_provider.js';
+import {logSeaPenVisited} from './sea_pen_metrics_logger.js';
+import {SeaPenObserver} from './sea_pen_observer.js';
 import {getTemplate} from './sea_pen_router_element.html.js';
+import {WithSeaPenStore} from './sea_pen_store.js';
+import {SeaPenTemplateQueryElement} from './sea_pen_template_query_element.js';
+import {getTemplateIdFromString} from './sea_pen_utils.js';
+import {maybeDoPageTransition} from './transition.js';
 
 export enum SeaPenPaths {
-  ROOT = '',
+  TEMPLATES = '',
   RESULTS = '/results',
+  FREEFORM = '/freeform',
 }
 
 export interface SeaPenQueryParams {
@@ -28,7 +43,7 @@ export interface SeaPenQueryParams {
 
 let instance: SeaPenRouterElement|null = null;
 
-export class SeaPenRouterElement extends PolymerElement {
+export class SeaPenRouterElement extends WithSeaPenStore {
   static get is() {
     return 'sea-pen-router';
   }
@@ -38,6 +53,7 @@ export class SeaPenRouterElement extends PolymerElement {
   static get properties() {
     return {
       basePath: String,
+
       path_: String,
 
       query_: String,
@@ -49,6 +65,8 @@ export class SeaPenRouterElement extends PolymerElement {
         computed: 'computeRelativePath_(path_, basePath)',
         observer: 'onRelativePathChanged_',
       },
+
+      showSeaPenIntroductionDialog_: Boolean,
     };
   }
 
@@ -62,11 +80,19 @@ export class SeaPenRouterElement extends PolymerElement {
   private query_: string;
   private queryParams_: SeaPenQueryParams;
   private relativePath_: string|null;
+  private showSeaPenIntroductionDialog_: boolean;
 
   override connectedCallback() {
     assert(isSeaPenEnabled(), 'sea pen must be enabled');
     super.connectedCallback();
     instance = this;
+    this.watch<SeaPenRouterElement['showSeaPenIntroductionDialog_']>(
+        'showSeaPenIntroductionDialog_',
+        state => state.shouldShowSeaPenIntroductionDialog);
+    this.updateFromStore();
+    this.fetchIntroductionDialogStatus();
+    logSeaPenVisited(this.relativePath_ as SeaPenPaths);
+    afterNextRender(this, () => SeaPenObserver.initSeaPenObserverIfNeeded());
   }
 
   override disconnectedCallback() {
@@ -74,14 +100,35 @@ export class SeaPenRouterElement extends PolymerElement {
     instance = null;
   }
 
-  selectSeaPenTemplate(templateId: SeaPenTemplateId|Query) {
-    this.goToRoute(SeaPenPaths.ROOT, {seaPenTemplateId: templateId.toString()});
+  selectSeaPenTemplate(templateId: SeaPenTemplateId|Query|undefined) {
+    if (templateId === undefined) {
+      return;
+    }
+    // Clean up the Sea Pen states such as thumbnail response status code,
+    // thumbnail loading status and Sea Pen query when
+    // switching template; otherwise, states from the last query search will
+    // remain in sea-pen-images element.
+    cleanUpSeaPenQueryStates(this.getStore());
+    if (templateId === QUERY) {
+      this.goToRoute(SeaPenPaths.FREEFORM);
+      return;
+    }
+    this.goToRoute(
+        SeaPenPaths.RESULTS, {seaPenTemplateId: templateId.toString()});
   }
 
-  goToRoute(relativePath: SeaPenPaths, queryParams: SeaPenQueryParams = {}) {
+  async goToRoute(
+      relativePath: SeaPenPaths, queryParams: SeaPenQueryParams = {}) {
     assert(typeof this.basePath === 'string', 'basePath must be set');
-    this.setProperties(
-        {path_: this.basePath + relativePath, queryParams_: queryParams});
+    const routingPath = this.basePath + relativePath;
+    // Skip page transition animation if no changes in routing path.
+    if (this.path_ === routingPath) {
+      this.setProperties({queryParams_: queryParams});
+      return Promise.resolve();
+    }
+    return maybeDoPageTransition(
+        () => this.setProperties(
+            {path_: routingPath, queryParams_: queryParams}));
   }
 
   /**
@@ -121,45 +168,74 @@ export class SeaPenRouterElement extends PolymerElement {
     if (!Object.values(SeaPenPaths).includes(relativePath as SeaPenPaths)) {
       // If arriving at an unknown path, go back to the root path.
       console.warn('SeaPenRouter unknown path', relativePath);
-      this.goToRoute(SeaPenPaths.ROOT);
+      this.goToRoute(SeaPenPaths.TEMPLATES);
     }
-  }
-
-  private shouldShowTextInputQuery_(
-      relativePath: string|null, templateId: string|null): boolean {
-    return isSeaPenTextInputEnabled() &&
-        (relativePath === SeaPenPaths.ROOT ||
-         relativePath === SeaPenPaths.RESULTS) &&
-        templateId === 'Query';
   }
 
   private shouldShowTemplateQuery_(
       relativePath: string|null, templateId: string|null): boolean {
-    return (relativePath === SeaPenPaths.ROOT ||
-            relativePath === SeaPenPaths.RESULTS) &&
+    return relativePath === SeaPenPaths.RESULTS &&
         (!!templateId && templateId !== 'Query');
   }
 
-  private shouldShowSeaPenRoot_(relativePath: string|null): boolean {
+  private shouldShowSeaPenTemplates_(relativePath: string|null): boolean {
     if (typeof relativePath !== 'string') {
       return false;
     }
-    return relativePath === SeaPenPaths.ROOT;
+    return relativePath === SeaPenPaths.TEMPLATES;
   }
 
-  private shouldShowSeaPenImages_(relativePath: string|null): boolean {
+  private shouldShowSeaPenTemplateImages_(relativePath: string|null): boolean {
     if (typeof relativePath !== 'string') {
       return false;
     }
     return relativePath === SeaPenPaths.RESULTS;
   }
 
+  private shouldShowSeaPenFreeform_(relativePath: string|null): boolean {
+    return isSeaPenTextInputEnabled() && relativePath === SeaPenPaths.FREEFORM;
+  }
+
+  private onBottomContainerClicked_(): void {
+    // close the chip option selection if it is open (or selected chip state is
+    // set).
+    this.shadowRoot!
+        .querySelector<SeaPenTemplateQueryElement>('sea-pen-template-query')
+        ?.onOptionSelectionDone();
+  }
+
   private getTemplateIdFromQueryParams_(templateId: string): SeaPenTemplateId
       |Query {
-    if (templateId === 'Query') {
-      return 'Query';
+    return getTemplateIdFromString(templateId);
+  }
+
+  private async fetchIntroductionDialogStatus() {
+    await getShouldShowSeaPenIntroductionDialog(
+        getSeaPenProvider(), this.getStore());
+  }
+
+  private async onCloseSeaPenIntroductionDialog_() {
+    await closeSeaPenIntroductionDialog(getSeaPenProvider(), this.getStore());
+    // Freeform focus goes to the text input automatically.
+    if (this.relativePath_ !== SeaPenPaths.FREEFORM) {
+      this.focusOnFirstTemplate_();
     }
-    return parseInt(templateId) as SeaPenTemplateId;
+  }
+
+  private onRecentTemplateImageDelete_() {
+    // focus on the first template if the deleted recent image is the only image
+    // or the last image of recent images list.
+    this.focusOnFirstTemplate_();
+  }
+
+  private focusOnFirstTemplate_() {
+    const seaPenTemplates =
+        this.shadowRoot!.querySelector<HTMLElement>('sea-pen-templates');
+    const firstTemplate =
+        seaPenTemplates!.shadowRoot!.querySelector<HTMLElement>(
+            '.sea-pen-template');
+    window.scrollTo(0, 0);
+    firstTemplate!.focus();
   }
 }
 

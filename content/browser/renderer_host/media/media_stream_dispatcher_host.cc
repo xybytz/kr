@@ -8,8 +8,10 @@
 
 #include "base/check_op.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/task/bind_post_task.h"
 #include "build/build_config.h"
 #include "content/browser/media/media_devices_util.h"
@@ -113,7 +115,6 @@ bool MayApplySubCaptureTarget(GlobalRenderFrameHostId capturing_id,
 
   // * target.is_zero() = uncrop-request.
   // * !target.is_zero() = crop-request.
-  // TODO(crbug.com/1418194): Extend to support other types.
   return target.is_zero() || helper->IsAssociatedWith(target, type);
 }
 
@@ -132,7 +133,7 @@ WrapApplySubCaptureTarget(
           // Intentionally avoid returning. Instead, continue execution and
           // invoke the callback. If the callback were allowed to "drop" that
           // would trigger a DCHECK in the mojom pipe.
-          // TODO(crbug.com/1299008): Avoid the necessity for this.
+          // TODO(crbug.com/40823292): Avoid the necessity for this.
         }
         std::move(callback).Run(result);
       },
@@ -144,7 +145,7 @@ bool AllowedStreamTypeCombination(
     blink::mojom::MediaStreamType audio_stream_type,
     blink::mojom::MediaStreamType video_stream_type) {
   switch (audio_stream_type) {
-    // TODO(crbug.com/1288237): Disallow video_stream_type == NO_SERVICE when
+    // TODO(crbug.com/40211480): Disallow video_stream_type == NO_SERVICE when
     // {video=false} is no longer allowed.
     case blink::mojom::MediaStreamType::NO_SERVICE:
       return blink::IsVideoInputMediaType(video_stream_type) ||
@@ -163,8 +164,9 @@ bool AllowedStreamTypeCombination(
     case blink::mojom::MediaStreamType::DISPLAY_AUDIO_CAPTURE:
       return video_stream_type ==
                  blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE ||
-             video_stream_type ==
-                 blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE_THIS_TAB;
+             video_stream_type == blink::mojom::MediaStreamType::
+                                      DISPLAY_VIDEO_CAPTURE_THIS_TAB ||
+             video_stream_type == blink::mojom::MediaStreamType::NO_SERVICE;
     case blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE:
     case blink::mojom::MediaStreamType::GUM_TAB_VIDEO_CAPTURE:
     case blink::mojom::MediaStreamType::GUM_DESKTOP_VIDEO_CAPTURE:
@@ -176,6 +178,28 @@ bool AllowedStreamTypeCombination(
   }
   return false;
 }
+
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
+bool IsValidZoomLevel(int zoom_level) {
+  if (blink::kPresetBrowserZoomFactors.empty()) {
+    return false;
+  }
+
+  if (zoom_level ==
+      base::ClampCeil(100 * blink::kPresetBrowserZoomFactors[0])) {
+    return true;
+  }
+
+  for (size_t i = 1; i < blink::kPresetBrowserZoomFactors.size(); ++i) {
+    if (zoom_level ==
+        base::ClampFloor(100 * blink::kPresetBrowserZoomFactors[i])) {
+      return true;
+    }
+  }
+
+  return false;
+}
+#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
 
 }  // namespace
 
@@ -218,7 +242,7 @@ MediaStreamDispatcherHost::MediaStreamDispatcherHost(
           base::BindRepeating(&GetMediaDeviceSaltAndOrigin)) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  // TODO(crbug.com/1265369): Register focus_callback only when needed.
+  // TODO(crbug.com/40203744): Register focus_callback only when needed.
   base::RepeatingClosure focus_callback =
       base::BindRepeating(&MediaStreamDispatcherHost::OnWebContentsFocused,
                           weak_factory_.GetWeakPtr());
@@ -303,6 +327,21 @@ void MediaStreamDispatcherHost::OnDeviceCaptureHandleChange(
   GetMediaStreamDeviceObserver()->OnDeviceCaptureHandleChange(label, device);
 }
 
+void MediaStreamDispatcherHost::OnZoomLevelChange(
+    const std::string& label,
+    const blink::MediaStreamDevice& device,
+    int zoom_level) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK(device.display_media_info);
+
+  if (!base::FeatureList::IsEnabled(
+          features::kCapturedSurfaceControlKillswitch)) {
+    return;
+  }
+
+  GetMediaStreamDeviceObserver()->OnZoomLevelChange(label, device, zoom_level);
+}
+
 void MediaStreamDispatcherHost::OnWebContentsFocused() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
@@ -327,24 +366,11 @@ void MediaStreamDispatcherHost::OnWebContentsFocused() {
             weak_factory_.GetWeakPtr()),
         base::BindRepeating(
             &MediaStreamDispatcherHost::OnDeviceCaptureHandleChange,
-            weak_factory_.GetWeakPtr()));
+            weak_factory_.GetWeakPtr()),
+        base::BindRepeating(&MediaStreamDispatcherHost::OnZoomLevelChange,
+                            weak_factory_.GetWeakPtr()));
     pending_requests_.pop_front();
   }
-}
-
-bool MediaStreamDispatcherHost::CheckRequestAllScreensAllowed(
-    GlobalRenderFrameHostId render_frame_host_id) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
-  RenderFrameHostImpl* render_frame_host =
-      RenderFrameHostImpl::FromID(render_frame_host_id);
-  if (!render_frame_host) {
-    return false;
-  }
-  ContentBrowserClient* browser_client = GetContentClient()->browser();
-  return browser_client->IsGetAllScreensMediaAllowed(
-      render_frame_host->GetBrowserContext(),
-      render_frame_host->GetMainFrame()->GetLastCommittedOrigin());
 }
 
 void MediaStreamDispatcherHost::GenerateStreamsChecksOnUIThread(
@@ -356,8 +382,49 @@ void MediaStreamDispatcherHost::GenerateStreamsChecksOnUIThread(
         result_callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  if (request_all_screens &&
-      !CheckRequestAllScreensAllowed(render_frame_host_id)) {
+  if (request_all_screens) {
+    CheckRequestAllScreensAllowed(std::move(get_salt_and_origin_cb),
+                                  std::move(result_callback),
+                                  render_frame_host_id);
+    return;
+  }
+
+  CheckStreamsPermissionResultReceived(std::move(get_salt_and_origin_cb),
+                                       std::move(result_callback),
+                                       /*result=*/true);
+}
+
+void MediaStreamDispatcherHost::CheckRequestAllScreensAllowed(
+    base::OnceCallback<void(MediaDeviceSaltAndOriginCallback)>
+        get_salt_and_origin_cb,
+    base::OnceCallback<void(GenerateStreamsUIThreadCheckResult)>
+        result_callback,
+    GlobalRenderFrameHostId render_frame_host_id) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  RenderFrameHostImpl* render_frame_host =
+      RenderFrameHostImpl::FromID(render_frame_host_id);
+  if (!render_frame_host) {
+    CheckStreamsPermissionResultReceived(std::move(get_salt_and_origin_cb),
+                                         std::move(result_callback),
+                                         /*result=*/false);
+    return;
+  }
+
+  GetContentClient()->browser()->CheckGetAllScreensMediaAllowed(
+      render_frame_host,
+      base::BindOnce(
+          &MediaStreamDispatcherHost::CheckStreamsPermissionResultReceived,
+          std::move(get_salt_and_origin_cb), std::move(result_callback)));
+}
+
+void MediaStreamDispatcherHost::CheckStreamsPermissionResultReceived(
+    base::OnceCallback<void(MediaDeviceSaltAndOriginCallback)>
+        get_salt_and_origin_cb,
+    base::OnceCallback<void(GenerateStreamsUIThreadCheckResult)>
+        result_callback,
+    bool result) {
+  if (!result) {
     std::move(result_callback)
         .Run({.request_allowed = false,
               .salt_and_origin = MediaDeviceSaltAndOrigin::Empty()});
@@ -428,15 +495,6 @@ void MediaStreamDispatcherHost::GenerateStreams(
       ValidateControlsForGenerateStreams(controls);
   if (bad_message.has_value()) {
     ReceivedBadMessage(render_frame_host_id_.child_id, bad_message.value());
-    return;
-  }
-
-  if (audio_stream_selection_info_ptr->strategy ==
-          blink::mojom::StreamSelectionStrategy::SEARCH_BY_SESSION_ID &&
-      (!audio_stream_selection_info_ptr->session_id.has_value() ||
-       audio_stream_selection_info_ptr->session_id->is_empty())) {
-    ReceivedBadMessage(render_frame_host_id_.child_id,
-                       bad_message::MDDH_INVALID_STREAM_SELECTION_INFO);
     return;
   }
 
@@ -518,7 +576,9 @@ void MediaStreamDispatcherHost::DoGenerateStreams(
           weak_factory_.GetWeakPtr()),
       base::BindRepeating(
           &MediaStreamDispatcherHost::OnDeviceCaptureHandleChange,
-          weak_factory_.GetWeakPtr()));
+          weak_factory_.GetWeakPtr()),
+      base::BindRepeating(&MediaStreamDispatcherHost::OnZoomLevelChange,
+                          weak_factory_.GetWeakPtr()));
 }
 
 void MediaStreamDispatcherHost::CancelRequest(int page_request_id) {
@@ -600,18 +660,6 @@ void MediaStreamDispatcherHost::SetCapturingLinkSecured(
       session_id.value_or(base::UnguessableToken()), type, is_secure);
 }
 
-void MediaStreamDispatcherHost::OnStreamStarted(const std::string& label) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-
-  if (base::FeatureList::IsEnabled(
-          blink::features::kStartMediaStreamCaptureIndicatorInBrowser)) {
-    ReceivedBadMessage(render_frame_host_id_.child_id,
-                       bad_message::MSDH_ON_STREAM_STARTED_DISALLOWED);
-    return;
-  }
-  media_stream_manager_->OnStreamStarted(label);
-}
-
 void MediaStreamDispatcherHost::KeepDeviceAliveForTransfer(
     const base::UnguessableToken& session_id,
     const base::UnguessableToken& transfer_id,
@@ -656,7 +704,7 @@ void MediaStreamDispatcherHost::ApplySubCaptureTarget(
   // Namely, cropping and restricting are currently only allowed
   // for self-capture, so the sub_capture_target has to be associated with the
   // top-level WebContents belonging to this very tab.
-  // TODO(crbug.com/1299008): Switch away from the free function version
+  // TODO(crbug.com/40823292): Switch away from the free function version
   // when SelfOwnedReceiver properly supports this.
   GetUIThreadTaskRunner({})->PostTaskAndReplyWithResult(
       FROM_HERE,
@@ -677,14 +725,14 @@ void MediaStreamDispatcherHost::SendWheel(
     SendWheelCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  if (!base::FeatureList::IsEnabled(blink::features::kCapturedSurfaceControl)) {
-    ReceivedBadMessage(render_frame_host_id_.child_id,
-                       bad_message::MSDH_SEND_WHEEL_BUT_CSC_FEATURE_DISABLED);
+  if (!base::FeatureList::IsEnabled(
+          features::kCapturedSurfaceControlKillswitch)) {
     std::move(callback).Run(CapturedSurfaceControlResult::kUnknownError);
     return;
   }
 
-  if (!action || action->x < 0 || action->y < 0) {
+  if (!action || action->relative_x < 0.0 || action->relative_x >= 1.0 ||
+      action->relative_y < 0.0 || action->relative_y >= 1.0) {
     ReceivedBadMessage(render_frame_host_id_.child_id,
                        bad_message::MSDH_SEND_WHEEL_INVALID_ACTION);
     std::move(callback).Run(CapturedSurfaceControlResult::kUnknownError);
@@ -695,41 +743,18 @@ void MediaStreamDispatcherHost::SendWheel(
                                    std::move(action), std::move(callback));
 }
 
-void MediaStreamDispatcherHost::GetZoomLevel(
-    const base::UnguessableToken& device_id,
-    GetZoomLevelCallback callback) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-
-  if (!base::FeatureList::IsEnabled(blink::features::kCapturedSurfaceControl)) {
-    ReceivedBadMessage(
-        render_frame_host_id_.child_id,
-        bad_message::MSDH_GET_ZOOM_LEVEL_BUT_CSC_FEATURE_DISABLED);
-    std::move(callback).Run(std::nullopt,
-                            CapturedSurfaceControlResult::kUnknownError);
-    return;
-  }
-
-  media_stream_manager_->GetZoomLevel(render_frame_host_id_, device_id,
-                                      std::move(callback));
-}
-
 void MediaStreamDispatcherHost::SetZoomLevel(
     const base::UnguessableToken& device_id,
     int32_t zoom_level,
     SetZoomLevelCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  if (!base::FeatureList::IsEnabled(blink::features::kCapturedSurfaceControl)) {
-    ReceivedBadMessage(
-        render_frame_host_id_.child_id,
-        bad_message::MSDH_GET_ZOOM_LEVEL_BUT_CSC_FEATURE_DISABLED);
+  if (!base::FeatureList::IsEnabled(
+          features::kCapturedSurfaceControlKillswitch)) {
     std::move(callback).Run(CapturedSurfaceControlResult::kUnknownError);
     return;
   }
 
-  if (zoom_level <
-          static_cast<int>(std::ceil(100 * blink::kMinimumPageZoomFactor)) ||
-      static_cast<int>(std::floor(100 * blink::kMaximumPageZoomFactor)) <
-          zoom_level) {
+  if (!IsValidZoomLevel(zoom_level)) {
     ReceivedBadMessage(render_frame_host_id_.child_id,
                        bad_message::MSDH_SET_ZOOM_LEVEL_INVALID_LEVEL);
     std::move(callback).Run(CapturedSurfaceControlResult::kUnknownError);
@@ -740,8 +765,23 @@ void MediaStreamDispatcherHost::SetZoomLevel(
                                       zoom_level, std::move(callback));
 }
 
+void MediaStreamDispatcherHost::RequestCapturedSurfaceControlPermission(
+    const base::UnguessableToken& session_id,
+    RequestCapturedSurfaceControlPermissionCallback callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  if (!base::FeatureList::IsEnabled(
+          features::kCapturedSurfaceControlKillswitch)) {
+    std::move(callback).Run(CapturedSurfaceControlResult::kUnknownError);
+    return;
+  }
+
+  media_stream_manager_->RequestCapturedSurfaceControlPermission(
+      render_frame_host_id_, session_id, std::move(callback));
+}
+
 void MediaStreamDispatcherHost::OnSubCaptureTargetValidationComplete(
-    const base::UnguessableToken& device_id,
+    const base::UnguessableToken& session_id,
     media::mojom::SubCaptureTargetType type,
     const base::Token& target,
     uint32_t sub_capture_target_version,
@@ -758,7 +798,8 @@ void MediaStreamDispatcherHost::OnSubCaptureTargetValidationComplete(
   }
 
   media_stream_manager_->video_capture_manager()->ApplySubCaptureTarget(
-      device_id, type, target, sub_capture_target_version, std::move(callback));
+      session_id, type, target, sub_capture_target_version,
+      std::move(callback));
 }
 #endif
 
@@ -777,7 +818,7 @@ void MediaStreamDispatcherHost::GetOpenDevice(
         blink::mojom::MediaStreamRequestResult::NOT_SUPPORTED, nullptr);
     return;
   }
-  // TODO(https://crbug.com/1288839): Decide whether we need to have another
+  // TODO(crbug.com/40058526): Decide whether we need to have another
   // mojo method, called by the first renderer to say "I'm going to be
   // transferring this track, allow the receiving renderer to call GetOpenDevice
   // on it", and whether we can/need to specific the destination renderer/frame
@@ -822,7 +863,9 @@ void MediaStreamDispatcherHost::DoGetOpenDevice(
           weak_factory_.GetWeakPtr()),
       base::BindRepeating(
           &MediaStreamDispatcherHost::OnDeviceCaptureHandleChange,
-          weak_factory_.GetWeakPtr()));
+          weak_factory_.GetWeakPtr()),
+      base::BindRepeating(&MediaStreamDispatcherHost::OnZoomLevelChange,
+                          weak_factory_.GetWeakPtr()));
 }
 
 std::optional<bad_message::BadMessageReason>

@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/enterprise/connectors/analysis/file_transfer_analysis_delegate.h"
 
 #include <map>
@@ -10,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/span.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/functional/bind.h"
@@ -26,10 +32,12 @@
 #include "chrome/browser/enterprise/connectors/analysis/source_destination_test_util.h"
 #include "chrome/browser/enterprise/connectors/common.h"
 #include "chrome/browser/enterprise/connectors/connectors_service.h"
+#include "chrome/browser/enterprise/connectors/reporting/realtime_reporting_client.h"
 #include "chrome/browser/enterprise/connectors/reporting/realtime_reporting_client_factory.h"
 #include "chrome/browser/enterprise/connectors/test/deep_scanning_test_utils.h"
 #include "chrome/browser/enterprise/connectors/test/fake_content_analysis_delegate.h"
 #include "chrome/browser/enterprise/connectors/test/fake_files_request_handler.h"
+#include "chrome/browser/extensions/api/safe_browsing_private/safe_browsing_private_event_router.h"
 #include "chrome/browser/extensions/api/safe_browsing_private/safe_browsing_private_event_router_factory.h"
 #include "chrome/browser/policy/dm_token_utils.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/binary_upload_service.h"
@@ -59,6 +67,9 @@ namespace {
 constexpr char kUserName[] = "test@chromium.org";
 
 constexpr char kDmToken[] = "dm_token";
+
+constexpr char16_t kUserJustification[] = u"User justification";
+
 base::TimeDelta kResponseDelay = base::Seconds(0);
 
 storage::FileSystemURL GetEmptyTestSrcUrl() {
@@ -851,7 +862,7 @@ class FileTransferAnalysisDelegateAuditOnlyTest : public BaseTest {
         base::CreateDirectory(path.DirName());
       }
       base::File file(path, base::File::FLAG_CREATE | base::File::FLAG_WRITE);
-      file.WriteAtCurrentPos(content.data(), content.size());
+      file.WriteAtCurrentPos(base::as_byte_span(content));
       paths.emplace_back(path);
     }
     return paths;
@@ -1002,7 +1013,9 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest, SingleFileBlockedDlp) {
       safe_browsing::EventResultToString(safe_browsing::EventResult::BLOCKED),
       /*username*/ kUserName,
       /*profile_identifier*/ profile_->GetPath().AsUTF8Unsafe(),
-      /*scan_id*/ scan_id);
+      /*scan_id*/ scan_id,
+      /*content_transfer_method*/ std::nullopt,
+      /*user_justification*/ std::nullopt);
 
   ScanUpload(source_url, destination_directory_url_);
 
@@ -1054,7 +1067,9 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest, SingleFileWarnDlp) {
         safe_browsing::EventResultToString(safe_browsing::EventResult::WARNED),
         /*username*/ kUserName,
         /*profile_identifier*/ profile_->GetPath().AsUTF8Unsafe(),
-        /*scan_id*/ scan_id);
+        /*scan_id*/ scan_id,
+        /*content_transfer_method*/ std::nullopt,
+        /*user_justification*/ std::nullopt);
 
     ScanUpload(source_url, destination_directory_url_);
   }
@@ -1113,7 +1128,9 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest, SingleFileWarnDlpBypassed) {
         safe_browsing::EventResultToString(safe_browsing::EventResult::WARNED),
         /*username*/ kUserName,
         /*profile_identifier*/ profile_->GetPath().AsUTF8Unsafe(),
-        /*scan_id*/ scan_id);
+        /*scan_id*/ scan_id,
+        /*content_transfer_method*/ std::nullopt,
+        /*user_justification*/ std::nullopt);
 
     ScanUpload(source_url, destination_directory_url_);
   }
@@ -1152,9 +1169,11 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest, SingleFileWarnDlpBypassed) {
             safe_browsing::EventResult::BYPASSED),
         /*username*/ kUserName,
         /*profile_identifier*/ profile_->GetPath().AsUTF8Unsafe(),
-        /*scan_id*/ scan_id);
+        /*scan_id*/ scan_id,
+        /*content_transfer_method*/ std::nullopt,
+        /*user_justification*/ kUserJustification);
 
-    file_transfer_analysis_delegate_->BypassWarnings(std::nullopt);
+    file_transfer_analysis_delegate_->BypassWarnings(kUserJustification);
   }
 }
 
@@ -1326,7 +1345,9 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest,
       safe_browsing::EventResultToString(safe_browsing::EventResult::ALLOWED),
       /*username*/ kUserName,
       /*profile_identifier*/ profile_->GetPath().AsUTF8Unsafe(),
-      /*scan_id*/ scan_id);
+      /*scan_id*/ scan_id,
+      /*content_transfer_method*/ std::nullopt,
+      /*user_justification*/ std::nullopt);
 
   ScanUpload(source_url, destination_url);
 
@@ -1394,7 +1415,7 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest, SingleFileBlockedMalware) {
       file_transfer_analysis_delegate_->GetFilesRequestHandlerForTesting());
 }
 
-TEST_F(FileTransferAnalysisDelegateAuditOnlyTest, SingleFileAllowedEncrypted) {
+TEST_F(FileTransferAnalysisDelegateAuditOnlyTest, SingleFileAllowedEncryptedd) {
   // UtilityThreadHelper needed to verify that the file is encrypted.
   content::InProcessUtilityThreadHelper in_process_utility_thread_helper;
 
@@ -1406,12 +1427,12 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest, SingleFileAllowedEncrypted) {
   base::FilePath path = source_directory_url_.path().Append("encrypted.zip");
   base::CopyFile(test_zip, path);
 
-  // Mark all files and text with failed scans.
+  // Mark all files and text with successful scans.
   std::string scan_id = "scan_id";
   ContentAnalysisResponse response =
       test::FakeContentAnalysisDelegate::DlpResponse(
           ContentAnalysisResponse::Result::SUCCESS, "rule",
-          TriggeredRule::BLOCK);
+          TriggeredRule::REPORT_ONLY);
   response.set_request_token(scan_id);
 
   SetDLPResponse(response);
@@ -1420,7 +1441,9 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest, SingleFileAllowedEncrypted) {
 
   // Check reporting.
   test::EventReportValidator validator(cloud_policy_client());
-  validator.ExpectUnscannedFileEvent(
+  // When resumable upload is in use and the policy does not block encrypted
+  // files by default, the file's metadata is uploaded for scanning.
+  validator.ExpectSensitiveDataEvent(
       /*url*/ "",
       /*tab_url*/ "",
       /*source*/ kSourceVolumeInfo.fs_config_string,
@@ -1431,13 +1454,16 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest, SingleFileAllowedEncrypted) {
       "701FCEA8B2112FFAB257A8A8DFD3382ABCF047689AB028D42903E3B3AA488D9A",
       /*trigger*/
       extensions::SafeBrowsingPrivateEventRouter::kTriggerFileTransfer,
-      /*reason*/ "FILE_PASSWORD_PROTECTED",
+      /*dlp_verdict*/ response.results()[0],
       /*mimetype*/ ZipMimeTypes(),
       /*size*/ 20015,
       /*result*/
       safe_browsing::EventResultToString(safe_browsing::EventResult::ALLOWED),
       /*username*/ kUserName,
-      /*profile_identifier*/ profile_->GetPath().AsUTF8Unsafe());
+      /*profile_identifier*/ profile_->GetPath().AsUTF8Unsafe(),
+      /*scan_id*/ scan_id,
+      /*content_transfer_method*/ std::nullopt,
+      /*user_justification*/ std::nullopt);
 
   ScanUpload(source_url, destination_directory_url_);
 
@@ -1509,7 +1535,9 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest,
       safe_browsing::EventResultToString(safe_browsing::EventResult::BLOCKED),
       /*username*/ kUserName,
       /*profile_identifier*/ profile_->GetPath().AsUTF8Unsafe(),
-      /*scan_id*/ scan_id);
+      /*scan_id*/ scan_id,
+      /*content_transfer_method*/ std::nullopt,
+      /*user_justification*/ std::nullopt);
 
   ScanUpload(source_directory_url_, destination_directory_url_);
 
@@ -1591,7 +1619,9 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest,
        safe_browsing::EventResultToString(safe_browsing::EventResult::BLOCKED)},
       /*username*/ kUserName,
       /*profile_identifier*/ profile_->GetPath().AsUTF8Unsafe(),
-      /*scan_ids*/ {scan_id, scan_id, scan_id});
+      /*scan_ids*/ {scan_id, scan_id, scan_id},
+      /*content_transfer_method*/ std::nullopt,
+      /*user_justification*/ std::nullopt);
 
   ScanUpload(source_directory_url_, destination_directory_url_);
 
@@ -1655,7 +1685,9 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest,
        safe_browsing::EventResultToString(safe_browsing::EventResult::BLOCKED)},
       /*username*/ kUserName,
       /*profile_identifier*/ profile_->GetPath().AsUTF8Unsafe(),
-      /*scan_ids*/ {scan_id, scan_id});
+      /*scan_ids*/ {scan_id, scan_id},
+      /*content_transfer_method*/ std::nullopt,
+      /*user_justification*/ std::nullopt);
 
   ScanUpload(source_directory_url_, destination_directory_url_);
 
@@ -1742,7 +1774,9 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest, DirectoryTreeSomeBlocked) {
       expected_results,
       /*username*/ kUserName,
       /*profile_identifier*/ profile_->GetPath().AsUTF8Unsafe(),
-      /*scan_ids*/ expected_scan_ids);
+      /*scan_ids*/ expected_scan_ids,
+      /*content_transfer_method*/ std::nullopt,
+      /*user_justification*/ std::nullopt);
 
   ScanUpload(source_directory_url_, destination_directory_url_);
 
@@ -1845,7 +1879,9 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest,
         expected_results,
         /*username*/ kUserName,
         /*profile_identifier*/ profile_->GetPath().AsUTF8Unsafe(),
-        /*scan_ids*/ expected_scan_ids);
+        /*scan_ids*/ expected_scan_ids,
+        /*content_transfer_method*/ std::nullopt,
+        /*user_justification*/ std::nullopt);
 
     ScanUpload(source_directory_url_, destination_directory_url_);
   }
@@ -1924,9 +1960,11 @@ TEST_F(FileTransferAnalysisDelegateAuditOnlyTest,
         expected_results,
         /*username*/ kUserName,
         /*profile_identifier*/ profile_->GetPath().AsUTF8Unsafe(),
-        /*scan_ids*/ expected_scan_ids);
+        /*scan_ids*/ expected_scan_ids,
+        /*content_transfer_method*/ std::nullopt,
+        /*user_justification*/ kUserJustification);
 
-    file_transfer_analysis_delegate_->BypassWarnings(std::nullopt);
+    file_transfer_analysis_delegate_->BypassWarnings(kUserJustification);
   }
 
   // Should now no longer block bypassed files.

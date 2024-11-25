@@ -8,11 +8,11 @@
 #include <stdint.h>
 
 #include <array>
+#include <optional>
 #include <vector>
 
 #include "base/component_export.h"
 #include "components/cbor/values.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace device {
 
@@ -25,13 +25,18 @@ struct COMPONENT_EXPORT(DEVICE_FIDO) PRFInput {
   PRFInput& operator=(const PRFInput&);
   ~PRFInput();
 
-  static absl::optional<PRFInput> FromCBOR(const cbor::Value& v);
+  static std::optional<PRFInput> FromCBOR(const cbor::Value& v);
 
   cbor::Value::MapValue ToCBOR() const;
 
-  absl::optional<std::vector<uint8_t>> credential_id;
+  std::optional<std::vector<uint8_t>> credential_id;
+  // Input values are provided both unhashed (as `input1` and `input2`) and
+  // hashed (as `salt1` and `salt2`). Security keys use the hashed values but,
+  // e.g., iCloud Keychain needs unhashed values.
+  std::vector<uint8_t> input1;
   std::array<uint8_t, 32> salt1;
-  absl::optional<std::array<uint8_t, 32>> salt2;
+  std::optional<std::vector<uint8_t>> input2;
+  std::optional<std::array<uint8_t, 32>> salt2;
 };
 
 }  // namespace device

@@ -64,9 +64,13 @@ public class PriceTrackingFeatures {
     }
 
     private static boolean isSignedIn(Profile profile) {
+        // Always return false for incognito profiles.
+        if (profile.isOffTheRecord()) {
+            return false;
+        }
         return IdentityServicesProvider.get()
                 .getIdentityManager(profile)
-                .hasPrimaryAccount(ConsentLevel.SYNC);
+                .hasPrimaryAccount(ConsentLevel.SIGNIN);
     }
 
     private static boolean isAnonymizedUrlDataCollectionEnabled(Profile profile) {

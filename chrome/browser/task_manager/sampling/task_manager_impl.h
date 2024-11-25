@@ -8,11 +8,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "base/containers/flat_map.h"
 #include "base/lazy_instance.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -75,6 +75,7 @@ class TaskManagerImpl : public TaskManagerInterface,
   const base::ProcessHandle& GetProcessHandle(TaskId task_id) const override;
   const base::ProcessId& GetProcessId(TaskId task_id) const override;
   Task::Type GetType(TaskId task_id) const override;
+  Task::SubType GetSubType(TaskId task_id) const override;
   SessionID GetTabId(TaskId task_id) const override;
   int GetChildProcessUniqueId(TaskId task_id) const override;
   void GetTerminationStatus(TaskId task_id,
@@ -102,6 +103,7 @@ class TaskManagerImpl : public TaskManagerInterface,
   void TaskAdded(Task* task) override;
   void TaskRemoved(Task* task) override;
   void TaskUnresponsive(Task* task) override;
+  void ActiveTaskFetched(TaskId active_task_id) override;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   void TaskIdsListToBeInvalidated() override;
 #endif
@@ -115,7 +117,7 @@ class TaskManagerImpl : public TaskManagerInterface,
 
  private:
   using PidToTaskGroupMap =
-      std::map<base::ProcessId, std::unique_ptr<TaskGroup>>;
+      base::flat_map<base::ProcessId, std::unique_ptr<TaskGroup>>;
 
   friend struct base::LazyInstanceTraitsBase<TaskManagerImpl>;
 
@@ -163,7 +165,8 @@ class TaskManagerImpl : public TaskManagerInterface,
   // Map each task by its ID to the TaskGroup on which it resides.
   // Keys are unique but values will have duplicates (i.e. multiple tasks
   // running on the same process represented by a single TaskGroup).
-  std::map<TaskId, TaskGroup*> task_groups_by_task_id_;
+  base::flat_map<TaskId, raw_ptr<TaskGroup, CtnExperimental>>
+      task_groups_by_task_id_;
 
   // A cached sorted list of the task IDs.
   mutable std::vector<TaskId> sorted_task_ids_;

@@ -18,12 +18,12 @@
 #include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/ash/login/test/oobe_screens_utils.h"
 #include "chrome/browser/ash/login/test/session_manager_state_waiter.h"
-#include "chrome/browser/ash/login/ui/login_display_host_webui.h"
 #include "chrome/browser/ash/login/wizard_context.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/ash/policy/enrollment/enrollment_requisition_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/ui/ash/login/login_display_host_webui.h"
 #include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
 #include "chrome/browser/ui/webui/ash/login/update_screen_handler.h"
 #include "chrome/browser/ui/webui/ash/login/welcome_screen_handler.h"
@@ -123,7 +123,8 @@ IN_PROC_BROWSER_TEST_F(OobeTest, Accelerator) {
 
   ui::test::EventGenerator generator(login_window->GetRootWindow());
 
-  generator.PressKey(ui::VKEY_E, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN);
+  generator.PressAndReleaseKeyAndModifierKeys(
+      ui::VKEY_E, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN);
   OobeScreenWaiter(EnrollmentScreenView::kScreenId).Wait();
 }
 

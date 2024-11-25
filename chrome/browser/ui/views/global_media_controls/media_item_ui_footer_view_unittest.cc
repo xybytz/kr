@@ -59,7 +59,8 @@ class MediaItemUIFooterViewTest : public ChromeViewsTestBase {
   }
 
   void CreateView(bool is_cast_session) {
-    widget_ = CreateTestWidget();
+    widget_ =
+        CreateTestWidget(views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET);
     handler_ = std::make_unique<StopCastingHandler>();
     delegate_ = std::make_unique<NiceMock<MockFooterViewDelegate>>();
 
@@ -77,7 +78,7 @@ class MediaItemUIFooterViewTest : public ChromeViewsTestBase {
 
   void SimulateButtonClicked(views::View* view) {
     views::test::ButtonTestApi(static_cast<views::Button*>(view))
-        .NotifyClick(ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(),
+        .NotifyClick(ui::MouseEvent(ui::EventType::kMousePressed, gfx::Point(),
                                     gfx::Point(), ui::EventTimeForNow(), 0, 0));
   }
 
@@ -128,7 +129,7 @@ TEST_F(MediaItemUIFooterViewTest, DevicesCanFit) {
                                SK_ColorRED, "device", device2_name);
   device2.set_tag(1);
 
-  std::map<int, DeviceEntryUI*> devices;
+  std::map<int, raw_ptr<DeviceEntryUI, CtnExperimental>> devices;
   devices[0] = &device1;
   devices[1] = &device2;
 
@@ -158,7 +159,7 @@ TEST_F(MediaItemUIFooterViewTest, OverflowButton) {
   AudioDeviceEntryView device(views::Button::PressedCallback(), SK_ColorRED,
                               SK_ColorRED, "device", device_name);
 
-  std::map<int, DeviceEntryUI*> devices;
+  std::map<int, raw_ptr<DeviceEntryUI, CtnExperimental>> devices;
   devices[0] = &device;
   devices[1] = &device;
 
@@ -186,7 +187,7 @@ TEST_F(MediaItemUIFooterViewTest, OverflowButtonFallback) {
   AudioDeviceEntryView device(views::Button::PressedCallback(), SK_ColorRED,
                               SK_ColorRED, "device", device_name);
 
-  std::map<int, DeviceEntryUI*> devices;
+  std::map<int, raw_ptr<DeviceEntryUI, CtnExperimental>> devices;
   devices[0] = &device;
   devices[1] = &device;
 

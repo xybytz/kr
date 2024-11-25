@@ -51,6 +51,8 @@ class CORE_EXPORT PseudoElement : public Element {
                 PseudoId,
                 const AtomicString& view_transition_name = g_null_atom);
 
+  bool IsPseudoElement() const final { return true; }
+
   const AtomicString& view_transition_name() const {
     return view_transition_name_;
   }
@@ -60,17 +62,30 @@ class CORE_EXPORT PseudoElement : public Element {
   bool LayoutObjectIsNeeded(const DisplayStyle&) const override;
   bool CanGeneratePseudoElement(PseudoId) const override;
 
+  bool CanGenerateContent() const;
   bool CanStartSelection() const override { return false; }
   bool CanContainRangeEndPoint() const override { return false; }
   PseudoId GetPseudoId() const override { return pseudo_id_; }
-  const ComputedStyle* LayoutStyleForDisplayContents(const ComputedStyle&);
+  // PseudoId that can be alias, e.g. kPseudoScrollMarkerGroupAfter is
+  // unresolved = alias, kPseudoScrollMarkerGroup is resolved.
+  // For styling and selector matching, return resolved version.
+  PseudoId GetPseudoIdForStyling() const override;
+
+  // Return the adjusted style needed by layout. In some cases computed style
+  // cannot be used as-is by layout. display:contents needs to be adjusted to
+  // display:inline. Scroll marker pseudo elements may need to blockify the
+  // display type (depending on the parent). Returns nullptr if no adjustment is
+  // necessary.
+  const ComputedStyle* AdjustedLayoutStyle(
+      const ComputedStyle& style,
+      const ComputedStyle& layout_parent_style);
 
   static AtomicString PseudoElementNameForEvents(Element*);
   static bool IsWebExposed(PseudoId, const Node*);
 
-  // Pseudo element are not allowed to be the inner node for hit testing. Find
-  // the closest ancestor which is a real dom node.
-  virtual Node* InnerNodeForHitTesting() const;
+  // Pseudo elements are not allowed to be the inner node for hit testing.
+  // Find the closest ancestor which is a real dom node.
+  virtual Node* InnerNodeForHitTesting();
 
   void AccessKeyAction(SimulatedClickCreationScope creation_scope) override;
 
@@ -79,7 +94,7 @@ class CORE_EXPORT PseudoElement : public Element {
   // DOM element which the pseudo element tree originates from.
   // This is different from |parentElement()| which returns the element's direct
   // ancestor.
-  Element* OriginatingElement() const;
+  Element* UltimateOriginatingElement() const;
 
   virtual void Dispose();
 
@@ -88,7 +103,7 @@ class CORE_EXPORT PseudoElement : public Element {
     STACK_ALLOCATED();
 
    public:
-    AttachLayoutTreeScope(PseudoElement*);
+    AttachLayoutTreeScope(PseudoElement*, const AttachContext&);
     ~AttachLayoutTreeScope();
 
    private:
@@ -102,7 +117,11 @@ class CORE_EXPORT PseudoElement : public Element {
 
 CORE_EXPORT const QualifiedName& PseudoElementTagName(PseudoId);
 
-bool PseudoElementLayoutObjectIsNeeded(const ComputedStyle* pseudo_style,
+bool PseudoElementLayoutObjectIsNeeded(PseudoId pseudo_id,
+                                       const ComputedStyle* pseudo_style,
+                                       const Element* originating_element);
+bool PseudoElementLayoutObjectIsNeeded(PseudoId pseudo_id,
+                                       const DisplayStyle& pseudo_style,
                                        const Element* originating_element);
 
 template <>

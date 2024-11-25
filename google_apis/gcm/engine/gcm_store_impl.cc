@@ -4,6 +4,7 @@
 
 #include "google_apis/gcm/engine/gcm_store_impl.h"
 
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -189,7 +190,7 @@ std::string ParseInstanceIDKey(const std::string& key) {
 // outlive the slice.
 // For example: MakeSlice(MakeOutgoingKey(x)) is invalid.
 leveldb::Slice MakeSlice(std::string_view s) {
-  return leveldb::Slice(s.begin(), s.size());
+  return leveldb::Slice(s.data(), s.size());
 }
 
 }  // namespace
@@ -358,7 +359,7 @@ void GCMStoreImpl::Backend::Load(StoreOpenMode open_mode,
                                  LoadCallback callback) {
   std::unique_ptr<LoadResult> result(new LoadResult());
   LoadStatus load_status = OpenStoreAndLoadData(open_mode, result.get());
-  UMA_HISTOGRAM_ENUMERATION("GCM.LoadStatus", load_status, LOAD_STATUS_COUNT);
+
   if (load_status != LOADING_SUCCEEDED) {
     result->Reset();
     result->store_does_not_exist = (load_status == STORE_DOES_NOT_EXIST);
@@ -381,10 +382,10 @@ void GCMStoreImpl::Backend::Load(StoreOpenMode open_mode,
 
   // Only record histograms if GCM had already been set up for this device.
   if (result->device_android_id != 0 && result->device_security_token != 0) {
-    int64_t file_size = 0;
-    if (base::GetFileSize(path_, &file_size)) {
+    std::optional<int64_t> file_size = base::GetFileSize(path_);
+    if (file_size.has_value()) {
       UMA_HISTOGRAM_COUNTS_1M("GCM.StoreSizeKB",
-                              static_cast<int>(file_size / 1024));
+                              static_cast<int>(file_size.value() / 1024));
     }
   }
 

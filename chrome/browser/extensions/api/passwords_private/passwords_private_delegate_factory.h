@@ -11,9 +11,9 @@
 #include "chrome/browser/profiles/profile_keyed_service_factory.h"
 #include "components/keyed_service/core/keyed_service.h"
 
-namespace context {
+namespace content {
 class BrowserContext;
-}
+}  // namespace content
 
 namespace extensions {
 class PasswordsPrivateDelegate;
@@ -47,7 +47,7 @@ class PasswordsPrivateDelegateProxy : public KeyedService {
 };
 
 // Factory for creating PasswordPrivateDelegates.
-// TODO(crbug.com/1412348): Replace with KeyedServiceFactory.
+// TODO(crbug.com/40255236): Replace with KeyedServiceFactory.
 class PasswordsPrivateDelegateFactory : public ProfileKeyedServiceFactory {
  public:
   static scoped_refptr<PasswordsPrivateDelegate> GetForBrowserContext(

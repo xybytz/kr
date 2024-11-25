@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "ui/accessibility/platform/inspect/ax_tree_formatter_win.h"
 
 #include <math.h>
@@ -15,7 +20,6 @@
 #include "base/files/file_path.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -94,8 +98,16 @@ Microsoft::WRL::ComPtr<IAccessible> GetIAObject(AXPlatformNodeDelegate* node,
                                                 LONG& root_x,
                                                 LONG& root_y) {
   DCHECK(node);
-  AXTreeManager* root_manager = node->GetTreeManager()->GetRootManager();
-  DCHECK(root_manager);
+  // If dumping when the page or iframe is reloading, the
+  // tree manager may have been removed.
+  AXTreeManager* manager = node->GetTreeManager();
+  if (!manager) {
+    return nullptr;
+  }
+  AXTreeManager* root_manager = manager->GetRootManager();
+  if (!root_manager) {
+    return nullptr;
+  }
 
   base::win::ScopedVariant variant_self(CHILDID_SELF);
   LONG root_width, root_height;
@@ -115,8 +127,10 @@ base::Value::Dict AXTreeFormatterWin::BuildNode(
   LONG root_x = 0, root_y = 0;
   Microsoft::WRL::ComPtr<IAccessible> node_ia =
       GetIAObject(node, root_x, root_y);
-
   base::Value::Dict dict;
+  if (!node_ia) {
+    return dict;
+  }
   AddProperties(node_ia, &dict, root_x, root_y);
   return dict;
 }
@@ -126,8 +140,10 @@ base::Value::Dict AXTreeFormatterWin::BuildTree(
   LONG root_x = 0, root_y = 0;
   Microsoft::WRL::ComPtr<IAccessible> start_ia =
       GetIAObject(start, root_x, root_y);
-
   base::Value::Dict dict;
+  if (!start_ia) {
+    return dict;
+  }
   RecursiveBuildTree(start_ia, &dict, root_x, root_y);
   return dict;
 }
@@ -167,7 +183,7 @@ base::Value::Dict AXTreeFormatterWin::BuildTreeForSelector(
 
 std::string AXTreeFormatterWin::EvaluateScript(
     const AXTreeSelector& selector,
-    const ui::AXInspectScenario& scenario) const {
+    const AXInspectScenario& scenario) const {
   Microsoft::WRL::ComPtr<IAccessible> root = FindAccessibleRoot(selector);
   return EvaluateScript(root, scenario.script_instructions, 0 /* start_index */,
                         scenario.script_instructions.size());
@@ -192,9 +208,9 @@ std::string AXTreeFormatterWin::EvaluateScript(
     return "error no accessibility tree found";
 
   base::Value::List scripts;
-  ui::AXTreeIndexerWin indexer(root);
+  AXTreeIndexerWin indexer(root);
   std::map<std::string, AXTargetWin> storage;
-  ui::AXCallStatementInvokerWin invoker(&indexer, &storage);
+  AXCallStatementInvokerWin invoker(&indexer, &storage);
   for (size_t index = start_index; index < end_index; index++) {
     if (instructions[index].IsComment()) {
       scripts.Append(instructions[index].AsComment());
@@ -202,15 +218,15 @@ std::string AXTreeFormatterWin::EvaluateScript(
     }
 
     DCHECK(instructions[index].IsScript());
-    const ui::AXPropertyNode& property_node = instructions[index].AsScript();
+    const AXPropertyNode& property_node = instructions[index].AsScript();
 
-    ui::AXOptionalObject value = invoker.Invoke(property_node);
+    AXOptionalObject value = invoker.Invoke(property_node);
     if (value.IsUnsupported()) {
       continue;
     }
 
     scripts.Append(property_node.ToString() + "=" +
-                   ui::AXCallStatementInvokerWin::ToString(value));
+                   AXCallStatementInvokerWin::ToString(value));
   }
 
   std::string contents;
@@ -378,7 +394,7 @@ void AXTreeFormatterWin::AddMSAAProperties(
   base::win::ScopedBstr bstr;
   base::win::ScopedVariant ia_role_variant;
   if (SUCCEEDED(node->get_accRole(variant_self, ia_role_variant.Receive()))) {
-    dict->Set("role", ui::RoleVariantToString(ia_role_variant));
+    dict->Set("role", RoleVariantToString(ia_role_variant));
   }
 
   // If S_FALSE it means there is no name
@@ -396,7 +412,7 @@ void AXTreeFormatterWin::AddMSAAProperties(
       base::win::ScopedVariant parent_ia_role_variant;
       if (SUCCEEDED(parent_accessible->get_accRole(
               variant_self, parent_ia_role_variant.Receive())))
-        dict->Set("parent", ui::RoleVariantToString(parent_ia_role_variant));
+        dict->Set("parent", RoleVariantToString(parent_ia_role_variant));
       else
         dict->Set("parent", "[Error retrieving role from parent]");
     } else {

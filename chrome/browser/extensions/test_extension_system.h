@@ -10,11 +10,11 @@
 #include "base/memory/raw_ptr.h"
 #include "base/one_shot_event.h"
 #include "build/chromeos_buildflags.h"
-#include "extensions/browser/content_verifier.h"
+#include "extensions/browser/content_verifier/content_verifier.h"
 #include "extensions/browser/extension_system.h"
 #include "services/data_decoder/public/cpp/test_support/in_process_data_decoder.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "components/user_manager/scoped_user_manager.h"
 #endif
 

@@ -99,15 +99,7 @@ typedef NS_ENUM(NSInteger, SectionIdentifier) {
       [[UINavigationBarAppearance alloc] init];
   [appearance configureWithDefaultBackground];
   appearance.backgroundColor = backgroundColor;
-  if (@available(iOS 15, *)) {
-    self.navigationItem.scrollEdgeAppearance = appearance;
-  } else {
-    // On iOS 14, scrollEdgeAppearance only affects navigation bars with large
-    // titles, so it can't be used. Instead, the navigation bar will always be
-    // the same style.
-    self.navigationItem.standardAppearance = appearance;
-  }
-
+  self.navigationItem.scrollEdgeAppearance = appearance;
   self.title =
       NSLocalizedString(@"IDS_IOS_CREDENTIAL_PROVIDER_NEW_PASSWORD_TITLE",
                         @"Title for add new password screen");
@@ -184,8 +176,6 @@ typedef NS_ENUM(NSInteger, SectionIdentifier) {
       break;
     default:
       NOTREACHED();
-      cellType = NewPasswordTableCellTypeSuggestStrongPassword;
-      break;
   }
 
   [cell setCellType:cellType];
@@ -389,10 +379,12 @@ typedef NS_ENUM(NSInteger, SectionIdentifier) {
   NSString* password = self.passwordText;
   NSString* note = self.noteText;
 
-  [self.credentialHandler saveCredentialWithUsername:username
-                                            password:password
-                                                note:note
-                                       shouldReplace:shouldReplace];
+  [self.credentialHandler
+      saveCredentialWithUsername:username
+                        password:password
+                            note:note
+                            gaia:[self.credentialHandler gaia]
+                   shouldReplace:shouldReplace];
 }
 
 - (NSString*)noteFooterText {
@@ -510,7 +502,7 @@ typedef NS_ENUM(NSInteger, SectionIdentifier) {
 
 - (void)credentialSaved:(ArchivableCredential*)credential {
   CPENewCredentialUsername usernameType =
-      (credential.user.length)
+      (credential.username.length)
           ? CPENewCredentialUsername::kCredentialWithUsername
           : CPENewCredentialUsername::kCredentialWithoutUsername;
   UpdateHistogramCount(@"IOS.CredentialExtension.NewCredentialUsername",
@@ -542,22 +534,25 @@ typedef NS_ENUM(NSInteger, SectionIdentifier) {
 - (FormInputAccessoryViewTextData*)textDataforFormInputAccessoryView:
     (FormInputAccessoryView*)sender {
   return [[FormInputAccessoryViewTextData alloc]
-                initWithCloseButtonTitle:
-                    NSLocalizedString(@"IDS_IOS_CREDENTIAL_PROVIDER_DONE",
-                                      @"Done")
-           closeButtonAccessibilityLabel:NSLocalizedString(
-                                             @"IDS_IOS_CREDENTIAL_PROVIDER_NEW_"
-                                             @"PASSWORD_HIDE_KEYBOARD_HINT",
-                                             @"Hide Keyboard")
-            nextButtonAccessibilityLabel:
-                NSLocalizedString(
-                    @"IDS_IOS_CREDENTIAL_PROVIDER_NEW_PASSWORD_NEXT_FIELD_HINT",
-                    @"Next field")
-        previousButtonAccessibilityLabel:
-            NSLocalizedString(
-                @"IDS_IOS_CREDENTIAL_PROVIDER_NEW_PASSWORD_PREVIOUS_FIELD_HINT",
-                @"Previous field")
-      manualFillButtonAccessibilityLabel:nil];
+                          initWithCloseButtonTitle:
+                              NSLocalizedString(
+                                  @"IDS_IOS_CREDENTIAL_PROVIDER_DONE", @"Done")
+                     closeButtonAccessibilityLabel:
+                         NSLocalizedString(@"IDS_IOS_CREDENTIAL_PROVIDER_NEW_"
+                                           @"PASSWORD_HIDE_KEYBOARD_HINT",
+                                           @"Hide Keyboard")
+                      nextButtonAccessibilityLabel:
+                          NSLocalizedString(@"IDS_IOS_CREDENTIAL_PROVIDER_NEW_"
+                                            @"PASSWORD_NEXT_FIELD_HINT",
+                                            @"Next field")
+                  previousButtonAccessibilityLabel:
+                      NSLocalizedString(@"IDS_IOS_CREDENTIAL_PROVIDER_NEW_"
+                                        @"PASSWORD_PREVIOUS_FIELD_HINT",
+                                        @"Previous field")
+                manualFillButtonAccessibilityLabel:nil
+        passwordManualFillButtonAccessibilityLabel:nil
+      creditCardManualFillButtonAccessibilityLabel:nil
+         addressManualFillButtonAccessibilityLabel:nil];
 }
 
 - (void)fromInputAccessoryViewDidTapOmniboxTypingShield:

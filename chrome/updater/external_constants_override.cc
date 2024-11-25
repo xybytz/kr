@@ -89,8 +89,6 @@ std::vector<GURL> ExternalConstantsOverrider::UpdateURL() const {
                  << "]: " << base::Value::GetTypeName(update_url_value->type());
       NOTREACHED();
   }
-  NOTREACHED();
-  return {};
 }
 
 GURL ExternalConstantsOverrider::CrashUploadURL() const {
@@ -115,6 +113,18 @@ GURL ExternalConstantsOverrider::DeviceManagementURL() const {
       << "Unexpected type of override[" << kDevOverrideKeyDeviceManagementUrl
       << "]: " << base::Value::GetTypeName(device_management_url_value->type());
   return {GURL(device_management_url_value->GetString())};
+}
+
+GURL ExternalConstantsOverrider::AppLogoURL() const {
+  if (!override_values_.contains(kDevOverrideKeyAppLogoUrl)) {
+    return next_provider_->AppLogoURL();
+  }
+  const base::Value* app_logo_url_value =
+      override_values_.Find(kDevOverrideKeyAppLogoUrl);
+  CHECK(app_logo_url_value->is_string())
+      << "Unexpected type of override[" << kDevOverrideKeyAppLogoUrl
+      << "]: " << base::Value::GetTypeName(app_logo_url_value->type());
+  return {GURL(app_logo_url_value->GetString())};
 }
 
 bool ExternalConstantsOverrider::UseCUP() const {
@@ -233,6 +243,19 @@ bool ExternalConstantsOverrider::EnableDiffUpdates() const {
                           << kDevOverrideKeyEnableDiffUpdates
                           << "]: " << base::Value::GetTypeName(value->type());
   return value->GetBool();
+}
+
+base::TimeDelta ExternalConstantsOverrider::CecaConnectionTimeout() const {
+  if (!override_values_.contains(kDevOverrideKeyCecaConnectionTimeout)) {
+    return next_provider_->CecaConnectionTimeout();
+  }
+
+  const base::Value* value =
+      override_values_.Find(kDevOverrideKeyCecaConnectionTimeout);
+  CHECK(value->is_int()) << "Unexpected type of override["
+                         << kDevOverrideKeyCecaConnectionTimeout
+                         << "]: " << base::Value::GetTypeName(value->type());
+  return base::Seconds(value->GetInt());
 }
 
 // static

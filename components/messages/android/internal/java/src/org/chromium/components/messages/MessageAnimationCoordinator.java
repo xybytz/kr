@@ -39,7 +39,6 @@ public class MessageAnimationCoordinator implements SwipeAnimationHandler {
     @Nullable private MessageState mCurrentDisplayedMessage;
 
     @NonNull private List<MessageState> mCurrentDisplayedMessages = Arrays.asList(null, null);
-    private MessageState mLastShownMessage;
     private MessageQueueDelegate mMessageQueueDelegate;
     private AnimatorSet mAnimatorSet = new AnimatorSet();
     private Animator mFrontAnimator;
@@ -55,82 +54,7 @@ public class MessageAnimationCoordinator implements SwipeAnimationHandler {
         mAreExtraHistogramsEnabled = MessageFeatureList.areExtraHistogramsEnabled();
     }
 
-    public void updateWithoutStacking(
-            @Nullable MessageState candidate, boolean suspended, Runnable onFinished) {
-        if (mCurrentDisplayedMessage == candidate) return;
-        if (mAnimatorSet.isStarted()) {
-            if (suspended) {
-                // Force animation to end in order to trigger callbacks.
-                mAnimatorSet.end();
-                onFinished.run();
-            }
-            return;
-        }
-        if (mCurrentDisplayedMessage == null) {
-            mCurrentDisplayedMessage = candidate;
-            mMessageQueueDelegate.onRequestShowing(
-                    () -> {
-                        if (mCurrentDisplayedMessage == null) {
-                            return;
-                        }
-
-                        final var animator =
-                                mCurrentDisplayedMessage.handler.show(
-                                        Position.INVISIBLE, Position.FRONT);
-
-                        // Wait until the message and the container are measured before showing the
-                        // message.
-                        // This is required in case the animation set-up requires the height of the
-                        // container, e.g. showing messages without the top controls visible.
-                        mContainer.runAfterInitialMessageLayout(
-                                () -> {
-                                    mAnimatorSet.cancel();
-                                    mAnimatorSet.removeAllListeners();
-
-                                    mAnimatorSet = new AnimatorSet();
-                                    mAnimatorSet.play(animator);
-                                    mAnimatorSet.addListener(
-                                            new MessageAnimationListener(
-                                                    () -> {
-                                                        mMessageQueueDelegate.onAnimationEnd();
-                                                        onFinished.run();
-                                                    }));
-                                    mMessageQueueDelegate.onAnimationStart();
-                                    mAnimatorStartCallback.onResult(mAnimatorSet);
-                                });
-                        mLastShownMessage = mCurrentDisplayedMessage;
-                    });
-        } else {
-            Runnable runnable =
-                    () -> {
-                        mMessageQueueDelegate.onFinishHiding();
-                        mMessageQueueDelegate.onAnimationEnd();
-                        mCurrentDisplayedMessage = mLastShownMessage = null;
-                        onFinished.run();
-                    };
-            if (mLastShownMessage != mCurrentDisplayedMessage) {
-                runnable.run();
-                return;
-            }
-            mAnimatorSet.cancel();
-            mAnimatorSet.removeAllListeners();
-
-            Animator animator =
-                    mCurrentDisplayedMessage.handler.hide(
-                            Position.FRONT, Position.INVISIBLE, !suspended);
-            if (animator == null) {
-                runnable.run();
-            } else {
-                mAnimatorSet = new AnimatorSet();
-                mAnimatorSet.play(animator);
-                mMessageQueueDelegate.onAnimationStart();
-                mAnimatorSet.addListener(new MessageAnimationListener(runnable));
-                mAnimatorStartCallback.onResult(mAnimatorSet);
-            }
-        }
-    }
-
-    // TODO(crbug.com/1200974): Compare current shown messages with last shown ones.
+    // TODO(crbug.com/40762119): Compare current shown messages with last shown ones.
     /**
      * cf: Current front message. cb: Current back message. nf: Next front message. nb: Next back
      * message. Null represents no view at that position. 1. If candidates and current displayed
@@ -263,7 +187,7 @@ public class MessageAnimationCoordinator implements SwipeAnimationHandler {
                     candidates.set(1, null);
                 }
             } else {
-                // TODO(crbug.com/1382275): simplify this into one step.
+                // TODO(crbug.com/40877229): simplify this into one step.
                 // Split the transition: [m1, null] -> [m2, null] into two steps:
                 // [m1, null] -> [null, null] -> [m2, null]
                 nextFront = nextBack = null;
@@ -412,7 +336,7 @@ public class MessageAnimationCoordinator implements SwipeAnimationHandler {
                 action, messageState.handler.getMessageIdentifier());
     }
 
-    class MessageAnimationListener extends CancelAwareAnimatorListener {
+    static class MessageAnimationListener extends CancelAwareAnimatorListener {
         private final Runnable mOnFinished;
 
         public MessageAnimationListener(Runnable onFinished) {

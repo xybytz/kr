@@ -31,10 +31,10 @@ public class ContactDetailsSection extends SectionInformation {
     /**
      * Builds a Contact section from a list of AutofillProfile.
      *
-     * @param context               Context
-     * @param unmodifiableProfiles  The list of profiles to build from.
-     * @param contactEditor         The Contact Editor associated with this flow.
-     * @param journeyLogger         The JourneyLogger for the current Payment Request.
+     * @param context Context
+     * @param unmodifiableProfiles The list of profiles to build from.
+     * @param contactEditor The Contact Editor associated with this flow.
+     * @param journeyLogger The JourneyLogger for the current Payment Request.
      */
     public ContactDetailsSection(
             Context context,
@@ -42,7 +42,7 @@ public class ContactDetailsSection extends SectionInformation {
             ContactEditor contactEditor,
             JourneyLogger journeyLogger) {
         // Initially no items are selected, but they are updated later in the constructor.
-        super(PaymentRequestUI.DataType.CONTACT_DETAILS, null);
+        super(PaymentRequestUi.DataType.CONTACT_DETAILS, null);
 
         mContext = context;
         mContactEditor = contactEditor;
@@ -147,7 +147,7 @@ public class ContactDetailsSection extends SectionInformation {
             firstCompleteContactIndex = 0;
         }
 
-        // TODO(crbug.com/746062): Remove this once a journeyLogger is passed in tests.
+        // TODO(crbug.com/40530700): Remove this once a journeyLogger is passed in tests.
         if (journeyLogger != null) {
             // Log the number of suggested contact info.
             journeyLogger.setNumberOfSuggestionsShown(

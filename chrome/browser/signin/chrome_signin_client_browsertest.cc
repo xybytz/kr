@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
@@ -16,7 +17,8 @@
 #include "url/gurl.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-#include "extensions/browser/extension_registry.h"
+#include "chrome/browser/extensions/extension_service.h"
+#include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
 #endif
@@ -148,18 +150,31 @@ IN_PROC_BROWSER_TEST_F(ChromeSigninClientBrowserTest,
                        ExtensionsMetricsRecordOnSignin_Sync) {
   base::HistogramTester histogram_tester;
 
-  extensions::ExtensionRegistry* registry =
-      extensions::ExtensionRegistry::Get(browser()->profile());
   // Create 3 fake extensions and enable them.
-  registry->AddEnabled(extensions::ExtensionBuilder("Extension1").Build());
-  registry->AddEnabled(extensions::ExtensionBuilder("Extension2").Build());
-  registry->AddEnabled(extensions::ExtensionBuilder("Extension3").Build());
-  // Pre installed extensions by default:
-  // - Web Store
-  // - Chromium/Chrome PDF Viewer
-  size_t default_extensions_count = 2;
-  size_t expected_extensions_count = default_extensions_count + 3;
+  // Setting the ManifestLocation to kInternal means that the extension is user
+  // installed. kComponent is an internal Chrome Exntension used for features,
+  // kExternalPolicy means that the extension was installed through a policy.
+  extensions::ExtensionService* extension_service =
+      extensions::ExtensionSystem::Get(browser()->profile())
+          ->extension_service();
+  auto extension1 =
+      extensions::ExtensionBuilder("Extension1")
+          .SetLocation(extensions::mojom::ManifestLocation::kInternal)
+          .Build();
+  extension_service->AddExtension(extension1.get());
+  auto extension2 =
+      extensions::ExtensionBuilder("Extension2")
+          .SetLocation(extensions::mojom::ManifestLocation::kComponent)
+          .Build();
+  extension_service->AddExtension(extension2.get());
+  auto extension3 =
+      extensions::ExtensionBuilder("Extension3")
+          .SetLocation(extensions::mojom::ManifestLocation::kExternalPolicy)
+          .Build();
+  extension_service->AddExtension(extension3.get());
 
+  // Only one of the 3 extensions is considered user_installed.
+  size_t expected_extensions_count = 1;
   // Sign in to Chrome.
   const std::string email = "alice@example.com";
   signin::IdentityManager* identity_manager =
@@ -171,14 +186,18 @@ IN_PROC_BROWSER_TEST_F(ChromeSigninClientBrowserTest,
                                       expected_extensions_count, 1);
   histogram_tester.ExpectUniqueSample("Signin.Extensions.OnSignin.Other",
                                       expected_extensions_count, 1);
-  // No values expected for sync.
+  // No values expected for OnSync.
   base::HistogramTester::CountsMap expected_sync_counts;
   EXPECT_THAT(
       histogram_tester.GetTotalCountsForPrefix("Signin.Extensions.OnSync"),
       testing::ContainerEq(expected_sync_counts));
 
   // Add 1 more extension before syncing.
-  registry->AddEnabled(extensions::ExtensionBuilder("Extension4").Build());
+  auto extension4 =
+      extensions::ExtensionBuilder("Extension4")
+          .SetLocation(extensions::mojom::ManifestLocation::kInternal)
+          .Build();
+  extension_service->AddExtension(extension4.get());
   size_t sync_expected_extensions_count = expected_extensions_count + 1;
 
   // New histogram tester for easier new values check.
@@ -191,7 +210,7 @@ IN_PROC_BROWSER_TEST_F(ChromeSigninClientBrowserTest,
                                            sync_expected_extensions_count, 1);
   histogram_tester_sync.ExpectUniqueSample("Signin.Extensions.OnSync.Other",
                                            sync_expected_extensions_count, 1);
-  // No values expected for sync.
+  // No values expected for OnSignin.
   base::HistogramTester::CountsMap expected_signin_counts;
   EXPECT_THAT(histogram_tester_sync.GetTotalCountsForPrefix(
                   "Signin.Extensions.OnSignin"),

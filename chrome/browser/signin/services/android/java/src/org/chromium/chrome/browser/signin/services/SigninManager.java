@@ -4,14 +4,12 @@
 
 package org.chromium.chrome.browser.signin.services;
 
-import android.accounts.Account;
-
 import androidx.annotation.IntDef;
 import androidx.annotation.MainThread;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.chromium.base.Callback;
-import org.chromium.components.signin.base.CoreAccountId;
 import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.identitymanager.IdentityManager;
 import org.chromium.components.signin.metrics.SigninAccessPoint;
@@ -127,24 +125,8 @@ public interface SigninManager {
      *
      * <p>The sign-in flow goes through the following steps:
      *
-     * <p>- Wait for AccountTrackerService to be seeded. - Complete sign-in with the native
-     * IdentityManager. - Call the callback if provided.
-     *
-     * @param account The account to sign in to.
-     * @param accessPoint {@link SigninAccessPoint} that initiated the sign-in flow.
-     * @param callback Optional callback for when the sign-in process is finished.
-     */
-    @Deprecated
-    void signin(
-            Account account, @SigninAccessPoint int accessPoint, @Nullable SignInCallback callback);
-
-    /**
-     * Starts the sign-in flow, and executes the callback when finished.
-     *
-     * <p>The sign-in flow goes through the following steps:
-     *
-     * <p>- Wait for AccountTrackerService to be seeded. - Complete sign-in with the native
-     * IdentityManager. - Call the callback if provided.
+     * <p>- Wait for accounts to be seeded. - Complete sign-in with the native IdentityManager. -
+     * Call the callback if provided.
      *
      * @param coreAccountInfo The {@link CoreAccountInfo} to sign in to.
      * @param accessPoint {@link SigninAccessPoint} that initiated the sign-in flow.
@@ -160,25 +142,8 @@ public interface SigninManager {
      *
      * <p>The sign-in flow goes through the following steps:
      *
-     * <p>- Wait for AccountTrackerService to be seeded. - Wait for policy to be checked for the
-     * account. - If managed, wait for the policy to be fetched. - Complete sign-in with the native
-     * IdentityManager. - Call the callback if provided.
-     *
-     * @param account The account to sign in to.
-     * @param accessPoint {@link SigninAccessPoint} that initiated the sign-in flow.
-     * @param callback Optional callback for when the sign-in process is finished.
-     */
-    @Deprecated
-    void signinAndEnableSync(
-            Account account, @SigninAccessPoint int accessPoint, @Nullable SignInCallback callback);
-
-    /**
-     * Starts the sign-in flow, and executes the callback when finished.
-     *
-     * <p>The sign-in flow goes through the following steps:
-     *
-     * <p>- Wait for AccountTrackerService to be seeded. - Wait for policy to be checked for the
-     * account. - If managed, wait for the policy to be fetched. - Complete sign-in with the native
+     * <p>- Wait for accounts to be seeded. - Wait for policy to be checked for the account. - If
+     * managed, wait for the policy to be fetched. - Complete sign-in with the native
      * IdentityManager. - Call the callback if provided.
      *
      * @param coreAccountInfo The {@link CoreAccountInfo} to sign in to.
@@ -212,7 +177,10 @@ public interface SigninManager {
             SignOutCallback signOutCallback,
             boolean forceWipeUserData);
 
-    /** Returns true if sign out can be started now. */
+    /**
+     * Returns true if sign out can be started now. Sign out can start if there is no sign in/out in
+     * progress and there is a signed-in account.
+     */
     boolean isSignOutAllowed();
 
     /** Invokes signOut with no callback. */
@@ -240,31 +208,45 @@ public interface SigninManager {
     String getManagementDomain();
 
     /**
-     * Verifies if the account is managed. Callback may be called either
-     * synchronously or asynchronously depending on the availability of the
-     * result.
-     * TODO(crbug.com/1002408) Update API to use CoreAccountInfo instead of email
+     * Verifies if the account is managed. Callback may be called either synchronously or
+     * asynchronously depending on the availability of the result. Implementations may cache the
+     * result to make later invocations for the same account faster. TODO(crbug.com/40646656) Update
+     * API to use CoreAccountInfo instead of email
      *
      * @param email An email of the account.
      * @param callback The callback that will receive true if the account is managed, false
-     *                 otherwise.
+     *     otherwise.
+     * @deprecated Use the {@link CoreAccountInfo} version below.
      */
+    @Deprecated
     void isAccountManaged(String email, Callback<Boolean> callback);
 
     /**
-     * Reloads all the accounts from the system within the {@link IdentityManager}.
-     * @param primaryAccountId {@link CoreAccountId} of the primary account.
+     * Verifies if the account is managed. Callback may be called either synchronously or
+     * asynchronously depending on the availability of the result.
+     *
+     * @param accountInfo A CoreAccountInfo representing the account.
+     * @param callback The callback that will receive true if the account is managed, false
+     *     otherwise.
      */
-    void reloadAllAccountsFromSystem(CoreAccountId primaryAccountId);
+    void isAccountManaged(@NonNull CoreAccountInfo accountInfo, Callback<Boolean> callback);
 
     /**
      * Wipes the user's bookmarks and sync data.
      *
-     * Callers should make this call within a runAfterOperationInProgress() call in order to ensure
-     * serialization of wipe operations.
+     * <p>Callers should make this call within a runAfterOperationInProgress() call in order to
+     * ensure serialization of wipe operations.
      *
      * @param wipeDataCallback A callback which will be called once the data is wiped.
      * @param dataWipeOption What kind of data to delete.
      */
     void wipeSyncUserData(Runnable wipeDataCallback, @DataWipeOption int dataWipeOption);
+
+    /** Records that the user has accepted signing into a Managed Account. */
+    void setUserAcceptedAccountManagement(boolean acceptedAccountManagement);
+
+    /**
+     * @return Whether the user has accepted signing into a Managed Account.
+     */
+    boolean getUserAcceptedAccountManagement();
 }

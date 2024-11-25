@@ -35,7 +35,7 @@ MemoryAllocatorDump::MemoryAllocatorDump(
     : absolute_name_(absolute_name),
       guid_(guid),
       level_of_detail_(level_of_detail),
-      flags_(Flags::DEFAULT) {
+      flags_(Flags::kDefault) {
   // The |absolute_name| cannot be empty.
   DCHECK(!absolute_name.empty());
 
@@ -58,7 +58,6 @@ void MemoryAllocatorDump::AddString(const char* name,
   // String attributes are disabled in background mode.
   if (level_of_detail_ == MemoryDumpLevelOfDetail::kBackground) {
     NOTREACHED();
-    return;
   }
   entries_.emplace_back(name, units, value);
 }
@@ -95,7 +94,7 @@ void MemoryAllocatorDump::AsProtoInto(
         MemoryNode* memory_node) const {
   memory_node->set_id(guid_.ToUint64());
   memory_node->set_absolute_name(absolute_name_);
-  if (flags() & WEAK) {
+  if (flags() & kWeak) {
     memory_node->set_weak(true);
   }
 
@@ -173,7 +172,6 @@ bool MemoryAllocatorDump::Entry::operator==(const Entry& rhs) const {
       return value_string == rhs.value_string;
   }
   NOTREACHED();
-  return false;
 }
 
 void PrintTo(const MemoryAllocatorDump::Entry& entry, std::ostream* out) {

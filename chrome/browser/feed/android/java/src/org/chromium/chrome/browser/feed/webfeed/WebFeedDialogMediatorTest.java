@@ -13,6 +13,8 @@ import static org.robolectric.Shadows.shadowOf;
 import android.app.Activity;
 import android.view.View;
 
+import androidx.activity.ComponentDialog;
+import androidx.annotation.Nullable;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Before;
@@ -39,9 +41,10 @@ public final class WebFeedDialogMediatorTest {
     private ModalDialogManager mModalDialogManager;
     private Activity mActivity;
 
-    private class Presenter extends ModalDialogManager.Presenter {
+    private static class Presenter extends ModalDialogManager.Presenter {
         @Override
-        protected void addDialogView(PropertyModel model) {}
+        protected void addDialogView(
+                PropertyModel model, @Nullable Callback<ComponentDialog> onDialogShownCallback) {}
 
         @Override
         protected void removeDialogView(PropertyModel model) {}

@@ -171,7 +171,7 @@ void MediaEngagementService::Shutdown() {
   history_service_observation_.Reset();
 }
 
-void MediaEngagementService::OnURLsDeleted(
+void MediaEngagementService::OnHistoryDeletions(
     history::HistoryService* history_service,
     const history::DeletionInfo& deletion_info) {
   if (deletion_info.IsAllHistory()) {
@@ -342,7 +342,6 @@ std::vector<MediaEngagementScore> MediaEngagementService::GetAllStoredScores()
         url::Origin::Create(GURL(site.primary_pattern.ToString()));
     if (origin.opaque()) {
       NOTREACHED();
-      continue;
     }
 
     if (base::FeatureList::IsEnabled(media::kMediaEngagementHTTPSOnly) &&

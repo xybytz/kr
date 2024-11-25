@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "base/callback_list.h"
+#import "base/memory/raw_ptr.h"
 #include "components/sync/model/syncable_service.h"
 #include "components/sync_sessions/local_session_event_router.h"
 #include "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer.h"
@@ -45,7 +46,7 @@ class IOSChromeLocalSessionEventRouter
   void Stop() override;
 
  private:
-  // Observer implementation for each browser state.
+  // Observer implementation for each profile.
   class Observer : public WebStateListObserver, public web::WebStateObserver {
    public:
     explicit Observer(IOSChromeLocalSessionEventRouter* session_router);
@@ -73,7 +74,7 @@ class IOSChromeLocalSessionEventRouter
     void DidChangeBackForwardState(web::WebState* web_state) override;
     void WebStateDestroyed(web::WebState* web_state) override;
 
-    IOSChromeLocalSessionEventRouter* router_;
+    raw_ptr<IOSChromeLocalSessionEventRouter> router_;
   };
 
   // Called before the Batch operation starts for a web state list.
@@ -88,12 +89,15 @@ class IOSChromeLocalSessionEventRouter
   // Called on observation of a change in `web_state`.
   void OnWebStateChange(web::WebState* web_state);
 
+  // Called when a `web_state` is closed.
+  void OnWebStateClosed();
+
   // Observation registrar for the associated browser list; owns an instance
   // of IOSChromeLocalSessionEventRouter::Observer.
   std::unique_ptr<AllWebStateListObservationRegistrar> const registrar_;
 
-  sync_sessions::LocalSessionEventHandler* handler_ = nullptr;
-  sync_sessions::SyncSessionsClient* const sessions_client_;
+  raw_ptr<sync_sessions::LocalSessionEventHandler> handler_ = nullptr;
+  const raw_ptr<sync_sessions::SyncSessionsClient> sessions_client_;
   syncer::SyncableService::StartSyncFlare flare_;
 
   base::CallbackListSubscription const tab_parented_subscription_;

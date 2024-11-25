@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "chrome/browser/ui/cocoa/task_manager_mac.h"
 
 #include <stddef.h>
@@ -16,13 +21,13 @@
 #include "build/buildflag.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lifetime/termination_notification.h"
+#include "chrome/browser/task_manager/common/task_manager_features.h"
 #include "chrome/browser/task_manager/task_manager_interface.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/cocoa/task_manager_mac_table_view.h"
 #import "chrome/browser/ui/cocoa/window_size_autosaver.h"
 #include "chrome/browser/ui/task_manager/task_manager_columns.h"
-#include "chrome/browser/ui/ui_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/branded_strings.h"
 #include "chrome/grit/generated_resources.h"
@@ -687,11 +692,12 @@ namespace task_manager {
 ////////////////////////////////////////////////////////////////////////////////
 // TaskManagerMac implementation:
 
-TaskManagerMac::TaskManagerMac()
+TaskManagerMac::TaskManagerMac(StartAction start_action)
     : table_model_(this),
       window_controller_([[TaskManagerWindowController alloc]
           initWithTaskManagerMac:this
                       tableModel:&table_model_]) {
+  task_manager::RecordNewOpenEvent(start_action);
   table_model_.SetObserver(this);  // Hook up the ui::TableModelObserver.
   table_model_.RetrieveSavedColumnsSettingsAndUpdateTable();
 
@@ -705,6 +711,7 @@ TaskManagerMac* TaskManagerMac::instance_ = nullptr;
 
 TaskManagerMac::~TaskManagerMac() {
   table_model_.SetObserver(nullptr);
+  task_manager::RecordCloseEvent(start_time_, base::TimeTicks::Now());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -751,6 +758,8 @@ void TaskManagerMac::SetSortDescriptor(const TableSortDescriptor& descriptor) {
   window_controller_.sortDescriptor = descriptor;
 }
 
+void TaskManagerMac::MaybeHighlightActiveTask() {}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Called by the TaskManagerWindowController:
 
@@ -777,12 +786,12 @@ void TaskManagerMac::OnAppTerminating() {
 }
 
 // static
-TaskManagerTableModel* TaskManagerMac::Show() {
+TaskManagerTableModel* TaskManagerMac::Show(StartAction start_action) {
   if (instance_) {
     [instance_->window_controller_.window
         makeKeyAndOrderFront:instance_->window_controller_];
   } else {
-    instance_ = new TaskManagerMac();
+    instance_ = new TaskManagerMac(start_action);
   }
 
   return &instance_->table_model_;
@@ -799,14 +808,16 @@ void TaskManagerMac::Hide() {
 namespace chrome {
 
 // Declared in browser_dialogs.h.
-task_manager::TaskManagerTableModel* ShowTaskManager(Browser* browser) {
-  return base::FeatureList::IsEnabled(features::kViewsTaskManager)
-             ? ShowTaskManagerViews(browser)
-             : task_manager::TaskManagerMac::Show();
+task_manager::TaskManagerTableModel* ShowTaskManager(
+    Browser* browser,
+    task_manager::StartAction start_action) {
+  return base::FeatureList::IsEnabled(features::kTaskManagerDesktopRefresh)
+             ? ShowTaskManagerViews(browser, start_action)
+             : task_manager::TaskManagerMac::Show(start_action);
 }
 
 void HideTaskManager() {
-  base::FeatureList::IsEnabled(features::kViewsTaskManager)
+  base::FeatureList::IsEnabled(features::kTaskManagerDesktopRefresh)
       ? HideTaskManagerViews()
       : task_manager::TaskManagerMac::Hide();
 }

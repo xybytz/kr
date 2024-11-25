@@ -12,16 +12,18 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/types/expected.h"
-#include "chromeos/ash/components/attestation/attestation_flow.h"
+#include "chromeos/ash/components/dbus/constants/attestation_constants.h"
 #include "chromeos/ash/components/quick_start/quick_start_metrics.h"
 #include "chromeos/ash/components/quick_start/types.h"
 #include "components/endpoint_fetcher/endpoint_fetcher.h"
+#include "services/data_decoder/public/cpp/data_decoder.h"
 #include "third_party/abseil-cpp/absl/types/variant.h"
 
 class GoogleServiceAuthError;
 
 namespace ash::attestation {
 class AttestationFeatures;
+class AttestationFlow;
 }  // namespace ash::attestation
 
 namespace network {
@@ -58,6 +60,9 @@ class SecondDeviceAuthBroker {
   struct AuthCodeSuccessResponse : public AuthCodeBaseResponse {
     // OAuth Authorization Code.
     std::string auth_code;
+
+    // Obfuscated Gaia id of the user. May be empty.
+    std::string gaia_id;
   };
 
   // `AuthCodeCallback` request was rejected.
@@ -87,6 +92,19 @@ class SecondDeviceAuthBroker {
 
       // Credential ID mismatch thrown during FIDO assertion verification.
       kCredentialIdMismatch,
+
+      // Federated Enterprise accounts are currently not supported.
+      kFederatedEnterpriseAccountNotSupported,
+
+      // A Unicorn account was used for QuickStart when QuickStart is disallowed
+      // for the account.
+      kUnicornAccountNotEnabled,
+
+      // Account lookup failed - account not found.
+      kAccountNotFound,
+
+      // Account lookup failed - captcha required.
+      kCaptchaRequired,
     };
 
     Reason reason;
@@ -194,6 +212,23 @@ class SecondDeviceAuthBroker {
       SecondDeviceAuthBroker::AttestationCertificateCallback callback,
       attestation::AttestationStatus status,
       const std::string& pem_certificate_chain);
+
+  // Internal helper method to respond to `auth_code_callback`.
+  void RunAuthCodeCallbackFromParsedResponse(
+      SecondDeviceAuthBroker::AuthCodeCallback auth_code_callback,
+      std::unique_ptr<EndpointResponse> unparsed_response,
+      data_decoder::DataDecoder::ValueOrError response);
+
+  // Internal helper methods to respond to `challenge_callback`.
+  void HandleFetchChallengeBytesErrorResponse(
+      SecondDeviceAuthBroker::ChallengeBytesCallback challenge_callback,
+      std::unique_ptr<EndpointResponse> response);
+  void RunChallengeBytesCallbackWithError(
+      SecondDeviceAuthBroker::ChallengeBytesCallback challenge_callback,
+      const GoogleServiceAuthError& error);
+  void RunChallengeBytesCallback(
+      SecondDeviceAuthBroker::ChallengeBytesCallback challenge_callback,
+      const Base64UrlString& challenge);
 
   // Must be between 0 (exclusive) and 64 (inclusive) characters.
   const std::string device_id_;

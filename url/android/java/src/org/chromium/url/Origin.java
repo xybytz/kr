@@ -4,9 +4,15 @@
 
 package org.chromium.url;
 
+import androidx.annotation.NonNull;
+
 import org.jni_zero.CalledByNative;
 import org.jni_zero.JNINamespace;
+import org.jni_zero.JniType;
 import org.jni_zero.NativeMethods;
+
+import java.util.Locale;
+import java.util.Objects;
 
 /** An origin is either a (scheme, host, port) tuple or is opaque. */
 @JNINamespace("url")
@@ -60,8 +66,8 @@ public class Origin {
 
     @CalledByNative
     private Origin(
-            String scheme,
-            String host,
+            @JniType("std::string") String scheme,
+            @JniType("std::string") String host,
             short port,
             boolean isOpaque,
             long tokenHighBits,
@@ -94,10 +100,49 @@ public class Origin {
         return mIsOpaque;
     }
 
+    @Override
+    public final int hashCode() {
+        return Objects.hash(mScheme, mHost, mPort, mIsOpaque, mTokenHighBits, mTokenLowBits);
+    }
+
+    @Override
+    public final boolean equals(Object other) {
+        if (other == this) return true;
+        if (!(other instanceof Origin)) return false;
+
+        Origin that = (Origin) other;
+
+        return mScheme.equals(that.mScheme)
+                && mHost.equals(that.mHost)
+                && mPort == that.mPort
+                && mIsOpaque == that.mIsOpaque
+                && mTokenHighBits == that.mTokenHighBits
+                && mTokenLowBits == that.mTokenLowBits;
+    }
+
+    /**
+     * Returns a String representing the Origin in structure of scheme://host:port or the string
+     * "null" if it's opaque.
+     */
+    @Override
+    @NonNull
+    public String toString() {
+        return isOpaque()
+                ? "null"
+                : String.format(Locale.ROOT, "%s://%s:%d", mScheme, mHost, getPort());
+    }
+
     @CalledByNative
-    private long toNativeOrigin() {
-        return OriginJni.get()
-                .createNative(mScheme, mHost, mPort, mIsOpaque, mTokenHighBits, mTokenLowBits);
+    private void assignNativeOrigin(long nativeOrigin) {
+        OriginJni.get()
+                .assignNativeOrigin(
+                        mScheme,
+                        mHost,
+                        mPort,
+                        mIsOpaque,
+                        mTokenHighBits,
+                        mTokenLowBits,
+                        nativeOrigin);
     }
 
     @NativeMethods
@@ -108,13 +153,14 @@ public class Origin {
         /** Constructs an Origin from a GURL. */
         Origin createFromGURL(GURL gurl);
 
-        /** Reconstructs the native Origin for this Java Origin, returning its native pointer. */
-        long createNative(
-                String scheme,
-                String host,
+        /** Initialize nativeOrigin. */
+        void assignNativeOrigin(
+                @JniType("std::string") String scheme,
+                @JniType("std::string") String host,
                 short port,
                 boolean isOpaque,
                 long tokenHighBits,
-                long tokenLowBits);
+                long tokenLowBits,
+                long nativeOrigin);
     }
 }

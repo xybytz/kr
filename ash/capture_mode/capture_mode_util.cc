@@ -6,7 +6,6 @@
 
 #include "ash/accessibility/accessibility_controller.h"
 #include "ash/capture_mode/capture_mode_camera_controller.h"
-#include "ash/capture_mode/capture_mode_constants.h"
 #include "ash/capture_mode/capture_mode_controller.h"
 #include "ash/capture_mode/capture_mode_session.h"
 #include "ash/capture_mode/capture_mode_types.h"
@@ -16,6 +15,7 @@
 #include "ash/public/cpp/window_finder.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/root_window_controller.h"
+#include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_id.h"
@@ -24,8 +24,8 @@
 #include "base/check.h"
 #include "base/notreached.h"
 #include "base/task/single_thread_task_runner.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/ui/frame/frame_header.h"
+#include "components/prefs/pref_service.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/image_model.h"
 #include "ui/chromeos/styles/cros_tokens_color_mappings.h"
@@ -47,8 +47,8 @@ namespace ash::capture_mode_util {
 
 namespace {
 
-constexpr int kBannerViewTopRadius = 0;
-constexpr int kBannerViewBottomRadius = 8;
+constexpr float kBannerViewTopRadius = 0.0f;
+constexpr float kBannerViewBottomRadius = 8.0f;
 constexpr float kScaleUpFactor = 0.8f;
 
 // The app ID used for the capture mode privacy indicators.
@@ -151,6 +151,15 @@ void FadeOutWidget(views::Widget* widget,
 
 }  // namespace
 
+PrefService* GetActiveUserPrefService() {
+  DCHECK(Shell::Get()->session_controller()->IsActiveUserSessionStarted());
+
+  auto* pref_service =
+      Shell::Get()->session_controller()->GetActivePrefService();
+  DCHECK(pref_service);
+  return pref_service;
+}
+
 bool IsCaptureModeActive() {
   return CaptureModeController::Get()->IsActive();
 }
@@ -183,7 +192,6 @@ gfx::Point GetLocationForFineTunePosition(const gfx::Rect& rect,
   }
 
   NOTREACHED();
-  return gfx::Point();
 }
 
 bool IsCornerFineTunePosition(FineTunePosition position) {
@@ -311,18 +319,10 @@ std::unique_ptr<views::View> CreateClipboardShortcutView() {
   views::Label* shortcut_label =
       clipboard_shortcut_view->AddChildView(std::make_unique<views::Label>());
   shortcut_label->SetText(label_text);
-  shortcut_label->SetBackgroundColorId(
-      chromeos::features::IsJellyEnabled()
-          ? cros_tokens::kCrosSysPrimary
-          : static_cast<ui::ColorId>(kColorAshControlBackgroundColorActive));
-  shortcut_label->SetEnabledColorId(
-      chromeos::features::IsJellyEnabled()
-          ? cros_tokens::kCrosSysOnPrimary
-          : static_cast<ui::ColorId>(kColorAshTextOnBackgroundColor));
-  if (chromeos::features::IsJellyEnabled()) {
-    ash::TypographyProvider::Get()->StyleLabel(ash::TypographyToken::kCrosBody2,
-                                               *shortcut_label);
-  }
+  shortcut_label->SetBackgroundColorId(cros_tokens::kCrosSysPrimary);
+  shortcut_label->SetEnabledColorId(cros_tokens::kCrosSysOnPrimary);
+  ash::TypographyProvider::Get()->StyleLabel(ash::TypographyToken::kCrosBody2,
+                                             *shortcut_label);
   return clipboard_shortcut_view;
 }
 
@@ -336,21 +336,14 @@ std::unique_ptr<views::View> CreateBannerView() {
           gfx::Insets::VH(kBannerVerticalInsetDip, kBannerHorizontalInsetDip),
           kBannerIconTextSpacingDip));
 
-  const ui::ColorId background_color_id =
-      chromeos::features::IsJellyEnabled()
-          ? cros_tokens::kCrosSysPrimary
-          : static_cast<ui::ColorId>(kColorAshControlBackgroundColorActive);
+  const ui::ColorId background_color_id = cros_tokens::kCrosSysPrimary;
   banner_view->SetBackground(views::CreateThemedRoundedRectBackground(
-      background_color_id, kBannerViewTopRadius, kBannerViewBottomRadius,
-      /*for_border_thickness=*/0));
+      background_color_id, kBannerViewTopRadius, kBannerViewBottomRadius));
 
   views::ImageView* icon =
       banner_view->AddChildView(std::make_unique<views::ImageView>());
   icon->SetImage(ui::ImageModel::FromVectorIcon(
-      kCaptureModeCopiedToClipboardIcon,
-      chromeos::features::IsJellyEnabled()
-          ? cros_tokens::kCrosSysOnPrimary
-          : static_cast<ui::ColorId>(kColorAshIconOnBackgroundColor),
+      kCaptureModeCopiedToClipboardIcon, cros_tokens::kCrosSysOnPrimary,
       kBannerIconSizeDip));
 
   views::Label* label = banner_view->AddChildView(
@@ -358,14 +351,9 @@ std::unique_ptr<views::View> CreateBannerView() {
           IDS_ASH_SCREEN_CAPTURE_SCREENSHOT_COPIED_TO_CLIPBOARD)));
   label->SetBackgroundColorId(kColorAshControlBackgroundColorActive);
   label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  label->SetEnabledColorId(
-      chromeos::features::IsJellyEnabled()
-          ? cros_tokens::kCrosSysOnPrimary
-          : static_cast<ui::ColorId>(kColorAshTextOnBackgroundColor));
-  if (chromeos::features::IsJellyEnabled()) {
-    ash::TypographyProvider::Get()->StyleLabel(ash::TypographyToken::kCrosBody2,
-                                               *label);
-  }
+  label->SetEnabledColorId(cros_tokens::kCrosSysOnPrimary);
+  ash::TypographyProvider::Get()->StyleLabel(ash::TypographyToken::kCrosBody2,
+                                             *label);
 
   if (!display::Screen::GetScreen()->InTabletMode()) {
     banner_view->AddChildView(CreateClipboardShortcutView());
@@ -595,6 +583,42 @@ gfx::Rect GetCaptureWindowConfineBounds(aura::Window* window) {
   }
 
   return result;
+}
+
+gfx::Rect GetEffectivePartialRegionBounds(
+    const gfx::Rect& partial_region_bounds,
+    aura::Window* root_window) {
+  CHECK(root_window);
+
+  gfx::Rect result = partial_region_bounds;
+  result.AdjustToFit(root_window->bounds());
+  return result;
+}
+
+void AddActionButton(views::Button::PressedCallback callback,
+                     std::u16string text,
+                     const gfx::VectorIcon* icon,
+                     const ActionButtonRank rank,
+                     ActionButtonViewID id) {
+  if (auto* controller = CaptureModeController::Get(); controller->IsActive()) {
+    controller->capture_mode_session()->AddActionButton(std::move(callback),
+                                                        text, icon, rank, id);
+  }
+}
+
+void AnimateToOpacity(ui::Layer* layer,
+                      const float opacity,
+                      const base::TimeDelta duration) {
+  if (layer->GetTargetOpacity() == opacity) {
+    return;
+  }
+
+  views::AnimationBuilder()
+      .SetPreemptionStrategy(
+          ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET)
+      .Once()
+      .SetDuration(duration)
+      .SetOpacity(layer, opacity, gfx::Tween::FAST_OUT_SLOW_IN);
 }
 
 }  // namespace ash::capture_mode_util

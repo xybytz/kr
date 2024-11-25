@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser.ui.appmenu;
 
+import android.content.res.ColorStateList;
 import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
 import android.view.View;
@@ -21,6 +22,7 @@ import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter;
 import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter.HighlightParams;
 import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter.HighlightShape;
 import org.chromium.components.browser_ui.widget.text.TextViewWithCompoundDrawables;
+import org.chromium.ui.UiUtils;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
 import org.chromium.ui.modelutil.PropertyKey;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -58,18 +60,36 @@ class AppMenuItemViewBinder {
         } else if (key == AppMenuItemProperties.ICON) {
             Drawable icon = model.get(AppMenuItemProperties.ICON);
             ChromeImageView imageView = (ChromeImageView) view.findViewById(R.id.menu_item_icon);
-            imageView.setImageDrawable(icon);
-            imageView.setVisibility(icon == null ? View.GONE : View.VISIBLE);
 
-            // tint the icon
             @ColorRes int colorResId = model.get(AppMenuItemProperties.ICON_COLOR_RES);
             if (colorResId == 0) {
                 // If there is no color assigned to the icon, use the default color.
                 colorResId = R.color.default_icon_color_secondary_tint_list;
             }
-            ImageViewCompat.setImageTintList(
-                    imageView,
-                    AppCompatResources.getColorStateList(imageView.getContext(), colorResId));
+            ColorStateList tintList =
+                    AppCompatResources.getColorStateList(imageView.getContext(), colorResId);
+
+            if (model.get(AppMenuItemProperties.ICON_SHOW_BADGE)) {
+                // Draw the icon with a red badge on top.
+                icon =
+                        UiUtils.drawIconWithBadge(
+                                imageView.getContext(),
+                                icon,
+                                colorResId,
+                                R.dimen.menu_item_icon_badge_size,
+                                R.dimen.menu_item_icon_badge_border_size,
+                                R.color.default_red);
+                // `colorResId` has already been applied by `drawIconWithBadge` and thus, passing
+                // `tintList` is not required.
+                // Note that tint is set to null to clear any tint previously set via XML.
+                tintList = null;
+            }
+
+            imageView.setImageDrawable(icon);
+            imageView.setVisibility(icon == null ? View.GONE : View.VISIBLE);
+
+            // tint the icon
+            ImageViewCompat.setImageTintList(imageView, tintList);
         } else if (key == AppMenuItemProperties.CLICK_HANDLER) {
             view.setOnClickListener(
                     v -> model.get(AppMenuItemProperties.CLICK_HANDLER).onItemClick(model));

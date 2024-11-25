@@ -16,6 +16,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
@@ -24,7 +25,6 @@ import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.R;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.concurrent.ExecutionException;
 
@@ -49,8 +49,7 @@ public class HttpsFirstModeSettingTest {
                             Matchers.notNullValue());
                 });
 
-        return TestThreadUtils.runOnUiThreadBlocking(
-                () -> prefFragment.findPreference(preferenceKey));
+        return ThreadUtils.runOnUiThreadBlocking(() -> prefFragment.findPreference(preferenceKey));
     }
 
     @Test
@@ -60,13 +59,12 @@ public class HttpsFirstModeSettingTest {
         final PrivacySettings privacySettings = mSettingsActivityTestRule.getFragment();
         final String unlockedSummaryText =
                 ApplicationProvider.getApplicationContext()
-                        .getResources()
                         .getString(R.string.settings_https_first_mode_summary);
 
         Preference pref = waitForPreference(privacySettings, PREF_HTTPS_FIRST_MODE);
         Assert.assertNotNull(pref);
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     Assert.assertTrue(pref.getSummary().equals(unlockedSummaryText));
                 });
@@ -81,7 +79,6 @@ public class HttpsFirstModeSettingTest {
         final PrivacySettings privacySettings = mSettingsActivityTestRule.getFragment();
         final String lockedSummaryText =
                 ApplicationProvider.getApplicationContext()
-                        .getResources()
                         .getString(
                                 R.string
                                         .settings_https_first_mode_with_advanced_protection_summary);
@@ -89,7 +86,7 @@ public class HttpsFirstModeSettingTest {
         Preference pref = waitForPreference(privacySettings, PREF_HTTPS_FIRST_MODE);
         Assert.assertNotNull(pref);
 
-        TestThreadUtils.runOnUiThreadBlocking(
+        ThreadUtils.runOnUiThreadBlocking(
                 () -> {
                     Assert.assertTrue(pref.getSummary().equals(lockedSummaryText));
                 });

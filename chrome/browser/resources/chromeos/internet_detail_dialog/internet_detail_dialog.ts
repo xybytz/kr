@@ -12,28 +12,28 @@ import 'chrome://resources/ash/common/network/network_property_list_mojo.js';
 import 'chrome://resources/ash/common/network/network_proxy.js';
 import 'chrome://resources/ash/common/network/network_shared.css.js';
 import 'chrome://resources/ash/common/network/network_siminfo.js';
-import 'chrome://resources/cr_elements/cr_expand_button/cr_expand_button.js';
-import 'chrome://resources/cr_elements/cr_button/cr_button.js';
-import 'chrome://resources/cr_elements/cr_page_host_style.css.js';
-import 'chrome://resources/cr_elements/cr_toast/cr_toast.js';
-import 'chrome://resources/cr_elements/icons.html.js';
-import 'chrome://resources/cr_elements/cr_shared_style.css.js';
-import 'chrome://resources/cr_elements/chromeos/cros_color_overrides.css.js';
+import 'chrome://resources/ash/common/cr_elements/cr_expand_button/cr_expand_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/ash/common/cr_elements/cr_page_host_style.css.js';
+import 'chrome://resources/ash/common/cr_elements/cr_toast/cr_toast.js';
+import 'chrome://resources/ash/common/cr_elements/icons.html.js';
+import 'chrome://resources/ash/common/cr_elements/cr_shared_style.css.js';
+import 'chrome://resources/ash/common/cr_elements/cros_color_overrides.css.js';
 import 'chrome://resources/polymer/v3_0/iron-collapse/iron-collapse.js';
 import 'chrome://resources/ash/common/network/apn_list.js';
-import 'chrome://resources/cr_elements/policy/cr_policy_indicator_mixin.js';
-import './strings.m.js';
+import 'chrome://resources/ash/common/cr_elements/policy/cr_policy_indicator_mixin.js';
+import '/strings.m.js';
 
+import {CrToastElement} from 'chrome://resources/ash/common/cr_elements/cr_toast/cr_toast.js';
+import {I18nMixin, I18nMixinInterface} from 'chrome://resources/ash/common/cr_elements/i18n_mixin.js';
 import {loadTimeData} from 'chrome://resources/ash/common/load_time_data.m.js';
-import {ApnList} from 'chrome://resources/ash/common/network/apn_list.js';
+import {ApnListElement} from 'chrome://resources/ash/common/network/apn_list.js';
 import {getApnDisplayName, isActiveSim} from 'chrome://resources/ash/common/network/cellular_utils.js';
 import {CrPolicyNetworkBehaviorMojo, CrPolicyNetworkBehaviorMojoInterface} from 'chrome://resources/ash/common/network/cr_policy_network_behavior_mojo.js';
 import {MojoInterfaceProviderImpl} from 'chrome://resources/ash/common/network/mojo_interface_provider.js';
 import {NetworkListenerBehavior, NetworkListenerBehaviorInterface} from 'chrome://resources/ash/common/network/network_listener_behavior.js';
 import {OncMojo} from 'chrome://resources/ash/common/network/onc_mojo.js';
 import {ColorChangeUpdater} from 'chrome://resources/cr_components/color_change_listener/colors_css_updater.js';
-import {CrToastElement} from 'chrome://resources/cr_elements/cr_toast/cr_toast.js';
-import {I18nMixin, I18nMixinInterface} from 'chrome://resources/cr_elements/i18n_mixin.js';
 import {assert} from 'chrome://resources/js/assert.js';
 import {ApnProperties, ConfigProperties, CrosNetworkConfigInterface, GlobalPolicy, IPConfigProperties, ManagedProperties, MAX_NUM_CUSTOM_APNS, ProxySettings, StartConnectResult} from 'chrome://resources/mojo/chromeos/services/network_config/public/mojom/cros_network_config.mojom-webui.js';
 import {ConnectionStateType, NetworkType, OncSource, PortalState} from 'chrome://resources/mojo/chromeos/services/network_config/public/mojom/network_types.mojom-webui.js';
@@ -128,15 +128,13 @@ export class InternetDetailDialogElement extends
         },
       },
 
-      /**
-       * Return true if Jelly feature flag is enabled.
-       */
-      isJellyEnabled_: {
+      isApnRevampAndAllowApnModificationPolicyEnabled_: {
         type: Boolean,
-        readOnly: true,
         value() {
-          return loadTimeData.valueExists('isJellyEnabled') &&
-              loadTimeData.getBoolean('isJellyEnabled');
+          return loadTimeData.valueExists(
+                     'isApnRevampAndAllowApnModificationPolicyEnabled') &&
+              loadTimeData.getBoolean(
+                  'isApnRevampAndAllowApnModificationPolicyEnabled');
         },
       },
 
@@ -170,7 +168,7 @@ export class InternetDetailDialogElement extends
   private globalPolicy_: GlobalPolicy;
   private apnExpanded_: boolean;
   private isApnRevampEnabled_: boolean;
-  private isJellyEnabled_: boolean;
+  private isApnRevampAndAllowApnModificationPolicyEnabled_: boolean;
   private isNumCustomApnsLimitReached_: boolean;
   private errorToastMessage_: string;
   private didSetFocus_: boolean = false;
@@ -208,16 +206,9 @@ export class InternetDetailDialogElement extends
 
     this.browserProxy_ = InternetDetailDialogBrowserProxyImpl.getInstance();
     const dialogArgs = this.browserProxy_.getDialogArguments();
-    if (this.isJellyEnabled_) {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = 'chrome://theme/colors.css?sets=legacy,sys';
-      document.head.appendChild(link);
-      document.body.classList.add('jelly-enabled');
-      (function() {
-        ColorChangeUpdater.forDocument().start();
-      })();
-    }
+
+    ColorChangeUpdater.forDocument().start();
+
     let type;
     let name;
     if (dialogArgs) {
@@ -281,9 +272,9 @@ export class InternetDetailDialogElement extends
       return;
     }
     // If the network was or is active, request an update.
-    if (this.managedProperties_.connectionState !=
+    if (this.managedProperties_.connectionState !==
             ConnectionStateType.kNotConnected ||
-        networks.find(network => network.guid == this.guid)) {
+        networks.find(network => network.guid === this.guid)) {
       this.getNetworkDetails_();
     }
   }
@@ -293,7 +284,7 @@ export class InternetDetailDialogElement extends
     if (!this.guid || !this.managedProperties_) {
       return;
     }
-    if (network.guid == this.guid) {
+    if (network.guid === this.guid) {
       this.getNetworkDetails_();
     }
   }
@@ -330,7 +321,7 @@ export class InternetDetailDialogElement extends
     const type = this.managedProperties_.type;
     this.networkConfig_.getDeviceStateList().then(response => {
       const devices = response.result;
-      this.deviceState_ = devices.find(device => device.type == type) || null;
+      this.deviceState_ = devices.find(device => device.type === type) || null;
       if (!this.deviceState_) {
         // If the device type associated with the current network has been
         // removed (e.g., due to unplugging a Cellular dongle), the details
@@ -371,10 +362,10 @@ export class InternetDetailDialogElement extends
 
     if (OncMojo.connectionStateIsConnected(managedProperties.connectionState)) {
       if (this.isPortalState_(managedProperties.portalState)) {
+        if (managedProperties.type === NetworkType.kCellular) {
+          return this.i18n('networkListItemCellularSignIn');
+        }
         return this.i18n('networkListItemSignIn');
-      }
-      if (managedProperties.portalState === PortalState.kPortalSuspected) {
-        return this.i18n('networkListItemConnectedLimited');
       }
       if (managedProperties.portalState === PortalState.kNoInternet) {
         return this.i18n('networkListItemConnectedNoConnectivity');
@@ -432,7 +423,7 @@ export class InternetDetailDialogElement extends
   }
 
   private isRemembered_(managedProperties: ManagedProperties): boolean {
-    return managedProperties.source != OncSource.kNone;
+    return managedProperties.source !== OncSource.kNone;
   }
 
   private isRememberedOrConnected_(managedProperties: ManagedProperties):
@@ -443,7 +434,7 @@ export class InternetDetailDialogElement extends
 
   private shouldShowApnList_(managedProperties: ManagedProperties): boolean {
     return !this.isApnRevampEnabled_ &&
-        managedProperties.type == NetworkType.kCellular;
+        managedProperties.type === NetworkType.kCellular;
   }
 
   private shouldShowApnSection_(managedProperties: ManagedProperties): boolean {
@@ -466,22 +457,32 @@ export class InternetDetailDialogElement extends
         managedProperties.typeProperties.cellular!.connectedApn);
   }
 
+  private isApnManaged_(globalPolicy: GlobalPolicy|undefined): boolean {
+    if (!this.isApnRevampAndAllowApnModificationPolicyEnabled_) {
+      return false;
+    }
+    if (!globalPolicy) {
+      return false;
+    }
+    return !globalPolicy.allowApnModification;
+  }
+
   private showCellularSim_(managedProperties: ManagedProperties): boolean {
-    return managedProperties.type == NetworkType.kCellular &&
-        managedProperties.typeProperties.cellular!.family != 'CDMA';
+    return managedProperties.type === NetworkType.kCellular &&
+        managedProperties.typeProperties.cellular!.family !== 'CDMA';
   }
 
   private showCellularChooseNetwork_(managedProperties: ManagedProperties):
       boolean {
-    return managedProperties.type == NetworkType.kCellular &&
+    return managedProperties.type === NetworkType.kCellular &&
         managedProperties.typeProperties.cellular!.supportNetworkScan;
   }
 
   private showForget_(managedProperties: ManagedProperties): boolean {
-    if (!managedProperties || managedProperties.type != NetworkType.kWiFi) {
+    if (!managedProperties || managedProperties.type !== NetworkType.kWiFi) {
       return false;
     }
-    return managedProperties.source != OncSource.kNone &&
+    return managedProperties.source !== OncSource.kNone &&
         !this.isPolicySource(managedProperties.source);
   }
 
@@ -542,8 +543,8 @@ export class InternetDetailDialogElement extends
       return false;
     }
     return managedProperties.connectable &&
-        managedProperties.type != NetworkType.kEthernet &&
-        managedProperties.connectionState == ConnectionStateType.kNotConnected;
+        managedProperties.type !== NetworkType.kEthernet &&
+        managedProperties.connectionState === ConnectionStateType.kNotConnected;
   }
 
   private showDisconnect_(managedProperties: (ManagedProperties|undefined)):
@@ -551,8 +552,8 @@ export class InternetDetailDialogElement extends
     if (!managedProperties) {
       return false;
     }
-    return managedProperties.type != NetworkType.kEthernet &&
-        managedProperties.connectionState != ConnectionStateType.kNotConnected;
+    return managedProperties.type !== NetworkType.kEthernet &&
+        managedProperties.connectionState !== ConnectionStateType.kNotConnected;
   }
 
   private shouldShowProxyPolicyIndicator_(managedProperties: ManagedProperties):
@@ -677,7 +678,7 @@ export class InternetDetailDialogElement extends
   private getInfoFields_(): string[] {
     const fields: string[] = [];
     const type = this.managedProperties_.type;
-    if (type == NetworkType.kCellular) {
+    if (type === NetworkType.kCellular) {
       fields.push(
           'cellular.activationState', 'cellular.servingOperator.name',
           'cellular.networkTechnology');
@@ -685,10 +686,10 @@ export class InternetDetailDialogElement extends
     if (OncMojo.isRestrictedConnectivity(this.managedProperties_.portalState)) {
       fields.push('portalState');
     }
-    // Two separate checks for type == kCellular because the order of the array
+    // Two separate checks for type === kCellular because the order of the array
     // dictates the order the fields appear on the UI. We want portalState to
     // show after the earlier Cellular fields but before these later fields.
-    if (type == NetworkType.kCellular) {
+    if (type === NetworkType.kCellular) {
       fields.push(
           'cellular.homeProvider.name', 'cellular.homeProvider.country',
           'cellular.firmwareRevision', 'cellular.hardwareRevision',
@@ -723,16 +724,13 @@ export class InternetDetailDialogElement extends
     return OncMojo.deviceIsInhibited(this.deviceState_);
   }
 
-  /**
-   * Return true if portalState is either kPortal or kProxyAuthRequired.
-   */
   private isPortalState_(portalState: PortalState): boolean {
     return portalState === PortalState.kPortal ||
-        portalState === PortalState.kProxyAuthRequired;
+        portalState === PortalState.kPortalSuspected;
   }
 
   /**
-   * Handles UI requests to add new APN.
+   * Handles UI requests to create new custom APN.
    */
   private onCreateCustomApnClicked_() {
     if (this.isNumCustomApnsLimitReached_) {
@@ -740,9 +738,23 @@ export class InternetDetailDialogElement extends
     }
 
     assert(!!this.guid);
-    const apnList = this.shadowRoot!.querySelector<ApnList>('#apnList');
+    const apnList = this.shadowRoot!.querySelector<ApnListElement>('#apnList');
     assert(apnList);
     apnList.openApnDetailDialogInCreateMode();
+  }
+
+  /**
+   * Handles UI requests to discover known APNs.
+   */
+  private onDiscoverMoreApnsClicked_() {
+    if (this.isNumCustomApnsLimitReached_) {
+      return;
+    }
+
+    assert(!!this.guid);
+    const apnList = this.shadowRoot!.querySelector<ApnListElement>('#apnList');
+    assert(apnList);
+    apnList.openApnSelectionDialog();
   }
 
   private computeIsNumCustomApnsLimitReached_(): boolean {
@@ -756,6 +768,19 @@ export class InternetDetailDialogElement extends
     const customApnList =
         this.managedProperties_.typeProperties.cellular.customApnList;
     return !!customApnList && customApnList.length >= MAX_NUM_CUSTOM_APNS;
+  }
+
+  private shouldDisableApnButtons_(): boolean {
+    if (!this.isApnRevampEnabled_) {
+      return true;
+    }
+
+    if (!this.isApnRevampAndAllowApnModificationPolicyEnabled_) {
+      return this.isNumCustomApnsLimitReached_;
+    }
+
+    return this.isNumCustomApnsLimitReached_ ||
+        this.isApnManaged_(this.globalPolicy_);
   }
 
   private onShowErrorToast_(event: CustomEvent<string>) {

@@ -2,14 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/components/arc/session/arc_container_client_adapter.h"
+
 #include <memory>
 
-#include "ash/components/arc/session/arc_container_client_adapter.h"
-#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/cleanup/cleanup.h"
 
 namespace arc {
 
@@ -110,11 +111,9 @@ TEST_F(ArcContainerClientAdapterTest,
   Observer child_observer(nullptr);
   Observer parent_observer(&child_observer);
   client_adapter()->AddObserver(&parent_observer);
-  base::ScopedClosureRunner teardown(base::BindOnce(
-      [](ArcClientAdapter* client_adapter, Observer* parent_observer) {
-        client_adapter->RemoveObserver(parent_observer);
-      },
-      client_adapter(), &parent_observer));
+  absl::Cleanup teardown = [this, &parent_observer] {
+    client_adapter()->RemoveObserver(&parent_observer);
+  };
 
   ash::FakeSessionManagerClient::Get()->NotifyArcInstanceStopped(
       login_manager::ArcContainerStopReason::USER_REQUEST);
@@ -123,7 +122,7 @@ TEST_F(ArcContainerClientAdapterTest,
   EXPECT_FALSE(child_observer.stopped_called());
 }
 
-TEST_F(ArcContainerClientAdapterTest, StartArc_DisableMediaStoreMaintenance) {
+TEST_F(ArcContainerClientAdapterTest, StartArcDisableMediaStoreMaintenance) {
   StartParams start_params;
   start_params.disable_media_store_maintenance = true;
   client_adapter()->StartMiniArc(std::move(start_params),
@@ -134,7 +133,7 @@ TEST_F(ArcContainerClientAdapterTest, StartArc_DisableMediaStoreMaintenance) {
   EXPECT_TRUE(request.disable_media_store_maintenance());
 }
 
-TEST_F(ArcContainerClientAdapterTest, StartArc_DisableDownloadProviderDefault) {
+TEST_F(ArcContainerClientAdapterTest, StartArcDisableDownloadProviderDefault) {
   StartParams start_params;
   client_adapter()->StartMiniArc(std::move(start_params),
                                  base::BindOnce(&OnMiniInstanceStarted));
@@ -144,7 +143,7 @@ TEST_F(ArcContainerClientAdapterTest, StartArc_DisableDownloadProviderDefault) {
   EXPECT_FALSE(request.disable_download_provider());
 }
 
-TEST_F(ArcContainerClientAdapterTest, StartArc_DisableDownloadProviderOn) {
+TEST_F(ArcContainerClientAdapterTest, StartArcDisableDownloadProviderOn) {
   StartParams start_params;
   start_params.disable_download_provider = true;
   client_adapter()->StartMiniArc(std::move(start_params),
@@ -155,50 +154,7 @@ TEST_F(ArcContainerClientAdapterTest, StartArc_DisableDownloadProviderOn) {
   EXPECT_TRUE(request.disable_download_provider());
 }
 
-TEST_F(ArcContainerClientAdapterTest, StartArc_UreadaheadByDefault) {
-  StartParams start_params;
-  client_adapter()->StartMiniArc(std::move(start_params),
-                                 base::BindOnce(&OnMiniInstanceStarted));
-  const auto& request = ash::FakeSessionManagerClient::Get()
-                            ->last_start_arc_mini_container_request();
-  EXPECT_TRUE(request.has_disable_ureadahead());
-  EXPECT_FALSE(request.disable_ureadahead());
-}
-
-TEST_F(ArcContainerClientAdapterTest, StartArc_DisableUreadahead) {
-  StartParams start_params;
-  start_params.disable_ureadahead = true;
-  client_adapter()->StartMiniArc(std::move(start_params),
-                                 base::BindOnce(&OnMiniInstanceStarted));
-  const auto& request = ash::FakeSessionManagerClient::Get()
-                            ->last_start_arc_mini_container_request();
-  EXPECT_TRUE(request.has_disable_ureadahead());
-  EXPECT_TRUE(request.disable_ureadahead());
-}
-
-TEST_F(ArcContainerClientAdapterTest,
-       StartArc_NoHostUreadaheadGenerationByDefault) {
-  StartParams start_params;
-  client_adapter()->StartMiniArc(std::move(start_params),
-                                 base::BindOnce(&OnMiniInstanceStarted));
-  const auto& request = ash::FakeSessionManagerClient::Get()
-                            ->last_start_arc_mini_container_request();
-  EXPECT_TRUE(request.has_host_ureadahead_generation());
-  EXPECT_FALSE(request.host_ureadahead_generation());
-}
-
-TEST_F(ArcContainerClientAdapterTest, StartArc_HostUreadaheadGenerationSet) {
-  StartParams start_params;
-  start_params.host_ureadahead_generation = true;
-  client_adapter()->StartMiniArc(std::move(start_params),
-                                 base::BindOnce(&OnMiniInstanceStarted));
-  const auto& request = ash::FakeSessionManagerClient::Get()
-                            ->last_start_arc_mini_container_request();
-  EXPECT_TRUE(request.has_host_ureadahead_generation());
-  EXPECT_TRUE(request.host_ureadahead_generation());
-}
-
-TEST_F(ArcContainerClientAdapterTest, StartArc_DoNotUseDevCachesByDefault) {
+TEST_F(ArcContainerClientAdapterTest, StartArcDoNotUseDevCachesByDefault) {
   StartParams start_params;
   client_adapter()->StartMiniArc(std::move(start_params),
                                  base::BindOnce(&OnMiniInstanceStarted));
@@ -208,7 +164,7 @@ TEST_F(ArcContainerClientAdapterTest, StartArc_DoNotUseDevCachesByDefault) {
   EXPECT_FALSE(request.use_dev_caches());
 }
 
-TEST_F(ArcContainerClientAdapterTest, StartArc_UseDevCachesSet) {
+TEST_F(ArcContainerClientAdapterTest, StartArcUseDevCachesSet) {
   StartParams start_params;
   start_params.use_dev_caches = true;
   client_adapter()->StartMiniArc(std::move(start_params),
@@ -219,7 +175,7 @@ TEST_F(ArcContainerClientAdapterTest, StartArc_UseDevCachesSet) {
   EXPECT_TRUE(request.use_dev_caches());
 }
 
-TEST_F(ArcContainerClientAdapterTest, StartArc_ArcSignedInDefault) {
+TEST_F(ArcContainerClientAdapterTest, StartArcArcSignedInDefault) {
   StartParams start_params;
   client_adapter()->StartMiniArc(std::move(start_params),
                                  base::BindOnce(&OnMiniInstanceStarted));
@@ -229,7 +185,7 @@ TEST_F(ArcContainerClientAdapterTest, StartArc_ArcSignedInDefault) {
   EXPECT_FALSE(request.arc_signed_in());
 }
 
-TEST_F(ArcContainerClientAdapterTest, Startrc_ArcSignedIn) {
+TEST_F(ArcContainerClientAdapterTest, StartrcArcSignedIn) {
   StartParams start_params;
   start_params.arc_signed_in = true;
   client_adapter()->StartMiniArc(std::move(start_params),
@@ -261,7 +217,7 @@ TEST_F(ArcContainerClientAdapterTest, ArcTTSCachingEnabled) {
   EXPECT_TRUE(request.enable_tts_caching());
 }
 
-TEST_F(ArcContainerClientAdapterTest, ConvertUpgradeParams_SkipTtsCacheSetup) {
+TEST_F(ArcContainerClientAdapterTest, ConvertUpgradeParamsSkipTtsCacheSetup) {
   UpgradeParams upgrade_params;
   upgrade_params.skip_tts_cache = true;
   client_adapter()->UpgradeArc(std::move(upgrade_params),
@@ -280,6 +236,15 @@ TEST_F(ArcContainerClientAdapterTest,
   const auto& upgrade_request =
       ash::FakeSessionManagerClient::Get()->last_upgrade_arc_request();
   EXPECT_FALSE(upgrade_request.skip_tts_cache());
+}
+
+TEST_F(ArcContainerClientAdapterTest, StartArcEnableArcAttestationDefault) {
+  StartParams start_params;
+  client_adapter()->StartMiniArc(std::move(start_params),
+                                 base::BindOnce(&OnMiniInstanceStarted));
+  const auto& request = ash::FakeSessionManagerClient::Get()
+                            ->last_start_arc_mini_container_request();
+  EXPECT_FALSE(request.enable_arc_attestation());
 }
 
 struct DalvikMemoryProfileTestParam {

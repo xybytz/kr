@@ -24,13 +24,11 @@
 
 #include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom-blink.h"
 #include "third_party/blink/renderer/core/animation/css/css_animations.h"
-#include "third_party/blink/renderer/core/core_probes_inl.h"
+#include "third_party/blink/renderer/core/css/container_query_evaluator.h"
 #include "third_party/blink/renderer/core/css/css_light_dark_value_pair.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
 #include "third_party/blink/renderer/core/dom/node.h"
-#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/pseudo_element.h"
-#include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 
 namespace blink {
@@ -44,7 +42,7 @@ Element* ComputeStyledElement(const StyleRequest& style_request,
     styled_element = &element;
   }
   if (style_request.IsPseudoStyleRequest()) {
-    styled_element = styled_element->GetNestedPseudoElement(
+    styled_element = styled_element->GetStyledPseudoElement(
         style_request.pseudo_id, style_request.pseudo_argument);
   }
   return styled_element;
@@ -59,6 +57,7 @@ StyleResolverState::StyleResolverState(
     const StyleRequest& style_request)
     : element_context_(element),
       document_(&document),
+      css_to_length_conversion_data_(&element),
       parent_style_(style_request.parent_override),
       layout_parent_style_(style_request.layout_parent_override),
       old_style_(style_recalc_context ? style_recalc_context->old_style
@@ -69,12 +68,18 @@ StyleResolverState::StyleResolverState(
       element_style_resources_(
           GetStyledElement() ? *GetStyledElement() : GetElement(),
           document.DevicePixelRatio()),
-      element_type_(style_request.IsPseudoStyleRequest()
+      element_type_(style_request.IsPseudoStyleRequest() ||
+                            element.IsPseudoElement()
                         ? ElementType::kPseudoElement
                         : ElementType::kElement),
-      container_unit_context_(style_recalc_context
-                                  ? style_recalc_context->container
-                                  : element.ParentOrShadowHostElement()),
+      container_unit_context_(
+          style_recalc_context
+              ? style_recalc_context->container
+              : ContainerQueryEvaluator::ParentContainerCandidateElement(
+                    element)),
+      anchor_evaluator_(style_recalc_context
+                            ? style_recalc_context->anchor_evaluator
+                            : nullptr),
       originating_element_style_(style_request.originating_element_style),
       is_for_highlight_(IsHighlightPseudoElement(style_request.pseudo_id)),
       uses_highlight_pseudo_inheritance_(
@@ -82,9 +87,7 @@ StyleResolverState::StyleResolverState(
       is_outside_flat_tree_(style_recalc_context
                                 ? style_recalc_context->is_outside_flat_tree
                                 : false),
-      can_trigger_animations_(style_request.can_trigger_animations),
-      is_resolving_position_fallback_style_(
-          style_recalc_context && style_recalc_context->is_position_fallback) {
+      can_trigger_animations_(style_request.can_trigger_animations) {
   DCHECK(!!parent_style_ == !!layout_parent_style_);
 
   if (UsesHighlightPseudoInheritance()) {
@@ -127,14 +130,6 @@ EInsideLink StyleResolverState::InsideLink() const {
   }
   if (element_type_ != ElementType::kPseudoElement && GetElement().IsLink()) {
     inside_link_ = ElementLinkState();
-    if (inside_link_ != EInsideLink::kNotInsideLink) {
-      bool force_visited = false;
-      probe::ForcePseudoState(&GetElement(), CSSSelector::kPseudoVisited,
-                              &force_visited);
-      if (force_visited) {
-        inside_link_ = EInsideLink::kInsideVisitedLink;
-      }
-    }
   } else if (uses_highlight_pseudo_inheritance_) {
     // Highlight pseudo-elements acquire the link status of the originating
     // element. Note that highlight pseudo-elements do not *inherit* from
@@ -160,7 +155,10 @@ void StyleResolverState::UpdateLengthConversionData() {
       *style_builder_, ParentStyle(), RootElementStyle(),
       GetDocument().GetStyleEngine().GetViewportSize(),
       CSSToLengthConversionData::ContainerSizes(container_unit_context_),
-      StyleBuilder().EffectiveZoom(), length_conversion_flags_);
+      CSSToLengthConversionData::AnchorData(
+          anchor_evaluator_, StyleBuilder().PositionAnchor(),
+          StyleBuilder().PositionAreaOffsets()),
+      StyleBuilder().EffectiveZoom(), length_conversion_flags_, &GetElement());
   element_style_resources_.UpdateLengthConversionData(
       &css_to_length_conversion_data_);
 }
@@ -178,10 +176,13 @@ CSSToLengthConversionData StyleResolverState::UnzoomedLengthConversionData(
       GetDocument().GetLayoutView());
   CSSToLengthConversionData::ContainerSizes container_sizes(
       container_unit_context_);
-
-  return CSSToLengthConversionData(
-      StyleBuilder().GetWritingMode(), font_sizes, line_height_size,
-      viewport_size, container_sizes, 1, length_conversion_flags_);
+  CSSToLengthConversionData::AnchorData anchor_data(
+      anchor_evaluator_, StyleBuilder().PositionAnchor(),
+      StyleBuilder().PositionAreaOffsets());
+  return CSSToLengthConversionData(StyleBuilder().GetWritingMode(), font_sizes,
+                                   line_height_size, viewport_size,
+                                   container_sizes, anchor_data, 1,
+                                   length_conversion_flags_, &GetElement());
 }
 
 CSSToLengthConversionData StyleResolverState::FontSizeConversionData() {
@@ -208,19 +209,30 @@ void StyleResolverState::SetLayoutParentStyle(
 void StyleResolverState::LoadPendingResources() {
   if (pseudo_request_type_ == StyleRequest::kForComputedStyle ||
       (ParentStyle() && ParentStyle()->IsEnsuredInDisplayNone()) ||
-      (StyleBuilder().Display() == EDisplay::kNone &&
-       !GetElement().LayoutObjectIsNeeded(style_builder_->GetDisplayStyle())) ||
       StyleBuilder().IsEnsuredOutsideFlatTree()) {
     return;
   }
+  if (StyleBuilder().Display() == EDisplay::kNone &&
+      !GetElement().LayoutObjectIsNeeded(style_builder_->GetDisplayStyle())) {
+    // Don't load resources for display:none elements unless we are animating
+    // display. If we are animating display, we might otherwise have ended up
+    // caching a base style with pending images.
+    Element* animating_element = GetAnimatingElement();
+    if (!animating_element || !CSSAnimations::IsAnimatingDisplayProperty(
+                                  animating_element->GetElementAnimations())) {
+      return;
+    }
+  }
 
-  if (StyleBuilder().StyleType() == kPseudoIdTargetText) {
-    // Do not load any resources for ::target-text since that could leak text
+  if (StyleBuilder().StyleType() == kPseudoIdSearchText ||
+      StyleBuilder().StyleType() == kPseudoIdTargetText) {
+    // Do not load any resources for these pseudos, since that could leak text
     // content to external stylesheets.
     return;
   }
 
-  element_style_resources_.LoadPendingResources(StyleBuilder());
+  element_style_resources_.LoadPendingResources(StyleBuilder(),
+                                                css_to_length_conversion_data_);
 }
 
 const FontDescription& StyleResolverState::ParentFontDescription() const {
@@ -258,10 +270,53 @@ void StyleResolverState::SetWritingMode(WritingMode new_writing_mode) {
   font_builder_.DidChangeWritingMode();
 }
 
+void StyleResolverState::SetTextSizeAdjust(
+    TextSizeAdjust new_text_size_adjust) {
+  if (StyleBuilder().GetTextSizeAdjust() == new_text_size_adjust) {
+    return;
+  }
+
+  if (!new_text_size_adjust.IsAuto()) {
+    GetDocument().CountUse(WebFeature::kTextSizeAdjustNotAuto);
+    if (new_text_size_adjust.Multiplier() != 1.f) {
+      GetDocument().CountUse(WebFeature::kTextSizeAdjustPercentNot100);
+    }
+  }
+
+  StyleBuilder().SetTextSizeAdjust(new_text_size_adjust);
+  // When `TextSizeAdjustImprovements` is enabled, text-size-adjust affects
+  // font-size during style building.
+  if (RuntimeEnabledFeatures::TextSizeAdjustImprovementsEnabled()) {
+    UpdateLengthConversionData();
+    font_builder_.DidChangeTextSizeAdjust();
+  }
+}
+
 void StyleResolverState::SetTextOrientation(ETextOrientation text_orientation) {
   if (StyleBuilder().GetTextOrientation() != text_orientation) {
     StyleBuilder().SetTextOrientation(text_orientation);
     font_builder_.DidChangeTextOrientation();
+  }
+}
+
+void StyleResolverState::SetPositionAnchor(ScopedCSSName* position_anchor) {
+  if (StyleBuilder().PositionAnchor() != position_anchor) {
+    StyleBuilder().SetPositionAnchor(position_anchor);
+    css_to_length_conversion_data_.SetAnchorData(
+        CSSToLengthConversionData::AnchorData(
+            anchor_evaluator_, position_anchor,
+            StyleBuilder().PositionAreaOffsets()));
+  }
+}
+
+void StyleResolverState::SetPositionAreaOffsets(
+    const std::optional<PositionAreaOffsets>& position_area_offsets) {
+  if (StyleBuilder().PositionAreaOffsets() != position_area_offsets) {
+    StyleBuilder().SetPositionAreaOffsets(position_area_offsets);
+    css_to_length_conversion_data_.SetAnchorData(
+        CSSToLengthConversionData::AnchorData(anchor_evaluator_,
+                                              StyleBuilder().PositionAnchor(),
+                                              position_area_offsets));
   }
 }
 

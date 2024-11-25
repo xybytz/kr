@@ -20,7 +20,6 @@ import com.google.common.io.BaseEncoding;
 
 import org.junit.Assert;
 
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.blink.mojom.AuthenticationExtensionsClientInputs;
 import org.chromium.blink.mojom.AuthenticatorAttachment;
@@ -479,7 +478,6 @@ public class Fido2ApiTestHelper {
      * Construct default options for a makeCredential request.
      *
      * @return Options for the Fido2 API.
-     * @throws Exception
      */
     public static PublicKeyCredentialCreationOptions createDefaultMakeCredentialOptions()
             throws Exception {
@@ -515,6 +513,8 @@ public class Fido2ApiTestHelper {
          * supports it */
         options.authenticatorSelection.authenticatorAttachment =
                 AuthenticatorAttachment.CROSS_PLATFORM;
+
+        options.attestationFormats = new String[0];
         return options;
     }
 
@@ -535,7 +535,6 @@ public class Fido2ApiTestHelper {
      * Constructs default options for a getAssertion request.
      *
      * @return Options for the Fido2 API
-     * @throws Exception
      */
     public static PublicKeyCredentialRequestOptions createDefaultGetAssertionOptions()
             throws Exception {
@@ -736,10 +735,9 @@ public class Fido2ApiTestHelper {
     /**
      * Mocks ClientDataJson so that it returns the provided result.
      *
-     * @param mocker The JNI mocker
      * @param mockResult The mock value for {@link ClientDataJson#buildClientDataJson} to return.
      */
-    public static void mockClientDataJson(JniMocker mocker, String mockResult) {
+    public static void mockClientDataJson(String mockResult) {
         ClientDataJsonImpl.Natives clientDataJsonJni =
                 new ClientDataJsonImpl.Natives() {
                     @Override
@@ -754,7 +752,7 @@ public class Fido2ApiTestHelper {
                         return mockResult;
                     }
                 };
-        mocker.mock(ClientDataJsonImplJni.TEST_HOOKS, clientDataJsonJni);
+        ClientDataJsonImplJni.setInstanceForTesting(clientDataJsonJni);
     }
 
     /**
@@ -773,7 +771,7 @@ public class Fido2ApiTestHelper {
         return credential;
     }
 
-    public static void mockFido2CredentialRequestJni(JniMocker mocker) {
+    public static void mockFido2CredentialRequestJni() {
         Fido2CredentialRequest.Natives fido2CredentialRequestJni =
                 new Fido2CredentialRequest.Natives() {
                     @Override
@@ -796,7 +794,7 @@ public class Fido2ApiTestHelper {
                         return TEST_SERIALIZED_CREDMAN_GET_CREDENTIAL_RESPONSE;
                     }
                 };
-        mocker.mock(Fido2CredentialRequestJni.TEST_HOOKS, fido2CredentialRequestJni);
+        Fido2CredentialRequestJni.setInstanceForTesting(fido2CredentialRequestJni);
     }
 
     public static AuthenticatorCallback getAuthenticatorCallback() {
@@ -806,6 +804,7 @@ public class Fido2ApiTestHelper {
     /** Callback class to pass to Fido2CredentialRequest WebAuthn operations. */
     public static class AuthenticatorCallback {
         private Integer mStatus;
+        private Integer mOutcome;
         private MakeCredentialAuthenticatorResponse mMakeCredentialResponse;
         private GetAssertionAuthenticatorResponse mGetAssertionAuthenticatorResponse;
         private List<byte[]> mGetMatchingCredentialIdsResponse;
@@ -840,8 +839,17 @@ public class Fido2ApiTestHelper {
             unblock();
         }
 
+        public void onRequestOutcome(int outcome) {
+            assert mOutcome == null;
+            mOutcome = outcome;
+        }
+
         public Integer getStatus() {
             return mStatus;
+        }
+
+        public Integer getOutcome() {
+            return mOutcome;
         }
 
         public MakeCredentialAuthenticatorResponse getMakeCredentialResponse() {

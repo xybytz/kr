@@ -226,7 +226,6 @@ void ArcAccessibilityHelperBridge::OnAccessibilityEvent(
       break;
     case ax::android::mojom::AccessibilityFilterType::INVALID_ENUM_VALUE:
       NOTREACHED();
-      break;
   }
 }
 
@@ -343,7 +342,6 @@ void ArcAccessibilityHelperBridge::PopulateActionParameters(
       break;
     case ax::android::mojom::AccessibilityActionType::INVALID_ENUM_VALUE:
       NOTREACHED();
-      break;
   }
 }
 
@@ -525,7 +523,7 @@ void ArcAccessibilityHelperBridge::HandleFilterTypeAllEvent(
     if (surface_manager) {
       ash::ArcNotificationSurface* surface =
           surface_manager->GetArcSurface(event_data->notification_key.value());
-      if (surface) {
+      if (surface && surface->IsAttached()) {
         surface->GetAttachedHost()->NotifyAccessibilityEvent(
             ax::mojom::Event::kTextSelectionChanged, true);
       }

@@ -10,6 +10,7 @@ import androidx.annotation.Nullable;
 import com.google.common.collect.ImmutableMap;
 
 import org.chromium.base.Callback;
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.supplier.LazyOneshotSupplier;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.ObservableSupplierImpl;
@@ -66,10 +67,14 @@ public class PaneManagerImpl implements PaneManager {
     @Override
     public boolean focusPane(@PaneId int paneId) {
         Pane nextPane = getPaneForId(paneId);
-        if (nextPane == null) return false;
+        if (nextPane == null || !nextPane.getReferenceButtonDataSupplier().hasValue()) {
+            return false;
+        }
 
         Pane previousPane = mCurrentPaneSupplierImpl.get();
         if (nextPane == previousPane) return true;
+
+        RecordHistogram.recordEnumeratedHistogram("Android.Hub.PaneFocused", paneId, PaneId.COUNT);
 
         mCurrentPaneSupplierImpl.set(nextPane);
         if (isHubVisible()) {
@@ -107,8 +112,9 @@ public class PaneManagerImpl implements PaneManager {
 
         Pane currentPane = mCurrentPaneSupplierImpl.get();
         boolean hasCurrentPane = currentPane != null;
-        if (hasCurrentPane && isVisible) {
-            mPaneTransitionHelper.processTransition(currentPane.getPaneId(), LoadHint.HOT);
+        if (hasCurrentPane) {
+            mPaneTransitionHelper.processTransition(
+                    currentPane.getPaneId(), isVisible ? LoadHint.HOT : LoadHint.WARM);
         }
 
         for (int paneId : mPanes.keySet()) {

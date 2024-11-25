@@ -116,8 +116,9 @@ class AppServiceAppWindowArcTracker : public ArcAppListPrefs::Observer,
 
   // Maps shelf group id to controller. Shelf group id is optional parameter for
   // the Android task. If it is not set, app id is used instead.
-  using ShelfGroupToAppControllerMap =
-      std::map<arc::ArcAppShelfId, AppServiceAppWindowShelfItemController*>;
+  using ShelfGroupToAppControllerMap = std::map<
+      arc::ArcAppShelfId,
+      raw_ptr<AppServiceAppWindowShelfItemController, CtnExperimental>>;
 
   // Checks |arc_window_candidates_| and attaches controller when they
   // are ARC app windows and have task id or session id.
@@ -167,12 +168,12 @@ class AppServiceAppWindowArcTracker : public ArcAppListPrefs::Observer,
   // the windows in |arc_window_candidates_| will be checked and attach the task
   // id. Once the window is assigned a task id, the window is removed from
   // |arc_window_candidates_|.
-  std::set<aura::Window*> arc_window_candidates_;
+  std::set<raw_ptr<aura::Window, SetExperimental>> arc_window_candidates_;
 
   int active_task_id_ = arc::kNoTaskId;
   int active_session_id_ = arc::kNoTaskId;
 
-  // TODO(crbug.com/1276603): A temp variable used to investigate whether
+  // TODO(crbug.com/40808991): A temp variable used to investigate whether
   // OnTaskDestroyed is called in the middle of OnTaskCreated. This can be
   // removed if we have the result.
   int task_id_being_created_ = arc::kNoTaskId;

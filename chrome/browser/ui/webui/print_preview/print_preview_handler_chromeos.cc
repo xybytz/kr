@@ -12,6 +12,7 @@
 
 #include "base/check.h"
 #include "base/check_op.h"
+#include "base/containers/to_value_list.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
 #include "base/functional/callback_helpers.h"
@@ -45,8 +46,6 @@
 #include "chrome/browser/ash/crosapi/crosapi_ash.h"
 #include "chrome/browser/ash/crosapi/crosapi_manager.h"
 #include "chrome/browser/ash/crosapi/local_printer_ash.h"
-#elif BUILDFLAG(IS_CHROMEOS_LACROS)
-#include "chromeos/lacros/lacros_service.h"
 #endif
 
 namespace printing {
@@ -73,11 +72,9 @@ base::Value::Dict PrintServersConfigMojomToValue(
 
 base::Value::List ConvertPrintersToValues(
     const std::vector<crosapi::mojom::LocalDestinationInfoPtr>& printers) {
-  base::Value::List list;
-  for (const crosapi::mojom::LocalDestinationInfoPtr& p : printers) {
-    list.Append(LocalPrinterHandlerChromeos::PrinterToValue(*p));
-  }
-  return list;
+  return base::ToValueList(printers, [](const auto& printer) {
+    return LocalPrinterHandlerChromeos::PrinterToValue(*printer);
+  });
 }
 
 }  // namespace
@@ -87,15 +84,6 @@ PrintPreviewHandlerChromeOS::PrintPreviewHandlerChromeOS() {
   DCHECK(crosapi::CrosapiManager::IsInitialized());
   local_printer_ =
       crosapi::CrosapiManager::Get()->crosapi_ash()->local_printer_ash();
-#elif BUILDFLAG(IS_CHROMEOS_LACROS)
-  chromeos::LacrosService* service = chromeos::LacrosService::Get();
-  if (!service->IsAvailable<crosapi::mojom::LocalPrinter>()) {
-    PRINTER_LOG(DEBUG) << "Local printer not available";
-    return;
-  }
-  local_printer_ = service->GetRemote<crosapi::mojom::LocalPrinter>().get();
-  local_printer_version_ =
-      service->GetInterfaceVersion<crosapi::mojom::LocalPrinter>();
 #endif
 }
 
@@ -401,15 +389,6 @@ void PrintPreviewHandlerChromeOS::HandleObserveLocalPrinters(
   CHECK_EQ(1U, args.size());
   CHECK(args[0].is_string());
   const std::string& callback_id = args[0].GetString();
-
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  if (int{crosapi::mojom::LocalPrinter::MethodMinVersions::
-              kAddLocalPrintersObserverMinVersion} > local_printer_version_) {
-    PRINTER_LOG(DEBUG) << "Local printer version incompatible";
-    ResolveJavascriptCallback(callback_id, base::Value::List());
-    return;
-  }
-#endif
 
   if (!local_printer_) {
     PRINTER_LOG(DEBUG) << "Local printer not available";

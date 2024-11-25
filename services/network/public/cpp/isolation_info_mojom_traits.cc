@@ -43,14 +43,13 @@ network::mojom::IsolationInfoRequestType EnumTraits<
   }
 
   NOTREACHED();
-  return network::mojom::IsolationInfoRequestType::kOther;
 }
 
 bool StructTraits<network::mojom::IsolationInfoDataView, net::IsolationInfo>::
     Read(network::mojom::IsolationInfoDataView data, net::IsolationInfo* out) {
-  absl::optional<url::Origin> top_frame_origin;
-  absl::optional<url::Origin> frame_origin;
-  absl::optional<base::UnguessableToken> nonce;
+  std::optional<url::Origin> top_frame_origin;
+  std::optional<url::Origin> frame_origin;
+  std::optional<base::UnguessableToken> nonce;
   net::SiteForCookies site_for_cookies;
   net::IsolationInfo::RequestType request_type;
 
@@ -67,7 +66,7 @@ bool StructTraits<network::mojom::IsolationInfoDataView, net::IsolationInfo>::
     return false;
   }
 
-  absl::optional<net::IsolationInfo> isolation_info =
+  std::optional<net::IsolationInfo> isolation_info =
       net::IsolationInfo::CreateIfConsistent(request_type, top_frame_origin,
                                              frame_origin, site_for_cookies,
                                              nonce);

@@ -34,6 +34,8 @@ class DefaultExternalConstants : public ExternalConstants {
     return GURL(DEVICE_MANAGEMENT_SERVER_URL);
   }
 
+  GURL AppLogoURL() const override { return GURL(APP_LOGO_URL); }
+
   bool UseCUP() const override { return true; }
 
   base::TimeDelta InitialDelay() const override { return kInitialDelay; }
@@ -59,6 +61,10 @@ class DefaultExternalConstants : public ExternalConstants {
   std::optional<bool> IsMachineManaged() const override { return std::nullopt; }
 
   bool EnableDiffUpdates() const override { return false; }
+
+  base::TimeDelta CecaConnectionTimeout() const override {
+    return kCecaConnectionTimeout;
+  }
 
  private:
   ~DefaultExternalConstants() override = default;

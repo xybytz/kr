@@ -30,7 +30,6 @@ class BackgroundNetworkStatusListener implements NetworkChangeNotifierAutoDetect
     interface Observer {
         /**
          * Called when {@link BackgroundNetworkStatusListener} is initialized on background thread.
-         * @param connectionType
          */
         void onNetworkStatusReady(@ConnectionType int connectionType);
 
@@ -79,6 +78,9 @@ class BackgroundNetworkStatusListener implements NetworkChangeNotifierAutoDetect
     int getCurrentConnectionType() {
         ThreadUtils.assertOnBackgroundThread();
         assert mNotifier != null;
+
+        // TODO(crbug.com/40936429): remove this call if it is not necessary.
+        mNotifier.updateCurrentNetworkState();
         return mNotifier.getCurrentNetworkState().getConnectionType();
     }
 

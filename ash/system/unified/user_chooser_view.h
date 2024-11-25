@@ -29,8 +29,9 @@ std::u16string GetUserItemAccessibleString(int user_index);
 
 // A button item of a switchable user.
 class UserItemButton : public views::Button {
+  METADATA_HEADER(UserItemButton, views::Button)
+
  public:
-  METADATA_HEADER(UserItemButton);
   UserItemButton(PressedCallback callback,
                  UserChooserDetailedViewController* controller,
                  int user_index,
@@ -46,7 +47,6 @@ class UserItemButton : public views::Button {
 
   // views::Button:
   std::u16string GetTooltipText(const gfx::Point& p) const override;
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
  private:
   const int user_index_;
@@ -58,8 +58,9 @@ class UserItemButton : public views::Button {
 // A detailed view of user chooser.
 class ASH_EXPORT UserChooserView : public views::View,
                                    public MediaCaptureObserver {
+  METADATA_HEADER(UserChooserView, views::View)
+
  public:
-  METADATA_HEADER(UserChooserView);
   explicit UserChooserView(UserChooserDetailedViewController* controller);
 
   UserChooserView(const UserChooserView&) = delete;

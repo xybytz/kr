@@ -17,9 +17,7 @@
 #include "chrome/grit/branded_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
-#include "components/password_manager/core/browser/features/password_manager_features_util.h"
 #include "components/password_manager/core/browser/manage_passwords_referrer.h"
-#include "components/password_manager/core/browser/password_feature_manager.h"
 #include "components/password_manager/core/browser/password_form_metrics_recorder.h"
 #include "components/password_manager/core/browser/password_store/password_store_interface.h"
 #include "components/password_manager/core/browser/password_store/smart_bubble_stats_store.h"
@@ -46,7 +44,7 @@ metrics_util::UIDisplayDisposition ComputeDisplayDisposition(
       case password_manager::ui::PENDING_PASSWORD_UPDATE_STATE:
         return metrics_util::MANUAL_WITH_PASSWORD_PENDING_UPDATE;
       default:
-        NOTREACHED_NORETURN();
+        NOTREACHED();
     }
   } else {
     switch (state) {
@@ -55,7 +53,7 @@ metrics_util::UIDisplayDisposition ComputeDisplayDisposition(
       case password_manager::ui::PENDING_PASSWORD_UPDATE_STATE:
         return metrics_util::AUTOMATIC_WITH_PASSWORD_PENDING_UPDATE;
       default:
-        NOTREACHED_NORETURN();
+        NOTREACHED();
     }
   }
 }
@@ -68,8 +66,9 @@ void CleanStatisticsForSite(Profile* profile, const url::Origin& origin) {
           .get();
   password_manager::SmartBubbleStatsStore* stats_store =
       password_store->GetSmartBubbleStatsStore();
-  if (stats_store)
+  if (stats_store) {
     stats_store->RemoveSiteStats(origin.GetURL());
+  }
 }
 
 std::vector<password_manager::PasswordForm> DeepCopyForms(
@@ -86,11 +85,8 @@ bool IsSyncUser(Profile* profile) {
   CHECK(profile);
   const syncer::SyncService* sync_service =
       SyncServiceFactory::GetForProfile(profile);
-  password_manager::SyncState sync_state =
-      password_manager::sync_util::GetPasswordSyncState(sync_service);
-  return sync_state == password_manager::SyncState::kSyncingNormalEncryption ||
-         sync_state ==
-             password_manager::SyncState::kSyncingWithCustomPassphrase;
+  return password_manager::sync_util::IsSyncFeatureActiveIncludingPasswords(
+      sync_service);
 }
 
 }  // namespace
@@ -203,21 +199,24 @@ bool SaveUpdateBubbleController::
     // `delegate_`.
     return false;
   }
-  if (IsSyncUser(GetProfile()))
+  if (IsSyncUser(GetProfile())) {
     return true;
+  }
 
   bool is_update = false;
   bool is_update_in_account_store = false;
   for (const password_manager::PasswordForm& form : existing_credentials_) {
     if (form.username_value == GetPendingPassword().username_value) {
       is_update = true;
-      if (form.IsUsingAccountStore())
+      if (form.IsUsingAccountStore()) {
         is_update_in_account_store = true;
+      }
     }
   }
 
-  if (!is_update)
+  if (!is_update) {
     return IsUsingAccountStore();
+  }
 
   return is_update_in_account_store;
 }
@@ -249,28 +248,6 @@ void SaveUpdateBubbleController::ShouldRevealPasswords(
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
 
-bool SaveUpdateBubbleController::ShouldShowPasswordStorePicker() const {
-  if (!delegate_->GetPasswordFeatureManager()
-           ->ShouldShowAccountStorageBubbleUi()) {
-    return false;
-  }
-  if (delegate_->GetPasswordFeatureManager()
-          ->ShouldOfferOptInAndMoveToAccountStoreAfterSavingLocally()) {
-    // If the user will be asked to opt-in *after* saving the current password
-    // locally, then do not show the destination picker yet.
-    CHECK_EQ(delegate_->GetPasswordFeatureManager()->GetDefaultPasswordStore(),
-             Store::kProfileStore);
-    return false;
-  }
-  return true;
-}
-
-void SaveUpdateBubbleController::OnToggleAccountStore(
-    bool is_account_store_selected) {
-  delegate_->GetPasswordFeatureManager()->SetDefaultPasswordStore(
-      is_account_store_selected ? Store::kAccountStore : Store::kProfileStore);
-}
-
 bool SaveUpdateBubbleController::IsUsingAccountStore() {
   return delegate_->GetPasswordFeatureManager()->GetDefaultPasswordStore() ==
          Store::kAccountStore;
@@ -281,28 +258,27 @@ bool SaveUpdateBubbleController::IsAccountStorageOptInRequiredBeforeSave() {
   // store, so the opt-in shouldn't be offered because the account storage won't
   // be used, or b) there is a copy in the account store, which means the user
   // already opted in. Either way, the opt-in shouldn't be offered.
-  if (IsCurrentStateUpdate())
+  if (IsCurrentStateUpdate()) {
     return false;
+  }
   // If saving to the profile store, then no need to ask for opt-in.
-  if (!IsUsingAccountStore())
+  if (!IsUsingAccountStore()) {
     return false;
+  }
   // If already opted in, no need to ask again.
-  if (delegate_->GetPasswordFeatureManager()->IsOptedInForAccountStorage())
+  if (delegate_->GetPasswordFeatureManager()->IsOptedInForAccountStorage()) {
     return false;
+  }
 
   return true;
 }
 
-bool SaveUpdateBubbleController::DidAuthForAccountStoreOptInFail() const {
-  return delegate_->DidAuthForAccountStoreOptInFail();
-}
-
 std::u16string SaveUpdateBubbleController::GetTitle() const {
-  PasswordTitleType type =
-      IsCurrentStateUpdate() ? PasswordTitleType::UPDATE_PASSWORD
-                             : (GetPendingPassword().federation_origin.opaque()
-                                    ? PasswordTitleType::SAVE_PASSWORD
-                                    : PasswordTitleType::SAVE_ACCOUNT);
+  PasswordTitleType type = IsCurrentStateUpdate()
+                               ? PasswordTitleType::UPDATE_PASSWORD
+                               : (GetPendingPassword().IsFederatedCredential()
+                                      ? PasswordTitleType::SAVE_ACCOUNT
+                                      : PasswordTitleType::SAVE_PASSWORD);
   return GetSavePasswordDialogTitleText(GetWebContents()->GetVisibleURL(),
                                         GetOrigin(), type);
 }
@@ -348,7 +324,20 @@ void SaveUpdateBubbleController::ReportInteractions() {
           ComputePasswordAccountStorageUserState(
               profile->GetPrefs(), SyncServiceFactory::GetForProfile(profile));
     }
-    metrics_util::LogSaveUIDismissalReason(GetDismissalReason(), user_state);
+
+    // Log additional UMA for users who don't yet have any passwords saved in
+    // the password manager (in both profile and account stores) to measure
+    // saving adoption.
+    const bool log_adoption_metric =
+        profile &&
+        !profile->GetPrefs()->GetBoolean(
+            password_manager::prefs::
+                kAutofillableCredentialsProfileStoreLoginDatabase) &&
+        !profile->GetPrefs()->GetBoolean(
+            password_manager::prefs::
+                kAutofillableCredentialsAccountStoreLoginDatabase);
+    metrics_util::LogSaveUIDismissalReason(GetDismissalReason(), user_state,
+                                           log_adoption_metric);
   }
 
   // Update the delegate so that it can send votes to the server.

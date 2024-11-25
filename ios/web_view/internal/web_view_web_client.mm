@@ -6,6 +6,8 @@
 
 #import <dispatch/dispatch.h>
 
+#import <string_view>
+
 #import "base/apple/bundle_locations.h"
 #import "base/check.h"
 #import "base/functional/bind.h"
@@ -13,7 +15,9 @@
 #import "base/strings/sys_string_conversions.h"
 #import "components/autofill/ios/browser/autofill_java_script_feature.h"
 #import "components/autofill/ios/browser/suggestion_controller_java_script_feature.h"
+#import "components/autofill/ios/common/features.h"
 #import "components/autofill/ios/form_util/form_handlers_java_script_feature.h"
+#import "components/autofill/ios/form_util/programmatic_form_submission_handler_java_script_feature.h"
 #import "components/language/ios/browser/language_detection_java_script_feature.h"
 #import "components/password_manager/ios/password_manager_java_script_feature.h"
 #import "components/security_interstitials/core/unsafe_resource.h"
@@ -44,7 +48,7 @@
 #import "ios/web_view/internal/web_view_web_main_parts.h"
 #import "ios/web_view/public/cwv_navigation_delegate.h"
 #import "ios/web_view/public/cwv_web_view.h"
-#import "net/base/mac/url_conversions.h"
+#import "net/base/apple/url_conversions.h"
 #import "net/cert/cert_status_flags.h"
 #import "ui/base/l10n/l10n_util.h"
 #import "ui/base/resource/resource_bundle.h"
@@ -77,7 +81,7 @@ std::string WebViewWebClient::GetUserAgent(web::UserAgentType type) const {
   }
 }
 
-base::StringPiece WebViewWebClient::GetDataResource(
+std::string_view WebViewWebClient::GetDataResource(
     int resource_id,
     ui::ResourceScaleFactor scale_factor) const {
   return ui::ResourceBundle::GetSharedInstance().GetRawDataResourceForScale(
@@ -92,7 +96,7 @@ base::RefCountedMemory* WebViewWebClient::GetDataResourceBytes(
 
 std::vector<web::JavaScriptFeature*> WebViewWebClient::GetJavaScriptFeatures(
     web::BrowserState* browser_state) const {
-  return {
+  std::vector<web::JavaScriptFeature*> features = {
       autofill::AutofillJavaScriptFeature::GetInstance(),
       autofill::FormHandlersJavaScriptFeature::GetInstance(),
       autofill::SuggestionControllerJavaScriptFeature::GetInstance(),
@@ -103,6 +107,14 @@ std::vector<web::JavaScriptFeature*> WebViewWebClient::GetJavaScriptFeatures(
       translate::TranslateJavaScriptFeature::GetInstance(),
       WebViewMessageHandlerJavaScriptFeature::FromBrowserState(browser_state),
       WebViewScriptsJavaScriptFeature::FromBrowserState(browser_state)};
+
+  if (base::FeatureList::IsEnabled(kAutofillIsolatedWorldForJavascriptIos)) {
+    features.push_back(
+        autofill::ProgrammaticFormSubmissionHandlerJavaScriptFeature::
+            GetInstance());
+  }
+
+  return features;
 }
 
 void WebViewWebClient::PrepareErrorPage(
@@ -131,9 +143,7 @@ void WebViewWebClient::PrepareErrorPage(
     SafeBrowsingUnsafeResourceContainer* container =
         SafeBrowsingUnsafeResourceContainer::FromWebState(web_state);
     const security_interstitials::UnsafeResource* resource =
-        container->GetMainFrameUnsafeResource()
-            ?: container->GetSubFrameUnsafeResource(
-                   web_state->GetNavigationManager()->GetLastCommittedItem());
+        container->GetMainFrameUnsafeResource();
     CWVUnsafeURLHandler* handler =
         [[CWVUnsafeURLHandler alloc] initWithWebState:web_state
                                        unsafeResource:*resource
@@ -175,12 +185,6 @@ bool WebViewWebClient::EnableLongPressUIContextMenu() const {
 bool WebViewWebClient::EnableWebInspector(
     web::BrowserState* browser_state) const {
   return CWVWebView.webInspectorEnabled;
-}
-
-bool WebViewWebClient::IsMixedContentAutoupgradeEnabled(
-    web::BrowserState* browser_state) const {
-  return base::FeatureList::IsEnabled(
-      security_interstitials::features::kMixedContentAutoupgrade);
 }
 
 bool WebViewWebClient::IsInsecureFormWarningEnabled(

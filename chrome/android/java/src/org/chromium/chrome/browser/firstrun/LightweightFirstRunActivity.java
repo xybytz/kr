@@ -20,10 +20,13 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.IntentUtils;
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.TimeUtils;
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.back_press.SecondaryActivityBackPressUma.SecondaryActivity;
 import org.chromium.chrome.browser.customtabs.CustomTabActivity;
 import org.chromium.chrome.browser.enterprise.util.EnterpriseInfo;
+import org.chromium.chrome.browser.signin.services.SigninPreferencesManager;
 import org.chromium.ui.base.LocalizationUtils;
 import org.chromium.ui.text.NoUnderlineClickableSpan;
 import org.chromium.ui.text.SpanApplier;
@@ -33,7 +36,7 @@ import org.chromium.ui.widget.LoadingView;
 /** Lightweight FirstRunActivity. It shows ToS dialog only. */
 public class LightweightFirstRunActivity extends FirstRunActivityBase
         implements LoadingView.Observer {
-    // TODO(https://crbug.com/1148081) Clean this boolean when releasing this feature, and remove
+    // TODO(crbug.com/40156897) Clean this boolean when releasing this feature, and remove
     // @Nullable from members below.
     private static boolean sSupportSkippingTos = true;
 
@@ -49,8 +52,6 @@ public class LightweightFirstRunActivity extends FirstRunActivityBase
     private boolean mViewCreated;
     private boolean mNativeInitialized;
     private boolean mTriggerAcceptAfterNativeInit;
-
-    private long mViewCreatedTimeMs;
 
     private Handler mHandler;
     private Runnable mExitFreRunnable;
@@ -79,7 +80,7 @@ public class LightweightFirstRunActivity extends FirstRunActivityBase
 
         mFirstRunFlowSequencer =
                 new FirstRunFlowSequencer(
-                        this, getProfileProviderSupplier(), getChildAccountStatusSupplier()) {
+                        getProfileProviderSupplier(), getChildAccountStatusSupplier()) {
                     @Override
                     public void onFlowIsKnown(Bundle freProperties) {
                         if (freProperties == null) {
@@ -139,12 +140,12 @@ public class LightweightFirstRunActivity extends FirstRunActivityBase
                                     "<LINK2>", "</LINK2>", clickableChromeAdditionalTermsSpan));
         }
 
-        mTosAndPrivacyTextView = (TextView) findViewById(R.id.lightweight_fre_tos_and_privacy);
+        mTosAndPrivacyTextView = findViewById(R.id.lightweight_fre_tos_and_privacy);
         mTosAndPrivacyTextView.setText(tosAndPrivacyText);
         mTosAndPrivacyTextView.setMovementMethod(LinkMovementMethod.getInstance());
 
         mLightweightFreButtons = findViewById(R.id.lightweight_fre_buttons);
-        mOkButton = (Button) findViewById(R.id.button_primary);
+        mOkButton = findViewById(R.id.button_primary);
         mOkButton.setOnClickListener(view -> acceptTermsOfService());
 
         ((Button) findViewById(R.id.button_secondary))
@@ -156,13 +157,12 @@ public class LightweightFirstRunActivity extends FirstRunActivityBase
         mPrivacyDisclaimer = findViewById(R.id.privacy_disclaimer);
 
         mViewCreated = true;
-        mViewCreatedTimeMs = SystemClock.elapsedRealtime();
 
         if (mSkipTosDialogPolicyListener != null) {
             // Check if we need to setup logic for policy loading.
             if (mSkipTosDialogPolicyListener.get() == null) {
                 mLoadingView.addObserver(this);
-                mLoadingView.showLoadingUI();
+                mLoadingView.showLoadingUi();
                 setTosComponentVisibility(false);
             } else if (mSkipTosDialogPolicyListener.get()) {
                 setTosComponentVisibility(false);
@@ -178,16 +178,16 @@ public class LightweightFirstRunActivity extends FirstRunActivityBase
     }
 
     private void onPolicyLoadListenerAvailable() {
-        if (mViewCreated) mLoadingView.hideLoadingUI();
+        if (mViewCreated) mLoadingView.hideLoadingUi();
     }
 
     @Override
-    public void onShowLoadingUIComplete() {
+    public void onShowLoadingUiComplete() {
         mLoadingViewContainer.setVisibility(View.VISIBLE);
     }
 
     @Override
-    public void onHideLoadingUIComplete() {
+    public void onHideLoadingUiComplete() {
         assert mSkipTosDialogPolicyListener != null && mSkipTosDialogPolicyListener.get() != null;
         if (mSkipTosDialogPolicyListener.get()) {
             skipTosByPolicy();
@@ -209,6 +209,8 @@ public class LightweightFirstRunActivity extends FirstRunActivityBase
         assert !mNativeInitialized;
 
         mNativeInitialized = true;
+        RecordHistogram.recordTimesHistogram(
+                "MobileFre.NativeInitialized", SystemClock.elapsedRealtime() - getStartTime());
         if (mTriggerAcceptAfterNativeInit) acceptTermsOfService();
     }
 
@@ -243,6 +245,8 @@ public class LightweightFirstRunActivity extends FirstRunActivityBase
 
     public void completeFirstRunExperience() {
         FirstRunStatus.setLightweightFirstRunFlowComplete(true);
+        SigninPreferencesManager.getInstance()
+                .setCctMismatchNoticeSuppressionPeriodStart(TimeUtils.currentTimeMillis());
         exitLightweightFirstRun();
     }
 

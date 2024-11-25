@@ -9,10 +9,10 @@
 #import "base/task/sequenced_task_runner.h"
 #import "base/task/thread_pool.h"
 #import "components/feature_engagement/public/tracker.h"
-#import "ios/chrome/browser/promos_manager/features.h"
-#import "ios/chrome/browser/promos_manager/promos_manager_event_exporter.h"
-#import "ios/chrome/browser/promos_manager/promos_manager_event_exporter_factory.h"
-#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/app/tests_hook.h"
+#import "ios/chrome/browser/default_browser/model/default_browser_promo_event_exporter.h"
+#import "ios/chrome/browser/feature_engagement/model/ios_tracker_session_controller.h"
+#import "ios/chrome/browser/shared/model/profile/profile_ios.h"
 
 namespace {
 
@@ -26,27 +26,34 @@ namespace feature_engagement {
 
 std::unique_ptr<KeyedService> CreateFeatureEngagementTracker(
     web::BrowserState* context) {
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(context);
+  std::optional<std::string> fetDemoModeOverride =
+      tests_hook::FETDemoModeOverride();
+  if (fetDemoModeOverride.has_value()) {
+    return CreateDemoModeTracker(fetDemoModeOverride.value());
+  }
+
+  ProfileIOS* profile = ProfileIOS::FromBrowserState(context);
 
   scoped_refptr<base::SequencedTaskRunner> background_task_runner =
       base::ThreadPool::CreateSequencedTaskRunner(
           {base::MayBlock(), base::TaskPriority::BEST_EFFORT});
 
-  base::FilePath storage_dir = browser_state->GetStatePath().Append(
+  base::FilePath storage_dir = profile->GetStatePath().Append(
       kIOSFeatureEngagementTrackerStorageDirname);
 
   leveldb_proto::ProtoDatabaseProvider* db_provider =
-      browser_state->GetProtoDatabaseProvider();
+      profile->GetProtoDatabaseProvider();
 
-  base::WeakPtr<PromosManagerEventExporter> event_exporter =
-      ShouldPromosManagerUseFET()
-          ? PromosManagerEventExporterFactory::GetForBrowserState(browser_state)
-                ->AsWeakPtr()
-          : nullptr;
+  auto default_browser_event_exporter =
+      std::make_unique<DefaultBrowserEventExporter>();
 
-  return base::WrapUnique(feature_engagement::Tracker::Create(
-      storage_dir, background_task_runner, db_provider, event_exporter));
+  auto session_controller = std::make_unique<IOSTrackerSessionController>();
+
+  return feature_engagement::Tracker::Create(
+      storage_dir, background_task_runner, db_provider,
+      std::move(default_browser_event_exporter),
+      feature_engagement::Tracker::GetDefaultConfigurationProviders(),
+      std::move(session_controller));
 }
 
 }  // namespace feature_engagement

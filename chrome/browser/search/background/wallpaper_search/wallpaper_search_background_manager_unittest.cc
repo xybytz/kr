@@ -32,6 +32,7 @@ const char kWallpaperSearchHistoryMood[] = "mood";
 const char kWallpaperSearchHistoryStyle[] = "style";
 const char kWallpaperSearchHistorySubject[] = "subject";
 
+using testing::DoAll;
 using testing::Return;
 using testing::SaveArg;
 
@@ -41,8 +42,15 @@ class MockNtpCustomBackgroundService : public NtpCustomBackgroundService {
       : NtpCustomBackgroundService(profile) {}
   MOCK_METHOD(std::optional<CustomBackground>, GetCustomBackground, ());
   MOCK_METHOD0(IsCustomBackgroundDisabledByPolicy, bool());
-  MOCK_METHOD1(SetBackgroundToLocalResourceWithId, void(const base::Token&));
+  MOCK_METHOD2(SetBackgroundToLocalResourceWithId,
+               void(const base::Token&, bool));
   MOCK_METHOD1(UpdateCustomLocalBackgroundColorAsync, void(const gfx::Image&));
+};
+
+class MockWallpaperSearchBackgroundManagerObserver
+    : public WallpaperSearchBackgroundManagerObserver {
+ public:
+  MOCK_METHOD0(OnHistoryUpdated, void());
 };
 
 std::unique_ptr<TestingProfile> MakeTestingProfile() {
@@ -72,12 +80,6 @@ class WallpaperSearchBackgroundManagerTest : public testing::Test {
         pref_service_(profile_->GetPrefs()) {}
 
   void SetUp() override {
-    // Register |WallpaperSearchBackgroundManager| prefs. Enabling flag here
-    // so that it should be registered by |NtpCustomBackgroundService|
-    // doesn't work. NtpCustomBackgroundService::RegisterProfilePrefs must be
-    // called before this.
-    WallpaperSearchBackgroundManager::RegisterProfilePrefs(
-        profile_->GetTestingPrefService()->registry());
     wallpaper_search_background_manager_ =
         std::make_unique<WallpaperSearchBackgroundManager>(profile_.get());
   }
@@ -139,12 +141,14 @@ TEST_F(WallpaperSearchBackgroundManagerTest, GetHistory) {
 TEST_F(WallpaperSearchBackgroundManagerTest, SetHistoryImage) {
   gfx::Image image_arg;
   base::Token token_arg;
+  bool is_inspiration_image_arg;
   ON_CALL(mock_ntp_custom_background_service(),
           IsCustomBackgroundDisabledByPolicy)
       .WillByDefault(testing::Return(false));
   EXPECT_CALL(mock_ntp_custom_background_service(),
               SetBackgroundToLocalResourceWithId)
-      .WillOnce(SaveArg<0>(&token_arg));
+      .WillOnce(
+          DoAll(SaveArg<0>(&token_arg), SaveArg<1>(&is_inspiration_image_arg)));
   EXPECT_CALL(mock_ntp_custom_background_service(),
               UpdateCustomLocalBackgroundColorAsync)
       .WillOnce(SaveArg<0>(&image_arg));
@@ -163,6 +167,9 @@ TEST_F(WallpaperSearchBackgroundManagerTest, SetHistoryImage) {
   EXPECT_EQ(token_arg, token);
   EXPECT_EQ(image, image_arg);
 
+  // Check that |is_inspiration_image| is false for history images.
+  EXPECT_FALSE(is_inspiration_image_arg);
+
   // Check that processing time was saved to metrics.
   histogram_tester().ExpectBucketCount(
       "NewTabPage.WallpaperSearch.SetRecentThemeProcessingLatency", 321, 1);
@@ -171,12 +178,14 @@ TEST_F(WallpaperSearchBackgroundManagerTest, SetHistoryImage) {
 TEST_F(WallpaperSearchBackgroundManagerTest, SetLocalBackgroundImage) {
   gfx::Image image_arg;
   base::Token token_arg;
+  bool is_inspiration_image_arg;
   ON_CALL(mock_ntp_custom_background_service(),
           IsCustomBackgroundDisabledByPolicy)
       .WillByDefault(testing::Return(false));
   EXPECT_CALL(mock_ntp_custom_background_service(),
               SetBackgroundToLocalResourceWithId)
-      .WillOnce(SaveArg<0>(&token_arg));
+      .WillOnce(
+          DoAll(SaveArg<0>(&token_arg), SaveArg<1>(&is_inspiration_image_arg)));
   EXPECT_CALL(mock_ntp_custom_background_service(),
               UpdateCustomLocalBackgroundColorAsync)
       .WillOnce(SaveArg<0>(&image_arg));
@@ -188,7 +197,7 @@ TEST_F(WallpaperSearchBackgroundManagerTest, SetLocalBackgroundImage) {
   base::Token token = base::Token::CreateRandom();
   base::ElapsedTimer timer = base::ElapsedTimer();
   wallpaper_search_background_manager().SelectLocalBackgroundImage(
-      token, bitmap, std::move(timer));
+      token, bitmap, /*is_inspiration_image=*/false, std::move(timer));
   task_environment().AdvanceClock(base::Milliseconds(345));
   task_environment().RunUntilIdle();
 
@@ -199,10 +208,53 @@ TEST_F(WallpaperSearchBackgroundManagerTest, SetLocalBackgroundImage) {
   EXPECT_EQ(token_arg.high(), token.high());
   EXPECT_EQ(token_arg.low(), token.low());
   EXPECT_EQ(SK_ColorRED, image_arg.ToSkBitmap()->getColor(0, 0));
+  EXPECT_FALSE(is_inspiration_image_arg);
 
   // Check that processing time was saved to metrics.
   histogram_tester().ExpectBucketCount(
       "NewTabPage.WallpaperSearch.SetResultThemeProcessingLatency", 345, 1);
+}
+
+TEST_F(WallpaperSearchBackgroundManagerTest,
+       SetLocalBackgroundImage_Inspiration) {
+  gfx::Image image_arg;
+  base::Token token_arg;
+  bool is_inspiration_image_arg;
+  ON_CALL(mock_ntp_custom_background_service(),
+          IsCustomBackgroundDisabledByPolicy)
+      .WillByDefault(testing::Return(false));
+  EXPECT_CALL(mock_ntp_custom_background_service(),
+              SetBackgroundToLocalResourceWithId)
+      .WillOnce(
+          DoAll(SaveArg<0>(&token_arg), SaveArg<1>(&is_inspiration_image_arg)));
+  EXPECT_CALL(mock_ntp_custom_background_service(),
+              UpdateCustomLocalBackgroundColorAsync)
+      .WillOnce(SaveArg<0>(&image_arg));
+
+  SkBitmap bitmap;
+  bitmap.allocN32Pixels(32, 32);
+  bitmap.eraseColor(SK_ColorRED);
+
+  base::Token token = base::Token::CreateRandom();
+  base::ElapsedTimer timer = base::ElapsedTimer();
+  wallpaper_search_background_manager().SelectLocalBackgroundImage(
+      token, bitmap, /*is_inspiration_image=*/true, std::move(timer));
+  task_environment().AdvanceClock(base::Milliseconds(345));
+  task_environment().RunUntilIdle();
+
+  // Check that image file was created.
+  EXPECT_TRUE(base::PathExists(GetFilePathForBackground(token)));
+
+  // Check that the args were passed to |NtpCustomBackgroundService|.
+  EXPECT_EQ(token_arg.high(), token.high());
+  EXPECT_EQ(token_arg.low(), token.low());
+  EXPECT_EQ(SK_ColorRED, image_arg.ToSkBitmap()->getColor(0, 0));
+  EXPECT_TRUE(is_inspiration_image_arg);
+
+  // Check that processing time was saved to metrics.
+  histogram_tester().ExpectBucketCount(
+      "NewTabPage.WallpaperSearch.SetInspirationThemeProcessingLatency", 345,
+      1);
 }
 
 // If the currently set wallpaper search image is set again, do not pass it
@@ -231,12 +283,29 @@ TEST_F(WallpaperSearchBackgroundManagerTest,
   ON_CALL(mock_ntp_custom_background_service(), GetCustomBackground())
       .WillByDefault(Return(std::make_optional(custom_background)));
   wallpaper_search_background_manager().SelectLocalBackgroundImage(
-      token, bitmap, base::ElapsedTimer());
+      token, bitmap, true, base::ElapsedTimer());
 
   task_environment().RunUntilIdle();
 
   // Check that the args were passed to |NtpCustomBackgroundService|.
   EXPECT_EQ(SK_ColorRED, image_arg.ToSkBitmap()->getColor(0, 0));
+}
+
+TEST_F(WallpaperSearchBackgroundManagerTest, IsCurrentBackground) {
+  base::Token token = base::Token::CreateRandom();
+  CustomBackground custom_background;
+  custom_background.local_background_id = token;
+  ON_CALL(mock_ntp_custom_background_service(), GetCustomBackground())
+      .WillByDefault(Return(std::make_optional(custom_background)));
+
+  bool is_current_background =
+      wallpaper_search_background_manager().IsCurrentBackground(
+          base::Token::CreateRandom());
+  EXPECT_FALSE(is_current_background);
+
+  is_current_background =
+      wallpaper_search_background_manager().IsCurrentBackground(token);
+  EXPECT_TRUE(is_current_background);
 }
 
 TEST_F(WallpaperSearchBackgroundManagerTest, SaveCurrentBackgroundToHistory) {
@@ -544,4 +613,45 @@ TEST_F(WallpaperSearchBackgroundManagerTest,
 
   // The theme file created above should still be there.
   EXPECT_TRUE(base::PathExists(GetFilePathForBackground(tokens[3])));
+}
+
+// Test that looping through history doesn't crash if the value is the wrong.
+// shape.
+// Example: The pref used to be a list of token strings and is now a list of
+//          |base::Value::Dict|. If we run into the old form, we do not want
+//          to crash.
+TEST_F(WallpaperSearchBackgroundManagerTest,
+       NoCrashIfHistoryContainsIllformedData) {
+  // Fill and set history with a token string instead of dict.
+  base::Value::List history = base::Value::List();
+  base::Token token = base::Token::CreateRandom();
+  history.Append(token.ToString());
+  pref_service().SetList(prefs::kNtpWallpaperSearchHistory, std::move(history));
+  pref_service().SetString(prefs::kNtpCustomBackgroundLocalToDeviceId,
+                           token.ToString());
+
+  // Clear wallpaper search theme resource since this is a way to make the loop
+  // through history occur.
+  WallpaperSearchBackgroundManager::RemoveWallpaperSearchBackground(&profile());
+  task_environment().RunUntilIdle();
+}
+
+TEST_F(WallpaperSearchBackgroundManagerTest, NotifyAboutHistory) {
+  std::unique_ptr<MockWallpaperSearchBackgroundManagerObserver> observer =
+      std::make_unique<MockWallpaperSearchBackgroundManagerObserver>();
+  EXPECT_CALL(*observer, OnHistoryUpdated());
+
+  // Add mock observer to observer list and update history pref.
+  wallpaper_search_background_manager().AddObserver(observer.get());
+  base::Value::List history =
+      base::Value::List().Append(base::Value::Dict().Set(
+          kWallpaperSearchHistoryId, base::Token::CreateRandom().ToString()));
+  pref_service().SetList(prefs::kNtpWallpaperSearchHistory, std::move(history));
+
+  // Remove mock observer to observer list and update history pref.
+  // This shouldn't create another call to OnHistoryUpdated().
+  wallpaper_search_background_manager().RemoveObserver(observer.get());
+  history = base::Value::List().Append(base::Value::Dict().Set(
+      kWallpaperSearchHistoryId, base::Token::CreateRandom().ToString()));
+  pref_service().SetList(prefs::kNtpWallpaperSearchHistory, std::move(history));
 }

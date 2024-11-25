@@ -5,7 +5,9 @@
 #include "chrome/browser/media/router/mojo/media_router_desktop.h"
 
 #include <stddef.h>
+
 #include <utility>
+#include <vector>
 
 #include "base/command_line.h"
 #include "base/containers/contains.h"
@@ -27,6 +29,7 @@
 #include "chrome/browser/media/router/providers/cast/cast_media_route_provider.h"
 #include "chrome/browser/media/router/providers/cast/chrome_cast_message_handler.h"
 #include "chrome/browser/media/router/providers/wired_display/wired_display_media_route_provider.h"
+#include "chrome/browser/media/webrtc/desktop_media_picker_controller.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/grit/branded_strings.h"
@@ -44,7 +47,6 @@
 #include "components/openscreen_platform/network_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -64,9 +66,7 @@ namespace {
 
 const int kDefaultFrameTreeNodeId = -1;
 
-#if BUILDFLAG(IS_WIN)
 constexpr char kLoggerComponent[] = "MediaRouterDesktop";
-#endif
 
 DesktopMediaPickerController::Params MakeDesktopPickerParams(
     content::WebContents* web_contents) {
@@ -131,16 +131,18 @@ MediaRouterDesktop::~MediaRouterDesktop() {
 }
 
 void MediaRouterDesktop::Initialize() {
-  DCHECK(!internal_routes_observer_);
   media_sink_service_ = ShouldInitializeMediaRouteProviders()
                             ? DualMediaSinkService::GetInstance()
                             : nullptr;
-  // Because observer calls virtual methods on MediaRouter, it must be created
-  // outside of the constructor.
-  internal_routes_observer_ =
-      std::make_unique<InternalMediaRoutesObserver>(this);
+
+  desktop_picker_ = std::make_unique<DesktopMediaPickerController>();
+
   if (media_sink_service_) {
     media_sink_service_->AddLogger(GetLogger());
+    media_sink_service_->SetDiscoveryPermissionRejectedCallback(
+        base::BindRepeating(
+            &MediaRouterDesktop::OnLocalDiscoveryPermissionRejected,
+            weak_factory_.GetWeakPtr()));
     InitializeMediaRouteProviders();
 #if BUILDFLAG(IS_WIN)
     CanFirewallUseLocalPorts(
@@ -197,7 +199,7 @@ void MediaRouterDesktop::CreateRoute(const MediaSource::Id& source_id,
                                     provider_id, std::move(callback), false);
 
   if (source.IsDesktopMirroringSource()) {
-    desktop_picker_.Show(
+    desktop_picker_->Show(
         MakeDesktopPickerParams(web_contents),
         {DesktopMediaList::Type::kScreen},
         base::BindRepeating([](content::WebContents* wc) { return true; }),
@@ -206,11 +208,11 @@ void MediaRouterDesktop::CreateRoute(const MediaSource::Id& source_id,
                        presentation_id, origin, web_contents, timeout,
                        std::move(mr_callback)));
   } else {
-    const int frame_tree_node_id =
+    const content::FrameTreeNodeId frame_tree_node_id =
         web_contents ? web_contents->GetPrimaryMainFrame()->GetFrameTreeNodeId()
-                     : kDefaultFrameTreeNodeId;
+                     : content::FrameTreeNodeId();
     media_route_providers_[provider_id]->CreateRoute(
-        source_id, sink_id, presentation_id, origin, frame_tree_node_id,
+        source_id, sink_id, presentation_id, origin, frame_tree_node_id.value(),
         timeout, std::move(mr_callback));
   }
 }
@@ -238,14 +240,14 @@ void MediaRouterDesktop::JoinRoute(const MediaSource::Id& source_id,
     return;
   }
 
-  const int frame_tree_node_id =
+  const content::FrameTreeNodeId frame_tree_node_id =
       web_contents ? web_contents->GetPrimaryMainFrame()->GetFrameTreeNodeId()
-                   : kDefaultFrameTreeNodeId;
+                   : content::FrameTreeNodeId();
   auto mr_callback = base::BindOnce(&MediaRouterDesktop::RouteResponseReceived,
                                     weak_factory_.GetWeakPtr(), presentation_id,
                                     *provider_id, std::move(callback), true);
   media_route_providers_[*provider_id]->JoinRoute(
-      source_id, presentation_id, origin, frame_tree_node_id, timeout,
+      source_id, presentation_id, origin, frame_tree_node_id.value(), timeout,
       std::move(mr_callback));
 }
 
@@ -304,27 +306,27 @@ void MediaRouterDesktop::OnUserGesture() {
     return;
   }
 
-  DiscoverSinksNow();
-  media_sink_service_->DiscoverSinksNow();
+  if (media_sink_service_->MdnsDiscoveryStarted() &&
+      media_sink_service_->DialDiscoveryStarted()) {
+    DiscoverSinksNow();
+  } else {
+    GetLogger()->LogInfo(
+        mojom::LogCategory::kDiscovery, kLoggerComponent,
+        "The user interacted with MR. Starting dial and mDNS discovery.", "",
+        "", "");
+    media_sink_service_->StartDiscovery();
+  }
+
   if (!media_sink_service_subscription_) {
     media_sink_service_subscription_ =
         media_sink_service_->AddSinksDiscoveredCallback(
             base::BindRepeating(&MediaSinkServiceStatus::UpdateDiscoveredSinks,
                                 media_sink_service_status_.GetWeakPtr()));
   }
-
-#if BUILDFLAG(IS_WIN)
-  if (!media_sink_service_->MdnsDiscoveryStarted()) {
-    GetLogger()->LogInfo(
-        mojom::LogCategory::kDiscovery, kLoggerComponent,
-        "The user interacted with MR. mDNS discovery is enabled.", "", "", "");
-  }
-  EnsureMdnsDiscoveryEnabled();
-#endif
 }
 
 std::vector<MediaRoute> MediaRouterDesktop::GetCurrentRoutes() const {
-  return internal_routes_observer_->current_routes();
+  return current_routes_;
 }
 
 std::unique_ptr<media::FlingingController>
@@ -394,9 +396,21 @@ MediaRouterDebugger& MediaRouterDesktop::GetDebugger() {
 bool MediaRouterDesktop::RegisterMediaSinksObserver(
     MediaSinksObserver* observer) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+#if !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_WIN)
+  // On Windows and macOS, where discovery might trigger a permission
+  // prompt, do not start discovery service.
+  if (media_sink_service_) {
+    media_sink_service_->StartDiscovery();
+    GetLogger()->LogInfo(mojom::LogCategory::kDiscovery, kLoggerComponent,
+                         "Starting the DIAL and mDNS discovery because a media "
+                         "sink is registered for the first time.",
+                         "", "", "");
+  }
+#endif
+
   // Create an observer list for the media source and add `observer`
   // to it. Fail if `observer` is already registered.
-
   const MediaSource source = MediaSinksQuery::GetKey(*observer);
   std::unique_ptr<MediaSinksQuery>& sinks_query = sinks_queries_[source.id()];
   bool is_new_query = false;
@@ -411,7 +425,7 @@ bool MediaRouterDesktop::RegisterMediaSinksObserver(
   // If the query isn't new, then there is no need to call MRPs.
   if (is_new_query) {
     for (const auto& provider : media_route_providers_) {
-      // TODO(crbug.com/1090890): Don't allow MediaSource::ForAnyTab().id() to
+      // TODO(crbug.com/40133937): Don't allow MediaSource::ForAnyTab().id() to
       // be passed here.
       provider.second->StartObservingMediaSinks(source.id());
     }
@@ -438,7 +452,7 @@ void MediaRouterDesktop::UnregisterMediaSinksObserver(
   // here.
   if (!it->second->HasObservers() && !source.IsTabMirroringSource()) {
     for (const auto& provider : media_route_providers_) {
-      // TODO(crbug.com/1090890): Don't allow MediaSource::ForAnyTab().id() to
+      // TODO(crbug.com/40133937): Don't allow MediaSource::ForAnyTab().id() to
       // be passed here.
       provider.second->StopObservingMediaSinks(source.id());
     }
@@ -467,8 +481,8 @@ void MediaRouterDesktop::RegisterMediaRoutesObserver(
     // must complete before invoking its virtual OnRoutesUpdated() method.
     content::GetUIThreadTaskRunner({})->PostTask(
         FROM_HERE,
-        base::BindOnce(&MediaRouterDesktop::NotifyOfExistingRoutes,
-                       weak_factory_.GetWeakPtr(), observer->AsWeakPtr()));
+        base::BindOnce(&MediaRouterDesktop::NotifyNewObserversOfExistingRoutes,
+                       weak_factory_.GetWeakPtr()));
   }
 }
 
@@ -567,10 +581,10 @@ void MediaRouterDesktop::OnRoutesUpdated(
   std::vector<MediaRoute> removed_routes =
       GetRouteSetDifference(current_routes, routes);
 
-  // Update the internal_routes_observer_, and SetRoutesForProvider before
+  // Update the `current_routes_` and SetRoutesForProvider before
   // AddMirroringMediaControllerHost, since the latter relies on these to be up
   // to date.
-  internal_routes_observer_->OnRoutesUpdated(routes);
+  current_routes_ = routes;
   routes_query_.SetRoutesForProvider(provider_id, routes);
 
   for (const auto& route : added_routes) {
@@ -642,12 +656,6 @@ void MediaRouterDesktop::GetLogsAsString(GetLogsAsStringCallback callback) {
   std::move(callback).Run(logger_.GetLogsAsJson());
 }
 
-void MediaRouterDesktop::Shutdown() {
-  // The observer calls virtual methods on MediaRouter; it must be destroyed
-  // outside of the dtor
-  internal_routes_observer_.reset();
-}
-
 void MediaRouterDesktop::OnTerminateRouteResult(
     const MediaRoute::Id& route_id,
     mojom::MediaRouteProviderId provider_id,
@@ -696,6 +704,12 @@ void MediaRouterDesktop::RouteResponseReceived(
   }
 
   std::move(callback).Run(std::move(connection), *result);
+}
+
+void MediaRouterDesktop::OnLocalDiscoveryPermissionRejected() {
+  if (base::FeatureList::IsEnabled(kShowCastPermissionRejectedError)) {
+    GetIssueManager()->AddPermissionRejectedIssue();
+  }
 }
 
 void MediaRouterDesktop::OnMediaControllerBound(const MediaRoute::Id& route_id,
@@ -818,6 +832,7 @@ std::string MediaRouterDesktop::GetHashToken() {
 }
 
 void MediaRouterDesktop::DiscoverSinksNow() {
+  media_sink_service_->DiscoverSinksNow();
   for (const auto& provider : media_route_providers_) {
     provider.second->DiscoverSinksNow();
   }
@@ -933,18 +948,14 @@ const MediaSink* MediaRouterDesktop::GetSinkById(
 
 const MediaRoute* MediaRouterDesktop::GetRoute(
     const MediaRoute::Id& route_id) const {
-  const auto& routes = internal_routes_observer_->current_routes();
-  auto it = base::ranges::find(routes, route_id, &MediaRoute::media_route_id);
-  return it == routes.end() ? nullptr : &*it;
+  auto it = base::ranges::find(current_routes_, route_id,
+                               &MediaRoute::media_route_id);
+  return it == current_routes_.end() ? nullptr : &*it;
 }
 
-void MediaRouterDesktop::NotifyOfExistingRoutes(
-    base::WeakPtr<MediaRoutesObserver> observer) const {
+void MediaRouterDesktop::NotifyNewObserversOfExistingRoutes() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (observer) {
-    observer->OnRoutesUpdated(
-        routes_query_.cached_route_list().value_or(std::vector<MediaRoute>{}));
-  }
+  routes_query_.NotifyNewObserversOfExistingRoutes();
 }
 
 // NOTE: To record this on Android, will need to move to
@@ -969,6 +980,8 @@ void MediaRouterDesktop::RecordPresentationRequestUrlBySink(
     case mojom::MediaRouteProviderId::CAST:
       if (source.IsCastPresentationUrl()) {
         value = PresentationUrlBySink::kCastUrlToChromecast;
+      } else if (source.IsRemotePlaybackSource()) {
+        value = PresentationUrlBySink::kRemotePlayback;
       } else if (is_normal_url) {
         value = PresentationUrlBySink::kNormalUrlToChromecast;
       }
@@ -982,12 +995,12 @@ void MediaRouterDesktop::RecordPresentationRequestUrlBySink(
     case mojom::MediaRouteProviderId::TEST:
       break;
   }
-  base::UmaHistogramEnumeration("MediaRouter.PresentationRequest.UrlBySink",
+  base::UmaHistogramEnumeration("MediaRouter.PresentationRequest.UrlBySink2",
                                 value);
 }
 
 bool MediaRouterDesktop::HasJoinableRoute() const {
-  return !(internal_routes_observer_->current_routes().empty());
+  return !(current_routes_.empty());
 }
 
 bool MediaRouterDesktop::ShouldInitializeMediaRouteProviders() const {
@@ -1022,7 +1035,7 @@ MediaSource MediaRouterDesktop::MediaSinksQuery::GetKey(
 void MediaRouterDesktop::MediaSinksQuery::SetSinksForProvider(
     mojom::MediaRouteProviderId provider_id,
     const std::vector<MediaSink>& sinks) {
-  base::EraseIf(cached_sink_list_, [&provider_id](const MediaSink& sink) {
+  std::erase_if(cached_sink_list_, [&provider_id](const MediaSink& sink) {
     return sink.provider_id() == provider_id;
   });
   cached_sink_list_.insert(cached_sink_list_.end(), sinks.begin(), sinks.end());
@@ -1094,17 +1107,18 @@ void MediaRouterDesktop::MediaRoutesQuery::UpdateCachedRouteList() {
 
 void MediaRouterDesktop::MediaRoutesQuery::AddObserver(
     MediaRoutesObserver* observer) {
+  new_observers_.push_back(observer);
   observers_.AddObserver(observer);
-  observer->OnRoutesUpdated(
-      cached_route_list_.value_or(std::vector<MediaRoute>()));
 }
 
 void MediaRouterDesktop::MediaRoutesQuery::RemoveObserver(
     MediaRoutesObserver* observer) {
+  std::erase(new_observers_, observer);
   observers_.RemoveObserver(observer);
 }
 
 void MediaRouterDesktop::MediaRoutesQuery::NotifyObservers() {
+  new_observers_.clear();
   for (auto& observer : observers_) {
     observer.OnRoutesUpdated(
         cached_route_list_.value_or(std::vector<MediaRoute>()));
@@ -1120,21 +1134,14 @@ bool MediaRouterDesktop::MediaRoutesQuery::HasObservers() const {
   return !observers_.empty();
 }
 
-MediaRouterDesktop::InternalMediaRoutesObserver::InternalMediaRoutesObserver(
-    media_router::MediaRouter* router)
-    : MediaRoutesObserver(router) {}
-
-MediaRouterDesktop::InternalMediaRoutesObserver::
-    ~InternalMediaRoutesObserver() = default;
-
-void MediaRouterDesktop::InternalMediaRoutesObserver::OnRoutesUpdated(
-    const std::vector<MediaRoute>& routes) {
-  current_routes_ = routes;
-}
-
-const std::vector<MediaRoute>&
-MediaRouterDesktop::InternalMediaRoutesObserver::current_routes() const {
-  return current_routes_;
+void MediaRouterDesktop::MediaRoutesQuery::
+    NotifyNewObserversOfExistingRoutes() {
+  while (!new_observers_.empty()) {
+    auto observer = new_observers_.back();
+    std::erase(new_observers_, observer);
+    observer->OnRoutesUpdated(
+        cached_route_list().value_or(std::vector<MediaRoute>{}));
+  }
 }
 
 }  // namespace media_router

@@ -21,7 +21,8 @@
                 ],
                 "build_config": "Release",
                 "config": "chromium",
-                "target_bits": 64
+                "target_bits": 64,
+                "target_platform": "linux"
               },
               "legacy_gclient_config": {
                 "config": "chromium"
@@ -43,14 +44,24 @@
           "builder": "gpu-fyi-try-linux-nvidia-tsn",
           "group": "tryserver.chromium.linux"
         }
-      ]
+      ],
+      "targets_spec_directory": "src/infra/config/generated/builders/ci/Linux FYI GPU TSAN Release/targets"
     }
   },
   "$build/reclient": {
     "instance": "rbe-chromium-trusted",
-    "jobs": 250,
     "metrics_project": "chromium-reclient-metrics",
     "scandeps_server": true
+  },
+  "$build/siso": {
+    "configs": [
+      "builder"
+    ],
+    "enable_cloud_profiler": true,
+    "enable_cloud_trace": true,
+    "experiments": [],
+    "project": "rbe-chromium-trusted",
+    "remote_jobs": 250
   },
   "$recipe_engine/resultdb/test_presentation": {
     "column_keys": [],
@@ -60,6 +71,9 @@
     ]
   },
   "builder_group": "chromium.gpu.fyi",
+  "gardener_rotations": [
+    "chromium.gpu"
+  ],
   "perf_dashboard_machine_group": "ChromiumGPUFYI",
   "recipe": "chromium",
   "sheriff_rotations": [

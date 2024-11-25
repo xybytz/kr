@@ -57,9 +57,9 @@ class CC_EXPORT PlaybackImageProvider : public ImageProvider {
       const DrawImage& draw_image) override;
 
  private:
-  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
-  // #union
-  RAW_PTR_EXCLUSION ImageDecodeCache* cache_;
+  // RAW_PTR_EXCLUSION: ImageDecodeCache is marked as not supported by raw_ptr.
+  // See raw_ptr.h for more information.
+  RAW_PTR_EXCLUSION ImageDecodeCache* cache_ = nullptr;
   TargetColorParams target_color_params_;
   std::optional<Settings> settings_;
 };

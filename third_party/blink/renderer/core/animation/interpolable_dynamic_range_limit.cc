@@ -5,7 +5,6 @@
 #include "third_party/blink/renderer/core/animation/interpolable_dynamic_range_limit.h"
 #include "third_party/blink/renderer/core/animation/interpolable_value.h"
 #include "third_party/blink/renderer/core/css/resolver/style_resolver_state.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 
@@ -54,6 +53,8 @@ void InterpolableDynamicRangeLimit::Interpolate(
   InterpolableDynamicRangeLimit& result_limit =
       To<InterpolableDynamicRangeLimit>(result);
 
+  // Percentages are required to be in the range 0% to 100% for
+  // dynamic-range-limit-mix().
   double normalized_progress = ClampTo<double>(progress, 0.0, 1.0);
 
   if (normalized_progress == 0 ||

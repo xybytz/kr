@@ -18,15 +18,11 @@ namespace content {
 class BrowserContext;
 }
 
-namespace content_settings {
-class CookieSettings;
-}
-
 namespace privacy_sandbox {
 class TrackingProtectionSettings;
 }
 
-class DIPSService;
+class DIPSServiceImpl;
 class OpenerHeuristicServiceFactory;
 
 class OpenerHeuristicService
@@ -50,8 +46,8 @@ class OpenerHeuristicService
   // TrackingProtectionSettingsObserver overrides:
   void OnTrackingProtection3pcdChanged() override;
 
-  raw_ptr<DIPSService> dips_;
-  scoped_refptr<content_settings::CookieSettings> cookie_settings_;
+  raw_ptr<content::BrowserContext> browser_context_;
+  raw_ptr<DIPSServiceImpl> dips_;
   raw_ptr<privacy_sandbox::TrackingProtectionSettings>
       tracking_protection_settings_;
   base::ScopedObservation<privacy_sandbox::TrackingProtectionSettings,

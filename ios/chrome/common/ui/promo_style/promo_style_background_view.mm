@@ -61,7 +61,7 @@ BOOL IsCompact(UITraitCollection* traitCollection) {
 
     if (@available(iOS 17, *)) {
       [self registerForTraitChanges:@[
-        UITraitVerticalSizeClass.self, UITraitHorizontalSizeClass.self
+        UITraitVerticalSizeClass.class, UITraitHorizontalSizeClass.class
       ]
                          withAction:@selector(updateImagesOnNextFrame)];
     }
@@ -78,13 +78,16 @@ BOOL IsCompact(UITraitCollection* traitCollection) {
   }
 }
 
+#if !defined(__IPHONE_17_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_17_0
 - (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
   [super traitCollectionDidChange:previousTraitCollection];
-
-  if (!base::ios::IsRunningOnIOS17OrLater()) {
-    [self updateImagesOnNextFrame];
+  if (@available(iOS 17, *)) {
+    return;
   }
+
+  [self updateImagesOnNextFrame];
 }
+#endif
 
 #pragma mark - Private
 
@@ -113,7 +116,7 @@ BOOL IsCompact(UITraitCollection* traitCollection) {
 
 /// Updates left and right images.
 - (void)updateImages {
-  // TODO(crbug.com/1503638): Add dark mode assets.
+  // TODO(crbug.com/40944102): Add dark mode assets.
   BOOL isCompact = IsCompact(self.traitCollection);
 
   UIImage* leftImage = [UIImage imageNamed:@"promo_background_left"];

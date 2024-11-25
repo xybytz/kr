@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -35,7 +36,11 @@
 #include "content/browser/browsing_data/browsing_data_remover_impl.h"
 #include "content/browser/child_process_host_impl.h"
 #include "content/browser/child_process_security_policy_impl.h"
+#include "content/browser/in_memory_federated_permission_context.h"
 #include "content/browser/media/browser_feature_provider.h"
+#include "content/browser/preloading/prefetch/prefetch_container.h"
+#include "content/browser/preloading/prefetch/prefetch_service.h"
+#include "content/browser/preloading/prefetch/prefetch_type.h"
 #include "content/browser/push_messaging/push_messaging_router.h"
 #include "content/browser/site_info.h"
 #include "content/browser/storage_partition_impl_map.h"
@@ -45,6 +50,7 @@
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/permission_controller.h"
+#include "content/public/browser/preloading_trigger_type.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/storage_partition_config.h"
@@ -55,14 +61,17 @@
 #include "media/capabilities/video_decode_stats_db_impl.h"
 #include "media/mojo/services/video_decode_perf_history.h"
 #include "media/mojo/services/webrtc_video_perf_history.h"
+#include "net/http/http_request_headers.h"
 #include "storage/browser/blob/blob_storage_context.h"
-#include "storage/browser/database/database_tracker.h"
 #include "storage/browser/file_system/external_mount_points.h"
 #include "third_party/blink/public/mojom/push_messaging/push_messaging.mojom.h"
 #include "third_party/perfetto/include/perfetto/tracing/traced_proto.h"
 #include "third_party/perfetto/include/perfetto/tracing/traced_value.h"
+#include "url/gurl.h"
 
 namespace content {
+
+class PrefetchService;
 
 namespace {
 
@@ -181,6 +190,33 @@ StoragePartition* BrowserContext::GetDefaultStoragePartition() {
   return GetStoragePartition(StoragePartitionConfig::CreateDefault(this));
 }
 
+void BrowserContext::StartBrowserPrefetchRequest(
+    const GURL& url,
+    bool javascript_enabled,
+    std::optional<net::HttpNoVarySearchData> no_vary_search_expected,
+    const net::HttpRequestHeaders& additional_headers,
+    std::unique_ptr<PrefetchRequestStatusListener> request_status_listener) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  PrefetchService* prefetch_service =
+      BrowserContextImpl::From(this)->GetPrefetchService();
+  if (!prefetch_service) {
+    if (request_status_listener) {
+      request_status_listener->OnPrefetchStartFailed();
+    }
+    return;
+  }
+
+  PrefetchType prefetch_type(PreloadingTriggerType::kEmbedder,
+                             /*use_prefetch_proxy=*/false);
+  auto container = std::make_unique<PrefetchContainer>(
+      this, url, prefetch_type, blink::mojom::Referrer(), javascript_enabled,
+      /*referring_origin=*/std::nullopt, std::move(no_vary_search_expected),
+      /*attempt=*/nullptr, additional_headers,
+      std::move(request_status_listener));
+  prefetch_service->AddPrefetchContainer(std::move(container));
+}
+
 void BrowserContext::CreateMemoryBackedBlob(base::span<const uint8_t> data,
                                             const std::string& content_type,
                                             BlobCallback callback) {
@@ -252,13 +288,6 @@ void BrowserContext::EnsureResourceContextInitialized() {
 void BrowserContext::SaveSessionState() {
   StoragePartition* storage_partition = GetDefaultStoragePartition();
 
-  storage::DatabaseTracker* database_tracker =
-      storage_partition->GetDatabaseTracker();
-  database_tracker->task_runner()->PostTask(
-      FROM_HERE,
-      base::BindOnce(&storage::DatabaseTracker::SetForceKeepSessionState,
-                     base::WrapRefCounted(database_tracker)));
-
   storage_partition->GetCookieManagerForBrowserProcess()
       ->SetForceKeepSessionState();
 
@@ -267,8 +296,7 @@ void BrowserContext::SaveSessionState() {
           storage_partition->GetDOMStorageContext());
   dom_storage_context_proxy->SetForceKeepSessionState();
 
-  auto& indexed_db_control = storage_partition->GetIndexedDBControl();
-  indexed_db_control.SetForceKeepSessionState();
+  storage_partition->GetIndexedDBControl().SetForceKeepSessionState();
 }
 
 void BrowserContext::SetDownloadManagerForTesting(
@@ -335,7 +363,7 @@ base::WeakPtr<BrowserContext> BrowserContext::GetWeakPtr() {
 // how the //content layer interacts with a BrowserContext.  The code below
 // provides default implementations where appropriate.
 //
-// TODO(https://crbug.com/1179776): Migrate method definitions from this
+// TODO(crbug.com/40169693): Migrate method definitions from this
 // section into a separate BrowserContextDelegate class and a separate
 // browser_context_delegate.cc source file.
 
@@ -383,17 +411,17 @@ BrowserContext::CreateVideoDecodePerfHistory() {
 
 FederatedIdentityApiPermissionContextDelegate*
 BrowserContext::GetFederatedIdentityApiPermissionContext() {
-  return nullptr;
+  return impl()->GetFederatedPermissionContext();
 }
 
 FederatedIdentityAutoReauthnPermissionContextDelegate*
 BrowserContext::GetFederatedIdentityAutoReauthnPermissionContext() {
-  return nullptr;
+  return impl()->GetFederatedPermissionContext();
 }
 
 FederatedIdentityPermissionContextDelegate*
 BrowserContext::GetFederatedIdentityPermissionContext() {
-  return nullptr;
+  return impl()->GetFederatedPermissionContext();
 }
 
 KAnonymityServiceDelegate* BrowserContext::GetKAnonymityServiceDelegate() {
